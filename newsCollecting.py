@@ -1,3 +1,8 @@
 from newsapi import NewsApiClient
+from Keys import NEWS_API_KEY
+import requests
 
-API_KEY="b4c1e29aeac6412cb449f976a55e725a"
+newsapiClient=NewsApiClient(NEWS_API_KEY)
+
+newsapiClient.get_top_headlines(sources='forbes')
+print(newsapiClient.)
