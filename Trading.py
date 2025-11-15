@@ -5,7 +5,7 @@ from alpaca.trading.enums import OrderSide, TimeInForce
 from Keys import API_KEY,API_SECRECT_KEY
 
 
-def IntializeTradingClient(api_key:str,secret:str,paper:bool):
+def IntializeTradingClient(api_key:str,secret:str,paper:bool)->TradingClient:
     trading_client=TradingClient(api_key,secret,paper)
     return trading_client
 
