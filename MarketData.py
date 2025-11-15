@@ -46,7 +46,8 @@ def PrepareAllStocksData():
     symbols=getSymbols()
 
     for i in symbols:
-        stockDatas.append(StockData(i))
+        stockData=StockData(i)
+        stockDatas.append(stockData)
     
     return stockDatas
 
