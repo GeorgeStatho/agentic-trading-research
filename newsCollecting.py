@@ -1,7 +1,7 @@
 from currentsapi import CurrentsAPI
 import json
 from Keys import NEWS_API_KEY
-
+import time
 
 print(NEWS_API_KEY)
 newsapiClient=CurrentsAPI(NEWS_API_KEY)
@@ -15,7 +15,7 @@ def jsonToPy():
 def search(keyword:str,limit:int):
     response=newsapiClient.search(language="en",
                                 keywords=keyword,
-                                category="buisness",
+                                category="business",
                                 limit=limit)
     return response
 
