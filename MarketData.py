@@ -16,9 +16,6 @@ def startUP():
             dic={}
             json.dump(dic,stock_file)
 
-
-
-
 class StockData:
 
     def __init__(self,symbol:str):
@@ -75,12 +72,10 @@ async def run_stream_once():
     await asyncio.gather(
         stockRealTimeClient._run_forever(),
         _wait_for_all(stocks)
+
     )
 
 
 if __name__ == "__main__":
     asyncio.run(run_stream_once())
 
-
-
-    
