@@ -85,7 +85,7 @@ def getLatestTop100(symbols: dict):
             keyword = symbols[symbol]
             articles = search(keyword, 25)  
             writeArticle(articles, symbol)
-            time.sleep(0.1)  # be polite about rate limits
+            time.sleep(2)  # be polite about rate limits
         except requests.HTTPError as e:
             print(f"[HTTP ERROR] {symbol}: {e}")
         except requests.RequestException as e:

@@ -1,3 +1,5 @@
+import os
+
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
@@ -6,7 +8,10 @@ from Keys import API_KEY,API_SECRECT_KEY
 
 
 def IntializeTradingClient(api_key:str,secret:str,paper:bool)->TradingClient:
-    trading_client=TradingClient(api_key,secret,paper)
+    # ensure no residual OAuth tokens conflict with key/secret auth
+    os.environ.pop("APCA_OAUTH_TOKEN", None)
+    os.environ.pop("ALPACA_OAUTH_TOKEN", None)
+    trading_client=TradingClient(api_key=api_key,secret_key=secret,oauth_token=None,paper=paper)
     return trading_client
 
 trading_client=IntializeTradingClient(API_KEY,API_SECRECT_KEY,True)
@@ -120,6 +125,5 @@ class StockTrades:
 ##########SELL###########
 
         
-
 
 
