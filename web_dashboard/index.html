@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Stock Bot Control Panel</title>
+  <style>
+    :root {
+      font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+      color: #f7f7fb;
+      background-color: #141625;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 2rem;
+      gap: 1.5rem;
+    }
+    h1 {
+      font-weight: 600;
+      margin: 0;
+    }
+    .panel {
+      background: #1d1f32;
+      border-radius: 16px;
+      padding: 1.5rem 2rem;
+      width: min(600px, 100%);
+      box-shadow: 0 20px 45px rgba(0,0,0,0.35);
+    }
+    .panel h2 {
+      margin-top: 0;
+      font-size: 1.2rem;
+      color: #b5b7d3;
+    }
+    .actions {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    button {
+      flex: 1 1 180px;
+      border: none;
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      color: #141625;
+    }
+    button.start {
+      background: linear-gradient(135deg, #34d399, #10b981);
+      box-shadow: 0 10px 25px rgba(34,197,94,0.25);
+    }
+    button.stop {
+      background: linear-gradient(135deg, #f97316, #ef4444);
+      box-shadow: 0 10px 25px rgba(251,113,133,0.25);
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .status-row:last-child {
+      border-bottom: none;
+    }
+    .status-indicator {
+      font-weight: 600;
+    }
+    .status-indicator.running {
+      color: #34d399;
+    }
+    .status-indicator.stopped {
+      color: #f87171;
+    }
+    #log {
+      width: min(600px, 100%);
+      background: #0f111f;
+      border-radius: 12px;
+      padding: 1rem;
+      font-family: "JetBrains Mono", "Fira Code", monospace;
+      font-size: 0.9rem;
+      max-height: 200px;
+      overflow-y: auto;
+      color: #a0aec0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Stock Bot Control Panel</h1>
+
+  <section class="panel">
+    <h2>Market Data Stream</h2>
+    <div class="actions">
+      <button class="start" onclick="sendAction('start', 'market')">Start MarketData.py</button>
+      <button class="stop" onclick="sendAction('stop', 'market')">Stop MarketData.py</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Trading Bot Loop</h2>
+    <div class="actions">
+      <button class="start" onclick="sendAction('start', 'main')">Start main.py</button>
+      <button class="stop" onclick="sendAction('stop', 'main')">Stop main.py</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Status</h2>
+    <div id="status-container"></div>
+  </section>
+
+  <pre id="log">Ready.</pre>
+
+  <script>
+    async function refreshStatus() {
+      try {
+        const res = await fetch('/status');
+        const data = await res.json();
+        const container = document.getElementById('status-container');
+        container.innerHTML = '';
+        Object.entries(data).forEach(([name, running]) => {
+          const row = document.createElement('div');
+          row.className = 'status-row';
+          const label = document.createElement('span');
+          label.textContent = name === 'market' ? 'MarketData.py' : 'main.py';
+          const status = document.createElement('span');
+          status.className = status-indicator ;
+          status.textContent = running ? 'Running' : 'Stopped';
+          row.appendChild(label);
+          row.appendChild(status);
+          container.appendChild(row);
+        });
+      } catch (err) {
+        appendLog('Failed to fetch status: ' + err);
+      }
+    }
+
+    async function sendAction(action, script) {
+      appendLog(${action.toUpperCase()} request for ?);
+      try {
+        const res = await fetch(//, { method: 'POST' });
+        const data = await res.json();
+        appendLog(JSON.stringify(data, null, 2));
+        refreshStatus();
+      } catch (err) {
+        appendLog('Request failed: ' + err);
+      }
+    }
+
+    function appendLog(message) {
+      const log = document.getElementById('log');
+      log.textContent += 
+[] ;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    refreshStatus();
+    setInterval(refreshStatus, 5000);
+  </script>
+</body>
+</html>
