@@ -1,0 +1,1 @@
+Run marketData.py and main.py seperately for the bot to work. This will create a json file for the market data that the bot will use. The bot will automatically collect news using the relevant scripts
