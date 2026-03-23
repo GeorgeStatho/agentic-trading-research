@@ -1,3 +1,5 @@
+import os
+
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
@@ -6,17 +8,21 @@ from Keys import API_KEY,API_SECRECT_KEY
 
 
 def IntializeTradingClient(api_key:str,secret:str,paper:bool)->TradingClient:
-    trading_client=TradingClient(api_key,secret,paper)
+    # ensure no residual OAuth tokens conflict with key/secret auth
+    os.environ.pop("APCA_OAUTH_TOKEN", None)
+    os.environ.pop("ALPACA_OAUTH_TOKEN", None)
+    trading_client=TradingClient(api_key=api_key,secret_key=secret,oauth_token=None,paper=paper)
     return trading_client
 
 trading_client=IntializeTradingClient(API_KEY,API_SECRECT_KEY,True)
 
 #class to help keep track of trades
 class StockTrades:
-    def __init__(self,company:str,numOfStocks:float,timeInForce:str):
+    def __init__(self,company:str,numOfStocks:float,timeInForce:str,limit:bool):
         self.company=company
         self.numOfStocks=0
         self.timeInForce=timeInForce
+        limit=limit
     
 
     #########BUY###############
@@ -86,14 +92,14 @@ class StockTrades:
 
         market_order_data= MarketOrderRequest(symbol=self.company,
                                           qty=numOfStocks,
-                                          side=OrderSide,
+                                          side=OrderSide.SELL,
                                           time_in_force=time_in_force)
 
         market_order=trading_client.submit_order(order_data=market_order_data)
         self.numOfStocks=self.numOfStocks-numOfStocks
 
 
-    def StockAtPriceBuy(self,numOfStocks:int=0, limit_price:int=0,notional:int=0):
+    def StockAtPriceSell(self,numOfStocks:int=0, limit_price:int=0,notional:int=0):
         if(self.timeInForce=="Day"):
             time_in_force=TimeInForce.DAY
         elif(self.timeInForce=="FOK"):
@@ -108,7 +114,7 @@ class StockTrades:
                                         limit_price=limit_price,
                                         notional=notional,
                                         qty=numOfStocks,
-                                        side=OrderSide.BUY,
+                                        side=OrderSide.SELL,
                                         time_in_force=time_in_force)
         
         limit_order=trading_client.submit_order(order_data=limit_order_data)
@@ -119,7 +125,5 @@ class StockTrades:
 ##########SELL###########
 
         
-
-
 
 
