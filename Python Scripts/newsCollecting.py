@@ -4,7 +4,7 @@ import json
 import time
 import requests
 from Keys import NEWS_API_KEY  # <-- put your NewsMesh API key in this constant
-from newspaper import Article
+from Webscraping.Normalization import extract_article
 BASE_URL = "https://api.newsmesh.co/v1"
 API_KEY = NEWS_API_KEY  # rename in Keys.py if you want, but not required
 
@@ -42,10 +42,10 @@ def search(keyword: str, limit: int = 1):
     return [a for a in articles if a.get("category") == "business"]
 
 def fetch_full_text(url: str) -> str:
-    article = Article(url)
-    article.download()
-    article.parse()
-    return article.text
+    article = extract_article(url)
+    if article.success and article.text:
+        return article.text
+    raise ValueError(article.error or "Could not extract article text.")
 
 
 #Write To TextFile
