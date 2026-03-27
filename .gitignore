@@ -1,0 +1,10 @@
+# Generated data files
+*.json
+*.db
+*.sqlite
+*.sqlite3
+
+# Binary artifacts
+*.bin
+*.pyc
+__pycache__/
