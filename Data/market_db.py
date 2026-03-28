@@ -125,6 +125,47 @@ def add_company(
     return cursor.fetchone()["id"]
 
 
+def replace_industry_company_rankings(
+    industry_id: int,
+    ranking_type: str,
+    ranked_companies: list[tuple[int, int, Any | None]],
+    db_path: Path | str = DB_PATH,
+    conn: sqlite3.Connection | None = None,
+) -> None:
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            replace_industry_company_rankings(
+                industry_id,
+                ranking_type,
+                ranked_companies,
+                conn=local_conn,
+            )
+            return
+
+    conn.execute(
+        """
+        DELETE FROM industry_company_rankings
+        WHERE industry_id = ? AND ranking_type = ?
+        """,
+        (industry_id, ranking_type),
+    )
+
+    for company_id, rank, raw_json in ranked_companies:
+        conn.execute(
+            """
+            INSERT INTO industry_company_rankings (
+                industry_id,
+                company_id,
+                ranking_type,
+                rank,
+                raw_json
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (industry_id, company_id, ranking_type, rank, json_text(raw_json)),
+        )
+
+
 def _migrate_legacy_schema(conn: sqlite3.Connection) -> None:
     legacy_industries = []
     legacy_companies = []
@@ -222,6 +263,7 @@ def load_sector_tree(
                 if not isinstance(companies_payload, dict):
                     continue
 
+                company_ids_by_symbol: dict[str, int] = {}
                 for company_symbol, company_payload in companies_payload.items():
                     if not isinstance(company_payload, dict):
                         continue
@@ -231,13 +273,54 @@ def load_sector_tree(
                     if normalized_symbol is None or normalized_name is None:
                         continue
 
-                    add_company(
+                    company_id = add_company(
                         industry_id,
                         symbol=normalized_symbol,
                         name=normalized_name,
                         rating=clean_text(company_payload.get("rating")),
                         market_weight=coerce_float(company_payload.get("market weight") or company_payload.get("market_weight")),
                         raw_json=company_payload,
+                        conn=conn,
+                    )
+                    company_ids_by_symbol[normalized_symbol] = company_id
+
+                for ranking_type, payload_key in (
+                    ("top_growth", "top_growth_companies"),
+                    ("top_performing", "top_performing_companies"),
+                ):
+                    ranking_payload = industry_payload.get(payload_key, {})
+                    ranked_companies: list[tuple[int, int, Any | None]] = []
+                    if isinstance(ranking_payload, dict):
+                        for rank, (company_symbol, company_payload) in enumerate(ranking_payload.items(), start=1):
+                            if not isinstance(company_payload, dict):
+                                continue
+
+                            normalized_symbol = clean_text(company_payload.get("symbol")) or clean_text(company_symbol)
+                            normalized_name = clean_text(company_payload.get("name")) or normalized_symbol
+                            if normalized_symbol is None or normalized_name is None:
+                                continue
+
+                            company_id = company_ids_by_symbol.get(normalized_symbol)
+                            if company_id is None:
+                                company_id = add_company(
+                                    industry_id,
+                                    symbol=normalized_symbol,
+                                    name=normalized_name,
+                                    rating=clean_text(company_payload.get("rating")),
+                                    market_weight=coerce_float(
+                                        company_payload.get("market weight") or company_payload.get("market_weight")
+                                    ),
+                                    raw_json=company_payload,
+                                    conn=conn,
+                                )
+                                company_ids_by_symbol[normalized_symbol] = company_id
+
+                            ranked_companies.append((company_id, rank, company_payload))
+
+                    replace_industry_company_rankings(
+                        industry_id,
+                        ranking_type,
+                        ranked_companies,
                         conn=conn,
                     )
 
@@ -263,6 +346,33 @@ def list_companies_by_industry(industry_key: str, db_path: Path | str = DB_PATH)
             ORDER BY c.market_weight DESC, c.symbol
             """,
             (industry_key,),
+        ).fetchall()
+    return rows
+
+
+def list_industry_company_rankings(
+    industry_key: str,
+    ranking_type: str,
+    db_path: Path | str = DB_PATH,
+) -> list[sqlite3.Row]:
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                r.rank,
+                r.ranking_type,
+                c.id AS company_id,
+                c.symbol,
+                c.name,
+                c.rating,
+                c.market_weight
+            FROM industry_company_rankings AS r
+            JOIN industries AS i ON i.id = r.industry_id
+            JOIN companies AS c ON c.id = r.company_id
+            WHERE i.industry_key = ? AND r.ranking_type = ?
+            ORDER BY r.rank ASC, c.symbol ASC
+            """,
+            (industry_key, ranking_type),
         ).fetchall()
     return rows
 

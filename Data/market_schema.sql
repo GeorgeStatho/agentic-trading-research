@@ -32,6 +32,19 @@ CREATE TABLE IF NOT EXISTS companies (
     FOREIGN KEY (industry_id) REFERENCES industries(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS industry_company_rankings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    industry_id INTEGER NOT NULL,
+    company_id INTEGER NOT NULL,
+    ranking_type TEXT NOT NULL,
+    rank INTEGER NOT NULL,
+    raw_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (industry_id) REFERENCES industries(id) ON DELETE CASCADE,
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+    UNIQUE (industry_id, company_id, ranking_type)
+);
+
 CREATE INDEX IF NOT EXISTS idx_sectors_sector_key
     ON sectors (sector_key);
 
@@ -46,3 +59,12 @@ CREATE INDEX IF NOT EXISTS idx_companies_industry_id
 
 CREATE INDEX IF NOT EXISTS idx_companies_symbol
     ON companies (symbol);
+
+CREATE INDEX IF NOT EXISTS idx_industry_company_rankings_industry_id
+    ON industry_company_rankings (industry_id);
+
+CREATE INDEX IF NOT EXISTS idx_industry_company_rankings_company_id
+    ON industry_company_rankings (company_id);
+
+CREATE INDEX IF NOT EXISTS idx_industry_company_rankings_type
+    ON industry_company_rankings (ranking_type);

@@ -109,6 +109,37 @@ def _extract_published_at(response: Response) -> str:
 
 
 def extract_from_response(response: Response) -> ArticleExtractionResult:
+    lowered_url = response.url.lower()
+
+    if "marketwatch.com" in lowered_url:
+        # MarketWatch pages use a fairly distinctive structure, so try the
+        # site-specific extractor first before falling back to the generic
+        # paragraph-based logic used for the rest of the web.
+        from marketwatch_extractor import extract_marketwatch_article
+
+        marketwatch_result = extract_marketwatch_article(response)
+        if marketwatch_result.success:
+            return marketwatch_result
+
+    if "cnbc.com" in lowered_url:
+        # CNBC article pages expose both visible article containers and an
+        # embedded page-state object, so use the dedicated extractor first.
+        from cnbc_extractor import extract_cnbc_article
+
+        cnbc_result = extract_cnbc_article(response)
+        if cnbc_result.success:
+            return cnbc_result
+
+    if "investing.com" in lowered_url:
+        # Investing article pages have a stable `#article` container and
+        # consistent news/analysis search result layouts, so use the
+        # site-specific article extractor before the generic fallback.
+        from investing_extractor import extract_investing_article
+
+        investing_result = extract_investing_article(response)
+        if investing_result.success:
+            return investing_result
+
     title = response.css("title::text").get(default="").strip()
     published_at = _extract_published_at(response)
 
