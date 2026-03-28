@@ -19,3 +19,28 @@ def get_all_industries() -> list[dict]:
             """
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_all_companies() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                c.id,
+                c.symbol,
+                c.name,
+                c.rating,
+                c.market_weight,
+                i.id AS industry_id,
+                i.industry_key,
+                i.name AS industry_name,
+                s.id AS sector_id,
+                s.sector_key,
+                s.name AS sector_name
+            FROM companies AS c
+            JOIN industries AS i ON i.id = c.industry_id
+            JOIN sectors AS s ON s.id = i.sector_id
+            ORDER BY s.name, i.name, c.name
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]

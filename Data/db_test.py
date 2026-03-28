@@ -43,7 +43,14 @@ def _macro_event_select_clause() -> str:
 
 
 def fetch_table_counts() -> dict[str, int]:
-    table_names = ["sectors", "industries", "companies", "macro_events", "news_articles"]
+    table_names = [
+        "sectors",
+        "industries",
+        "companies",
+        "macro_events",
+        "news_articles",
+        "industry_news_articles",
+    ]
     counts: dict[str, int] = {}
 
     with get_connection() as conn:
@@ -51,6 +58,28 @@ def fetch_table_counts() -> dict[str, int]:
             row = conn.execute(f"SELECT COUNT(*) AS count FROM {table_name}").fetchone()
             counts[table_name] = row["count"]
     return counts
+
+
+def fetch_article_counts() -> dict[str, int]:
+    with get_connection() as conn:
+        total_articles = conn.execute(
+            "SELECT COUNT(*) AS count FROM news_articles"
+        ).fetchone()["count"]
+        linked_articles = conn.execute(
+            """
+            SELECT COUNT(DISTINCT article_id) AS count
+            FROM industry_news_articles
+            """
+        ).fetchone()["count"]
+        industry_article_links = conn.execute(
+            "SELECT COUNT(*) AS count FROM industry_news_articles"
+        ).fetchone()["count"]
+
+    return {
+        "total_news_articles": total_articles,
+        "industry_linked_articles": linked_articles,
+        "industry_article_links": industry_article_links,
+    }
 
 
 def fetch_sample_market_data(limit: int = 5) -> dict[str, list[dict]]:
@@ -141,14 +170,62 @@ def fetch_companies_by_industry(industry_key: str, limit: int = 10) -> list[dict
     return _rows_to_dicts(rows)
 
 
+def fetch_sample_articles(limit: int = 10) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                id,
+                source,
+                title,
+                published_at,
+                source_url,
+                created_at
+            FROM news_articles
+            ORDER BY COALESCE(published_at, created_at) DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return _rows_to_dicts(rows)
+
+
+def fetch_sample_industry_articles(limit: int = 10) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                ina.id,
+                i.industry_key,
+                i.name AS industry_name,
+                na.source,
+                na.title,
+                na.published_at,
+                na.source_url,
+                ina.source_page_url,
+                ina.created_at
+            FROM industry_news_articles AS ina
+            JOIN industries AS i ON i.id = ina.industry_id
+            JOIN news_articles AS na ON na.id = ina.article_id
+            ORDER BY COALESCE(na.published_at, ina.created_at) DESC, ina.id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return _rows_to_dicts(rows)
+
+
 def run_smoke_test() -> dict:
     return {
         "db_path": str(Path(DB_PATH).resolve()),
         "table_counts": fetch_table_counts(),
+        "article_counts": fetch_article_counts(),
         "sample_market_data": fetch_sample_market_data(),
         "sample_macro_events": fetch_sample_macro_events(),
         "sample_us_macro_events": fetch_macro_events_by_country("United States"),
         "sample_technology_companies": fetch_companies_by_industry("software-infrastructure"),
+        "sample_articles": fetch_sample_articles(),
+        "sample_industry_articles": fetch_sample_industry_articles(),
     }
 
 
