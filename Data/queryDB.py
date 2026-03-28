@@ -1,0 +1,1 @@
+from db_helpers.queries import get_all_industries

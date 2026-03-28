@@ -172,6 +172,89 @@ def add_news_article(
     return cursor.fetchone()["id"]
 
 
+def link_industry_to_article(
+    industry_id: int,
+    article_id: int,
+    source_page_url: str | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (industry_id, article_id, source_page_url)
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return link_industry_to_article(
+                industry_id,
+                article_id,
+                source_page_url=source_page_url,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO industry_news_articles (industry_id, article_id, source_page_url)
+        VALUES (?, ?, ?)
+        ON CONFLICT(industry_id, article_id) DO UPDATE SET
+            source_page_url = excluded.source_page_url
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
+def add_industry_news_article(
+    industry_id: int,
+    source: str,
+    article_key: str,
+    title: str,
+    source_url: str,
+    source_page_url: str | None = None,
+    summary: str | None = None,
+    body: str | None = None,
+    published_at: str | None = None,
+    section: str | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return add_industry_news_article(
+                industry_id,
+                source,
+                article_key,
+                title,
+                source_url,
+                source_page_url=source_page_url,
+                summary=summary,
+                body=body,
+                published_at=published_at,
+                section=section,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    article_id = add_news_article(
+        source=source,
+        article_key=article_key,
+        title=title,
+        source_url=source_url,
+        summary=summary,
+        body=body,
+        published_at=published_at,
+        section=section,
+        raw_json=raw_json,
+        conn=conn,
+    )
+    link_industry_to_article(
+        industry_id=industry_id,
+        article_id=article_id,
+        source_page_url=source_page_url,
+        conn=conn,
+    )
+    return article_id
+
+
 def load_macro_events(
     events: list[dict[str, Any]],
     db_path: Path | str = DB_PATH,
@@ -229,6 +312,32 @@ def load_news_articles(
                 raw_json=article,
                 conn=conn,
             )
+
+
+def list_industry_news_articles(industry_id: int, db_path: Path | str = DB_PATH) -> list[dict]:
+    initialize_database(db_path=db_path)
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                na.id,
+                na.source,
+                na.article_key,
+                na.title,
+                na.summary,
+                na.body,
+                na.published_at,
+                na.section,
+                na.source_url,
+                ina.source_page_url
+            FROM industry_news_articles AS ina
+            JOIN news_articles AS na ON na.id = ina.article_id
+            WHERE ina.industry_id = ?
+            ORDER BY na.created_at DESC, na.id DESC
+            """,
+            (industry_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 if __name__ == "__main__":

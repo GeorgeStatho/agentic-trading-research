@@ -33,6 +33,17 @@ CREATE TABLE IF NOT EXISTS news_articles (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS industry_news_articles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    industry_id INTEGER NOT NULL,
+    article_id INTEGER NOT NULL,
+    source_page_url TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (industry_id) REFERENCES industries(id) ON DELETE CASCADE,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,
+    UNIQUE (industry_id, article_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_macro_events_event_date
     ON macro_events (event_date);
 
@@ -44,3 +55,9 @@ CREATE INDEX IF NOT EXISTS idx_news_articles_published_at
 
 CREATE INDEX IF NOT EXISTS idx_news_articles_section
     ON news_articles (section);
+
+CREATE INDEX IF NOT EXISTS idx_industry_news_articles_industry_id
+    ON industry_news_articles (industry_id);
+
+CREATE INDEX IF NOT EXISTS idx_industry_news_articles_article_id
+    ON industry_news_articles (article_id);

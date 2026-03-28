@@ -1,12 +1,12 @@
 INDUSTRY_SEARCH_URLS = {
-    "fool": "https://www.fool.com/search/?q=semiconductors",
-    "cnbc_finance": "https://www.cnbc.com/search/?query=semiconductors",
-    "marketwatch": "https://www.marketwatch.com/search?q=semiconductors",
-    "barrons": "https://www.barrons.com/search?query=semiconductors",
-    "morningstar": "https://www.morningstar.com/search?query=semiconductors",
-    "markets_businessinsider": "https://markets.businessinsider.com/news?q=semiconductors",
-    "investing": "https://www.investing.com/search/?q=semiconductors",
-    "yahoo_finance": "https://finance.yahoo.com/lookup?s=semiconductors",
+    "fool": "https://www.fool.com/search/?q=",
+    "cnbc_finance": "https://www.cnbc.com/search/?query=",
+    "marketwatch": "https://www.marketwatch.com/search?q={query}&ts=0&tab=All%20News",
+    "barrons": "https://www.barrons.com/search?query={query}&quotequery={query}&search_keywords={query}&search_statement_type=typed",
+    "morningstar": "https://www.morningstar.com/search?query={query}&page=1&format=Article",
+    "markets_businessinsider": "https://markets.businessinsider.com/news?q=",
+    "investing": "https://www.investing.com/search/?q=",
+    "yahoo_finance": "https://finance.yahoo.com/research/",
 }
 
 
