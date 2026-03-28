@@ -31,6 +31,8 @@ class ArticleExtractionResult:
 
 
 def clean_text(parts: Iterable[str]) -> str:
+    # Normalize scraped text fragments into a compact paragraph-style body
+    # that is stable enough for storage, scoring, and deduplication.
     cleaned = []
     for part in parts:
         value = " ".join(part.split())
@@ -47,7 +49,8 @@ def _normalize_datetime(value: str | None) -> str:
     if not cleaned:
         return ""
 
-    # Common article date formats
+    # Try the common metadata date formats used by finance/news sites and
+    # normalize everything to a UTC ISO timestamp for later recency checks.
     candidates = [
         cleaned,
         cleaned.replace("Z", "+00:00"),
@@ -82,6 +85,8 @@ def _normalize_datetime(value: str | None) -> str:
 
 
 def _extract_published_at(response: Response) -> str:
+    # Check common metadata fields first because they are usually more stable
+    # than trying to infer dates from visible page text.
     meta_selectors = [
         "meta[property='article:published_time']::attr(content)",
         "meta[name='article:published_time']::attr(content)",
@@ -107,6 +112,8 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
     title = response.css("title::text").get(default="").strip()
     published_at = _extract_published_at(response)
 
+    # Walk from more article-specific containers to broader fallbacks so we
+    # prefer clean story bodies but still have a chance on less structured pages.
     paragraph_candidates = [
         "article p::text",
         "main p::text",
@@ -164,6 +171,8 @@ def extract_article(url: str, timeout: int = 20) -> ArticleExtractionResult:
         body=response.content,
         encoding=response.encoding or "utf-8",
     )
+    # Convert the requests response into a Scrapy HtmlResponse so the same
+    # selector-based extraction path can be reused everywhere.
     result = extract_from_response(scrapy_response)
     if result.success:
         LOGGER.info("Article extracted successfully for %s", result.url)

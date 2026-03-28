@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 from collections import defaultdict
+import re
 
 WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
 if str(WEBSCRAPING_DIR) not in sys.path:
@@ -37,6 +38,90 @@ from db_helpers import add_industry_news_article, get_all_industries, initialize
 
 
 LOGGER = get_scrape_logger("industry_pipeline")
+INDUSTRY_NAME_STOPWORDS = {
+    "and",
+    "the",
+    "other",
+    "production",
+    "products",
+}
+CNBC_BLACKLISTED_PATH_FRAGMENTS = (
+    "/investingclub/video/",
+    "/pro/news/",
+    "/pro/options-investing/",
+    "/application/pro/",
+)
+
+
+def normalize_match_text(value: str | None) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", " ", (value or "").lower())
+    return " ".join(cleaned.split())
+
+
+def build_industry_match_variants(industry: dict) -> set[str]:
+    industry_name = normalize_match_text(industry.get("name"))
+    if not industry_name:
+        return set()
+
+    variants: set[str] = {industry_name}
+    tokens = [token for token in industry_name.split() if token not in INDUSTRY_NAME_STOPWORDS]
+
+    if tokens:
+        variants.add(" ".join(tokens))
+
+    if len(tokens) >= 2:
+        variants.update(tokens)
+        variants.update({" ".join(tokens[:2]), " ".join(tokens[-2:])})
+
+    industry_key = normalize_match_text(industry.get("industry_key"))
+    if industry_key:
+        variants.add(industry_key)
+        key_tokens = [token for token in industry_key.split() if token not in INDUSTRY_NAME_STOPWORDS]
+        if key_tokens:
+            variants.add(" ".join(key_tokens))
+            variants.update(key_tokens)
+
+    return {variant for variant in variants if len(variant) >= 4}
+
+
+def is_blacklisted_cnbc_link(href: str) -> bool:
+    normalized_href = href.lower()
+    return "cnbc.com" in normalized_href and any(
+        fragment in normalized_href for fragment in CNBC_BLACKLISTED_PATH_FRAGMENTS
+    )
+
+
+def filter_industry_candidate_links(page_url: str, links: list[dict], industry: dict) -> list[dict]:
+    base_candidates = filter_article_links(page_url, links)
+    if not base_candidates:
+        return []
+
+    variants = build_industry_match_variants(industry)
+    if not variants:
+        return []
+
+    filtered: list[dict] = []
+    for link in base_candidates:
+        href = str(link.get("href") or "")
+        if not href:
+            continue
+        if is_blacklisted_cnbc_link(href):
+            LOGGER.info("Skipping blacklisted CNBC URL %s for industry %s", href, industry["name"])
+            continue
+
+        normalized_text = normalize_match_text(link.get("text"))
+        normalized_href = normalize_match_text(href)
+        if any(variant in normalized_text or variant in normalized_href for variant in variants):
+            filtered.append(link)
+            continue
+
+        LOGGER.info(
+            "Skipping weak industry match URL %s for industry %s because the link text did not match the industry name",
+            href,
+            industry["name"],
+        )
+
+    return filtered
 
 
 def save_followed_article_links(
@@ -47,6 +132,8 @@ def save_followed_article_links(
     max_age_days: int = MAX_ARTICLE_AGE_DAYS,
 ) -> int:
     saved_count = 0
+    # Follow each filtered industry link one level deep, reusing existing
+    # articles when possible and only saving recent articles to the DB.
     LOGGER.info(
         "Processing %s candidate article links for industry %s from %s",
         len(candidate_links),
@@ -192,6 +279,8 @@ def save_followed_article_links(
 def build_source_jobs(industries: list[dict]) -> tuple[list[str], dict[str, list[dict]]]:
     jobs_by_url: dict[str, list[dict]] = defaultdict(list)
 
+    # Prepare all listing/search jobs ahead of time so we can crawl source
+    # pages once and then map each crawled page back to its industry jobs.
     for industry in industries:
         for source_name, source_config in INDUSTRY_NEWS_SOURCES.items():
             url = build_source_url(industry["name"], source_config)
@@ -220,10 +309,12 @@ def process_source_page(page: dict, industry: dict, source_type: str) -> int:
     if not supports_source_type(page["url"], source_type):
         return 0
 
+    # Listing pages and search pages are filtered differently, but both feed
+    # into the same article-follow stage after candidate URLs are chosen.
     if source_type == "listing":
         candidate_links = extract_listing_article_links(page["url"], page["links"], industry["name"])
     else:
-        candidate_links = filter_article_links(page["url"], page["links"])
+        candidate_links = filter_industry_candidate_links(page["url"], page["links"], industry)
 
     return save_followed_article_links(page["url"], candidate_links, industry)
 
@@ -231,6 +322,8 @@ def process_source_page(page: dict, industry: dict, source_type: str) -> int:
 def process_crawled_pages(crawled_pages: list[dict], jobs_by_url: dict[str, list[dict]]) -> dict[int, dict[str, int]]:
     saved_counts: dict[int, dict[str, int]] = defaultdict(lambda: {"listing": 0, "search": 0})
 
+    # Replay each crawled source page through the jobs that requested it and
+    # track saved counts separately for listing-page and search-page sources.
     for page in crawled_pages:
         for job in jobs_by_url.get(page["url"], []):
             saved = process_source_page(page, job["industry"], job["source_type"])
@@ -242,6 +335,8 @@ def process_crawled_pages(crawled_pages: list[dict], jobs_by_url: dict[str, list
 def get_all_industry_news() -> None:
     initialize_news_database()
     industries = get_all_industries()
+    # Crawl all industry source pages in a single batch, then process listing
+    # pages first and search pages second from the normalized crawl results.
     LOGGER.info("Starting all-industry scrape for %s industries", len(industries))
     urls, jobs_by_url = build_source_jobs(industries)
     crawled_pages = crawl_articles(urls)
