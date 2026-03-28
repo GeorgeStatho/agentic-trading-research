@@ -28,7 +28,24 @@ NEWS_ARTICLE_COLUMN_TYPES = {
 
 
 def initialize_database(db_path: Path | str = DB_PATH, schema_path: Path | str = SCHEMA_PATH) -> None:
+    with get_connection(db_path) as conn:
+        if table_exists(conn, "macro_events"):
+            existing_columns = table_columns(conn, "macro_events")
+            for column_name, column_type in MACRO_EVENT_COLUMN_TYPES.items():
+                if column_name not in existing_columns:
+                    conn.execute(
+                        f"ALTER TABLE macro_events ADD COLUMN {column_name} {column_type}"
+                    )
+        if table_exists(conn, "news_articles"):
+            existing_columns = table_columns(conn, "news_articles")
+            for column_name, column_type in NEWS_ARTICLE_COLUMN_TYPES.items():
+                if column_name not in existing_columns:
+                    conn.execute(
+                        f"ALTER TABLE news_articles ADD COLUMN {column_name} {column_type}"
+                    )
+
     initialize_schema(db_path, schema_path)
+
     with get_connection(db_path) as conn:
         if table_exists(conn, "macro_events"):
             existing_columns = table_columns(conn, "macro_events")
@@ -333,6 +350,89 @@ def add_industry_news_article(
     return article_id
 
 
+def link_company_to_article(
+    company_id: int,
+    article_id: int,
+    source_page_url: str | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (company_id, article_id, source_page_url)
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return link_company_to_article(
+                company_id,
+                article_id,
+                source_page_url=source_page_url,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO company_news_articles (company_id, article_id, source_page_url)
+        VALUES (?, ?, ?)
+        ON CONFLICT(company_id, article_id) DO UPDATE SET
+            source_page_url = excluded.source_page_url
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
+def add_company_news_article(
+    company_id: int,
+    source: str,
+    article_key: str,
+    title: str,
+    source_url: str,
+    source_page_url: str | None = None,
+    summary: str | None = None,
+    body: str | None = None,
+    published_at: str | None = None,
+    section: str | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return add_company_news_article(
+                company_id,
+                source,
+                article_key,
+                title,
+                source_url,
+                source_page_url=source_page_url,
+                summary=summary,
+                body=body,
+                published_at=published_at,
+                section=section,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    article_id = add_news_article(
+        source=source,
+        article_key=article_key,
+        title=title,
+        source_url=source_url,
+        summary=summary,
+        body=body,
+        published_at=published_at,
+        section=section,
+        raw_json=raw_json,
+        conn=conn,
+    )
+    link_company_to_article(
+        company_id=company_id,
+        article_id=article_id,
+        source_page_url=source_page_url,
+        conn=conn,
+    )
+    return article_id
+
+
 def load_macro_events(
     events: list[dict[str, Any]],
     db_path: Path | str = DB_PATH,
@@ -414,6 +514,32 @@ def list_industry_news_articles(industry_id: int, db_path: Path | str = DB_PATH)
             ORDER BY na.created_at DESC, na.id DESC
             """,
             (industry_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_company_news_articles(company_id: int, db_path: Path | str = DB_PATH) -> list[dict]:
+    initialize_database(db_path=db_path)
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                na.id,
+                na.source,
+                na.article_key,
+                na.title,
+                na.summary,
+                na.body,
+                na.published_at,
+                na.section,
+                na.source_url,
+                cna.source_page_url
+            FROM company_news_articles AS cna
+            JOIN news_articles AS na ON na.id = cna.article_id
+            WHERE cna.company_id = ?
+            ORDER BY na.created_at DESC, na.id DESC
+            """,
+            (company_id,),
         ).fetchall()
     return [dict(row) for row in rows]
 

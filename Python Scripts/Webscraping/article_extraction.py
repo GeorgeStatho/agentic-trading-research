@@ -138,12 +138,14 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
 
 
 def extract_article(url: str, timeout: int = 20) -> ArticleExtractionResult:
+    headers = {
+            "User-Agent": DEFAULT_USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.google.com/",
+            }
     try:
-        response = requests.get(
-            url,
-            timeout=timeout,
-            headers={"User-Agent": DEFAULT_USER_AGENT},
-        )
+        response = requests.get(url, timeout=timeout, headers=headers)
         response.raise_for_status()
     except requests.RequestException as exc:
         return ArticleExtractionResult(
