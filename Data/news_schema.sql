@@ -24,8 +24,11 @@ CREATE TABLE IF NOT EXISTS news_articles (
     source TEXT NOT NULL,
     article_key TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
+    normalized_title TEXT,
     summary TEXT,
     body TEXT,
+    normalized_url TEXT,
+    content_hash TEXT,
     published_at TEXT,
     section TEXT,
     source_url TEXT NOT NULL,
@@ -55,6 +58,15 @@ CREATE INDEX IF NOT EXISTS idx_news_articles_published_at
 
 CREATE INDEX IF NOT EXISTS idx_news_articles_section
     ON news_articles (section);
+
+CREATE INDEX IF NOT EXISTS idx_news_articles_normalized_url
+    ON news_articles (normalized_url);
+
+CREATE INDEX IF NOT EXISTS idx_news_articles_normalized_title
+    ON news_articles (normalized_title);
+
+CREATE INDEX IF NOT EXISTS idx_news_articles_content_hash
+    ON news_articles (content_hash);
 
 CREATE INDEX IF NOT EXISTS idx_industry_news_articles_industry_id
     ON industry_news_articles (industry_id);

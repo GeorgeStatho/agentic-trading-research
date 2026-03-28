@@ -2,9 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import sys
 
 from db_common import DB_PATH, DATA_DIR, clean_text, get_connection, initialize_schema, json_text, table_columns, table_exists
 
+WEBSCRAPING_DIR = DATA_DIR.parent / "Python Scripts" / "Webscraping"
+if str(WEBSCRAPING_DIR) not in sys.path:
+    sys.path.append(str(WEBSCRAPING_DIR))
+
+from news_normalization import build_content_hash, normalize_title, normalize_url
 
 SCHEMA_PATH = DATA_DIR / "news_schema.sql"
 
@@ -13,6 +19,11 @@ MACRO_EVENT_COLUMN_TYPES = {
     "actual": "TEXT",
     "forecast": "TEXT",
     "previous": "TEXT",
+}
+NEWS_ARTICLE_COLUMN_TYPES = {
+    "normalized_title": "TEXT",
+    "normalized_url": "TEXT",
+    "content_hash": "TEXT",
 }
 
 
@@ -25,6 +36,13 @@ def initialize_database(db_path: Path | str = DB_PATH, schema_path: Path | str =
                 if column_name not in existing_columns:
                     conn.execute(
                         f"ALTER TABLE macro_events ADD COLUMN {column_name} {column_type}"
+                    )
+        if table_exists(conn, "news_articles"):
+            existing_columns = table_columns(conn, "news_articles")
+            for column_name, column_type in NEWS_ARTICLE_COLUMN_TYPES.items():
+                if column_name not in existing_columns:
+                    conn.execute(
+                        f"ALTER TABLE news_articles ADD COLUMN {column_name} {column_type}"
                     )
 
 
@@ -123,12 +141,19 @@ def add_news_article(
     db_path: Path | str = DB_PATH,
     conn=None,
 ) -> int:
+    normalized_url = normalize_url(source_url)
+    normalized_title = normalize_title(title)
+    content_hash = build_content_hash(body or "")
+
     values = (
         source,
         article_key,
         title,
+        normalized_title,
         summary,
         body,
+        normalized_url,
+        content_hash,
         published_at,
         section,
         source_url,
@@ -151,16 +176,69 @@ def add_news_article(
 
     cursor = conn.execute(
         """
-        INSERT INTO news_articles (
-            source, article_key, title, summary, body,
-            published_at, section, source_url, raw_json
+        SELECT id
+        FROM news_articles
+        WHERE normalized_url = ?
+           OR (content_hash != '' AND content_hash = ?)
+           OR (normalized_title != '' AND normalized_title = ? AND published_at IS ?)
+        ORDER BY id
+        LIMIT 1
+        """,
+        (normalized_url, content_hash, normalized_title, published_at),
+    )
+    existing_row = cursor.fetchone()
+    if existing_row is not None:
+        article_id = existing_row["id"]
+        conn.execute(
+            """
+            UPDATE news_articles
+            SET source = ?,
+                article_key = ?,
+                title = ?,
+                normalized_title = ?,
+                summary = ?,
+                body = ?,
+                normalized_url = ?,
+                content_hash = ?,
+                published_at = ?,
+                section = ?,
+                source_url = ?,
+                raw_json = ?
+            WHERE id = ?
+            """,
+            (
+                source,
+                article_key,
+                title,
+                normalized_title,
+                summary,
+                body,
+                normalized_url,
+                content_hash,
+                published_at,
+                section,
+                source_url,
+                json_text(raw_json),
+                article_id,
+            ),
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        return article_id
+
+    cursor = conn.execute(
+        """
+        INSERT INTO news_articles (
+            source, article_key, title, normalized_title, summary, body,
+            normalized_url, content_hash, published_at, section, source_url, raw_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(article_key) DO UPDATE SET
             source = excluded.source,
             title = excluded.title,
+            normalized_title = excluded.normalized_title,
             summary = excluded.summary,
             body = excluded.body,
+            normalized_url = excluded.normalized_url,
+            content_hash = excluded.content_hash,
             published_at = excluded.published_at,
             section = excluded.section,
             source_url = excluded.source_url,
