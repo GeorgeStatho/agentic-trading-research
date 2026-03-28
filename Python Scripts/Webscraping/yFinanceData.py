@@ -14,7 +14,7 @@ DATA_DIR = Path(__file__).resolve().parents[2] / "Data"
 if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
 
-from db import load_sector_tree
+from market_db import load_sector_tree
 from stringtoJson import generalWrite
 
 stocks_data: dict[str, dict] = {}

@@ -196,3 +196,4 @@ if __name__ == "__main__":
         print(item["url"])
         print(item["title"])
         print(item["text"][:500])
+        print(item[""])
