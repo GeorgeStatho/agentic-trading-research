@@ -309,7 +309,7 @@ def run_smoke_test() -> dict:
     return {
         #"db_path": str(Path(DB_PATH).resolve()),
         #"table_counts": fetch_table_counts(),
-        #"article_counts": fetch_article_counts(),
+        "article_counts": fetch_article_counts(),
         #"sample_market_data": fetch_sample_market_data(),
         #"sample_macro_events": fetch_sample_macro_events(),
         #"sample_us_macro_events": fetch_macro_events_by_country("United States"),
@@ -318,7 +318,7 @@ def run_smoke_test() -> dict:
         #"sample_technology_companies": fetch_companies_by_industry("software-infrastructure"),
         #"sample_articles": fetch_sample_articles(),
         #"sample_industry_articles": fetch_sample_industry_articles(),
-        #"sample_company_articles": fetch_sample_company_articles(),
+        "sample_company_articles": fetch_sample_company_articles(),
     }
 
 

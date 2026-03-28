@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 from collections import defaultdict
+import re
 
 WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
 if str(WEBSCRAPING_DIR) not in sys.path:
@@ -36,11 +37,108 @@ from db_helpers import add_company_news_article, get_all_companies, initialize_n
 
 
 LOGGER = get_scrape_logger("company_pipeline")
+COMPANY_NAME_SUFFIXES = {
+    "inc",
+    "incorporated",
+    "corp",
+    "corporation",
+    "co",
+    "company",
+    "plc",
+    "ltd",
+    "limited",
+    "lp",
+    "llc",
+    "sa",
+    "nv",
+    "se",
+    "holdings",
+    "holding",
+    "group",
+}
+CNBC_BLACKLISTED_PATH_FRAGMENTS = (
+    "/investingclub/video/",
+    "/pro/news/",
+    "/pro/options-investing/",
+    "/application/pro/",
+)
 
 
 def build_company_search_terms(company: dict) -> list[str]:
+    # Keep company discovery narrowly focused on the formal company name so
+    # we do not explode the number of search URLs with weak alternate queries.
     company_name = " ".join((company.get("name") or "").split()).strip()
     return [company_name] if company_name else []
+
+
+def normalize_match_text(value: str | None) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", " ", (value or "").lower())
+    return " ".join(cleaned.split())
+
+
+def build_company_match_variants(company: dict) -> set[str]:
+    # Build a few deterministic match variants so we can require that search
+    # results actually mention the target company before following them.
+    company_name = normalize_match_text(company.get("name"))
+    if not company_name:
+        return set()
+
+    variants: set[str] = {company_name}
+    tokens = company_name.split()
+
+    trimmed_tokens = tokens[:]
+    while trimmed_tokens and trimmed_tokens[-1] in COMPANY_NAME_SUFFIXES:
+        trimmed_tokens.pop()
+        if trimmed_tokens:
+            variants.add(" ".join(trimmed_tokens))
+
+    symbol = normalize_match_text(company.get("symbol"))
+    if len(symbol) >= 3:
+        variants.add(symbol)
+
+    return {variant for variant in variants if len(variant) >= 3}
+
+
+def is_blacklisted_cnbc_link(href: str) -> bool:
+    normalized_href = href.lower()
+    return "cnbc.com" in normalized_href and any(
+        fragment in normalized_href for fragment in CNBC_BLACKLISTED_PATH_FRAGMENTS
+    )
+
+
+def filter_company_candidate_links(page_url: str, links: list[dict], company: dict) -> list[dict]:
+    # Start from the shared source/article-pattern filter, then apply
+    # company-specific relevance checks to remove generic market pages.
+    base_candidates = filter_article_links(page_url, links)
+    if not base_candidates:
+        return []
+
+    variants = build_company_match_variants(company)
+    if not variants:
+        return []
+
+    filtered: list[dict] = []
+    for link in base_candidates:
+        href = str(link.get("href") or "")
+        if not href:
+            continue
+        if is_blacklisted_cnbc_link(href):
+            LOGGER.info("Skipping blacklisted CNBC URL %s for company %s", href, company["symbol"])
+            continue
+
+        normalized_text = normalize_match_text(link.get("text"))
+        normalized_href = normalize_match_text(href)
+        if any(variant in normalized_text or variant in normalized_href for variant in variants):
+            filtered.append(link)
+            continue
+
+        LOGGER.info(
+            "Skipping weak company match URL %s for company %s because the link text did not match the company name",
+            href,
+            company["symbol"],
+        )
+
+    return filtered
 
 
 def save_followed_article_links(
@@ -52,6 +150,8 @@ def save_followed_article_links(
     max_age_days: int = MAX_ARTICLE_AGE_DAYS,
 ) -> int:
     saved_count = 0
+    # Follow the filtered result links one level deep, reuse any article that
+    # already exists in the DB, and save new articles that pass recency checks.
     LOGGER.info(
         "Processing %s candidate article links for company %s from %s",
         len(candidate_links),
@@ -202,6 +302,8 @@ def save_followed_article_links(
 def build_source_jobs(companies: list[dict]) -> tuple[list[str], dict[str, list[dict]]]:
     jobs_by_url: dict[str, list[dict]] = defaultdict(list)
 
+    # Precompute every search-page job so the spider can crawl all source
+    # pages in one Scrapy run and avoid restarting the reactor repeatedly.
     for company in companies:
         for search_term in build_company_search_terms(company):
             for source_name, source_config in COMPANY_NEWS_SOURCES.items():
@@ -231,13 +333,17 @@ def process_source_page(page: dict, company: dict, search_term: str) -> int:
     if not supports_source_type(page["url"], "search"):
         return 0
 
-    candidate_links = filter_article_links(page["url"], page["links"])
+    # Source pages are shallow discovery pages; after filtering their links we
+    # hand off to the article follower to fetch the actual article bodies.
+    candidate_links = filter_company_candidate_links(page["url"], page["links"], company)
     return save_followed_article_links(page["url"], candidate_links, company, search_term)
 
 
 def process_crawled_pages(crawled_pages: list[dict], jobs_by_url: dict[str, list[dict]]) -> dict[int, int]:
     saved_counts: dict[int, int] = defaultdict(int)
 
+    # A crawled source page may belong to one or more planned jobs, so replay
+    # the page through each matching job and accumulate saved-article counts.
     for page in crawled_pages:
         for job in jobs_by_url.get(page["url"], []):
             saved = process_source_page(page, job["company"], job["search_term"])
@@ -247,6 +353,8 @@ def process_crawled_pages(crawled_pages: list[dict], jobs_by_url: dict[str, list
 
 
 def find_company(company_identifier: str) -> dict | None:
+    # Resolve a user-facing identifier to a DB company record by trying the
+    # ticker first, then falling back to an exact company-name match.
     needle = " ".join(company_identifier.split()).strip().lower()
     if not needle:
         return None
@@ -271,6 +379,8 @@ def get_company_news(company_identifier: str) -> int:
         raise ValueError(f"Company not found for identifier: {company_identifier}")
 
     LOGGER.info("Starting single-company scrape for %s (%s)", company["name"], company["symbol"])
+    # For single-company runs we still use the same bulk-crawl flow so the
+    # behavior matches the full pipeline and logs stay comparable.
     urls, jobs_by_url = build_source_jobs([company])
     crawled_pages = crawl_articles(urls)
     saved_counts = process_crawled_pages(crawled_pages, jobs_by_url)
@@ -290,6 +400,8 @@ def get_company_news(company_identifier: str) -> int:
 def get_all_company_news() -> None:
     initialize_news_database()
     companies = get_all_companies()
+    # Run the shared discovery/follow/save process for every company using one
+    # crawl batch, then report how many articles were saved per company.
     LOGGER.info("Starting all-company scrape for %s companies", len(companies))
     urls, jobs_by_url = build_source_jobs(companies)
     crawled_pages = crawl_articles(urls)

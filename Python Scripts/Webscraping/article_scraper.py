@@ -17,6 +17,8 @@ def extract_links(response: Response) -> list[dict[str, str]]:
     links: list[dict[str, str]] = []
     seen_hrefs: set[str] = set()
 
+    # Capture a lightweight link inventory from the source page so the
+    # pipelines can decide which result URLs are worth following.
     for link in response.css("a"):
         href = link.css("::attr(href)").get()
         if not href:
@@ -69,6 +71,8 @@ class ArticleSpider(scrapy.Spider):
         self.start_urls = urls or []
 
     def start_requests(self):
+        # Source pages are crawled first; later pipeline stages inspect these
+        # results to choose a smaller set of article URLs to fetch deeply.
         for url in self.start_urls:
             headers = {
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -98,6 +102,8 @@ class ArticleSpider(scrapy.Spider):
             }
             return
 
+        # Reuse the article extractor on the raw response so a single crawl
+        # pass gives us both the page text and a list of discovered links.
         result = extract_from_response(response)
         if result.success:
             self.logger.info("Scraped %s successfully", response.url)
@@ -138,6 +144,8 @@ def crawl_articles(urls: list[str]) -> list[dict]:
     def _collect_item(item, response, spider):
         items.append(dict(item))
 
+    # Scrapy runs the crawl and we collect scraped items in memory so the
+    # surrounding pipeline can synchronously process the normalized results.
     dispatcher.connect(_collect_item, signal=signals.item_scraped)
 
     process = CrawlerProcess(settings=get_scrapy_log_settings())
