@@ -1,9 +1,13 @@
 from pathlib import Path
 import sys
+from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
 from urllib.parse import quote_plus
 from urllib.parse import urlparse
 
 from Normalization import crawl_articles, extract_article
+from news_normalization import build_content_hash, normalize_title, normalize_url
 from urlFactories import INDUSTRY_SEARCH_URLS
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "Data"
@@ -25,6 +29,7 @@ ARTICLE_PATTERNS_BY_DOMAIN = {
     "finance.yahoo.com": ["/news/"],
 }
 MAX_ARTICLES_PER_SEARCH_PAGE = 10
+MAX_ARTICLE_AGE_DAYS = 14
 
 
 def filter_article_links(page_url: str, links: list[dict]) -> list[dict]:
@@ -52,13 +57,32 @@ def filter_article_links(page_url: str, links: list[dict]) -> list[dict]:
 def get_industry_news(urls: list[str]) -> list[dict]:
     industry_news = crawl_articles(urls)
     for article in industry_news:
-        print(article["title"])
-        print(article["url"])
         print(filter_article_links(article["url"], article["links"]))
     return industry_news
 
 
-def save_followed_article_links(search_page: dict, industry: dict, max_articles: int = MAX_ARTICLES_PER_SEARCH_PAGE) -> int:
+def is_recent_article(published_at: str, max_age_days: int = MAX_ARTICLE_AGE_DAYS) -> bool:
+    if not published_at:
+        return False
+
+    try:
+        parsed = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+    return parsed >= cutoff
+
+
+def save_followed_article_links(
+    search_page: dict,
+    industry: dict,
+    max_articles: int = MAX_ARTICLES_PER_SEARCH_PAGE,
+    max_age_days: int = MAX_ARTICLE_AGE_DAYS,
+) -> int:
     saved_count = 0
     filtered_links = filter_article_links(search_page["url"], search_page["links"])
 
@@ -73,10 +97,15 @@ def save_followed_article_links(search_page: dict, industry: dict, max_articles:
         article = extract_article(href)
         if not article.success:
             continue
+        if not is_recent_article(article.published_at, max_age_days=max_age_days):
+            continue
 
         title = article.title or link.get("text") or href
-        article_key = href
+        normalized_href = normalize_url(href)
+        article_key = normalized_href or href
         source = urlparse(href).netloc.lower()
+        normalized_article_title = normalize_title(title)
+        content_hash = build_content_hash(article.text)
         add_industry_news_article(
             industry_id=industry["id"],
             source=source,
@@ -86,16 +115,21 @@ def save_followed_article_links(search_page: dict, industry: dict, max_articles:
             source_page_url=search_page["url"],
             summary=link.get("text"),
             body=article.text,
+            published_at=article.published_at or None,
             raw_json={
                 "industry_id": industry["id"],
                 "industry_key": industry["industry_key"],
                 "industry_name": industry["name"],
                 "search_page_url": search_page["url"],
                 "link": link,
+                "normalized_url": normalized_href,
+                "normalized_title": normalized_article_title,
+                "content_hash": content_hash,
                 "extracted_article": {
                     "url": article.url,
                     "title": article.title,
                     "text": article.text,
+                    "published_at": article.published_at,
                     "success": article.success,
                     "error": article.error,
                 },
