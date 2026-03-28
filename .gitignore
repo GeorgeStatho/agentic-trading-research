@@ -8,3 +8,7 @@
 *.bin
 *.pyc
 __pycache__/
+
+# Local scraping/debug artifacts
+html_pages/
+Data/logs/

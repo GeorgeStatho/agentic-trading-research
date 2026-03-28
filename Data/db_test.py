@@ -313,7 +313,7 @@ def run_smoke_test() -> dict:
         #"sample_market_data": fetch_sample_market_data(),
         #"sample_macro_events": fetch_sample_macro_events(),
         #"sample_us_macro_events": fetch_macro_events_by_country("United States"),
-        "all_companies": fetch_all_companies(),
+        #"all_companies": fetch_all_companies(),
         "sample_failed_urls": fetch_sample_failed_urls(),
         #"sample_technology_companies": fetch_companies_by_industry("software-infrastructure"),
         #"sample_articles": fetch_sample_articles(),

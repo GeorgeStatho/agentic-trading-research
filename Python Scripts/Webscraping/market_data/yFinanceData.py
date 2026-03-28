@@ -1,13 +1,9 @@
 import asyncio
 import json
-import logging
 import math
 from pathlib import Path
 import sys
-import time
-from typing import Any, cast
-
-import yfinance as yf
+from typing import Any
 
 WRITER_DIR = Path(__file__).resolve().parents[2] / "WritingToDataBase"
 if str(WRITER_DIR) not in sys.path:
@@ -19,35 +15,17 @@ if str(DATA_DIR) not in sys.path:
 
 from market_db import load_sector_tree
 from stringtoJson import generalWrite
+from yfinance_client import (
+    LOGGER,
+    fetch_company_fast_info,
+    fetch_industry_snapshot,
+    fetch_sector_snapshot,
+    stream_stock_prices,
+)
 
 stocks_data: dict[str, dict] = {}
 STOCKS_FILE = DATA_DIR / "stocks_data.json"
 SECTORS_FILE = DATA_DIR / "sectors_companies.json"
-LOG_DIR = DATA_DIR / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def _build_logger() -> logging.Logger:
-    logger = logging.getLogger("yfinance_data")
-    if logger.handlers:
-        return logger
-
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    log_path = LOG_DIR / f"yfinance_requests_{timestamp}.log"
-    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-
-    handler = logging.FileHandler(log_path, encoding="utf-8")
-    handler.setFormatter(formatter)
-    handler.setLevel(logging.INFO)
-    logger.addHandler(handler)
-    logger.info("Logging yfinance requests to %s", log_path)
-    return logger
-
-
-LOGGER = _build_logger()
 
 SECTORS = [
     "basic-materials",
@@ -64,68 +42,8 @@ SECTORS = [
 ]
 
 
-class YFinanceRequestHandler:
-    """Small throttled wrapper for yfinance calls.
-
-    Yahoo will intermittently throttle or reject bursts of requests. This
-    handler spaces requests out and retries a small number of times with
-    backoff so one rate-limit response does not abort the whole sector load.
-    """
-
-    def __init__(self, min_interval_seconds: float = 0.35, max_retries: int = 3, base_backoff_seconds: float = 1.0):
-        self.min_interval_seconds = min_interval_seconds
-        self.max_retries = max_retries
-        self.base_backoff_seconds = base_backoff_seconds
-        self._last_request_time = 0.0
-
-    def _sleep_if_needed(self) -> None:
-        elapsed = time.monotonic() - self._last_request_time
-        remaining = self.min_interval_seconds - elapsed
-        if remaining > 0:
-            time.sleep(remaining)
-
-    def run(self, func, *args, **kwargs):
-        last_exc: Exception | None = None
-        context = kwargs.pop("_context", getattr(func, "__name__", "yfinance_call"))
-        for attempt in range(self.max_retries + 1):
-            self._sleep_if_needed()
-            try:
-                LOGGER.info("yfinance request start: %s (attempt %s)", context, attempt + 1)
-                result = func(*args, **kwargs)
-                self._last_request_time = time.monotonic()
-                LOGGER.info("yfinance request success: %s (attempt %s)", context, attempt + 1)
-                return result
-            except Exception as exc:
-                last_exc = exc
-                self._last_request_time = time.monotonic()
-                LOGGER.warning(
-                    "yfinance request failed: %s (attempt %s/%s): %s",
-                    context,
-                    attempt + 1,
-                    self.max_retries + 1,
-                    exc,
-                )
-                if attempt >= self.max_retries:
-                    raise
-
-                normalized_error = str(exc).lower()
-                backoff = self.base_backoff_seconds * (attempt + 1)
-                if "too many requests" in normalized_error or "rate limit" in normalized_error:
-                    backoff *= 2
-                LOGGER.info("Sleeping %.2fs before retrying %s", backoff, context)
-                time.sleep(backoff)
-
-        if last_exc is not None:
-            raise last_exc
-
-
-REQUEST_HANDLER = YFinanceRequestHandler()
-
-
 async def GettingStockPrice(stocks: list[str]):
-    async with yf.AsyncWebSocket() as ws:
-        await ws.subscribe(stocks)
-        await ws.listen(store_stock)
+    await stream_stock_prices(stocks, store_stock)
 
 
 def store_stock(stockData: dict):
@@ -151,12 +69,6 @@ def _safe_fast_info_get(info, key: str):
         return None
 
 
-def _require_value(value: Any | None, context: str) -> Any:
-    if value is None:
-        raise ValueError(f"Missing yfinance value for {context}")
-    return value
-
-
 def _frame_to_records(frame) -> dict[str, dict]:
     if frame is None or getattr(frame, "empty", True):
         return {}
@@ -177,20 +89,7 @@ def _frame_to_records(frame) -> dict[str, dict]:
 
 def GetCompanyInfo(company: str) -> dict:
     try:
-        company_info = cast(
-            Any,
-            _require_value(
-                REQUEST_HANDLER.run(yf.Ticker, company, _context=f"Ticker({company})"),
-                f"ticker:{company}",
-            ),
-        )
-        info = cast(
-            Any,
-            _require_value(
-                REQUEST_HANDLER.run(lambda: company_info.fast_info, _context=f"fast_info({company})"),
-                f"fast_info:{company}",
-            ),
-        )
+        info = fetch_company_fast_info(company)
     except Exception as exc:
         LOGGER.warning("Company info fetch failed for %s: %s", company, exc)
         return {
@@ -226,37 +125,16 @@ def GetIndustryInfo(
     include_top_performing: bool = True,
     include_research_reports: bool = True,
 ) -> dict:
-    LOGGER.info("Loading industry payload for %s", industry)
-    industry_info = cast(
-        Any,
-        _require_value(
-            REQUEST_HANDLER.run(yf.Industry, industry, _context=f"Industry({industry})"),
-            f"industry:{industry}",
-        ),
+    snapshot = fetch_industry_snapshot(
+        industry,
+        include_top_growth=include_top_growth,
+        include_top_performing=include_top_performing,
+        include_research_reports=include_research_reports,
     )
-    companies = _frame_to_records(
-        REQUEST_HANDLER.run(lambda: industry_info.top_companies, _context=f"industry.top_companies({industry})")
-    )
-    top_growth = (
-        _frame_to_records(
-            REQUEST_HANDLER.run(
-                lambda: industry_info.top_growth_companies,
-                _context=f"industry.top_growth({industry})",
-            )
-        )
-        if include_top_growth
-        else {}
-    )
-    top_performing = (
-        _frame_to_records(
-            REQUEST_HANDLER.run(
-                lambda: industry_info.top_performing_companies,
-                _context=f"industry.top_performing({industry})",
-            )
-        )
-        if include_top_performing
-        else {}
-    )
+    industry_info = snapshot["industry_info"]
+    companies = _frame_to_records(snapshot["top_companies"])
+    top_growth = _frame_to_records(snapshot["top_growth_companies"])
+    top_performing = _frame_to_records(snapshot["top_performing_companies"])
 
     if include_company_details:
         for symbol, company_row in companies.items():
@@ -273,14 +151,7 @@ def GetIndustryInfo(
         "top_companies": companies,
         "top_growth_companies": top_growth,
         "top_performing_companies": top_performing,
-        "research_reports": (
-            REQUEST_HANDLER.run(
-                lambda: industry_info.research_reports,
-                _context=f"industry.research_reports({industry})",
-            )
-            if include_research_reports
-            else []
-        ),
+        "research_reports": snapshot["research_reports"],
         "companies": companies,
     }
 
@@ -294,21 +165,13 @@ def GetSectorInfo(
     include_research_reports: bool = True,
     include_sector_top_companies: bool = True,
 ) -> dict:
-    LOGGER.info("Loading sector payload for %s", sector)
-    sector_info = cast(
-        Any,
-        _require_value(
-            REQUEST_HANDLER.run(yf.Sector, sector, _context=f"Sector({sector})"),
-            f"sector:{sector}",
-        ),
+    snapshot = fetch_sector_snapshot(
+        sector,
+        include_research_reports=include_research_reports,
+        include_sector_top_companies=include_sector_top_companies,
     )
-    industries_df = cast(
-        Any,
-        _require_value(
-            REQUEST_HANDLER.run(lambda: sector_info.industries, _context=f"sector.industries({sector})"),
-            f"sector_industries:{sector}",
-        ),
-    )
+    sector_info = snapshot["sector_info"]
+    industries_df = snapshot["industries"]
     industries: dict[str, dict] = {}
 
     for industry_key, row in industries_df.iterrows():
@@ -336,24 +199,8 @@ def GetSectorInfo(
         sector: {
             "name": sector_name,
             "ticker_symbol": getattr(sector_info, "symbol", None),
-            "top_companies": (
-                _frame_to_records(
-                    REQUEST_HANDLER.run(
-                        lambda: sector_info.top_companies,
-                        _context=f"sector.top_companies({sector})",
-                    )
-                )
-                if include_sector_top_companies
-                else {}
-            ),
-            "research_reports": (
-                REQUEST_HANDLER.run(
-                    lambda: sector_info.research_reports,
-                    _context=f"sector.research_reports({sector})",
-                )
-                if include_research_reports
-                else []
-            ),
+            "top_companies": _frame_to_records(snapshot["top_companies"]),
+            "research_reports": snapshot["research_reports"],
             "industries": industries,
         }
     }
@@ -362,6 +209,7 @@ def GetSectorInfo(
     SECTORS_FILE.write_text(json.dumps(sector_payload, indent=2, sort_keys=True), encoding="utf-8")
     load_sector_tree(sector_payload)
     return sector_payload
+
 
 def saveSectors(
     *,
@@ -387,16 +235,17 @@ def saveSectors(
         LOGGER.info("Finished sector save for %s", sector)
     return all_sectors
 
+
 if __name__ == "__main__":
     # asyncio.run(GettingStockPrice(["AAPL", "MSFT", "GOOG"]))
     print(
         json.dumps(
             saveSectors(
-                include_company_details=True,
-                include_top_growth=False,
-                include_top_performing=False,
+                include_company_details=False,
+                include_top_growth=True,
+                include_top_performing=True,
                 include_research_reports=False,
-                include_sector_top_companies=False,
+                include_sector_top_companies=True,
             ),
             indent=2,
             sort_keys=True,

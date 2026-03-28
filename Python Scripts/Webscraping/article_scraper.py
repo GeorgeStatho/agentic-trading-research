@@ -8,9 +8,24 @@ from scrapy.http import Response
 from scrapy.signalmanager import dispatcher
 
 from article_extraction import DEFAULT_USER_AGENT, extract_from_response
+from cnbc_extractor import extract_cnbc_search_links, response_looks_like_cnbc_search
 from core.scrape_logging import get_log_file_path, get_scrape_logger, get_scrapy_log_settings
+from investing_extractor import extract_investing_search_links, response_looks_like_investing_search
+from marketwatch_extractor import extract_marketwatch_search_links, response_looks_like_marketwatch_search
 
 LOGGER = get_scrape_logger("article_scraper")
+
+
+def extract_search_links(response: Response) -> list[dict[str, str]]:
+    # Route known source pages through their site-specific search extractors
+    # first, then fall back to generic link inventory collection.
+    if response_looks_like_marketwatch_search(response):
+        return extract_marketwatch_search_links(response)
+    if response_looks_like_cnbc_search(response):
+        return extract_cnbc_search_links(response)
+    if response_looks_like_investing_search(response):
+        return extract_investing_search_links(response)
+    return extract_links(response)
 
 
 def extract_links(response: Response) -> list[dict[str, str]]:
@@ -109,11 +124,13 @@ class ArticleSpider(scrapy.Spider):
             self.logger.info("Scraped %s successfully", response.url)
         else:
             self.logger.warning("Extraction issue for %s: %s", response.url, result.error)
+
+        discovered_links = extract_search_links(response)
         yield {
             "url": result.url,
             "title": result.title,
             "text": result.text,
-            "links": extract_links(response),
+            "links": discovered_links,
             "success": result.success,
             "error": result.error,
             "status": response.status,
