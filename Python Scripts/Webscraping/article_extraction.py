@@ -9,12 +9,15 @@ import requests
 import scrapy
 from scrapy.http import Response
 
+from core.scrape_logging import get_scrape_logger
+
 
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/123.0.0.0 Safari/537.36"
 )
+LOGGER = get_scrape_logger("article_extraction")
 
 
 @dataclass(slots=True)
@@ -139,15 +142,17 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
 
 def extract_article(url: str, timeout: int = 20) -> ArticleExtractionResult:
     headers = {
-            "User-Agent": DEFAULT_USER_AGENT,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": "https://www.google.com/",
-            }
+        "User-Agent": DEFAULT_USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.google.com/",
+    }
+    LOGGER.info("Fetching article URL %s", url)
     try:
         response = requests.get(url, timeout=timeout, headers=headers)
         response.raise_for_status()
     except requests.RequestException as exc:
+        LOGGER.warning("Article fetch failed for %s: %s", url, exc)
         return ArticleExtractionResult(
             url=url,
             success=False,
@@ -159,4 +164,9 @@ def extract_article(url: str, timeout: int = 20) -> ArticleExtractionResult:
         body=response.content,
         encoding=response.encoding or "utf-8",
     )
-    return extract_from_response(scrapy_response)
+    result = extract_from_response(scrapy_response)
+    if result.success:
+        LOGGER.info("Article extracted successfully for %s", result.url)
+    else:
+        LOGGER.warning("Article extraction failed for %s: %s", result.url, result.error)
+    return result
