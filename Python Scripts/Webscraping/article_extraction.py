@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+from datetime import timezone
 from typing import Iterable
 
 import requests
@@ -20,6 +22,7 @@ class ArticleExtractionResult:
     url: str
     title: str = ""
     text: str = ""
+    published_at: str = ""
     success: bool = False
     error: str = ""
 
@@ -33,8 +36,73 @@ def clean_text(parts: Iterable[str]) -> str:
     return "\n".join(cleaned)
 
 
+def _normalize_datetime(value: str | None) -> str:
+    if not value:
+        return ""
+
+    cleaned = value.strip()
+    if not cleaned:
+        return ""
+
+    # Common article date formats
+    candidates = [
+        cleaned,
+        cleaned.replace("Z", "+00:00"),
+    ]
+    formats = [
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%S.%f%z",
+        "%Y-%m-%d %H:%M:%S%z",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d",
+    ]
+
+    for candidate in candidates:
+        try:
+            parsed = datetime.fromisoformat(candidate)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc).isoformat()
+        except ValueError:
+            pass
+
+        for fmt in formats:
+            try:
+                parsed = datetime.strptime(candidate, fmt)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.astimezone(timezone.utc).isoformat()
+            except ValueError:
+                continue
+
+    return ""
+
+
+def _extract_published_at(response: Response) -> str:
+    meta_selectors = [
+        "meta[property='article:published_time']::attr(content)",
+        "meta[name='article:published_time']::attr(content)",
+        "meta[property='og:published_time']::attr(content)",
+        "meta[name='og:published_time']::attr(content)",
+        "meta[name='pubdate']::attr(content)",
+        "meta[name='publish-date']::attr(content)",
+        "meta[name='date']::attr(content)",
+        "meta[itemprop='datePublished']::attr(content)",
+        "time::attr(datetime)",
+    ]
+
+    for selector in meta_selectors:
+        value = response.css(selector).get()
+        normalized = _normalize_datetime(value)
+        if normalized:
+            return normalized
+
+    return ""
+
+
 def extract_from_response(response: Response) -> ArticleExtractionResult:
     title = response.css("title::text").get(default="").strip()
+    published_at = _extract_published_at(response)
 
     paragraph_candidates = [
         "article p::text",
@@ -55,6 +123,7 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
                 url=response.url,
                 title=title,
                 text=text,
+                published_at=published_at,
                 success=True,
             )
 
@@ -62,6 +131,7 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
         url=response.url,
         title=title,
         text="",
+        published_at=published_at,
         success=False,
         error="No article text found with the current selectors.",
     )
