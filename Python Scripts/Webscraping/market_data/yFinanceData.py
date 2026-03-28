@@ -218,7 +218,14 @@ def GetCompanyInfo(company: str) -> dict:
     }
 
 
-def GetIndustryInfo(industry: str) -> dict:
+def GetIndustryInfo(
+    industry: str,
+    *,
+    include_company_details: bool = True,
+    include_top_growth: bool = True,
+    include_top_performing: bool = True,
+    include_research_reports: bool = True,
+) -> dict:
     LOGGER.info("Loading industry payload for %s", industry)
     industry_info = cast(
         Any,
@@ -230,19 +237,31 @@ def GetIndustryInfo(industry: str) -> dict:
     companies = _frame_to_records(
         REQUEST_HANDLER.run(lambda: industry_info.top_companies, _context=f"industry.top_companies({industry})")
     )
-    top_growth = _frame_to_records(
-        REQUEST_HANDLER.run(lambda: industry_info.top_growth_companies, _context=f"industry.top_growth({industry})")
-    )
-    top_performing = _frame_to_records(
-        REQUEST_HANDLER.run(
-            lambda: industry_info.top_performing_companies,
-            _context=f"industry.top_performing({industry})",
+    top_growth = (
+        _frame_to_records(
+            REQUEST_HANDLER.run(
+                lambda: industry_info.top_growth_companies,
+                _context=f"industry.top_growth({industry})",
+            )
         )
+        if include_top_growth
+        else {}
+    )
+    top_performing = (
+        _frame_to_records(
+            REQUEST_HANDLER.run(
+                lambda: industry_info.top_performing_companies,
+                _context=f"industry.top_performing({industry})",
+            )
+        )
+        if include_top_performing
+        else {}
     )
 
-    for symbol, company_row in companies.items():
-        company_details = GetCompanyInfo(symbol)
-        company_row.update(company_details)
+    if include_company_details:
+        for symbol, company_row in companies.items():
+            company_details = GetCompanyInfo(symbol)
+            company_row.update(company_details)
 
     industry_name = _clean_value(getattr(industry_info, "name", None)) or industry.replace("-", " ").title()
 
@@ -254,15 +273,27 @@ def GetIndustryInfo(industry: str) -> dict:
         "top_companies": companies,
         "top_growth_companies": top_growth,
         "top_performing_companies": top_performing,
-        "research_reports": REQUEST_HANDLER.run(
-            lambda: industry_info.research_reports,
-            _context=f"industry.research_reports({industry})",
+        "research_reports": (
+            REQUEST_HANDLER.run(
+                lambda: industry_info.research_reports,
+                _context=f"industry.research_reports({industry})",
+            )
+            if include_research_reports
+            else []
         ),
         "companies": companies,
     }
 
 
-def GetSectorInfo(sector: str) -> dict:
+def GetSectorInfo(
+    sector: str,
+    *,
+    include_company_details: bool = True,
+    include_top_growth: bool = True,
+    include_top_performing: bool = True,
+    include_research_reports: bool = True,
+    include_sector_top_companies: bool = True,
+) -> dict:
     LOGGER.info("Loading sector payload for %s", sector)
     sector_info = cast(
         Any,
@@ -288,7 +319,15 @@ def GetSectorInfo(sector: str) -> dict:
             "symbol": _clean_value(row.get("symbol")),
             "market_weight": _clean_value(row.get("market weight")),
         }
-        industry_record.update(GetIndustryInfo(normalized_industry_key))
+        industry_record.update(
+            GetIndustryInfo(
+                normalized_industry_key,
+                include_company_details=include_company_details,
+                include_top_growth=include_top_growth,
+                include_top_performing=include_top_performing,
+                include_research_reports=include_research_reports,
+            )
+        )
         industry_record["name"] = industry_record.get("name") or fallback_industry_name
         industries[normalized_industry_key] = industry_record
 
@@ -297,12 +336,23 @@ def GetSectorInfo(sector: str) -> dict:
         sector: {
             "name": sector_name,
             "ticker_symbol": getattr(sector_info, "symbol", None),
-            "top_companies": _frame_to_records(
-                REQUEST_HANDLER.run(lambda: sector_info.top_companies, _context=f"sector.top_companies({sector})")
+            "top_companies": (
+                _frame_to_records(
+                    REQUEST_HANDLER.run(
+                        lambda: sector_info.top_companies,
+                        _context=f"sector.top_companies({sector})",
+                    )
+                )
+                if include_sector_top_companies
+                else {}
             ),
-            "research_reports": REQUEST_HANDLER.run(
-                lambda: sector_info.research_reports,
-                _context=f"sector.research_reports({sector})",
+            "research_reports": (
+                REQUEST_HANDLER.run(
+                    lambda: sector_info.research_reports,
+                    _context=f"sector.research_reports({sector})",
+                )
+                if include_research_reports
+                else []
             ),
             "industries": industries,
         }
@@ -313,14 +363,42 @@ def GetSectorInfo(sector: str) -> dict:
     load_sector_tree(sector_payload)
     return sector_payload
 
-def saveSectors() -> dict[str, dict]:
+def saveSectors(
+    *,
+    include_company_details: bool = True,
+    include_top_growth: bool = True,
+    include_top_performing: bool = True,
+    include_research_reports: bool = True,
+    include_sector_top_companies: bool = True,
+) -> dict[str, dict]:
     all_sectors: dict[str, dict] = {}
     for sector in SECTORS:
         LOGGER.info("Starting sector save for %s", sector)
-        all_sectors.update(GetSectorInfo(sector))
+        all_sectors.update(
+            GetSectorInfo(
+                sector,
+                include_company_details=include_company_details,
+                include_top_growth=include_top_growth,
+                include_top_performing=include_top_performing,
+                include_research_reports=include_research_reports,
+                include_sector_top_companies=include_sector_top_companies,
+            )
+        )
         LOGGER.info("Finished sector save for %s", sector)
     return all_sectors
 
 if __name__ == "__main__":
     # asyncio.run(GettingStockPrice(["AAPL", "MSFT", "GOOG"]))
-    print(json.dumps(saveSectors(), indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            saveSectors(
+                include_company_details=True,
+                include_top_growth=False,
+                include_top_performing=False,
+                include_research_reports=False,
+                include_sector_top_companies=False,
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+    )
