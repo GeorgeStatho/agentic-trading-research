@@ -31,6 +31,14 @@ CREATE TABLE IF NOT EXISTS news_articles (
     content_hash TEXT,
     published_at TEXT,
     section TEXT,
+    age_days REAL,
+    recency_score REAL,
+    source_reputation_score REAL,
+    directness_score REAL,
+    confirmation_score REAL,
+    independent_source_count INTEGER,
+    factuality_score REAL,
+    evidence_score REAL,
     source_url TEXT NOT NULL,
     raw_json TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -58,6 +66,18 @@ CREATE TABLE IF NOT EXISTS company_news_articles (
     UNIQUE (company_id, article_id)
 );
 
+CREATE TABLE IF NOT EXISTS failed_urls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL,
+    normalized_url TEXT NOT NULL UNIQUE,
+    stage TEXT,
+    last_error TEXT,
+    failure_count INTEGER NOT NULL DEFAULT 1,
+    is_permanent INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_macro_events_event_date
     ON macro_events (event_date);
 
@@ -79,6 +99,12 @@ CREATE INDEX IF NOT EXISTS idx_news_articles_normalized_title
 CREATE INDEX IF NOT EXISTS idx_news_articles_content_hash
     ON news_articles (content_hash);
 
+CREATE INDEX IF NOT EXISTS idx_news_articles_evidence_score
+    ON news_articles (evidence_score);
+
+CREATE INDEX IF NOT EXISTS idx_news_articles_recency_score
+    ON news_articles (recency_score);
+
 CREATE INDEX IF NOT EXISTS idx_industry_news_articles_industry_id
     ON industry_news_articles (industry_id);
 
@@ -90,3 +116,9 @@ CREATE INDEX IF NOT EXISTS idx_company_news_articles_company_id
 
 CREATE INDEX IF NOT EXISTS idx_company_news_articles_article_id
     ON company_news_articles (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_failed_urls_normalized_url
+    ON failed_urls (normalized_url);
+
+CREATE INDEX IF NOT EXISTS idx_failed_urls_stage
+    ON failed_urls (stage);
