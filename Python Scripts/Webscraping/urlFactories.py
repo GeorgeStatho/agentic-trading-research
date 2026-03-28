@@ -1,22 +1,48 @@
-INDUSTRY_SEARCH_URLS = {
-    "fool": "https://www.fool.com/search/?q=",
-    "cnbc_finance": "https://www.cnbc.com/search/?query=",
-    "marketwatch": "https://www.marketwatch.com/search?q={query}&ts=0&tab=All%20News",
-    "barrons": "https://www.barrons.com/search?query={query}&quotequery={query}&search_keywords={query}&search_statement_type=typed",
-    "morningstar": "https://www.morningstar.com/search?query={query}&page=1&format=Article",
-    "markets_businessinsider": "https://markets.businessinsider.com/news?q=",
-    "investing": "https://www.investing.com/search/?q=",
-    "yahoo_finance": "https://finance.yahoo.com/research/",
+INDUSTRY_NEWS_SOURCES = {
+    "investing_listing": {
+        "type": "listing",
+        "url": "https://www.investing.com/news/markets",
+    },
+    "morningstar_listing": {
+        "type": "listing",
+        "url": "https://www.morningstar.com/markets",
+    },
+    "fool_search": {
+        "type": "search",
+        "url": "https://www.fool.com/search/?q={query}",
+    },
+    "cnbc_finance_search": {
+        "type": "search",
+        "url": "https://www.cnbc.com/search/?query={query}",
+    },
+    "marketwatch_search": {
+        "type": "search",
+        "url": "https://www.marketwatch.com/search?q={query}&ts=0&tab=All%20News",
+    },
+    "barrons_search": {
+        "type": "search",
+        "url": "https://www.barrons.com/search?query={query}&quotequery={query}&search_keywords={query}&search_statement_type=typed",
+    },
+    "morningstar_search": {
+        "type": "search",
+        "url": "https://www.morningstar.com/search?query={query}&page=1&format=Article",
+    },
+    "markets_businessinsider_search": {
+        "type": "search",
+        "url": "https://markets.businessinsider.com/news?q={query}",
+    },
+    "investing_search": {
+        "type": "search",
+        "url": "https://www.investing.com/search/?q={query}",
+    },
+    "yahoo_finance_research": {
+        "type": "search",
+        "url": "https://finance.yahoo.com/research/",
+    },
 }
 
-
-GENERAL_INDUSTRY_NEWS_URLS = {
-    "fool": "https://www.google.com/search?q=site%3Afool.com+semiconductors+news",
-    "cnbc_finance": "https://www.google.com/search?q=site%3Acnbc.com%2Ffinance+semiconductors+news",
-    "marketwatch": "https://www.google.com/search?q=site%3Amarketwatch.com+semiconductors+news",
-    "barrons": "https://www.google.com/search?q=site%3Abarrons.com+semiconductors+news",
-    "morningstar": "https://www.google.com/search?q=site%3Amorningstar.com+semiconductors+news",
-    "markets_businessinsider": "https://www.google.com/search?q=site%3Amarkets.businessinsider.com+semiconductors+news",
-    "investing": "https://www.google.com/search?q=site%3Ainvesting.com+semiconductors+news",
-    "yahoo_finance": "https://www.google.com/search?q=site%3Afinance.yahoo.com+semiconductors+news",
+COMPANY_NEWS_SOURCES = {
+    source_name: source_config
+    for source_name, source_config in INDUSTRY_NEWS_SOURCES.items()
+    if source_config["type"] == "search"
 }

@@ -7,16 +7,15 @@ from collections import defaultdict
 from urllib.parse import quote_plus
 from urllib.parse import urlparse
 
-from listing_page_helper import extract_listing_article_links
 from Normalization import crawl_articles, extract_article
 from news_normalization import build_content_hash, normalize_title, normalize_url
-from urlFactories import INDUSTRY_NEWS_SOURCES
+from urlFactories import COMPANY_NEWS_SOURCES
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "Data"
 if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
 
-from db_helpers import add_industry_news_article, get_all_industries, initialize_news_database
+from db_helpers import add_company_news_article, get_all_companies, initialize_news_database
 
 
 ARTICLE_PATTERNS_BY_DOMAIN = {
@@ -72,10 +71,34 @@ def is_recent_article(published_at: str, max_age_days: int = MAX_ARTICLE_AGE_DAY
     return parsed >= cutoff
 
 
+def build_company_search_terms(company: dict) -> list[str]:
+    raw_terms = [
+        company.get("name"),
+        company.get("symbol"),
+        f"{company.get('name', '')} stock".strip(),
+        f"{company.get('name', '')} {company.get('symbol', '')}".strip(),
+    ]
+
+    deduped_terms: list[str] = []
+    seen_terms: set[str] = set()
+    for term in raw_terms:
+        cleaned = " ".join((term or "").split()).strip()
+        if not cleaned:
+            continue
+        normalized = cleaned.lower()
+        if normalized in seen_terms:
+            continue
+        seen_terms.add(normalized)
+        deduped_terms.append(cleaned)
+
+    return deduped_terms
+
+
 def save_followed_article_links(
     source_page_url: str,
     candidate_links: list[dict],
-    industry: dict,
+    company: dict,
+    search_term: str,
     max_articles: int = MAX_ARTICLES_PER_SEARCH_PAGE,
     max_age_days: int = MAX_ARTICLE_AGE_DAYS,
 ) -> int:
@@ -102,8 +125,8 @@ def save_followed_article_links(
         normalized_article_title = normalize_title(title)
         content_hash = build_content_hash(article.text)
 
-        add_industry_news_article(
-            industry_id=industry["id"],
+        add_company_news_article(
+            company_id=company["id"],
             source=source,
             article_key=article_key,
             title=title,
@@ -113,9 +136,14 @@ def save_followed_article_links(
             body=article.text,
             published_at=article.published_at or None,
             raw_json={
-                "industry_id": industry["id"],
-                "industry_key": industry["industry_key"],
-                "industry_name": industry["name"],
+                "company_id": company["id"],
+                "symbol": company["symbol"],
+                "company_name": company["name"],
+                "industry_key": company["industry_key"],
+                "industry_name": company["industry_name"],
+                "sector_key": company["sector_key"],
+                "sector_name": company["sector_name"],
+                "search_term": search_term,
                 "source_page_url": source_page_url,
                 "link": link,
                 "normalized_url": normalized_href,
@@ -136,69 +164,62 @@ def save_followed_article_links(
     return saved_count
 
 
-def build_source_url(industry_name: str, source_config: dict) -> str:
-    encoded_industry = quote_plus(industry_name)
+def build_source_url(search_term: str, source_config: dict) -> str:
+    encoded_search_term = quote_plus(search_term)
     base_url = source_config["url"]
     if "{query}" in base_url:
-        return base_url.format(query=encoded_industry)
+        return base_url.format(query=encoded_search_term)
     return base_url
 
 
-def build_source_jobs(industries: list[dict]) -> tuple[list[str], dict[str, list[dict]]]:
+def build_source_jobs(companies: list[dict]) -> tuple[list[str], dict[str, list[dict]]]:
     jobs_by_url: dict[str, list[dict]] = defaultdict(list)
 
-    for industry in industries:
-        for source_name, source_config in INDUSTRY_NEWS_SOURCES.items():
-            url = build_source_url(industry["name"], source_config)
-            jobs_by_url[url].append(
-                {
-                    "industry": industry,
-                    "source_name": source_name,
-                    "source_type": source_config["type"],
-                }
-            )
+    for company in companies:
+        for search_term in build_company_search_terms(company):
+            for source_name, source_config in COMPANY_NEWS_SOURCES.items():
+                url = build_source_url(search_term, source_config)
+                jobs_by_url[url].append(
+                    {
+                        "company": company,
+                        "source_name": source_name,
+                        "search_term": search_term,
+                    }
+                )
 
     return list(jobs_by_url.keys()), jobs_by_url
 
 
-def process_source_page(page: dict, industry: dict, source_type: str) -> int:
+def process_source_page(page: dict, company: dict, search_term: str) -> int:
     if not page.get("success"):
         return 0
 
-    if source_type == "listing":
-        candidate_links = extract_listing_article_links(page["url"], page["links"], industry["name"])
-    else:
-        candidate_links = filter_article_links(page["url"], page["links"])
-
-    return save_followed_article_links(page["url"], candidate_links, industry)
+    candidate_links = filter_article_links(page["url"], page["links"])
+    return save_followed_article_links(page["url"], candidate_links, company, search_term)
 
 
-def process_crawled_pages(crawled_pages: list[dict], jobs_by_url: dict[str, list[dict]]) -> dict[int, dict[str, int]]:
-    saved_counts: dict[int, dict[str, int]] = defaultdict(lambda: {"listing": 0, "search": 0})
+def process_crawled_pages(crawled_pages: list[dict], jobs_by_url: dict[str, list[dict]]) -> dict[int, int]:
+    saved_counts: dict[int, int] = defaultdict(int)
 
     for page in crawled_pages:
         for job in jobs_by_url.get(page["url"], []):
-            saved = process_source_page(page, job["industry"], job["source_type"])
-            saved_counts[job["industry"]["id"]][job["source_type"]] += saved
+            saved = process_source_page(page, job["company"], job["search_term"])
+            saved_counts[job["company"]["id"]] += saved
 
     return saved_counts
 
 
-def get_all_industry_news() -> None:
+def get_all_company_news() -> None:
     initialize_news_database()
-    industries = get_all_industries()
-    urls, jobs_by_url = build_source_jobs(industries)
+    companies = get_all_companies()
+    urls, jobs_by_url = build_source_jobs(companies)
     crawled_pages = crawl_articles(urls)
     saved_counts = process_crawled_pages(crawled_pages, jobs_by_url)
 
-    for industry in industries:
-        industry_counts = saved_counts.get(industry["id"], {"listing": 0, "search": 0})
-        listing_saved = industry_counts["listing"]
-        print(f"Saved {listing_saved} listing-page articles for {industry['name']}")
-
-        search_saved = industry_counts["search"]
-        print(f"Saved {search_saved} search-page articles for {industry['name']}")
+    for company in companies:
+        saved = saved_counts.get(company["id"], 0)
+        print(f"Saved {saved} articles for {company['name']} ({company['symbol']})")
 
 
 if __name__ == "__main__":
-    get_all_industry_news()
+    get_all_company_news()
