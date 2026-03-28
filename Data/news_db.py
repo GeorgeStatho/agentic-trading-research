@@ -24,7 +24,42 @@ NEWS_ARTICLE_COLUMN_TYPES = {
     "normalized_title": "TEXT",
     "normalized_url": "TEXT",
     "content_hash": "TEXT",
+    "age_days": "REAL",
+    "recency_score": "REAL",
+    "source_reputation_score": "REAL",
+    "directness_score": "REAL",
+    "confirmation_score": "REAL",
+    "independent_source_count": "INTEGER",
+    "factuality_score": "REAL",
+    "evidence_score": "REAL",
 }
+
+
+def _score_from_raw_json(raw_json: Any | None, key: str) -> Any | None:
+    if not isinstance(raw_json, dict):
+        return None
+    scores = raw_json.get("scores")
+    if not isinstance(scores, dict):
+        return None
+    return scores.get(key)
+
+
+def _coerce_float(value: Any | None) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_int(value: Any | None) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def initialize_database(db_path: Path | str = DB_PATH, schema_path: Path | str = SCHEMA_PATH) -> None:
@@ -154,6 +189,14 @@ def add_news_article(
     body: str | None = None,
     published_at: str | None = None,
     section: str | None = None,
+    age_days: float | None = None,
+    recency_score: float | None = None,
+    source_reputation_score: float | None = None,
+    directness_score: float | None = None,
+    confirmation_score: float | None = None,
+    independent_source_count: int | None = None,
+    factuality_score: float | None = None,
+    evidence_score: float | None = None,
     raw_json: Any | None = None,
     db_path: Path | str = DB_PATH,
     conn=None,
@@ -161,6 +204,26 @@ def add_news_article(
     normalized_url = normalize_url(source_url)
     normalized_title = normalize_title(title)
     content_hash = build_content_hash(body or "")
+    age_days = _coerce_float(age_days if age_days is not None else _score_from_raw_json(raw_json, "age_days"))
+    recency_score = _coerce_float(recency_score if recency_score is not None else _score_from_raw_json(raw_json, "recency_score"))
+    source_reputation_score = _coerce_float(
+        source_reputation_score if source_reputation_score is not None else _score_from_raw_json(raw_json, "source_reputation_score")
+    )
+    directness_score = _coerce_float(
+        directness_score if directness_score is not None else _score_from_raw_json(raw_json, "directness_score")
+    )
+    confirmation_score = _coerce_float(
+        confirmation_score if confirmation_score is not None else _score_from_raw_json(raw_json, "confirmation_score")
+    )
+    independent_source_count = _coerce_int(
+        independent_source_count if independent_source_count is not None else _score_from_raw_json(raw_json, "independent_source_count")
+    )
+    factuality_score = _coerce_float(
+        factuality_score if factuality_score is not None else _score_from_raw_json(raw_json, "factuality_score")
+    )
+    evidence_score = _coerce_float(
+        evidence_score if evidence_score is not None else _score_from_raw_json(raw_json, "evidence_score")
+    )
 
     values = (
         source,
@@ -173,6 +236,14 @@ def add_news_article(
         content_hash,
         published_at,
         section,
+        age_days,
+        recency_score,
+        source_reputation_score,
+        directness_score,
+        confirmation_score,
+        independent_source_count,
+        factuality_score,
+        evidence_score,
         source_url,
         json_text(raw_json),
     )
@@ -187,6 +258,14 @@ def add_news_article(
                 body=body,
                 published_at=published_at,
                 section=section,
+                age_days=age_days,
+                recency_score=recency_score,
+                source_reputation_score=source_reputation_score,
+                directness_score=directness_score,
+                confirmation_score=confirmation_score,
+                independent_source_count=independent_source_count,
+                factuality_score=factuality_score,
+                evidence_score=evidence_score,
                 raw_json=raw_json,
                 conn=local_conn,
             )
@@ -219,6 +298,14 @@ def add_news_article(
                 content_hash = ?,
                 published_at = ?,
                 section = ?,
+                age_days = ?,
+                recency_score = ?,
+                source_reputation_score = ?,
+                directness_score = ?,
+                confirmation_score = ?,
+                independent_source_count = ?,
+                factuality_score = ?,
+                evidence_score = ?,
                 source_url = ?,
                 raw_json = ?
             WHERE id = ?
@@ -234,6 +321,14 @@ def add_news_article(
                 content_hash,
                 published_at,
                 section,
+                age_days,
+                recency_score,
+                source_reputation_score,
+                directness_score,
+                confirmation_score,
+                independent_source_count,
+                factuality_score,
+                evidence_score,
                 source_url,
                 json_text(raw_json),
                 article_id,
@@ -245,9 +340,12 @@ def add_news_article(
         """
         INSERT INTO news_articles (
             source, article_key, title, normalized_title, summary, body,
-            normalized_url, content_hash, published_at, section, source_url, raw_json
+            normalized_url, content_hash, published_at, section,
+            age_days, recency_score, source_reputation_score, directness_score,
+            confirmation_score, independent_source_count, factuality_score, evidence_score,
+            source_url, raw_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(article_key) DO UPDATE SET
             source = excluded.source,
             title = excluded.title,
@@ -258,6 +356,14 @@ def add_news_article(
             content_hash = excluded.content_hash,
             published_at = excluded.published_at,
             section = excluded.section,
+            age_days = excluded.age_days,
+            recency_score = excluded.recency_score,
+            source_reputation_score = excluded.source_reputation_score,
+            directness_score = excluded.directness_score,
+            confirmation_score = excluded.confirmation_score,
+            independent_source_count = excluded.independent_source_count,
+            factuality_score = excluded.factuality_score,
+            evidence_score = excluded.evidence_score,
             source_url = excluded.source_url,
             raw_json = excluded.raw_json
         RETURNING id
@@ -308,6 +414,14 @@ def add_industry_news_article(
     body: str | None = None,
     published_at: str | None = None,
     section: str | None = None,
+    age_days: float | None = None,
+    recency_score: float | None = None,
+    source_reputation_score: float | None = None,
+    directness_score: float | None = None,
+    confirmation_score: float | None = None,
+    independent_source_count: int | None = None,
+    factuality_score: float | None = None,
+    evidence_score: float | None = None,
     raw_json: Any | None = None,
     db_path: Path | str = DB_PATH,
     conn=None,
@@ -325,6 +439,14 @@ def add_industry_news_article(
                 body=body,
                 published_at=published_at,
                 section=section,
+                age_days=age_days,
+                recency_score=recency_score,
+                source_reputation_score=source_reputation_score,
+                directness_score=directness_score,
+                confirmation_score=confirmation_score,
+                independent_source_count=independent_source_count,
+                factuality_score=factuality_score,
+                evidence_score=evidence_score,
                 raw_json=raw_json,
                 conn=local_conn,
             )
@@ -338,6 +460,14 @@ def add_industry_news_article(
         body=body,
         published_at=published_at,
         section=section,
+        age_days=age_days,
+        recency_score=recency_score,
+        source_reputation_score=source_reputation_score,
+        directness_score=directness_score,
+        confirmation_score=confirmation_score,
+        independent_source_count=independent_source_count,
+        factuality_score=factuality_score,
+        evidence_score=evidence_score,
         raw_json=raw_json,
         conn=conn,
     )
@@ -391,6 +521,14 @@ def add_company_news_article(
     body: str | None = None,
     published_at: str | None = None,
     section: str | None = None,
+    age_days: float | None = None,
+    recency_score: float | None = None,
+    source_reputation_score: float | None = None,
+    directness_score: float | None = None,
+    confirmation_score: float | None = None,
+    independent_source_count: int | None = None,
+    factuality_score: float | None = None,
+    evidence_score: float | None = None,
     raw_json: Any | None = None,
     db_path: Path | str = DB_PATH,
     conn=None,
@@ -408,6 +546,14 @@ def add_company_news_article(
                 body=body,
                 published_at=published_at,
                 section=section,
+                age_days=age_days,
+                recency_score=recency_score,
+                source_reputation_score=source_reputation_score,
+                directness_score=directness_score,
+                confirmation_score=confirmation_score,
+                independent_source_count=independent_source_count,
+                factuality_score=factuality_score,
+                evidence_score=evidence_score,
                 raw_json=raw_json,
                 conn=local_conn,
             )
@@ -421,6 +567,14 @@ def add_company_news_article(
         body=body,
         published_at=published_at,
         section=section,
+        age_days=age_days,
+        recency_score=recency_score,
+        source_reputation_score=source_reputation_score,
+        directness_score=directness_score,
+        confirmation_score=confirmation_score,
+        independent_source_count=independent_source_count,
+        factuality_score=factuality_score,
+        evidence_score=evidence_score,
         raw_json=raw_json,
         conn=conn,
     )
@@ -542,6 +696,105 @@ def list_company_news_articles(company_id: int, db_path: Path | str = DB_PATH) -
             (company_id,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_failed_url(url: str, db_path: Path | str = DB_PATH) -> dict | None:
+    normalized_url = normalize_url(url)
+    if not normalized_url:
+        return None
+
+    initialize_database(db_path=db_path)
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT
+                id,
+                url,
+                normalized_url,
+                stage,
+                last_error,
+                failure_count,
+                is_permanent,
+                created_at,
+                updated_at
+            FROM failed_urls
+            WHERE normalized_url = ?
+            LIMIT 1
+            """,
+            (normalized_url,),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def add_failed_url(
+    url: str,
+    stage: str | None = None,
+    error: str | None = None,
+    is_permanent: bool = False,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    normalized_url = normalize_url(url)
+    if not normalized_url:
+        return 0
+
+    values = (
+        url,
+        normalized_url,
+        stage,
+        error,
+        1 if is_permanent else 0,
+    )
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return add_failed_url(
+                url,
+                stage=stage,
+                error=error,
+                is_permanent=is_permanent,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO failed_urls (
+            url, normalized_url, stage, last_error, failure_count, is_permanent, updated_at
+        )
+        VALUES (?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(normalized_url) DO UPDATE SET
+            url = excluded.url,
+            stage = excluded.stage,
+            last_error = excluded.last_error,
+            failure_count = failed_urls.failure_count + 1,
+            is_permanent = CASE
+                WHEN excluded.is_permanent = 1 OR failed_urls.is_permanent = 1 THEN 1
+                ELSE 0
+            END,
+            updated_at = CURRENT_TIMESTAMP
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
+def remove_failed_url(url: str, db_path: Path | str = DB_PATH, conn=None) -> None:
+    normalized_url = normalize_url(url)
+    if not normalized_url:
+        return
+
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            remove_failed_url(url, conn=local_conn)
+            return
+
+    conn.execute(
+        """
+        DELETE FROM failed_urls
+        WHERE normalized_url = ?
+        """,
+        (normalized_url,),
+    )
 
 
 if __name__ == "__main__":

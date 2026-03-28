@@ -50,6 +50,8 @@ def fetch_table_counts() -> dict[str, int]:
         "macro_events",
         "news_articles",
         "industry_news_articles",
+        "company_news_articles",
+        "failed_urls",
     ]
     counts: dict[str, int] = {}
 
@@ -71,14 +73,25 @@ def fetch_article_counts() -> dict[str, int]:
             FROM industry_news_articles
             """
         ).fetchone()["count"]
+        company_linked_articles = conn.execute(
+            """
+            SELECT COUNT(DISTINCT article_id) AS count
+            FROM company_news_articles
+            """
+        ).fetchone()["count"]
         industry_article_links = conn.execute(
             "SELECT COUNT(*) AS count FROM industry_news_articles"
+        ).fetchone()["count"]
+        company_article_links = conn.execute(
+            "SELECT COUNT(*) AS count FROM company_news_articles"
         ).fetchone()["count"]
 
     return {
         "total_news_articles": total_articles,
         "industry_linked_articles": linked_articles,
         "industry_article_links": industry_article_links,
+        "company_linked_articles": company_linked_articles,
+        "company_article_links": company_article_links,
     }
 
 
@@ -170,6 +183,32 @@ def fetch_companies_by_industry(industry_key: str, limit: int = 10) -> list[dict
     return _rows_to_dicts(rows)
 
 
+def fetch_all_companies(limit: int | None = None) -> list[dict]:
+    query = """
+        SELECT
+            c.id,
+            c.symbol,
+            c.name,
+            c.rating,
+            c.market_weight,
+            i.industry_key,
+            i.name AS industry_name,
+            s.sector_key,
+            s.name AS sector_name
+        FROM companies AS c
+        JOIN industries AS i ON i.id = c.industry_id
+        JOIN sectors AS s ON s.id = i.sector_id
+        ORDER BY s.name, i.name, c.name
+    """
+
+    with get_connection() as conn:
+        if limit is None:
+            rows = conn.execute(query).fetchall()
+        else:
+            rows = conn.execute(f"{query}\nLIMIT ?", (limit,)).fetchall()
+    return _rows_to_dicts(rows)
+
+
 def fetch_sample_articles(limit: int = 10) -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(
@@ -215,17 +254,71 @@ def fetch_sample_industry_articles(limit: int = 10) -> list[dict]:
     return _rows_to_dicts(rows)
 
 
+def fetch_sample_company_articles(limit: int = 10) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                cna.id,
+                c.symbol,
+                c.name AS company_name,
+                i.industry_key,
+                i.name AS industry_name,
+                na.source,
+                na.title,
+                na.published_at,
+                na.source_url,
+                cna.source_page_url,
+                cna.created_at
+            FROM company_news_articles AS cna
+            JOIN companies AS c ON c.id = cna.company_id
+            JOIN industries AS i ON i.id = c.industry_id
+            JOIN news_articles AS na ON na.id = cna.article_id
+            ORDER BY COALESCE(na.published_at, cna.created_at) DESC, cna.id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return _rows_to_dicts(rows)
+
+
+def fetch_sample_failed_urls(limit: int = 10) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                id,
+                url,
+                normalized_url,
+                stage,
+                last_error,
+                failure_count,
+                is_permanent,
+                created_at,
+                updated_at
+            FROM failed_urls
+            ORDER BY updated_at DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return _rows_to_dicts(rows)
+
+
 def run_smoke_test() -> dict:
     return {
-        "db_path": str(Path(DB_PATH).resolve()),
-        "table_counts": fetch_table_counts(),
-        "article_counts": fetch_article_counts(),
-        "sample_market_data": fetch_sample_market_data(),
-        "sample_macro_events": fetch_sample_macro_events(),
-        "sample_us_macro_events": fetch_macro_events_by_country("United States"),
-        "sample_technology_companies": fetch_companies_by_industry("software-infrastructure"),
-        "sample_articles": fetch_sample_articles(),
-        "sample_industry_articles": fetch_sample_industry_articles(),
+        #"db_path": str(Path(DB_PATH).resolve()),
+        #"table_counts": fetch_table_counts(),
+        #"article_counts": fetch_article_counts(),
+        #"sample_market_data": fetch_sample_market_data(),
+        #"sample_macro_events": fetch_sample_macro_events(),
+        #"sample_us_macro_events": fetch_macro_events_by_country("United States"),
+        "all_companies": fetch_all_companies(),
+        "sample_failed_urls": fetch_sample_failed_urls(),
+        #"sample_technology_companies": fetch_companies_by_industry("software-infrastructure"),
+        #"sample_articles": fetch_sample_articles(),
+        #"sample_industry_articles": fetch_sample_industry_articles(),
+        #"sample_company_articles": fetch_sample_company_articles(),
     }
 
 

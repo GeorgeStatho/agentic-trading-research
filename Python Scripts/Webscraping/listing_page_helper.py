@@ -1,23 +1,14 @@
 from __future__ import annotations
 
-from urllib.parse import urlparse
-
-
-LISTING_PATTERNS_BY_DOMAIN = {
-    "investing.com": ["/news/"],
-    "morningstar.com": ["/news/", "/markets/", "/stocks/"],
-}
+from source_config import get_article_patterns, is_allowed_source, supports_source_type
 
 
 def extract_listing_article_links(page_url: str, links: list[dict], keyword: str) -> list[dict]:
-    domain = urlparse(page_url).netloc.lower()
-    keyword_lower = keyword.lower().strip()
+    if not supports_source_type(page_url, "listing"):
+        return []
 
-    patterns = []
-    for candidate_domain, candidate_patterns in LISTING_PATTERNS_BY_DOMAIN.items():
-        if candidate_domain in domain:
-            patterns = candidate_patterns
-            break
+    keyword_lower = keyword.lower().strip()
+    patterns = get_article_patterns(page_url)
 
     filtered_links: list[dict] = []
     seen_hrefs: set[str] = set()
@@ -25,6 +16,8 @@ def extract_listing_article_links(page_url: str, links: list[dict], keyword: str
         href = link.get("href", "")
         text = (link.get("text") or "").strip()
         if not href or not text or href in seen_hrefs:
+            continue
+        if not is_allowed_source(href):
             continue
         if patterns and not any(pattern in href for pattern in patterns):
             continue
