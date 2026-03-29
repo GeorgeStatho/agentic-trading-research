@@ -15,15 +15,20 @@ def _load_source_config() -> dict:
         return json.load(handle)
 
 
+def _default_metadata(config: dict) -> dict:
+    # Support both the older singular keys and the current config schema.
+    return dict(config.get("defaults") or config.get("default") or {})
+
+
 def _match_domain(url: str) -> tuple[str | None, dict]:
     config = _load_source_config()
-    sources = config.get("sources", {})
+    sources = config.get("domains") or config.get("sources") or {}
     hostname = (urlsplit(url).hostname or "").lower()
     for domain, metadata in sources.items():
         normalized_domain = domain.lower()
         if hostname == normalized_domain or hostname.endswith(f".{normalized_domain}"):
             return domain, metadata
-    return None, config.get("default", {})
+    return None, _default_metadata(config)
 
 
 def is_allowed_source(url: str) -> bool:
@@ -33,7 +38,15 @@ def is_allowed_source(url: str) -> bool:
 
 def supports_source_type(url: str, source_type: str) -> bool:
     _, metadata = _match_domain(url)
-    return bool(metadata.get("supports", {}).get(source_type, False))
+    supports = metadata.get("supports")
+    if isinstance(supports, dict):
+        return bool(supports.get(source_type, False))
+
+    if source_type == "search":
+        return bool(metadata.get("search_supported", False))
+    if source_type == "listing":
+        return bool(metadata.get("listing_supported", False))
+    return False
 
 
 def get_article_patterns(url: str) -> list[str]:
@@ -54,4 +67,3 @@ def get_source_metadata(url: str) -> dict:
     resolved.setdefault("source_type", "unknown")
     resolved.setdefault("paywalled", False)
     return resolved
-

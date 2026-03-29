@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 from collections import defaultdict
 import re
+from typing import cast
 
 WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
 if str(WEBSCRAPING_DIR) not in sys.path:
@@ -20,7 +21,7 @@ from core.CommonPipeline import (
 )
 from core.scrape_logging import get_log_file_path, get_scrape_logger
 from listing_page_helper import extract_listing_article_links
-from Normalization import crawl_articles, extract_article
+from Normalization import ArticleExtractionResult, crawl_article_pages, crawl_articles
 from news_normalization import build_content_hash, normalize_title, normalize_url
 from source_config import (
     get_max_article_age_days,
@@ -132,6 +133,7 @@ def save_followed_article_links(
     max_age_days: int = MAX_ARTICLE_AGE_DAYS,
 ) -> int:
     saved_count = 0
+    fetched_articles: dict[str, ArticleExtractionResult] = {}
     # Follow each filtered industry link one level deep, reusing existing
     # articles when possible and only saving recent articles to the DB.
     LOGGER.info(
@@ -140,6 +142,26 @@ def save_followed_article_links(
         industry["name"],
         source_page_url,
     )
+
+    urls_to_fetch: list[str] = []
+    for link in candidate_links:
+        if len(urls_to_fetch) >= max_articles:
+            break
+
+        href = link.get("href")
+        if not href or fetch_existing_article_by_url(href) is not None:
+            continue
+        if not is_allowed_source(href):
+            continue
+        urls_to_fetch.append(href)
+
+    if urls_to_fetch:
+        LOGGER.info(
+            "Fetching %s article pages through Scrapy for industry %s",
+            len(urls_to_fetch),
+            industry["name"],
+        )
+        fetched_articles = crawl_article_pages(urls_to_fetch)
 
     for link in candidate_links:
         if saved_count >= max_articles:
@@ -199,7 +221,14 @@ def save_followed_article_links(
             }
             LOGGER.info("Reusing existing article %s for industry %s", href, industry["name"])
         else:
-            article = extract_article(href)
+            article = cast(ArticleExtractionResult | None, fetched_articles.get(href))
+            if article is None:
+                LOGGER.warning(
+                    "Missing crawled article result for industry %s at %s",
+                    industry["name"],
+                    href,
+                )
+                continue
             if not article.success:
                 record_failed_url(href, "article_follow", article.error)
                 LOGGER.warning(
