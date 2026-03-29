@@ -13,7 +13,7 @@ DATA_DIR = Path(__file__).resolve().parents[3] / "Data"
 if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
 
-from market_db import load_sector_tree
+from market_db import add_company_price_snapshot, load_sector_tree
 from stringtoJson import generalWrite
 from yfinance_client import (
     LOGGER,
@@ -53,6 +53,9 @@ def store_stock(stockData: dict):
 
     stocks_data[stock_id] = stockData
     generalWrite(stockData, "id", STOCKS_FILE)
+    snapshot_id = add_company_price_snapshot(str(stock_id), stockData)
+    if snapshot_id is None:
+        LOGGER.warning("Skipped DB stock snapshot for unknown company symbol %s", stock_id)
     print(json.dumps(stocks_data[stock_id], indent=2, sort_keys=True))
 
 
