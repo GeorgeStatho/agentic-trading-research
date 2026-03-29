@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "description": "Deterministic source validation and scoring config for scraped market/news content.",
+  "defaults": {
+    "allowed": false,
+    "reputation_score": 0.2,
+    "source_type": "unknown",
+    "paywalled": false,
+    "listing_supported": false,
+    "search_supported": false,
+    "article_patterns": [],
+    "max_article_age_days": 14
+  },
+  "domains": {
+    "reuters.com": {
+      "allowed": true,
+      "reputation_score": 0.95,
+      "source_type": "wire",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": false,
+      "article_patterns": [
+        "/world/",
+        "/markets/",
+        "/business/"
+      ],
+      "max_article_age_days": 14
+    },
+    "cnbc.com": {
+      "allowed": true,
+      "reputation_score": 0.82,
+      "source_type": "financial_news",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": true,
+      "article_patterns": [
+        "/202",
+        "/video/",
+        "/pro/"
+      ],
+      "max_article_age_days": 14
+    },
+    "morningstar.com": {
+      "allowed": true,
+      "reputation_score": 0.8,
+      "source_type": "research_financial_news",
+      "paywalled": false,
+      "listing_supported": true,
+      "search_supported": true,
+      "article_patterns": [
+        "/news/",
+        "/markets/",
+        "/stocks/"
+      ],
+      "max_article_age_days": 21
+    },
+    "barrons.com": {
+      "allowed": true,
+      "reputation_score": 0.88,
+      "source_type": "financial_news",
+      "paywalled": true,
+      "listing_supported": false,
+      "search_supported": true,
+      "article_patterns": [
+        "/articles/"
+      ],
+      "max_article_age_days": 21
+    },
+    "marketwatch.com": {
+      "allowed": true,
+      "reputation_score": 0.78,
+      "source_type": "financial_news",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": true,
+      "article_patterns": [
+        "/story/"
+      ],
+      "max_article_age_days": 14
+    },
+    "fool.com": {
+      "allowed": true,
+      "reputation_score": 0.58,
+      "source_type": "analysis_opinion",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": true,
+      "article_patterns": [
+        "/investing/",
+        "/earnings/",
+        "/research/",
+        "/news/"
+      ],
+      "max_article_age_days": 14
+    },
+    "investing.com": {
+      "allowed": true,
+      "reputation_score": 0.55,
+      "source_type": "financial_news_aggregator",
+      "paywalled": false,
+      "listing_supported": true,
+      "search_supported": true,
+      "article_patterns": [
+        "/news/"
+      ],
+      "max_article_age_days": 10
+    },
+    "businessinsider.com": {
+      "allowed": true,
+      "reputation_score": 0.66,
+      "source_type": "business_news",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": false,
+      "article_patterns": [
+        "/news/",
+        "/stock-market/",
+        "/economy/"
+      ],
+      "max_article_age_days": 14
+    },
+    "markets.businessinsider.com": {
+      "allowed": true,
+      "reputation_score": 0.6,
+      "source_type": "market_news_portal",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": true,
+      "article_patterns": [
+        "/news/"
+      ],
+      "max_article_age_days": 10
+    },
+    "finance.yahoo.com": {
+      "allowed": true,
+      "reputation_score": 0.64,
+      "source_type": "market_portal",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": true,
+      "article_patterns": [
+        "/news/"
+      ],
+      "max_article_age_days": 10
+    },
+    "news.yahoo.com": {
+      "allowed": true,
+      "reputation_score": 0.62,
+      "source_type": "news_portal",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": false,
+      "article_patterns": [
+        "/"
+      ],
+      "max_article_age_days": 10
+    }
+  }
+}
