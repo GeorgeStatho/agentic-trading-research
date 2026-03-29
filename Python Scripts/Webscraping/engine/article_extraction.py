@@ -112,6 +112,13 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
         if marketwatch_result.success:
             return marketwatch_result
 
+    if "barrons.com" in lowered_url:
+        from barrons_extractor import extract_barrons_article
+
+        barrons_result = extract_barrons_article(response)
+        if barrons_result.success:
+            return barrons_result
+
     if "cnbc.com" in lowered_url:
         from cnbc_extractor import extract_cnbc_article
 
@@ -125,6 +132,13 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
         investing_result = extract_investing_article(response)
         if investing_result.success:
             return investing_result
+
+    if "fool.com" in lowered_url:
+        from fool_extractor import extract_fool_article
+
+        fool_result = extract_fool_article(response)
+        if fool_result.success:
+            return fool_result
 
     title = response.css("title::text").get(default="").strip()
     published_at = _extract_published_at(response)
@@ -192,4 +206,3 @@ def extract_article(url: str, timeout: int = 20) -> ArticleExtractionResult:
     else:
         LOGGER.warning("Article extraction failed for %s: %s", result.url, result.error)
     return result
-

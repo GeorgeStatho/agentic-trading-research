@@ -1,7 +1,9 @@
 from pathlib import Path
 import sys
 from collections import defaultdict
+import json
 import re
+from typing import cast
 
 WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
 if str(WEBSCRAPING_DIR) not in sys.path:
@@ -19,7 +21,7 @@ from core.CommonPipeline import (
     record_failed_url,
 )
 from core.scrape_logging import get_log_file_path, get_scrape_logger
-from Normalization import crawl_articles, extract_article
+from Normalization import ArticleExtractionResult, crawl_article_pages, crawl_articles
 from news_normalization import build_content_hash, normalize_title, normalize_url
 from source_config import (
     get_max_article_age_days,
@@ -69,6 +71,55 @@ def build_company_search_terms(company: dict) -> list[str]:
     # we do not explode the number of search URLs with weak alternate queries.
     company_name = " ".join((company.get("name") or "").split()).strip()
     return [company_name] if company_name else []
+
+
+FOOL_EXCHANGE_SLUGS = {
+    "NASDAQ": "nasdaq",
+    "NMS": "nasdaq",
+    "NGM": "nasdaq",
+    "NGS": "nasdaq",
+    "NYSE": "nyse",
+    "NYQ": "nyse",
+    "NYSEARCA": "nysearca",
+    "ARCA": "nysearca",
+    "AMEX": "amex",
+    "ASE": "amex",
+}
+
+
+def get_company_exchange_slug(company: dict) -> str | None:
+    raw_json = company.get("raw_json")
+    if not raw_json:
+        return None
+
+    payload: dict | None = None
+    if isinstance(raw_json, str):
+        try:
+            payload = json.loads(raw_json)
+        except json.JSONDecodeError:
+            payload = None
+    elif isinstance(raw_json, dict):
+        payload = raw_json
+
+    if not payload:
+        return None
+
+    exchange = str(payload.get("exchange") or "").strip().upper()
+    if not exchange:
+        return None
+    return FOOL_EXCHANGE_SLUGS.get(exchange, exchange.lower())
+
+
+def build_company_source_url(company: dict, search_term: str, source_config: dict) -> str | None:
+    company_specific_type = source_config.get("company_specific")
+    if company_specific_type == "fool_quote":
+        symbol = str(company.get("symbol") or "").strip().lower()
+        exchange_slug = get_company_exchange_slug(company)
+        if not symbol or not exchange_slug:
+            return None
+        return source_config["url"].format(exchange=exchange_slug, symbol=symbol)
+
+    return build_source_url(search_term, source_config)
 
 
 def normalize_match_text(value: str | None) -> str:
@@ -150,6 +201,7 @@ def save_followed_article_links(
     max_age_days: int = MAX_ARTICLE_AGE_DAYS,
 ) -> int:
     saved_count = 0
+    fetched_articles: dict[str, ArticleExtractionResult] = {}
     # Follow the filtered result links one level deep, reuse any article that
     # already exists in the DB, and save new articles that pass recency checks.
     LOGGER.info(
@@ -158,6 +210,26 @@ def save_followed_article_links(
         company["symbol"],
         source_page_url,
     )
+
+    urls_to_fetch: list[str] = []
+    for link in candidate_links:
+        if len(urls_to_fetch) >= max_articles:
+            break
+
+        href = link.get("href")
+        if not href or fetch_existing_article_by_url(href) is not None:
+            continue
+        if not is_allowed_source(href):
+            continue
+        urls_to_fetch.append(href)
+
+    if urls_to_fetch:
+        LOGGER.info(
+            "Fetching %s article pages through Scrapy for company %s",
+            len(urls_to_fetch),
+            company["symbol"],
+        )
+        fetched_articles = crawl_article_pages(urls_to_fetch)
 
     for link in candidate_links:
         if saved_count >= max_articles:
@@ -217,7 +289,14 @@ def save_followed_article_links(
             }
             LOGGER.info("Reusing existing article %s for company %s", href, company["symbol"])
         else:
-            article = extract_article(href)
+            article = cast(ArticleExtractionResult | None, fetched_articles.get(href))
+            if article is None:
+                LOGGER.warning(
+                    "Missing crawled article result for company %s at %s",
+                    company["symbol"],
+                    href,
+                )
+                continue
             if not article.success:
                 record_failed_url(href, "article_follow", article.error)
                 LOGGER.warning(
@@ -307,7 +386,9 @@ def build_source_jobs(companies: list[dict]) -> tuple[list[str], dict[str, list[
     for company in companies:
         for search_term in build_company_search_terms(company):
             for source_name, source_config in COMPANY_NEWS_SOURCES.items():
-                url = build_source_url(search_term, source_config)
+                url = build_company_source_url(company, search_term, source_config)
+                if not url:
+                    continue
                 if not supports_source_type(url, source_config["type"]):
                     continue
                 jobs_by_url[url].append(

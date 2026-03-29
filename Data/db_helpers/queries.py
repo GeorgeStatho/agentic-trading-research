@@ -31,6 +31,7 @@ def get_all_companies() -> list[dict]:
                 c.name,
                 c.rating,
                 c.market_weight,
+                c.raw_json,
                 i.id AS industry_id,
                 i.industry_key,
                 i.name AS industry_name,

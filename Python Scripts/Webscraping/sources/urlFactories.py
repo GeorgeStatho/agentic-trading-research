@@ -2,6 +2,11 @@ from __future__ import annotations
 
 
 SEARCH_SOURCES = {
+    "Motley Fool Quote": {
+        "url": "https://www.fool.com/quote/{exchange}/{symbol}/",
+        "type": "search",
+        "company_specific": "fool_quote",
+    },
     "CNBC Search": {
         "url": "https://www.cnbc.com/search/?query={query}",
         "type": "search",

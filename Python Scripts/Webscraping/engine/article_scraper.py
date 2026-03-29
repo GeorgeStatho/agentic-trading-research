@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import sys
+import threading
 import scrapy
 from scrapy import signals
 from scrapy.crawler import CrawlerProcess
@@ -7,22 +10,104 @@ from scrapy.http import Request
 from scrapy.http import Response
 from scrapy.signalmanager import dispatcher
 
-from article_extraction import DEFAULT_USER_AGENT, extract_from_response
+from article_extraction import ArticleExtractionResult, DEFAULT_USER_AGENT, extract_from_response
+from barrons_extractor import extract_barrons_search_links, response_looks_like_barrons_search
 from cnbc_extractor import extract_cnbc_search_links, response_looks_like_cnbc_search
 from core.scrape_logging import get_log_file_path, get_scrape_logger, get_scrapy_log_settings
+from fool_extractor import extract_fool_quote_links, response_looks_like_fool_quote
 from investing_extractor import extract_investing_search_links, response_looks_like_investing_search
 from marketwatch_extractor import extract_marketwatch_search_links, response_looks_like_marketwatch_search
 
 LOGGER = get_scrape_logger("article_scraper")
 
 
+class _KeyboardStopMonitor:
+    def __init__(self, process: CrawlerProcess):
+        self.process = process
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if not sys.stdin or not sys.stdin.isatty():
+            return
+
+        self._thread = threading.Thread(target=self._watch_for_stop_key, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=0.5)
+
+    def _request_stop(self, key_label: str) -> None:
+        if self._stop_event.is_set():
+            return
+
+        self._stop_event.set()
+        LOGGER.warning("Keyboard stop requested with %s; stopping crawl early", key_label)
+        print(f"\nStopping crawl early because {key_label} was pressed...")
+        from twisted.internet import reactor
+
+        reactor.callFromThread(self.process.stop)
+
+    def _watch_for_stop_key(self) -> None:
+        if os.name == "nt":
+            self._watch_windows()
+            return
+        self._watch_posix()
+
+    def _watch_windows(self) -> None:
+        import msvcrt
+
+        while not self._stop_event.is_set():
+            if not msvcrt.kbhit():
+                self._stop_event.wait(0.2)
+                continue
+
+            pressed = msvcrt.getwch()
+            if pressed in {"q", "Q"}:
+                self._request_stop("q")
+                return
+            if pressed == "\x1b":
+                self._request_stop("Esc")
+                return
+
+    def _watch_posix(self) -> None:
+        import select
+        import termios
+        import tty
+
+        stdin_fd = sys.stdin.fileno()
+        original_settings = termios.tcgetattr(stdin_fd)
+        try:
+            tty.setcbreak(stdin_fd)
+            while not self._stop_event.is_set():
+                readable, _, _ = select.select([sys.stdin], [], [], 0.2)
+                if not readable:
+                    continue
+
+                pressed = sys.stdin.read(1)
+                if pressed in {"q", "Q"}:
+                    self._request_stop("q")
+                    return
+                if pressed == "\x1b":
+                    self._request_stop("Esc")
+                    return
+        finally:
+            termios.tcsetattr(stdin_fd, termios.TCSADRAIN, original_settings)
+
+
 def extract_search_links(response: Response) -> list[dict[str, str]]:
+    if response_looks_like_barrons_search(response):
+        return extract_barrons_search_links(response)
     if response_looks_like_marketwatch_search(response):
         return extract_marketwatch_search_links(response)
     if response_looks_like_cnbc_search(response):
         return extract_cnbc_search_links(response)
     if response_looks_like_investing_search(response):
         return extract_investing_search_links(response)
+    if response_looks_like_fool_quote(response):
+        return extract_fool_quote_links(response)
     return extract_links(response)
 
 
@@ -102,9 +187,11 @@ class ArticleSpider(scrapy.Spider):
         if response.status >= 400:
             self.logger.warning("Non-200 response for %s: HTTP %s", response.url, response.status)
             yield {
+                "request_url": response.request.url,
                 "url": response.url,
                 "title": "",
                 "text": "",
+                "published_at": "",
                 "success": False,
                 "error": f"HTTP {response.status}",
                 "status": response.status,
@@ -119,9 +206,11 @@ class ArticleSpider(scrapy.Spider):
 
         discovered_links = extract_search_links(response)
         yield {
+            "request_url": response.request.url,
             "url": result.url,
             "title": result.title,
             "text": result.text,
+            "published_at": result.published_at,
             "links": discovered_links,
             "success": result.success,
             "error": result.error,
@@ -131,10 +220,12 @@ class ArticleSpider(scrapy.Spider):
     def handle_failure(self, failure):
         request = failure.request
         self.logger.error("Request failed for %s: %s", request.url, failure.value)
-        yield {
+        return {
+            "request_url": request.url,
             "url": request.url,
             "title": "",
             "text": "",
+            "published_at": "",
             "links": [],
             "success": False,
             "error": str(failure.value),
@@ -157,7 +248,20 @@ def crawl_articles(urls: list[str]) -> list[dict]:
 
     process = CrawlerProcess(settings=get_scrapy_log_settings())
     process.crawl(ArticleSpider, urls=urls)
-    process.start()
+    stop_monitor = _KeyboardStopMonitor(process)
+    if sys.stdin and sys.stdin.isatty():
+        LOGGER.info("Keyboard stop enabled: press q, Esc, or Ctrl+C to stop the crawl early")
+        print("Press q, Esc, or Ctrl+C to stop the crawl early.")
+
+    stop_monitor.start()
+    try:
+        process.start()
+    except KeyboardInterrupt:
+        LOGGER.warning("KeyboardInterrupt received; stopping crawl early")
+        print("\nStopping crawl early because Ctrl+C was pressed...")
+        process.stop()
+    finally:
+        stop_monitor.stop()
 
     dispatcher.disconnect(_collect_item, signal=signals.item_scraped)
     success_count = sum(1 for item in items if item.get("success"))
@@ -171,3 +275,28 @@ def crawl_articles(urls: list[str]) -> list[dict]:
     print(f"Scrape log written to {log_file}")
     return items
 
+
+def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
+    crawled_pages = crawl_articles(urls)
+    results: dict[str, ArticleExtractionResult] = {}
+
+    for page in crawled_pages:
+        request_url = str(page.get("request_url") or "").strip()
+        page_url = str(page.get("url") or "").strip()
+        if not request_url and not page_url:
+            continue
+
+        article_result = ArticleExtractionResult(
+            url=page_url,
+            title=str(page.get("title") or ""),
+            text=str(page.get("text") or ""),
+            published_at=str(page.get("published_at") or ""),
+            success=bool(page.get("success")),
+            error=str(page.get("error") or ""),
+        )
+        if request_url:
+            results[request_url] = article_result
+        if page_url and page_url != request_url:
+            results[page_url] = article_result
+
+    return results
