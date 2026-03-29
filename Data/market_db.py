@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -11,6 +12,41 @@ from db_common import DB_PATH, DATA_DIR, clean_text, coerce_float, get_connectio
 SCHEMA_PATH = DATA_DIR / "market_schema.sql"
 LEGACY_SECTOR_KEY = "unassigned"
 LEGACY_SECTOR_NAME = "Unassigned"
+
+
+def _normalize_timestamp(value: Any) -> str:
+    if value is None:
+        return datetime.now(timezone.utc).isoformat()
+
+    text = clean_text(value)
+    if text is None:
+        return datetime.now(timezone.utc).isoformat()
+
+    candidate = text.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return datetime.now(timezone.utc).isoformat()
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _extract_snapshot_price(snapshot: dict[str, Any]) -> float | None:
+    for key in ("price", "last_price", "lastPrice", "regularMarketPrice", "ask_price", "bid_price"):
+        value = coerce_float(snapshot.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _extract_snapshot_volume(snapshot: dict[str, Any]) -> float | None:
+    for key in ("volume", "day_volume", "dayVolume", "regularMarketVolume"):
+        value = coerce_float(snapshot.get(key))
+        if value is not None:
+            return value
+    return None
 
 
 def _is_legacy_schema(conn: sqlite3.Connection) -> bool:
@@ -163,7 +199,101 @@ def replace_industry_company_rankings(
             VALUES (?, ?, ?, ?, ?)
             """,
             (industry_id, company_id, ranking_type, rank, json_text(raw_json)),
+            )
+
+
+def add_company_price_snapshot(
+    symbol: str,
+    snapshot: dict[str, Any],
+    *,
+    source: str = "yfinance_stream",
+    db_path: Path | str = DB_PATH,
+    conn: sqlite3.Connection | None = None,
+) -> int | None:
+    normalized_symbol = clean_text(symbol)
+    if normalized_symbol is None:
+        return None
+
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return add_company_price_snapshot(
+                normalized_symbol,
+                snapshot,
+                source=source,
+                conn=local_conn,
+            )
+
+    company_row = conn.execute(
+        """
+        SELECT id
+        FROM companies
+        WHERE symbol = ?
+        """,
+        (normalized_symbol,),
+    ).fetchone()
+    if company_row is None:
+        return None
+
+    company_id = int(company_row["id"])
+    captured_at = _normalize_timestamp(
+        snapshot.get("captured_at")
+        or snapshot.get("timestamp")
+        or snapshot.get("time")
+        or snapshot.get("market_time")
+    )
+    price = _extract_snapshot_price(snapshot)
+    volume = _extract_snapshot_volume(snapshot)
+
+    previous_row = conn.execute(
+        """
+        SELECT price
+        FROM company_price_snapshots
+        WHERE company_id = ?
+        ORDER BY captured_at DESC, id DESC
+        LIMIT 1
+        """,
+        (company_id,),
+    ).fetchone()
+    previous_price = coerce_float(previous_row["price"]) if previous_row is not None else None
+
+    price_change = None
+    price_change_pct = None
+    if price is not None and previous_price is not None:
+        price_change = price - previous_price
+        if previous_price != 0:
+            price_change_pct = price_change / previous_price
+
+    cursor = conn.execute(
+        """
+        INSERT INTO company_price_snapshots (
+            company_id,
+            symbol,
+            captured_at,
+            price,
+            previous_price,
+            price_change,
+            price_change_pct,
+            volume,
+            source,
+            raw_json
         )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+        """,
+        (
+            company_id,
+            normalized_symbol,
+            captured_at,
+            price,
+            previous_price,
+            price_change,
+            price_change_pct,
+            volume,
+            source,
+            json_text(snapshot),
+        ),
+    )
+    return int(cursor.fetchone()["id"])
 
 
 def _migrate_legacy_schema(conn: sqlite3.Connection) -> None:
@@ -373,6 +503,41 @@ def list_industry_company_rankings(
             ORDER BY r.rank ASC, c.symbol ASC
             """,
             (industry_key, ranking_type),
+        ).fetchall()
+    return rows
+
+
+def list_company_price_snapshots(
+    symbol: str,
+    *,
+    limit: int = 20,
+    db_path: Path | str = DB_PATH,
+) -> list[sqlite3.Row]:
+    normalized_symbol = clean_text(symbol)
+    if normalized_symbol is None:
+        return []
+
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                s.id,
+                s.company_id,
+                s.symbol,
+                s.captured_at,
+                s.price,
+                s.previous_price,
+                s.price_change,
+                s.price_change_pct,
+                s.volume,
+                s.source,
+                s.raw_json
+            FROM company_price_snapshots AS s
+            WHERE s.symbol = ?
+            ORDER BY s.captured_at DESC, s.id DESC
+            LIMIT ?
+            """,
+            (normalized_symbol, max(1, int(limit))),
         ).fetchall()
     return rows
 

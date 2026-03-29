@@ -45,6 +45,21 @@ CREATE TABLE IF NOT EXISTS industry_company_rankings (
     UNIQUE (industry_id, company_id, ranking_type)
 );
 
+CREATE TABLE IF NOT EXISTS company_price_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    captured_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    price REAL,
+    previous_price REAL,
+    price_change REAL,
+    price_change_pct REAL,
+    volume REAL,
+    source TEXT,
+    raw_json TEXT,
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_sectors_sector_key
     ON sectors (sector_key);
 
@@ -68,3 +83,12 @@ CREATE INDEX IF NOT EXISTS idx_industry_company_rankings_company_id
 
 CREATE INDEX IF NOT EXISTS idx_industry_company_rankings_type
     ON industry_company_rankings (ranking_type);
+
+CREATE INDEX IF NOT EXISTS idx_company_price_snapshots_company_id
+    ON company_price_snapshots (company_id);
+
+CREATE INDEX IF NOT EXISTS idx_company_price_snapshots_symbol
+    ON company_price_snapshots (symbol);
+
+CREATE INDEX IF NOT EXISTS idx_company_price_snapshots_captured_at
+    ON company_price_snapshots (captured_at);
