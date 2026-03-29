@@ -1,3 +1,11 @@
+from .barrons import (
+    barrons_response_is_blocked,
+    extract_barrons_article,
+    extract_barrons_search_links,
+    is_barrons_article_url,
+    is_barrons_url,
+    response_looks_like_barrons_search,
+)
 from .cnbc import (
     extract_cnbc_article,
     extract_cnbc_search_links,
@@ -12,6 +20,14 @@ from .investing import (
     is_investing_url,
     response_looks_like_investing_search,
 )
+from .fool import (
+    extract_fool_article,
+    extract_fool_quote_links,
+    is_fool_article_url,
+    is_fool_quote_url,
+    is_fool_url,
+    response_looks_like_fool_quote,
+)
 from .marketwatch import (
     extract_marketwatch_article,
     extract_marketwatch_search_links,
@@ -19,4 +35,3 @@ from .marketwatch import (
     is_marketwatch_url,
     response_looks_like_marketwatch_search,
 )
-
