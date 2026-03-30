@@ -35,3 +35,8 @@ from .marketwatch import (
     is_marketwatch_url,
     response_looks_like_marketwatch_search,
 )
+from .yahoo import (
+    extract_yahoo_article,
+    is_yahoo_article_url,
+    is_yahoo_url,
+)

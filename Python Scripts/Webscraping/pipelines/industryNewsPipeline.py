@@ -1,65 +1,74 @@
+from __future__ import annotations
+
 from pathlib import Path
 import sys
-from collections import defaultdict
-import re
-from typing import cast
 
-WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
-if str(WEBSCRAPING_DIR) not in sys.path:
-    sys.path.append(str(WEBSCRAPING_DIR))
+if __package__ in {None, ""}:
+    WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
+    if str(WEBSCRAPING_DIR) not in sys.path:
+        sys.path.append(str(WEBSCRAPING_DIR))
 
-from core.CommonPipeline import (
+from pipelines._shared import (
     MAX_ARTICLES_PER_SEARCH_PAGE,
     MAX_ARTICLE_AGE_DAYS,
-    build_source_url,
-    clear_failed_url,
-    compute_article_scores,
-    fetch_existing_article_by_url,
     filter_article_links,
-    is_recent_article,
-    record_failed_url,
-)
-from core.scrape_logging import get_log_file_path, get_scrape_logger
-from listing_page_helper import extract_listing_article_links
-from Normalization import ArticleExtractionResult, crawl_article_pages, crawl_articles
-from news_normalization import build_content_hash, normalize_title, normalize_url
-from source_config import (
-    get_max_article_age_days,
-    get_source_metadata,
-    is_allowed_source,
+    get_log_file_path,
+    get_scrape_logger,
     supports_source_type,
 )
-from urlFactories import INDUSTRY_NEWS_SOURCES
-
-DATA_DIR = Path(__file__).resolve().parents[2] / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
+from listing_page_helper import extract_listing_article_links
+from pipelines._constants import INDUSTRY_NAME_STOPWORDS
+from pipelines._entity_adapters import (
+    make_bucketed_count_accumulator,
+    make_direct_request_builder,
+    make_entity_article_saver,
+    make_request_saver,
+    make_search_request_builder,
+)
+from pipelines._internal import is_blacklisted_cnbc_link, link_matches_variants, normalize_match_text
+from pipelines._orchestration import (
+    run_mixed_job_orchestration,
+)
+from pipelines.job_builder import build_industry_source_jobs, group_jobs_by_url, unique_job_urls
 
 from db_helpers import add_industry_news_article, get_all_industries, initialize_news_database
 
 
 LOGGER = get_scrape_logger("industry_pipeline")
-INDUSTRY_NAME_STOPWORDS = {
-    "and",
-    "the",
-    "other",
-    "production",
-    "products",
-}
-CNBC_BLACKLISTED_PATH_FRAGMENTS = (
-    "/investingclub/video/",
-    "/pro/news/",
-    "/pro/options-investing/",
-    "/application/pro/",
-)
+__all__ = ["get_all_industry_news", "get_industry_news", "list_supported_industries"]
 
 
-def normalize_match_text(value: str | None) -> str:
-    cleaned = re.sub(r"[^a-z0-9]+", " ", (value or "").lower())
-    return " ".join(cleaned.split())
+def _expand_industry_variant_forms(value: str) -> set[str]:
+    variants = {value}
+    tokens = value.split()
+
+    def _token_forms(token: str) -> set[str]:
+        forms = {token}
+        if len(token) > 4 and token.endswith("ies"):
+            forms.add(token[:-3] + "y")
+        if len(token) > 4 and token.endswith("es"):
+            forms.add(token[:-2])
+        if len(token) > 4 and token.endswith("s"):
+            forms.add(token[:-1])
+        return {form for form in forms if len(form) >= 4}
+
+    if tokens:
+        token_options = [_token_forms(token) for token in tokens]
+        expanded_tokens = [sorted(options) for options in token_options]
+
+        def _walk(index: int, current: list[str]) -> None:
+            if index >= len(expanded_tokens):
+                variants.add(" ".join(current))
+                return
+            for option in expanded_tokens[index]:
+                _walk(index + 1, [*current, option])
+
+        _walk(0, [])
+
+    return {variant for variant in variants if len(variant) >= 4}
 
 
-def build_industry_match_variants(industry: dict) -> set[str]:
+def _build_industry_match_variants(industry: dict) -> set[str]:
     industry_name = normalize_match_text(industry.get("name"))
     if not industry_name:
         return set()
@@ -82,22 +91,19 @@ def build_industry_match_variants(industry: dict) -> set[str]:
             variants.add(" ".join(key_tokens))
             variants.update(key_tokens)
 
-    return {variant for variant in variants if len(variant) >= 4}
+    expanded_variants: set[str] = set()
+    for variant in variants:
+        expanded_variants.update(_expand_industry_variant_forms(variant))
+
+    return {variant for variant in expanded_variants if len(variant) >= 4}
 
 
-def is_blacklisted_cnbc_link(href: str) -> bool:
-    normalized_href = href.lower()
-    return "cnbc.com" in normalized_href and any(
-        fragment in normalized_href for fragment in CNBC_BLACKLISTED_PATH_FRAGMENTS
-    )
-
-
-def filter_industry_candidate_links(page_url: str, links: list[dict], industry: dict) -> list[dict]:
+def _filter_industry_candidate_links(page_url: str, links: list[dict], industry: dict) -> list[dict]:
     base_candidates = filter_article_links(page_url, links)
     if not base_candidates:
         return []
 
-    variants = build_industry_match_variants(industry)
+    variants = _build_industry_match_variants(industry)
     if not variants:
         return []
 
@@ -110,9 +116,7 @@ def filter_industry_candidate_links(page_url: str, links: list[dict], industry: 
             LOGGER.info("Skipping blacklisted CNBC URL %s for industry %s", href, industry["name"])
             continue
 
-        normalized_text = normalize_match_text(link.get("text"))
-        normalized_href = normalize_match_text(href)
-        if any(variant in normalized_text or variant in normalized_href for variant in variants):
+        if link_matches_variants(link, variants):
             filtered.append(link)
             continue
 
@@ -125,240 +129,162 @@ def filter_industry_candidate_links(page_url: str, links: list[dict], industry: 
     return filtered
 
 
-def save_followed_article_links(
-    source_page_url: str,
-    candidate_links: list[dict],
-    industry: dict,
-    max_articles: int = MAX_ARTICLES_PER_SEARCH_PAGE,
-    max_age_days: int = MAX_ARTICLE_AGE_DAYS,
-) -> int:
-    saved_count = 0
-    fetched_articles: dict[str, ArticleExtractionResult] = {}
-    # Follow each filtered industry link one level deep, reusing existing
-    # articles when possible and only saving recent articles to the DB.
-    LOGGER.info(
-        "Processing %s candidate article links for industry %s from %s",
-        len(candidate_links),
-        industry["name"],
-        source_page_url,
+_save_followed_article_links = make_entity_article_saver(
+    logger=LOGGER,
+    entity_kind="industry",
+    entity_label=lambda industry: industry["name"],
+    save_article=lambda *, entity, source_page_url, context, **extra: add_industry_news_article(
+        industry_id=entity["id"],
+        source=context["source"],
+        article_key=context["article_key"],
+        title=context["title"],
+        source_url=context["href"],
+        source_page_url=source_page_url,
+        summary=context["link"].get("text"),
+        body=context["body"],
+        published_at=context["published_at"],
+        age_days=context["score_bundle"].get("age_days"),
+        recency_score=context["score_bundle"].get("recency_score"),
+        source_reputation_score=context["score_bundle"].get("source_reputation_score"),
+        directness_score=context["score_bundle"].get("directness_score"),
+        confirmation_score=context["score_bundle"].get("confirmation_score"),
+        independent_source_count=context["score_bundle"].get("independent_source_count"),
+        factuality_score=context["score_bundle"].get("factuality_score"),
+        evidence_score=context["score_bundle"].get("evidence_score"),
+        raw_json=context["raw_json"],
+    ),
+    build_raw_json=lambda *, entity, source_page_url, context, **extra: {
+        "industry_id": entity["id"],
+        "industry_key": entity["industry_key"],
+        "industry_name": entity["name"],
+        "source_page_url": source_page_url,
+        "link": context["link"],
+        "normalized_url": context["normalized_href"],
+        "normalized_title": context["normalized_article_title"],
+        "content_hash": context["content_hash"],
+        "source_metadata": context["source_metadata"],
+        "scores": context["score_bundle"],
+        "extracted_article": context["extracted_article_payload"],
+    },
+)
+
+
+_build_industry_search_save_requests = make_search_request_builder(
+    logger=LOGGER,
+    should_process_page=lambda page: True,
+    build_candidate_links=lambda page, job: (
+        extract_listing_article_links(page["url"], page["links"], job["industry"]["name"])
+        if job["source_type"] == "listing"
+        else _filter_industry_candidate_links(page["url"], page["links"], job["industry"])
+    ) if supports_source_type(page["url"], job["source_type"]) else [],
+    build_request_payload=lambda job: {
+        "industry": job["industry"],
+        "source_type": job["source_type"],
+    },
+    entity_from_job=lambda job: job["industry"],
+    max_articles=MAX_ARTICLES_PER_SEARCH_PAGE,
+    failure_message=lambda page, job: (
+        "Source page crawl failed for industry %s at %s: %s",
+        (job["industry"]["name"], page.get("url"), page.get("error")),
+    ),
+)
+
+
+_build_industry_direct_article_save_requests = make_direct_request_builder(
+    entity_from_job=lambda job: job["industry"],
+    text_from_job=lambda job: job.get("search_term") or job["industry"]["name"],
+    build_request_payload=lambda job: {
+        "industry": job["industry"],
+        "source_type": job["source_type"],
+    },
+)
+
+
+_save_industry_request = make_request_saver(
+    save_followed_links=_save_followed_article_links,
+    entity_from_payload=lambda payload: payload["industry"],
+)
+
+
+_accumulate_industry_saved_counts = make_bucketed_count_accumulator(
+    bucket_from_request=lambda request: str(request["payload"]["source_type"]),
+    initial_buckets={"listing": 0, "search": 0},
+)
+
+
+def _process_industry_jobs(jobs: list[dict]) -> dict:
+    search_jobs = [job for job in jobs if job["source_type"] in {"listing", "search"}]
+    direct_article_jobs = [job for job in jobs if job["source_type"] == "article"]
+    return run_mixed_job_orchestration(
+        search_jobs=search_jobs,
+        direct_article_jobs=direct_article_jobs,
+        group_jobs_by_url=group_jobs_by_url,
+        unique_job_urls=unique_job_urls,
+        build_search_save_requests=_build_industry_search_save_requests,
+        build_direct_article_save_requests=_build_industry_direct_article_save_requests,
+        save_request=_save_industry_request,
+        accumulate_saved_count=_accumulate_industry_saved_counts,
     )
 
-    urls_to_fetch: list[str] = []
-    for link in candidate_links:
-        if len(urls_to_fetch) >= max_articles:
-            break
 
-        href = link.get("href")
-        if not href or fetch_existing_article_by_url(href) is not None:
-            continue
-        if not is_allowed_source(href):
-            continue
-        urls_to_fetch.append(href)
+def _find_industry(industry_identifier: str) -> dict | None:
+    needle = " ".join(industry_identifier.split()).strip().lower()
+    if not needle:
+        return None
 
-    if urls_to_fetch:
-        LOGGER.info(
-            "Fetching %s article pages through Scrapy for industry %s",
-            len(urls_to_fetch),
-            industry["name"],
-        )
-        fetched_articles = crawl_article_pages(urls_to_fetch)
+    industries = get_all_industries()
 
-    for link in candidate_links:
-        if saved_count >= max_articles:
-            LOGGER.info(
-                "Reached article limit of %s for industry %s from %s",
-                max_articles,
-                industry["name"],
-                source_page_url,
-            )
-            break
-
-        href = link.get("href")
-        if not href:
-            continue
-        if not is_allowed_source(href):
-            LOGGER.info("Skipping disallowed article URL %s for industry %s", href, industry["name"])
-            continue
-
-        article_max_age_days = get_max_article_age_days(href, max_age_days)
-        normalized_href = normalize_url(href)
-        existing_article = fetch_existing_article_by_url(href)
-
-        if existing_article is not None:
-            existing_published_at = existing_article.get("published_at")
-            if existing_published_at is not None and not isinstance(existing_published_at, str):
-                existing_published_at = str(existing_published_at)
-            if not is_recent_article(existing_published_at, max_age_days=article_max_age_days):
-                LOGGER.info("Skipping stale existing article %s for industry %s", href, industry["name"])
-                continue
-
-            title = existing_article.get("title") or link.get("text") or href
-            article_key = existing_article.get("article_key") or normalized_href or href
-            source_metadata = get_source_metadata(existing_article.get("source_url") or href)
-            source = existing_article.get("source") or source_metadata["domain"]
-            normalized_article_title = existing_article.get("normalized_title") or normalize_title(title)
-            content_hash = existing_article.get("content_hash") or build_content_hash(existing_article.get("body") or "")
-            score_bundle = {
-                "age_days": existing_article.get("age_days"),
-                "recency_score": existing_article.get("recency_score"),
-                "source_reputation_score": existing_article.get("source_reputation_score"),
-                "directness_score": existing_article.get("directness_score"),
-                "confirmation_score": existing_article.get("confirmation_score"),
-                "independent_source_count": existing_article.get("independent_source_count"),
-                "factuality_score": existing_article.get("factuality_score"),
-                "evidence_score": existing_article.get("evidence_score"),
-            }
-            body = existing_article.get("body")
-            published_at = existing_published_at
-            extracted_article_payload = {
-                "url": existing_article.get("source_url") or href,
-                "title": existing_article.get("title"),
-                "text": existing_article.get("body"),
-                "published_at": existing_published_at,
-                "success": True,
-                "error": "",
-                "reused_existing_article": True,
-            }
-            LOGGER.info("Reusing existing article %s for industry %s", href, industry["name"])
-        else:
-            article = cast(ArticleExtractionResult | None, fetched_articles.get(href))
-            if article is None:
-                LOGGER.warning(
-                    "Missing crawled article result for industry %s at %s",
-                    industry["name"],
-                    href,
-                )
-                continue
-            if not article.success:
-                record_failed_url(href, "article_follow", article.error)
-                LOGGER.warning(
-                    "Article follow failed for industry %s at %s: %s",
-                    industry["name"],
-                    href,
-                    article.error,
-                )
-                continue
-            clear_failed_url(href)
-            if not is_recent_article(article.published_at, max_age_days=article_max_age_days):
-                LOGGER.info("Skipping stale fetched article %s for industry %s", href, industry["name"])
-                continue
-
-            title = article.title or link.get("text") or href
-            article_key = normalized_href or href
-            source_metadata = get_source_metadata(href)
-            source = source_metadata["domain"]
-            normalized_article_title = normalize_title(title)
-            content_hash = build_content_hash(article.text)
-            score_bundle = compute_article_scores(article, link, href, source_metadata)
-            body = article.text
-            published_at = article.published_at or None
-            extracted_article_payload = {
-                "url": article.url,
-                "title": article.title,
-                "text": article.text,
-                "published_at": article.published_at,
-                "success": article.success,
-                "error": article.error,
-                "reused_existing_article": False,
-            }
-            LOGGER.info("Fetched new article %s for industry %s", href, industry["name"])
-
-        add_industry_news_article(
-            industry_id=industry["id"],
-            source=source,
-            article_key=article_key,
-            title=title,
-            source_url=href,
-            source_page_url=source_page_url,
-            summary=link.get("text"),
-            body=body,
-            published_at=published_at,
-            age_days=score_bundle.get("age_days"),
-            recency_score=score_bundle.get("recency_score"),
-            source_reputation_score=score_bundle.get("source_reputation_score"),
-            directness_score=score_bundle.get("directness_score"),
-            confirmation_score=score_bundle.get("confirmation_score"),
-            independent_source_count=score_bundle.get("independent_source_count"),
-            factuality_score=score_bundle.get("factuality_score"),
-            evidence_score=score_bundle.get("evidence_score"),
-            raw_json={
-                "industry_id": industry["id"],
-                "industry_key": industry["industry_key"],
-                "industry_name": industry["name"],
-                "source_page_url": source_page_url,
-                "link": link,
-                "normalized_url": normalized_href,
-                "normalized_title": normalized_article_title,
-                "content_hash": content_hash,
-                "source_metadata": source_metadata,
-                "scores": score_bundle,
-                "extracted_article": extracted_article_payload,
-            },
-        )
-        saved_count += 1
-        LOGGER.info(
-            "Saved article %s for industry %s (%s/%s saved for this page)",
-            href,
-            industry["name"],
-            saved_count,
-            max_articles,
-        )
-
-    return saved_count
-def build_source_jobs(industries: list[dict]) -> tuple[list[str], dict[str, list[dict]]]:
-    jobs_by_url: dict[str, list[dict]] = defaultdict(list)
-
-    # Prepare all listing/search jobs ahead of time so we can crawl source
-    # pages once and then map each crawled page back to its industry jobs.
     for industry in industries:
-        for source_name, source_config in INDUSTRY_NEWS_SOURCES.items():
-            url = build_source_url(industry["name"], source_config)
-            if not supports_source_type(url, source_config["type"]):
-                continue
-            jobs_by_url[url].append(
-                {
-                    "industry": industry,
-                    "source_name": source_name,
-                    "source_type": source_config["type"],
-                }
-            )
+        if str(industry.get("industry_key") or "").strip().lower() == needle:
+            return industry
 
-    return list(jobs_by_url.keys()), jobs_by_url
+    for industry in industries:
+        if str(industry.get("name") or "").strip().lower() == needle:
+            return industry
+
+    return None
 
 
-def process_source_page(page: dict, industry: dict, source_type: str) -> int:
-    if not page.get("success"):
-        LOGGER.warning(
-            "Source page crawl failed for industry %s at %s: %s",
-            industry["name"],
-            page.get("url"),
-            page.get("error"),
-        )
-        return 0
-    if not supports_source_type(page["url"], source_type):
-        return 0
-
-    # Listing pages and search pages are filtered differently, but both feed
-    # into the same article-follow stage after candidate URLs are chosen.
-    if source_type == "listing":
-        candidate_links = extract_listing_article_links(page["url"], page["links"], industry["name"])
-    else:
-        candidate_links = filter_industry_candidate_links(page["url"], page["links"], industry)
-
-    return save_followed_article_links(page["url"], candidate_links, industry)
+def list_supported_industries() -> list[dict[str, str]]:
+    industries = get_all_industries()
+    return [
+        {
+            "industry_key": str(industry.get("industry_key") or ""),
+            "name": str(industry.get("name") or ""),
+        }
+        for industry in industries
+    ]
 
 
-def process_crawled_pages(crawled_pages: list[dict], jobs_by_url: dict[str, list[dict]]) -> dict[int, dict[str, int]]:
-    saved_counts: dict[int, dict[str, int]] = defaultdict(lambda: {"listing": 0, "search": 0})
+def get_industry_news(industry_identifier: str) -> int:
+    initialize_news_database()
+    industry = _find_industry(industry_identifier)
+    if industry is None:
+        raise ValueError(f"Industry not found for identifier: {industry_identifier}")
 
-    # Replay each crawled source page through the jobs that requested it and
-    # track saved counts separately for listing-page and search-page sources.
-    for page in crawled_pages:
-        for job in jobs_by_url.get(page["url"], []):
-            saved = process_source_page(page, job["industry"], job["source_type"])
-            saved_counts[job["industry"]["id"]][job["source_type"]] += saved
+    LOGGER.info(
+        "Starting single-industry scrape for %s (%s)",
+        industry["name"],
+        industry["industry_key"],
+    )
+    jobs = build_industry_source_jobs([industry])
+    saved_counts = _process_industry_jobs(jobs)
 
-    return saved_counts
+    industry_counts = saved_counts.get(industry["id"], {"listing": 0, "search": 0})
+    listing_saved = industry_counts["listing"]
+    search_saved = industry_counts["search"]
+    total_saved = listing_saved + search_saved
+    LOGGER.info(
+        "Finished single-industry scrape for %s (%s): saved %s articles. Log file: %s",
+        industry["name"],
+        industry["industry_key"],
+        total_saved,
+        get_log_file_path(),
+    )
+    print(f"Saved {listing_saved} listing-page articles for {industry['name']}")
+    print(f"Saved {search_saved} search-page articles for {industry['name']}")
+    print(f"Scrape log written to {get_log_file_path()}")
+    return total_saved
 
 
 def get_all_industry_news() -> None:
@@ -367,9 +293,8 @@ def get_all_industry_news() -> None:
     # Crawl all industry source pages in a single batch, then process listing
     # pages first and search pages second from the normalized crawl results.
     LOGGER.info("Starting all-industry scrape for %s industries", len(industries))
-    urls, jobs_by_url = build_source_jobs(industries)
-    crawled_pages = crawl_articles(urls)
-    saved_counts = process_crawled_pages(crawled_pages, jobs_by_url)
+    jobs = build_industry_source_jobs(industries)
+    saved_counts = _process_industry_jobs(jobs)
 
     for industry in industries:
         industry_counts = saved_counts.get(industry["id"], {"listing": 0, "search": 0})
@@ -383,4 +308,5 @@ def get_all_industry_news() -> None:
 
 
 if __name__ == "__main__":
-    get_all_industry_news()
+    #get_all_industry_news()
+    get_industry_news("semiconductors")

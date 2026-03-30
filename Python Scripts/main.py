@@ -6,9 +6,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
-from algMl import Prediction, train_and_predict
+
 from Trading import StockTrades, trading_client
-from newsCollecting import getLatestTop100, jsonToPy
+
 
 REFRESH_INTERVAL_SECONDS = 30 * 60  # half-hour
 MARKET_RECHECK_SECONDS = 5 * 60

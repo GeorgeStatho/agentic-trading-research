@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import multiprocessing
 import os
 import sys
 import threading
@@ -19,6 +20,10 @@ from investing_extractor import extract_investing_search_links, response_looks_l
 from marketwatch_extractor import extract_marketwatch_search_links, response_looks_like_marketwatch_search
 
 LOGGER = get_scrape_logger("article_scraper")
+
+
+def _is_yahoo_finance_url(url: str) -> bool:
+    return "finance.yahoo.com" in (url or "").lower()
 
 
 class _KeyboardStopMonitor:
@@ -174,10 +179,18 @@ class ArticleSpider(scrapy.Spider):
                 "Referer": "https://www.google.com/",
                 "Upgrade-Insecure-Requests": "1",
             }
+            request_meta = {}
+            if _is_yahoo_finance_url(url):
+                # Yahoo Finance sometimes returns response headers/cookies that
+                # trip Scrapy/Twisted during cookie processing on Windows.
+                # Skip cookie merging for these article requests so we can get
+                # the page body through to the extractor.
+                request_meta["dont_merge_cookies"] = True
             self.logger.info("Requesting %s", url)
             yield Request(
                 url=url,
                 headers=headers,
+                meta=request_meta,
                 callback=self.parse,
                 errback=self.handle_failure,
                 dont_filter=True,
@@ -237,6 +250,10 @@ def crawl_articles(urls: list[str]) -> list[dict]:
     if not urls:
         return []
 
+    return _run_crawl(urls, enable_keyboard_stop=True, announce_log=True)
+
+
+def _run_crawl(urls: list[str], *, enable_keyboard_stop: bool, announce_log: bool) -> list[dict]:
     items: list[dict] = []
     log_file = get_log_file_path()
     LOGGER.info("Starting source-page crawl for %s URLs", len(urls))
@@ -249,11 +266,12 @@ def crawl_articles(urls: list[str]) -> list[dict]:
     process = CrawlerProcess(settings=get_scrapy_log_settings())
     process.crawl(ArticleSpider, urls=urls)
     stop_monitor = _KeyboardStopMonitor(process)
-    if sys.stdin and sys.stdin.isatty():
+    if enable_keyboard_stop and sys.stdin and sys.stdin.isatty():
         LOGGER.info("Keyboard stop enabled: press q, Esc, or Ctrl+C to stop the crawl early")
         print("Press q, Esc, or Ctrl+C to stop the crawl early.")
 
-    stop_monitor.start()
+    if enable_keyboard_stop:
+        stop_monitor.start()
     try:
         process.start()
     except KeyboardInterrupt:
@@ -261,7 +279,8 @@ def crawl_articles(urls: list[str]) -> list[dict]:
         print("\nStopping crawl early because Ctrl+C was pressed...")
         process.stop()
     finally:
-        stop_monitor.stop()
+        if enable_keyboard_stop:
+            stop_monitor.stop()
 
     dispatcher.disconnect(_collect_item, signal=signals.item_scraped)
     success_count = sum(1 for item in items if item.get("success"))
@@ -272,12 +291,44 @@ def crawl_articles(urls: list[str]) -> list[dict]:
         success_count,
         failure_count,
     )
-    print(f"Scrape log written to {log_file}")
+    if announce_log:
+        print(f"Scrape log written to {log_file}")
     return items
 
 
+def _crawl_articles_worker(urls: list[str], result_queue: multiprocessing.queues.Queue) -> None:
+    try:
+        items = _run_crawl(urls, enable_keyboard_stop=False, announce_log=False)
+        result_queue.put({"items": items})
+    except Exception as exc:
+        result_queue.put({"error": str(exc)})
+        raise
+
+
 def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
-    crawled_pages = crawl_articles(urls)
+    if not urls:
+        return {}
+
+    ctx = multiprocessing.get_context("spawn")
+    result_queue = ctx.SimpleQueue()
+    worker = ctx.Process(target=_crawl_articles_worker, args=(urls, result_queue))
+    LOGGER.info("Starting article-page crawl for %s URLs in a subprocess", len(urls))
+    worker.start()
+
+    # Read the worker payload before joining. If we wait on join() first, the
+    # child can remain blocked flushing a large queue payload back to the
+    # parent, which looks like the crawl "never closes" even though Scrapy has
+    # already finished.
+    result: dict = result_queue.get()
+    worker.join()
+
+    if worker.exitcode != 0:
+        raise RuntimeError(f"Article crawl subprocess failed with exit code {worker.exitcode}")
+
+    if result.get("error"):
+        raise RuntimeError(f"Article crawl subprocess failed: {result['error']}")
+
+    crawled_pages = result.get("items", [])
     results: dict[str, ArticleExtractionResult] = {}
 
     for page in crawled_pages:

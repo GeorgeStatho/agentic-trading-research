@@ -46,6 +46,8 @@ def supports_source_type(url: str, source_type: str) -> bool:
         return bool(metadata.get("search_supported", False))
     if source_type == "listing":
         return bool(metadata.get("listing_supported", False))
+    if source_type == "article":
+        return bool(metadata.get("allowed")) and bool(metadata.get("article_patterns"))
     return False
 
 
