@@ -9,30 +9,24 @@ if __package__ in {None, ""}:
         sys.path.append(str(WEBSCRAPING_DIR))
 
 from pipelines._shared import (
-    ArticleExtractionResult,
     MAX_ARTICLES_PER_SEARCH_PAGE,
     MAX_ARTICLE_AGE_DAYS,
-    build_content_hash,
-    clear_failed_url,
-    compute_article_scores,
-    crawl_article_pages,
-    crawl_articles,
-    fetch_existing_article_by_url,
     filter_article_links,
     get_log_file_path,
-    get_max_article_age_days,
     get_scrape_logger,
-    get_source_metadata,
-    is_allowed_source,
-    is_recent_article,
-    normalize_title,
-    normalize_url,
-    record_failed_url,
     supports_source_type,
-    cast,
 )
 from pipelines._constants import COMPANY_NAME_SUFFIXES
+from pipelines._entity_adapters import (
+    make_direct_request_builder,
+    make_entity_article_saver,
+    make_request_saver,
+    make_search_request_builder,
+)
 from pipelines._internal import is_blacklisted_cnbc_link, link_matches_variants, normalize_match_text
+from pipelines._orchestration import (
+    run_mixed_job_orchestration,
+)
 from pipelines.job_builder import (
     CompanySourceJob,
     build_company_source_jobs,
@@ -104,193 +98,49 @@ def _filter_company_candidate_links(page_url: str, links: list[dict], company: d
     return filtered
 
 
-def _save_followed_article_links(
-    source_page_url: str,
-    candidate_links: list[dict],
-    company: dict,
-    search_term: str,
-    max_articles: int = MAX_ARTICLES_PER_SEARCH_PAGE,
-    max_age_days: int = MAX_ARTICLE_AGE_DAYS,
-    fetched_articles: dict[str, ArticleExtractionResult] | None = None,
-) -> int:
-    saved_count = 0
-    fetched_articles = dict(fetched_articles or {})
-    # Follow the filtered result links one level deep, reuse any article that
-    # already exists in the DB, and save new articles that pass recency checks.
-    LOGGER.info(
-        "Processing %s candidate article links for company %s from %s",
-        len(candidate_links),
-        company["symbol"],
-        source_page_url,
-    )
-
-    urls_to_fetch: list[str] = []
-    for link in candidate_links:
-        if len(urls_to_fetch) >= max_articles:
-            break
-
-        href = link.get("href")
-        if not href or fetch_existing_article_by_url(href) is not None:
-            continue
-        if not is_allowed_source(href):
-            continue
-        urls_to_fetch.append(href)
-
-    if urls_to_fetch and not fetched_articles:
-        LOGGER.info(
-            "Fetching %s article pages through Scrapy for company %s",
-            len(urls_to_fetch),
-            company["symbol"],
-        )
-        fetched_articles = crawl_article_pages(urls_to_fetch)
-
-    for link in candidate_links:
-        if saved_count >= max_articles:
-            LOGGER.info(
-                "Reached article limit of %s for company %s from %s",
-                max_articles,
-                company["symbol"],
-                source_page_url,
-            )
-            break
-
-        href = link.get("href")
-        if not href:
-            continue
-        if not is_allowed_source(href):
-            LOGGER.info("Skipping disallowed article URL %s for company %s", href, company["symbol"])
-            continue
-
-        article_max_age_days = get_max_article_age_days(href, max_age_days)
-        normalized_href = normalize_url(href)
-        existing_article = fetch_existing_article_by_url(href)
-
-        if existing_article is not None:
-            existing_published_at = existing_article.get("published_at")
-            if existing_published_at is not None and not isinstance(existing_published_at, str):
-                existing_published_at = str(existing_published_at)
-            if not is_recent_article(existing_published_at, max_age_days=article_max_age_days):
-                LOGGER.info("Skipping stale existing article %s for company %s", href, company["symbol"])
-                continue
-
-            title = existing_article.get("title") or link.get("text") or href
-            article_key = existing_article.get("article_key") or normalized_href or href
-            source_metadata = get_source_metadata(existing_article.get("source_url") or href)
-            source = existing_article.get("source") or source_metadata["domain"]
-            normalized_article_title = existing_article.get("normalized_title") or normalize_title(title)
-            content_hash = existing_article.get("content_hash") or build_content_hash(existing_article.get("body") or "")
-            score_bundle = {
-                "age_days": existing_article.get("age_days"),
-                "recency_score": existing_article.get("recency_score"),
-                "source_reputation_score": existing_article.get("source_reputation_score"),
-                "directness_score": existing_article.get("directness_score"),
-                "confirmation_score": existing_article.get("confirmation_score"),
-                "independent_source_count": existing_article.get("independent_source_count"),
-                "factuality_score": existing_article.get("factuality_score"),
-                "evidence_score": existing_article.get("evidence_score"),
-            }
-            body = existing_article.get("body")
-            published_at = existing_published_at
-            extracted_article_payload = {
-                "url": existing_article.get("source_url") or href,
-                "title": existing_article.get("title"),
-                "text": existing_article.get("body"),
-                "published_at": existing_published_at,
-                "success": True,
-                "error": "",
-                "reused_existing_article": True,
-            }
-            LOGGER.info("Reusing existing article %s for company %s", href, company["symbol"])
-        else:
-            article = cast(ArticleExtractionResult | None, fetched_articles.get(href))
-            if article is None:
-                LOGGER.warning(
-                    "Missing crawled article result for company %s at %s",
-                    company["symbol"],
-                    href,
-                )
-                continue
-            if not article.success:
-                record_failed_url(href, "article_follow", article.error)
-                LOGGER.warning(
-                    "Article follow failed for company %s at %s: %s",
-                    company["symbol"],
-                    href,
-                    article.error,
-                )
-                continue
-            clear_failed_url(href)
-            if not is_recent_article(article.published_at, max_age_days=article_max_age_days):
-                LOGGER.info("Skipping stale fetched article %s for company %s", href, company["symbol"])
-                continue
-
-            title = article.title or link.get("text") or href
-            article_key = normalized_href or href
-            source_metadata = get_source_metadata(href)
-            source = source_metadata["domain"]
-            normalized_article_title = normalize_title(title)
-            content_hash = build_content_hash(article.text)
-            score_bundle = compute_article_scores(article, link, href, source_metadata)
-            body = article.text
-            published_at = article.published_at or None
-            extracted_article_payload = {
-                "url": article.url,
-                "title": article.title,
-                "text": article.text,
-                "published_at": article.published_at,
-                "success": article.success,
-                "error": article.error,
-                "reused_existing_article": False,
-            }
-            LOGGER.info("Fetched new article %s for company %s", href, company["symbol"])
-
-        add_company_news_article(
-            company_id=company["id"],
-            source=source,
-            article_key=article_key,
-            title=title,
-            source_url=href,
-            source_page_url=source_page_url,
-            summary=link.get("text"),
-            body=body,
-            published_at=published_at,
-            age_days=score_bundle.get("age_days"),
-            recency_score=score_bundle.get("recency_score"),
-            source_reputation_score=score_bundle.get("source_reputation_score"),
-            directness_score=score_bundle.get("directness_score"),
-            confirmation_score=score_bundle.get("confirmation_score"),
-            independent_source_count=score_bundle.get("independent_source_count"),
-            factuality_score=score_bundle.get("factuality_score"),
-            evidence_score=score_bundle.get("evidence_score"),
-            raw_json={
-                "company_id": company["id"],
-                "symbol": company["symbol"],
-                "company_name": company["name"],
-                "industry_key": company["industry_key"],
-                "industry_name": company["industry_name"],
-                "sector_key": company["sector_key"],
-                "sector_name": company["sector_name"],
-                "search_term": search_term,
-                "source_page_url": source_page_url,
-                "link": link,
-                "normalized_url": normalized_href,
-                "normalized_title": normalized_article_title,
-                "content_hash": content_hash,
-                "source_metadata": source_metadata,
-                "scores": score_bundle,
-                "extracted_article": extracted_article_payload,
-            },
-        )
-        saved_count += 1
-        LOGGER.info(
-            "Saved article %s for company %s (%s/%s saved for this page)",
-            href,
-            company["symbol"],
-            saved_count,
-            max_articles,
-        )
-
-    return saved_count
+_save_followed_article_links = make_entity_article_saver(
+    logger=LOGGER,
+    entity_kind="company",
+    entity_label=lambda company: company["symbol"],
+    save_article=lambda *, entity, source_page_url, context, **extra: add_company_news_article(
+        company_id=entity["id"],
+        source=context["source"],
+        article_key=context["article_key"],
+        title=context["title"],
+        source_url=context["href"],
+        source_page_url=source_page_url,
+        summary=context["link"].get("text"),
+        body=context["body"],
+        published_at=context["published_at"],
+        age_days=context["score_bundle"].get("age_days"),
+        recency_score=context["score_bundle"].get("recency_score"),
+        source_reputation_score=context["score_bundle"].get("source_reputation_score"),
+        directness_score=context["score_bundle"].get("directness_score"),
+        confirmation_score=context["score_bundle"].get("confirmation_score"),
+        independent_source_count=context["score_bundle"].get("independent_source_count"),
+        factuality_score=context["score_bundle"].get("factuality_score"),
+        evidence_score=context["score_bundle"].get("evidence_score"),
+        raw_json=context["raw_json"],
+    ),
+    build_raw_json=lambda *, entity, source_page_url, context, search_term: {
+        "company_id": entity["id"],
+        "symbol": entity["symbol"],
+        "company_name": entity["name"],
+        "industry_key": entity["industry_key"],
+        "industry_name": entity["industry_name"],
+        "sector_key": entity["sector_key"],
+        "sector_name": entity["sector_name"],
+        "search_term": search_term,
+        "source_page_url": source_page_url,
+        "link": context["link"],
+        "normalized_url": context["normalized_href"],
+        "normalized_title": context["normalized_article_title"],
+        "content_hash": context["content_hash"],
+        "source_metadata": context["source_metadata"],
+        "scores": context["score_bundle"],
+        "extracted_article": context["extracted_article_payload"],
+    },
+)
 
 
 def _process_source_page(page: dict, company: dict, search_term: str) -> int:
@@ -311,87 +161,44 @@ def _process_source_page(page: dict, company: dict, search_term: str) -> int:
     return _save_followed_article_links(page["url"], candidate_links, company, search_term)
 
 
-def _build_article_save_requests(
-    crawled_pages: list[dict],
-    jobs_by_url: dict[str, list[CompanySourceJob]],
-    direct_article_jobs: list[CompanySourceJob],
-) -> list[dict]:
-    save_requests: list[dict] = []
-
-    # A crawled source page may belong to one or more planned jobs, so replay
-    # the page through each matching job and accumulate the article URLs that
-    # should be fetched later in one shared article crawl batch.
-    for page in crawled_pages:
-        if not page.get("success"):
-            for job in jobs_by_url.get(page["url"], []):
-                LOGGER.warning(
-                    "Source page crawl failed for company %s at %s: %s",
-                    job["company"]["symbol"],
-                    page.get("url"),
-                    page.get("error"),
-                )
-            continue
-        if not supports_source_type(page["url"], "search"):
-            continue
-
-        for job in jobs_by_url.get(page["url"], []):
-            candidate_links = _filter_company_candidate_links(page["url"], page["links"], job["company"])
-            save_requests.append(
-                {
-                    "source_page_url": page["url"],
-                    "candidate_links": candidate_links,
-                    "company": job["company"],
-                    "search_term": job["search_term"],
-                    "max_articles": MAX_ARTICLES_PER_SEARCH_PAGE,
-                }
-            )
-
-    for job in direct_article_jobs:
-        save_requests.append(
-            {
-                "source_page_url": job["url"],
-                "candidate_links": [
-                    {
-                        "href": job["url"],
-                        "text": job["search_term"],
-                    }
-                ],
-                "company": job["company"],
-                "search_term": job["search_term"],
-                "max_articles": 1,
-            }
-        )
-
-    return save_requests
+_build_company_search_save_requests = make_search_request_builder(
+    logger=LOGGER,
+    should_process_page=lambda page: supports_source_type(page["url"], "search"),
+    build_candidate_links=lambda page, job: _filter_company_candidate_links(
+        page["url"],
+        page["links"],
+        job["company"],
+    ),
+    build_request_payload=lambda job: {
+        "company": job["company"],
+        "search_term": job["search_term"],
+    },
+    entity_from_job=lambda job: job["company"],
+    max_articles=MAX_ARTICLES_PER_SEARCH_PAGE,
+    failure_message=lambda page, job: (
+        "Source page crawl failed for company %s at %s: %s",
+        (job["company"]["symbol"], page.get("url"), page.get("error")),
+    ),
+)
 
 
-def _collect_article_urls_to_fetch(save_requests: list[dict]) -> list[str]:
-    urls_to_fetch: list[str] = []
-    seen_urls: set[str] = set()
+_build_company_direct_article_save_requests = make_direct_request_builder(
+    entity_from_job=lambda job: job["company"],
+    text_from_job=lambda job: job["search_term"],
+    build_request_payload=lambda job: {
+        "company": job["company"],
+        "search_term": job["search_term"],
+    },
+)
 
-    for request in save_requests:
-        added_for_request = 0
-        max_articles = int(request["max_articles"])
-        for link in request["candidate_links"]:
-            if added_for_request >= max_articles:
-                break
 
-            href = str(link.get("href") or "").strip()
-            if not href:
-                continue
-            if not is_allowed_source(href):
-                continue
-            if fetch_existing_article_by_url(href) is not None:
-                continue
-            if href in seen_urls:
-                added_for_request += 1
-                continue
-
-            urls_to_fetch.append(href)
-            seen_urls.add(href)
-            added_for_request += 1
-
-    return urls_to_fetch
+_save_company_request = make_request_saver(
+    save_followed_links=_save_followed_article_links,
+    entity_from_payload=lambda payload: payload["company"],
+    extra_from_payload=lambda payload: {
+        "search_term": payload["search_term"],
+    },
+)
 
 
 def _build_company_jobs(company: dict) -> list[CompanySourceJob]:
@@ -422,35 +229,17 @@ def _build_all_company_jobs(companies: list[dict]) -> list[CompanySourceJob]:
 
 
 def _process_company_jobs(jobs: list[CompanySourceJob]) -> dict[int, int]:
-    from collections import defaultdict
-
-    saved_counts: dict[int, int] = defaultdict(int)
     search_jobs = [job for job in jobs if job["source_type"] == "search"]
     direct_article_jobs = [job for job in jobs if job["source_type"] == "article"]
-    crawled_pages: list[dict] = []
-
-    if search_jobs:
-        jobs_by_url = group_jobs_by_url(search_jobs)
-        urls = unique_job_urls(search_jobs)
-        crawled_pages = crawl_articles(urls)
-    else:
-        jobs_by_url = {}
-
-    save_requests = _build_article_save_requests(crawled_pages, jobs_by_url, direct_article_jobs)
-    article_urls = _collect_article_urls_to_fetch(save_requests)
-    fetched_articles = crawl_article_pages(article_urls) if article_urls else {}
-
-    for request in save_requests:
-        saved_counts[request["company"]["id"]] += _save_followed_article_links(
-            source_page_url=request["source_page_url"],
-            candidate_links=request["candidate_links"],
-            company=request["company"],
-            search_term=request["search_term"],
-            max_articles=request["max_articles"],
-            fetched_articles=fetched_articles,
-        )
-
-    return saved_counts
+    return run_mixed_job_orchestration(
+        search_jobs=search_jobs,
+        direct_article_jobs=direct_article_jobs,
+        group_jobs_by_url=group_jobs_by_url,
+        unique_job_urls=unique_job_urls,
+        build_search_save_requests=_build_company_search_save_requests,
+        build_direct_article_save_requests=_build_company_direct_article_save_requests,
+        save_request=_save_company_request,
+    )
 
 
 def _find_company(company_identifier: str) -> dict | None:

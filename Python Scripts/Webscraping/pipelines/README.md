@@ -1,324 +1,337 @@
 # Pipelines Folder Guide
 
-This folder contains the orchestration layer for the scraping workflows.
+This folder is the workflow layer for the news-scraping system.
 
-If `sources/` defines where to start and `engine/` defines how pages are fetched and parsed, `pipelines/` decides the actual end-to-end workflow.
+If `sources/` defines where to start, `engine/` defines how pages are fetched, and `extractors/` defines how article pages are parsed, then `pipelines/` defines how all of those pieces are combined into end-to-end jobs that save records to the database.
 
 ## What This Folder Does
 
 The code in this folder is responsible for:
 
-- building scrape jobs
-- choosing which sources to crawl for companies or industries
+- turning companies, industries, and sectors into scrape jobs
+- deciding whether a job is a search-page crawl or a direct article crawl
 - filtering discovered links for relevance
-- coordinating source-page and article-page crawling
+- batching article-page fetches
 - reusing already-saved articles when possible
-- scoring and saving final article records
+- computing article scores and writing final records to the DB
+
+## Current Architecture
+
+The pipeline code is now split into layers:
+
+- entity pipelines
+  - `companyNewsPipeline.py`
+  - `industryNewsPipeline.py`
+  - `sectorNewsPipeline.py`
+- shared article-follow mechanics
+  - `_article_follow.py`
+- shared orchestration
+  - `_orchestration.py`
+- shared entity adapters
+  - `_entity_adapters.py`
+- shared setup/constants/helpers
+  - `_shared.py`
+  - `_constants.py`
+  - `_internal.py`
+  - `job_builder.py`
+
+The important design change is that the front-facing pipeline files are no longer supposed to own the whole workflow themselves. They mostly:
+
+- find entity records
+- build jobs
+- define entity-specific relevance rules
+- call the shared orchestration layer
+- print summary output
+
+## Data Flow
+
+The common flow now looks like this:
+
+1. A public entrypoint such as `get_company_news(...)` or `get_all_industry_news()` loads entity records from the DB.
+2. `job_builder.py` converts those entities into structured jobs.
+3. The pipeline splits those jobs into:
+   - search-style jobs, where a source page must be crawled first
+   - direct article jobs, where the article URL is already known
+4. `_orchestration.py` runs the search-page crawl batch with `crawl_articles(...)`.
+5. The pipeline-specific candidate-link filter decides which links from each page are worth following.
+6. `_orchestration.py` converts those links into normalized `ArticleSaveRequest` objects.
+7. `_orchestration.py` combines discovered article links and direct article jobs into one article URL batch.
+8. `_article_follow.py` reuses existing articles when possible, fetches missing article pages, scores them, and saves them through the entity-specific DB callback.
+
+That means the two-stage crawl behavior is now shared:
+
+- stage 1: crawl source/search/listing pages
+- stage 2: crawl article pages
 
 ## Files
 
 ### [companyNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/companyNewsPipeline.py)
 
-This is the main company news pipeline.
+This is the company news entrypoint layer.
 
 Public entrypoints:
 
 - `get_company_news(company_identifier)`
 - `get_all_company_news()`
 
-Current behavior:
+What it is responsible for:
 
-- loads company records from the DB
-- builds normal company source jobs
-- adds Yahoo-derived direct article jobs from `market_data/yFinanceNews.py`
-- crawls all search/source pages together
-- filters candidate links for company relevance
-- combines discovered article URLs with Yahoo direct article URLs
-- runs one shared article-page crawl batch
-- scores and saves articles with `add_company_news_article(...)`
+- resolving company records from the DB
+- building company search jobs from configured sources
+- adding Yahoo-discovered direct article jobs
+- defining company-specific relevance matching
+- calling the shared orchestration runner
 
 Important internal pieces:
 
 - `_build_company_match_variants(...)`
+  - builds normalized company-name and ticker variants used for relevance checks
 - `_filter_company_candidate_links(...)`
+  - starts from the shared link filter, then keeps only links that actually look related to the company
 - `_build_company_jobs(...)`
-- `_build_article_save_requests(...)`
-- `_collect_article_urls_to_fetch(...)`
-- `_save_followed_article_links(...)`
+  - combines configured source jobs with Yahoo-derived direct article jobs
+- `_build_all_company_jobs(...)`
+  - flattens per-company jobs into one global batch
+- `_process_company_jobs(...)`
+  - splits jobs into `search` and `article`, then hands them to `run_mixed_job_orchestration(...)`
 
-This is the most recently reworked pipeline and the best reference for the current architecture.
+What is no longer owned directly by this file:
 
-#### What the company internal pieces do
+- article fetch/reuse/save mechanics
+- search-page to save-request normalization
+- direct-article request normalization
+- article batch execution
 
-`_build_company_match_variants(company)`
-
-- builds a set of normalized terms that represent the company
-- starts from the company name
-- trims suffixes like `Inc`, `Corp`, and similar variants using `_constants.py`
-- adds the company ticker symbol when it is long enough to be meaningful
-- returns the set of normalized strings used later for relevance checks
-
-Why it exists:
-
-- search pages often contain many generic market links
-- the scraper needs a cheap way to ask "does this link text or URL really look like it belongs to this company?"
-
-`_filter_company_candidate_links(page_url, links, company)`
-
-- starts with the shared `filter_article_links(...)` helper
-- removes links from disallowed sources, already-saved articles, failed URLs, and URLs that do not match source article patterns
-- then applies company-specific filtering
-- skips blacklisted CNBC paths
-- keeps only links whose text or URL matches one of the company variants
-
-Why it exists:
-
-- the shared filter answers "is this link structurally allowed?"
-- this function answers "is this link actually relevant to this company?"
-
-`_build_company_jobs(company)`
-
-- builds the company's normal search jobs with `build_company_source_jobs([company])`
-- fetches Yahoo news items with `get_company_news_items(symbol)`
-- reduces those items into filtered `(title, url)` pairs with `extract_title_and_url(...)`
-- converts those pairs into direct `article` jobs with `build_yahoo_news_jobs(...)`
-- returns one combined job list for that company
-
-Why it exists:
-
-- it centralizes all company-specific discovery sources in one place
-- it keeps the rest of the pipeline from caring whether a job came from configured search sources or Yahoo news discovery
-
-`_build_all_company_jobs(companies)`
-
-- loops through every company
-- calls `_build_company_jobs(company)` for each one
-- flattens all per-company job lists into one large job list
-
-Why it exists:
-
-- `get_all_company_news()` wants one global job set so search crawling can be batched efficiently
-
-`_build_article_save_requests(crawled_pages, jobs_by_url, direct_article_jobs)`
-
-- takes the results from the search-page crawl
-- maps each crawled page back to the jobs that produced it
-- filters that page's discovered links for the matching company
-- converts those filtered links into a normalized "save request" shape
-- also converts direct Yahoo article jobs into the same save-request shape
-
-The save-request shape is important because it lets the pipeline treat:
-
-- "article links discovered from a source page"
-- and "article URLs given directly by Yahoo"
-
-as the same kind of downstream work.
-
-Why it exists:
-
-- this is the bridge between source-page crawling and article-page crawling
-- it normalizes two different discovery paths into one later save path
-
-`_collect_article_urls_to_fetch(save_requests)`
-
-- walks through all save requests
-- collects the article URLs that still need network fetches
-- skips disallowed sources
-- skips URLs already present in the DB
-- skips duplicates across the batch
-- respects the `max_articles` limit for each request
-
-Why it exists:
-
-- the company pipeline wants to do one shared `crawl_article_pages(...)` call
-- this helper computes exactly which URLs belong in that one article batch
-
-`_save_followed_article_links(...)`
-
-- takes a source page URL, candidate links, company record, and optionally pre-fetched article results
-- checks whether each candidate article already exists
-- reuses stored article content when possible
-- otherwise reads the corresponding `ArticleExtractionResult`
-- applies recency checks
-- computes normalized title, normalized URL, content hash, and score bundle
-- writes the final article through `add_company_news_article(...)`
-
-Why it exists:
-
-- this is the last major step in the company pipeline
-- it is the point where candidate links become saved article records
-
-Important detail:
-
-- if `fetched_articles` is passed in, it behaves as part of a shared crawl batch
-- if not, it can still fetch article pages on its own
-- the current company pipeline uses it in the shared-batch mode
-
-`_process_company_jobs(jobs)`
-
-- splits the mixed job list into `search` jobs and direct `article` jobs
-- crawls search jobs first with `crawl_articles(...)`
-- builds save requests from:
-  - search-page-discovered article links
-  - Yahoo direct article jobs
-- collects one combined article URL batch
-- runs one `crawl_article_pages(...)` call
-- feeds the results into `_save_followed_article_links(...)`
-
-Why it exists:
-
-- this is the main orchestration function of the company pipeline
-- most of the "two-stage crawl" behavior is easiest to understand by reading this function
+Those moved into `_article_follow.py`, `_orchestration.py`, and `_entity_adapters.py`.
 
 ### [industryNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/industryNewsPipeline.py)
 
-This is the industry news pipeline.
+This is the industry news entrypoint layer.
+
+Public entrypoints:
+
+- `get_all_industry_news()`
+- `get_industry_news(industry_identifier)`
+
+What it is responsible for:
+
+- resolving industry records
+- building industry jobs from configured listing and search sources
+- defining industry-specific relevance matching
+- calling the shared orchestration runner
+- reporting saved totals separately for `listing` and `search`
+
+Important internal pieces:
+
+- `_build_industry_match_variants(...)`
+  - builds practical industry match terms from the industry name and key
+- `_filter_industry_candidate_links(...)`
+  - applies shared structural filtering, then industry-specific relevance matching
+- `_find_industry(...)`
+  - resolves one industry by key or exact name
+
+Why this pipeline still looks a little larger than the company pipeline:
+
+- it supports both `listing` and `search` jobs
+- it keeps separate saved-count buckets for those two source types
+- that extra reporting behavior is entity-specific even though the crawl flow is shared
+
+Even so, the actual crawl orchestration is now shared through `run_mixed_job_orchestration(...)`.
+
+### [sectorNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/sectorNewsPipeline.py)
+
+This is the sector news entrypoint layer.
 
 Public entrypoint:
 
-- `get_all_industry_news()`
+- `get_sector_news(sector_identifier, urls, source_page_url="https://www.cnbc.com/")`
 
-Current behavior:
+What it is responsible for:
 
-- loads industries from the DB
-- builds industry source jobs
-- crawls source pages
-- filters candidate links for industry relevance
-- follows article links
-- scores and saves articles with `add_industry_news_article(...)`
+- resolving one sector from the DB
+- taking a provided list of article URLs
+- constraining that list to CNBC-style sector crawling
+- sending those direct article jobs through the shared article-save runner
 
-Important note:
+This pipeline is simpler because it does not start from source-page discovery. It receives article URLs directly and uses `run_article_save_requests(...)`.
 
-- it is similar to the company pipeline
-- but it still follows the older pattern where article fetches happen more locally instead of the newer shared article-crawl batching pattern
+### [_article_follow.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_article_follow.py)
 
-#### What the industry internal pieces do
+This module contains the low-level article follow/save mechanics shared by all entity pipelines.
 
-`_build_industry_match_variants(industry)`
+Key functions:
 
-- normalizes the industry name
-- removes common stopwords using `INDUSTRY_NAME_STOPWORDS`
-- builds a few compact variants from the industry name and industry key
-- returns the set of normalized terms used for later matching
+- `collect_article_urls_to_fetch(...)`
+- `save_followed_article_links(...)`
 
-Why it exists:
+What `collect_article_urls_to_fetch(...)` does:
 
-- industry names are often broader and noisier than company names
-- this helper creates practical matching tokens without keeping every stopword-heavy phrase
+- walks a list of candidate links
+- skips empty URLs
+- skips disallowed sources
+- skips URLs already in the DB
+- skips duplicates
+- respects the per-request article limit
+- returns only the URLs that still need fetching
 
-`_filter_industry_candidate_links(page_url, links, industry)`
+What `save_followed_article_links(...)` does:
 
-- runs the shared `filter_article_links(...)` helper first
-- skips noisy CNBC URLs
-- keeps only links whose text or URL matches the industry variants
+- receives normalized candidate links for one entity and one source-page context
+- reuses an existing DB article if one is already saved
+- otherwise reads the fetched `ArticleExtractionResult`
+- applies recency checks
+- computes normalization fields and scoring data
+- builds a shared context dictionary
+- hands that context to an entity-specific save callback
 
-Why it exists:
+This module is intentionally generic. It does not know whether it is saving company, industry, or sector articles. The caller provides:
 
-- it plays the same role as the company-specific filter, but tuned for industry text matching
+- the entity label
+- the DB save callback
+- the raw JSON builder
+- optional link inclusion rules
 
-`_save_followed_article_links(source_page_url, candidate_links, industry, ...)`
+### [_orchestration.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_orchestration.py)
 
-- collects article URLs from the filtered candidate links
-- fetches those article pages with `crawl_article_pages(...)`
-- reuses already-saved articles when possible
-- applies recency rules
-- computes normalization fields and score bundle
-- writes the final record through `add_industry_news_article(...)`
+This module contains the shared workflow runner for turning jobs into saved articles.
 
-Why it exists:
+Key types and functions:
 
-- this is the final save step for the industry pipeline
-- unlike the company pipeline, it still does its own smaller article fetch batch per source-page context
+- `ArticleSaveRequest`
+- `build_search_article_save_requests(...)`
+- `build_direct_article_save_requests(...)`
+- `collect_save_request_article_urls(...)`
+- `run_article_save_requests(...)`
+- `run_mixed_job_orchestration(...)`
 
-That difference is the main reason the industry pipeline feels older than the company one.
+`ArticleSaveRequest` is the normalized handoff shape between discovery and saving. Each request contains:
+
+- `source_page_url`
+- `candidate_links`
+- `entity`
+- `entity_id`
+- `max_articles`
+- `payload`
+
+What each helper does:
+
+- `build_search_article_save_requests(...)`
+  - turns crawled source/search/listing pages into normalized save requests
+- `build_direct_article_save_requests(...)`
+  - turns known article URLs into the same save-request shape
+- `collect_save_request_article_urls(...)`
+  - computes the combined article URL batch across many save requests
+- `run_article_save_requests(...)`
+  - fetches the combined article batch once, then replays each save request against those fetched results
+- `run_mixed_job_orchestration(...)`
+  - handles the common two-pass pipeline:
+    - crawl search pages first
+    - build save requests
+    - combine them with direct article requests
+    - run one article crawl/save pass
+
+This is the main reason the pipelines are easier to refactor now. The crawl flow lives here instead of being duplicated in each entity file.
+
+### [_entity_adapters.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_entity_adapters.py)
+
+This module builds the entity-specific adapter functions that plug company, industry, and sector logic into the shared orchestration layer.
+
+Key functions:
+
+- `make_entity_article_saver(...)`
+- `make_search_request_builder(...)`
+- `make_direct_request_builder(...)`
+- `make_request_saver(...)`
+- `make_bucketed_count_accumulator(...)`
+
+What these adapters do:
+
+- `make_entity_article_saver(...)`
+  - wraps `save_followed_article_links(...)` with entity-specific DB save logic and raw JSON structure
+- `make_search_request_builder(...)`
+  - creates a helper that converts crawled source pages into save requests for one entity type
+- `make_direct_request_builder(...)`
+  - creates a helper that converts direct article jobs into save requests
+- `make_request_saver(...)`
+  - creates the callback that `_orchestration.py` uses when replaying save requests
+- `make_bucketed_count_accumulator(...)`
+  - lets a pipeline keep separate counters, such as industry `listing` vs `search`
+
+This module is what keeps the pipelines thin without hiding entity-specific behavior. The entity file still decides what makes a link relevant and what payload should be saved, but the repeated plumbing is centralized here.
+
+### [job_builder.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/job_builder.py)
+
+This module creates structured jobs instead of having each pipeline build source URLs inline.
+
+Important helpers:
+
+- `build_company_source_jobs(...)`
+- `build_industry_source_jobs(...)`
+- `build_company_source_job(...)`
+- `build_yahoo_news_jobs(...)`
+- `group_jobs_by_url(...)`
+- `unique_job_urls(...)`
+
+What these functions do:
+
+- convert entity records plus source configuration into normalized job dicts
+- validate whether a URL makes sense for a source type
+- support both configured source-page jobs and Yahoo-derived direct article jobs
+- provide batching helpers used by `_orchestration.py`
+
+This keeps the pipeline files from having to know how URLs are assembled.
+
+### [_shared.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_shared.py)
+
+This module is the compatibility and convenience layer that most pipelines import from.
+
+It pulls together:
+
+- crawl functions from `engine/`
+- scoring and normalization helpers
+- DB lookups for existing articles and failed URLs
+- shared configuration values such as max article counts and age limits
+- logger setup
+
+The goal is not business logic. The goal is to give the pipeline layer one stable import surface for common dependencies.
+
+### [_internal.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_internal.py)
+
+This module contains shared pipeline helper logic that is internal to the pipeline layer.
+
+Examples include:
+
+- URL blacklists
+- normalized text matching
+- helper functions that decide whether a link text or href matches a target entity
+
+This is where small reusable pieces live when they are too pipeline-specific for `_shared.py` but too common to duplicate in every entity pipeline.
+
+### [_constants.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_constants.py)
+
+This module contains pipeline-specific constants such as:
+
+- company name suffixes
+- industry stopwords
+
+These constants are used by the entity match-variant builders.
 
 ### [macroNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/macroNewsPipeline.py)
 
 This is the macro/economic data pipeline.
 
-It is separate from the company and industry article workflow.
+It is separate from the company, industry, and sector article pipelines and should be thought of as its own workflow.
 
-Instead of running the search-page to article-page pattern, it parses a more structured macro source and writes macro event-like data.
+## How To Read The Pipeline Code
 
-### [job_builder.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/job_builder.py)
+If you are trying to understand the system quickly, the best order is:
 
-This file builds the structured job dictionaries used by the pipelines.
+1. `job_builder.py`
+2. `_orchestration.py`
+3. `_article_follow.py`
+4. `_entity_adapters.py`
+5. `companyNewsPipeline.py`
+6. `industryNewsPipeline.py`
+7. `sectorNewsPipeline.py`
 
-Important helpers:
-
-- `build_company_source_job(...)`
-- `build_company_source_jobs(...)`
-- `build_yahoo_news_jobs(...)`
-- `build_industry_source_jobs(...)`
-- `group_jobs_by_url(...)`
-- `unique_job_urls(...)`
-
-This file is important because it centralizes job creation instead of having each pipeline build ad hoc URL dictionaries inline.
-
-### [_shared.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_shared.py)
-
-Shared import and helper surface for the pipelines.
-
-It re-exports the common pieces they depend on from:
-
-- `core/`
-- `engine/`
-- `processing/`
-- `sources/`
-
-The point is to keep pipeline imports stable and compact.
-
-### [_internal.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_internal.py)
-
-Small internal pipeline-only helpers.
-
-Current responsibilities:
-
-- normalize topic/company/industry text for matching
-- blacklist noisy CNBC paths
-- test whether link text or URL matches a set of topic variants
-
-### [_constants.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_constants.py)
-
-Stores pipeline-specific constants such as:
-
-- company name suffixes
-- industry stopwords
-
-### [__init__.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/__init__.py)
-
-Package marker for the folder.
-
-## How The Folder Fits Into The System
-
-Typical company flow:
-
-1. load companies
-2. build source jobs
-3. optionally add Yahoo-derived article jobs
-4. crawl source pages
-5. filter discovered links
-6. build one article crawl batch
-7. reuse or fetch article pages
-8. score and save
-
-Typical industry flow:
-
-1. load industries
-2. build source jobs
-3. crawl source pages
-4. filter discovered links
-5. follow article pages
-6. score and save
-
-## Mental Model
-
-`pipelines/` is the orchestration layer.
-
-It is where the scraper's "business logic" lives:
-
-- what entities are being scraped
-- what sources they use
-- what counts as a relevant article
-- when a URL is worth following
-- how the final article gets saved
+That order usually makes the refactored structure click faster than starting from one of the public pipeline entrypoints.
