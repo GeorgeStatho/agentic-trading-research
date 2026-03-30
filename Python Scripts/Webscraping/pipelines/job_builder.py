@@ -31,7 +31,14 @@ class IndustrySourceJob(TypedDict):
     search_term: NotRequired[str]
 
 
-PipelineJob = CompanySourceJob | IndustrySourceJob
+class SectorSourceJob(TypedDict):
+    url: str
+    sector: dict
+    source_name: str
+    source_type: str
+
+
+PipelineJob = CompanySourceJob | IndustrySourceJob | SectorSourceJob
 
 
 def _build_company_search_terms(company: dict) -> list[str]:
@@ -174,6 +181,36 @@ def build_industry_source_jobs(industries: list[dict]) -> list[IndustrySourceJob
             if source_config["type"] == "search":
                 job["search_term"] = industry["name"]
             jobs.append(job)
+
+    return jobs
+
+
+def build_sector_rss_jobs(
+    sector: dict,
+    urls: list[str],
+    *,
+    source_name: str = "cnbc_rss",
+    source_type: str = "article",
+) -> list[SectorSourceJob]:
+    jobs: list[SectorSourceJob] = []
+    seen_urls: set[str] = set()
+
+    for url in urls:
+        normalized_url = str(url).strip()
+        if not normalized_url or normalized_url in seen_urls:
+            continue
+        if not supports_source_type(normalized_url, source_type):
+            continue
+
+        jobs.append(
+            {
+                "url": normalized_url,
+                "sector": sector,
+                "source_name": source_name,
+                "source_type": source_type,
+            }
+        )
+        seen_urls.add(normalized_url)
 
     return jobs
 
