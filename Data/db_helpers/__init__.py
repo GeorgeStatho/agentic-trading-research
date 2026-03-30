@@ -4,6 +4,8 @@ from db_helpers.news import (
     add_company_news_article,
     add_industry_news_article,
     add_sector_news_article,
+    add_us_news_article,
+    add_world_news_article,
     initialize_news_database,
     list_company_news_articles,
     list_industry_news_articles,
