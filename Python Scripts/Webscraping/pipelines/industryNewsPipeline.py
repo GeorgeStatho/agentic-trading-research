@@ -1,65 +1,41 @@
-from pathlib import Path
-import sys
-from collections import defaultdict
-import re
-from typing import cast
-
-WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
-if str(WEBSCRAPING_DIR) not in sys.path:
-    sys.path.append(str(WEBSCRAPING_DIR))
-
-from core.CommonPipeline import (
+from pipelines._shared import (
+    ArticleExtractionResult,
     MAX_ARTICLES_PER_SEARCH_PAGE,
     MAX_ARTICLE_AGE_DAYS,
     build_source_url,
+    build_content_hash,
     clear_failed_url,
     compute_article_scores,
+    crawl_article_pages,
+    crawl_articles,
+    defaultdict,
     fetch_existing_article_by_url,
     filter_article_links,
-    is_recent_article,
-    record_failed_url,
-)
-from core.scrape_logging import get_log_file_path, get_scrape_logger
-from listing_page_helper import extract_listing_article_links
-from Normalization import ArticleExtractionResult, crawl_article_pages, crawl_articles
-from news_normalization import build_content_hash, normalize_title, normalize_url
-from source_config import (
+    get_log_file_path,
     get_max_article_age_days,
+    get_scrape_logger,
     get_source_metadata,
     is_allowed_source,
+    is_recent_article,
+    normalize_title,
+    normalize_url,
+    record_failed_url,
     supports_source_type,
+    cast,
 )
+from listing_page_helper import extract_listing_article_links
+from pipelines._constants import INDUSTRY_NAME_STOPWORDS
+from pipelines._internal import is_blacklisted_cnbc_link, link_matches_variants, normalize_match_text
 from urlFactories import INDUSTRY_NEWS_SOURCES
-
-DATA_DIR = Path(__file__).resolve().parents[2] / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
 
 from db_helpers import add_industry_news_article, get_all_industries, initialize_news_database
 
 
 LOGGER = get_scrape_logger("industry_pipeline")
-INDUSTRY_NAME_STOPWORDS = {
-    "and",
-    "the",
-    "other",
-    "production",
-    "products",
-}
-CNBC_BLACKLISTED_PATH_FRAGMENTS = (
-    "/investingclub/video/",
-    "/pro/news/",
-    "/pro/options-investing/",
-    "/application/pro/",
-)
+__all__ = ["get_all_industry_news"]
 
 
-def normalize_match_text(value: str | None) -> str:
-    cleaned = re.sub(r"[^a-z0-9]+", " ", (value or "").lower())
-    return " ".join(cleaned.split())
-
-
-def build_industry_match_variants(industry: dict) -> set[str]:
+def _build_industry_match_variants(industry: dict) -> set[str]:
     industry_name = normalize_match_text(industry.get("name"))
     if not industry_name:
         return set()
@@ -85,19 +61,12 @@ def build_industry_match_variants(industry: dict) -> set[str]:
     return {variant for variant in variants if len(variant) >= 4}
 
 
-def is_blacklisted_cnbc_link(href: str) -> bool:
-    normalized_href = href.lower()
-    return "cnbc.com" in normalized_href and any(
-        fragment in normalized_href for fragment in CNBC_BLACKLISTED_PATH_FRAGMENTS
-    )
-
-
-def filter_industry_candidate_links(page_url: str, links: list[dict], industry: dict) -> list[dict]:
+def _filter_industry_candidate_links(page_url: str, links: list[dict], industry: dict) -> list[dict]:
     base_candidates = filter_article_links(page_url, links)
     if not base_candidates:
         return []
 
-    variants = build_industry_match_variants(industry)
+    variants = _build_industry_match_variants(industry)
     if not variants:
         return []
 
@@ -110,9 +79,7 @@ def filter_industry_candidate_links(page_url: str, links: list[dict], industry: 
             LOGGER.info("Skipping blacklisted CNBC URL %s for industry %s", href, industry["name"])
             continue
 
-        normalized_text = normalize_match_text(link.get("text"))
-        normalized_href = normalize_match_text(href)
-        if any(variant in normalized_text or variant in normalized_href for variant in variants):
+        if link_matches_variants(link, variants):
             filtered.append(link)
             continue
 
@@ -125,7 +92,7 @@ def filter_industry_candidate_links(page_url: str, links: list[dict], industry: 
     return filtered
 
 
-def save_followed_article_links(
+def _save_followed_article_links(
     source_page_url: str,
     candidate_links: list[dict],
     industry: dict,
@@ -305,7 +272,7 @@ def save_followed_article_links(
         )
 
     return saved_count
-def build_source_jobs(industries: list[dict]) -> tuple[list[str], dict[str, list[dict]]]:
+def _build_source_jobs(industries: list[dict]) -> tuple[list[str], dict[str, list[dict]]]:
     jobs_by_url: dict[str, list[dict]] = defaultdict(list)
 
     # Prepare all listing/search jobs ahead of time so we can crawl source
@@ -326,7 +293,7 @@ def build_source_jobs(industries: list[dict]) -> tuple[list[str], dict[str, list
     return list(jobs_by_url.keys()), jobs_by_url
 
 
-def process_source_page(page: dict, industry: dict, source_type: str) -> int:
+def _process_source_page(page: dict, industry: dict, source_type: str) -> int:
     if not page.get("success"):
         LOGGER.warning(
             "Source page crawl failed for industry %s at %s: %s",
@@ -343,19 +310,19 @@ def process_source_page(page: dict, industry: dict, source_type: str) -> int:
     if source_type == "listing":
         candidate_links = extract_listing_article_links(page["url"], page["links"], industry["name"])
     else:
-        candidate_links = filter_industry_candidate_links(page["url"], page["links"], industry)
+        candidate_links = _filter_industry_candidate_links(page["url"], page["links"], industry)
 
-    return save_followed_article_links(page["url"], candidate_links, industry)
+    return _save_followed_article_links(page["url"], candidate_links, industry)
 
 
-def process_crawled_pages(crawled_pages: list[dict], jobs_by_url: dict[str, list[dict]]) -> dict[int, dict[str, int]]:
+def _process_crawled_pages(crawled_pages: list[dict], jobs_by_url: dict[str, list[dict]]) -> dict[int, dict[str, int]]:
     saved_counts: dict[int, dict[str, int]] = defaultdict(lambda: {"listing": 0, "search": 0})
 
     # Replay each crawled source page through the jobs that requested it and
     # track saved counts separately for listing-page and search-page sources.
     for page in crawled_pages:
         for job in jobs_by_url.get(page["url"], []):
-            saved = process_source_page(page, job["industry"], job["source_type"])
+            saved = _process_source_page(page, job["industry"], job["source_type"])
             saved_counts[job["industry"]["id"]][job["source_type"]] += saved
 
     return saved_counts
@@ -367,9 +334,9 @@ def get_all_industry_news() -> None:
     # Crawl all industry source pages in a single batch, then process listing
     # pages first and search pages second from the normalized crawl results.
     LOGGER.info("Starting all-industry scrape for %s industries", len(industries))
-    urls, jobs_by_url = build_source_jobs(industries)
+    urls, jobs_by_url = _build_source_jobs(industries)
     crawled_pages = crawl_articles(urls)
-    saved_counts = process_crawled_pages(crawled_pages, jobs_by_url)
+    saved_counts = _process_crawled_pages(crawled_pages, jobs_by_url)
 
     for industry in industries:
         industry_counts = saved_counts.get(industry["id"], {"listing": 0, "search": 0})
