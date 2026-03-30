@@ -1,14 +1,22 @@
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+
+if __package__ in {None, ""}:
+    WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
+    if str(WEBSCRAPING_DIR) not in sys.path:
+        sys.path.append(str(WEBSCRAPING_DIR))
+
 from pipelines._shared import (
     ArticleExtractionResult,
     MAX_ARTICLES_PER_SEARCH_PAGE,
     MAX_ARTICLE_AGE_DAYS,
-    build_source_url,
     build_content_hash,
     clear_failed_url,
     compute_article_scores,
     crawl_article_pages,
     crawl_articles,
-    defaultdict,
     fetch_existing_article_by_url,
     filter_article_links,
     get_log_file_path,
@@ -20,13 +28,12 @@ from pipelines._shared import (
     normalize_title,
     normalize_url,
     record_failed_url,
-    supports_source_type,
     cast,
 )
 from listing_page_helper import extract_listing_article_links
 from pipelines._constants import INDUSTRY_NAME_STOPWORDS
 from pipelines._internal import is_blacklisted_cnbc_link, link_matches_variants, normalize_match_text
-from urlFactories import INDUSTRY_NEWS_SOURCES
+from pipelines.job_builder import build_industry_source_jobs, group_jobs_by_url, unique_job_urls
 
 from db_helpers import add_industry_news_article, get_all_industries, initialize_news_database
 
@@ -272,25 +279,6 @@ def _save_followed_article_links(
         )
 
     return saved_count
-def _build_source_jobs(industries: list[dict]) -> tuple[list[str], dict[str, list[dict]]]:
-    jobs_by_url: dict[str, list[dict]] = defaultdict(list)
-
-    # Prepare all listing/search jobs ahead of time so we can crawl source
-    # pages once and then map each crawled page back to its industry jobs.
-    for industry in industries:
-        for source_name, source_config in INDUSTRY_NEWS_SOURCES.items():
-            url = build_source_url(industry["name"], source_config)
-            if not supports_source_type(url, source_config["type"]):
-                continue
-            jobs_by_url[url].append(
-                {
-                    "industry": industry,
-                    "source_name": source_name,
-                    "source_type": source_config["type"],
-                }
-            )
-
-    return list(jobs_by_url.keys()), jobs_by_url
 
 
 def _process_source_page(page: dict, industry: dict, source_type: str) -> int:
@@ -316,6 +304,8 @@ def _process_source_page(page: dict, industry: dict, source_type: str) -> int:
 
 
 def _process_crawled_pages(crawled_pages: list[dict], jobs_by_url: dict[str, list[dict]]) -> dict[int, dict[str, int]]:
+    from collections import defaultdict
+
     saved_counts: dict[int, dict[str, int]] = defaultdict(lambda: {"listing": 0, "search": 0})
 
     # Replay each crawled source page through the jobs that requested it and
@@ -334,7 +324,9 @@ def get_all_industry_news() -> None:
     # Crawl all industry source pages in a single batch, then process listing
     # pages first and search pages second from the normalized crawl results.
     LOGGER.info("Starting all-industry scrape for %s industries", len(industries))
-    urls, jobs_by_url = _build_source_jobs(industries)
+    jobs = build_industry_source_jobs(industries)
+    jobs_by_url = group_jobs_by_url(jobs)
+    urls = unique_job_urls(jobs)
     crawled_pages = crawl_articles(urls)
     saved_counts = _process_crawled_pages(crawled_pages, jobs_by_url)
 

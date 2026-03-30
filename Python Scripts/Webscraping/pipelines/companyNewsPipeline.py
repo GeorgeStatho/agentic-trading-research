@@ -1,15 +1,22 @@
-import json
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+
+if __package__ in {None, ""}:
+    WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
+    if str(WEBSCRAPING_DIR) not in sys.path:
+        sys.path.append(str(WEBSCRAPING_DIR))
+
 from pipelines._shared import (
     ArticleExtractionResult,
     MAX_ARTICLES_PER_SEARCH_PAGE,
     MAX_ARTICLE_AGE_DAYS,
-    build_source_url,
     build_content_hash,
     clear_failed_url,
     compute_article_scores,
     crawl_article_pages,
     crawl_articles,
-    defaultdict,
     fetch_existing_article_by_url,
     filter_article_links,
     get_log_file_path,
@@ -24,58 +31,22 @@ from pipelines._shared import (
     supports_source_type,
     cast,
 )
-from pipelines._constants import COMPANY_NAME_SUFFIXES, FOOL_EXCHANGE_SLUGS
+from pipelines._constants import COMPANY_NAME_SUFFIXES
 from pipelines._internal import is_blacklisted_cnbc_link, link_matches_variants, normalize_match_text
-from urlFactories import COMPANY_NEWS_SOURCES
+from pipelines.job_builder import (
+    CompanySourceJob,
+    build_company_source_jobs,
+    build_yahoo_news_jobs,
+    group_jobs_by_url,
+    unique_job_urls,
+)
+from market_data.yFinanceNews import extract_title_and_url, get_company_news_items
 
 from db_helpers import add_company_news_article, get_all_companies, initialize_news_database
 
 
 LOGGER = get_scrape_logger("company_pipeline")
 __all__ = ["get_all_company_news", "get_company_news"]
-
-
-def _build_company_search_terms(company: dict) -> list[str]:
-    # Keep company discovery narrowly focused on the formal company name so
-    # we do not explode the number of search URLs with weak alternate queries.
-    company_name = " ".join((company.get("name") or "").split()).strip()
-    return [company_name] if company_name else []
-
-
-def _get_company_exchange_slug(company: dict) -> str | None:
-    raw_json = company.get("raw_json")
-    if not raw_json:
-        return None
-
-    payload: dict | None = None
-    if isinstance(raw_json, str):
-        try:
-            payload = json.loads(raw_json)
-        except json.JSONDecodeError:
-            payload = None
-    elif isinstance(raw_json, dict):
-        payload = raw_json
-
-    if not payload:
-        return None
-
-    exchange = str(payload.get("exchange") or "").strip().upper()
-    if not exchange:
-        return None
-    return FOOL_EXCHANGE_SLUGS.get(exchange, exchange.lower())
-
-
-def _build_company_source_url(company: dict, search_term: str, source_config: dict) -> str | None:
-    company_specific_type = source_config.get("company_specific")
-    if company_specific_type == "fool_quote":
-        symbol = str(company.get("symbol") or "").strip().lower()
-        exchange_slug = _get_company_exchange_slug(company)
-        if not symbol or not exchange_slug:
-            return None
-        return source_config["url"].format(exchange=exchange_slug, symbol=symbol)
-
-    return build_source_url(search_term, source_config)
-
 
 def _build_company_match_variants(company: dict) -> set[str]:
     # Build a few deterministic match variants so we can require that search
@@ -140,9 +111,10 @@ def _save_followed_article_links(
     search_term: str,
     max_articles: int = MAX_ARTICLES_PER_SEARCH_PAGE,
     max_age_days: int = MAX_ARTICLE_AGE_DAYS,
+    fetched_articles: dict[str, ArticleExtractionResult] | None = None,
 ) -> int:
     saved_count = 0
-    fetched_articles: dict[str, ArticleExtractionResult] = {}
+    fetched_articles = dict(fetched_articles or {})
     # Follow the filtered result links one level deep, reuse any article that
     # already exists in the DB, and save new articles that pass recency checks.
     LOGGER.info(
@@ -164,7 +136,7 @@ def _save_followed_article_links(
             continue
         urls_to_fetch.append(href)
 
-    if urls_to_fetch:
+    if urls_to_fetch and not fetched_articles:
         LOGGER.info(
             "Fetching %s article pages through Scrapy for company %s",
             len(urls_to_fetch),
@@ -319,28 +291,6 @@ def _save_followed_article_links(
         )
 
     return saved_count
-def _build_source_jobs(companies: list[dict]) -> tuple[list[str], dict[str, list[dict]]]:
-    jobs_by_url: dict[str, list[dict]] = defaultdict(list)
-
-    # Precompute every search-page job so the spider can crawl all source
-    # pages in one Scrapy run and avoid restarting the reactor repeatedly.
-    for company in companies:
-        for search_term in _build_company_search_terms(company):
-            for source_name, source_config in COMPANY_NEWS_SOURCES.items():
-                url = _build_company_source_url(company, search_term, source_config)
-                if not url:
-                    continue
-                if not supports_source_type(url, source_config["type"]):
-                    continue
-                jobs_by_url[url].append(
-                    {
-                        "company": company,
-                        "source_name": source_name,
-                        "search_term": search_term,
-                    }
-                )
-
-    return list(jobs_by_url.keys()), jobs_by_url
 
 
 def _process_source_page(page: dict, company: dict, search_term: str) -> int:
@@ -361,15 +311,144 @@ def _process_source_page(page: dict, company: dict, search_term: str) -> int:
     return _save_followed_article_links(page["url"], candidate_links, company, search_term)
 
 
-def _process_crawled_pages(crawled_pages: list[dict], jobs_by_url: dict[str, list[dict]]) -> dict[int, int]:
-    saved_counts: dict[int, int] = defaultdict(int)
+def _build_article_save_requests(
+    crawled_pages: list[dict],
+    jobs_by_url: dict[str, list[CompanySourceJob]],
+    direct_article_jobs: list[CompanySourceJob],
+) -> list[dict]:
+    save_requests: list[dict] = []
 
     # A crawled source page may belong to one or more planned jobs, so replay
-    # the page through each matching job and accumulate saved-article counts.
+    # the page through each matching job and accumulate the article URLs that
+    # should be fetched later in one shared article crawl batch.
     for page in crawled_pages:
+        if not page.get("success"):
+            for job in jobs_by_url.get(page["url"], []):
+                LOGGER.warning(
+                    "Source page crawl failed for company %s at %s: %s",
+                    job["company"]["symbol"],
+                    page.get("url"),
+                    page.get("error"),
+                )
+            continue
+        if not supports_source_type(page["url"], "search"):
+            continue
+
         for job in jobs_by_url.get(page["url"], []):
-            saved = _process_source_page(page, job["company"], job["search_term"])
-            saved_counts[job["company"]["id"]] += saved
+            candidate_links = _filter_company_candidate_links(page["url"], page["links"], job["company"])
+            save_requests.append(
+                {
+                    "source_page_url": page["url"],
+                    "candidate_links": candidate_links,
+                    "company": job["company"],
+                    "search_term": job["search_term"],
+                    "max_articles": MAX_ARTICLES_PER_SEARCH_PAGE,
+                }
+            )
+
+    for job in direct_article_jobs:
+        save_requests.append(
+            {
+                "source_page_url": job["url"],
+                "candidate_links": [
+                    {
+                        "href": job["url"],
+                        "text": job["search_term"],
+                    }
+                ],
+                "company": job["company"],
+                "search_term": job["search_term"],
+                "max_articles": 1,
+            }
+        )
+
+    return save_requests
+
+
+def _collect_article_urls_to_fetch(save_requests: list[dict]) -> list[str]:
+    urls_to_fetch: list[str] = []
+    seen_urls: set[str] = set()
+
+    for request in save_requests:
+        added_for_request = 0
+        max_articles = int(request["max_articles"])
+        for link in request["candidate_links"]:
+            if added_for_request >= max_articles:
+                break
+
+            href = str(link.get("href") or "").strip()
+            if not href:
+                continue
+            if not is_allowed_source(href):
+                continue
+            if fetch_existing_article_by_url(href) is not None:
+                continue
+            if href in seen_urls:
+                added_for_request += 1
+                continue
+
+            urls_to_fetch.append(href)
+            seen_urls.add(href)
+            added_for_request += 1
+
+    return urls_to_fetch
+
+
+def _build_company_jobs(company: dict) -> list[CompanySourceJob]:
+    jobs = build_company_source_jobs([company])
+
+    symbol = str(company.get("symbol") or "").strip()
+    if not symbol:
+        return jobs
+
+    try:
+        yahoo_news_items = get_company_news_items(symbol)
+    except Exception as exc:
+        LOGGER.warning("Yahoo Finance news fetch failed for %s: %s", symbol, exc)
+        return jobs
+
+    yahoo_news_pairs = extract_title_and_url(yahoo_news_items)
+    jobs.extend(build_yahoo_news_jobs(company, yahoo_news_pairs))
+    return jobs
+
+
+def _build_all_company_jobs(companies: list[dict]) -> list[CompanySourceJob]:
+    jobs: list[CompanySourceJob] = []
+
+    for company in companies:
+        jobs.extend(_build_company_jobs(company))
+
+    return jobs
+
+
+def _process_company_jobs(jobs: list[CompanySourceJob]) -> dict[int, int]:
+    from collections import defaultdict
+
+    saved_counts: dict[int, int] = defaultdict(int)
+    search_jobs = [job for job in jobs if job["source_type"] == "search"]
+    direct_article_jobs = [job for job in jobs if job["source_type"] == "article"]
+    crawled_pages: list[dict] = []
+
+    if search_jobs:
+        jobs_by_url = group_jobs_by_url(search_jobs)
+        urls = unique_job_urls(search_jobs)
+        crawled_pages = crawl_articles(urls)
+    else:
+        jobs_by_url = {}
+
+    save_requests = _build_article_save_requests(crawled_pages, jobs_by_url, direct_article_jobs)
+    article_urls = _collect_article_urls_to_fetch(save_requests)
+    fetched_articles = crawl_article_pages(article_urls) if article_urls else {}
+
+    for request in save_requests:
+        saved_counts[request["company"]["id"]] += _save_followed_article_links(
+            source_page_url=request["source_page_url"],
+            candidate_links=request["candidate_links"],
+            company=request["company"],
+            search_term=request["search_term"],
+            max_articles=request["max_articles"],
+            fetched_articles=fetched_articles,
+        )
 
     return saved_counts
 
@@ -403,9 +482,8 @@ def get_company_news(company_identifier: str) -> int:
     LOGGER.info("Starting single-company scrape for %s (%s)", company["name"], company["symbol"])
     # For single-company runs we still use the same bulk-crawl flow so the
     # behavior matches the full pipeline and logs stay comparable.
-    urls, jobs_by_url = _build_source_jobs([company])
-    crawled_pages = crawl_articles(urls)
-    saved_counts = _process_crawled_pages(crawled_pages, jobs_by_url)
+    jobs = _build_company_jobs(company)
+    saved_counts = _process_company_jobs(jobs)
     saved = saved_counts.get(company["id"], 0)
     LOGGER.info(
         "Finished single-company scrape for %s (%s): saved %s articles. Log file: %s",
@@ -425,9 +503,8 @@ def get_all_company_news() -> None:
     # Run the shared discovery/follow/save process for every company using one
     # crawl batch, then report how many articles were saved per company.
     LOGGER.info("Starting all-company scrape for %s companies", len(companies))
-    urls, jobs_by_url = _build_source_jobs(companies)
-    crawled_pages = crawl_articles(urls)
-    saved_counts = _process_crawled_pages(crawled_pages, jobs_by_url)
+    jobs = _build_all_company_jobs(companies)
+    saved_counts = _process_company_jobs(jobs)
 
     for company in companies:
         saved = saved_counts.get(company["id"], 0)
@@ -437,5 +514,5 @@ def get_all_company_news() -> None:
 
 
 if __name__ == "__main__":
-    #get_company_news("Celanese Corporation")
-    get_all_company_news()
+    get_company_news("Celanese Corporation")
+    #get_all_company_news()
