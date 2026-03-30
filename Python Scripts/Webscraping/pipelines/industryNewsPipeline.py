@@ -35,7 +35,37 @@ from db_helpers import add_industry_news_article, get_all_industries, initialize
 
 
 LOGGER = get_scrape_logger("industry_pipeline")
-__all__ = ["get_all_industry_news", "get_industry_news"]
+__all__ = ["get_all_industry_news", "get_industry_news", "list_supported_industries"]
+
+
+def _expand_industry_variant_forms(value: str) -> set[str]:
+    variants = {value}
+    tokens = value.split()
+
+    def _token_forms(token: str) -> set[str]:
+        forms = {token}
+        if len(token) > 4 and token.endswith("ies"):
+            forms.add(token[:-3] + "y")
+        if len(token) > 4 and token.endswith("es"):
+            forms.add(token[:-2])
+        if len(token) > 4 and token.endswith("s"):
+            forms.add(token[:-1])
+        return {form for form in forms if len(form) >= 4}
+
+    if tokens:
+        token_options = [_token_forms(token) for token in tokens]
+        expanded_tokens = [sorted(options) for options in token_options]
+
+        def _walk(index: int, current: list[str]) -> None:
+            if index >= len(expanded_tokens):
+                variants.add(" ".join(current))
+                return
+            for option in expanded_tokens[index]:
+                _walk(index + 1, [*current, option])
+
+        _walk(0, [])
+
+    return {variant for variant in variants if len(variant) >= 4}
 
 
 def _build_industry_match_variants(industry: dict) -> set[str]:
@@ -61,7 +91,11 @@ def _build_industry_match_variants(industry: dict) -> set[str]:
             variants.add(" ".join(key_tokens))
             variants.update(key_tokens)
 
-    return {variant for variant in variants if len(variant) >= 4}
+    expanded_variants: set[str] = set()
+    for variant in variants:
+        expanded_variants.update(_expand_industry_variant_forms(variant))
+
+    return {variant for variant in expanded_variants if len(variant) >= 4}
 
 
 def _filter_industry_candidate_links(page_url: str, links: list[dict], industry: dict) -> list[dict]:
@@ -211,6 +245,17 @@ def _find_industry(industry_identifier: str) -> dict | None:
     return None
 
 
+def list_supported_industries() -> list[dict[str, str]]:
+    industries = get_all_industries()
+    return [
+        {
+            "industry_key": str(industry.get("industry_key") or ""),
+            "name": str(industry.get("name") or ""),
+        }
+        for industry in industries
+    ]
+
+
 def get_industry_news(industry_identifier: str) -> int:
     initialize_news_database()
     industry = _find_industry(industry_identifier)
@@ -264,4 +309,4 @@ def get_all_industry_news() -> None:
 
 if __name__ == "__main__":
     #get_all_industry_news()
-    get_industry_news("Auto")
+    get_industry_news("semiconductors")
