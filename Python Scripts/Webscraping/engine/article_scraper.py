@@ -310,16 +310,21 @@ def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
         return {}
 
     ctx = multiprocessing.get_context("spawn")
-    result_queue = ctx.Queue()
+    result_queue = ctx.SimpleQueue()
     worker = ctx.Process(target=_crawl_articles_worker, args=(urls, result_queue))
     LOGGER.info("Starting article-page crawl for %s URLs in a subprocess", len(urls))
     worker.start()
+
+    # Read the worker payload before joining. If we wait on join() first, the
+    # child can remain blocked flushing a large queue payload back to the
+    # parent, which looks like the crawl "never closes" even though Scrapy has
+    # already finished.
+    result: dict = result_queue.get()
     worker.join()
 
     if worker.exitcode != 0:
         raise RuntimeError(f"Article crawl subprocess failed with exit code {worker.exitcode}")
 
-    result: dict = result_queue.get() if not result_queue.empty() else {}
     if result.get("error"):
         raise RuntimeError(f"Article crawl subprocess failed: {result['error']}")
 
