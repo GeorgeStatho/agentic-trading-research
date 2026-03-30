@@ -510,6 +510,36 @@ def link_company_to_article(
     return cursor.fetchone()["id"]
 
 
+def link_sector_to_article(
+    sector_id: int,
+    article_id: int,
+    source_page_url: str | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (sector_id, article_id, source_page_url)
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return link_sector_to_article(
+                sector_id,
+                article_id,
+                source_page_url=source_page_url,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO sector_news_articles (sector_id, article_id, source_page_url)
+        VALUES (?, ?, ?)
+        ON CONFLICT(sector_id, article_id) DO UPDATE SET
+            source_page_url = excluded.source_page_url
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
 def add_company_news_article(
     company_id: int,
     source: str,
@@ -580,6 +610,83 @@ def add_company_news_article(
     )
     link_company_to_article(
         company_id=company_id,
+        article_id=article_id,
+        source_page_url=source_page_url,
+        conn=conn,
+    )
+    return article_id
+
+
+def add_sector_news_article(
+    sector_id: int,
+    source: str,
+    article_key: str,
+    title: str,
+    source_url: str,
+    source_page_url: str | None = None,
+    summary: str | None = None,
+    body: str | None = None,
+    published_at: str | None = None,
+    section: str | None = None,
+    age_days: float | None = None,
+    recency_score: float | None = None,
+    source_reputation_score: float | None = None,
+    directness_score: float | None = None,
+    confirmation_score: float | None = None,
+    independent_source_count: int | None = None,
+    factuality_score: float | None = None,
+    evidence_score: float | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return add_sector_news_article(
+                sector_id,
+                source,
+                article_key,
+                title,
+                source_url,
+                source_page_url=source_page_url,
+                summary=summary,
+                body=body,
+                published_at=published_at,
+                section=section,
+                age_days=age_days,
+                recency_score=recency_score,
+                source_reputation_score=source_reputation_score,
+                directness_score=directness_score,
+                confirmation_score=confirmation_score,
+                independent_source_count=independent_source_count,
+                factuality_score=factuality_score,
+                evidence_score=evidence_score,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    article_id = add_news_article(
+        source=source,
+        article_key=article_key,
+        title=title,
+        source_url=source_url,
+        summary=summary,
+        body=body,
+        published_at=published_at,
+        section=section,
+        age_days=age_days,
+        recency_score=recency_score,
+        source_reputation_score=source_reputation_score,
+        directness_score=directness_score,
+        confirmation_score=confirmation_score,
+        independent_source_count=independent_source_count,
+        factuality_score=factuality_score,
+        evidence_score=evidence_score,
+        raw_json=raw_json,
+        conn=conn,
+    )
+    link_sector_to_article(
+        sector_id=sector_id,
         article_id=article_id,
         source_page_url=source_page_url,
         conn=conn,
