@@ -1,6 +1,21 @@
 from db_common import get_connection
 
 
+def get_all_sectors() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                id,
+                sector_key,
+                name
+            FROM sectors
+            ORDER BY name
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_all_industries() -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(

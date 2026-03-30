@@ -66,6 +66,33 @@ CREATE TABLE IF NOT EXISTS company_news_articles (
     UNIQUE (company_id, article_id)
 );
 
+CREATE TABLE IF NOT EXISTS sector_news_articles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sector_id INTEGER NOT NULL,
+    article_id INTEGER NOT NULL,
+    source_page_url TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (sector_id) REFERENCES sectors(id) ON DELETE CASCADE,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,
+    UNIQUE (sector_id, article_id)
+);
+
+CREATE TABLE IF NOT EXISTS us_news_articles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL UNIQUE,
+    source_page_url TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS world_news_articles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL UNIQUE,
+    source_page_url TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS failed_urls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     url TEXT NOT NULL,
@@ -116,6 +143,18 @@ CREATE INDEX IF NOT EXISTS idx_company_news_articles_company_id
 
 CREATE INDEX IF NOT EXISTS idx_company_news_articles_article_id
     ON company_news_articles (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_sector_news_articles_sector_id
+    ON sector_news_articles (sector_id);
+
+CREATE INDEX IF NOT EXISTS idx_sector_news_articles_article_id
+    ON sector_news_articles (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_us_news_articles_article_id
+    ON us_news_articles (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_world_news_articles_article_id
+    ON world_news_articles (article_id);
 
 CREATE INDEX IF NOT EXISTS idx_failed_urls_normalized_url
     ON failed_urls (normalized_url);

@@ -140,6 +140,13 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
         if fool_result.success:
             return fool_result
 
+    if "finance.yahoo.com" in lowered_url:
+        from yahoo_extractor import extract_yahoo_article
+
+        yahoo_result = extract_yahoo_article(response)
+        if yahoo_result.success:
+            return yahoo_result
+
     title = response.css("title::text").get(default="").strip()
     published_at = _extract_published_at(response)
 
