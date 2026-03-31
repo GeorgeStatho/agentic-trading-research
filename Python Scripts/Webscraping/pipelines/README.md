@@ -23,12 +23,17 @@ The pipeline code is now split into layers:
   - `companyNewsPipeline.py`
   - `industryNewsPipeline.py`
   - `sectorNewsPipeline.py`
+  - `USNewsPipeline.py`
+  - `worldNewsPipeline.py`
 - shared article-follow mechanics
   - `_article_follow.py`
 - shared orchestration
   - `_orchestration.py`
 - shared entity adapters
   - `_entity_adapters.py`
+- shared CNBC RSS helpers
+  - `_sector_rss.py`
+  - `_regionNewsPipeline.py`
 - shared setup/constants/helpers
   - `_shared.py`
   - `_constants.py`
@@ -62,6 +67,14 @@ That means the two-stage crawl behavior is now shared:
 
 - stage 1: crawl source/search/listing pages
 - stage 2: crawl article pages
+
+There is also a simpler RSS-first flow used by the sector, U.S., and world pipelines:
+
+1. fetch a CNBC RSS feed
+2. extract recent article URLs
+3. classify those URLs into already-saved vs uncrawled
+4. build direct `article` jobs
+5. run one shared article crawl/save batch
 
 ## Files
 
@@ -145,15 +158,61 @@ This is the sector news entrypoint layer.
 Public entrypoint:
 
 - `get_sector_news(sector_identifier, urls, source_page_url="https://www.cnbc.com/")`
+- `get_sector_news_from_rss(sector_identifier, max_age_days=...)`
+- `get_all_sector_news(max_age_days=...)`
 
 What it is responsible for:
 
 - resolving one sector from the DB
-- taking a provided list of article URLs
-- constraining that list to CNBC-style sector crawling
+- loading the mapped CNBC RSS feed URLs for that sector
+- extracting recent article URLs from those feeds
+- classifying URLs into already-saved vs uncrawled
 - sending those direct article jobs through the shared article-save runner
 
-This pipeline is simpler because it does not start from source-page discovery. It receives article URLs directly and uses `run_article_save_requests(...)`.
+Important internal pieces:
+
+- `_build_sector_jobs(...)`
+- `_build_sector_jobs_from_rss(...)`
+- `_build_all_sector_jobs_from_rss(...)`
+- `_process_sector_jobs(...)`
+
+This pipeline is RSS-first. It does not crawl search pages. Instead it builds direct article jobs from CNBC RSS output, then batches those article URLs into one shared `crawl_article_pages(...)` pass.
+
+### [USNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/USNewsPipeline.py)
+
+This is the U.S. macro/business news pipeline.
+
+Public entrypoints:
+
+- `get_us_news(urls)`
+- `get_us_news_from_rss(max_age_days=...)`
+
+What it is responsible for:
+
+- using the fixed CNBC U.S. News RSS feed
+- extracting recent CNBC article URLs
+- reusing already-saved articles when possible
+- saving article links into the `us_news_articles` table
+
+This pipeline is intentionally thin. Most of its behavior is delegated into `_regionNewsPipeline.py`.
+
+### [worldNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/worldNewsPipeline.py)
+
+This is the world macro/business news pipeline.
+
+Public entrypoints:
+
+- `get_world_news(urls)`
+- `get_world_news_from_rss(max_age_days=...)`
+
+What it is responsible for:
+
+- using the fixed CNBC World News RSS feed
+- extracting recent CNBC article URLs
+- reusing already-saved articles when possible
+- saving article links into the `world_news_articles` table
+
+Like the U.S. pipeline, it is intentionally thin and delegates most of its behavior into `_regionNewsPipeline.py`.
 
 ### [_article_follow.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_article_follow.py)
 
@@ -259,6 +318,41 @@ What these adapters do:
 
 This module is what keeps the pipelines thin without hiding entity-specific behavior. The entity file still decides what makes a link relevant and what payload should be saved, but the repeated plumbing is centralized here.
 
+### [_sector_rss.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_sector_rss.py)
+
+This module contains CNBC RSS-specific helpers used by the sector pipeline.
+
+Key functions:
+
+- `load_sector_rss_feed_map()`
+- `get_sector_feed_urls(...)`
+- `fetch_rss_feed_xml(...)`
+- `extract_recent_rss_urls(...)`
+- `get_recent_sector_feed_article_urls(...)`
+
+What it does:
+
+- loads the sector-to-RSS-feed mapping from `Data/sector_rss_feeds.json`
+- resolves which RSS feeds belong to a sector
+- fetches RSS XML from CNBC
+- extracts only article URLs newer than the configured age window
+
+This keeps RSS parsing and feed resolution out of the sector pipeline entrypoint file.
+
+### [_regionNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_regionNewsPipeline.py)
+
+This module is a small shared base for fixed-feed CNBC region pipelines such as U.S. News and World News.
+
+It handles:
+
+- fixed RSS feed fetching
+- recent URL extraction
+- already-saved vs uncrawled URL classification
+- direct article job creation
+- one shared article crawl/save batch
+
+The U.S. and world pipeline files are mostly just configuration wrappers around this module.
+
 ### [job_builder.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/job_builder.py)
 
 This module creates structured jobs instead of having each pipeline build source URLs inline.
@@ -269,6 +363,7 @@ Important helpers:
 - `build_industry_source_jobs(...)`
 - `build_company_source_job(...)`
 - `build_yahoo_news_jobs(...)`
+- `build_sector_rss_jobs(...)`
 - `group_jobs_by_url(...)`
 - `unique_job_urls(...)`
 
@@ -277,6 +372,7 @@ What these functions do:
 - convert entity records plus source configuration into normalized job dicts
 - validate whether a URL makes sense for a source type
 - support both configured source-page jobs and Yahoo-derived direct article jobs
+- support RSS-derived direct article jobs for sector scraping
 - provide batching helpers used by `_orchestration.py`
 
 This keeps the pipeline files from having to know how URLs are assembled.
@@ -330,8 +426,12 @@ If you are trying to understand the system quickly, the best order is:
 2. `_orchestration.py`
 3. `_article_follow.py`
 4. `_entity_adapters.py`
-5. `companyNewsPipeline.py`
-6. `industryNewsPipeline.py`
-7. `sectorNewsPipeline.py`
+5. `_sector_rss.py`
+6. `_regionNewsPipeline.py`
+7. `companyNewsPipeline.py`
+8. `industryNewsPipeline.py`
+9. `sectorNewsPipeline.py`
+10. `USNewsPipeline.py`
+11. `worldNewsPipeline.py`
 
 That order usually makes the refactored structure click faster than starting from one of the public pipeline entrypoints.
