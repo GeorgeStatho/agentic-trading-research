@@ -358,5 +358,5 @@ def classify_us_news_to_sectors(**kwargs: Any) -> list[dict[str, Any]]:
 
 
 if __name__ == "__main__":
-    pairs = classify_macro_news_to_sectors(news_scope="world")
+    pairs = classify_macro_news_to_sectors(news_scope="us")
     print(json.dumps(pairs, indent=2))
