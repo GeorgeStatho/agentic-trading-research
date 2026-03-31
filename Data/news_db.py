@@ -596,6 +596,166 @@ def link_world_article(
     return cursor.fetchone()["id"]
 
 
+def add_world_news_sector_impact(
+    article_id: int,
+    sector_id: int,
+    confidence: str | None = None,
+    reason: str | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (
+        article_id,
+        sector_id,
+        confidence,
+        reason,
+        json_text(raw_json),
+    )
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return add_world_news_sector_impact(
+                article_id,
+                sector_id,
+                confidence=confidence,
+                reason=reason,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO world_news_sector_impacts (
+            article_id, sector_id, confidence, reason, raw_json
+        )
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(article_id, sector_id) DO UPDATE SET
+            confidence = excluded.confidence,
+            reason = excluded.reason,
+            raw_json = excluded.raw_json
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
+def add_us_news_sector_impact(
+    article_id: int,
+    sector_id: int,
+    confidence: str | None = None,
+    reason: str | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (
+        article_id,
+        sector_id,
+        confidence,
+        reason,
+        json_text(raw_json),
+    )
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return add_us_news_sector_impact(
+                article_id,
+                sector_id,
+                confidence=confidence,
+                reason=reason,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO us_news_sector_impacts (
+            article_id, sector_id, confidence, reason, raw_json
+        )
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(article_id, sector_id) DO UPDATE SET
+            confidence = excluded.confidence,
+            reason = excluded.reason,
+            raw_json = excluded.raw_json
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
+def mark_world_news_article_processed(
+    article_id: int,
+    model: str | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (
+        article_id,
+        model,
+        json_text(raw_json),
+    )
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return mark_world_news_article_processed(
+                article_id,
+                model=model,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO world_news_article_processing (article_id, model, raw_json)
+        VALUES (?, ?, ?)
+        ON CONFLICT(article_id) DO UPDATE SET
+            model = excluded.model,
+            raw_json = excluded.raw_json,
+            processed_at = CURRENT_TIMESTAMP
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
+def mark_us_news_article_processed(
+    article_id: int,
+    model: str | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (
+        article_id,
+        model,
+        json_text(raw_json),
+    )
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return mark_us_news_article_processed(
+                article_id,
+                model=model,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO us_news_article_processing (article_id, model, raw_json)
+        VALUES (?, ?, ?)
+        ON CONFLICT(article_id) DO UPDATE SET
+            model = excluded.model,
+            raw_json = excluded.raw_json,
+            processed_at = CURRENT_TIMESTAMP
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
 def add_company_news_article(
     company_id: int,
     source: str,
