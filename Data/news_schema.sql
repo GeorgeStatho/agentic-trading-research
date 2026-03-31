@@ -93,6 +93,50 @@ CREATE TABLE IF NOT EXISTS world_news_articles (
     FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS world_news_sector_impacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL,
+    sector_id INTEGER NOT NULL,
+    confidence TEXT,
+    reason TEXT,
+    raw_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,
+    FOREIGN KEY (sector_id) REFERENCES sectors(id) ON DELETE CASCADE,
+    UNIQUE (article_id, sector_id)
+);
+
+CREATE TABLE IF NOT EXISTS world_news_article_processing (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL UNIQUE,
+    model TEXT,
+    raw_json TEXT,
+    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS us_news_sector_impacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL,
+    sector_id INTEGER NOT NULL,
+    confidence TEXT,
+    reason TEXT,
+    raw_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,
+    FOREIGN KEY (sector_id) REFERENCES sectors(id) ON DELETE CASCADE,
+    UNIQUE (article_id, sector_id)
+);
+
+CREATE TABLE IF NOT EXISTS us_news_article_processing (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL UNIQUE,
+    model TEXT,
+    raw_json TEXT,
+    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS failed_urls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     url TEXT NOT NULL,
@@ -155,6 +199,24 @@ CREATE INDEX IF NOT EXISTS idx_us_news_articles_article_id
 
 CREATE INDEX IF NOT EXISTS idx_world_news_articles_article_id
     ON world_news_articles (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_world_news_sector_impacts_article_id
+    ON world_news_sector_impacts (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_world_news_sector_impacts_sector_id
+    ON world_news_sector_impacts (sector_id);
+
+CREATE INDEX IF NOT EXISTS idx_world_news_article_processing_article_id
+    ON world_news_article_processing (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_us_news_sector_impacts_article_id
+    ON us_news_sector_impacts (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_us_news_sector_impacts_sector_id
+    ON us_news_sector_impacts (sector_id);
+
+CREATE INDEX IF NOT EXISTS idx_us_news_article_processing_article_id
+    ON us_news_article_processing (article_id);
 
 CREATE INDEX IF NOT EXISTS idx_failed_urls_normalized_url
     ON failed_urls (normalized_url);

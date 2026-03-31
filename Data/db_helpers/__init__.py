@@ -5,11 +5,15 @@ from db_helpers.news import (
     add_industry_news_article,
     add_sector_news_article,
     add_us_news_article,
+    add_us_news_sector_impact,
     add_world_news_article,
+    add_world_news_sector_impact,
     initialize_news_database,
     list_company_news_articles,
     list_industry_news_articles,
     load_macro_events,
     load_news_articles,
+    mark_us_news_article_processed,
+    mark_world_news_article_processed,
 )
 from db_helpers.queries import get_all_companies, get_all_industries, get_all_sectors
