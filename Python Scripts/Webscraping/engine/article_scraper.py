@@ -7,6 +7,7 @@ import threading
 import scrapy
 from scrapy import signals
 from scrapy.crawler import CrawlerProcess
+from scrapy.http import HtmlResponse
 from scrapy.http import Request
 from scrapy.http import Response
 from scrapy.signalmanager import dispatcher
@@ -18,6 +19,21 @@ from core.scrape_logging import get_log_file_path, get_scrape_logger, get_scrapy
 from fool_extractor import extract_fool_quote_links, response_looks_like_fool_quote
 from investing_extractor import extract_investing_search_links, response_looks_like_investing_search
 from marketwatch_extractor import extract_marketwatch_search_links, response_looks_like_marketwatch_search
+from morningstar_extractor import extract_morningstar_search_links, response_looks_like_morningstar_search
+try:
+    from playwright_runner import (
+        fetch_rendered_pages,
+        get_article_crawl_backend,
+        should_use_playwright_backend,
+        should_use_playwright_for_url,
+    )
+except ModuleNotFoundError:
+    from .playwright_runner import (
+        fetch_rendered_pages,
+        get_article_crawl_backend,
+        should_use_playwright_backend,
+        should_use_playwright_for_url,
+    )
 
 LOGGER = get_scrape_logger("article_scraper")
 
@@ -107,6 +123,8 @@ def extract_search_links(response: Response) -> list[dict[str, str]]:
         return extract_barrons_search_links(response)
     if response_looks_like_marketwatch_search(response):
         return extract_marketwatch_search_links(response)
+    if response_looks_like_morningstar_search(response):
+        return extract_morningstar_search_links(response)
     if response_looks_like_cnbc_search(response):
         return extract_cnbc_search_links(response)
     if response_looks_like_investing_search(response):
@@ -139,6 +157,97 @@ def extract_links(response: Response) -> list[dict[str, str]]:
         seen_hrefs.add(absolute_href)
 
     return links
+
+
+def _build_scraped_item(response: Response, *, request_url: str | None = None) -> dict:
+    if response.status >= 400:
+        LOGGER.warning("Non-200 response for %s: HTTP %s", response.url, response.status)
+        return {
+            "request_url": request_url or response.url,
+            "url": response.url,
+            "title": "",
+            "text": "",
+            "published_at": "",
+            "links": [],
+            "success": False,
+            "error": f"HTTP {response.status}",
+            "status": response.status,
+        }
+
+    result = extract_from_response(response)
+    if result.success:
+        LOGGER.info("Scraped %s successfully", response.url)
+    else:
+        LOGGER.warning("Extraction issue for %s: %s", response.url, result.error)
+
+    discovered_links = extract_search_links(response)
+    return {
+        "request_url": request_url or response.request.url if response.request else response.url,
+        "url": result.url,
+        "title": result.title,
+        "text": result.text,
+        "published_at": result.published_at,
+        "links": discovered_links,
+        "success": result.success,
+        "error": result.error,
+        "status": response.status,
+    }
+
+
+def _build_item_from_rendered_page(rendered_page: dict) -> dict:
+    request_url = str(rendered_page.get("request_url") or "").strip()
+    page_url = str(rendered_page.get("url") or request_url).strip()
+    status = rendered_page.get("status")
+    error = str(rendered_page.get("error") or "").strip()
+    html = rendered_page.get("html") or ""
+
+    if error or not html:
+        return {
+            "request_url": request_url or page_url,
+            "url": page_url,
+            "title": "",
+            "text": "",
+            "published_at": "",
+            "links": [],
+            "success": False,
+            "error": error or "Playwright returned no HTML content.",
+            "status": status,
+        }
+
+    response = HtmlResponse(
+        url=page_url,
+        body=html.encode("utf-8"),
+        encoding="utf-8",
+        request=Request(url=request_url or page_url),
+    )
+    if status is not None:
+        response = response.replace(status=int(status))
+    return _build_scraped_item(response, request_url=request_url or page_url)
+
+
+def _build_article_results(crawled_pages: list[dict]) -> dict[str, ArticleExtractionResult]:
+    results: dict[str, ArticleExtractionResult] = {}
+
+    for page in crawled_pages:
+        request_url = str(page.get("request_url") or "").strip()
+        page_url = str(page.get("url") or "").strip()
+        if not request_url and not page_url:
+            continue
+
+        article_result = ArticleExtractionResult(
+            url=page_url,
+            title=str(page.get("title") or ""),
+            text=str(page.get("text") or ""),
+            published_at=str(page.get("published_at") or ""),
+            success=bool(page.get("success")),
+            error=str(page.get("error") or ""),
+        )
+        if request_url:
+            results[request_url] = article_result
+        if page_url and page_url != request_url:
+            results[page_url] = article_result
+
+    return results
 
 
 class ArticleSpider(scrapy.Spider):
@@ -197,38 +306,7 @@ class ArticleSpider(scrapy.Spider):
             )
 
     def parse(self, response: Response):
-        if response.status >= 400:
-            self.logger.warning("Non-200 response for %s: HTTP %s", response.url, response.status)
-            yield {
-                "request_url": response.request.url,
-                "url": response.url,
-                "title": "",
-                "text": "",
-                "published_at": "",
-                "success": False,
-                "error": f"HTTP {response.status}",
-                "status": response.status,
-            }
-            return
-
-        result = extract_from_response(response)
-        if result.success:
-            self.logger.info("Scraped %s successfully", response.url)
-        else:
-            self.logger.warning("Extraction issue for %s: %s", response.url, result.error)
-
-        discovered_links = extract_search_links(response)
-        yield {
-            "request_url": response.request.url,
-            "url": result.url,
-            "title": result.title,
-            "text": result.text,
-            "published_at": result.published_at,
-            "links": discovered_links,
-            "success": result.success,
-            "error": result.error,
-            "status": response.status,
-        }
+        yield _build_scraped_item(response)
 
     def handle_failure(self, failure):
         request = failure.request
@@ -305,9 +383,33 @@ def _crawl_articles_worker(urls: list[str], result_queue: multiprocessing.queues
         raise
 
 
+def _stop_article_worker(worker: multiprocessing.process.BaseProcess) -> None:
+    if worker.is_alive():
+        worker.terminate()
+    worker.join(timeout=5)
+
+
 def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
     if not urls:
         return {}
+
+    if should_use_playwright_backend():
+        playwright_urls = [url for url in urls if should_use_playwright_for_url(url)]
+        scrapy_urls = [url for url in urls if not should_use_playwright_for_url(url)]
+        LOGGER.info(
+            "Using %s selectively for article-page crawl: %s Playwright URLs, %s Scrapy URLs",
+            get_article_crawl_backend(),
+            len(playwright_urls),
+            len(scrapy_urls),
+        )
+
+        results: dict[str, ArticleExtractionResult] = {}
+        if playwright_urls:
+            crawled_pages = [_build_item_from_rendered_page(page) for page in fetch_rendered_pages(playwright_urls)]
+            results.update(_build_article_results(crawled_pages))
+        if not scrapy_urls:
+            return results
+        urls = scrapy_urls
 
     ctx = multiprocessing.get_context("spawn")
     result_queue = ctx.SimpleQueue()
@@ -319,8 +421,17 @@ def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
     # child can remain blocked flushing a large queue payload back to the
     # parent, which looks like the crawl "never closes" even though Scrapy has
     # already finished.
-    result: dict = result_queue.get()
-    worker.join()
+    try:
+        result: dict = result_queue.get()
+        worker.join()
+    except (KeyboardInterrupt, InterruptedError):
+        LOGGER.warning("Keyboard interrupt received while waiting for the article crawl subprocess; stopping it early")
+        _stop_article_worker(worker)
+        raise KeyboardInterrupt
+    finally:
+        close_queue = getattr(result_queue, "close", None)
+        if callable(close_queue):
+            close_queue()
 
     if worker.exitcode != 0:
         raise RuntimeError(f"Article crawl subprocess failed with exit code {worker.exitcode}")
@@ -329,25 +440,4 @@ def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
         raise RuntimeError(f"Article crawl subprocess failed: {result['error']}")
 
     crawled_pages = result.get("items", [])
-    results: dict[str, ArticleExtractionResult] = {}
-
-    for page in crawled_pages:
-        request_url = str(page.get("request_url") or "").strip()
-        page_url = str(page.get("url") or "").strip()
-        if not request_url and not page_url:
-            continue
-
-        article_result = ArticleExtractionResult(
-            url=page_url,
-            title=str(page.get("title") or ""),
-            text=str(page.get("text") or ""),
-            published_at=str(page.get("published_at") or ""),
-            success=bool(page.get("success")),
-            error=str(page.get("error") or ""),
-        )
-        if request_url:
-            results[request_url] = article_result
-        if page_url and page_url != request_url:
-            results[page_url] = article_result
-
-    return results
+    return _build_article_results(crawled_pages)
