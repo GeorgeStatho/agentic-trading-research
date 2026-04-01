@@ -38,6 +38,8 @@ def is_allowed_source(url: str) -> bool:
 
 def supports_source_type(url: str, source_type: str) -> bool:
     _, metadata = _match_domain(url)
+    if not bool(metadata.get("allowed")):
+        return False
     supports = metadata.get("supports")
     if isinstance(supports, dict):
         return bool(supports.get(source_type, False))
@@ -47,7 +49,7 @@ def supports_source_type(url: str, source_type: str) -> bool:
     if source_type == "listing":
         return bool(metadata.get("listing_supported", False))
     if source_type == "article":
-        return bool(metadata.get("allowed")) and bool(metadata.get("article_patterns"))
+        return bool(metadata.get("article_patterns"))
     return False
 
 

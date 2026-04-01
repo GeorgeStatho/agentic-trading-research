@@ -227,5 +227,10 @@ def get_sector_news_from_rss(sector_identifier: str, max_age_days: int = DEFAULT
     return get_sector_news(sector_identifier, article_urls)
 
 if __name__ == "__main__":
-    LOGGER.info("Running sector news pipeline directly")
-    get_sector_news_from_rss("Technology")
+    try:
+        LOGGER.info("Running sector news pipeline directly")
+        #get_sector_news_from_rss("Technology")
+        get_all_sector_news()
+    except KeyboardInterrupt:
+        LOGGER.warning("Sector scrape interrupted by user. Log file: %s", get_log_file_path())
+        print(f"\nScrape interrupted by user. Log file: {get_log_file_path()}")

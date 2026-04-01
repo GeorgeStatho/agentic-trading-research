@@ -303,5 +303,9 @@ def get_all_company_news() -> None:
 
 
 if __name__ == "__main__":
-    get_company_news("Celanese Corporation")
-    #get_all_company_news()
+    try:
+        get_company_news("Celanese Corporation")
+        #get_all_company_news()
+    except KeyboardInterrupt:
+        LOGGER.warning("Company scrape interrupted by user. Log file: %s", get_log_file_path())
+        print(f"\nScrape interrupted by user. Log file: {get_log_file_path()}")
