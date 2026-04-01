@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import json
 from typing import Any
@@ -73,6 +73,37 @@ def parse_published_at(value: str | None) -> datetime | None:
         parsed = parsed.replace(tzinfo=timezone.utc)
 
     return parsed.astimezone(timezone.utc)
+
+
+def normalize_time_window(
+    *,
+    start_time: datetime | None,
+    end_time: datetime | None,
+    max_age_days: int | None,
+) -> tuple[datetime | None, datetime | None]:
+    normalized_end = end_time.astimezone(timezone.utc) if end_time is not None else datetime.now(timezone.utc)
+    normalized_start = start_time.astimezone(timezone.utc) if start_time is not None else None
+
+    if normalized_start is None and max_age_days is not None:
+        normalized_start = normalized_end - timedelta(days=max_age_days)
+
+    return normalized_start, normalized_end
+
+
+def published_at_in_window(
+    published_at_text: str | None,
+    *,
+    start_time: datetime | None,
+    end_time: datetime | None,
+) -> bool:
+    published_at = parse_published_at(published_at_text)
+    if published_at is None:
+        return False
+    if start_time is not None and published_at < start_time:
+        return False
+    if end_time is not None and published_at > end_time:
+        return False
+    return True
 
 
 def estimate_tokens(text: str) -> int:
