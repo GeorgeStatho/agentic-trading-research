@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 import sys
 from typing import Any
@@ -15,7 +15,7 @@ DATA_DIR = ROOT_DIR / "Data"
 if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
 
-from _shared import parse_published_at
+from _shared import normalize_time_window, published_at_in_window
 from db_helpers import DB_PATH, get_all_sectors, get_connection, initialize_news_database
 
 
@@ -29,23 +29,8 @@ __all__ = [
     "find_sector",
     "get_high_confidence_macro_news_for_sector",
     "get_sector_rss_news",
-    "normalize_window",
+    "normalize_time_window",
 ]
-
-
-def normalize_window(
-    *,
-    start_time: datetime | None,
-    end_time: datetime | None,
-    max_age_days: int | None,
-) -> tuple[datetime | None, datetime | None]:
-    normalized_end = end_time.astimezone(timezone.utc) if end_time is not None else datetime.now(timezone.utc)
-    normalized_start = start_time.astimezone(timezone.utc) if start_time is not None else None
-
-    if normalized_start is None and max_age_days is not None:
-        normalized_start = normalized_end - timedelta(days=max_age_days)
-
-    return normalized_start, normalized_end
 
 
 def find_sector(sector_identifier: str) -> dict[str, Any] | None:
@@ -60,23 +45,6 @@ def find_sector(sector_identifier: str) -> dict[str, Any] | None:
         if str(sector.get("name") or "").strip().lower() == needle:
             return sector
     return None
-
-
-def _in_window(
-    published_at_text: str | None,
-    *,
-    start_time: datetime | None,
-    end_time: datetime | None,
-) -> bool:
-    published_at = parse_published_at(published_at_text)
-    if published_at is None:
-        return False
-    if start_time is not None and published_at < start_time:
-        return False
-    if end_time is not None and published_at > end_time:
-        return False
-    return True
-
 
 def _load_sector_rss_rows(sector_id: int) -> list[dict[str, Any]]:
     with get_connection(DB_PATH) as conn:
@@ -138,7 +106,7 @@ def get_sector_rss_news(
     if sector is None:
         raise ValueError(f"Sector not found for identifier: {sector_identifier}")
 
-    normalized_start, normalized_end = normalize_window(
+    normalized_start, normalized_end = normalize_time_window(
         start_time=start_time,
         end_time=end_time,
         max_age_days=max_age_days,
@@ -148,7 +116,7 @@ def get_sector_rss_news(
 
     results: list[dict[str, Any]] = []
     for row in rows:
-        if not _in_window(
+        if not published_at_in_window(
             row["published_at"],
             start_time=normalized_start,
             end_time=normalized_end,
@@ -171,7 +139,7 @@ def get_high_confidence_macro_news_for_sector(
     if sector is None:
         raise ValueError(f"Sector not found for identifier: {sector_identifier}")
 
-    normalized_start, normalized_end = normalize_window(
+    normalized_start, normalized_end = normalize_time_window(
         start_time=start_time,
         end_time=end_time,
         max_age_days=max_age_days,
@@ -244,7 +212,7 @@ def get_high_confidence_macro_news_for_sector(
 
     results: list[dict[str, Any]] = []
     for row in rows:
-        if not _in_window(
+        if not published_at_in_window(
             row["published_at"],
             start_time=normalized_start,
             end_time=normalized_end,
