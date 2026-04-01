@@ -9,6 +9,7 @@ if __package__ in {None, ""}:
         sys.path.append(str(WEBSCRAPING_DIR))
 
 from pipelines._regionNewsPipeline import DEFAULT_RSS_MAX_AGE_DAYS, make_region_pipeline
+from pipelines._shared import get_log_file_path
 
 from db_helpers import add_world_news_article, initialize_news_database
 
@@ -41,5 +42,8 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    initialize_news_database()
-    get_world_news_from_rss()
+    try:
+        initialize_news_database()
+        get_world_news_from_rss()
+    except KeyboardInterrupt:
+        print(f"\nScrape interrupted by user. Log file: {get_log_file_path()}")

@@ -13,11 +13,12 @@ WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
 if str(WEBSCRAPING_DIR) not in sys.path:
     sys.path.append(str(WEBSCRAPING_DIR))
 
-DATA_DIR = Path(__file__).resolve().parents[2] / "Data"
+PROJECT_DIR = Path(__file__).resolve().parents[3]
+DATA_DIR = PROJECT_DIR / "Data"
 if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
 
-from news_db import load_macro_events
+from db_helpers import load_macro_events
 
 
 DEFAULT_HEADERS = {
@@ -323,5 +324,8 @@ def ingest_macro_and_news() -> dict[str, int]:
 
 
 if __name__ == "__main__":
-    summary = ingest_macro_and_news()
-    print(json.dumps(summary, indent=2, sort_keys=True))
+    try:
+        summary = ingest_macro_and_news()
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    except KeyboardInterrupt:
+        print("\nMacro pipeline interrupted by user.")

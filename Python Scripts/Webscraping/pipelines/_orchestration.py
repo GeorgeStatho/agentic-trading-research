@@ -16,6 +16,11 @@ class ArticleSaveRequest(TypedDict):
     payload: dict[str, Any]
 
 
+def _page_has_usable_links(page: dict[str, Any]) -> bool:
+    links = page.get("links")
+    return isinstance(links, list) and len(links) > 0
+
+
 def build_search_article_save_requests(
     *,
     crawled_pages: list[dict],
@@ -30,7 +35,9 @@ def build_search_article_save_requests(
 
     for page in crawled_pages:
         matching_jobs = jobs_by_url.get(page["url"], [])
-        if not page.get("success"):
+        status = page.get("status")
+        fetch_succeeded = status is not None and int(status) < 400
+        if not page.get("success") and not (fetch_succeeded and _page_has_usable_links(page)):
             if handle_page_failure is not None:
                 handle_page_failure(page, matching_jobs)
             continue

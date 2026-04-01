@@ -308,5 +308,9 @@ def get_all_industry_news() -> None:
 
 
 if __name__ == "__main__":
-    #get_all_industry_news()
-    get_industry_news("semiconductors")
+    try:
+        get_all_industry_news()
+    except KeyboardInterrupt:
+        LOGGER.warning("Industry scrape interrupted by user. Log file: %s", get_log_file_path())
+        print(f"\nScrape interrupted by user. Log file: {get_log_file_path()}")
+    #get_industry_news("semiconductors")
