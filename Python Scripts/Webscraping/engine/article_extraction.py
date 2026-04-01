@@ -112,6 +112,13 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
         if marketwatch_result.success:
             return marketwatch_result
 
+    if "morningstar.com" in lowered_url:
+        from morningstar_extractor import extract_morningstar_article
+
+        morningstar_result = extract_morningstar_article(response)
+        if morningstar_result.success:
+            return morningstar_result
+
     if "barrons.com" in lowered_url:
         from barrons_extractor import extract_barrons_article
 
