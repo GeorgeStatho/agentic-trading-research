@@ -35,6 +35,13 @@ from .marketwatch import (
     is_marketwatch_url,
     response_looks_like_marketwatch_search,
 )
+from .morningstar import (
+    extract_morningstar_article,
+    extract_morningstar_search_links,
+    is_morningstar_article_url,
+    is_morningstar_url,
+    response_looks_like_morningstar_search,
+)
 from .yahoo import (
     extract_yahoo_article,
     is_yahoo_article_url,

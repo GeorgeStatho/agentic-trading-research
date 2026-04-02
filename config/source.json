@@ -13,7 +13,7 @@
   },
   "domains": {
     "reuters.com": {
-      "allowed": true,
+      "allowed": false,
       "reputation_score": 0.95,
       "source_type": "wire",
       "paywalled": false,
@@ -94,7 +94,7 @@
       "max_article_age_days": 14
     },
     "investing.com": {
-      "allowed": true,
+      "allowed": false,
       "reputation_score": 0.55,
       "source_type": "financial_news_aggregator",
       "paywalled": false,
@@ -106,7 +106,7 @@
       "max_article_age_days": 10
     },
     "businessinsider.com": {
-      "allowed": true,
+      "allowed": false,
       "reputation_score": 0.66,
       "source_type": "business_news",
       "paywalled": false,
@@ -120,7 +120,7 @@
       "max_article_age_days": 14
     },
     "markets.businessinsider.com": {
-      "allowed": true,
+      "allowed": false,
       "reputation_score": 0.6,
       "source_type": "market_news_portal",
       "paywalled": false,
@@ -132,7 +132,7 @@
       "max_article_age_days": 10
     },
     "finance.yahoo.com": {
-      "allowed": true,
+      "allowed": false,
       "reputation_score": 0.64,
       "source_type": "market_portal",
       "paywalled": false,
@@ -144,7 +144,7 @@
       "max_article_age_days": 10
     },
     "news.yahoo.com": {
-      "allowed": true,
+      "allowed": false,
       "reputation_score": 0.62,
       "source_type": "news_portal",
       "paywalled": false,
