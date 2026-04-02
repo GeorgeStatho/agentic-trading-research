@@ -20,10 +20,11 @@ from sectorIntrest import getSectorScores, getTopThreeSectors
 
 DEFAULT_TOP_SECTOR_COUNT = 3
 DEFAULT_TOP_INDUSTRY_COUNT = 3
-DEFAULT_COMPANIES_PER_GROUP = 3
+DEFAULT_TOP_GROWTH_COMPANY_COUNT = 3
 
 __all__ = [
     "collect_ranked_companies_for_industry",
+    "build_company_opportunist_summary",
     "run_agent_pipeline",
 ]
 
@@ -35,42 +36,69 @@ def _slice_companies(companies: list[dict[str, Any]], limit: int) -> list[dict[s
 def collect_ranked_companies_for_industry(
     industry_identifier: str,
     *,
-    companies_per_group: int = DEFAULT_COMPANIES_PER_GROUP,
+    top_growth_company_count: int = DEFAULT_TOP_GROWTH_COMPANY_COUNT,
 ) -> dict[str, Any]:
     company_groups = get_industry_company_groups(industry_identifier)
+    top_growth_companies = _slice_companies(
+        company_groups.get("top_growth_companies", []),
+        top_growth_company_count,
+    )
 
-    top_companies = _slice_companies(company_groups.get("top_companies", []), companies_per_group)
-    top_growth_companies = _slice_companies(company_groups.get("top_growth_companies", []), companies_per_group)
-    top_performing_companies = _slice_companies(company_groups.get("top_performing_companies", []), companies_per_group)
-
-    deduped_companies: dict[int, dict[str, Any]] = {}
-    for group_name, companies in (
-        ("top_companies", top_companies),
-        ("top_growth_companies", top_growth_companies),
-        ("top_performing_companies", top_performing_companies),
-    ):
-        for company in companies:
-            company_id = int(company["company_id"])
-            entry = deduped_companies.setdefault(
-                company_id,
-                {
-                    "company_id": company_id,
-                    "symbol": company["symbol"],
-                    "name": company["name"],
-                    "rating": company.get("rating"),
-                    "market_weight": company.get("market_weight"),
-                    "source_groups": [],
-                },
-            )
-            if group_name not in entry["source_groups"]:
-                entry["source_groups"].append(group_name)
+    selected_companies = [
+        {
+            "company_id": int(company["company_id"]),
+            "symbol": company["symbol"],
+            "name": company["name"],
+            "rating": company.get("rating"),
+            "market_weight": company.get("market_weight"),
+            "source_groups": ["top_growth_companies"],
+        }
+        for company in top_growth_companies
+    ]
 
     return {
         "industry": company_groups["industry"],
-        "top_companies": top_companies,
-        "top_growth_companies": top_growth_companies,
-        "top_performing_companies": top_performing_companies,
-        "selected_companies": list(deduped_companies.values()),
+        "selected_companies": selected_companies,
+    }
+
+
+def build_company_opportunist_summary(result: dict[str, Any]) -> dict[str, Any]:
+    company = result.get("company", {})
+    impacts = result.get("impacts", [])
+
+    confidence_counts: dict[str, int] = {}
+    direction_counts: dict[str, int] = {}
+    magnitude_counts: dict[str, int] = {}
+    reasons: list[str] = []
+
+    for impact in impacts:
+        confidence = str(impact.get("confidence") or "").strip().lower()
+        impact_direction = str(impact.get("impact_direction") or "").strip().lower()
+        impact_magnitude = str(impact.get("impact_magnitude") or "").strip().lower()
+        reason = str(impact.get("reason") or "").strip()
+
+        if confidence:
+            confidence_counts[confidence] = confidence_counts.get(confidence, 0) + 1
+        if impact_direction:
+            direction_counts[impact_direction] = direction_counts.get(impact_direction, 0) + 1
+        if impact_magnitude:
+            magnitude_counts[impact_magnitude] = magnitude_counts.get(impact_magnitude, 0) + 1
+        if reason and reason not in reasons:
+            reasons.append(reason)
+
+    return {
+        "company": {
+            "company_id": company.get("company_id"),
+            "symbol": company.get("symbol"),
+            "name": company.get("name"),
+            "industry_key": company.get("industry_key"),
+            "sector_key": company.get("sector_key"),
+        },
+        "impact_count": len(impacts),
+        "confidence_counts": confidence_counts,
+        "direction_counts": direction_counts,
+        "magnitude_counts": magnitude_counts,
+        "sample_reasons": reasons[:3],
     }
 
 
@@ -96,7 +124,7 @@ def run_agent_pipeline(
     *,
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
-    companies_per_group: int = DEFAULT_COMPANIES_PER_GROUP,
+    top_growth_company_count: int = DEFAULT_TOP_GROWTH_COMPANY_COUNT,
 ) -> dict[str, Any]:
     sector_results: list[dict[str, Any]] = []
 
@@ -111,7 +139,7 @@ def run_agent_pipeline(
         ):
             company_selection = collect_ranked_companies_for_industry(
                 industry_key,
-                companies_per_group=companies_per_group,
+                top_growth_company_count=top_growth_company_count,
             )
 
             company_results = [
@@ -122,8 +150,11 @@ def run_agent_pipeline(
             industry_results.append(
                 {
                     "industry": company_selection["industry"],
-                    "company_selection": company_selection,
-                    "company_opportunist_results": company_results,
+                    "selected_companies": company_selection["selected_companies"],
+                    "company_opportunist_summaries": [
+                        build_company_opportunist_summary(result)
+                        for result in company_results
+                    ],
                 }
             )
 
@@ -139,7 +170,7 @@ def run_agent_pipeline(
     return {
         "top_sector_count": top_sector_count,
         "top_industry_count": top_industry_count,
-        "companies_per_group": companies_per_group,
+        "top_growth_company_count": top_growth_company_count,
         "sectors": sector_results,
     }
 

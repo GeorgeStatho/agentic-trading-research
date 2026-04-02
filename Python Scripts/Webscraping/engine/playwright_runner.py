@@ -9,7 +9,7 @@ from core.scrape_logging import get_scrape_logger
 
 LOGGER = get_scrape_logger("playwright_runner")
 DEFAULT_PLAYWRIGHT_TIMEOUT_MS = 30_000
-DEFAULT_PLAYWRIGHT_CONCURRENCY = 3
+DEFAULT_PLAYWRIGHT_CONCURRENCY = 5
 PLAYWRIGHT_BACKEND_NAME = "playwright"
 PLAYWRIGHT_ARTICLE_DOMAINS = (
     "www.barrons.com",
@@ -73,23 +73,21 @@ def _is_cnbc_search_url(url: str) -> bool:
 
 
 async def _prepare_page_for_capture(page, url: str, timeout_ms: int) -> None:
-    if not _is_cnbc_search_url(url):
-        return
+    if _is_cnbc_search_url(url):
+        # CNBC search results often arrive after the initial DOMContentLoaded event.
+        # Wait for likely result selectors, then do a small scroll to trigger any
+        # lazy-rendered cards before capturing page HTML.
+        for selector in CNBC_SEARCH_WAIT_SELECTORS:
+            try:
+                await page.wait_for_selector(selector, timeout=min(timeout_ms, 8_000))
+                break
+            except Exception:
+                continue
 
-    # CNBC search results often arrive after the initial DOMContentLoaded event.
-    # Wait for likely result selectors, then do a small scroll to trigger any
-    # lazy-rendered cards before capturing page HTML.
-    for selector in CNBC_SEARCH_WAIT_SELECTORS:
         try:
-            await page.wait_for_selector(selector, timeout=min(timeout_ms, 8_000))
-            break
+            await page.evaluate("window.scrollTo(0, Math.min(document.body.scrollHeight, 1200));")
         except Exception:
-            continue
-
-    try:
-        await page.evaluate("window.scrollTo(0, Math.min(document.body.scrollHeight, 1200));")
-    except Exception:
-        pass
+            pass
 
 
 async def _log_cnbc_search_debug(page, url: str) -> None:
