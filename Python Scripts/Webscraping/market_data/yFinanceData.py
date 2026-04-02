@@ -26,6 +26,7 @@ from yfinance_client import (
 stocks_data: dict[str, dict] = {}
 STOCKS_FILE = DATA_DIR / "stocks_data.json"
 SECTORS_FILE = DATA_DIR / "sectors_companies.json"
+INDUSTRIES_FILE = DATA_DIR / "industries_companies.json"
 
 SECTORS = [
     "basic-materials",
@@ -212,6 +213,63 @@ def GetSectorInfo(
     SECTORS_FILE.write_text(json.dumps(sector_payload, indent=2, sort_keys=True), encoding="utf-8")
     load_sector_tree(sector_payload)
     return sector_payload
+
+
+def _build_sector_tree_from_industries(industry_payloads: dict[str, dict]) -> dict[str, dict]:
+    sector_tree: dict[str, dict] = {}
+
+    for industry_key, industry_payload in industry_payloads.items():
+        sector_key = str(industry_payload.get("sector_key") or "").strip()
+        if not sector_key:
+            LOGGER.warning("Skipping industry save for %s because sector_key is missing", industry_key)
+            continue
+
+        sector_name = (
+            _clean_value(industry_payload.get("sector_name"))
+            or sector_key.replace("-", " ").title()
+        )
+        sector_entry = sector_tree.setdefault(
+            sector_key,
+            {
+                "name": sector_name,
+                "industries": {},
+            },
+        )
+        sector_entry["industries"][industry_key] = industry_payload
+
+    return sector_tree
+
+
+def saveIndustries(
+    industries: list[str],
+    *,
+    include_company_details: bool = True,
+    include_top_growth: bool = True,
+    include_top_performing: bool = True,
+    include_research_reports: bool = True,
+) -> dict[str, dict]:
+    saved_industries: dict[str, dict] = {}
+
+    for industry in industries:
+        normalized_industry = str(industry).strip()
+        if not normalized_industry or normalized_industry in saved_industries:
+            continue
+
+        LOGGER.info("Starting industry save for %s", normalized_industry)
+        saved_industries[normalized_industry] = GetIndustryInfo(
+            normalized_industry,
+            include_company_details=include_company_details,
+            include_top_growth=include_top_growth,
+            include_top_performing=include_top_performing,
+            include_research_reports=include_research_reports,
+        )
+        LOGGER.info("Finished industry save for %s", normalized_industry)
+
+    sector_tree = _build_sector_tree_from_industries(saved_industries)
+    INDUSTRIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    INDUSTRIES_FILE.write_text(json.dumps(sector_tree, indent=2, sort_keys=True), encoding="utf-8")
+    load_sector_tree(sector_tree)
+    return sector_tree
 
 
 def saveSectors(

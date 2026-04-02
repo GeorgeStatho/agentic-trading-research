@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 import sys
 from typing import Any
@@ -15,23 +15,8 @@ DATA_DIR = ROOT_DIR / "Data"
 if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
 
-from _shared import parse_published_at
-from db_helpers import DB_PATH, get_connection, initialize_news_database, get_all_sectors
-
-
-def _normalize_window(
-    *,
-    start_time: datetime | None,
-    end_time: datetime | None,
-    max_age_days: int | None,
-) -> tuple[datetime | None, datetime | None]:
-    normalized_end = end_time.astimezone(timezone.utc) if end_time is not None else datetime.now(timezone.utc)
-    normalized_start = start_time.astimezone(timezone.utc) if start_time is not None else None
-
-    if normalized_start is None and max_age_days is not None:
-        normalized_start = normalized_end - timedelta(days=max_age_days)
-
-    return normalized_start, normalized_end
+from _shared import normalize_time_window, published_at_in_window
+from db_helpers import DB_PATH, get_connection, initialize_news_database
 
 
 def get_processed_sector_interest(
@@ -41,7 +26,7 @@ def get_processed_sector_interest(
     max_age_days: int | None = None,
 ) -> list[dict[str, Any]]:
     initialize_news_database()
-    normalized_start, normalized_end = _normalize_window(
+    normalized_start, normalized_end = normalize_time_window(
         start_time=start_time,
         end_time=end_time,
         max_age_days=max_age_days,
@@ -105,10 +90,11 @@ def get_processed_sector_interest(
 
     results: list[dict[str, Any]] = []
     for row in rows:
-        published_at = parse_published_at(row["published_at"])
-        if normalized_start is not None and (published_at is None or published_at < normalized_start):
-            continue
-        if normalized_end is not None and (published_at is None or published_at > normalized_end):
+        if not published_at_in_window(
+            row["published_at"],
+            start_time=normalized_start,
+            end_time=normalized_end,
+        ):
             continue
 
         results.append(
@@ -147,5 +133,5 @@ def getTopThreeSectors(sectorScores: dict[str,int]):
         reverse=True,
     )[:3]
 
-
-print(getTopThreeSectors(getSectorScores()))
+if __name__ == "__main__":
+    print(getTopThreeSectors(getSectorScores()))

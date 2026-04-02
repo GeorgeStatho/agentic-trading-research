@@ -137,6 +137,78 @@ CREATE TABLE IF NOT EXISTS us_news_article_processing (
     FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS industry_opportunist_impacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL,
+    industry_id INTEGER NOT NULL,
+    confidence TEXT,
+    impact_direction TEXT,
+    impact_magnitude TEXT,
+    reason TEXT,
+    raw_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,
+    FOREIGN KEY (industry_id) REFERENCES industries(id) ON DELETE CASCADE,
+    UNIQUE (article_id, industry_id)
+);
+
+CREATE TABLE IF NOT EXISTS industry_opportunist_article_processing (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL UNIQUE,
+    model TEXT,
+    raw_json TEXT,
+    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS company_opportunist_impacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL,
+    company_id INTEGER NOT NULL,
+    confidence TEXT,
+    impact_direction TEXT,
+    impact_magnitude TEXT,
+    reason TEXT,
+    raw_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+    UNIQUE (article_id, company_id)
+);
+
+CREATE TABLE IF NOT EXISTS company_opportunist_article_processing (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL UNIQUE,
+    model TEXT,
+    raw_json TEXT,
+    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS sector_opportunist_impacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL,
+    sector_id INTEGER NOT NULL,
+    confidence TEXT,
+    impact_direction TEXT,
+    impact_magnitude TEXT,
+    reason TEXT,
+    raw_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,
+    FOREIGN KEY (sector_id) REFERENCES sectors(id) ON DELETE CASCADE,
+    UNIQUE (article_id, sector_id)
+);
+
+CREATE TABLE IF NOT EXISTS sector_opportunist_article_processing (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL UNIQUE,
+    model TEXT,
+    raw_json TEXT,
+    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS failed_urls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     url TEXT NOT NULL,
@@ -217,6 +289,33 @@ CREATE INDEX IF NOT EXISTS idx_us_news_sector_impacts_sector_id
 
 CREATE INDEX IF NOT EXISTS idx_us_news_article_processing_article_id
     ON us_news_article_processing (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_industry_opportunist_impacts_article_id
+    ON industry_opportunist_impacts (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_industry_opportunist_impacts_industry_id
+    ON industry_opportunist_impacts (industry_id);
+
+CREATE INDEX IF NOT EXISTS idx_industry_opportunist_article_processing_article_id
+    ON industry_opportunist_article_processing (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_company_opportunist_impacts_article_id
+    ON company_opportunist_impacts (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_company_opportunist_impacts_company_id
+    ON company_opportunist_impacts (company_id);
+
+CREATE INDEX IF NOT EXISTS idx_company_opportunist_article_processing_article_id
+    ON company_opportunist_article_processing (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_sector_opportunist_impacts_article_id
+    ON sector_opportunist_impacts (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_sector_opportunist_impacts_sector_id
+    ON sector_opportunist_impacts (sector_id);
+
+CREATE INDEX IF NOT EXISTS idx_sector_opportunist_article_processing_article_id
+    ON sector_opportunist_article_processing (article_id);
 
 CREATE INDEX IF NOT EXISTS idx_failed_urls_normalized_url
     ON failed_urls (normalized_url);

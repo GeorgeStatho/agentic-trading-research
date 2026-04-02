@@ -756,6 +756,270 @@ def mark_us_news_article_processed(
     return cursor.fetchone()["id"]
 
 
+def add_industry_opportunist_impact(
+    article_id: int,
+    industry_id: int,
+    confidence: str | None = None,
+    impact_direction: str | None = None,
+    impact_magnitude: str | None = None,
+    reason: str | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (
+        article_id,
+        industry_id,
+        confidence,
+        impact_direction,
+        impact_magnitude,
+        reason,
+        json_text(raw_json),
+    )
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return add_industry_opportunist_impact(
+                article_id,
+                industry_id,
+                confidence=confidence,
+                impact_direction=impact_direction,
+                impact_magnitude=impact_magnitude,
+                reason=reason,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO industry_opportunist_impacts (
+            article_id, industry_id, confidence, impact_direction, impact_magnitude, reason, raw_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(article_id, industry_id) DO UPDATE SET
+            confidence = excluded.confidence,
+            impact_direction = excluded.impact_direction,
+            impact_magnitude = excluded.impact_magnitude,
+            reason = excluded.reason,
+            raw_json = excluded.raw_json
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
+def mark_industry_opportunist_article_processed(
+    article_id: int,
+    model: str | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (
+        article_id,
+        model,
+        json_text(raw_json),
+    )
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return mark_industry_opportunist_article_processed(
+                article_id,
+                model=model,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO industry_opportunist_article_processing (article_id, model, raw_json)
+        VALUES (?, ?, ?)
+        ON CONFLICT(article_id) DO UPDATE SET
+            model = excluded.model,
+            raw_json = excluded.raw_json,
+            processed_at = CURRENT_TIMESTAMP
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
+def add_company_opportunist_impact(
+    article_id: int,
+    company_id: int,
+    confidence: str | None = None,
+    impact_direction: str | None = None,
+    impact_magnitude: str | None = None,
+    reason: str | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (
+        article_id,
+        company_id,
+        confidence,
+        impact_direction,
+        impact_magnitude,
+        reason,
+        json_text(raw_json),
+    )
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return add_company_opportunist_impact(
+                article_id,
+                company_id,
+                confidence=confidence,
+                impact_direction=impact_direction,
+                impact_magnitude=impact_magnitude,
+                reason=reason,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO company_opportunist_impacts (
+            article_id, company_id, confidence, impact_direction, impact_magnitude, reason, raw_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(article_id, company_id) DO UPDATE SET
+            confidence = excluded.confidence,
+            impact_direction = excluded.impact_direction,
+            impact_magnitude = excluded.impact_magnitude,
+            reason = excluded.reason,
+            raw_json = excluded.raw_json
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
+def mark_company_opportunist_article_processed(
+    article_id: int,
+    model: str | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (
+        article_id,
+        model,
+        json_text(raw_json),
+    )
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return mark_company_opportunist_article_processed(
+                article_id,
+                model=model,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO company_opportunist_article_processing (article_id, model, raw_json)
+        VALUES (?, ?, ?)
+        ON CONFLICT(article_id) DO UPDATE SET
+            model = excluded.model,
+            raw_json = excluded.raw_json,
+            processed_at = CURRENT_TIMESTAMP
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
+def add_sector_opportunist_impact(
+    article_id: int,
+    sector_id: int,
+    confidence: str | None = None,
+    impact_direction: str | None = None,
+    impact_magnitude: str | None = None,
+    reason: str | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (
+        article_id,
+        sector_id,
+        confidence,
+        impact_direction,
+        impact_magnitude,
+        reason,
+        json_text(raw_json),
+    )
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return add_sector_opportunist_impact(
+                article_id,
+                sector_id,
+                confidence=confidence,
+                impact_direction=impact_direction,
+                impact_magnitude=impact_magnitude,
+                reason=reason,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO sector_opportunist_impacts (
+            article_id, sector_id, confidence, impact_direction, impact_magnitude, reason, raw_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(article_id, sector_id) DO UPDATE SET
+            confidence = excluded.confidence,
+            impact_direction = excluded.impact_direction,
+            impact_magnitude = excluded.impact_magnitude,
+            reason = excluded.reason,
+            raw_json = excluded.raw_json
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
+def mark_sector_opportunist_article_processed(
+    article_id: int,
+    model: str | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (
+        article_id,
+        model,
+        json_text(raw_json),
+    )
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return mark_sector_opportunist_article_processed(
+                article_id,
+                model=model,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO sector_opportunist_article_processing (article_id, model, raw_json)
+        VALUES (?, ?, ?)
+        ON CONFLICT(article_id) DO UPDATE SET
+            model = excluded.model,
+            raw_json = excluded.raw_json,
+            processed_at = CURRENT_TIMESTAMP
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
 def add_company_news_article(
     company_id: int,
     source: str,
