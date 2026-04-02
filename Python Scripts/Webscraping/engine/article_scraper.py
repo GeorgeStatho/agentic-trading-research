@@ -26,6 +26,7 @@ try:
         get_article_crawl_backend,
         should_use_playwright_backend,
         should_use_playwright_for_url,
+        should_use_playwright_for_source_url,
     )
 except ModuleNotFoundError:
     from .playwright_runner import (
@@ -33,6 +34,7 @@ except ModuleNotFoundError:
         get_article_crawl_backend,
         should_use_playwright_backend,
         should_use_playwright_for_url,
+        should_use_playwright_for_source_url,
     )
 
 LOGGER = get_scrape_logger("article_scraper")
@@ -328,7 +330,42 @@ def crawl_articles(urls: list[str]) -> list[dict]:
     if not urls:
         return []
 
-    return _run_crawl(urls, enable_keyboard_stop=True, announce_log=True)
+    playwright_urls = [url for url in urls if should_use_playwright_for_source_url(url)]
+    scrapy_urls = [url for url in urls if not should_use_playwright_for_source_url(url)]
+    rendered_items: list[dict] = []
+
+    if playwright_urls:
+        LOGGER.info(
+            "Using %s selectively for source-page crawl: %s Playwright URLs, %s Scrapy URLs",
+            "playwright",
+            len(playwright_urls),
+            len(scrapy_urls),
+        )
+        try:
+            rendered_items = [
+                _build_item_from_rendered_page(page)
+                for page in fetch_rendered_pages(playwright_urls)
+            ]
+        except RuntimeError as exc:
+            LOGGER.warning(
+                "Playwright source-page crawl unavailable; falling back to Scrapy for %s URLs: %s",
+                len(playwright_urls),
+                exc,
+            )
+            scrapy_urls = urls
+            rendered_items = []
+
+    if not scrapy_urls:
+        return rendered_items
+
+    if rendered_items:
+        return rendered_items + _run_crawl(
+            scrapy_urls,
+            enable_keyboard_stop=True,
+            announce_log=True,
+        )
+
+    return _run_crawl(scrapy_urls, enable_keyboard_stop=True, announce_log=True)
 
 
 def _run_crawl(urls: list[str], *, enable_keyboard_stop: bool, announce_log: bool) -> list[dict]:
