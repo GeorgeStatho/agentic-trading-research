@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
-
 from article_extraction import DEFAULT_USER_AGENT
 from core.scrape_logging import get_scrape_logger
 
 
 LOGGER = get_scrape_logger("playwright_runner")
 DEFAULT_PLAYWRIGHT_TIMEOUT_MS = 30_000
+DEFAULT_PLAYWRIGHT_CONCURRENCY = 3
 PLAYWRIGHT_BACKEND_NAME = "playwright"
 PLAYWRIGHT_ARTICLE_DOMAINS = (
     "www.barrons.com",
@@ -28,16 +28,19 @@ CNBC_SEARCH_WAIT_SELECTORS = (
     ".SearchResult-searchResult",
     ".Card-title",
 )
-CNBC_SEARCH_INPUT_SELECTORS = (
-    "input[type='search']",
-    "input[placeholder*='Search']",
-    "input[aria-label*='Search']",
-    "input[name='query']",
-)
 
 
 def _use_headed_browser(urls: list[str]) -> bool:
     return False
+
+
+def _get_playwright_concurrency() -> int:
+    raw_value = os.getenv("WEBSCRAPING_PLAYWRIGHT_CONCURRENCY", str(DEFAULT_PLAYWRIGHT_CONCURRENCY))
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        return DEFAULT_PLAYWRIGHT_CONCURRENCY
+    return max(1, parsed)
 
 
 def get_article_crawl_backend() -> str:
@@ -69,87 +72,40 @@ def _is_cnbc_search_url(url: str) -> bool:
     return "cnbc.com" in lowered and "/search" in lowered
 
 
-def _prepare_page_for_capture(page, url: str, timeout_ms: int) -> None:
+async def _prepare_page_for_capture(page, url: str, timeout_ms: int) -> None:
     if not _is_cnbc_search_url(url):
         return
-
-    _prime_cnbc_search_query(page, url, timeout_ms)
 
     # CNBC search results often arrive after the initial DOMContentLoaded event.
     # Wait for likely result selectors, then do a small scroll to trigger any
     # lazy-rendered cards before capturing page HTML.
     for selector in CNBC_SEARCH_WAIT_SELECTORS:
         try:
-            page.wait_for_selector(selector, timeout=min(timeout_ms, 8_000))
+            await page.wait_for_selector(selector, timeout=min(timeout_ms, 8_000))
             break
         except Exception:
             continue
 
     try:
-        page.evaluate("window.scrollTo(0, Math.min(document.body.scrollHeight, 1200));")
-        page.wait_for_timeout(750)
+        await page.evaluate("window.scrollTo(0, Math.min(document.body.scrollHeight, 1200));")
     except Exception:
         pass
 
 
-def _extract_cnbc_query_text(url: str) -> str:
-    parsed = urlsplit(url)
-    query_value = parse_qs(parsed.query).get("query", [""])[0]
-    return " ".join(str(query_value or "").split()).strip()
-
-
-def _prime_cnbc_search_query(page, url: str, timeout_ms: int) -> None:
-    query_text = _extract_cnbc_query_text(url)
-    if not query_text:
-        return
-
-    for selector in CNBC_SEARCH_INPUT_SELECTORS:
-        try:
-            locator = page.locator(selector).first
-            if locator.count() == 0:
-                continue
-            current_value = (locator.input_value(timeout=1_000) or "").strip()
-            if current_value == query_text:
-                return
-            if current_value:
-                LOGGER.info(
-                    "CNBC search input for %s already has a different value: %s",
-                    url,
-                    current_value,
-                )
-            else:
-                LOGGER.info(
-                    "CNBC search input for %s was blank; filling query text: %s",
-                    url,
-                    query_text,
-                )
-            locator.click(timeout=2_000)
-            locator.fill(query_text, timeout=min(timeout_ms, 5_000))
-            locator.press("Enter", timeout=2_000)
-            page.wait_for_timeout(1_000)
-            try:
-                page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 5_000))
-            except Exception:
-                pass
-            return
-        except Exception:
-            continue
-
-
-def _log_cnbc_search_debug(page, url: str) -> None:
+async def _log_cnbc_search_debug(page, url: str) -> None:
     if not _is_cnbc_search_url(url):
         return
 
     selector_counts: dict[str, int | str] = {}
     for selector in ("a.resultlink", ".SearchResult-searchResult", ".Card-title", "iframe"):
         try:
-            selector_counts[selector] = page.locator(selector).count()
+            selector_counts[selector] = await page.locator(selector).count()
         except Exception as exc:
             selector_counts[selector] = f"error: {exc}"
 
     sample_resultlinks: list[str] = []
     try:
-        hrefs = page.locator("a.resultlink").evaluate_all(
+        hrefs = await page.locator("a.resultlink").evaluate_all(
             """elements => elements
                 .map(el => el.getAttribute('href') || '')
                 .filter(Boolean)
@@ -190,6 +146,106 @@ def _get_sync_playwright():
     return sync_playwright
 
 
+def _get_async_playwright():
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "Playwright backend requested, but the Playwright Python package is not installed."
+        ) from exc
+    return async_playwright
+
+
+async def _fetch_single_rendered_page(context, url: str, timeout_ms: int) -> dict[str, Any]:
+    page = await context.new_page()
+    try:
+        LOGGER.info("Playwright requesting %s", url)
+        response = await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+        try:
+            await page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 5_000))
+        except Exception:
+            # Some sites never reach true network idle because of
+            # background requests. The DOM content is enough for our
+            # extractors, so we keep going.
+            pass
+
+        await _prepare_page_for_capture(page, url, timeout_ms)
+        await _log_cnbc_search_debug(page, url)
+
+        return {
+            "request_url": url,
+            "url": page.url,
+            "html": await page.content(),
+            "status": response.status if response else 200,
+            "error": "",
+        }
+    except Exception as exc:
+        LOGGER.error("Playwright request failed for %s: %s", url, exc)
+        return {
+            "request_url": url,
+            "url": url,
+            "html": "",
+            "status": None,
+            "error": str(exc),
+        }
+    finally:
+        await page.close()
+
+
+async def _fetch_rendered_pages_async(
+    urls: list[str],
+    *,
+    timeout_ms: int,
+) -> list[dict[str, Any]]:
+    if not urls:
+        return []
+
+    async_playwright = _get_async_playwright()
+    headed_mode = _use_headed_browser(urls)
+    concurrency = _get_playwright_concurrency()
+    LOGGER.info("Starting Playwright article-page crawl for %s URLs", len(urls))
+    LOGGER.info(
+        "Playwright browser mode for this crawl: %s",
+        "headed" if headed_mode else "headless",
+    )
+    LOGGER.info("Playwright concurrency for this crawl: %s", concurrency)
+
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=not headed_mode)
+        context = await browser.new_context(
+            user_agent=DEFAULT_USER_AGENT,
+            locale="en-US",
+        )
+
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def fetch_with_limit(url: str) -> dict[str, Any]:
+            async with semaphore:
+                return await _fetch_single_rendered_page(context, url, timeout_ms)
+
+        try:
+            rendered_pages = await asyncio.gather(*(fetch_with_limit(url) for url in urls))
+        finally:
+            await context.close()
+            await browser.close()
+
+    LOGGER.info("Finished Playwright article-page crawl for %s URLs", len(urls))
+    return list(rendered_pages)
+
+
+def _run_async(coro):
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
 def fetch_rendered_pages(
     urls: list[str],
     *,
@@ -197,65 +253,4 @@ def fetch_rendered_pages(
 ) -> list[dict[str, Any]]:
     if not urls:
         return []
-
-    sync_playwright = _get_sync_playwright()
-    rendered_pages: list[dict[str, Any]] = []
-    LOGGER.info("Starting Playwright article-page crawl for %s URLs", len(urls))
-    headed_mode = _use_headed_browser(urls)
-    LOGGER.info(
-        "Playwright browser mode for this crawl: %s",
-        "headed" if headed_mode else "headless",
-    )
-
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=not headed_mode)
-        context = browser.new_context(
-            user_agent=DEFAULT_USER_AGENT,
-            locale="en-US",
-        )
-
-        try:
-            for url in urls:
-                page = context.new_page()
-                try:
-                    LOGGER.info("Playwright requesting %s", url)
-                    response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-                    try:
-                        page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 5_000))
-                    except Exception:
-                        # Some sites never reach true network idle because of
-                        # background requests. The DOM content is enough for our
-                        # extractors, so we keep going.
-                        pass
-
-                    _prepare_page_for_capture(page, url, timeout_ms)
-                    _log_cnbc_search_debug(page, url)
-
-                    rendered_pages.append(
-                        {
-                            "request_url": url,
-                            "url": page.url,
-                            "html": page.content(),
-                            "status": response.status if response else 200,
-                            "error": "",
-                        }
-                    )
-                except Exception as exc:
-                    LOGGER.error("Playwright request failed for %s: %s", url, exc)
-                    rendered_pages.append(
-                        {
-                            "request_url": url,
-                            "url": url,
-                            "html": "",
-                            "status": None,
-                            "error": str(exc),
-                        }
-                    )
-                finally:
-                    page.close()
-        finally:
-            context.close()
-            browser.close()
-
-    LOGGER.info("Finished Playwright article-page crawl for %s URLs", len(urls))
-    return rendered_pages
+    return _run_async(_fetch_rendered_pages_async(urls, timeout_ms=timeout_ms))
