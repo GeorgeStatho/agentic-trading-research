@@ -34,7 +34,15 @@ def build_search_article_save_requests(
     requests: list[ArticleSaveRequest] = []
 
     for page in crawled_pages:
-        matching_jobs = jobs_by_url.get(page["url"], [])
+        request_url = str(page.get("request_url") or "").strip()
+        page_url = str(page.get("url") or "").strip()
+
+        matching_jobs = []
+        if request_url:
+            matching_jobs = jobs_by_url.get(request_url, [])
+        if not matching_jobs and page_url:
+            matching_jobs = jobs_by_url.get(page_url, [])
+
         status = page.get("status")
         fetch_succeeded = status is not None and int(status) < 400
         if not page.get("success") and not (fetch_succeeded and _page_has_usable_links(page)):

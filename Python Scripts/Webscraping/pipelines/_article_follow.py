@@ -69,6 +69,11 @@ def save_followed_article_links(
 ) -> int:
     saved_count = 0
     fetched_articles = dict(fetched_articles or {})
+    normalized_fetched_articles: dict[str, ArticleExtractionResult] = {}
+    for fetched_url, fetched_article in fetched_articles.items():
+        normalized_fetched_url = normalize_url(fetched_url)
+        if normalized_fetched_url and normalized_fetched_url not in normalized_fetched_articles:
+            normalized_fetched_articles[normalized_fetched_url] = fetched_article
 
     logger.info(
         "Processing %s candidate article links for %s %s from %s",
@@ -155,6 +160,11 @@ def save_followed_article_links(
             logger.info("Reusing existing article %s for %s %s", href, entity_kind, entity_label)
         else:
             article = cast(ArticleExtractionResult | None, fetched_articles.get(href))
+            if article is None:
+                article = cast(
+                    ArticleExtractionResult | None,
+                    normalized_fetched_articles.get(normalize_url(href)),
+                )
             if article is None:
                 logger.warning(
                     "Missing crawled article result for %s %s at %s",
