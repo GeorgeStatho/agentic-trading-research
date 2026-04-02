@@ -133,5 +133,5 @@ def getTopThreeSectors(sectorScores: dict[str,int]):
         reverse=True,
     )[:3]
 
-
-print(getTopThreeSectors(getSectorScores()))
+if __name__ == "__main__":
+    print(getTopThreeSectors(getSectorScores()))

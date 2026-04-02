@@ -31,11 +31,16 @@ from pipelines._orchestration import (
 )
 from pipelines.job_builder import build_industry_source_jobs, group_jobs_by_url, unique_job_urls
 
-from db_helpers import add_industry_news_article, get_all_industries, initialize_news_database
+from db_helpers import add_industry_news_article, get_all_industries, get_all_sectors, initialize_news_database
 
 
 LOGGER = get_scrape_logger("industry_pipeline")
-__all__ = ["get_all_industry_news", "get_industry_news", "list_supported_industries"]
+__all__ = [
+    "get_all_industry_news",
+    "get_industry_news",
+    "get_sector_industry_news",
+    "list_supported_industries",
+]
 
 
 def _expand_industry_variant_forms(value: str) -> set[str]:
@@ -245,6 +250,38 @@ def _find_industry(industry_identifier: str) -> dict | None:
     return None
 
 
+def _find_sector(sector_identifier: str) -> dict | None:
+    needle = " ".join(str(sector_identifier or "").split()).strip().lower()
+    if not needle:
+        return None
+
+    sectors = get_all_sectors()
+
+    for sector in sectors:
+        if str(sector.get("sector_key") or "").strip().lower() == needle:
+            return sector
+
+    for sector in sectors:
+        if str(sector.get("name") or "").strip().lower() == needle:
+            return sector
+
+    return None
+
+
+def _get_industries_for_sector(sector_identifier: str) -> tuple[dict, list[dict]]:
+    sector = _find_sector(sector_identifier)
+    if sector is None:
+        raise ValueError(f"Sector not found for identifier: {sector_identifier}")
+
+    sector_key = str(sector.get("sector_key") or "").strip().lower()
+    industries = [
+        industry
+        for industry in get_all_industries()
+        if str(industry.get("sector_key") or "").strip().lower() == sector_key
+    ]
+    return sector, industries
+
+
 def list_supported_industries() -> list[dict[str, str]]:
     industries = get_all_industries()
     return [
@@ -287,6 +324,48 @@ def get_industry_news(industry_identifier: str) -> int:
     return total_saved
 
 
+def get_sector_industry_news(sector_identifier: str) -> int:
+    initialize_news_database()
+    sector, industries = _get_industries_for_sector(sector_identifier)
+    if not industries:
+        LOGGER.info(
+            "No industries found for sector %s (%s)",
+            sector["name"],
+            sector["sector_key"],
+        )
+        print(f"No industries found for sector {sector['name']}")
+        return 0
+
+    LOGGER.info(
+        "Starting sector-scoped industry scrape for %s (%s) across %s industries",
+        sector["name"],
+        sector["sector_key"],
+        len(industries),
+    )
+    jobs = build_industry_source_jobs(industries)
+    saved_counts = _process_industry_jobs(jobs)
+
+    total_saved = 0
+    for industry in industries:
+        industry_counts = saved_counts.get(industry["id"], {"listing": 0, "search": 0})
+        listing_saved = industry_counts["listing"]
+        search_saved = industry_counts["search"]
+        industry_total = listing_saved + search_saved
+        total_saved += industry_total
+        print(f"Saved {listing_saved} listing-page articles for {industry['name']}")
+        print(f"Saved {search_saved} search-page articles for {industry['name']}")
+
+    LOGGER.info(
+        "Finished sector-scoped industry scrape for %s (%s): saved %s articles. Log file: %s",
+        sector["name"],
+        sector["sector_key"],
+        total_saved,
+        get_log_file_path(),
+    )
+    print(f"Scrape log written to {get_log_file_path()}")
+    return total_saved
+
+
 def get_all_industry_news() -> None:
     initialize_news_database()
     industries = get_all_industries()
@@ -309,8 +388,9 @@ def get_all_industry_news() -> None:
 
 if __name__ == "__main__":
     try:
-        get_all_industry_news()
+        get_sector_industry_news("technology")
+        #get_all_industry_news()
+        #get_industry_news("semiconductors")
     except KeyboardInterrupt:
         LOGGER.warning("Industry scrape interrupted by user. Log file: %s", get_log_file_path())
         print(f"\nScrape interrupted by user. Log file: {get_log_file_path()}")
-    #get_industry_news("semiconductors")

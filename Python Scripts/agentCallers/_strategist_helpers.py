@@ -34,6 +34,7 @@ __all__ = [
     "get_high_confidence_company_news",
     "get_high_confidence_industry_news",
     "get_macro_news_for_company_sector",
+    "get_high_confidence_sector_news",
     "get_sector_news_for_company_sector",
 ]
 
@@ -124,6 +125,68 @@ def get_sector_news_for_company_sector(
         end_time=end_time,
         max_age_days=max_age_days,
     )
+
+
+def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
+    with get_connection(DB_PATH) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                soi.article_id,
+                soi.sector_id,
+                s.sector_key,
+                s.name AS sector_name,
+                soi.confidence,
+                soi.impact_direction,
+                soi.impact_magnitude,
+                soi.reason,
+                soi.created_at AS impact_created_at,
+                sop.processed_at,
+                sop.model,
+                na.title,
+                na.summary,
+                na.body,
+                na.source,
+                na.source_url,
+                na.published_at
+            FROM sector_opportunist_impacts AS soi
+            JOIN sectors AS s ON s.id = soi.sector_id
+            JOIN news_articles AS na ON na.id = soi.article_id
+            LEFT JOIN sector_opportunist_article_processing AS sop ON sop.article_id = soi.article_id
+            WHERE soi.sector_id = ?
+              AND lower(coalesce(soi.confidence, '')) = ?
+            ORDER BY na.published_at DESC, soi.article_id DESC
+            """,
+            (sector_id, HIGH_CONFIDENCE),
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_high_confidence_sector_news(
+    company: dict[str, Any],
+    *,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
+) -> list[dict[str, Any]]:
+    rows = _load_high_confidence_sector_rows(int(company["sector_id"]))
+    rows = _filter_rows_to_window(
+        rows,
+        start_time=start_time,
+        end_time=end_time,
+        max_age_days=max_age_days,
+    )
+    return [
+        _build_processed_article_record(
+            row,
+            article_scope="sector_news",
+            subject_id_key="sector_id",
+            subject_key_key="sector_key",
+            subject_name_key="sector_name",
+        )
+        for row in rows
+    ]
 
 
 def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]]:
@@ -263,25 +326,31 @@ def build_strategist_evidence_sections(
     return {
         "company": company,
         "peer_groups": peer_groups,
-        "macro_news": get_macro_news_for_company_sector(
+        "macro_impacts": get_macro_news_for_company_sector(
             company,
             start_time=start_time,
             end_time=end_time,
             max_age_days=max_age_days,
         ),
-        "sector_news": get_sector_news_for_company_sector(
+        "sector_impacts": get_high_confidence_sector_news(
             company,
             start_time=start_time,
             end_time=end_time,
             max_age_days=max_age_days,
         ),
-        "industry_news": get_high_confidence_industry_news(
+        "sector_rss_articles": get_sector_news_for_company_sector(
             company,
             start_time=start_time,
             end_time=end_time,
             max_age_days=max_age_days,
         ),
-        "company_news": get_high_confidence_company_news(
+        "industry_impacts": get_high_confidence_industry_news(
+            company,
+            start_time=start_time,
+            end_time=end_time,
+            max_age_days=max_age_days,
+        ),
+        "company_impacts": get_high_confidence_company_news(
             company,
             start_time=start_time,
             end_time=end_time,
