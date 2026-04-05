@@ -198,6 +198,7 @@ def _collect_cleaned_impacts(
         save_company_opportunist_batch_results(
             article_batch,
             batch_cleaned_impacts,
+            company_id=valid_company_id,
             model=model,
             raw_response=raw_response,
         )
