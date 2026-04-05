@@ -10,6 +10,7 @@ from news_db import (
     add_us_news_sector_impact,
     add_world_news_article,
     add_world_news_sector_impact,
+    link_company_to_article,
     list_company_news_articles,
     list_industry_news_articles,
     load_macro_events,

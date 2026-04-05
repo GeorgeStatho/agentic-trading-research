@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
+from datetime import datetime, timezone
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from pipelines._shared import (
     ArticleExtractionResult,
@@ -20,11 +23,43 @@ from pipelines._shared import (
     cast,
 )
 
+CNBc_URL_DATE_RE = re.compile(r"/(?P<year>\d{4})/(?P<month>\d{2})/(?P<day>\d{2})/")
+
+
+def _extract_cnbc_url_published_at(url: str) -> str | None:
+    lowered = str(url or "").strip().lower()
+    if "cnbc.com" not in lowered:
+        return None
+
+    match = CNBc_URL_DATE_RE.search(urlsplit(lowered).path)
+    if match is None:
+        return None
+
+    try:
+        published_at = datetime(
+            int(match.group("year")),
+            int(match.group("month")),
+            int(match.group("day")),
+            tzinfo=timezone.utc,
+        )
+    except ValueError:
+        return None
+
+    return published_at.isoformat()
+
+
+def _should_skip_article_fetch_for_age(url: str, *, max_age_days: int) -> bool:
+    inferred_published_at = _extract_cnbc_url_published_at(url)
+    if not inferred_published_at:
+        return False
+    return not is_recent_article(inferred_published_at, max_age_days=max_age_days)
+
 
 def collect_article_urls_to_fetch(
     candidate_links: list[dict],
     max_articles: int,
     *,
+    max_age_days: int = MAX_ARTICLE_AGE_DAYS,
     should_include_link: Callable[[str, dict], bool] | None = None,
 ) -> list[str]:
     urls_to_fetch: list[str] = []
@@ -40,6 +75,9 @@ def collect_article_urls_to_fetch(
         if should_include_link is not None and not should_include_link(href, link):
             continue
         if not is_allowed_source(href):
+            continue
+        article_max_age_days = get_max_article_age_days(href, max_age_days)
+        if _should_skip_article_fetch_for_age(href, max_age_days=article_max_age_days):
             continue
         if fetch_existing_article_by_url(href) is not None:
             continue
@@ -87,6 +125,7 @@ def save_followed_article_links(
         urls_to_fetch = collect_article_urls_to_fetch(
             candidate_links,
             max_articles,
+            max_age_days=max_age_days,
             should_include_link=should_include_link,
         )
         if urls_to_fetch:
@@ -123,6 +162,7 @@ def save_followed_article_links(
         existing_article = fetch_existing_article_by_url(href)
 
         if existing_article is not None:
+            existing_article_id = existing_article.get("id")
             existing_published_at = existing_article.get("published_at")
             if existing_published_at is not None and not isinstance(existing_published_at, str):
                 existing_published_at = str(existing_published_at)
@@ -159,6 +199,7 @@ def save_followed_article_links(
             }
             logger.info("Reusing existing article %s for %s %s", href, entity_kind, entity_label)
         else:
+            existing_article_id = None
             article = cast(ArticleExtractionResult | None, fetched_articles.get(href))
             if article is None:
                 article = cast(
@@ -226,6 +267,8 @@ def save_followed_article_links(
             "source_metadata": source_metadata,
             "score_bundle": score_bundle,
             "extracted_article_payload": extracted_article_payload,
+            "existing_article_id": existing_article_id,
+            "reused_existing_article": bool(existing_article_id),
         }
 
         save_article(

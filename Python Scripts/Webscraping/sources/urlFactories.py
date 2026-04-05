@@ -7,9 +7,10 @@ SEARCH_SOURCES = {
         "type": "search",
         "company_specific": "fool_quote",
     },
-    "CNBC Search": {
-        "url": "https://www.cnbc.com/search/?query={query}",
+    "CNBC Quote": {
+        "url": "https://www.cnbc.com/quotes/{symbol}?qsearchterm={symbol}",
         "type": "search",
+        "company_specific": "cnbc_quote",
     },
     "MarketWatch Search": {
         "url": "https://www.marketwatch.com/search?q={query}&ts=0&tab=All%20News",
