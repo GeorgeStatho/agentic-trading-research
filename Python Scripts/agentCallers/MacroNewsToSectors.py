@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 import sys
@@ -32,6 +33,15 @@ DEFAULT_MAX_ARTICLE_AGE_DAYS = 3
 DEFAULT_CONTEXT_LIMIT = 4096
 DEFAULT_PROMPT_OVERHEAD_TOKENS = 1200
 macro_news_classifier = get_ollama_client(OLLAMA_HOST)
+LOGGER = logging.getLogger(__name__)
+
+
+def _configure_console_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s:%(name)s:%(message)s",
+        force=True,
+    )
 
 
 def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> str:
@@ -228,6 +238,15 @@ def _collect_cleaned_pairs(
             batch_cleaned_pairs.append(cleaned_pair)
             seen_pairs.add(dedupe_key)
 
+        if not batch_cleaned_pairs:
+            article_ids = [int(article["article_id"]) for article in article_batch]
+            LOGGER.warning(
+                "No valid sector pairs were extracted for %s article batch %s. Raw model response: %s",
+                news_scope,
+                article_ids,
+                raw_response,
+            )
+
         save_batch_results(
             article_batch,
             batch_cleaned_pairs,
@@ -250,6 +269,11 @@ def classify_macro_news_to_sectors(
 ) -> list[dict[str, Any]]:
     initialize_news_database()
     articles = get_recent_macro_news_articles(news_scope, max_age_days=max_age_days)
+    LOGGER.info(
+        "Found %s recent unprocessed %s articles for macro-to-sector classification",
+        len(articles),
+        news_scope,
+    )
     if not articles:
         return []
 
@@ -264,7 +288,12 @@ def classify_macro_news_to_sectors(
         context_limit=context_limit,
         prompt_overhead_tokens=prompt_overhead_tokens,
     )
-    return _collect_cleaned_pairs(
+    LOGGER.info(
+        "Built %s %s article batches for macro-to-sector classification",
+        len(article_batches),
+        news_scope,
+    )
+    cleaned_pairs = _collect_cleaned_pairs(
         article_batches,
         sectors=sectors,
         news_scope=news_scope,
@@ -274,6 +303,12 @@ def classify_macro_news_to_sectors(
         valid_sector_ids=valid_sector_ids,
         valid_sector_keys=valid_sector_keys,
     )
+    LOGGER.info(
+        "Extracted %s cleaned %s sector pairs",
+        len(cleaned_pairs),
+        news_scope,
+    )
+    return cleaned_pairs
 
 
 def classify_world_news_to_sectors(**kwargs: Any) -> list[dict[str, Any]]:
@@ -285,5 +320,6 @@ def classify_us_news_to_sectors(**kwargs: Any) -> list[dict[str, Any]]:
 
 
 if __name__ == "__main__":
+    _configure_console_logging()
     pairs = classify_macro_news_to_sectors(news_scope="us")
     print(json.dumps(pairs, indent=2))

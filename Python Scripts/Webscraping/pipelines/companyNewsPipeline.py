@@ -566,9 +566,9 @@ def get_top_processed_industries_company_news(
 
 if __name__ == "__main__":
     try:
-        #get_company_news("MSFT")
+        get_company_news("MSFT")
         #get_all_company_news()
-        get_top_processed_industries_company_news()
+        #get_top_processed_industries_company_news()
     except KeyboardInterrupt:
         LOGGER.warning("Company scrape interrupted by user. Log file: %s", get_log_file_path())
         print(f"\nScrape interrupted by user. Log file: {get_log_file_path()}")
