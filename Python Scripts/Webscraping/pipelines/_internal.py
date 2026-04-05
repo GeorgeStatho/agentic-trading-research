@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 
 
 CNBC_BLACKLISTED_PATH_FRAGMENTS = (
@@ -26,5 +27,14 @@ def is_blacklisted_cnbc_link(href: str) -> bool:
 def link_matches_variants(link: dict, variants: set[str]) -> bool:
     href = str(link.get("href") or "")
     normalized_text = normalize_match_text(link.get("text"))
-    normalized_href = normalize_match_text(href)
+    parsed_href = urlsplit(href)
+    href_match_text = " ".join(
+        part
+        for part in (
+            parsed_href.netloc,
+            parsed_href.path,
+        )
+        if part
+    )
+    normalized_href = normalize_match_text(href_match_text)
     return any(variant in normalized_text or variant in normalized_href for variant in variants)

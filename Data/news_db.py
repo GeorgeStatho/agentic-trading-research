@@ -35,6 +35,47 @@ NEWS_ARTICLE_COLUMN_TYPES = {
 }
 
 
+def _migrate_company_opportunist_article_processing(conn) -> None:
+    if not table_exists(conn, "company_opportunist_article_processing"):
+        return
+
+    existing_columns = table_columns(conn, "company_opportunist_article_processing")
+    if "company_id" in existing_columns:
+        return
+
+    conn.executescript(
+        """
+        CREATE TABLE company_opportunist_article_processing_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            article_id INTEGER NOT NULL,
+            company_id INTEGER NOT NULL,
+            model TEXT,
+            raw_json TEXT,
+            processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,
+            FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+            UNIQUE (article_id, company_id)
+        );
+
+        INSERT INTO company_opportunist_article_processing_new (
+            article_id, company_id, model, raw_json, processed_at
+        )
+        SELECT
+            cop.article_id,
+            coi.company_id,
+            cop.model,
+            cop.raw_json,
+            cop.processed_at
+        FROM company_opportunist_article_processing AS cop
+        JOIN company_opportunist_impacts AS coi ON coi.article_id = cop.article_id
+        GROUP BY cop.article_id, coi.company_id;
+
+        DROP TABLE company_opportunist_article_processing;
+        ALTER TABLE company_opportunist_article_processing_new RENAME TO company_opportunist_article_processing;
+        """
+    )
+
+
 def _score_from_raw_json(raw_json: Any | None, key: str) -> Any | None:
     if not isinstance(raw_json, dict):
         return None
@@ -64,6 +105,7 @@ def _coerce_int(value: Any | None) -> int | None:
 
 def initialize_database(db_path: Path | str = DB_PATH, schema_path: Path | str = SCHEMA_PATH) -> None:
     with get_connection(db_path) as conn:
+        _migrate_company_opportunist_article_processing(conn)
         if table_exists(conn, "macro_events"):
             existing_columns = table_columns(conn, "macro_events")
             for column_name, column_type in MACRO_EVENT_COLUMN_TYPES.items():
@@ -82,6 +124,7 @@ def initialize_database(db_path: Path | str = DB_PATH, schema_path: Path | str =
     initialize_schema(db_path, schema_path)
 
     with get_connection(db_path) as conn:
+        _migrate_company_opportunist_article_processing(conn)
         if table_exists(conn, "macro_events"):
             existing_columns = table_columns(conn, "macro_events")
             for column_name, column_type in MACRO_EVENT_COLUMN_TYPES.items():
@@ -898,6 +941,7 @@ def add_company_opportunist_impact(
 
 def mark_company_opportunist_article_processed(
     article_id: int,
+    company_id: int,
     model: str | None = None,
     raw_json: Any | None = None,
     db_path: Path | str = DB_PATH,
@@ -905,6 +949,7 @@ def mark_company_opportunist_article_processed(
 ) -> int:
     values = (
         article_id,
+        company_id,
         model,
         json_text(raw_json),
     )
@@ -912,6 +957,7 @@ def mark_company_opportunist_article_processed(
         with get_connection(db_path) as local_conn:
             return mark_company_opportunist_article_processed(
                 article_id,
+                company_id,
                 model=model,
                 raw_json=raw_json,
                 conn=local_conn,
@@ -919,9 +965,9 @@ def mark_company_opportunist_article_processed(
 
     cursor = conn.execute(
         """
-        INSERT INTO company_opportunist_article_processing (article_id, model, raw_json)
-        VALUES (?, ?, ?)
-        ON CONFLICT(article_id) DO UPDATE SET
+        INSERT INTO company_opportunist_article_processing (article_id, company_id, model, raw_json)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(article_id, company_id) DO UPDATE SET
             model = excluded.model,
             raw_json = excluded.raw_json,
             processed_at = CURRENT_TIMESTAMP
