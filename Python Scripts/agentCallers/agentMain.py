@@ -17,10 +17,11 @@ from SectorOppurtunist import classify_sector_articles
 from industryIntrest import getIndustryScores, getTopThreeIndustries
 from sectorIntrest import getSectorScores, getTopThreeSectors
 
+from _company_opportunist_helpers import get_company_opportunist_summary
 
 DEFAULT_TOP_SECTOR_COUNT = 3
 DEFAULT_TOP_INDUSTRY_COUNT = 3
-DEFAULT_TOP_GROWTH_COMPANY_COUNT = 3
+DEFAULT_TOP_COMPANY_COUNT = 3
 
 __all__ = [
     "collect_ranked_companies_for_industry",
@@ -36,12 +37,12 @@ def _slice_companies(companies: list[dict[str, Any]], limit: int) -> list[dict[s
 def collect_ranked_companies_for_industry(
     industry_identifier: str,
     *,
-    top_growth_company_count: int = DEFAULT_TOP_GROWTH_COMPANY_COUNT,
+    top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
 ) -> dict[str, Any]:
     company_groups = get_industry_company_groups(industry_identifier)
-    top_growth_companies = _slice_companies(
-        company_groups.get("top_growth_companies", []),
-        top_growth_company_count,
+    top_companies = _slice_companies(
+        company_groups.get("top_companies", []),
+        top_company_count,
     )
 
     selected_companies = [
@@ -51,9 +52,9 @@ def collect_ranked_companies_for_industry(
             "name": company["name"],
             "rating": company.get("rating"),
             "market_weight": company.get("market_weight"),
-            "source_groups": ["top_growth_companies"],
+            "source_groups": ["top_companies"],
         }
-        for company in top_growth_companies
+        for company in top_companies
     ]
 
     return {
@@ -124,39 +125,48 @@ def run_agent_pipeline(
     *,
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
-    top_growth_company_count: int = DEFAULT_TOP_GROWTH_COMPANY_COUNT,
+    top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
 ) -> dict[str, Any]:
     sector_results: list[dict[str, Any]] = []
 
-    for sector_key in _get_top_sector_keys(top_sector_count=top_sector_count):
+    top_sector_keys = _get_top_sector_keys(top_sector_count=top_sector_count)
+    for sector_key in top_sector_keys:
+        print("Processing Sectors: "+sector_key)
         sector_opportunist_result = classify_sector_articles(sector_key)
         industry_opportunist_result = classify_sector_articles_to_industries(sector_key)
 
         industry_results: list[dict[str, Any]] = []
-        for industry_key in _get_top_industry_keys(
+        top_industry_keys = _get_top_industry_keys(
             sector_key,
             top_industry_count=top_industry_count,
-        ):
+        )
+        for industry_key in top_industry_keys:
+            print("Processing industry: "+industry_key)
             company_selection = collect_ranked_companies_for_industry(
                 industry_key,
-                top_growth_company_count=top_growth_company_count,
+                top_company_count=top_company_count,
             )
 
-            company_results = [
-                classify_company_articles(company["symbol"])
-                for company in company_selection["selected_companies"]
-            ]
+            company_results: list[dict[str, Any]] = []
+            for company in company_selection["selected_companies"]:
+                print("Processing: " +company["symbol"])
+                company_result = classify_company_articles(company["symbol"])
+                company_results.append(company_result)
+                print("Finished: " +company["symbol"])
+
+            company_opportunist_summaries: list[dict[str, Any]] = []
+            for result in company_results:
+                summary = build_company_opportunist_summary(result)
+                company_opportunist_summaries.append(summary)
 
             industry_results.append(
                 {
                     "industry": company_selection["industry"],
                     "selected_companies": company_selection["selected_companies"],
-                    "company_opportunist_summaries": [
-                        build_company_opportunist_summary(result)
-                        for result in company_results
-                    ],
+                    "company_opportunist_summaries": company_opportunist_summaries,
                 }
             )
+            print("Finished industry:"+industry_key)
 
         sector_results.append(
             {
@@ -166,14 +176,19 @@ def run_agent_pipeline(
                 "industries": industry_results,
             }
         )
+        print("Finished Sector:"+sector_key)
 
     return {
         "top_sector_count": top_sector_count,
         "top_industry_count": top_industry_count,
-        "top_growth_company_count": top_growth_company_count,
+        "top_company_count": top_company_count,
         "sectors": sector_results,
     }
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_agent_pipeline(), ensure_ascii=True, indent=2))
+    #result=run_agent_pipeline()
+    #print(json.dumps(result,ensure_ascii=True, indent=2))
+    #with open("agent_pipeline_output","w",encoding="utf-8")  as handle:
+    #    json.dump(result, handle, ensure_ascii=True, indent=2)
+    print(get_company_opportunist_summary("NVDA"))
