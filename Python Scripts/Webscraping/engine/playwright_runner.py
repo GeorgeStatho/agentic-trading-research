@@ -27,6 +27,8 @@ CNBC_SEARCH_WAIT_SELECTORS = (
     "a.resultlink",
     ".SearchResult-searchResult",
     ".Card-title",
+    "[class*='LatestNews'] a[href*='/20']",
+    "[class*='LatestNews'] [class*='headline']",
 )
 
 
@@ -64,12 +66,12 @@ def should_use_playwright_for_source_url(url: str) -> bool:
         return False
     if not any(domain in lowered for domain in PLAYWRIGHT_SOURCE_DOMAINS):
         return False
-    return "/search" in lowered
+    return "/search" in lowered or "/quotes/" in lowered
 
 
 def _is_cnbc_search_url(url: str) -> bool:
     lowered = (url or "").strip().lower()
-    return "cnbc.com" in lowered and "/search" in lowered
+    return "cnbc.com" in lowered and ("/search" in lowered or "/quotes/" in lowered)
 
 
 async def _prepare_page_for_capture(page, url: str, timeout_ms: int) -> None:
