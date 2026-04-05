@@ -19,7 +19,7 @@ from _shared import normalize_time_window, published_at_in_window
 from db_helpers import DB_PATH, get_all_sectors, get_connection, initialize_news_database
 
 
-DEFAULT_MAX_ARTICLE_AGE_DAYS = 3
+DEFAULT_MAX_ARTICLE_AGE_DAYS = 5
 HIGH_CONFIDENCE = "high"
 CNBC_SOURCE = "cnbc.com"
 

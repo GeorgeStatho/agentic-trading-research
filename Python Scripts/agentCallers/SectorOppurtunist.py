@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import logging
 import os
 from pathlib import Path
 import sys
@@ -44,11 +45,12 @@ DEFAULT_MODEL = os.getenv(
     os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "world-news-sectors")),
 )
 
-DEFAULT_MAX_ARTICLE_AGE_DAYS = 3
+DEFAULT_MAX_ARTICLE_AGE_DAYS = 5
 DEFAULT_CONTEXT_LIMIT = 4096
 DEFAULT_PROMPT_OVERHEAD_TOKENS = 1200
 
 sector_opportunist = get_ollama_client(OLLAMA_HOST)
+LOGGER = logging.getLogger(__name__)
 
 __all__ = [
     "build_sector_opportunist_articles",
@@ -72,8 +74,11 @@ def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) 
 def build_sector_opportunist_prompt(
     sector: dict[str, Any],
     articles: list[dict[str, Any]],
+    *,
+    system_prompt_override: str | None = None,
+    task_override: str | None = None,
 ) -> tuple[str, str]:
-    system_prompt = (
+    default_system_prompt = (
         "You are a market analyst that maps sector-level news to likely impact for one sector. "
         "Return only valid JSON with a top-level key named 'impacts'. "
         "Do not include markdown fences, notes, or extra keys. "
@@ -84,9 +89,10 @@ def build_sector_opportunist_prompt(
         "impact_magnitude must be one of: major, moderate, modest. "
         "Only include the supplied sector."
     )
+    system_prompt = str(system_prompt_override or default_system_prompt)
 
     payload = {
-        "task": "Map each sector-linked article to the likely impact on the supplied sector.",
+        "task": str(task_override or "Map each sector-linked article to the likely impact on the supplied sector."),
         "sector": sector,
         "articles": [
             {
@@ -126,10 +132,14 @@ def _classify_article_batch(
     sector: dict[str, Any],
     client: Client,
     model: str,
+    system_prompt_override: str | None = None,
+    task_override: str | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     system_prompt, user_prompt = build_sector_opportunist_prompt(
         sector,
         article_batch,
+        system_prompt_override=system_prompt_override,
+        task_override=task_override,
     )
     raw_response = ask_model(
         client=client,
@@ -152,6 +162,8 @@ def _collect_cleaned_impacts(
     valid_article_ids: set[int],
     valid_sector_id: int,
     valid_sector_name: str,
+    system_prompt_override: str | None = None,
+    task_override: str | None = None,
 ) -> list[dict[str, Any]]:
     cleaned_impacts: list[dict[str, Any]] = []
     seen_impacts: set[tuple[int, int, str, str]] = set()
@@ -162,6 +174,8 @@ def _collect_cleaned_impacts(
             sector=sector,
             client=client,
             model=model,
+            system_prompt_override=system_prompt_override,
+            task_override=task_override,
         )
         batch_cleaned_impacts: list[dict[str, Any]] = []
 
@@ -191,6 +205,15 @@ def _collect_cleaned_impacts(
             batch_cleaned_impacts.append(normalized_impact)
             seen_impacts.add(dedupe_key)
 
+        if not batch_cleaned_impacts:
+            article_ids = [int(article["article_id"]) for article in article_batch]
+            LOGGER.warning(
+                "No valid sector impacts were extracted for sector %s from article batch %s. Raw model response: %s",
+                sector["sector_key"],
+                article_ids,
+                raw_response,
+            )
+
         save_sector_opportunist_batch_results(
             article_batch,
             batch_cleaned_impacts,
@@ -206,6 +229,8 @@ def classify_sector_articles(
     *,
     client: Client = sector_opportunist,
     model: str = DEFAULT_MODEL,
+    system_prompt_override: str | None = None,
+    task_override: str | None = None,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
@@ -241,6 +266,8 @@ def classify_sector_articles(
         valid_article_ids=valid_article_ids,
         valid_sector_id=valid_sector_id,
         valid_sector_name=valid_sector_name,
+        system_prompt_override=system_prompt_override,
+        task_override=task_override,
     )
 
     return {

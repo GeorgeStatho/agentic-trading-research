@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from pathlib import Path
 import sys
 from typing import Any
@@ -184,7 +185,47 @@ def build_company_opportunist_articles(
     return company, peer_groups, articles
 
 
-def extract_company_impacts(payload: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+def _parse_company_payload(text: str) -> Any:
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    fence_start = raw.find("```")
+    if fence_start >= 0:
+        fence_end = raw.rfind("```")
+        if fence_end > fence_start:
+            fenced = raw[fence_start + 3:fence_end].strip()
+            if fenced.lower().startswith("json"):
+                fenced = fenced[4:].strip()
+            try:
+                return json.loads(fenced)
+            except json.JSONDecodeError:
+                pass
+
+    for open_char, close_char in (("[", "]"), ("{", "}")):
+        candidate_start = raw.find(open_char)
+        candidate_end = raw.rfind(close_char)
+        if candidate_start >= 0 and candidate_end > candidate_start:
+            candidate = raw[candidate_start:candidate_end + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+
+    return None
+
+
+def extract_company_impacts(payload: Any) -> list[dict[str, Any]] | None:
+    if isinstance(payload, str):
+        payload = _parse_company_payload(payload)
+
+    if isinstance(payload, list):
+        return payload
     if not isinstance(payload, dict):
         return None
 
@@ -229,21 +270,15 @@ def normalize_company_impact(
 ) -> dict[str, Any] | None:
     try:
         article_id = int(impact.get("article_id"))
-        company_id = int(impact.get("company_id"))
     except (TypeError, ValueError):
         return None
 
-    symbol = str(impact.get("symbol") or "").strip().upper()
     confidence = str(impact.get("confidence") or "").strip().lower()
     impact_direction = str(impact.get("impact_direction") or "").strip().lower()
     impact_magnitude = str(impact.get("impact_magnitude") or "").strip().lower()
     reason = str(impact.get("reason") or "").strip()
 
     if article_id not in valid_article_ids:
-        return None
-    if company_id != valid_company_id:
-        return None
-    if symbol != valid_symbol.upper():
         return None
     if confidence not in VALID_CONFIDENCE_LEVELS:
         return None
@@ -256,8 +291,8 @@ def normalize_company_impact(
 
     return {
         "article_id": article_id,
-        "company_id": company_id,
-        "symbol": symbol,
+        "company_id": int(valid_company_id),
+        "symbol": str(valid_symbol).strip().upper(),
         "confidence": confidence,
         "impact_direction": impact_direction,
         "impact_magnitude": impact_magnitude,

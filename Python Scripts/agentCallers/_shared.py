@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import json
+import re
 from typing import Any
 
 try:
@@ -60,6 +61,9 @@ def parse_published_at(value: str | None) -> datetime | None:
     text = str(value or "").strip()
     if not text:
         return None
+
+    # Normalize offsets like +0000/-0400 into ISO 8601 +00:00/-04:00.
+    text = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", text)
 
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
