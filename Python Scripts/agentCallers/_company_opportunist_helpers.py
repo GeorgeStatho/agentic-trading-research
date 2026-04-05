@@ -34,6 +34,7 @@ __all__ = [
     "build_company_valid_reference_sets",
     "build_empty_company_result",
     "extract_company_impacts",
+    "get_company_opportunist_summary",
     "get_company_reference",
     "normalize_company_impact",
     "save_company_opportunist_batch_results",
@@ -46,6 +47,66 @@ def get_company_reference(company_identifier: str) -> tuple[dict[str, Any], dict
     peer_groups = get_industry_company_groups(company["industry_key"])
     articles = company_payload["articles"]
     return company, peer_groups, articles
+
+
+def get_company_opportunist_summary(
+    company_identifier: str,
+    *,
+    sample_reason_limit: int = 3,
+) -> dict[str, Any]:
+    company_payload = get_company_linked_articles(company_identifier)
+    company = company_payload["company"]
+
+    with get_connection(DB_PATH) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                confidence,
+                impact_direction,
+                impact_magnitude,
+                reason,
+                created_at
+            FROM company_opportunist_impacts
+            WHERE company_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (int(company["company_id"]),),
+        ).fetchall()
+
+    confidence_counts: dict[str, int] = {}
+    direction_counts: dict[str, int] = {}
+    magnitude_counts: dict[str, int] = {}
+    reasons: list[str] = []
+
+    for row in rows:
+        confidence = str(row["confidence"] or "").strip().lower()
+        impact_direction = str(row["impact_direction"] or "").strip().lower()
+        impact_magnitude = str(row["impact_magnitude"] or "").strip().lower()
+        reason = str(row["reason"] or "").strip()
+
+        if confidence:
+            confidence_counts[confidence] = confidence_counts.get(confidence, 0) + 1
+        if impact_direction:
+            direction_counts[impact_direction] = direction_counts.get(impact_direction, 0) + 1
+        if impact_magnitude:
+            magnitude_counts[impact_magnitude] = magnitude_counts.get(impact_magnitude, 0) + 1
+        if reason and reason not in reasons:
+            reasons.append(reason)
+
+    return {
+        "company": {
+            "company_id": company.get("company_id"),
+            "symbol": company.get("symbol"),
+            "name": company.get("name"),
+            "industry_key": company.get("industry_key"),
+            "sector_key": company.get("sector_key"),
+        },
+        "impact_count": len(rows),
+        "confidence_counts": confidence_counts,
+        "direction_counts": direction_counts,
+        "magnitude_counts": magnitude_counts,
+        "sample_reasons": reasons[: max(0, int(sample_reason_limit))],
+    }
 
 
 def _make_company_article_record(article: dict[str, Any]) -> dict[str, Any]:
@@ -73,7 +134,7 @@ def _sort_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
-def _load_processed_article_ids(article_ids: list[int]) -> set[int]:
+def _load_processed_article_ids(article_ids: list[int], company_id: int) -> set[int]:
     if not article_ids:
         return set()
 
@@ -83,17 +144,19 @@ def _load_processed_article_ids(article_ids: list[int]) -> set[int]:
             f"""
             SELECT article_id
             FROM company_opportunist_article_processing
-            WHERE article_id IN ({placeholders})
+            WHERE company_id = ?
+              AND article_id IN ({placeholders})
             """,
-            tuple(article_ids),
+            (int(company_id), *tuple(article_ids)),
         ).fetchall()
 
     return {int(row["article_id"]) for row in rows}
 
 
-def _filter_unprocessed_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _filter_unprocessed_articles(articles: list[dict[str, Any]], company_id: int) -> list[dict[str, Any]]:
     processed_article_ids = _load_processed_article_ids(
-        [int(article["article_id"]) for article in articles]
+        [int(article["article_id"]) for article in articles],
+        company_id,
     )
     if not processed_article_ids:
         return articles
@@ -116,7 +179,7 @@ def build_company_opportunist_articles(
 
     articles = [_make_company_article_record(article) for article in raw_articles]
     articles = _sort_articles(articles)
-    articles = _filter_unprocessed_articles(articles)
+    articles = _filter_unprocessed_articles(articles, int(company["company_id"]))
 
     return company, peer_groups, articles
 
@@ -206,6 +269,7 @@ def save_company_opportunist_batch_results(
     article_batch: list[dict[str, Any]],
     impacts: list[dict[str, Any]],
     *,
+    company_id: int,
     model: str,
     raw_response: str,
 ) -> None:
@@ -232,9 +296,11 @@ def save_company_opportunist_batch_results(
             article_id = int(article["article_id"])
             mark_company_opportunist_article_processed(
                 article_id=article_id,
+                company_id=int(company_id),
                 model=model,
                 raw_json={
                     "article_id": article_id,
+                    "company_id": int(company_id),
                     "impacts": batch_impacts_by_article.get(article_id, []),
                     "raw_response": raw_response,
                 },
