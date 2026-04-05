@@ -19,6 +19,7 @@ from MacroNewsToSectors import (
     ask_model as _ask_model,
     build_macro_news_to_sectors_prompt,
     classify_macro_news_to_sectors,
+    _configure_console_logging,
     get_recent_macro_news_articles,
     get_sector_reference,
     macro_news_classifier,
@@ -64,5 +65,6 @@ def classify_world_news_to_sectors(
 
 
 if __name__ == "__main__":
-    pairs = classify_world_news_to_sectors()
+    _configure_console_logging()
+    pairs = classify_world_news_to_sectors(max_age_days=5)
     print(json.dumps(pairs, indent=2))

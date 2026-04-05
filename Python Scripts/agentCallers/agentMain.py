@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 import sys
 from typing import Any
@@ -10,6 +11,11 @@ AGENT_CALLERS_DIR = Path(__file__).resolve().parent
 if str(AGENT_CALLERS_DIR) not in sys.path:
     sys.path.append(str(AGENT_CALLERS_DIR))
 
+ROOT_DIR = Path(__file__).resolve().parents[2]
+DATA_DIR = ROOT_DIR / "Data"
+if str(DATA_DIR) not in sys.path:
+    sys.path.append(str(DATA_DIR))
+
 from CompanyOppurtunist import classify_company_articles
 from CompanyOppurtunityBuilder import get_industry_company_groups
 from IndustryOppuruntinst import classify_sector_articles_to_industries
@@ -18,6 +24,7 @@ from industryIntrest import getIndustryScores, getTopThreeIndustries
 from sectorIntrest import getSectorScores, getTopThreeSectors
 
 from _company_opportunist_helpers import get_company_opportunist_summary
+from db_helpers import DB_PATH, get_connection
 
 DEFAULT_TOP_SECTOR_COUNT = 3
 DEFAULT_TOP_INDUSTRY_COUNT = 3
@@ -26,12 +33,34 @@ DEFAULT_TOP_COMPANY_COUNT = 3
 __all__ = [
     "collect_ranked_companies_for_industry",
     "build_company_opportunist_summary",
+    "clear_current_pipeline_targets",
+    "get_current_pipeline_targets",
     "run_agent_pipeline",
 ]
 
 
+def _configure_console_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s:%(name)s:%(message)s",
+        force=True,
+    )
+
+
 def _slice_companies(companies: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
     return companies[: max(0, int(limit))]
+
+
+def _dedupe_preserving_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
 
 
 def collect_ranked_companies_for_industry(
@@ -121,6 +150,222 @@ def _get_top_industry_keys(
     ]
 
 
+def get_current_pipeline_targets(
+    *,
+    top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
+    top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
+    top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
+) -> dict[str, Any]:
+    top_sector_keys = _get_top_sector_keys(top_sector_count=top_sector_count)
+
+    top_industry_keys: list[str] = []
+    selected_companies: list[dict[str, Any]] = []
+    selected_company_ids: list[int] = []
+    selected_company_symbols: list[str] = []
+
+    for sector_key in top_sector_keys:
+        industry_keys = _get_top_industry_keys(
+            sector_key,
+            top_industry_count=top_industry_count,
+        )
+        top_industry_keys.extend(industry_keys)
+
+        for industry_key in industry_keys:
+            company_selection = collect_ranked_companies_for_industry(
+                industry_key,
+                top_company_count=top_company_count,
+            )
+            for company in company_selection["selected_companies"]:
+                company_id = int(company["company_id"])
+                if company_id in selected_company_ids:
+                    continue
+                selected_companies.append(company)
+                selected_company_ids.append(company_id)
+                selected_company_symbols.append(str(company["symbol"]))
+
+    return {
+        "top_sector_keys": _dedupe_preserving_order(top_sector_keys),
+        "top_industry_keys": _dedupe_preserving_order(top_industry_keys),
+        "selected_companies": selected_companies,
+        "selected_company_ids": selected_company_ids,
+        "selected_company_symbols": _dedupe_preserving_order(selected_company_symbols),
+    }
+
+
+def _count_rows_for_ids(
+    conn,
+    table_name: str,
+    column_name: str,
+    values: list[int],
+) -> int:
+    if not values:
+        return 0
+    placeholders = ",".join("?" for _ in values)
+    row = conn.execute(
+        f"SELECT COUNT(*) AS c FROM {table_name} WHERE {column_name} IN ({placeholders})",
+        tuple(values),
+    ).fetchone()
+    return int(row["c"]) if row is not None else 0
+
+
+def _load_article_ids_for_target_rows(
+    conn,
+    *,
+    impact_table: str,
+    id_column: str,
+    target_ids: list[int],
+) -> list[int]:
+    if not target_ids:
+        return []
+    placeholders = ",".join("?" for _ in target_ids)
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT article_id
+        FROM {impact_table}
+        WHERE {id_column} IN ({placeholders})
+        ORDER BY article_id
+        """,
+        tuple(target_ids),
+    ).fetchall()
+    return [int(row["article_id"]) for row in rows]
+
+
+def clear_current_pipeline_targets(
+    *,
+    top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
+    top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
+    top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
+) -> dict[str, Any]:
+    targets = get_current_pipeline_targets(
+        top_sector_count=top_sector_count,
+        top_industry_count=top_industry_count,
+        top_company_count=top_company_count,
+    )
+
+    with get_connection(DB_PATH) as conn:
+        sector_rows = conn.execute(
+            """
+            SELECT id, sector_key
+            FROM sectors
+            WHERE sector_key IN ({placeholders})
+            ORDER BY id
+            """.format(
+                placeholders=",".join("?" for _ in targets["top_sector_keys"]) or "''"
+            ),
+            tuple(targets["top_sector_keys"]),
+        ).fetchall() if targets["top_sector_keys"] else []
+        sector_ids = [int(row["id"]) for row in sector_rows]
+
+        industry_rows = conn.execute(
+            """
+            SELECT id, industry_key
+            FROM industries
+            WHERE industry_key IN ({placeholders})
+            ORDER BY id
+            """.format(
+                placeholders=",".join("?" for _ in targets["top_industry_keys"]) or "''"
+            ),
+            tuple(targets["top_industry_keys"]),
+        ).fetchall() if targets["top_industry_keys"] else []
+        industry_ids = [int(row["id"]) for row in industry_rows]
+
+        company_ids = [int(company_id) for company_id in targets["selected_company_ids"]]
+
+        sector_article_ids = _load_article_ids_for_target_rows(
+            conn,
+            impact_table="sector_opportunist_impacts",
+            id_column="sector_id",
+            target_ids=sector_ids,
+        )
+        industry_article_ids = _load_article_ids_for_target_rows(
+            conn,
+            impact_table="industry_opportunist_impacts",
+            id_column="industry_id",
+            target_ids=industry_ids,
+        )
+
+        deleted_counts = {
+            "sector_opportunist_article_processing": _count_rows_for_ids(
+                conn,
+                "sector_opportunist_article_processing",
+                "article_id",
+                sector_article_ids,
+            ),
+            "sector_opportunist_impacts": _count_rows_for_ids(
+                conn,
+                "sector_opportunist_impacts",
+                "sector_id",
+                sector_ids,
+            ),
+            "industry_opportunist_article_processing": _count_rows_for_ids(
+                conn,
+                "industry_opportunist_article_processing",
+                "article_id",
+                industry_article_ids,
+            ),
+            "industry_opportunist_impacts": _count_rows_for_ids(
+                conn,
+                "industry_opportunist_impacts",
+                "industry_id",
+                industry_ids,
+            ),
+            "company_opportunist_article_processing": _count_rows_for_ids(
+                conn,
+                "company_opportunist_article_processing",
+                "company_id",
+                company_ids,
+            ),
+            "company_opportunist_impacts": _count_rows_for_ids(
+                conn,
+                "company_opportunist_impacts",
+                "company_id",
+                company_ids,
+            ),
+        }
+
+        if sector_article_ids:
+            placeholders = ",".join("?" for _ in sector_article_ids)
+            conn.execute(
+                f"DELETE FROM sector_opportunist_article_processing WHERE article_id IN ({placeholders})",
+                tuple(sector_article_ids),
+            )
+        if sector_ids:
+            placeholders = ",".join("?" for _ in sector_ids)
+            conn.execute(
+                f"DELETE FROM sector_opportunist_impacts WHERE sector_id IN ({placeholders})",
+                tuple(sector_ids),
+            )
+
+        if industry_article_ids:
+            placeholders = ",".join("?" for _ in industry_article_ids)
+            conn.execute(
+                f"DELETE FROM industry_opportunist_article_processing WHERE article_id IN ({placeholders})",
+                tuple(industry_article_ids),
+            )
+        if industry_ids:
+            placeholders = ",".join("?" for _ in industry_ids)
+            conn.execute(
+                f"DELETE FROM industry_opportunist_impacts WHERE industry_id IN ({placeholders})",
+                tuple(industry_ids),
+            )
+
+        if company_ids:
+            placeholders = ",".join("?" for _ in company_ids)
+            conn.execute(
+                f"DELETE FROM company_opportunist_article_processing WHERE company_id IN ({placeholders})",
+                tuple(company_ids),
+            )
+            conn.execute(
+                f"DELETE FROM company_opportunist_impacts WHERE company_id IN ({placeholders})",
+                tuple(company_ids),
+            )
+
+    return {
+        "targets": targets,
+        "deleted_counts": deleted_counts,
+    }
+
+
 def run_agent_pipeline(
     *,
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
@@ -187,8 +432,14 @@ def run_agent_pipeline(
 
 
 if __name__ == "__main__":
-    #result=run_agent_pipeline()
-    #print(json.dumps(result,ensure_ascii=True, indent=2))
-    #with open("agent_pipeline_output","w",encoding="utf-8")  as handle:
-    #    json.dump(result, handle, ensure_ascii=True, indent=2)
-    print(get_company_opportunist_summary("NVDA"))
+    _configure_console_logging()
+    clear_current_pipeline_targets()
+    result = run_agent_pipeline()
+    print(json.dumps(result, ensure_ascii=True, indent=2))
+
+    output_path = DATA_DIR / "agent_pipeline_output.json"
+    with output_path.open("w", encoding="utf-8") as handle:
+        json.dump(result, handle, ensure_ascii=True, indent=2)
+
+    print(f"Saved agent pipeline output to {output_path}")
+    #print(get_company_opportunist_summary("NVDA"))

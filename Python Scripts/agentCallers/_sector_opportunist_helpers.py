@@ -163,7 +163,7 @@ def build_sector_opportunist_articles(
     *,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
-    max_age_days: int | None = 3,
+    max_age_days: int | None = 5,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     payload = _load_opportunist_payload(
         sector_identifier,
