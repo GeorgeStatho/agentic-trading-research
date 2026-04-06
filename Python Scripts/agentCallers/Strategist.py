@@ -24,7 +24,7 @@ from StrategistPayloadBuilder import (
     DEFAULT_SUMMARY_ARTICLE_LIMIT,
     build_strategist_input,
 )
-from _shared import Client, ask_ollama_model, extract_json_object, get_ollama_client
+from _shared import Client, ask_ollama_model, extract_json_value, get_ollama_client
 
 
 OLLAMA_HOST = os.getenv(
@@ -40,6 +40,31 @@ VALID_DECISIONS = {"buy", "do_not_buy"}
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
 
 strategist = get_ollama_client(OLLAMA_HOST)
+STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "recommendation": {
+            "type": "object",
+            "properties": {
+                "decision": {"type": "string", "enum": ["buy", "do_not_buy"]},
+                "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                "summary": {"type": "string"},
+                "thesis": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "risks": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+            "required": ["decision", "confidence", "summary", "thesis", "risks"],
+            "additionalProperties": False,
+        }
+    },
+    "required": ["recommendation"],
+    "additionalProperties": False,
+}
 
 __all__ = [
     "build_strategist_prompt",
@@ -55,6 +80,7 @@ def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) 
         user_prompt,
         temperature=0,
         host_label=OLLAMA_HOST,
+        response_schema=STRATEGIST_RECOMMENDATION_SCHEMA,
     )
 
 
@@ -84,8 +110,13 @@ def _build_context_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_strategist_prompt(payload: dict[str, Any]) -> tuple[str, str]:
-    system_prompt = (
+def build_strategist_prompt(
+    payload: dict[str, Any],
+    *,
+    system_prompt_override: str | None = None,
+    task_override: str | None = None,
+) -> tuple[str, str]:
+    default_system_prompt = (
         "You are an investment strategist deciding whether a company is currently a buy or not a buy. "
         "Use only the supplied structured context. "
         "Treat upstream agent conclusions as signals, not certainty, and weigh them against the article evidence. "
@@ -99,9 +130,10 @@ def build_strategist_prompt(payload: dict[str, Any]) -> tuple[str, str]:
         "thesis must be a short list of bullish supporting points. "
         "risks must be a short list of reasons the company should not be bought or should be watched carefully."
     )
+    system_prompt = str(system_prompt_override or default_system_prompt)
 
     user_payload = {
-        "task": "Decide whether the supplied company is a buy right now using the layered strategist context.",
+        "task": str(task_override or "Decide whether the supplied company is a buy right now using the layered strategist context."),
         "company": payload["company"],
         "peer_groups": payload.get("peer_groups", {}),
         "filters": payload.get("filters", {}),
@@ -341,6 +373,8 @@ def decide_company_purchase(
     *,
     client: Client = strategist,
     model: str = DEFAULT_MODEL,
+    system_prompt_override: str | None = None,
+    task_override: str | None = None,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
@@ -362,7 +396,11 @@ def decide_company_purchase(
     if not _payload_has_evidence(payload):
         return _build_no_evidence_result(company, context_snapshot=context_snapshot)
 
-    system_prompt, user_prompt = build_strategist_prompt(payload)
+    system_prompt, user_prompt = build_strategist_prompt(
+        payload,
+        system_prompt_override=system_prompt_override,
+        task_override=task_override,
+    )
     raw_response = ask_model(
         client=client,
         model=model,
@@ -370,7 +408,7 @@ def decide_company_purchase(
         user_prompt=user_prompt,
     )
 
-    parsed = extract_json_object(raw_response)
+    parsed = extract_json_value(raw_response)
     recommendation = _normalize_recommendation(_extract_recommendation(parsed))
     if recommendation is None:
         recommendation = _extract_recommendation_from_text(raw_response)
