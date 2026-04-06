@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timezone
@@ -7,7 +8,7 @@ from typing import Iterable
 
 import requests
 import scrapy
-from scrapy.http import Response
+from scrapy.http import HtmlResponse, Request, Response
 
 from core.scrape_logging import get_scrape_logger
 
@@ -28,6 +29,16 @@ class ArticleExtractionResult:
     published_at: str = ""
     success: bool = False
     error: str = ""
+
+
+@dataclass(slots=True)
+class RenderedPageExtraction:
+    request_url: str
+    page_url: str
+    status: int | None = None
+    fetch_error: str = ""
+    response: Response | None = None
+    article: ArticleExtractionResult | None = None
 
 
 def clean_text(parts: Iterable[str]) -> str:
@@ -188,6 +199,61 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
         success=False,
         error="No article text found with the current selectors.",
     )
+
+
+def extract_rendered_page(rendered_page: dict) -> RenderedPageExtraction:
+    request_url = str(rendered_page.get("request_url") or "").strip()
+    page_url = str(rendered_page.get("url") or request_url).strip()
+    status = rendered_page.get("status")
+    fetch_error = str(rendered_page.get("error") or "").strip()
+    html = rendered_page.get("html") or ""
+
+    if fetch_error or not html:
+        return RenderedPageExtraction(
+            request_url=request_url or page_url,
+            page_url=page_url,
+            status=status,
+            fetch_error=fetch_error or "Playwright returned no HTML content.",
+        )
+
+    response = HtmlResponse(
+        url=page_url,
+        body=html.encode("utf-8"),
+        encoding="utf-8",
+        request=Request(url=request_url or page_url),
+    )
+    if status is not None:
+        response = response.replace(status=int(status))
+
+    return RenderedPageExtraction(
+        request_url=request_url or page_url,
+        page_url=page_url,
+        status=response.status,
+        fetch_error="",
+        response=response,
+        article=extract_from_response(response),
+    )
+
+
+def extract_rendered_pages_parallel(
+    rendered_pages: list[dict],
+    *,
+    max_workers: int = 4,
+) -> list[RenderedPageExtraction]:
+    if not rendered_pages:
+        return []
+
+    worker_count = max(1, min(int(max_workers), len(rendered_pages)))
+    if worker_count == 1:
+        return [extract_rendered_page(rendered_page) for rendered_page in rendered_pages]
+
+    LOGGER.info(
+        "Extracting %s rendered pages in parallel with %s workers",
+        len(rendered_pages),
+        worker_count,
+    )
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        return list(executor.map(extract_rendered_page, rendered_pages))
 
 
 def extract_article(url: str, timeout: int = 20) -> ArticleExtractionResult:

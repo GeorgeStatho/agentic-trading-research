@@ -41,7 +41,7 @@
       "max_article_age_days": 14
     },
     "morningstar.com": {
-      "allowed": true,
+      "allowed": false,
       "reputation_score": 0.8,
       "source_type": "research_financial_news",
       "paywalled": false,
@@ -55,7 +55,7 @@
       "max_article_age_days": 21
     },
     "barrons.com": {
-      "allowed": true,
+      "allowed": false,
       "reputation_score": 0.88,
       "source_type": "financial_news",
       "paywalled": true,
@@ -67,7 +67,7 @@
       "max_article_age_days": 21
     },
     "marketwatch.com": {
-      "allowed": true,
+      "allowed": false,
       "reputation_score": 0.78,
       "source_type": "financial_news",
       "paywalled": false,

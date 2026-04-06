@@ -178,11 +178,14 @@ CREATE TABLE IF NOT EXISTS company_opportunist_impacts (
 
 CREATE TABLE IF NOT EXISTS company_opportunist_article_processing (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    article_id INTEGER NOT NULL UNIQUE,
+    article_id INTEGER NOT NULL,
+    company_id INTEGER NOT NULL,
     model TEXT,
     raw_json TEXT,
     processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+    UNIQUE (article_id, company_id)
 );
 
 CREATE TABLE IF NOT EXISTS sector_opportunist_impacts (
@@ -307,6 +310,9 @@ CREATE INDEX IF NOT EXISTS idx_company_opportunist_impacts_company_id
 
 CREATE INDEX IF NOT EXISTS idx_company_opportunist_article_processing_article_id
     ON company_opportunist_article_processing (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_company_opportunist_article_processing_company_id
+    ON company_opportunist_article_processing (company_id);
 
 CREATE INDEX IF NOT EXISTS idx_sector_opportunist_impacts_article_id
     ON sector_opportunist_impacts (article_id);

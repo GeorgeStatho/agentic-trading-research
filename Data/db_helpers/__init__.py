@@ -12,6 +12,7 @@ from db_helpers.news import (
     add_world_news_article,
     add_world_news_sector_impact,
     initialize_news_database,
+    link_company_to_article,
     list_company_news_articles,
     list_industry_news_articles,
     load_macro_events,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import json
+import re
 from typing import Any
 
 try:
@@ -26,18 +27,23 @@ def ask_ollama_model(
     *,
     temperature: float = 0,
     host_label: str | None = None,
+    response_schema: dict[str, Any] | None = None,
 ) -> str:
+    chat_kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "options": {
+            "temperature": temperature,
+        },
+    }
+    if response_schema is not None:
+        chat_kwargs["format"] = response_schema
+
     try:
-        response = client.chat(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            options={
-                "temperature": temperature,
-            },
-        )
+        response = client.chat(**chat_kwargs)
     except Exception as exc:
         location = host_label or "the configured Ollama host"
         raise RuntimeError(
@@ -60,6 +66,9 @@ def parse_published_at(value: str | None) -> datetime | None:
     text = str(value or "").strip()
     if not text:
         return None
+
+    # Normalize offsets like +0000/-0400 into ISO 8601 +00:00/-04:00.
+    text = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", text)
 
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
@@ -163,15 +172,13 @@ def build_token_limited_batches(
     return batches
 
 
-def extract_json_object(text: str) -> dict[str, Any] | None:
+def extract_json_value(text: str) -> Any:
     raw = str(text or "").strip()
     if not raw:
         return None
 
     try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            return parsed
+        return json.loads(raw)
     except json.JSONDecodeError:
         pass
 
@@ -183,21 +190,26 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
             if fenced.lower().startswith("json"):
                 fenced = fenced[4:].strip()
             try:
-                parsed = json.loads(fenced)
-                if isinstance(parsed, dict):
-                    return parsed
+                return json.loads(fenced)
             except json.JSONDecodeError:
                 pass
 
-    object_start = raw.find("{")
-    object_end = raw.rfind("}")
-    if object_start >= 0 and object_end > object_start:
-        candidate = raw[object_start:object_end + 1]
-        try:
-            parsed = json.loads(candidate)
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            return None
+    for open_char, close_char in (("{", "}"), ("[", "]")):
+        value_start = raw.find(open_char)
+        value_end = raw.rfind(close_char)
+        if value_start >= 0 and value_end > value_start:
+            candidate = raw[value_start:value_end + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+
+    return None
+
+
+def extract_json_object(text: str) -> dict[str, Any] | None:
+    parsed = extract_json_value(text)
+    if isinstance(parsed, dict):
+        return parsed
 
     return None

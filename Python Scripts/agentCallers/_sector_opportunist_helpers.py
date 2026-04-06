@@ -163,7 +163,7 @@ def build_sector_opportunist_articles(
     *,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
-    max_age_days: int | None = 3,
+    max_age_days: int | None = 5,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     payload = _load_opportunist_payload(
         sector_identifier,
@@ -181,7 +181,9 @@ def build_sector_opportunist_articles(
     return sector, articles
 
 
-def extract_sector_impacts(payload: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+def extract_sector_impacts(payload: Any) -> list[dict[str, Any]] | None:
+    if isinstance(payload, list):
+        return payload
     if not isinstance(payload, dict):
         return None
 
@@ -219,27 +221,16 @@ def build_sector_valid_reference_sets(
 def normalize_sector_impact(
     impact: dict[str, Any],
     *,
-    valid_article_ids: set[int],
+    source_article_id: int,
     valid_sector_id: int,
     valid_sector_name: str,
 ) -> dict[str, Any] | None:
-    try:
-        article_id = int(impact.get("article_id"))
-        sector_id = int(impact.get("sector_id"))
-    except (TypeError, ValueError):
-        return None
-
-    sector_name = str(impact.get("sector_name") or "").strip()
     confidence = str(impact.get("confidence") or "").strip().lower()
     impact_direction = str(impact.get("impact_direction") or "").strip().lower()
     impact_magnitude = str(impact.get("impact_magnitude") or "").strip().lower()
     reason = str(impact.get("reason") or "").strip()
 
-    if article_id not in valid_article_ids:
-        return None
-    if sector_id != valid_sector_id:
-        return None
-    if sector_name != valid_sector_name:
+    if int(source_article_id) <= 0:
         return None
     if confidence not in VALID_CONFIDENCE_LEVELS:
         return None
@@ -251,9 +242,9 @@ def normalize_sector_impact(
         return None
 
     return {
-        "article_id": article_id,
-        "sector_id": sector_id,
-        "sector_name": sector_name,
+        "article_id": int(source_article_id),
+        "sector_id": int(valid_sector_id),
+        "sector_name": str(valid_sector_name),
         "confidence": confidence,
         "impact_direction": impact_direction,
         "impact_magnitude": impact_magnitude,
