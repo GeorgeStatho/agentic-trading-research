@@ -388,7 +388,7 @@ def get_all_industry_news() -> None:
 
 if __name__ == "__main__":
     try:
-        get_sector_industry_news("technology")
+        get_sector_industry_news("financial-services")
         #get_all_industry_news()
         #get_industry_news("semiconductors")
     except KeyboardInterrupt:

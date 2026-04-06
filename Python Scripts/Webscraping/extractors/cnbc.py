@@ -13,6 +13,9 @@ from core.scrape_logging import get_scrape_logger
 
 
 SEARCH_CARD_SELECTORS = (
+    "ul.LatestNews-list li.LatestNews-item",
+    "li.LatestNews-item",
+    ".LatestNews-item",
     ".SearchResult-searchResult",
     "div.SearchResult-searchResult",
     "article",
@@ -21,6 +24,7 @@ SEARCH_CARD_SELECTORS = (
     "li",
 )
 SEARCH_LINK_SELECTORS = (
+    "a.LatestNews-headline",
     ".SearchResult-searchResultTitle a.resultlink",
     ".SearchResult-searchResultTitle a",
     "a.resultlink",
@@ -28,6 +32,8 @@ SEARCH_LINK_SELECTORS = (
     "a[href*='.html']",
 )
 SEARCH_TITLE_SELECTORS = (
+    "a.LatestNews-headline::attr(title)",
+    "a.LatestNews-headline::text",
     ".SearchResult-searchResultTitle .Card-title::text",
     ".SearchResult-searchResultTitle a::text",
     ".Card-title::text",
@@ -42,6 +48,7 @@ SEARCH_TITLE_SELECTORS = (
     "a[href*='.html'] *::text",
 )
 SEARCH_SUMMARY_SELECTORS = (
+    ".LatestNews-headline::attr(title)",
     ".SearchResult-searchResultPreview::text",
     ".SearchResult-searchResultPreview *::text",
     "p::text",
@@ -55,6 +62,7 @@ SEARCH_AUTHOR_SELECTORS = (
     "[class*='byline']::text",
 )
 SEARCH_TIMESTAMP_SELECTORS = (
+    "time.LatestNews-timestamp::text",
     ".SearchResult-publishedDate::text",
     "time::attr(datetime)",
     "time::text",
@@ -304,7 +312,7 @@ def response_looks_like_cnbc_search(response: Response) -> bool:
     if not is_cnbc_url(response.url):
         return False
     path = urlsplit(response.url).path.lower()
-    return path == "/search/" or path == "/search"
+    return path in {"/search/", "/search"} or path.startswith("/quotes/")
 
 
 def extract_cnbc_search_links(response: Response) -> list[dict]:
@@ -464,12 +472,31 @@ def _extract_cnbc_article_from_state(response: Response) -> ArticleExtractionRes
     except json.JSONDecodeError:
         return None
 
-    layout = state.get("page", {}).get("page", {}).get("layout", [])
+    if not isinstance(state, dict):
+        return None
+
+    page_state = state.get("page")
+    if not isinstance(page_state, dict):
+        return None
+
+    nested_page_state = page_state.get("page")
+    if not isinstance(nested_page_state, dict):
+        return None
+
+    layout = nested_page_state.get("layout", [])
+    if not isinstance(layout, list):
+        return None
 
     article_data = None
     for row in layout:
+        if not isinstance(row, dict):
+            continue
         for column in row.get("columns", []):
+            if not isinstance(column, dict):
+                continue
             for module in column.get("modules", []):
+                if not isinstance(module, dict):
+                    continue
                 data = module.get("data")
                 if not isinstance(data, dict):
                     continue
@@ -489,8 +516,15 @@ def _extract_cnbc_article_from_state(response: Response) -> ArticleExtractionRes
     title = str(article_data.get("headline") or article_data.get("title") or "").strip()
     published_at = str(article_data.get("datePublished") or article_data.get("dateLastPublished") or "").strip()
 
+    body = article_data.get("body")
+    if not isinstance(body, dict):
+        body = {}
+
     body_parts: list[str] = []
-    for block in article_data.get("body", {}).get("content", []):
+    content_blocks = body.get("content", [])
+    if not isinstance(content_blocks, list):
+        content_blocks = []
+    for block in content_blocks:
         if not isinstance(block, dict):
             continue
         tag_name = block.get("tagName")

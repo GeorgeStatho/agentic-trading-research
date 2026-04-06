@@ -7,12 +7,17 @@ import threading
 import scrapy
 from scrapy import signals
 from scrapy.crawler import CrawlerProcess
-from scrapy.http import HtmlResponse
 from scrapy.http import Request
 from scrapy.http import Response
 from scrapy.signalmanager import dispatcher
 
-from article_extraction import ArticleExtractionResult, DEFAULT_USER_AGENT, extract_from_response
+from article_extraction import (
+    ArticleExtractionResult,
+    DEFAULT_USER_AGENT,
+    RenderedPageExtraction,
+    extract_from_response,
+    extract_rendered_pages_parallel,
+)
 from barrons_extractor import extract_barrons_search_links, response_looks_like_barrons_search
 from cnbc_extractor import extract_cnbc_search_links, response_looks_like_cnbc_search
 from core.scrape_logging import get_log_file_path, get_scrape_logger, get_scrapy_log_settings
@@ -38,10 +43,20 @@ except ModuleNotFoundError:
     )
 
 LOGGER = get_scrape_logger("article_scraper")
+DEFAULT_RENDERED_EXTRACTION_WORKERS = 6
 
 
 def _is_yahoo_finance_url(url: str) -> bool:
     return "finance.yahoo.com" in (url or "").lower()
+
+
+def _get_rendered_extraction_workers() -> int:
+    raw_value = os.getenv("WEBSCRAPING_RENDERED_EXTRACTION_WORKERS", str(DEFAULT_RENDERED_EXTRACTION_WORKERS))
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        return DEFAULT_RENDERED_EXTRACTION_WORKERS
+    return max(1, parsed)
 
 
 class _KeyboardStopMonitor:
@@ -196,14 +211,13 @@ def _build_scraped_item(response: Response, *, request_url: str | None = None) -
     }
 
 
-def _build_item_from_rendered_page(rendered_page: dict) -> dict:
-    request_url = str(rendered_page.get("request_url") or "").strip()
-    page_url = str(rendered_page.get("url") or request_url).strip()
-    status = rendered_page.get("status")
-    error = str(rendered_page.get("error") or "").strip()
-    html = rendered_page.get("html") or ""
+def _build_item_from_rendered_extraction(rendered_extraction: RenderedPageExtraction) -> dict:
+    request_url = str(rendered_extraction.request_url or "").strip()
+    page_url = str(rendered_extraction.page_url or request_url).strip()
+    status = rendered_extraction.status
+    error = str(rendered_extraction.fetch_error or "").strip()
 
-    if error or not html:
+    if error or rendered_extraction.response is None or rendered_extraction.article is None:
         return {
             "request_url": request_url or page_url,
             "url": page_url,
@@ -216,15 +230,25 @@ def _build_item_from_rendered_page(rendered_page: dict) -> dict:
             "status": status,
         }
 
-    response = HtmlResponse(
-        url=page_url,
-        body=html.encode("utf-8"),
-        encoding="utf-8",
-        request=Request(url=request_url or page_url),
-    )
-    if status is not None:
-        response = response.replace(status=int(status))
-    return _build_scraped_item(response, request_url=request_url or page_url)
+    response = rendered_extraction.response
+    article_result = rendered_extraction.article
+    if article_result.success:
+        LOGGER.info("Scraped %s successfully", response.url)
+    else:
+        LOGGER.warning("Extraction issue for %s: %s", response.url, article_result.error)
+
+    discovered_links = extract_search_links(response)
+    return {
+        "request_url": request_url or response.request.url if response.request else response.url,
+        "url": article_result.url,
+        "title": article_result.title,
+        "text": article_result.text,
+        "published_at": article_result.published_at,
+        "links": discovered_links,
+        "success": article_result.success,
+        "error": article_result.error,
+        "status": response.status,
+    }
 
 
 def _build_article_results(crawled_pages: list[dict]) -> dict[str, ArticleExtractionResult]:
@@ -263,8 +287,8 @@ class ArticleSpider(scrapy.Spider):
         "COOKIES_ENABLED": True,
         "DOWNLOAD_DELAY": 2.0,
         "RANDOMIZE_DOWNLOAD_DELAY": True,
-        "CONCURRENT_REQUESTS": 4,
-        "CONCURRENT_REQUESTS_PER_DOMAIN": 2,
+        "CONCURRENT_REQUESTS": 5,
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 4,
         "RETRY_TIMES": 3,
         "AUTOTHROTTLE_ENABLED": True,
         "AUTOTHROTTLE_START_DELAY": 2.0,
@@ -343,8 +367,11 @@ def crawl_articles(urls: list[str]) -> list[dict]:
         )
         try:
             rendered_items = [
-                _build_item_from_rendered_page(page)
-                for page in fetch_rendered_pages(playwright_urls)
+                _build_item_from_rendered_extraction(rendered_extraction)
+                for rendered_extraction in extract_rendered_pages_parallel(
+                    fetch_rendered_pages(playwright_urls),
+                    max_workers=_get_rendered_extraction_workers(),
+                )
             ]
         except RuntimeError as exc:
             LOGGER.warning(
@@ -442,7 +469,13 @@ def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
 
         results: dict[str, ArticleExtractionResult] = {}
         if playwright_urls:
-            crawled_pages = [_build_item_from_rendered_page(page) for page in fetch_rendered_pages(playwright_urls)]
+            crawled_pages = [
+                _build_item_from_rendered_extraction(rendered_extraction)
+                for rendered_extraction in extract_rendered_pages_parallel(
+                    fetch_rendered_pages(playwright_urls),
+                    max_workers=_get_rendered_extraction_workers(),
+                )
+            ]
             results.update(_build_article_results(crawled_pages))
         if not scrapy_urls:
             return results

@@ -46,6 +46,10 @@ def _build_company_search_terms(company: dict) -> list[str]:
     return [company_name] if company_name else []
 
 
+def _get_company_symbol(company: dict) -> str:
+    return " ".join(str(company.get("symbol") or "").split()).strip()
+
+
 def build_company_source_job(
     url: str,
     company: dict,
@@ -133,13 +137,27 @@ def _get_company_exchange_slug(company: dict) -> str | None:
 def _build_company_source_url(company: dict, search_term: str, source_config: dict) -> str | None:
     company_specific_type = source_config.get("company_specific")
     if company_specific_type == "fool_quote":
-        symbol = str(company.get("symbol") or "").strip().lower()
+        symbol = _get_company_symbol(company).lower()
         exchange_slug = _get_company_exchange_slug(company)
         if not symbol or not exchange_slug:
             return None
         return source_config["url"].format(exchange=exchange_slug, symbol=symbol)
+    if company_specific_type == "cnbc_quote":
+        symbol = _get_company_symbol(company).lower()
+        if not symbol:
+            return None
+        return source_config["url"].format(symbol=symbol)
 
     return build_source_url(search_term, source_config)
+
+
+def _get_company_job_search_term(company: dict, source_config: dict, fallback_search_term: str) -> str:
+    company_specific_type = source_config.get("company_specific")
+    if company_specific_type in {"fool_quote", "cnbc_quote"}:
+        symbol = _get_company_symbol(company)
+        if symbol:
+            return symbol
+    return fallback_search_term
 
 
 def build_company_source_jobs(companies: list[dict]) -> list[CompanySourceJob]:
@@ -156,7 +174,7 @@ def build_company_source_jobs(companies: list[dict]) -> list[CompanySourceJob]:
                     company=company,
                     source_name=source_name,
                     source_type=source_config["type"],
-                    search_term=search_term,
+                    search_term=_get_company_job_search_term(company, source_config, search_term),
                 )
                 if job is not None:
                     jobs.append(job)

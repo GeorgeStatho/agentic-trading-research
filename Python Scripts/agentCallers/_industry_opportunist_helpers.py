@@ -178,7 +178,7 @@ def build_industry_opportunist_articles(
     *,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
-    max_age_days: int | None = 3,
+    max_age_days: int | None = 5,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     payload = _load_opportunist_payload(
         sector_identifier,
@@ -198,7 +198,9 @@ def build_industry_opportunist_articles(
     return sector, industries, articles
 
 
-def extract_impacts(payload: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+def extract_impacts(payload: Any) -> list[dict[str, Any]] | None:
+    if isinstance(payload, list):
+        return payload
     if not isinstance(payload, dict):
         return None
 
@@ -237,12 +239,11 @@ def build_valid_reference_sets(
 def normalize_impact(
     impact: dict[str, Any],
     *,
-    valid_article_ids: set[int],
+    source_article_id: int,
     valid_industry_ids: set[int],
     valid_industry_keys: set[str],
 ) -> dict[str, Any] | None:
     try:
-        article_id = int(impact.get("article_id"))
         industry_id = int(impact.get("industry_id"))
     except (TypeError, ValueError):
         return None
@@ -253,7 +254,7 @@ def normalize_impact(
     impact_magnitude = str(impact.get("impact_magnitude") or "").strip().lower()
     reason = str(impact.get("reason") or "").strip()
 
-    if article_id not in valid_article_ids:
+    if int(source_article_id) <= 0:
         return None
     if industry_id not in valid_industry_ids:
         return None
@@ -269,7 +270,7 @@ def normalize_impact(
         return None
 
     return {
-        "article_id": article_id,
+        "article_id": int(source_article_id),
         "industry_id": industry_id,
         "industry_key": industry_key,
         "confidence": confidence,

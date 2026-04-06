@@ -8,6 +8,10 @@ if __package__ in {None, ""}:
     if str(WEBSCRAPING_DIR) not in sys.path:
         sys.path.append(str(WEBSCRAPING_DIR))
 
+AGENT_CALLERS_DIR = Path(__file__).resolve().parents[2] / "agentCallers"
+if str(AGENT_CALLERS_DIR) not in sys.path:
+    sys.path.append(str(AGENT_CALLERS_DIR))
+
 from pipelines._shared import (
     MAX_ARTICLES_PER_SEARCH_PAGE,
     MAX_ARTICLE_AGE_DAYS,
@@ -36,11 +40,23 @@ from pipelines.job_builder import (
 )
 from market_data.yFinanceNews import extract_title_and_url, get_company_news_items
 
-from db_helpers import add_company_news_article, get_all_companies, initialize_news_database
+from db_helpers import (
+    add_company_news_article,
+    get_all_companies,
+    get_all_industries,
+    initialize_news_database,
+    link_company_to_article,
+)
 
 
 LOGGER = get_scrape_logger("company_pipeline")
-__all__ = ["get_all_company_news", "get_company_news"]
+__all__ = [
+    "get_all_company_news",
+    "get_company_news",
+    "get_industries_company_news",
+    "get_top_companies_news",
+    "get_top_processed_industries_company_news",
+]
 
 def _build_company_match_variants(company: dict) -> set[str]:
     # Build a few deterministic match variants so we can require that search
@@ -77,12 +93,17 @@ def _filter_company_candidate_links(page_url: str, links: list[dict], company: d
         return []
 
     filtered: list[dict] = []
+    trust_source_page = "cnbc.com" in page_url.lower() and "/quotes/" in page_url.lower()
     for link in base_candidates:
         href = str(link.get("href") or "")
         if not href:
             continue
         if is_blacklisted_cnbc_link(href):
             LOGGER.info("Skipping blacklisted CNBC URL %s for company %s", href, company["symbol"])
+            continue
+
+        if trust_source_page:
+            filtered.append(link)
             continue
 
         if link_matches_variants(link, variants):
@@ -102,25 +123,33 @@ _save_followed_article_links = make_entity_article_saver(
     logger=LOGGER,
     entity_kind="company",
     entity_label=lambda company: company["symbol"],
-    save_article=lambda *, entity, source_page_url, context, **extra: add_company_news_article(
-        company_id=entity["id"],
-        source=context["source"],
-        article_key=context["article_key"],
-        title=context["title"],
-        source_url=context["href"],
-        source_page_url=source_page_url,
-        summary=context["link"].get("text"),
-        body=context["body"],
-        published_at=context["published_at"],
-        age_days=context["score_bundle"].get("age_days"),
-        recency_score=context["score_bundle"].get("recency_score"),
-        source_reputation_score=context["score_bundle"].get("source_reputation_score"),
-        directness_score=context["score_bundle"].get("directness_score"),
-        confirmation_score=context["score_bundle"].get("confirmation_score"),
-        independent_source_count=context["score_bundle"].get("independent_source_count"),
-        factuality_score=context["score_bundle"].get("factuality_score"),
-        evidence_score=context["score_bundle"].get("evidence_score"),
-        raw_json=context["raw_json"],
+    save_article=lambda *, entity, source_page_url, context, **extra: (
+        link_company_to_article(
+            company_id=entity["id"],
+            article_id=context["existing_article_id"],
+            source_page_url=source_page_url,
+        )
+        if context.get("reused_existing_article") and context.get("existing_article_id")
+        else add_company_news_article(
+            company_id=entity["id"],
+            source=context["source"],
+            article_key=context["article_key"],
+            title=context["title"],
+            source_url=context["href"],
+            source_page_url=source_page_url,
+            summary=context["link"].get("text"),
+            body=context["body"],
+            published_at=context["published_at"],
+            age_days=context["score_bundle"].get("age_days"),
+            recency_score=context["score_bundle"].get("recency_score"),
+            source_reputation_score=context["score_bundle"].get("source_reputation_score"),
+            directness_score=context["score_bundle"].get("directness_score"),
+            confirmation_score=context["score_bundle"].get("confirmation_score"),
+            independent_source_count=context["score_bundle"].get("independent_source_count"),
+            factuality_score=context["score_bundle"].get("factuality_score"),
+            evidence_score=context["score_bundle"].get("evidence_score"),
+            raw_json=context["raw_json"],
+        )
     ),
     build_raw_json=lambda *, entity, source_page_url, context, search_term: {
         "company_id": entity["id"],
@@ -262,6 +291,138 @@ def _find_company(company_identifier: str) -> dict | None:
     return None
 
 
+def _find_industry(industry_identifier: str) -> dict | None:
+    needle = " ".join(str(industry_identifier or "").split()).strip().lower()
+    if not needle:
+        return None
+
+    industries = get_all_industries()
+
+    for industry in industries:
+        if str(industry.get("industry_key") or "").strip().lower() == needle:
+            return industry
+
+    for industry in industries:
+        if str(industry.get("name") or "").strip().lower() == needle:
+            return industry
+
+    return None
+
+
+def _get_companies_for_industries(industry_identifiers: list[str]) -> tuple[list[dict], list[dict]]:
+    resolved_industries: list[dict] = []
+    seen_industry_ids: set[int] = set()
+
+    for industry_identifier in industry_identifiers:
+        industry = _find_industry(industry_identifier)
+        if industry is None:
+            raise ValueError(f"Industry not found for identifier: {industry_identifier}")
+
+        industry_id = int(industry["id"])
+        if industry_id in seen_industry_ids:
+            continue
+        seen_industry_ids.add(industry_id)
+        resolved_industries.append(industry)
+
+    allowed_industry_ids = {int(industry["id"]) for industry in resolved_industries}
+    companies = [
+        company
+        for company in get_all_companies()
+        if int(company["industry_id"]) in allowed_industry_ids
+    ]
+    return resolved_industries, companies
+
+
+def _get_top_companies(limit: int) -> list[dict]:
+    normalized_limit = max(0, int(limit))
+    if normalized_limit <= 0:
+        return []
+
+    def _company_sort_key(company: dict) -> tuple[float, str]:
+        market_weight = company.get("market_weight")
+        try:
+            normalized_weight = float(market_weight)
+        except (TypeError, ValueError):
+            normalized_weight = float("-inf")
+        return (normalized_weight, str(company.get("symbol") or ""))
+
+    companies = get_all_companies()
+    ranked_companies = sorted(
+        companies,
+        key=_company_sort_key,
+        reverse=True,
+    )
+    return ranked_companies[:normalized_limit]
+
+
+def _get_top_processed_sector_keys(limit: int) -> list[str]:
+    normalized_limit = max(0, int(limit))
+    if normalized_limit <= 0:
+        return []
+
+    from db_helpers import DB_PATH, get_connection
+
+    with get_connection(DB_PATH) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                combined.sector_key,
+                COUNT(*) AS high_confidence_count
+            FROM (
+                SELECT
+                    s.sector_key,
+                    wsi.confidence
+                FROM world_news_sector_impacts AS wsi
+                JOIN sectors AS s ON s.id = wsi.sector_id
+
+                UNION ALL
+
+                SELECT
+                    s.sector_key,
+                    usi.confidence
+                FROM us_news_sector_impacts AS usi
+                JOIN sectors AS s ON s.id = usi.sector_id
+            ) AS combined
+            WHERE lower(coalesce(combined.confidence, '')) = 'high'
+            GROUP BY combined.sector_key
+            ORDER BY high_confidence_count DESC, combined.sector_key ASC
+            LIMIT ?
+            """,
+            (normalized_limit,),
+        ).fetchall()
+
+    return [str(row["sector_key"]) for row in rows if str(row["sector_key"] or "").strip()]
+
+
+def _get_top_processed_industry_keys_for_sector(sector_key: str, limit: int) -> list[str]:
+    normalized_limit = max(0, int(limit))
+    normalized_sector_key = str(sector_key or "").strip()
+    if normalized_limit <= 0 or not normalized_sector_key:
+        return []
+
+    from db_helpers import DB_PATH, get_connection
+
+    with get_connection(DB_PATH) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                i.industry_key,
+                COUNT(*) AS high_confidence_count
+            FROM industry_opportunist_impacts AS ioi
+            JOIN industries AS i ON i.id = ioi.industry_id
+            JOIN sectors AS s ON s.id = i.sector_id
+            WHERE s.sector_key = ?
+              AND lower(coalesce(ioi.confidence, '')) = 'high'
+            GROUP BY i.industry_key
+            ORDER BY high_confidence_count DESC, i.industry_key ASC
+            LIMIT ?
+            """,
+            (normalized_sector_key, normalized_limit),
+        ).fetchall()
+
+    return [str(row["industry_key"]) for row in rows if str(row["industry_key"] or "").strip()]
+
+
 def get_company_news(company_identifier: str) -> int:
     initialize_news_database()
     company = _find_company(company_identifier)
@@ -302,10 +463,112 @@ def get_all_company_news() -> None:
     print(f"Scrape log written to {get_log_file_path()}")
 
 
+def get_industries_company_news(industry_identifiers: list[str]) -> int:
+    initialize_news_database()
+    industries, companies = _get_companies_for_industries(industry_identifiers)
+    if not companies:
+        LOGGER.info("No companies found for industries: %s", industry_identifiers)
+        print("No companies found for the supplied industries")
+        return 0
+
+    LOGGER.info(
+        "Starting company scrape for %s companies across %s industries",
+        len(companies),
+        len(industries),
+    )
+    jobs = _build_all_company_jobs(companies)
+    saved_counts = _process_company_jobs(jobs)
+
+    total_saved = 0
+    for company in companies:
+        saved = saved_counts.get(company["id"], 0)
+        total_saved += saved
+        print(f"Saved {saved} articles for {company['name']} ({company['symbol']})")
+
+    LOGGER.info(
+        "Finished company scrape for industries %s: saved %s articles. Log file: %s",
+        [industry["industry_key"] for industry in industries],
+        total_saved,
+        get_log_file_path(),
+    )
+    print(f"Scrape log written to {get_log_file_path()}")
+    return total_saved
+
+
+def get_top_companies_news(*, top_company_count: int = 25) -> int:
+    initialize_news_database()
+    companies = _get_top_companies(top_company_count)
+    if not companies:
+        LOGGER.info("No top companies available for company news scrape")
+        print("No top companies available")
+        return 0
+
+    LOGGER.info(
+        "Starting company scrape for top %s companies by market weight",
+        len(companies),
+    )
+    jobs = _build_all_company_jobs(companies)
+    saved_counts = _process_company_jobs(jobs)
+
+    total_saved = 0
+    for company in companies:
+        saved = saved_counts.get(company["id"], 0)
+        total_saved += saved
+        print(f"Saved {saved} articles for {company['name']} ({company['symbol']})")
+
+    LOGGER.info(
+        "Finished company scrape for top %s companies: saved %s articles. Log file: %s",
+        len(companies),
+        total_saved,
+        get_log_file_path(),
+    )
+    print(f"Scrape log written to {get_log_file_path()}")
+    return total_saved
+
+
+def get_top_processed_industries_company_news(
+    *,
+    top_sector_count: int = 10,
+    top_industry_count: int = 10,
+) -> int:
+    sector_keys = _get_top_processed_sector_keys(top_sector_count)
+    if not sector_keys:
+        LOGGER.info("No processed sectors available for top-industry company news scrape")
+        print("No processed sectors available")
+        return 0
+
+    selected_industry_keys: list[str] = []
+    seen_industry_keys: set[str] = set()
+    for sector_key in sector_keys:
+        top_industry_keys = _get_top_processed_industry_keys_for_sector(sector_key, top_industry_count)
+        for industry_key in top_industry_keys:
+            normalized_key = str(industry_key or "").strip()
+            if not normalized_key or normalized_key in seen_industry_keys:
+                continue
+            seen_industry_keys.add(normalized_key)
+            selected_industry_keys.append(normalized_key)
+
+    if not selected_industry_keys:
+        LOGGER.info(
+            "No processed industries available for sectors %s during company news scrape",
+            sector_keys,
+        )
+        print("No processed industries available from the top sectors")
+        return 0
+
+    LOGGER.info(
+        "Starting company scrape for top processed industries %s derived from sectors %s",
+        selected_industry_keys,
+        sector_keys,
+    )
+    return get_industries_company_news(selected_industry_keys)
+
+
 if __name__ == "__main__":
     try:
-        get_company_news("Apple Inc.")
+        get_company_news("MSFT")
         #get_all_company_news()
+        #get_top_processed_industries_company_news()
     except KeyboardInterrupt:
         LOGGER.warning("Company scrape interrupted by user. Log file: %s", get_log_file_path())
         print(f"\nScrape interrupted by user. Log file: {get_log_file_path()}")

@@ -276,7 +276,9 @@ def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
             FROM company_opportunist_impacts AS coi
             JOIN companies AS c ON c.id = coi.company_id
             JOIN news_articles AS na ON na.id = coi.article_id
-            LEFT JOIN company_opportunist_article_processing AS cop ON cop.article_id = coi.article_id
+            LEFT JOIN company_opportunist_article_processing AS cop
+                ON cop.article_id = coi.article_id
+               AND cop.company_id = coi.company_id
             WHERE coi.company_id = ?
               AND lower(coalesce(coi.confidence, '')) = ?
             ORDER BY na.published_at DESC, coi.article_id DESC
