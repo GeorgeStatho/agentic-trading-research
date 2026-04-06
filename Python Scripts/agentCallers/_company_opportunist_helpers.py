@@ -264,21 +264,16 @@ def build_company_valid_reference_sets(
 def normalize_company_impact(
     impact: dict[str, Any],
     *,
-    valid_article_ids: set[int],
+    source_article_id: int,
     valid_company_id: int,
     valid_symbol: str,
 ) -> dict[str, Any] | None:
-    try:
-        article_id = int(impact.get("article_id"))
-    except (TypeError, ValueError):
-        return None
-
     confidence = str(impact.get("confidence") or "").strip().lower()
     impact_direction = str(impact.get("impact_direction") or "").strip().lower()
     impact_magnitude = str(impact.get("impact_magnitude") or "").strip().lower()
     reason = str(impact.get("reason") or "").strip()
 
-    if article_id not in valid_article_ids:
+    if int(source_article_id) <= 0:
         return None
     if confidence not in VALID_CONFIDENCE_LEVELS:
         return None
@@ -290,7 +285,7 @@ def normalize_company_impact(
         return None
 
     return {
-        "article_id": article_id,
+        "article_id": int(source_article_id),
         "company_id": int(valid_company_id),
         "symbol": str(valid_symbol).strip().upper(),
         "confidence": confidence,
