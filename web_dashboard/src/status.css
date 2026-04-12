@@ -1,0 +1,49 @@
+.script-status {
+  width: min(1100px, 92vw);
+  margin: 0 auto 2rem;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  background: rgba(255, 255, 255, 0.04);
+  box-sizing: border-box;
+}
+
+.script-status__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  flex: 0 0 12px;
+  background: currentColor;
+  box-shadow: 0 0 0 6px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.script-status__label {
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.script-status__message {
+  font-size: 0.95rem;
+  opacity: 0.9;
+}
+
+.script-status--running {
+  color: #16a34a;
+}
+
+.script-status--paused {
+  color: #f59e0b;
+}
+
+.script-status--starting,
+.script-status--loading {
+  color: #38bdf8;
+}
+
+.script-status--error,
+.script-status--down {
+  color: #ef4444;
+}
