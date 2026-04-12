@@ -1066,6 +1066,64 @@ def mark_sector_opportunist_article_processed(
     return cursor.fetchone()["id"]
 
 
+def add_strategist_company_summary(
+    company_id: int,
+    decision: str | None = None,
+    confidence: str | None = None,
+    summary: str | None = None,
+    thesis: Any | None = None,
+    risks: Any | None = None,
+    model: str | None = None,
+    raw_json: Any | None = None,
+    db_path: Path | str = DB_PATH,
+    conn=None,
+) -> int:
+    values = (
+        company_id,
+        decision,
+        confidence,
+        summary,
+        json_text(thesis),
+        json_text(risks),
+        model,
+        json_text(raw_json),
+    )
+    if conn is None:
+        with get_connection(db_path) as local_conn:
+            return add_strategist_company_summary(
+                company_id,
+                decision=decision,
+                confidence=confidence,
+                summary=summary,
+                thesis=thesis,
+                risks=risks,
+                model=model,
+                raw_json=raw_json,
+                conn=local_conn,
+            )
+
+    cursor = conn.execute(
+        """
+        INSERT INTO strategist_company_summaries (
+            company_id, decision, confidence, summary, thesis, risks, model, raw_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(company_id) DO UPDATE SET
+            decision = excluded.decision,
+            confidence = excluded.confidence,
+            summary = excluded.summary,
+            thesis = excluded.thesis,
+            risks = excluded.risks,
+            model = excluded.model,
+            raw_json = excluded.raw_json,
+            updated_at = CURRENT_TIMESTAMP
+        RETURNING id
+        """,
+        values,
+    )
+    return cursor.fetchone()["id"]
+
+
 def add_company_news_article(
     company_id: int,
     source: str,
@@ -1476,6 +1534,7 @@ def list_company_news_articles(company_id: int, db_path: Path | str = DB_PATH) -
             """,
             (company_id,),
         ).fetchall()
+        #gets all the news that is linked to a company
     return [dict(row) for row in rows]
 
 

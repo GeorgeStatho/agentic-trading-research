@@ -121,6 +121,19 @@ Functions:
 - `get_high_confidence_company_news(company, ...)`: returns normalized company-level evidence rows for the company.
 - `build_strategist_evidence_sections(company_identifier, ...)`: builds the full set of strategist evidence sections.
 
+### `manager.py`
+
+Purpose: helper logic that gathers the live market and account context used by the manager stage.
+
+Functions:
+- `_get_alpaca_clients()`: lazily initializes Alpaca stock, option, and trading clients from `.env`.
+- `_build_current_stock_price_snapshot(company)`: loads the current stock quote snapshot, with fallback to saved company market data when Alpaca is unavailable.
+- `_fetch_option_contracts(...)`: loads filtered call or put contracts for the company from Alpaca trading endpoints.
+- `_build_option_market_snapshot(...)`: builds the option-chain context, including stable `option_id` values plus expirations, strikes, implied volatility, greeks, and latest quote data for returned contracts.
+- `_build_account_state(company_symbol)`: loads account buying power and the current stock or option positions related to the target company.
+- `build_market_context(company, ...)`: combines stock price, option market, and account state into one manager-facing payload section.
+- `build_manager_input(company_identifier, ...)`: starts from the strategist payload and injects the live market context before the manager stage builds its prompt.
+
 ### `__init__.py`
 
 Purpose: package marker for the `agent_helpers` folder.
