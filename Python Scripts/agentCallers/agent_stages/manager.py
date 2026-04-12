@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -46,11 +47,13 @@ DEFAULT_MODEL = os.getenv(
     "MANAGER_MODEL",
     os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "world-news-sectors")),
 )
+MANAGER_STAGE_VERSION = "decision-only-v2"
 
 VALID_DECISIONS = {"call", "put", "neither"}
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
 
 manager = get_ollama_client(OLLAMA_HOST)
+LOGGER = logging.getLogger(__name__)
 MANAGER_RECOMMENDATION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -59,34 +62,9 @@ MANAGER_RECOMMENDATION_SCHEMA: dict[str, Any] = {
             "properties": {
                 "decision": {"type": "string", "enum": ["call", "put", "neither"]},
                 "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-                "selected_option_id": {
-                    "anyOf": [
-                        {"type": "integer"},
-                        {"type": "null"},
-                    ]
-                },
-                "selected_expiration_date": {
-                    "anyOf": [
-                        {"type": "string"},
-                        {"type": "null"},
-                    ]
-                },
-                "selected_strike_price": {
-                    "anyOf": [
-                        {"type": "number"},
-                        {"type": "null"},
-                    ]
-                },
                 "reason": {"type": "string"},
             },
-            "required": [
-                "decision",
-                "confidence",
-                "selected_option_id",
-                "selected_expiration_date",
-                "selected_strike_price",
-                "reason",
-            ],
+            "required": ["decision", "confidence", "reason"],
             "additionalProperties": False,
         }
     },
@@ -161,6 +139,25 @@ def _build_context_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _build_manager_visible_market_context(payload: dict[str, Any]) -> dict[str, Any]:
+    market_context = payload.get("market_context", {})
+    option_market = market_context.get("option_market", {})
+
+    return {
+        "current_stock_price": market_context.get("current_stock_price", {}),
+        "account_state": market_context.get("account_state", {}),
+        "option_market_summary": {
+            "available": bool(option_market.get("available")),
+            "underlying_symbol": option_market.get("underlying_symbol"),
+            "selection_filters": option_market.get("selection_filters", {}),
+            "contract_count": int(option_market.get("contract_count") or 0),
+            "available_expirations": option_market.get("available_expirations", []),
+            "available_strikes": option_market.get("available_strikes", []),
+            "error": str(option_market.get("error") or ""),
+        },
+    }
+
+
 def build_manager_prompt(
     payload: dict[str, Any],
     *,
@@ -172,20 +169,19 @@ def build_manager_prompt(
         "a bearish options put, or neither. "
         "Use only the supplied structured context. "
         "Treat upstream agent conclusions as signals, not certainty, and weigh them against the article evidence, "
-        "the current stock price snapshot, the option chain, implied volatility, greeks, account buying power, "
-        "and the current position state. "
+        "the current stock price snapshot, the supplied 1d, 5d, 1mo, and 3mo stock price history, "
+        "account buying power, and the current position state. "
+        "Do not use or infer a specific option contract from Alpaca contract data. "
+        "Contract selection happens in a separate deterministic step after your decision. "
         "Choose 'call' only when the combined evidence is convincingly bullish and the account context can support it. "
         "Choose 'put' only when the combined evidence is convincingly bearish and the account context can support it. "
         "If the evidence is mixed, weak, operationally constrained, or mostly inconclusive, prefer 'neither'. "
+        "Do not choose a specific option contract yourself. "
         "Return only valid JSON with a top-level key named 'recommendation'. "
         "Do not include markdown fences, notes, or extra keys. "
-        "The recommendation object must contain: decision, confidence, selected_option_id, selected_expiration_date, selected_strike_price, reason. "
+        "The recommendation object must contain: decision, confidence, reason. "
         "decision must be one of: call, put, neither. "
         "confidence must be one of: high, medium, low. "
-        "selected_option_id must be the integer option_id of the chosen contract from market_context.option_market.contracts, "
-        "or null when the decision is neither. "
-        "selected_expiration_date must match the chosen contract expiration date, or null when the decision is neither. "
-        "selected_strike_price must match the chosen contract strike price, or null when the decision is neither. "
         "reason must be a short paragraph."
     )
     system_prompt = str(system_prompt_override or default_system_prompt)
@@ -197,14 +193,11 @@ def build_manager_prompt(
         "filters": payload.get("filters", {}),
         "views": payload.get("views", {}),
         "supporting_articles": payload.get("supporting_articles", {}),
-        "market_context": payload.get("market_context", {}),
+        "market_context": _build_manager_visible_market_context(payload),
         "required_output": {
             "recommendation": {
                 "decision": "call|put|neither",
                 "confidence": "high|medium|low",
-                "selected_option_id": "integer option_id from market_context.option_market.contracts, or null for neither",
-                "selected_expiration_date": "YYYY-MM-DD expiration date from the chosen contract, or null for neither",
-                "selected_strike_price": "numeric strike price from the chosen contract, or null for neither",
                 "reason": "short paragraph",
             }
         },
@@ -434,6 +427,54 @@ def _pick_fallback_option_id(
     return _normalize_option_id(best_contract.get("option_id"))
 
 
+def _direct_pick_contract(
+    *,
+    decision: str,
+    option_contracts: list[dict[str, Any]],
+    market_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    normalized_decision = str(decision or "").strip().lower()
+    if normalized_decision not in {"call", "put"}:
+        return None
+
+    reference_stock_price = _get_reference_stock_price(market_context)
+    best_contract: dict[str, Any] | None = None
+    best_key: tuple[float, float, str, float, int] | None = None
+
+    for contract in option_contracts:
+        contract_type = str(contract.get("contract_type") or "").strip().lower()
+        if contract_type != normalized_decision:
+            continue
+
+        contract_price = _get_contract_market_price(contract)
+        has_contract_price = 0.0 if contract_price is not None else 1.0
+
+        strike_price = _coerce_float(contract.get("strike_price"))
+        strike_distance = (
+            abs(strike_price - reference_stock_price)
+            if strike_price is not None and reference_stock_price is not None
+            else float("inf")
+        )
+
+        expiration_date = str(contract.get("expiration_date") or "9999-12-31")
+        open_interest = _coerce_float(contract.get("open_interest"))
+        open_interest_rank = -(open_interest if open_interest is not None else -1.0)
+        option_id = _normalize_option_id(contract.get("option_id")) or 10**9
+
+        candidate_key = (
+            has_contract_price,
+            strike_distance,
+            expiration_date,
+            open_interest_rank,
+            option_id,
+        )
+        if best_key is None or candidate_key < best_key:
+            best_key = candidate_key
+            best_contract = contract
+
+    return best_contract
+
+
 def _normalize_recommendation(
     recommendation: dict[str, Any] | None,
     *,
@@ -459,75 +500,13 @@ def _normalize_recommendation(
     if not reason:
         return None
 
-    contracts_by_id: dict[int, dict[str, Any]] = {}
-    option_id_by_symbol: dict[str, int] = {}
-    if option_contracts:
-        contracts_by_id, option_id_by_symbol = _build_option_contract_maps(option_contracts)
-
-    selected_option_id, selected_option_from_model = _extract_model_selected_option_id(
-        recommendation,
-        option_contracts or [],
-        contracts_by_id,
-        option_id_by_symbol,
-    )
-
-    if decision == "neither":
-        selected_option_id = None
-        selected_option_source = "none"
-    else:
-        selected_contract = contracts_by_id.get(selected_option_id) if selected_option_id is not None else None
-        selected_contract_type = (
-            _normalize_decision(selected_contract.get("contract_type"))
-            if selected_contract is not None
-            else ""
-        )
-
-        if (
-            (selected_option_id is None or selected_contract is None or selected_contract_type != decision)
-            and option_contracts
-        ):
-            selected_option_id = _pick_fallback_option_id(
-                decision=decision,
-                option_contracts=option_contracts,
-                market_context=market_context or {},
-            )
-            selected_option_from_model = False
-            selected_contract = contracts_by_id.get(selected_option_id) if selected_option_id is not None else None
-            selected_contract_type = (
-                _normalize_decision(selected_contract.get("contract_type"))
-                if selected_contract is not None
-                else ""
-            )
-        if selected_option_id is None or selected_contract is None or selected_contract_type != decision:
-            selected_option_id = None
-            if option_contracts:
-                selected_option_source = "unavailable"
-            elif selected_option_from_model:
-                selected_option_source = "model_unverified"
-            else:
-                selected_option_source = "unavailable"
-        else:
-            selected_option_source = "model" if selected_option_from_model else "fallback"
-
-    selected_contract = contracts_by_id.get(selected_option_id) if selected_option_id is not None else None
-    selected_expiration_date = (
-        str(selected_contract.get("expiration_date") or "").strip()
-        if selected_contract is not None
-        else ""
-    )
-    selected_strike_price = (
-        _coerce_float(selected_contract.get("strike_price"))
-        if selected_contract is not None
-        else None
-    )
-
     return {
         "decision": decision,
         "confidence": confidence,
-        "selected_option_id": selected_option_id,
-        "selected_expiration_date": selected_expiration_date or None,
-        "selected_strike_price": selected_strike_price,
-        "selected_option_source": selected_option_source,
+        "selected_option_id": None,
+        "selected_expiration_date": None,
+        "selected_strike_price": None,
+        "selected_option_source": "manager_decision_only",
         "reason": reason,
     }
 
@@ -610,20 +589,6 @@ def _extract_recommendation_from_text(raw_response: str) -> dict[str, Any] | Non
     return recommendation
 
 
-def _resolve_selected_option(
-    option_contracts: list[dict[str, Any]],
-    selected_option_id: Any,
-) -> dict[str, Any] | None:
-    normalized_id = _normalize_option_id(selected_option_id)
-    if normalized_id is None:
-        return None
-
-    for contract in option_contracts:
-        if _normalize_option_id(contract.get("option_id")) == normalized_id:
-            return contract
-    return None
-
-
 def _build_no_evidence_result(
     company: dict[str, Any],
     *,
@@ -640,8 +605,13 @@ def _build_no_evidence_result(
             "selected_option_id": None,
             "selected_expiration_date": None,
             "selected_strike_price": None,
-            "selected_option_source": "none",
+            "selected_option_source": "manager_decision_only",
             "reason": "There was not enough processed article evidence or live market/account context available to support a call or put decision.",
+            "selection_debug": {
+                "manager_module_path": __file__,
+                "manager_stage_version": MANAGER_STAGE_VERSION,
+                "option_contract_count": len(market_context.get("option_market", {}).get("contracts", [])),
+            },
         },
         "selected_option": None,
     }
@@ -720,17 +690,33 @@ def decide_company_option_position(
     if recommendation is None:
         raise RuntimeError(
             "Manager model returned an invalid response. "
-            "Expected a JSON object with recommendation.decision/confidence/selected_option_id/"
-            "selected_expiration_date/selected_strike_price/reason. "
+            "Expected a JSON object with recommendation.decision/confidence/reason. "
             f"Raw response: {raw_response[:800]}"
         )
+
+    recommendation = {
+        **recommendation,
+        "selection_debug": {
+            "manager_module_path": __file__,
+            "manager_stage_version": MANAGER_STAGE_VERSION,
+            "option_contract_count": len(option_contracts),
+        },
+    }
+    selected_option = None
+    LOGGER.info(
+        "Manager decision for %s produced decision=%s confidence=%s with %s contracts available",
+        company.get("symbol"),
+        recommendation.get("decision"),
+        recommendation.get("confidence"),
+        len(option_contracts),
+    )
 
     return {
         "company": company,
         "context_snapshot": context_snapshot,
         "market_context": market_context,
         "recommendation": recommendation,
-        "selected_option": _resolve_selected_option(option_contracts, recommendation.get("selected_option_id")),
+        "selected_option": selected_option,
     }
 
 

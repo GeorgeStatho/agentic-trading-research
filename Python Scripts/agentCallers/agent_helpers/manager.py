@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import json
 import os
 from pathlib import Path
 import re
@@ -64,6 +65,7 @@ __all__ = [
     "DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE",
     "DEFAULT_SUMMARY_ARTICLE_LIMIT",
     "build_manager_input",
+    "test_market_context",
 ]
 
 
@@ -647,3 +649,59 @@ def build_manager_input(
         option_contract_limit_per_type=max(1, int(option_contract_limit_per_type)),
     )
     return payload
+
+
+def test_market_context(
+    company_identifier: str,
+    *,
+    option_expiration_date: str | None = None,
+    option_expiration_date_gte: str | None = None,
+    option_expiration_date_lte: str | None = None,
+    option_strike_price_gte: float | None = None,
+    option_strike_price_lte: float | None = None,
+    option_contract_limit_per_type: int = DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
+) -> dict[str, Any]:
+    payload = build_strategist_input(
+        company_identifier,
+        start_time=None,
+        end_time=None,
+        max_age_days=DEFAULT_MAX_ARTICLE_AGE_DAYS,
+        summary_article_limit=DEFAULT_SUMMARY_ARTICLE_LIMIT,
+        full_article_limit=DEFAULT_FULL_ARTICLE_LIMIT,
+    )
+    company = payload["company"]
+    market_context = build_market_context(
+        company,
+        option_expiration_date=option_expiration_date,
+        option_expiration_date_gte=option_expiration_date_gte,
+        option_expiration_date_lte=option_expiration_date_lte,
+        option_strike_price_gte=option_strike_price_gte,
+        option_strike_price_lte=option_strike_price_lte,
+        option_contract_limit_per_type=max(1, int(option_contract_limit_per_type)),
+    )
+
+    stock_snapshot = market_context.get("current_stock_price", {})
+    option_market = market_context.get("option_market", {})
+    account_state = market_context.get("account_state", {})
+
+    return {
+        "company": company,
+        "diagnostics": {
+            "stock_price_available": bool(stock_snapshot.get("available")),
+            "stock_price_error": str(stock_snapshot.get("error") or ""),
+            "option_market_available": bool(option_market.get("available")),
+            "option_market_error": str(option_market.get("error") or ""),
+            "option_contract_count": int(option_market.get("contract_count") or 0),
+            "account_state_available": bool(account_state.get("available")),
+            "account_state_error": str(account_state.get("error") or ""),
+            "matching_position_count": int(
+                account_state.get("company_position_state", {}).get("matching_position_count") or 0
+            ),
+        },
+        "market_context": market_context,
+    }
+
+
+if __name__ == "__main__":
+    target = sys.argv[1] if len(sys.argv) > 1 else "AAPL"
+    print(json.dumps(test_market_context(target), ensure_ascii=True, indent=2))
