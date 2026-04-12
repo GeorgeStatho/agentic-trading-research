@@ -46,7 +46,9 @@ def get_company_reference(company_identifier: str) -> tuple[dict[str, Any], dict
     company_payload = get_company_linked_articles(company_identifier)
     company = company_payload["company"]
     peer_groups = get_industry_company_groups(company["industry_key"])
+    #get companies from the same industry to undertsand how they are doing
     articles = company_payload["articles"]
+    #get articles linked to company
     return company, peer_groups, articles
 
 
@@ -108,6 +110,7 @@ def get_company_opportunist_summary(
         "magnitude_counts": magnitude_counts,
         "sample_reasons": reasons[: max(0, int(sample_reason_limit))],
     }
+    #get the saved company oppurtunist from the db, returned in usable dict
 
 
 def _make_company_article_record(article: dict[str, Any]) -> dict[str, Any]:
@@ -183,6 +186,7 @@ def build_company_opportunist_articles(
     articles = _filter_unprocessed_articles(articles, int(company["company_id"]))
 
     return company, peer_groups, articles
+    #builds what articles the oppurtunist will go through
 
 
 def _parse_company_payload(text: str) -> Any:
@@ -218,6 +222,7 @@ def _parse_company_payload(text: str) -> Any:
                 continue
 
     return None
+    #clean what the model produced itno usable data
 
 
 def extract_company_impacts(payload: Any) -> list[dict[str, Any]] | None:

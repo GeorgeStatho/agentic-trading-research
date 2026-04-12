@@ -30,6 +30,7 @@ def ask_ollama_model(
     response_schema: dict[str, Any] | None = None,
 ) -> str:
     chat_kwargs: dict[str, Any] = {
+        #chooses what llm model to use
         "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -39,6 +40,7 @@ def ask_ollama_model(
             "temperature": temperature,
         },
     }
+    #if there is a response schema for the llm, use it 
     if response_schema is not None:
         chat_kwargs["format"] = response_schema
 
@@ -63,6 +65,7 @@ def ask_ollama_model(
 
 
 def parse_published_at(value: str | None) -> datetime | None:
+    #clean string
     text = str(value or "").strip()
     if not text:
         return None
@@ -94,6 +97,7 @@ def normalize_time_window(
     normalized_start = start_time.astimezone(timezone.utc) if start_time is not None else None
 
     if normalized_start is None and max_age_days is not None:
+        #gets how many days ago a article was from
         normalized_start = normalized_end - timedelta(days=max_age_days)
 
     return normalized_start, normalized_end
@@ -119,6 +123,7 @@ def estimate_tokens(text: str) -> int:
     normalized = str(text or "")
     if not normalized:
         return 0
+    #each 4 characters is about 1 token1, so the length of the string divided by 4 should help us estimate how much context a model needs to process
     return max(1, len(normalized) // 4)
 
 
@@ -132,6 +137,7 @@ def estimate_article_tokens(article: dict[str, Any]) -> int:
             str(article.get("source_url") or ""),
         ]
     )
+    #combines article from database into one string block, then estimates the tokens of taht string
     return estimate_tokens(combined)
 
 
@@ -147,6 +153,7 @@ def build_token_limited_batches(
     current_tokens = 0
 
     for article in articles:
+        #gets the token amoutn a article is
         article_tokens = estimate_article_tokens(article)
 
         if article_tokens >= usable_limit:
@@ -155,12 +162,14 @@ def build_token_limited_batches(
                 current_batch = []
                 current_tokens = 0
             batches.append([article])
+            #if current batch is holding a value, and a article is too big for the model, append that batch to the list of batches and begin a new one
             continue
 
         if current_batch and current_tokens + article_tokens > usable_limit:
             batches.append(current_batch)
             current_batch = [article]
             current_tokens = article_tokens
+            #if the current batch made up of articles is full, appaend that to the total list of batches and amke a enw batch for teh article making the overflow
             continue
 
         current_batch.append(article)
@@ -173,6 +182,7 @@ def build_token_limited_batches(
 
 
 def extract_json_value(text: str) -> Any:
+    #clean text
     raw = str(text or "").strip()
     if not raw:
         return None
@@ -182,6 +192,7 @@ def extract_json_value(text: str) -> Any:
     except json.JSONDecodeError:
         pass
 
+        
     fence_start = raw.find("```")
     if fence_start >= 0:
         fence_end = raw.rfind("```")

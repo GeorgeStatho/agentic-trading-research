@@ -1,10 +1,16 @@
+from pathlib import Path
 import os
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest, GetOptionContractsRequest
+from alpaca.trading.enums import OrderSide, TimeInForce,ContractType
 
-from Keys import API_KEY,API_SECRECT_KEY
+env_path=Path("Stock-trading-experiment/.env").resolve()
+
+from dotenv import load_dotenv
+load_dotenv(env_path)
+API_KEY=os.getenv("PUBLIC_KEY")
+API_SECRET_KEY:str=os.getenv("PRIVATE_KEY")
 
 
 def IntializeTradingClient(api_key:str,secret:str,paper:bool)->TradingClient:
@@ -14,7 +20,7 @@ def IntializeTradingClient(api_key:str,secret:str,paper:bool)->TradingClient:
     trading_client=TradingClient(api_key=api_key,secret_key=secret,oauth_token=None,paper=paper)
     return trading_client
 
-trading_client=IntializeTradingClient(API_KEY,API_SECRECT_KEY,True)
+trading_client=IntializeTradingClient(API_KEY,API_SECRET_KEY,True)
 
 #class to help keep track of trades
 class StockTrades:
@@ -124,6 +130,18 @@ class StockTrades:
 
 ##########SELL###########
 
-        
+##########Options########
 
+def GetCallOptionsForCompany(company:str):
+    contracts = trading_client.get_option_contracts(
+        GetOptionContractsRequest(
+            underlying_symbols=[company],
+            type=ContractType.CALL,
+            expiration_date="2026-05-15",
+            limit=10,
+        )
+    )
+    return contracts
 
+if __name__=="__main__":
+    print(GetCallOptionsForCompany("AAPL"))

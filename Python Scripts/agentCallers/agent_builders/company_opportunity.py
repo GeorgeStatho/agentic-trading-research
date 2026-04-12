@@ -46,7 +46,7 @@ def _find_company(company_identifier: str) -> dict[str, Any] | None:
         if str(company.get("name") or "").strip().lower() == needle:
             return company
     return None
-
+    #get the company from eitehr name or ticker symbol from the db
 
 def _serialize_company_row(row: Any) -> dict[str, Any]:
     return {
@@ -68,6 +68,7 @@ def _serialize_ranked_company_row(row: Any) -> dict[str, Any]:
         "rating": row["rating"],
         "market_weight": row["market_weight"],
     }
+    #turn db table row into a usable dict
 
 
 def get_industry_company_groups(industry_identifier: str) -> dict[str, Any]:
@@ -78,6 +79,7 @@ def get_industry_company_groups(industry_identifier: str) -> dict[str, Any]:
     top_companies = [
         _serialize_company_row(row)
         for row in list_companies_by_industry(industry["industry_key"])
+        #get the top companies for the industry from the db
     ]
     top_growth_companies = [
         _serialize_ranked_company_row(row)
@@ -123,7 +125,7 @@ def get_company_linked_articles(company_identifier: str) -> dict[str, Any]:
         },
         "articles": list_company_news_articles(company["id"]),
     }
-
+    #build article payload from db for the oppurtunist using company data as relevant context
 
 if __name__ == "__main__":
     print(get_industry_company_groups("semiconductors"))

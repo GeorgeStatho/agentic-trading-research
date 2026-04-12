@@ -9,14 +9,15 @@ import sys
 from typing import Any
 
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+AGENT_STAGES_DIR = Path(__file__).resolve().parent
+AGENT_CALLERS_DIR = AGENT_STAGES_DIR.parent
+PYTHON_SCRIPTS_DIR = AGENT_CALLERS_DIR.parent
+ROOT_DIR = PYTHON_SCRIPTS_DIR.parent
 DATA_DIR = ROOT_DIR / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
-
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
+for path in (AGENT_CALLERS_DIR, PYTHON_SCRIPTS_DIR, DATA_DIR):
+    normalized = str(path)
+    if normalized not in sys.path:
+        sys.path.append(normalized)
 
 from StrategistPayloadBuilder import (
     DEFAULT_FULL_ARTICLE_LIMIT,
@@ -25,6 +26,7 @@ from StrategistPayloadBuilder import (
     build_strategist_input,
 )
 from _shared import Client, ask_ollama_model, extract_json_value, get_ollama_client
+from db_helpers import add_strategist_company_summary, initialize_news_database
 
 
 OLLAMA_HOST = os.getenv(
@@ -368,6 +370,31 @@ def _build_no_evidence_result(company: dict[str, Any], *, context_snapshot: dict
     }
 
 
+def _save_strategist_summary(
+    *,
+    company: dict[str, Any],
+    context_snapshot: dict[str, Any],
+    recommendation: dict[str, Any],
+    model: str,
+) -> None:
+    initialize_news_database()
+    result_payload = {
+        "company": company,
+        "context_snapshot": context_snapshot,
+        "recommendation": recommendation,
+    }
+    add_strategist_company_summary(
+        company_id=int(company["company_id"]),
+        decision=str(recommendation.get("decision") or ""),
+        confidence=str(recommendation.get("confidence") or ""),
+        summary=str(recommendation.get("summary") or ""),
+        thesis=recommendation.get("thesis", []),
+        risks=recommendation.get("risks", []),
+        model=model,
+        raw_json=result_payload,
+    )
+
+
 def decide_company_purchase(
     company_identifier: str,
     *,
@@ -394,7 +421,14 @@ def decide_company_purchase(
     context_snapshot = _build_context_snapshot(payload)
 
     if not _payload_has_evidence(payload):
-        return _build_no_evidence_result(company, context_snapshot=context_snapshot)
+        result = _build_no_evidence_result(company, context_snapshot=context_snapshot)
+        _save_strategist_summary(
+            company=company,
+            context_snapshot=context_snapshot,
+            recommendation=result["recommendation"],
+            model=model,
+        )
+        return result
 
     system_prompt, user_prompt = build_strategist_prompt(
         payload,
@@ -419,11 +453,18 @@ def decide_company_purchase(
             f"Raw response: {raw_response[:800]}"
         )
 
-    return {
+    result = {
         "company": company,
         "context_snapshot": context_snapshot,
         "recommendation": recommendation,
     }
+    _save_strategist_summary(
+        company=company,
+        context_snapshot=context_snapshot,
+        recommendation=recommendation,
+        model=model,
+    )
+    return result
 
 
 if __name__ == "__main__":

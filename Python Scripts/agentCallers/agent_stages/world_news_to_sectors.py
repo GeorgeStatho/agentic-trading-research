@@ -5,9 +5,15 @@ from pathlib import Path
 import sys
 from typing import Any
 
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
+AGENT_STAGES_DIR = Path(__file__).resolve().parent
+AGENT_CALLERS_DIR = AGENT_STAGES_DIR.parent
+PYTHON_SCRIPTS_DIR = AGENT_CALLERS_DIR.parent
+ROOT_DIR = PYTHON_SCRIPTS_DIR.parent
+DATA_DIR = ROOT_DIR / "Data"
+for path in (AGENT_CALLERS_DIR, PYTHON_SCRIPTS_DIR, DATA_DIR):
+    normalized = str(path)
+    if normalized not in sys.path:
+        sys.path.append(normalized)
 
 from MacroNewsToSectors import (
     DEFAULT_CONTEXT_LIMIT,
