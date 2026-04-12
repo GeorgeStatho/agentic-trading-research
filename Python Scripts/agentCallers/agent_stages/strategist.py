@@ -101,6 +101,7 @@ def _payload_has_evidence(payload: dict[str, Any]) -> bool:
 
 
 def _build_context_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
+    historical_price_data = payload.get("company", {}).get("historical_price_data", {})
     return {
         "view_counts": {
             key: int(value.get("count") or 0)
@@ -109,6 +110,11 @@ def _build_context_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
         },
         "article_summary_count": len(payload.get("supporting_articles", {}).get("article_summaries", [])),
         "full_article_count": len(payload.get("supporting_articles", {}).get("full_articles", [])),
+        "historical_periods_available": sum(
+            1
+            for item in historical_price_data.values()
+            if isinstance(item, dict) and item.get("available")
+        ),
     }
 
 
@@ -121,7 +127,8 @@ def build_strategist_prompt(
     default_system_prompt = (
         "You are an investment strategist deciding whether a company is currently a buy or not a buy. "
         "Use only the supplied structured context. "
-        "Treat upstream agent conclusions as signals, not certainty, and weigh them against the article evidence. "
+        "Treat upstream agent conclusions as signals, not certainty, and weigh them against the article evidence "
+        "and the supplied 1d, 5d, 1mo, and 3mo historical price action. "
         "If the evidence is mixed, weak, or mostly negative, prefer 'do_not_buy'. "
         "Return only valid JSON with a top-level key named 'recommendation'. "
         "Do not include markdown fences, notes, or extra keys. "

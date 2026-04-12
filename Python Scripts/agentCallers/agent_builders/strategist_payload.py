@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import sys
 from typing import Any
@@ -11,10 +12,14 @@ AGENT_CALLERS_DIR = Path(__file__).resolve().parent
 if str(AGENT_CALLERS_DIR) not in sys.path:
     sys.path.append(str(AGENT_CALLERS_DIR))
 
+PROJECT_DIR = Path(__file__).resolve().parents[3]
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT_DIR / "Data"
 if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
+WEBSCRAPING_MARKET_DATA_DIR = PROJECT_DIR / "Python Scripts" / "Webscraping" / "market_data"
+if str(WEBSCRAPING_MARKET_DATA_DIR) not in sys.path:
+    sys.path.append(str(WEBSCRAPING_MARKET_DATA_DIR))
 
 from _shared import parse_published_at
 from _strategist_helpers import (
@@ -24,9 +29,25 @@ from _strategist_helpers import (
 )
 from db_helpers import get_all_companies, initialize_news_database
 
+try:
+    import yfinance as yf
+except ImportError:
+    yf = None
+
+try:
+    from yfinance_client import REQUEST_HANDLER
+except ImportError:
+    REQUEST_HANDLER = None
+
 
 DEFAULT_SUMMARY_ARTICLE_LIMIT = 20
 DEFAULT_FULL_ARTICLE_LIMIT = 5
+HISTORICAL_PERIOD_CONFIG: tuple[tuple[str, str, int], ...] = (
+    ("1d", "5m", 8),
+    ("5d", "1h", 8),
+    ("1mo", "1d", 10),
+    ("3mo", "1d", 12),
+)
 
 __all__ = [
     "DEFAULT_MAX_ARTICLE_AGE_DAYS",
@@ -74,6 +95,7 @@ def _serialize_company_scope(company: dict[str, Any]) -> dict[str, Any]:
         "rating": company_record.get("rating") or "",
         "market_weight": company_record.get("market_weight"),
         "market_data": _deserialize_company_raw_json(company_record.get("raw_json")),
+        "historical_price_data": _build_company_historical_price_data(company["symbol"]),
     }
 
 
@@ -107,6 +129,199 @@ def _get_company_market_record(company: dict[str, Any]) -> dict[str, Any]:
             return candidate
 
     return {}
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value in (None, ""):
+            return None
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(parsed):
+        return None
+    return parsed
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        if value in (None, ""):
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _serialize_timestamp(value: Any) -> str:
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        try:
+            return str(isoformat())
+        except TypeError:
+            pass
+    return str(value or "")
+
+
+def _empty_historical_snapshot(
+    *,
+    symbol: str,
+    period: str,
+    interval: str,
+    error: str = "",
+) -> dict[str, Any]:
+    return {
+        "available": False,
+        "symbol": symbol,
+        "period": period,
+        "interval": interval,
+        "point_count": 0,
+        "first_timestamp": "",
+        "last_timestamp": "",
+        "first_close": None,
+        "last_close": None,
+        "absolute_change": None,
+        "percent_change": None,
+        "period_high": None,
+        "period_low": None,
+        "total_volume": None,
+        "recent_points": [],
+        "error": error,
+    }
+
+
+def _summarize_history_frame(
+    symbol: str,
+    frame: Any,
+    *,
+    period: str,
+    interval: str,
+    sample_limit: int,
+) -> dict[str, Any]:
+    if frame is None or getattr(frame, "empty", True):
+        return _empty_historical_snapshot(
+            symbol=symbol,
+            period=period,
+            interval=interval,
+            error="No yfinance history rows returned.",
+        )
+
+    sample_rows = frame.tail(max(1, int(sample_limit)))
+    recent_points: list[dict[str, Any]] = []
+    for timestamp, row in sample_rows.iterrows():
+        recent_points.append(
+            {
+                "timestamp": _serialize_timestamp(timestamp),
+                "open": _safe_float(row.get("Open")),
+                "high": _safe_float(row.get("High")),
+                "low": _safe_float(row.get("Low")),
+                "close": _safe_float(row.get("Close")),
+                "volume": _safe_int(row.get("Volume")),
+            }
+        )
+
+    first_close = _safe_float(frame["Close"].iloc[0])
+    last_close = _safe_float(frame["Close"].iloc[-1])
+    absolute_change = None
+    percent_change = None
+    if first_close is not None and last_close is not None:
+        absolute_change = round(last_close - first_close, 6)
+        if first_close != 0:
+            percent_change = round(((last_close - first_close) / first_close) * 100.0, 4)
+
+    total_volume = None
+    if "Volume" in frame:
+        raw_volume = frame["Volume"].fillna(0).sum()
+        total_volume = _safe_int(raw_volume)
+
+    return {
+        "available": True,
+        "symbol": symbol,
+        "period": period,
+        "interval": interval,
+        "point_count": int(len(frame.index)),
+        "first_timestamp": _serialize_timestamp(frame.index[0]),
+        "last_timestamp": _serialize_timestamp(frame.index[-1]),
+        "first_close": first_close,
+        "last_close": last_close,
+        "absolute_change": absolute_change,
+        "percent_change": percent_change,
+        "period_high": _safe_float(frame["High"].max()) if "High" in frame else None,
+        "period_low": _safe_float(frame["Low"].min()) if "Low" in frame else None,
+        "total_volume": total_volume,
+        "recent_points": recent_points,
+        "error": "",
+    }
+
+
+def _build_company_historical_price_data(symbol: Any) -> dict[str, Any]:
+    normalized_symbol = str(symbol or "").strip().upper()
+    history_by_period: dict[str, Any] = {}
+
+    if not normalized_symbol:
+        for period, interval, _sample_limit in HISTORICAL_PERIOD_CONFIG:
+            history_by_period[period] = _empty_historical_snapshot(
+                symbol="",
+                period=period,
+                interval=interval,
+                error="Company symbol was missing.",
+            )
+        return history_by_period
+
+    if yf is None or REQUEST_HANDLER is None:
+        error = "yfinance integration is unavailable."
+        for period, interval, _sample_limit in HISTORICAL_PERIOD_CONFIG:
+            history_by_period[period] = _empty_historical_snapshot(
+                symbol=normalized_symbol,
+                period=period,
+                interval=interval,
+                error=error,
+            )
+        return history_by_period
+
+    try:
+        ticker = REQUEST_HANDLER.run(
+            yf.Ticker,
+            normalized_symbol,
+            _context=f"Ticker({normalized_symbol})",
+        )
+    except Exception as exc:
+        error = str(exc)
+        for period, interval, _sample_limit in HISTORICAL_PERIOD_CONFIG:
+            history_by_period[period] = _empty_historical_snapshot(
+                symbol=normalized_symbol,
+                period=period,
+                interval=interval,
+                error=error,
+            )
+        return history_by_period
+
+    for period, interval, sample_limit in HISTORICAL_PERIOD_CONFIG:
+        try:
+            history_frame = REQUEST_HANDLER.run(
+                lambda current_period=period, current_interval=interval: ticker.history(
+                    period=current_period,
+                    interval=current_interval,
+                    auto_adjust=False,
+                    prepost=False,
+                ),
+                _context=f"history({normalized_symbol},{period},{interval})",
+            )
+            history_by_period[period] = _summarize_history_frame(
+                normalized_symbol,
+                history_frame,
+                period=period,
+                interval=interval,
+                sample_limit=sample_limit,
+            )
+        except Exception as exc:
+            history_by_period[period] = _empty_historical_snapshot(
+                symbol=normalized_symbol,
+                period=period,
+                interval=interval,
+                error=str(exc),
+            )
+
+    return history_by_period
 
 
 def _serialize_signal(item: dict[str, Any], *, layer: str) -> dict[str, Any]:
