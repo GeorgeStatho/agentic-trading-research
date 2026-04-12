@@ -212,6 +212,21 @@ CREATE TABLE IF NOT EXISTS sector_opportunist_article_processing (
     FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS strategist_company_summaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL UNIQUE,
+    decision TEXT,
+    confidence TEXT,
+    summary TEXT,
+    thesis TEXT,
+    risks TEXT,
+    model TEXT,
+    raw_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS failed_urls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     url TEXT NOT NULL,
@@ -322,6 +337,9 @@ CREATE INDEX IF NOT EXISTS idx_sector_opportunist_impacts_sector_id
 
 CREATE INDEX IF NOT EXISTS idx_sector_opportunist_article_processing_article_id
     ON sector_opportunist_article_processing (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_strategist_company_summaries_company_id
+    ON strategist_company_summaries (company_id);
 
 CREATE INDEX IF NOT EXISTS idx_failed_urls_normalized_url
     ON failed_urls (normalized_url);

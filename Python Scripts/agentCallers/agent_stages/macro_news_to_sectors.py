@@ -7,14 +7,15 @@ from pathlib import Path
 import sys
 from typing import Any
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+AGENT_STAGES_DIR = Path(__file__).resolve().parent
+AGENT_CALLERS_DIR = AGENT_STAGES_DIR.parent
+PYTHON_SCRIPTS_DIR = AGENT_CALLERS_DIR.parent
+ROOT_DIR = PYTHON_SCRIPTS_DIR.parent
 DATA_DIR = ROOT_DIR / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
-
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
+for path in (AGENT_CALLERS_DIR, PYTHON_SCRIPTS_DIR, DATA_DIR):
+    normalized = str(path)
+    if normalized not in sys.path:
+        sys.path.append(normalized)
 
 from _macro_news_helpers import (
     get_recent_macro_news_articles,

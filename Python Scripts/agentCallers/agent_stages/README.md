@@ -85,6 +85,25 @@ Functions:
 - `_build_no_evidence_result(company, ...)`: returns the default low-confidence `do_not_buy` result when evidence is missing.
 - `decide_company_purchase(company_identifier, ...)`: main entry point for strategist recommendations.
 
+### `manager.py`
+
+Purpose: use the strategist payload plus live market and account context to decide whether one company currently supports a `call`, `put`, or `neither` options position, and when trading, identify the `option_id` of the contract to use.
+
+Functions:
+- `ask_model(client, model, system_prompt, user_prompt)`: sends the manager prompt to Ollama.
+- `_payload_has_evidence(payload)`: checks whether the manager has enough saved article evidence or live market/account context to attempt a recommendation.
+- `_build_context_snapshot(payload)`: builds a compact snapshot of article counts plus live market/account availability.
+- `build_manager_prompt(payload, ...)`: builds the system/user prompt pair for the manager model.
+- `_extract_recommendation(payload)`: extracts a recommendation object from parsed JSON output.
+- `_normalize_decision(value)`: normalizes decision variants into `call`, `put`, or `neither`.
+- `_normalize_confidence(value)`: normalizes confidence variants into `high`, `medium`, or `low`.
+- `_normalize_recommendation(recommendation, ...)`: validates and normalizes the final recommendation object, including `selected_option_id`.
+- `_extract_labeled_section(text, label, next_labels)`: extracts a labeled free-text section from a fallback text response.
+- `_extract_recommendation_from_text(raw_response)`: fallback parser for non-JSON manager responses.
+- `_build_no_evidence_result(company, ...)`: returns the default low-confidence `neither` result when article and live market context are both missing.
+- `decide_company_option_position(company_identifier, ...)`: main entry point for manager recommendations.
+- Note: live stock price, option market, IV/greeks, and account-state gathering now lives in `agent_helpers/manager.py`.
+
 ### `__init__.py`
 
 Purpose: package marker for the `agent_stages` folder.
