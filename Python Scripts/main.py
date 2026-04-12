@@ -22,6 +22,7 @@ DATA_DIR = ROOT_DIR / "Data"
 LOGS_DIR = DATA_DIR / "logs"
 ENV_PATH = ROOT_DIR / ".env"
 AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
+STATUS_PATH = ROOT_DIR / "web_dashboard" / "public" / "script_status.json"
 
 for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
     normalized = str(path)
@@ -61,6 +62,19 @@ def _configure_logging(log_path: Path) -> None:
         ],
         force=True,
     )
+
+
+def write_status(state: str, message: str, **extra: Any) -> None:
+    payload = {
+        "state": state,
+        "message": message,
+        "pid": os.getpid(),
+        "updated_at": datetime.now().isoformat(),
+        **extra,
+    }
+    STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with STATUS_PATH.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=True, indent=2)
 
 
 def _get_trading_client() -> TradingClient:
@@ -367,24 +381,44 @@ def main_loop() -> None:
         RUN_INTERVAL_SECONDS,
         MARKET_RECHECK_SECONDS,
     )
+    write_status(
+        "starting",
+        "Front-facing main loop started",
+        run_interval_seconds=RUN_INTERVAL_SECONDS,
+        market_recheck_seconds=MARKET_RECHECK_SECONDS,
+    )
 
     while True:
         cycle_started_at = datetime.now()
 
         if not market_is_open(trading_client):
             LOGGER.info("Market is closed. Sleeping %s seconds before checking again.", MARKET_RECHECK_SECONDS)
+            write_status(
+                "paused",
+                "Market is closed",
+                sleep_seconds=MARKET_RECHECK_SECONDS,
+                next_check_at=(datetime.now()).isoformat(),
+            )
             time.sleep(MARKET_RECHECK_SECONDS)
             continue
 
         try:
+            write_status("running", "Executing trading cycle")
             result = main(trading_client=trading_client)
             print(json.dumps(result, ensure_ascii=True, indent=2))
         except Exception as exc:
+            write_status("error", f"Front-facing main cycle failed: {exc}")
             LOGGER.exception("Front-facing main cycle failed: %s", exc)
 
         elapsed_seconds = (datetime.now() - cycle_started_at).total_seconds()
         sleep_seconds = max(0, RUN_INTERVAL_SECONDS - elapsed_seconds)
         LOGGER.info("Cycle complete. Sleeping %.1f seconds until next run.", sleep_seconds)
+        write_status(
+            "paused",
+            "Sleeping until next cycle",
+            sleep_seconds=sleep_seconds,
+            last_cycle_started_at=cycle_started_at.isoformat(),
+        )
         time.sleep(sleep_seconds)
 
 

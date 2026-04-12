@@ -46,4 +46,11 @@ INDUSTRY_LISTING_SOURCES = {
 }
 
 COMPANY_NEWS_SOURCES = SEARCH_SOURCES
-INDUSTRY_NEWS_SOURCES = {**INDUSTRY_LISTING_SOURCES, **SEARCH_SOURCES}
+INDUSTRY_NEWS_SOURCES = {
+    **INDUSTRY_LISTING_SOURCES,
+    **{
+        source_name: source_config
+        for source_name, source_config in SEARCH_SOURCES.items()
+        if "fool.com" not in str(source_config.get("url") or "").lower()
+    },
+}
