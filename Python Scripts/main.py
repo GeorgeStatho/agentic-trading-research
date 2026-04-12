@@ -1,292 +1,397 @@
-import asyncio
+from __future__ import annotations
+
+import json
 import logging
-import time
-from dataclasses import dataclass
+import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+import sys
+import time
+from typing import Any
+
+from dotenv import load_dotenv
+
+from alpaca.trading.client import TradingClient
+from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.trading.requests import MarketOrderRequest
 
 
-from Trading import StockTrades, trading_client
+PYTHON_SCRIPTS_DIR = Path(__file__).resolve().parent
+ROOT_DIR = PYTHON_SCRIPTS_DIR.parent
+DATA_DIR = ROOT_DIR / "Data"
+LOGS_DIR = DATA_DIR / "logs"
+ENV_PATH = ROOT_DIR / ".env"
+AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
+
+for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
+    normalized = str(path)
+    if normalized not in sys.path:
+        sys.path.append(normalized)
+
+load_dotenv(ENV_PATH)
+
+from agentCallers.main import run_full_agent_stack
 
 
-REFRESH_INTERVAL_SECONDS = 30 * 60  # half-hour
+LOGGER = logging.getLogger("front_main")
+DEFAULT_OPTION_ORDER_QTY = max(1, int(os.getenv("AGENT_OPTION_ORDER_QTY", "1")))
+OPTION_CONTRACT_MULTIPLIER = 100
+RUN_INTERVAL_SECONDS = 3 * 60 * 60
 MARKET_RECHECK_SECONDS = 5 * 60
-MIN_CONFIDENCE = 0.10
-UPSIDE_THRESHOLD = 1.01  # buy if predicted price 1% higher than current
-DOWNSIDE_THRESHOLD = 0.99  # sell if predicted price 1% lower than current
-DEFAULT_POSITION_SIZE = 1
 
 
-@dataclass
-class TradeRecord:
-    symbol: str
-    action: str
-    qty: int
-    expected_profit: float
-    confidence: float
-    predicted_price: float
-    reference_price: float
+def _env_flag(name: str, default: bool) -> bool:
+    value = str(os.getenv(name, str(default))).strip().lower()
+    return value not in {"0", "false", "no", "off"}
 
 
-def market_is_open() -> bool:
-    """
-    Queries Alpaca clock to check if US equities market is open.
-    """
+def _build_log_path() -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return LOGS_DIR / f"front_main_{timestamp}.log"
+
+
+def _configure_logging(log_path: Path) -> None:
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.FileHandler(log_path, encoding="utf-8"),
+            logging.StreamHandler(sys.stdout),
+        ],
+        force=True,
+    )
+
+
+def _get_trading_client() -> TradingClient:
+    api_key = str(os.getenv("PUBLIC_KEY") or "").strip()
+    api_secret = str(os.getenv("PRIVATE_KEY") or "").strip()
+    if not api_key or not api_secret:
+        raise RuntimeError("PUBLIC_KEY and PRIVATE_KEY must be configured in .env")
+
+    os.environ.pop("APCA_OAUTH_TOKEN", None)
+    os.environ.pop("ALPACA_OAUTH_TOKEN", None)
+    paper = _env_flag("ALPACA_PAPER", True)
+    return TradingClient(api_key=api_key, secret_key=api_secret, oauth_token=None, paper=paper)
+
+
+def market_is_open(trading_client: TradingClient) -> bool:
     try:
         clock = trading_client.get_clock()
-        return bool(clock.is_open)
+        return bool(getattr(clock, "is_open", False))
     except Exception as exc:
-        logging.exception("Failed to check market clock: %s", exc)
-        # fail safe: pause until next check
+        LOGGER.exception("Failed to check Alpaca market clock: %s", exc)
         return False
 
 
-def refresh_news_and_market(symbols: Dict[str, str]) -> None:
-    """
-    Pull fresh news and price quotes.
-    """
-    logging.info("Fetching latest news articles...")
-    getLatestTop100(symbols)
-    logging.info("Assuming MarketData.py streamer is running separately for quote updates.")
+def _extract_selected_option_candidates(agent_result: dict[str, Any]) -> list[dict[str, Any]]:
+    selected_options = agent_result.get("selected_options", {})
+    companies = selected_options.get("companies", [])
+    if isinstance(companies, list):
+        return companies
+    return []
 
 
-def execute_paper_trade(symbol: str, action: str, qty: int) -> None:
-    """
-    Dispatches a market order to the Alpaca paper trading endpoint via Trading.StockTrades.
-    """
-    trader = StockTrades(symbol, qty, "Day", limit=False)
-    if action == "BUY":
-        trader.ImmediateStockBuy(qty)
-    else:
-        trader.ImmediateStockSell(qty)
+def _build_order_candidates(agent_result: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    seen_option_symbols: set[str] = set()
 
+    for company_result in _extract_selected_option_candidates(agent_result):
+        decision = str(company_result.get("decision") or "").strip().lower()
+        confidence = str(company_result.get("confidence") or "").strip().lower()
+        selected_option = company_result.get("selected_option") or {}
+        option_symbol = str(selected_option.get("symbol") or "").strip().upper()
 
-def plan_trades(predictions: List[Prediction]) -> List[TradeRecord]:
-    """
-    Basic rule-based strategy using model predictions.
-    """
-    trades: List[TradeRecord] = []
-    for pred in predictions:
-        if pred.actual_price <= 0:
+        if decision not in {"call", "put"}:
             continue
-        if pred.confidence < MIN_CONFIDENCE:
+        if confidence != "high":
+            continue
+        if not option_symbol or option_symbol in seen_option_symbols:
             continue
 
-        ratio = pred.predicted_price / pred.actual_price if pred.actual_price else 1.0
-        action = None
-        expected_profit = 0.0
+        seen_option_symbols.add(option_symbol)
+        candidates.append(
+            {
+                "company_id": company_result.get("company_id"),
+                "symbol": company_result.get("symbol"),
+                "name": company_result.get("name"),
+                "decision": decision,
+                "confidence": confidence,
+                "selected_option_id": company_result.get("selected_option_id"),
+                "selected_expiration_date": company_result.get("selected_expiration_date"),
+                "selected_strike_price": company_result.get("selected_strike_price"),
+                "selected_option_source": company_result.get("selected_option_source"),
+                "selected_option_symbol": option_symbol,
+                "selected_option": selected_option,
+                "reason": company_result.get("reason"),
+            }
+        )
 
-        if ratio >= UPSIDE_THRESHOLD:
-            action = "BUY"
-            expected_profit = (pred.predicted_price - pred.actual_price) * DEFAULT_POSITION_SIZE
-        elif ratio <= DOWNSIDE_THRESHOLD:
-            action = "SELL"
-            expected_profit = (pred.actual_price - pred.predicted_price) * DEFAULT_POSITION_SIZE
-
-        if action:
-            trades.append(
-                TradeRecord(
-                    symbol=pred.symbol,
-                    action=action,
-                    qty=DEFAULT_POSITION_SIZE,
-                    expected_profit=expected_profit,
-                    confidence=pred.confidence,
-                    predicted_price=pred.predicted_price,
-                    reference_price=pred.actual_price,
-                )
-            )
-    return trades
+    return candidates
 
 
-def _prediction_map(predictions: List[Prediction]) -> Dict[str, Prediction]:
-    return {pred.symbol: pred for pred in predictions}
+def _submit_option_market_order(
+    client: TradingClient,
+    *,
+    option_symbol: str,
+    qty: int,
+) -> dict[str, Any]:
+    order_request = MarketOrderRequest(
+        symbol=option_symbol,
+        qty=qty,
+        side=OrderSide.BUY,
+        time_in_force=TimeInForce.DAY,
+    )
+    order = client.submit_order(order_data=order_request)
+
+    return {
+        "id": str(getattr(order, "id", "")),
+        "symbol": str(getattr(order, "symbol", option_symbol)),
+        "asset_class": str(getattr(order, "asset_class", "")),
+        "qty": str(getattr(order, "qty", qty)),
+        "side": str(getattr(order, "side", "")),
+        "type": str(getattr(order, "type", "")),
+        "time_in_force": str(getattr(order, "time_in_force", "")),
+        "status": str(getattr(order, "status", "")),
+        "submitted_at": str(getattr(order, "submitted_at", "")),
+    }
 
 
-def _select_position_to_sell(
-    positions,
-    prediction_lookup: Dict[str, Prediction],
-    min_expected_gain: float,
-    excluded_symbols: set[str],
-):
-    worst_candidate = None
-    worst_score = float("inf")
-    for pos in positions:
-        symbol = getattr(pos, "symbol", None)
-        if not symbol or symbol in excluded_symbols:
-            continue
-        prediction = prediction_lookup.get(symbol)
-        if not prediction:
-            continue
-        score = prediction.predicted_price - prediction.actual_price
-        if score < min_expected_gain and score < worst_score:
-            worst_score = score
-            worst_candidate = pos
-    return worst_candidate
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
-def ensure_buying_power(predictions: List[Prediction], trades: List[TradeRecord]) -> List[TradeRecord]:
-    if not trades:
-        return []
+def _get_option_reference_price(selected_option: dict[str, Any]) -> float | None:
+    latest_quote = selected_option.get("latest_quote", {})
+    if isinstance(latest_quote, dict):
+        for key in ("ask_price", "midpoint_price", "bid_price"):
+            price = _safe_float(latest_quote.get(key))
+            if price is not None and price > 0:
+                return price
 
-    prediction_lookup = _prediction_map(predictions)
+    for key in ("latest_trade_price", "close_price"):
+        price = _safe_float(selected_option.get(key))
+        if price is not None and price > 0:
+            return price
+
+    return None
+
+
+def _get_available_buying_power(trading_client: TradingClient) -> float:
     account = trading_client.get_account()
-    available_cash = float(account.buying_power)
+    buying_power = _safe_float(getattr(account, "buying_power", None))
+    if buying_power is None:
+        raise RuntimeError("Unable to read buying_power from Alpaca account.")
+    return buying_power
 
-    sells = [t for t in trades if t.action == "SELL"]
-    buys = sorted((t for t in trades if t.action == "BUY"), key=lambda t: t.expected_profit, reverse=True)
 
-    # assume scheduled sells will complete first and free capital
-    for sell in sells:
-        available_cash += sell.reference_price * sell.qty
+def execute_selected_option_trades(
+    *,
+    trading_client: TradingClient,
+    order_candidates: list[dict[str, Any]],
+    order_qty: int = DEFAULT_OPTION_ORDER_QTY,
+) -> dict[str, Any]:
+    executions: list[dict[str, Any]] = []
+    available_buying_power = _get_available_buying_power(trading_client)
+    max_deployable_buying_power = available_buying_power * 0.90
+    remaining_deployable_buying_power = max_deployable_buying_power
 
-    finalized: List[TradeRecord] = []
-    finalized.extend(sells)
-
-    if buys:
-        positions = trading_client.get_all_positions()
-    else:
-        positions = []
-
-    already_scheduled_for_sale = {t.symbol for t in sells}
-
-    for buy in buys:
-        cost = buy.reference_price * buy.qty
-        if cost <= available_cash:
-            finalized.append(buy)
-            available_cash -= cost
+    for candidate in order_candidates:
+        option_symbol = str(candidate.get("selected_option_symbol") or "").strip().upper()
+        if not option_symbol:
             continue
 
-        candidate = _select_position_to_sell(
-            positions,
-            prediction_lookup,
-            buy.expected_profit,
-            already_scheduled_for_sale,
+        selected_option = candidate.get("selected_option") or {}
+        option_reference_price = _get_option_reference_price(selected_option)
+        estimated_order_cost = (
+            option_reference_price * OPTION_CONTRACT_MULTIPLIER * order_qty
+            if option_reference_price is not None
+            else None
         )
-        if not candidate:
-            logging.info(
-                "Skipping BUY %s due to insufficient buying power and no lower-scoring positions to rotate.",
-                buy.symbol,
+
+        if estimated_order_cost is None:
+            LOGGER.info(
+                "Skipping %s because no usable option price was available to estimate order cost.",
+                option_symbol,
+            )
+            executions.append(
+                {
+                    **candidate,
+                    "order_qty": order_qty,
+                    "submitted": False,
+                    "order": None,
+                    "estimated_order_cost": None,
+                    "available_buying_power": available_buying_power,
+                    "max_deployable_buying_power": max_deployable_buying_power,
+                    "remaining_deployable_buying_power": remaining_deployable_buying_power,
+                    "error": "No usable option price was available to estimate order cost.",
+                }
             )
             continue
 
-        sell_qty = int(float(candidate.qty))
-        if sell_qty <= 0:
+        if estimated_order_cost > remaining_deployable_buying_power:
+            LOGGER.info(
+                "Skipping %s because estimated cost %.2f exceeds remaining deployable buying power %.2f (90%% of account buying power).",
+                option_symbol,
+                estimated_order_cost,
+                remaining_deployable_buying_power,
+            )
+            executions.append(
+                {
+                    **candidate,
+                    "order_qty": order_qty,
+                    "submitted": False,
+                    "order": None,
+                    "estimated_order_cost": estimated_order_cost,
+                    "available_buying_power": available_buying_power,
+                    "max_deployable_buying_power": max_deployable_buying_power,
+                    "remaining_deployable_buying_power": remaining_deployable_buying_power,
+                    "error": "Estimated order cost exceeded 90% buying power allowance.",
+                }
+            )
             continue
 
-        current_price = float(candidate.current_price)
-        market_value = float(candidate.market_value)
-        prediction = prediction_lookup.get(candidate.symbol)
-        sell_trade = TradeRecord(
-            symbol=candidate.symbol,
-            action="SELL",
-            qty=sell_qty,
-            expected_profit=0.0,
-            confidence=prediction.confidence if prediction else 0.0,
-            predicted_price=prediction.predicted_price if prediction else current_price,
-            reference_price=current_price,
+        LOGGER.info(
+            "Submitting BUY market order for %s via %s (company=%s, decision=%s, confidence=%s, estimated_cost=%.2f, remaining_buying_power_90=%.2f)",
+            option_symbol,
+            candidate.get("selected_option_source"),
+            candidate.get("symbol"),
+            candidate.get("decision"),
+            candidate.get("confidence"),
+            estimated_order_cost,
+            remaining_deployable_buying_power,
         )
-        logging.info(
-            "Rotating out of %s to free $%.2f for %s.",
-            sell_trade.symbol,
-            market_value,
-            buy.symbol,
-        )
-        finalized.append(sell_trade)
-        already_scheduled_for_sale.add(sell_trade.symbol)
-        available_cash += market_value
 
-        if cost <= available_cash:
-            finalized.append(buy)
-            available_cash -= cost
-        else:
-            logging.info(
-                "Still insufficient buying power for %s after rotation; skipping.",
-                buy.symbol,
-            )
-
-    return finalized
-
-
-def run_cycle() -> None:
-    symbols = jsonToPy()
-    refresh_news_and_market(symbols)
-
-    logging.info("Training deep learning model on latest data...")
-    predictions = train_and_predict(print_summary=False)
-    logging.info("Model produced %d predictions.", len(predictions))
-
-    trades = plan_trades(predictions)
-    if not trades:
-        logging.info("No trades met confidence/threshold requirements this cycle.")
-        return
-
-    trades = ensure_buying_power(predictions, trades)
-    if not trades:
-        logging.info("After applying buying power constraints, no trades will be executed this cycle.")
-        return
-
-    for trade in trades:
-        if trade.action == "BUY":
-            account = trading_client.get_account()
-            estimated_cost = trade.reference_price * trade.qty
-            available = float(account.buying_power)
-            if estimated_cost > available:
-                logging.info(
-                    "Skipping BUY %s due to insufficient live buying power (need %.2f, have %.2f).",
-                    trade.symbol,
-                    estimated_cost,
-                    available,
-                )
-                continue
-
-        logging.info(
-            "Executing %s for %s (qty=%s, predicted=%.2f, current=%.2f, confidence=%.2f, expected profit=%.2f)",
-            trade.action,
-            trade.symbol,
-            trade.qty,
-            trade.predicted_price,
-            trade.reference_price,
-            trade.confidence,
-            trade.expected_profit,
-        )
         try:
-            execute_paper_trade(trade.symbol, trade.action, trade.qty)
+            order_summary = _submit_option_market_order(
+                trading_client,
+                option_symbol=option_symbol,
+                qty=order_qty,
+            )
+            remaining_deployable_buying_power -= estimated_order_cost
+            executions.append(
+                {
+                    **candidate,
+                    "order_qty": order_qty,
+                    "submitted": True,
+                    "order": order_summary,
+                    "estimated_order_cost": estimated_order_cost,
+                    "available_buying_power": available_buying_power,
+                    "max_deployable_buying_power": max_deployable_buying_power,
+                    "remaining_deployable_buying_power": remaining_deployable_buying_power,
+                    "error": "",
+                }
+            )
         except Exception as exc:
-            logging.exception("Paper trade for %s failed: %s", trade.symbol, exc)
+            LOGGER.exception("Failed to submit option order for %s: %s", option_symbol, exc)
+            executions.append(
+                {
+                    **candidate,
+                    "order_qty": order_qty,
+                    "submitted": False,
+                    "order": None,
+                    "estimated_order_cost": estimated_order_cost,
+                    "available_buying_power": available_buying_power,
+                    "max_deployable_buying_power": max_deployable_buying_power,
+                    "remaining_deployable_buying_power": remaining_deployable_buying_power,
+                    "error": str(exc),
+                }
+            )
+
+    return {
+        "ran_at": datetime.now().isoformat(),
+        "paper": _env_flag("ALPACA_PAPER", True),
+        "order_qty": order_qty,
+        "available_buying_power": available_buying_power,
+        "max_deployable_buying_power": max_deployable_buying_power,
+        "remaining_deployable_buying_power": remaining_deployable_buying_power,
+        "submitted_count": sum(1 for execution in executions if execution.get("submitted")),
+        "candidate_count": len(order_candidates),
+        "executions": executions,
+    }
 
 
-def main_loop():
-    logs_dir = Path("logs")
-    logs_dir.mkdir(exist_ok=True)
-    log_file_path = logs_dir / "bot.log"
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(log_file_path, encoding="utf-8"),
-        ],
+def main(trading_client: TradingClient | None = None) -> dict[str, Any]:
+    LOGGER.info("Starting full agent stack run")
+    agent_result = run_full_agent_stack()
+    LOGGER.info("Finished full agent stack run")
+
+    order_candidates = _build_order_candidates(agent_result)
+    LOGGER.info("Prepared %s selected option candidates for trading", len(order_candidates))
+
+    trading_client = trading_client or _get_trading_client()
+    trade_result = execute_selected_option_trades(
+        trading_client=trading_client,
+        order_candidates=order_candidates,
     )
 
-    logging.info("Starting paper-trading training loop.")
-    while True:
-        cycle_start = datetime.now()
+    combined_result = {
+        "ran_at": datetime.now().isoformat(),
+        "agent_result": agent_result,
+        "trade_result": trade_result,
+    }
 
-        if not market_is_open():
-            logging.info("Market is closed. Pausing training/trading loop.")
+    agent_output_path = DATA_DIR / "agent_runner_output.json"
+    with agent_output_path.open("w", encoding="utf-8") as handle:
+        json.dump(agent_result, handle, ensure_ascii=True, indent=2)
+
+    selected_options_output_path = DATA_DIR / "selected_options_output.json"
+    with selected_options_output_path.open("w", encoding="utf-8") as handle:
+        json.dump(agent_result.get("selected_options", {}), handle, ensure_ascii=True, indent=2)
+
+    trade_output_path = DATA_DIR / "trade_execution_output.json"
+    with trade_output_path.open("w", encoding="utf-8") as handle:
+        json.dump(trade_result, handle, ensure_ascii=True, indent=2)
+
+    combined_output_path = DATA_DIR / "front_main_output.json"
+    with combined_output_path.open("w", encoding="utf-8") as handle:
+        json.dump(combined_result, handle, ensure_ascii=True, indent=2)
+
+    LOGGER.info("Saved agent output to %s", agent_output_path)
+    LOGGER.info("Saved selected options output to %s", selected_options_output_path)
+    LOGGER.info("Saved trade execution output to %s", trade_output_path)
+    LOGGER.info("Saved combined front-main output to %s", combined_output_path)
+
+    return combined_result
+
+
+def main_loop() -> None:
+    trading_client = _get_trading_client()
+    LOGGER.info(
+        "Starting front-facing main loop with interval=%s seconds and market recheck=%s seconds",
+        RUN_INTERVAL_SECONDS,
+        MARKET_RECHECK_SECONDS,
+    )
+
+    while True:
+        cycle_started_at = datetime.now()
+
+        if not market_is_open(trading_client):
+            LOGGER.info("Market is closed. Sleeping %s seconds before checking again.", MARKET_RECHECK_SECONDS)
             time.sleep(MARKET_RECHECK_SECONDS)
             continue
-        try:
-            run_cycle()
-        except Exception as exc:
-            logging.exception("Cycle failed: %s", exc)
 
-        elapsed = (datetime.now() - cycle_start).total_seconds()
-        sleep_time = max(0, REFRESH_INTERVAL_SECONDS - elapsed)
-        logging.info("Sleeping %.1f seconds until next cycle.", sleep_time)
-        time.sleep(sleep_time)
+        try:
+            result = main(trading_client=trading_client)
+            print(json.dumps(result, ensure_ascii=True, indent=2))
+        except Exception as exc:
+            LOGGER.exception("Front-facing main cycle failed: %s", exc)
+
+        elapsed_seconds = (datetime.now() - cycle_started_at).total_seconds()
+        sleep_seconds = max(0, RUN_INTERVAL_SECONDS - elapsed_seconds)
+        LOGGER.info("Cycle complete. Sleeping %.1f seconds until next run.", sleep_seconds)
+        time.sleep(sleep_seconds)
 
 
 if __name__ == "__main__":
+    log_path = _build_log_path()
+    _configure_logging(log_path)
+
+    LOGGER.info("Front-facing main log started at %s", log_path)
     main_loop()
+    print(f"Front-facing main log written to {log_path}")

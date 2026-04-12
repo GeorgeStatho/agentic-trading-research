@@ -24,6 +24,7 @@ from _paths import add_agent_caller_paths
 
 add_agent_caller_paths()
 
+from agent_helpers.deterministic_option_selector import apply_deterministic_option_selection
 from agent_pipeline.main import run_agent_pipeline
 from agent_stages.manager import decide_company_option_position
 from agent_stages.strategist import decide_company_purchase
@@ -66,16 +67,62 @@ def _dedupe_company_symbols(pipeline_result: dict[str, Any]) -> list[str]:
     return symbols
 
 
-def run_full_agent_stack() -> dict[str, Any]:
-    LOGGER.info("Starting agent pipeline stage")
-    pipeline_result = run_agent_pipeline()
-    LOGGER.info("Finished agent pipeline stage")
+def _normalize_company_symbols(symbols: list[str]) -> list[str]:
+    seen: set[str] = set()
+    normalized_symbols: list[str] = []
 
-    company_symbols = _dedupe_company_symbols(pipeline_result)
-    LOGGER.info("Running strategist and manager for %s selected companies", len(company_symbols))
+    for symbol in symbols:
+        normalized = str(symbol or "").strip().upper()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_symbols.append(normalized)
 
+    return normalized_symbols
+
+
+def _build_selected_option_output(
+    *,
+    ran_at: str,
+    manager_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    companies: list[dict[str, Any]] = []
+
+    for manager_result in manager_results:
+        company = manager_result.get("company", {})
+        recommendation = manager_result.get("recommendation", {})
+
+        companies.append(
+            {
+                "company_id": company.get("company_id"),
+                "symbol": company.get("symbol"),
+                "name": company.get("name"),
+                "sector_key": company.get("sector_key"),
+                "industry_key": company.get("industry_key"),
+                "decision": recommendation.get("decision"),
+                "confidence": recommendation.get("confidence"),
+                "selected_option_id": recommendation.get("selected_option_id"),
+                "selected_expiration_date": recommendation.get("selected_expiration_date"),
+                "selected_strike_price": recommendation.get("selected_strike_price"),
+                "selected_option_source": recommendation.get("selected_option_source"),
+                "selection_debug": recommendation.get("selection_debug", {}),
+                "selected_option": manager_result.get("selected_option"),
+                "reason": recommendation.get("reason"),
+            }
+        )
+
+    return {
+        "ran_at": ran_at,
+        "selected_option_count": sum(1 for company in companies if company.get("selected_option_id") is not None),
+        "companies": companies,
+    }
+
+
+def _run_strategist_and_manager(company_symbols: list[str]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     strategist_results: list[dict[str, Any]] = []
     manager_results: list[dict[str, Any]] = []
+
+    LOGGER.info("Running strategist and manager for %s selected companies", len(company_symbols))
 
     for symbol in company_symbols:
         LOGGER.info("Running strategist for %s", symbol)
@@ -90,6 +137,7 @@ def run_full_agent_stack() -> dict[str, Any]:
 
         LOGGER.info("Running manager for %s", symbol)
         manager_result = decide_company_option_position(symbol)
+        manager_result = apply_deterministic_option_selection(manager_result)
         manager_results.append(manager_result)
         LOGGER.info(
             "Finished manager for %s with decision=%s confidence=%s selected_option_id=%s expiration=%s strike=%s",
@@ -101,12 +149,40 @@ def run_full_agent_stack() -> dict[str, Any]:
             manager_result.get("recommendation", {}).get("selected_strike_price"),
         )
 
+    return strategist_results, manager_results
+
+
+def run_full_agent_stack() -> dict[str, Any]:
+    LOGGER.info("Starting agent pipeline stage")
+    pipeline_result = run_agent_pipeline()
+    LOGGER.info("Finished agent pipeline stage")
+
+    company_symbols = _dedupe_company_symbols(pipeline_result)
+    strategist_results, manager_results = _run_strategist_and_manager(company_symbols)
+    ran_at = datetime.now().isoformat()
+
     return {
-        "ran_at": datetime.now().isoformat(),
+        "ran_at": ran_at,
         "company_symbols": company_symbols,
         "pipeline": pipeline_result,
         "strategist": strategist_results,
         "manager": manager_results,
+        "selected_options": _build_selected_option_output(ran_at=ran_at, manager_results=manager_results),
+    }
+
+
+def run_strategist_manager_only(company_symbols: list[str]) -> dict[str, Any]:
+    normalized_symbols = _normalize_company_symbols(company_symbols)
+    strategist_results, manager_results = _run_strategist_and_manager(normalized_symbols)
+    ran_at = datetime.now().isoformat()
+
+    return {
+        "ran_at": ran_at,
+        "company_symbols": normalized_symbols,
+        "pipeline": None,
+        "strategist": strategist_results,
+        "manager": manager_results,
+        "selected_options": _build_selected_option_output(ran_at=ran_at, manager_results=manager_results),
     }
 
 
@@ -121,7 +197,13 @@ if __name__ == "__main__":
     with output_path.open("w", encoding="utf-8") as handle:
         json.dump(result, handle, ensure_ascii=True, indent=2)
 
+    selected_options_output_path = DATA_DIR / "selected_options_output.json"
+    with selected_options_output_path.open("w", encoding="utf-8") as handle:
+        json.dump(result.get("selected_options", {}), handle, ensure_ascii=True, indent=2)
+
     LOGGER.info("Saved agent runner output to %s", output_path)
+    LOGGER.info("Saved selected options output to %s", selected_options_output_path)
     print(json.dumps(result, ensure_ascii=True, indent=2))
     print(f"Saved agent runner output to {output_path}")
+    print(f"Saved selected options output to {selected_options_output_path}")
     print(f"Agent runner log written to {log_path}")
