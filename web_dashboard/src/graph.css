@@ -1,0 +1,10 @@
+.graph {
+  width: 100%;
+  max-width: 800px;
+  height: 320px;
+  margin: 10vh auto 0;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+}
+
+
