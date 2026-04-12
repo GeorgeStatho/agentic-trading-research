@@ -1,12 +1,14 @@
 import './App.css'
 import Graph from './Graph.tsx'
 import OrderCardList from './orderCard.tsx'
+import ScriptStatusIndicator from './scriptStatus.tsx'
 function App() {
   return (
-    <>
-    <Graph />
-    <OrderCardList />
-    </>
+    <main className="mainbody">
+      <ScriptStatusIndicator />
+      <Graph />
+      <OrderCardList />
+    </main>
   )
 }
 
