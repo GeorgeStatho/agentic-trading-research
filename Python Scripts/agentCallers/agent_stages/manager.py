@@ -65,9 +65,28 @@ MANAGER_RECOMMENDATION_SCHEMA: dict[str, Any] = {
                         {"type": "null"},
                     ]
                 },
+                "selected_expiration_date": {
+                    "anyOf": [
+                        {"type": "string"},
+                        {"type": "null"},
+                    ]
+                },
+                "selected_strike_price": {
+                    "anyOf": [
+                        {"type": "number"},
+                        {"type": "null"},
+                    ]
+                },
                 "reason": {"type": "string"},
             },
-            "required": ["decision", "confidence", "selected_option_id", "reason"],
+            "required": [
+                "decision",
+                "confidence",
+                "selected_option_id",
+                "selected_expiration_date",
+                "selected_strike_price",
+                "reason",
+            ],
             "additionalProperties": False,
         }
     },
@@ -160,11 +179,13 @@ def build_manager_prompt(
         "If the evidence is mixed, weak, operationally constrained, or mostly inconclusive, prefer 'neither'. "
         "Return only valid JSON with a top-level key named 'recommendation'. "
         "Do not include markdown fences, notes, or extra keys. "
-        "The recommendation object must contain: decision, confidence, selected_option_id, reason. "
+        "The recommendation object must contain: decision, confidence, selected_option_id, selected_expiration_date, selected_strike_price, reason. "
         "decision must be one of: call, put, neither. "
         "confidence must be one of: high, medium, low. "
         "selected_option_id must be the integer option_id of the chosen contract from market_context.option_market.contracts, "
         "or null when the decision is neither. "
+        "selected_expiration_date must match the chosen contract expiration date, or null when the decision is neither. "
+        "selected_strike_price must match the chosen contract strike price, or null when the decision is neither. "
         "reason must be a short paragraph."
     )
     system_prompt = str(system_prompt_override or default_system_prompt)
@@ -182,6 +203,8 @@ def build_manager_prompt(
                 "decision": "call|put|neither",
                 "confidence": "high|medium|low",
                 "selected_option_id": "integer option_id from market_context.option_market.contracts, or null for neither",
+                "selected_expiration_date": "YYYY-MM-DD expiration date from the chosen contract, or null for neither",
+                "selected_strike_price": "numeric strike price from the chosen contract, or null for neither",
                 "reason": "short paragraph",
             }
         },
@@ -486,10 +509,24 @@ def _normalize_recommendation(
         else:
             selected_option_source = "model" if selected_option_from_model else "fallback"
 
+    selected_contract = contracts_by_id.get(selected_option_id) if selected_option_id is not None else None
+    selected_expiration_date = (
+        str(selected_contract.get("expiration_date") or "").strip()
+        if selected_contract is not None
+        else ""
+    )
+    selected_strike_price = (
+        _coerce_float(selected_contract.get("strike_price"))
+        if selected_contract is not None
+        else None
+    )
+
     return {
         "decision": decision,
         "confidence": confidence,
         "selected_option_id": selected_option_id,
+        "selected_expiration_date": selected_expiration_date or None,
+        "selected_strike_price": selected_strike_price,
         "selected_option_source": selected_option_source,
         "reason": reason,
     }
@@ -542,6 +579,8 @@ def _extract_recommendation_from_text(raw_response: str) -> dict[str, Any] | Non
         "decision": decision_match.group(1) if decision_match else "",
         "confidence": confidence_match.group(1) if confidence_match else "",
         "selected_option_id": "",
+        "selected_expiration_date": "",
+        "selected_strike_price": "",
         "reason": reason.strip(),
     }
     selected_option_id_match = re.search(
@@ -551,6 +590,22 @@ def _extract_recommendation_from_text(raw_response: str) -> dict[str, Any] | Non
     )
     if selected_option_id_match:
         recommendation["selected_option_id"] = selected_option_id_match.group(2)
+
+    selected_expiration_date_match = re.search(
+        r"(selected[_\s]?expiration[_\s]?date|expiration[_\s]?date)\s*:?\s*(\d{4}-\d{2}-\d{2})",
+        normalized_text,
+        re.IGNORECASE,
+    )
+    if selected_expiration_date_match:
+        recommendation["selected_expiration_date"] = selected_expiration_date_match.group(2)
+
+    selected_strike_price_match = re.search(
+        r"(selected[_\s]?strike[_\s]?price|strike[_\s]?price)\s*:?\s*(\d+(?:\.\d+)?)",
+        normalized_text,
+        re.IGNORECASE,
+    )
+    if selected_strike_price_match:
+        recommendation["selected_strike_price"] = selected_strike_price_match.group(2)
 
     return recommendation
 
@@ -583,6 +638,8 @@ def _build_no_evidence_result(
             "decision": "neither",
             "confidence": "low",
             "selected_option_id": None,
+            "selected_expiration_date": None,
+            "selected_strike_price": None,
             "selected_option_source": "none",
             "reason": "There was not enough processed article evidence or live market/account context available to support a call or put decision.",
         },
@@ -663,7 +720,8 @@ def decide_company_option_position(
     if recommendation is None:
         raise RuntimeError(
             "Manager model returned an invalid response. "
-            "Expected a JSON object with recommendation.decision/confidence/selected_option_id/reason. "
+            "Expected a JSON object with recommendation.decision/confidence/selected_option_id/"
+            "selected_expiration_date/selected_strike_price/reason. "
             f"Raw response: {raw_response[:800]}"
         )
 
