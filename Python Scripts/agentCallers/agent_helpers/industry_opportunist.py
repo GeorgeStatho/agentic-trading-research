@@ -24,6 +24,7 @@ from db_helpers import (
     initialize_news_database,
     mark_industry_opportunist_article_processed,
 )
+from db_helpers.market import ensure_sector_market_data
 
 
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
@@ -42,6 +43,7 @@ __all__ = [
 
 
 def get_sector_industry_reference(sector_identifier: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    ensure_sector_market_data(sector_identifier)
     payload = build_opportunist_input(sector_identifier, max_age_days=None)
     sector = payload["sector"]
 

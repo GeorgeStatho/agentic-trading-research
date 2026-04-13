@@ -1,35 +1,47 @@
+import json
 from pathlib import Path
 
 from db_common import DATA_DIR, get_connection, table_exists
 from market_db import (
     initialize_database as initialize_market_database,
-    load_sector_tree_from_json,
+    load_sector_definitions_from_json,
 )
 
 
-SECTOR_TREE_JSON_PATH = DATA_DIR / "sectors_companies.json"
+SECTOR_DEFINITIONS_JSON_PATH = DATA_DIR / "sector_etfs.json"
 
 
 def _ensure_market_reference_data() -> None:
     initialize_market_database()
+    if not SECTOR_DEFINITIONS_JSON_PATH.exists():
+        return
+    if not Path(SECTOR_DEFINITIONS_JSON_PATH).read_text(encoding="utf-8").strip():
+        return
 
     with get_connection() as conn:
         if not table_exists(conn, "sectors"):
             initialize_market_database()
             return
 
-        has_sector_rows = conn.execute("SELECT 1 FROM sectors LIMIT 1").fetchone() is not None
+        existing_sector_keys = {
+            str(row["sector_key"]).strip().lower()
+            for row in conn.execute("SELECT sector_key FROM sectors").fetchall()
+        }
 
-    if has_sector_rows:
-        return
+    sector_definition_keys = {
+        str(key).strip().lower()
+        for key in load_json_keys(SECTOR_DEFINITIONS_JSON_PATH)
+    }
 
-    if not SECTOR_TREE_JSON_PATH.exists():
-        return
+    if sector_definition_keys.difference(existing_sector_keys):
+        load_sector_definitions_from_json(SECTOR_DEFINITIONS_JSON_PATH)
 
-    if not Path(SECTOR_TREE_JSON_PATH).read_text(encoding="utf-8").strip():
-        return
 
-    load_sector_tree_from_json(SECTOR_TREE_JSON_PATH)
+def load_json_keys(json_path: Path) -> list[str]:
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        return []
+    return [str(key) for key in payload.keys()]
 
 
 def get_all_sectors() -> list[dict]:

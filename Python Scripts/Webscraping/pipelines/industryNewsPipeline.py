@@ -32,6 +32,7 @@ from pipelines._orchestration import (
 from pipelines.job_builder import build_industry_source_jobs, group_jobs_by_url, unique_job_urls
 
 from db_helpers import add_industry_news_article, get_all_industries, get_all_sectors, initialize_news_database
+from db_helpers.market import ensure_all_sector_market_data, ensure_industry_market_data, ensure_sector_market_data
 
 
 LOGGER = get_scrape_logger("industry_pipeline")
@@ -237,6 +238,7 @@ def _find_industry(industry_identifier: str) -> dict | None:
     if not needle:
         return None
 
+    ensure_industry_market_data(industry_identifier)
     industries = get_all_industries()
 
     for industry in industries:
@@ -269,6 +271,7 @@ def _find_sector(sector_identifier: str) -> dict | None:
 
 
 def _get_industries_for_sector(sector_identifier: str) -> tuple[dict, list[dict]]:
+    ensure_sector_market_data(sector_identifier)
     sector = _find_sector(sector_identifier)
     if sector is None:
         raise ValueError(f"Sector not found for identifier: {sector_identifier}")
@@ -368,6 +371,7 @@ def get_sector_industry_news(sector_identifier: str) -> int:
 
 def get_all_industry_news() -> None:
     initialize_news_database()
+    ensure_all_sector_market_data()
     industries = get_all_industries()
     # Crawl all industry source pages in a single batch, then process listing
     # pages first and search pages second from the normalized crawl results.
