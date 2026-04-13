@@ -1,4 +1,5 @@
 from pathlib import Path
+import logging
 import sys
 
 from db_common import DB_PATH, get_connection
@@ -24,6 +25,8 @@ try:
 except ImportError:  # pragma: no cover - optional runtime integration
     load_industry_from_yfinance = None
     load_sector_from_yfinance = None
+
+LOGGER = logging.getLogger("market_bootstrap")
 
 
 def _ensure_sector_definitions_seeded() -> None:
@@ -106,12 +109,32 @@ def ensure_sector_market_data(sector_identifier: str) -> dict | None:
         ).fetchone()
 
     if industry_row is not None:
+        LOGGER.info(
+            "Market data already present for sector %s (%s)",
+            sector.get("name"),
+            sector.get("sector_key"),
+        )
         return sector
 
     if load_sector_from_yfinance is None:
+        LOGGER.warning(
+            "Skipping yfinance hydration for sector %s (%s) because the loader is unavailable",
+            sector.get("name"),
+            sector.get("sector_key"),
+        )
         return sector
 
+    LOGGER.info(
+        "Hydrating market data for sector %s (%s) from yfinance",
+        sector.get("name"),
+        sector.get("sector_key"),
+    )
     load_sector_from_yfinance(str(sector["sector_key"]))
+    LOGGER.info(
+        "Finished market data hydration for sector %s (%s)",
+        sector.get("name"),
+        sector.get("sector_key"),
+    )
     return _find_sector_row(str(sector["sector_key"]))
 
 
@@ -127,13 +150,35 @@ def ensure_all_sector_market_data() -> list[dict]:
         ).fetchall()
 
     hydrated_sectors: list[dict] = []
-    for row in sector_rows:
+    total = len(sector_rows)
+    for index, row in enumerate(sector_rows, start=1):
         sector_key = str(row["sector_key"] or "").strip()
         if not sector_key:
             continue
+        LOGGER.info(
+            "Bootstrapping market sector %s/%s: %s (%s)",
+            index,
+            total,
+            row["name"],
+            sector_key,
+        )
         hydrated_sector = ensure_sector_market_data(sector_key)
         if hydrated_sector is not None:
             hydrated_sectors.append(hydrated_sector)
+            LOGGER.info(
+                "Completed market sector %s/%s: %s (%s)",
+                index,
+                total,
+                hydrated_sector.get("name"),
+                hydrated_sector.get("sector_key"),
+            )
+        else:
+            LOGGER.warning(
+                "Failed to resolve market sector %s/%s for key %s",
+                index,
+                total,
+                sector_key,
+            )
     return hydrated_sectors
 
 

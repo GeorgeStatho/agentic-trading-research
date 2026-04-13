@@ -86,11 +86,19 @@ def _run_cold_start_sanity_check() -> dict[str, Any]:
     if not needs_full_market_bootstrap:
         return result
 
+    LOGGER.info(
+        "Cold-start sanity check detected an empty market DB. Bootstrapping all %s sectors from yfinance.",
+        len(sectors),
+    )
     hydrated_sectors = ensure_all_sector_market_data()
     if not hydrated_sectors:
         raise RuntimeError(
             "Cold-start sanity check failed: could not hydrate sectors from yfinance."
         )
+    LOGGER.info(
+        "Cold-start full market bootstrap finished. Hydrated %s sectors from yfinance.",
+        len(hydrated_sectors),
+    )
 
     refreshed_industries = get_all_industries()
     refreshed_companies = get_all_companies()
