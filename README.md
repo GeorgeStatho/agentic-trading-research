@@ -213,6 +213,35 @@ At minimum, expect to configure:
 - source configuration for the newer scraping pipeline
 - local database / data directories used by the scraping and market-data systems
 
+### Vertex AI credentials in Docker
+
+If you run the worker/API through Docker with `LLM_PROVIDER=vertex`, the containers also need
+Google Application Default Credentials.
+
+The default local-dev setup now mounts the host `~/.config/gcloud` directory into the Python
+containers as read-only. That means local Docker runs can use the same ADC file created by:
+
+```bash
+gcloud auth application-default login
+```
+
+After that, a rebuild/restart is enough:
+
+```bash
+docker compose up --build
+```
+
+Typical `.env` values:
+
+```env
+LLM_PROVIDER=vertex
+GOOGLE_CLOUD_PROJECT=your-google-cloud-project-id
+GOOGLE_CLOUD_LOCATION=global
+```
+
+If you prefer a service-account JSON outside the repo instead, you can still point
+`GOOGLE_APPLICATION_CREDENTIALS` at another mounted path via a local compose override.
+
 ---
 
 ## Recommended future README split
