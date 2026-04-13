@@ -22,7 +22,15 @@ DATA_DIR = ROOT_DIR / "Data"
 LOGS_DIR = DATA_DIR / "logs"
 ENV_PATH = ROOT_DIR / ".env"
 AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-STATUS_PATH = ROOT_DIR / "web_dashboard" / "public" / "script_status.json"
+STATUS_PATH = Path(
+    os.getenv("SCRIPT_STATUS_PATH", str(ROOT_DIR / "web_dashboard" / "public" / "script_status.json"))
+)
+TRADE_OUTPUT_PATH = Path(
+    os.getenv(
+        "TRADE_EXECUTION_OUTPUT_PATH",
+        str(DATA_DIR / "trade_execution_output.json"),
+    )
+)
 
 for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
     normalized = str(path)
@@ -358,8 +366,8 @@ def main(trading_client: TradingClient | None = None) -> dict[str, Any]:
     with selected_options_output_path.open("w", encoding="utf-8") as handle:
         json.dump(agent_result.get("selected_options", {}), handle, ensure_ascii=True, indent=2)
 
-    trade_output_path = DATA_DIR / "trade_execution_output.json"
-    with trade_output_path.open("w", encoding="utf-8") as handle:
+    TRADE_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with TRADE_OUTPUT_PATH.open("w", encoding="utf-8") as handle:
         json.dump(trade_result, handle, ensure_ascii=True, indent=2)
 
     combined_output_path = DATA_DIR / "front_main_output.json"
@@ -368,7 +376,7 @@ def main(trading_client: TradingClient | None = None) -> dict[str, Any]:
 
     LOGGER.info("Saved agent output to %s", agent_output_path)
     LOGGER.info("Saved selected options output to %s", selected_options_output_path)
-    LOGGER.info("Saved trade execution output to %s", trade_output_path)
+    LOGGER.info("Saved trade execution output to %s", TRADE_OUTPUT_PATH)
     LOGGER.info("Saved combined front-main output to %s", combined_output_path)
 
     return combined_result

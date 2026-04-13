@@ -16,7 +16,7 @@ type TradeExecutionOutput = {
 };
 
 async function getOrders(): Promise<TradeExecutionOutput> {
-  const response = await fetch('/trade_execution_output.json');
+  const response = await fetch('/api/trade-execution-output');
 
   if (!response.ok) {
     throw new Error(`Failed to load orders: ${response.status}`);
