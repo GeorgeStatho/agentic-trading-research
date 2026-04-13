@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 
 DATA_DIR = Path(__file__).resolve().parent
-DB_PATH = DATA_DIR / "stock_experiment.db"
+DEFAULT_DB_PATH = DATA_DIR / "stock_experiment.db"
+DB_PATH = Path(os.getenv("DB_PATH", str(DEFAULT_DB_PATH))).expanduser()
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
 def get_connection(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
