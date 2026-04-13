@@ -32,7 +32,7 @@ function ScriptStatusIndicator() {
 
     const loadStatus = async () => {
       try {
-        const response = await fetch(`/script_status.json?ts=${Date.now()}`);
+        const response = await fetch(`/api/script-status?ts=${Date.now()}`);
         if (!response.ok) {
           throw new Error(`Failed to load script status: ${response.status}`);
         }
