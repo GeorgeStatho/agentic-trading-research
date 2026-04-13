@@ -1,7 +1,39 @@
-from db_common import get_connection
+from pathlib import Path
+
+from db_common import DATA_DIR, get_connection, table_exists
+from market_db import (
+    initialize_database as initialize_market_database,
+    load_sector_tree_from_json,
+)
+
+
+SECTOR_TREE_JSON_PATH = DATA_DIR / "sectors_companies.json"
+
+
+def _ensure_market_reference_data() -> None:
+    initialize_market_database()
+
+    with get_connection() as conn:
+        if not table_exists(conn, "sectors"):
+            initialize_market_database()
+            return
+
+        has_sector_rows = conn.execute("SELECT 1 FROM sectors LIMIT 1").fetchone() is not None
+
+    if has_sector_rows:
+        return
+
+    if not SECTOR_TREE_JSON_PATH.exists():
+        return
+
+    if not Path(SECTOR_TREE_JSON_PATH).read_text(encoding="utf-8").strip():
+        return
+
+    load_sector_tree_from_json(SECTOR_TREE_JSON_PATH)
 
 
 def get_all_sectors() -> list[dict]:
+    _ensure_market_reference_data()
     with get_connection() as conn:
         rows = conn.execute(
             """
@@ -17,6 +49,7 @@ def get_all_sectors() -> list[dict]:
 
 
 def get_all_industries() -> list[dict]:
+    _ensure_market_reference_data()
     with get_connection() as conn:
         rows = conn.execute(
             """
@@ -37,6 +70,7 @@ def get_all_industries() -> list[dict]:
 
 
 def get_all_companies() -> list[dict]:
+    _ensure_market_reference_data()
     with get_connection() as conn:
         rows = conn.execute(
             """

@@ -31,6 +31,7 @@ services:
       - .env
     environment:
       <<: *google-cloud-env
+      DB_PATH: /var/lib/stock-experiment/stock_experiment.db
       SCRIPT_STATUS_PATH: /shared/script_status.json
       TRADE_EXECUTION_OUTPUT_PATH: /shared/trade_execution_output.json
       OLLAMA_HOST: http://ollama:11434
@@ -43,6 +44,7 @@ services:
       WORLD_NEWS_OLLAMA_HOST: http://ollama:11434
     volumes:
       - runtime_data:/shared
+      - db_data:/var/lib/stock-experiment
       - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
     command: ["python", "Python Scripts/main.py"]
 
@@ -54,10 +56,12 @@ services:
       - .env
     environment:
       <<: *google-cloud-env
+      DB_PATH: /var/lib/stock-experiment/stock_experiment.db
       SCRIPT_STATUS_PATH: /shared/script_status.json
       TRADE_EXECUTION_OUTPUT_PATH: /shared/trade_execution_output.json
     volumes:
       - runtime_data:/shared
+      - db_data:/var/lib/stock-experiment
       - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health')"]
@@ -82,3 +86,4 @@ services:
 volumes:
   runtime_data:
   ollama_data:
+  db_data:
