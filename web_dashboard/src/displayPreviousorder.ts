@@ -12,7 +12,7 @@ export type GraphPoint = {
 };
 
 export async function getGraphData(): Promise<GraphPoint[]> {
-  const response = await fetch('/portfolio_history.json');
+  const response = await fetch('/api/portfolio-history');
 
   if (!response.ok) {
     throw new Error(`Failed to load graph data: ${response.status}`);
