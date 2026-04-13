@@ -242,6 +242,35 @@ GOOGLE_CLOUD_LOCATION=global
 If you prefer a service-account JSON outside the repo instead, you can still point
 `GOOGLE_APPLICATION_CREDENTIALS` at another mounted path via a local compose override.
 
+### Persistent database storage in Docker
+
+The app uses SQLite. By default, local non-Docker runs keep the database at:
+
+```text
+Data/stock_experiment.db
+```
+
+Docker now sets `DB_PATH` to:
+
+```text
+/var/lib/stock-experiment/stock_experiment.db
+```
+
+and mounts that directory to the named volume `db_data`, so the database survives container
+rebuilds and recreation.
+
+Typical workflow after pulling this change:
+
+```bash
+docker compose up -d --build
+```
+
+If you ever want a fresh database, remove only that volume:
+
+```bash
+docker volume rm stock-trading-experiment_db_data
+```
+
 ---
 
 ## Recommended future README split
