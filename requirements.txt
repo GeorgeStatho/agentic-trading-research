@@ -1,8 +1,11 @@
 alpaca-py
-currentsapi
-pandas
-numpy
-scikit-learn
+python-dotenv
+flask
+requests
+beautifulsoup4
 scrapy
-#use pip install -r requirements.txt to install required depedencies
-Flask
+fastapi
+pydantic
+yfinance
+playwright
+ollama

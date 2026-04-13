@@ -105,6 +105,19 @@
       ],
       "max_article_age_days": 10
     },
+    "gurufocus.com": {
+      "allowed": false,
+      "reputation_score": 0.52,
+      "source_type": "research_financial_news",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": false,
+      "article_patterns": [
+        "/news/",
+        "/stock/"
+      ],
+      "max_article_age_days": 14
+    },
     "businessinsider.com": {
       "allowed": false,
       "reputation_score": 0.66,

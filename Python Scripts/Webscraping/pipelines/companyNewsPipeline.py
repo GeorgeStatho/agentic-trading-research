@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+from typing import Any
 
 if __package__ in {None, ""}:
     WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
@@ -11,6 +12,10 @@ if __package__ in {None, ""}:
 AGENT_CALLERS_DIR = Path(__file__).resolve().parents[2] / "agentCallers"
 if str(AGENT_CALLERS_DIR) not in sys.path:
     sys.path.append(str(AGENT_CALLERS_DIR))
+
+API_DIR = Path(__file__).resolve().parents[1] / "APIs"
+if str(API_DIR) not in sys.path:
+    sys.path.append(str(API_DIR))
 
 from pipelines._shared import (
     MAX_ARTICLES_PER_SEARCH_PAGE,
@@ -38,7 +43,10 @@ from pipelines.job_builder import (
     group_jobs_by_url,
     unique_job_urls,
 )
+from foolAPI import get_stock_data as get_fool_stock_data
+from gurufocusAPI import get_stock_data as get_gurufocus_stock_data
 from market_data.yFinanceNews import extract_title_and_url, get_company_news_items
+from morningStarAPI import get_stock_data as get_morningstar_stock_data
 
 from db_helpers import (
     add_company_news_article,
@@ -50,6 +58,12 @@ from db_helpers import (
 
 
 LOGGER = get_scrape_logger("company_pipeline")
+API_ARTICLE_LIMIT = 10
+API_SOURCES: tuple[tuple[str, Any], ...] = (
+    ("fool_api", get_fool_stock_data),
+    ("morningstar_api", get_morningstar_stock_data),
+    ("gurufocus_api", get_gurufocus_stock_data),
+)
 __all__ = [
     "get_all_company_news",
     "get_company_news",
@@ -81,19 +95,75 @@ def _build_company_match_variants(company: dict) -> set[str]:
     return {variant for variant in variants if len(variant) >= 3}
 
 
+def _extract_api_news_pairs(payload: Any) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    seen_urls: set[str] = set()
+
+    records = payload if isinstance(payload, list) else [payload]
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        data = record.get("data")
+        if not isinstance(data, dict):
+            continue
+
+        for field_name in ("articles", "analysis", "transcripts"):
+            items = data.get(field_name)
+            if not isinstance(items, list):
+                continue
+
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                url = str(item.get("url") or "").strip()
+                title = " ".join(str(item.get("title") or "").split()).strip()
+                if not url or not title or url in seen_urls:
+                    continue
+                pairs.append((title, url))
+                seen_urls.add(url)
+
+    return pairs
+
+
+def _build_api_jobs(company: dict) -> list[CompanySourceJob]:
+    symbol = str(company.get("symbol") or "").strip()
+    if not symbol:
+        return []
+
+    jobs: list[CompanySourceJob] = []
+
+    for source_name, fetch_stock_data in API_SOURCES:
+        try:
+            payload = fetch_stock_data(symbol, limit=API_ARTICLE_LIMIT)
+        except Exception as exc:
+            LOGGER.warning("%s lookup failed for %s: %s", source_name, symbol, exc)
+            continue
+
+        news_pairs = _extract_api_news_pairs(payload)
+        if not news_pairs:
+            continue
+
+        jobs.extend(
+            build_yahoo_news_jobs(
+                company,
+                news_pairs,
+                source_name=source_name,
+                source_type="article",
+            )
+        )
+
+    return jobs
+
+
 def _filter_company_candidate_links(page_url: str, links: list[dict], company: dict) -> list[dict]:
-    # Start from the shared source/article-pattern filter, then apply
-    # company-specific relevance checks to remove generic market pages.
+    # Start from the shared source/article-pattern filter. We still keep
+    # explicit CNBC blacklist protection, but we no longer drop links just
+    # because the visible text is a weak company-name match.
     base_candidates = filter_article_links(page_url, links)
     if not base_candidates:
         return []
 
-    variants = _build_company_match_variants(company)
-    if not variants:
-        return []
-
     filtered: list[dict] = []
-    trust_source_page = "cnbc.com" in page_url.lower() and "/quotes/" in page_url.lower()
     for link in base_candidates:
         href = str(link.get("href") or "")
         if not href:
@@ -101,20 +171,7 @@ def _filter_company_candidate_links(page_url: str, links: list[dict], company: d
         if is_blacklisted_cnbc_link(href):
             LOGGER.info("Skipping blacklisted CNBC URL %s for company %s", href, company["symbol"])
             continue
-
-        if trust_source_page:
-            filtered.append(link)
-            continue
-
-        if link_matches_variants(link, variants):
-            filtered.append(link)
-            continue
-
-        LOGGER.info(
-            "Skipping weak company match URL %s for company %s because the link text did not match the company name",
-            href,
-            company["symbol"],
-        )
+        filtered.append(link)
 
     return filtered
 
@@ -232,6 +289,7 @@ _save_company_request = make_request_saver(
 
 def _build_company_jobs(company: dict) -> list[CompanySourceJob]:
     jobs = build_company_source_jobs([company])
+    jobs.extend(_build_api_jobs(company))
 
     symbol = str(company.get("symbol") or "").strip()
     if not symbol:
@@ -566,7 +624,7 @@ def get_top_processed_industries_company_news(
 
 if __name__ == "__main__":
     try:
-        get_company_news("MSFT")
+        get_company_news("AAPL")
         #get_all_company_news()
         #get_top_processed_industries_company_news()
     except KeyboardInterrupt:

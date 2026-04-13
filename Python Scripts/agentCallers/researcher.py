@@ -1,23 +1,14 @@
-from ollama import Client
+from __future__ import annotations
 
-OLLAMA_HOST = "http://localhost:11434"
-researcher = Client(host=OLLAMA_HOST)
+import runpy
 
-def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> str:
-    response = client.chat(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
-    return response["message"]["content"]
+from _paths import add_agent_caller_paths
 
-reply = ask_model(
-    researcher,
-    model="llama3.1",
-    system_prompt="You are a stock researcher.",
-    user_prompt="What should I investigate about AAPL before a deeper analysis?",
-)
 
-print(reply)
+add_agent_caller_paths()
+
+from agent_runtime.researcher import *  # noqa: F401,F403
+
+
+if __name__ == "__main__":
+    runpy.run_module("agent_runtime.researcher", run_name="__main__")

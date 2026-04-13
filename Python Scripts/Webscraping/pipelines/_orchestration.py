@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Callable, TypedDict
 
-from pipelines._article_follow import collect_article_urls_to_fetch
-from pipelines._shared import crawl_article_pages, crawl_articles
+from pipelines._article_follow import collect_article_urls_to_fetch, fetch_articles_with_preferred_extractors
+from pipelines._shared import crawl_articles
 
 
 class ArticleSaveRequest(TypedDict):
@@ -116,7 +116,7 @@ def run_article_save_requests(
         save_requests,
         should_include_link=should_include_link,
     )
-    fetched_articles = crawl_article_pages(article_urls) if article_urls else {}
+    fetched_articles = fetch_articles_with_preferred_extractors(article_urls) if article_urls else {}
 
     for request in save_requests:
         saved = save_request(request, fetched_articles)
