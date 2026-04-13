@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import json
+import logging
 import os
 import re
+import time
 from typing import Any
 
 try:
@@ -21,6 +23,9 @@ except ImportError:  # pragma: no cover - optional provider dependency
     OllamaClient = None
 
 
+LOGGER = logging.getLogger(__name__)
+
+
 @dataclass(slots=True)
 class Client:
     provider: str
@@ -33,6 +38,16 @@ VERTEX_MODEL_ALIASES: dict[str, str] = {
     "llama3.1": "gemini-2.5-flash",
     "world-news-sectors": "gemini-2.5-flash",
 }
+
+VERTEX_MAX_ATTEMPTS = max(1, int(os.getenv("VERTEX_MAX_ATTEMPTS", "5")))
+VERTEX_RETRY_INITIAL_DELAY_SECONDS = max(
+    0.5,
+    float(os.getenv("VERTEX_RETRY_INITIAL_DELAY_SECONDS", "2")),
+)
+VERTEX_RETRY_MAX_DELAY_SECONDS = max(
+    VERTEX_RETRY_INITIAL_DELAY_SECONDS,
+    float(os.getenv("VERTEX_RETRY_MAX_DELAY_SECONDS", "30")),
+)
 
 
 def _normalize_provider(provider: str | None = None) -> str:
@@ -131,6 +146,62 @@ def _extract_response_text(response: Any) -> str | None:
     return combined or None
 
 
+def _extract_status_code(exc: Exception) -> int | None:
+    direct_status = getattr(exc, "status_code", None)
+    if isinstance(direct_status, int):
+        return direct_status
+
+    response = getattr(exc, "response", None)
+    response_status = getattr(response, "status_code", None)
+    if isinstance(response_status, int):
+        return response_status
+
+    return None
+
+
+def _is_vertex_rate_limited(exc: Exception) -> bool:
+    status_code = _extract_status_code(exc)
+    if status_code == 429:
+        return True
+
+    message = str(exc).upper()
+    return "RESOURCE_EXHAUSTED" in message or "RATE LIMIT" in message
+
+
+def _build_vertex_error_message(exc: Exception, model_name: str) -> str:
+    message = str(exc).strip()
+    status_code = _extract_status_code(exc)
+    normalized_message = message.lower()
+
+    if _is_vertex_rate_limited(exc):
+        return (
+            f"Vertex AI rate limit hit for model '{model_name}' after {VERTEX_MAX_ATTEMPTS} attempts. "
+            f"Last error: {message or 'RESOURCE_EXHAUSTED'}"
+        )
+
+    if "default credentials" in normalized_message:
+        return (
+            "Could not complete the Vertex AI request because Application Default Credentials "
+            "were not available inside the runtime."
+        )
+
+    if status_code is not None:
+        return (
+            f"Could not complete the Vertex AI request for model '{model_name}' "
+            f"(HTTP {status_code}). {message}"
+        )
+
+    if message:
+        return (
+            f"Could not complete the Vertex AI request for model '{model_name}'. {message}"
+        )
+
+    return (
+        f"Could not complete the Vertex AI request for model '{model_name}'. "
+        "Verify Application Default Credentials are available and the model name is valid."
+    )
+
+
 def _ask_vertex_model(
     client: Client,
     model: str,
@@ -153,17 +224,37 @@ def _ask_vertex_model(
         config_kwargs["response_mime_type"] = "application/json"
         config_kwargs["response_schema"] = response_schema
 
-    try:
-        response = client.raw_client.models.generate_content(
-            model=_resolve_model_name(client.provider, model),
-            contents=user_prompt,
-            config=genai_types.GenerateContentConfig(**config_kwargs),
-        )
-    except Exception as exc:
-        raise RuntimeError(
-            "Could not complete the Vertex AI request. "
-            "Verify Application Default Credentials are available and the model name is valid."
-        ) from exc
+    resolved_model = _resolve_model_name(client.provider, model)
+    retry_delay_seconds = VERTEX_RETRY_INITIAL_DELAY_SECONDS
+
+    for attempt in range(1, VERTEX_MAX_ATTEMPTS + 1):
+        try:
+            response = client.raw_client.models.generate_content(
+                model=resolved_model,
+                contents=user_prompt,
+                config=genai_types.GenerateContentConfig(**config_kwargs),
+            )
+            break
+        except Exception as exc:
+            if _is_vertex_rate_limited(exc) and attempt < VERTEX_MAX_ATTEMPTS:
+                LOGGER.warning(
+                    "Vertex AI rate limit hit for model '%s' (attempt %s/%s). "
+                    "Sleeping %.1fs before retry.",
+                    resolved_model,
+                    attempt,
+                    VERTEX_MAX_ATTEMPTS,
+                    retry_delay_seconds,
+                )
+                time.sleep(retry_delay_seconds)
+                retry_delay_seconds = min(
+                    VERTEX_RETRY_MAX_DELAY_SECONDS,
+                    retry_delay_seconds * 2,
+                )
+                continue
+
+            raise RuntimeError(
+                _build_vertex_error_message(exc, resolved_model)
+            ) from exc
 
     content = _extract_response_text(response)
     if not isinstance(content, str) or not content.strip():
