@@ -41,7 +41,7 @@ load_dotenv(ENV_PATH)
 
 from agentCallers.main import run_full_agent_stack
 from db_helpers import (
-    ensure_sector_market_data,
+    ensure_all_sector_market_data,
     get_all_companies,
     get_all_industries,
     get_all_sectors,
@@ -62,14 +62,6 @@ def _env_flag(name: str, default: bool) -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
-def _pick_sanity_check_sector(sectors: list[dict[str, Any]]) -> dict[str, Any]:
-    preferred_sector_key = str(os.getenv("COLD_START_SANITY_CHECK_SECTOR") or "technology").strip().lower()
-    for sector in sectors:
-        if str(sector.get("sector_key") or "").strip().lower() == preferred_sector_key:
-            return sector
-    return sectors[0]
-
-
 def _run_cold_start_sanity_check() -> dict[str, Any]:
     initialize_market_database()
     initialize_news_database()
@@ -82,59 +74,43 @@ def _run_cold_start_sanity_check() -> dict[str, Any]:
 
     industries = get_all_industries()
     companies = get_all_companies()
-    needs_market_probe = not industries or not companies
+    needs_full_market_bootstrap = not industries or not companies
 
     result: dict[str, Any] = {
         "sectors_seeded": len(sectors),
         "industries_present": len(industries),
         "companies_present": len(companies),
-        "performed_market_probe": needs_market_probe,
-        "sample_sector_key": "",
-        "sample_sector_name": "",
-        "sample_sector_industry_count": 0,
-        "sample_sector_company_count": 0,
+        "performed_full_market_bootstrap": needs_full_market_bootstrap,
     }
 
-    if not needs_market_probe:
+    if not needs_full_market_bootstrap:
         return result
 
-    sample_sector = _pick_sanity_check_sector(sectors)
-    sample_sector_key = str(sample_sector.get("sector_key") or "").strip()
-    sample_sector_name = str(sample_sector.get("name") or "").strip()
-    result["sample_sector_key"] = sample_sector_key
-    result["sample_sector_name"] = sample_sector_name
-
-    hydrated_sector = ensure_sector_market_data(sample_sector_key)
-    if hydrated_sector is None:
+    hydrated_sectors = ensure_all_sector_market_data()
+    if not hydrated_sectors:
         raise RuntimeError(
-            f"Cold-start sanity check failed: could not hydrate sector '{sample_sector_key}' from yfinance."
+            "Cold-start sanity check failed: could not hydrate sectors from yfinance."
         )
 
     refreshed_industries = get_all_industries()
     refreshed_companies = get_all_companies()
-    sample_sector_industries = [
-        industry
-        for industry in refreshed_industries
-        if str(industry.get("sector_key") or "").strip().lower() == sample_sector_key.lower()
+    hydrated_sector_keys = [
+        str(sector.get("sector_key") or "").strip()
+        for sector in hydrated_sectors
+        if str(sector.get("sector_key") or "").strip()
     ]
-    sample_sector_companies = [
-        company
-        for company in refreshed_companies
-        if str(company.get("sector_key") or "").strip().lower() == sample_sector_key.lower()
-    ]
-
     result["industries_present"] = len(refreshed_industries)
     result["companies_present"] = len(refreshed_companies)
-    result["sample_sector_industry_count"] = len(sample_sector_industries)
-    result["sample_sector_company_count"] = len(sample_sector_companies)
+    result["hydrated_sector_count"] = len(hydrated_sector_keys)
+    result["hydrated_sector_keys"] = hydrated_sector_keys
 
-    if not sample_sector_industries:
+    if not refreshed_industries:
         raise RuntimeError(
-            f"Cold-start sanity check failed: sector '{sample_sector_key}' seeded but no industries were loaded from yfinance."
+            "Cold-start sanity check failed: sectors seeded but no industries were loaded from yfinance."
         )
-    if not sample_sector_companies:
+    if not refreshed_companies:
         raise RuntimeError(
-            f"Cold-start sanity check failed: sector '{sample_sector_key}' loaded industries but no companies were loaded."
+            "Cold-start sanity check failed: industries loaded but no companies were loaded from yfinance."
         )
 
     return result
