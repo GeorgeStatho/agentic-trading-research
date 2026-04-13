@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 import sys
+import time
 from typing import Any
 
 AGENT_STAGES_DIR = Path(__file__).resolve().parent
@@ -33,8 +34,38 @@ DEFAULT_MODEL = os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "wor
 DEFAULT_MAX_ARTICLE_AGE_DAYS = 3
 DEFAULT_CONTEXT_LIMIT = 4096
 DEFAULT_PROMPT_OVERHEAD_TOKENS = 1200
+DEFAULT_BATCH_PAUSE_SECONDS = max(
+    0.0,
+    float(os.getenv("MACRO_NEWS_BATCH_PAUSE_SECONDS", "0.75")),
+)
 macro_news_classifier = get_ollama_client(OLLAMA_HOST)
 LOGGER = logging.getLogger(__name__)
+MACRO_SECTOR_PAIRS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "pairs": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "article_id": {"type": "integer"},
+                    "sector_key": {"type": "string"},
+                    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                    "reason": {"type": "string"},
+                },
+                "required": [
+                    "article_id",
+                    "sector_key",
+                    "confidence",
+                    "reason",
+                ],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["pairs"],
+    "additionalProperties": False,
+}
 
 
 def _configure_console_logging() -> None:
@@ -53,7 +84,12 @@ def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) 
         user_prompt,
         temperature=0,
         host_label=OLLAMA_HOST,
+        response_schema=MACRO_SECTOR_PAIRS_SCHEMA,
     )
+
+
+def _normalize_identifier(value: Any) -> str:
+    return " ".join(str(value or "").strip().lower().replace("_", " ").replace("-", " ").split())
 
 
 def build_macro_news_to_sectors_prompt(
@@ -69,19 +105,30 @@ def build_macro_news_to_sectors_prompt(
         "Use only the sectors provided by the user. "
         "Return only valid JSON with a top-level key named 'pairs'. "
         "Do not include markdown fences, notes, or extra keys. "
-        "Each item in 'pairs' must contain: article_id, sector_id, sector_key, confidence, and reason. "
+        "Each item in 'pairs' must contain: article_id, sector_key, confidence, and reason. "
         "Confidence must be one of: high, medium, low. "
         "Do not invent sectors. "
-        "If an article does not clearly affect a sector, omit it."
+        "Use the exact sector_key values supplied by the user. "
+        "One article may map to multiple sectors when the transmission path is clear. "
+        "Use low confidence when the effect is plausible but indirect, medium when the effect is meaningful but not dominant, "
+        "and high when the article is directly about the sector or its major operating drivers. "
+        "Only return an empty list for an article when none of the supplied sectors has a clear transmission path."
     )
 
     payload = {
         "task": f"Map each {scope_label.lower()}-news article to the sectors materially affected by the news.",
         "sectors": sectors,
+        "classification_rules": [
+            "Prefer specific affected sectors over broad market commentary.",
+            "Broad macro news can still map to a sector when the article clearly affects that sector's costs, demand, regulation, financing, commodities, or supply chain.",
+            "If an article affects multiple supplied sectors, return one pair per affected sector.",
+            "Use the exact sector_key from the supplied sectors list.",
+        ],
         "articles": [
             {
                 "article_id": article["article_id"],
                 "title": article["title"],
+                "summary": article["summary"],
                 "body": article["body"] or article["summary"],
                 "published_at": article["published_at"],
                 "source": article["source"],
@@ -93,7 +140,6 @@ def build_macro_news_to_sectors_prompt(
             "pairs": [
                 {
                     "article_id": "integer",
-                    "sector_id": "integer",
                     "sector_key": "string",
                     "confidence": "high|medium|low",
                     "reason": "short explanation",
@@ -124,14 +170,21 @@ def _extract_pairs(payload: dict[str, Any] | None) -> list[dict[str, Any]] | Non
     return None
 
 
-def _build_valid_reference_sets(
+def _build_reference_maps(
     sectors: list[dict[str, Any]],
     articles: list[dict[str, Any]],
-) -> tuple[set[int], set[str], set[int]]:
-    valid_sector_ids = {sector["sector_id"] for sector in sectors}
-    valid_sector_keys = {sector["sector_key"] for sector in sectors}
+) -> tuple[dict[int, dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]], set[int]]:
+    sectors_by_id = {int(sector["sector_id"]): sector for sector in sectors}
+    sectors_by_key = {
+        _normalize_identifier(sector["sector_key"]): sector
+        for sector in sectors
+    }
+    sectors_by_name = {
+        _normalize_identifier(sector["sector_name"]): sector
+        for sector in sectors
+    }
     valid_article_ids = {article["article_id"] for article in articles}
-    return valid_sector_ids, valid_sector_keys, valid_article_ids
+    return sectors_by_id, sectors_by_key, sectors_by_name, valid_article_ids
 
 
 def _classify_article_batch(
@@ -163,32 +216,53 @@ def _normalize_pair(
     pair: dict[str, Any],
     *,
     valid_article_ids: set[int],
-    valid_sector_ids: set[int],
-    valid_sector_keys: set[str],
+    sectors_by_id: dict[int, dict[str, Any]],
+    sectors_by_key: dict[str, dict[str, Any]],
+    sectors_by_name: dict[str, dict[str, Any]],
 ) -> dict[str, Any] | None:
     try:
         article_id = int(pair.get("article_id"))
-        sector_id = int(pair.get("sector_id"))
     except (TypeError, ValueError):
         return None
 
-    sector_key = str(pair.get("sector_key") or "").strip()
+    sector_key = _normalize_identifier(pair.get("sector_key"))
+    sector_name = _normalize_identifier(pair.get("sector_name"))
     confidence = str(pair.get("confidence") or "").strip().lower()
     reason = str(pair.get("reason") or "").strip()
 
     if article_id not in valid_article_ids:
         return None
-    if sector_id not in valid_sector_ids:
-        return None
-    if sector_key not in valid_sector_keys:
+
+    sector_reference = None
+    raw_sector_id = pair.get("sector_id")
+    try:
+        if raw_sector_id not in (None, ""):
+            sector_reference = sectors_by_id.get(int(raw_sector_id))
+    except (TypeError, ValueError):
+        sector_reference = None
+
+    if sector_reference is None and sector_key:
+        sector_reference = sectors_by_key.get(_normalize_identifier(sector_key))
+
+    if sector_reference is None and sector_name:
+        sector_reference = sectors_by_name.get(sector_name)
+
+    replacements = {
+        "strong": "high",
+        "moderate": "medium",
+        "weak": "low",
+    }
+    confidence = replacements.get(confidence, confidence)
+
+    if sector_reference is None:
         return None
     if confidence not in {"high", "medium", "low"}:
         return None
 
     return {
         "article_id": article_id,
-        "sector_id": sector_id,
-        "sector_key": sector_key,
+        "sector_id": int(sector_reference["sector_id"]),
+        "sector_key": str(sector_reference["sector_key"]).strip().lower(),
         "confidence": confidence,
         "reason": reason,
     }
@@ -202,13 +276,21 @@ def _collect_cleaned_pairs(
     client: Client,
     model: str,
     valid_article_ids: set[int],
-    valid_sector_ids: set[int],
-    valid_sector_keys: set[str],
+    sectors_by_id: dict[int, dict[str, Any]],
+    sectors_by_key: dict[str, dict[str, Any]],
+    sectors_by_name: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     cleaned_pairs: list[dict[str, Any]] = []
     seen_pairs: set[tuple[int, int]] = set()
 
-    for article_batch in article_batches:
+    for batch_index, article_batch in enumerate(article_batches):
+        if (
+            batch_index > 0
+            and client.provider == "vertex"
+            and DEFAULT_BATCH_PAUSE_SECONDS > 0
+        ):
+            time.sleep(DEFAULT_BATCH_PAUSE_SECONDS)
+
         raw_response, batch_pairs = _classify_article_batch(
             article_batch,
             sectors=sectors,
@@ -225,8 +307,9 @@ def _collect_cleaned_pairs(
             cleaned_pair = _normalize_pair(
                 pair,
                 valid_article_ids=valid_article_ids,
-                valid_sector_ids=valid_sector_ids,
-                valid_sector_keys=valid_sector_keys,
+                sectors_by_id=sectors_by_id,
+                sectors_by_key=sectors_by_key,
+                sectors_by_name=sectors_by_name,
             )
             if cleaned_pair is None:
                 continue
@@ -279,7 +362,13 @@ def classify_macro_news_to_sectors(
         return []
 
     sectors = get_sector_reference()
-    valid_sector_ids, valid_sector_keys, valid_article_ids = _build_valid_reference_sets(
+    if len(sectors) <= 1:
+        LOGGER.warning(
+            "Macro sector classification is running with only %s sector reference(s): %s",
+            len(sectors),
+            [sector["sector_key"] for sector in sectors],
+        )
+    sectors_by_id, sectors_by_key, sectors_by_name, valid_article_ids = _build_reference_maps(
         sectors,
         articles,
     )
@@ -301,8 +390,9 @@ def classify_macro_news_to_sectors(
         client=client,
         model=model,
         valid_article_ids=valid_article_ids,
-        valid_sector_ids=valid_sector_ids,
-        valid_sector_keys=valid_sector_keys,
+        sectors_by_id=sectors_by_id,
+        sectors_by_key=sectors_by_key,
+        sectors_by_name=sectors_by_name,
     )
     LOGGER.info(
         "Extracted %s cleaned %s sector pairs",
