@@ -56,6 +56,7 @@ from StrategistPayloadBuilder import (
 
 
 DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE = max(1, int(os.getenv("MANAGER_OPTION_CHAIN_LIMIT_PER_TYPE", "6")))
+DEFAULT_OPTION_CHAIN_FETCH_MULTIPLIER = max(2, int(os.getenv("MANAGER_OPTION_CHAIN_FETCH_MULTIPLIER", "6")))
 OPTION_SYMBOL_TEMPLATE = r"\d{6}[CP]\d{8}$"
 _ALPACA_CLIENTS: dict[str, Any] | None | bool = None
 
@@ -314,6 +315,88 @@ def _build_contract_request(
     )
 
 
+def _normalize_contract_type(value: Any) -> str:
+    enum_value = getattr(value, "value", None)
+    if enum_value not in (None, ""):
+        contract_type = str(enum_value).strip().lower()
+    else:
+        contract_type = str(value or "").strip().lower()
+
+    if "." in contract_type:
+        contract_type = contract_type.rsplit(".", 1)[-1]
+
+    replacements = {
+        "c": "call",
+        "call_option": "call",
+        "call option": "call",
+        "calls": "call",
+        "p": "put",
+        "put_option": "put",
+        "put option": "put",
+        "puts": "put",
+    }
+    contract_type = replacements.get(contract_type, contract_type)
+    return contract_type if contract_type in {"call", "put"} else ""
+
+
+def _is_otm_contract(contract_type: str, strike_price: float | None, reference_stock_price: float | None) -> bool:
+    if strike_price is None or reference_stock_price is None:
+        return False
+    if contract_type == "call":
+        return strike_price >= reference_stock_price
+    if contract_type == "put":
+        return strike_price <= reference_stock_price
+    return False
+
+
+def _contract_preference_key(contract: dict[str, Any], reference_stock_price: float | None) -> tuple[float, float, str, float, int]:
+    contract_type = _normalize_contract_type(contract.get("contract_type"))
+    contract_price = _get_contract_market_price(contract)
+    has_contract_price = 0.0 if contract_price is not None else 1.0
+
+    strike_price = _safe_float(contract.get("strike_price"))
+    strike_distance = (
+        abs(strike_price - reference_stock_price)
+        if strike_price is not None and reference_stock_price is not None
+        else float("inf")
+    )
+    otm_preference = 0.0 if _is_otm_contract(contract_type, strike_price, reference_stock_price) else 1.0
+
+    expiration_date = str(contract.get("expiration_date") or "9999-12-31")
+    open_interest = _safe_float(contract.get("open_interest"))
+    open_interest_rank = -(open_interest if open_interest is not None else -1.0)
+    option_id = int(contract.get("option_id") or 10**9)
+
+    return (
+        has_contract_price,
+        otm_preference,
+        strike_distance,
+        expiration_date,
+        open_interest_rank,
+        option_id,
+    )
+
+
+def _select_contract_subset_near_reference(
+    contracts: list[dict[str, Any]],
+    *,
+    reference_stock_price: float | None,
+    per_type_limit: int,
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+
+    for contract_type in ("call", "put"):
+        matching = [
+            contract
+            for contract in contracts
+            if _normalize_contract_type(contract.get("contract_type")) == contract_type
+        ]
+        matching.sort(key=lambda contract: _contract_preference_key(contract, reference_stock_price))
+        selected.extend(matching[: max(1, int(per_type_limit))])
+
+    return selected
+
+
 def _fetch_option_contracts(
     company_symbol: str,
     *,
@@ -365,6 +448,7 @@ def _normalize_option_snapshot_map(chain_response: Any) -> dict[str, Any]:
 def _build_option_market_snapshot(
     company_symbol: str,
     *,
+    reference_stock_price: float | None,
     expiration_date: str | None,
     expiration_date_gte: str | None,
     expiration_date_lte: str | None,
@@ -399,6 +483,10 @@ def _build_option_market_snapshot(
         return unavailable
 
     try:
+        raw_fetch_limit = max(
+            contract_limit_per_type * DEFAULT_OPTION_CHAIN_FETCH_MULTIPLIER,
+            contract_limit_per_type + 10,
+        )
         call_contracts = _fetch_option_contracts(
             company_symbol,
             contract_type=ContractType.CALL,
@@ -407,7 +495,7 @@ def _build_option_market_snapshot(
             expiration_date_lte=expiration_date_lte,
             strike_price_gte=strike_price_gte,
             strike_price_lte=strike_price_lte,
-            limit=contract_limit_per_type,
+            limit=raw_fetch_limit,
         )
         put_contracts = _fetch_option_contracts(
             company_symbol,
@@ -417,7 +505,7 @@ def _build_option_market_snapshot(
             expiration_date_lte=expiration_date_lte,
             strike_price_gte=strike_price_gte,
             strike_price_lte=strike_price_lte,
-            limit=contract_limit_per_type,
+            limit=raw_fetch_limit,
         )
     except Exception as exc:
         unavailable["error"] = str(exc)
@@ -486,14 +574,25 @@ def _build_option_market_snapshot(
     for index, contract in enumerate(serialized_contracts, start=1):
         contract["option_id"] = index
 
+    selected_contracts = _select_contract_subset_near_reference(
+        serialized_contracts,
+        reference_stock_price=reference_stock_price,
+        per_type_limit=contract_limit_per_type,
+    )
+    selected_contracts.sort(
+        key=lambda contract: _contract_preference_key(contract, reference_stock_price)
+    )
+
     payload = {
         "available": True,
         "underlying_symbol": company_symbol,
         "selection_filters": unavailable["selection_filters"],
-        "contract_count": len(serialized_contracts),
+        "reference_stock_price": reference_stock_price,
+        "raw_contract_count": len(serialized_contracts),
+        "contract_count": len(selected_contracts),
         "available_expirations": sorted(expiration_values),
         "available_strikes": sorted(strike_values),
-        "contracts": serialized_contracts,
+        "contracts": selected_contracts,
     }
     if chain_error:
         payload["warning"] = f"Option chain snapshots were unavailable: {chain_error}"
@@ -601,10 +700,17 @@ def build_market_context(
     option_contract_limit_per_type: int,
 ) -> dict[str, Any]:
     company_symbol = str(company.get("symbol") or "").strip().upper()
+    stock_snapshot = _build_current_stock_price_snapshot(company)
+    reference_stock_price = None
+    for key in ("midpoint_price", "price", "ask_price", "bid_price"):
+        reference_stock_price = _safe_float(stock_snapshot.get(key))
+        if reference_stock_price is not None and reference_stock_price > 0:
+            break
     return {
-        "current_stock_price": _build_current_stock_price_snapshot(company),
+        "current_stock_price": stock_snapshot,
         "option_market": _build_option_market_snapshot(
             company_symbol,
+            reference_stock_price=reference_stock_price,
             expiration_date=option_expiration_date,
             expiration_date_gte=option_expiration_date_gte,
             expiration_date_lte=option_expiration_date_lte,
