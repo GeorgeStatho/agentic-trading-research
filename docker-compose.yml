@@ -1,10 +1,18 @@
+x-google-cloud-env: &google-cloud-env
+  GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
+  GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-global}
+  GOOGLE_GENAI_USE_VERTEXAI: "true"
+  LLM_PROVIDER: ${LLM_PROVIDER:-vertex}
+
 services:
   ollama:
+    profiles: ["ollama"]
     image: ollama/ollama:latest
     volumes:
       - ollama_data:/root/.ollama
 
   ollama-init:
+    profiles: ["ollama"]
     image: ollama/ollama:latest
     depends_on:
       - ollama
@@ -22,6 +30,7 @@ services:
     env_file:
       - .env
     environment:
+      <<: *google-cloud-env
       SCRIPT_STATUS_PATH: /shared/script_status.json
       TRADE_EXECUTION_OUTPUT_PATH: /shared/trade_execution_output.json
       OLLAMA_HOST: http://ollama:11434
@@ -34,9 +43,6 @@ services:
       WORLD_NEWS_OLLAMA_HOST: http://ollama:11434
     volumes:
       - runtime_data:/shared
-    depends_on:
-      - ollama
-      - ollama-init
     command: ["python", "Python Scripts/main.py"]
 
   api:
@@ -46,6 +52,7 @@ services:
     env_file:
       - .env
     environment:
+      <<: *google-cloud-env
       SCRIPT_STATUS_PATH: /shared/script_status.json
       TRADE_EXECUTION_OUTPUT_PATH: /shared/trade_execution_output.json
     volumes:
