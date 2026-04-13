@@ -1,25 +1,178 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import json
+import os
 import re
 from typing import Any
 
 try:
-    from ollama import Client
-except ImportError as exc:  # pragma: no cover - import guard for runtime setup
-    raise RuntimeError(
-        "The 'ollama' Python package is required for the agent callers. "
-        "Install it in your environment with: pip install ollama"
-    ) from exc
+    from google import genai
+    from google.genai import types as genai_types
+except ImportError:  # pragma: no cover - optional provider dependency
+    genai = None
+    genai_types = None
+
+try:
+    from ollama import Client as OllamaClient
+except ImportError:  # pragma: no cover - optional provider dependency
+    OllamaClient = None
+
+
+@dataclass(slots=True)
+class Client:
+    provider: str
+    raw_client: Any
+    host: str | None = None
+    label: str | None = None
+
+
+VERTEX_MODEL_ALIASES: dict[str, str] = {
+    "llama3.1": "gemini-2.5-flash",
+    "world-news-sectors": "gemini-2.5-flash",
+}
+
+
+def _normalize_provider(provider: str | None = None) -> str:
+    return str(provider or os.getenv("LLM_PROVIDER", "ollama")).strip().lower()
+
+
+def _build_vertex_client() -> Any:
+    if genai is None:
+        raise RuntimeError(
+            "The 'google-genai' Python package is required for Vertex AI requests. "
+            "Install it in your environment with: pip install google-genai"
+        )
+
+    project = str(
+        os.getenv("GOOGLE_CLOUD_PROJECT")
+        or os.getenv("VERTEX_PROJECT")
+        or os.getenv("GCP_PROJECT")
+        or ""
+    ).strip()
+    location = str(
+        os.getenv("GOOGLE_CLOUD_LOCATION")
+        or os.getenv("VERTEX_LOCATION")
+        or "global"
+    ).strip()
+
+    if not project:
+        raise RuntimeError(
+            "GOOGLE_CLOUD_PROJECT must be set when LLM_PROVIDER=vertex."
+        )
+
+    return genai.Client(vertexai=True, project=project, location=location)
+
+
+def get_model_client(label: str | None = None) -> Client:
+    provider = _normalize_provider()
+
+    if provider == "vertex":
+        return Client(provider=provider, raw_client=_build_vertex_client(), label=label)
+
+    if provider != "ollama":
+        raise RuntimeError(
+            f"Unsupported LLM_PROVIDER '{provider}'. Expected 'ollama' or 'vertex'."
+        )
+
+    if OllamaClient is None:
+        raise RuntimeError(
+            "The 'ollama' Python package is required for Ollama requests. "
+            "Install it in your environment with: pip install ollama"
+        )
+
+    return Client(
+        provider=provider,
+        raw_client=OllamaClient(host=label),
+        host=label,
+        label=label,
+    )
 
 
 def get_ollama_client(host: str) -> Client:
-    return Client(host=host)
+    # Backward-compatible wrapper while stages migrate to get_model_client().
+    return get_model_client(host)
 
 
-def ask_ollama_model(
+def _resolve_model_name(provider: str, model: str) -> str:
+    normalized = str(model or "").strip()
+    if provider != "vertex":
+        return normalized
+
+    if not normalized:
+        return str(os.getenv("VERTEX_DEFAULT_MODEL", "gemini-2.5-flash")).strip()
+
+    return VERTEX_MODEL_ALIASES.get(normalized, normalized)
+
+
+def _extract_response_text(response: Any) -> str | None:
+    text = getattr(response, "text", None)
+    if isinstance(text, str) and text.strip():
+        return text
+
+    candidates = getattr(response, "candidates", None)
+    if not isinstance(candidates, list):
+        return None
+
+    parts: list[str] = []
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        raw_parts = getattr(content, "parts", None)
+        if not isinstance(raw_parts, list):
+            continue
+        for part in raw_parts:
+            part_text = getattr(part, "text", None)
+            if isinstance(part_text, str) and part_text.strip():
+                parts.append(part_text)
+
+    combined = "\n".join(parts).strip()
+    return combined or None
+
+
+def _ask_vertex_model(
+    client: Client,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    temperature: float,
+    response_schema: dict[str, Any] | None,
+) -> str:
+    if genai_types is None:
+        raise RuntimeError(
+            "The 'google-genai' Python package is required for Vertex AI requests."
+        )
+
+    config_kwargs: dict[str, Any] = {
+        "temperature": temperature,
+        "system_instruction": system_prompt,
+    }
+    if response_schema is not None:
+        config_kwargs["response_mime_type"] = "application/json"
+        config_kwargs["response_schema"] = response_schema
+
+    try:
+        response = client.raw_client.models.generate_content(
+            model=_resolve_model_name(client.provider, model),
+            contents=user_prompt,
+            config=genai_types.GenerateContentConfig(**config_kwargs),
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not complete the Vertex AI request. "
+            "Verify Application Default Credentials are available and the model name is valid."
+        ) from exc
+
+    content = _extract_response_text(response)
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError(f"Model returned empty content: {response}")
+
+    return content
+
+
+def ask_llm_model(
     client: Client,
     model: str,
     system_prompt: str,
@@ -29,9 +182,22 @@ def ask_ollama_model(
     host_label: str | None = None,
     response_schema: dict[str, Any] | None = None,
 ) -> str:
+    if client.provider == "vertex":
+        return _ask_vertex_model(
+            client,
+            model,
+            system_prompt,
+            user_prompt,
+            temperature=temperature,
+            response_schema=response_schema,
+        )
+
+    if client.provider != "ollama":
+        raise RuntimeError(f"Unsupported model provider: {client.provider}")
+
     chat_kwargs: dict[str, Any] = {
         #chooses what llm model to use
-        "model": model,
+        "model": _resolve_model_name(client.provider, model),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -40,14 +206,14 @@ def ask_ollama_model(
             "temperature": temperature,
         },
     }
-    #if there is a response schema for the llm, use it 
+    #if there is a response schema for the llm, use it
     if response_schema is not None:
         chat_kwargs["format"] = response_schema
 
     try:
-        response = client.chat(**chat_kwargs)
+        response = client.raw_client.chat(**chat_kwargs)
     except Exception as exc:
-        location = host_label or "the configured Ollama host"
+        location = host_label or client.label or "the configured Ollama host"
         raise RuntimeError(
             "Could not complete the Ollama chat request. "
             f"Verify Ollama is running at {location} and that model '{model}' is installed."
@@ -62,6 +228,28 @@ def ask_ollama_model(
         raise RuntimeError(f"Model returned empty content: {response}")
 
     return content
+
+
+def ask_ollama_model(
+    client: Client,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    temperature: float = 0,
+    host_label: str | None = None,
+    response_schema: dict[str, Any] | None = None,
+) -> str:
+    # Backward-compatible wrapper while stages migrate to ask_llm_model().
+    return ask_llm_model(
+        client,
+        model,
+        system_prompt,
+        user_prompt,
+        temperature=temperature,
+        host_label=host_label,
+        response_schema=response_schema,
+    )
 
 
 def parse_published_at(value: str | None) -> datetime | None:

@@ -8,4 +8,5 @@ fastapi
 pydantic
 yfinance
 playwright
+google-genai
 ollama
