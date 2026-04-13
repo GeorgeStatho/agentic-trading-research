@@ -1,0 +1,67 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: "sleep 5 && ollama pull llama3.1"
+    volumes:
+      - ollama_data:/root/.ollama
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file:
+      - .env
+    environment:
+      SCRIPT_STATUS_PATH: /shared/script_status.json
+      TRADE_EXECUTION_OUTPUT_PATH: /shared/trade_execution_output.json
+      OLLAMA_HOST: http://ollama:11434
+      MANAGER_OLLAMA_HOST: http://ollama:11434
+      STRATEGIST_OLLAMA_HOST: http://ollama:11434
+      COMPANY_OPPURUNTIST_OLLAMA_HOST: http://ollama:11434
+      INDUSTRY_OPPURUNTINST_OLLAMA_HOST: http://ollama:11434
+      SECTOR_OPPURUNTIST_OLLAMA_HOST: http://ollama:11434
+      MACRO_NEWS_OLLAMA_HOST: http://ollama:11434
+      WORLD_NEWS_OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - runtime_data:/shared
+    depends_on:
+      - ollama
+      - ollama-init
+    command: ["python", "Python Scripts/main.py"]
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file:
+      - .env
+    environment:
+      SCRIPT_STATUS_PATH: /shared/script_status.json
+      TRADE_EXECUTION_OUTPUT_PATH: /shared/trade_execution_output.json
+    volumes:
+      - runtime_data:/shared
+    command: ["python", "api.py"]
+
+  web:
+    build:
+      context: ./web_dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+      - worker
+
+volumes:
+  runtime_data:
+  ollama_data:
