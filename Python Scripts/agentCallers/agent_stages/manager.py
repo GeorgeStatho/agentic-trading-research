@@ -36,10 +36,10 @@ from agent_helpers.manager import (
     DEFAULT_SUMMARY_ARTICLE_LIMIT,
     build_manager_input,
 )
-from _shared import Client, ask_ollama_model, extract_json_value, get_ollama_client
+from _shared import Client, ask_llm_model, extract_json_value, get_model_client
 
 
-OLLAMA_HOST = os.getenv(
+MODEL_BACKEND_LABEL = os.getenv(
     "MANAGER_OLLAMA_HOST",
     os.getenv("MACRO_NEWS_OLLAMA_HOST", os.getenv("WORLD_NEWS_OLLAMA_HOST", "http://127.0.0.1:11434")),
 )
@@ -52,7 +52,7 @@ MANAGER_STAGE_VERSION = "decision-only-v2"
 VALID_DECISIONS = {"call", "put", "neither"}
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
 
-manager = get_ollama_client(OLLAMA_HOST)
+manager = get_model_client(MODEL_BACKEND_LABEL)
 LOGGER = logging.getLogger(__name__)
 MANAGER_RECOMMENDATION_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -79,13 +79,13 @@ __all__ = [
 
 
 def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> str:
-    return ask_ollama_model(
+    return ask_llm_model(
         client,
         model,
         system_prompt,
         user_prompt,
         temperature=0,
-        host_label=OLLAMA_HOST,
+        host_label=MODEL_BACKEND_LABEL,
         response_schema=MANAGER_RECOMMENDATION_SCHEMA,
     )
 
