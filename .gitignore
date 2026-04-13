@@ -4,6 +4,10 @@
 *.sqlite
 *.sqlite3
 
+# Keep frontend package metadata tracked
+!web_dashboard/package.json
+!web_dashboard/package-lock.json
+
 # Binary artifacts
 *.bin
 *.pyc
