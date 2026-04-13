@@ -10,6 +10,7 @@ from db_common import DB_PATH, DATA_DIR, clean_text, coerce_float, get_connectio
 
 
 SCHEMA_PATH = DATA_DIR / "market_schema.sql"
+SECTOR_DEFINITIONS_PATH = DATA_DIR / "sector_etfs.json"
 LEGACY_SECTOR_KEY = "unassigned"
 LEGACY_SECTOR_NAME = "Unassigned"
 
@@ -351,6 +352,40 @@ def initialize_database(db_path: Path | str = DB_PATH, schema_path: Path | str =
             _migrate_legacy_schema(conn)
         else:
             conn.executescript(Path(schema_path).read_text(encoding="utf-8"))
+
+
+def load_sector_definitions(
+    sector_definitions: dict[str, dict[str, Any]],
+    db_path: Path | str = DB_PATH,
+) -> None:
+    initialize_database(db_path=db_path)
+
+    with get_connection(db_path) as conn:
+        for sector_key, payload in sector_definitions.items():
+            if not isinstance(payload, dict):
+                payload = {}
+
+            normalized_sector_key = clean_text(sector_key)
+            if normalized_sector_key is None:
+                continue
+
+            sector_name = clean_text(payload.get("name")) or normalized_sector_key.replace("-", " ").title()
+            add_sector(
+                normalized_sector_key,
+                sector_name,
+                raw_json=payload,
+                conn=conn,
+            )
+
+
+def load_sector_definitions_from_json(
+    json_path: Path | str = SECTOR_DEFINITIONS_PATH,
+    db_path: Path | str = DB_PATH,
+) -> None:
+    payload = json.loads(Path(json_path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Top-level sector definitions payload must be a dictionary.")
+    load_sector_definitions(payload, db_path=db_path)
 
 
 def load_sector_tree(

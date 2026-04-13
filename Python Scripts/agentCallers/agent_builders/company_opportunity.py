@@ -15,7 +15,11 @@ if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
 
 from db_helpers import get_all_companies, get_all_industries, list_company_news_articles
-from db_helpers.market import list_companies_by_industry, list_industry_company_rankings
+from db_helpers.market import (
+    ensure_industry_market_data,
+    list_companies_by_industry,
+    list_industry_company_rankings,
+)
 
 
 def _find_industry(industry_identifier: str) -> dict[str, Any] | None:
@@ -23,6 +27,7 @@ def _find_industry(industry_identifier: str) -> dict[str, Any] | None:
     if not needle:
         return None
 
+    ensure_industry_market_data(industry_identifier)
     industries = get_all_industries()
     for industry in industries:
         if str(industry.get("industry_key") or "").strip().lower() == needle:

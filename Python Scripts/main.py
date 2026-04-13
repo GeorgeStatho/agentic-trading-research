@@ -40,6 +40,14 @@ for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
 load_dotenv(ENV_PATH)
 
 from agentCallers.main import run_full_agent_stack
+from db_helpers import (
+    ensure_sector_market_data,
+    get_all_companies,
+    get_all_industries,
+    get_all_sectors,
+    initialize_market_database,
+    initialize_news_database,
+)
 
 
 LOGGER = logging.getLogger("front_main")
@@ -52,6 +60,84 @@ MARKET_RECHECK_SECONDS = 5 * 60
 def _env_flag(name: str, default: bool) -> bool:
     value = str(os.getenv(name, str(default))).strip().lower()
     return value not in {"0", "false", "no", "off"}
+
+
+def _pick_sanity_check_sector(sectors: list[dict[str, Any]]) -> dict[str, Any]:
+    preferred_sector_key = str(os.getenv("COLD_START_SANITY_CHECK_SECTOR") or "technology").strip().lower()
+    for sector in sectors:
+        if str(sector.get("sector_key") or "").strip().lower() == preferred_sector_key:
+            return sector
+    return sectors[0]
+
+
+def _run_cold_start_sanity_check() -> dict[str, Any]:
+    initialize_market_database()
+    initialize_news_database()
+
+    sectors = get_all_sectors()
+    if not sectors:
+        raise RuntimeError(
+            "Cold-start sanity check failed: no sectors were seeded. Verify Data/sector_etfs.json exists and is non-empty."
+        )
+
+    industries = get_all_industries()
+    companies = get_all_companies()
+    needs_market_probe = not industries or not companies
+
+    result: dict[str, Any] = {
+        "sectors_seeded": len(sectors),
+        "industries_present": len(industries),
+        "companies_present": len(companies),
+        "performed_market_probe": needs_market_probe,
+        "sample_sector_key": "",
+        "sample_sector_name": "",
+        "sample_sector_industry_count": 0,
+        "sample_sector_company_count": 0,
+    }
+
+    if not needs_market_probe:
+        return result
+
+    sample_sector = _pick_sanity_check_sector(sectors)
+    sample_sector_key = str(sample_sector.get("sector_key") or "").strip()
+    sample_sector_name = str(sample_sector.get("name") or "").strip()
+    result["sample_sector_key"] = sample_sector_key
+    result["sample_sector_name"] = sample_sector_name
+
+    hydrated_sector = ensure_sector_market_data(sample_sector_key)
+    if hydrated_sector is None:
+        raise RuntimeError(
+            f"Cold-start sanity check failed: could not hydrate sector '{sample_sector_key}' from yfinance."
+        )
+
+    refreshed_industries = get_all_industries()
+    refreshed_companies = get_all_companies()
+    sample_sector_industries = [
+        industry
+        for industry in refreshed_industries
+        if str(industry.get("sector_key") or "").strip().lower() == sample_sector_key.lower()
+    ]
+    sample_sector_companies = [
+        company
+        for company in refreshed_companies
+        if str(company.get("sector_key") or "").strip().lower() == sample_sector_key.lower()
+    ]
+
+    result["industries_present"] = len(refreshed_industries)
+    result["companies_present"] = len(refreshed_companies)
+    result["sample_sector_industry_count"] = len(sample_sector_industries)
+    result["sample_sector_company_count"] = len(sample_sector_companies)
+
+    if not sample_sector_industries:
+        raise RuntimeError(
+            f"Cold-start sanity check failed: sector '{sample_sector_key}' seeded but no industries were loaded from yfinance."
+        )
+    if not sample_sector_companies:
+        raise RuntimeError(
+            f"Cold-start sanity check failed: sector '{sample_sector_key}' loaded industries but no companies were loaded."
+        )
+
+    return result
 
 
 def _build_log_path() -> Path:
@@ -395,6 +481,22 @@ def main_loop() -> None:
         run_interval_seconds=RUN_INTERVAL_SECONDS,
         market_recheck_seconds=MARKET_RECHECK_SECONDS,
     )
+
+    if _env_flag("COLD_START_SANITY_CHECK", True):
+        try:
+            sanity_result = _run_cold_start_sanity_check()
+            LOGGER.info("Cold-start sanity check passed: %s", sanity_result)
+            write_status(
+                "starting",
+                "Cold-start sanity check passed",
+                run_interval_seconds=RUN_INTERVAL_SECONDS,
+                market_recheck_seconds=MARKET_RECHECK_SECONDS,
+                cold_start_sanity_check=sanity_result,
+            )
+        except Exception as exc:
+            write_status("error", f"Cold-start sanity check failed: {exc}")
+            LOGGER.exception("Cold-start sanity check failed: %s", exc)
+            raise
 
     while True:
         cycle_started_at = datetime.now()

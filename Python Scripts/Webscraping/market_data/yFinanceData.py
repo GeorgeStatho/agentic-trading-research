@@ -169,6 +169,30 @@ def GetSectorInfo(
     include_research_reports: bool = True,
     include_sector_top_companies: bool = True,
 ) -> dict:
+    sector_payload = _build_sector_payload(
+        sector,
+        include_company_details=include_company_details,
+        include_top_growth=include_top_growth,
+        include_top_performing=include_top_performing,
+        include_research_reports=include_research_reports,
+        include_sector_top_companies=include_sector_top_companies,
+    )
+
+    SECTORS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SECTORS_FILE.write_text(json.dumps(sector_payload, indent=2, sort_keys=True), encoding="utf-8")
+    load_sector_tree(sector_payload)
+    return sector_payload
+
+
+def _build_sector_payload(
+    sector: str,
+    *,
+    include_company_details: bool = True,
+    include_top_growth: bool = True,
+    include_top_performing: bool = True,
+    include_research_reports: bool = True,
+    include_sector_top_companies: bool = True,
+) -> dict:
     snapshot = fetch_sector_snapshot(
         sector,
         include_research_reports=include_research_reports,
@@ -208,10 +232,6 @@ def GetSectorInfo(
             "industries": industries,
         }
     }
-
-    SECTORS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SECTORS_FILE.write_text(json.dumps(sector_payload, indent=2, sort_keys=True), encoding="utf-8")
-    load_sector_tree(sector_payload)
     return sector_payload
 
 
@@ -268,6 +288,47 @@ def saveIndustries(
     sector_tree = _build_sector_tree_from_industries(saved_industries)
     INDUSTRIES_FILE.parent.mkdir(parents=True, exist_ok=True)
     INDUSTRIES_FILE.write_text(json.dumps(sector_tree, indent=2, sort_keys=True), encoding="utf-8")
+    load_sector_tree(sector_tree)
+    return sector_tree
+
+
+def load_sector_from_yfinance(
+    sector: str,
+    *,
+    include_company_details: bool = True,
+    include_top_growth: bool = True,
+    include_top_performing: bool = True,
+    include_research_reports: bool = False,
+    include_sector_top_companies: bool = True,
+) -> dict[str, dict]:
+    sector_payload = _build_sector_payload(
+        sector,
+        include_company_details=include_company_details,
+        include_top_growth=include_top_growth,
+        include_top_performing=include_top_performing,
+        include_research_reports=include_research_reports,
+        include_sector_top_companies=include_sector_top_companies,
+    )
+    load_sector_tree(sector_payload)
+    return sector_payload
+
+
+def load_industry_from_yfinance(
+    industry: str,
+    *,
+    include_company_details: bool = True,
+    include_top_growth: bool = True,
+    include_top_performing: bool = True,
+    include_research_reports: bool = False,
+) -> dict[str, dict]:
+    industry_payload = GetIndustryInfo(
+        industry,
+        include_company_details=include_company_details,
+        include_top_growth=include_top_growth,
+        include_top_performing=include_top_performing,
+        include_research_reports=include_research_reports,
+    )
+    sector_tree = _build_sector_tree_from_industries({str(industry).strip(): industry_payload})
     load_sector_tree(sector_tree)
     return sector_tree
 

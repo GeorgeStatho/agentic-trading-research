@@ -55,6 +55,7 @@ from db_helpers import (
     initialize_news_database,
     link_company_to_article,
 )
+from db_helpers.market import ensure_all_sector_market_data, ensure_industry_market_data
 
 
 LOGGER = get_scrape_logger("company_pipeline")
@@ -354,6 +355,7 @@ def _find_industry(industry_identifier: str) -> dict | None:
     if not needle:
         return None
 
+    ensure_industry_market_data(industry_identifier)
     industries = get_all_industries()
 
     for industry in industries:
@@ -507,6 +509,7 @@ def get_company_news(company_identifier: str) -> int:
 
 def get_all_company_news() -> None:
     initialize_news_database()
+    ensure_all_sector_market_data()
     companies = get_all_companies()
     # Run the shared discovery/follow/save process for every company using one
     # crawl batch, then report how many articles were saved per company.
@@ -555,6 +558,7 @@ def get_industries_company_news(industry_identifiers: list[str]) -> int:
 
 def get_top_companies_news(*, top_company_count: int = 25) -> int:
     initialize_news_database()
+    ensure_all_sector_market_data()
     companies = _get_top_companies(top_company_count)
     if not companies:
         LOGGER.info("No top companies available for company news scrape")
