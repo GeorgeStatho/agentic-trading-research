@@ -1,0 +1,68 @@
+{
+  "basic-materials": {
+    "name": "Materials Select Sector SPDR Fund",
+    "ticker": "XLB",
+    "provider": "State Street",
+    "category": "sector_etf"
+  },
+  "communication-services": {
+    "name": "Communication Services Select Sector SPDR Fund",
+    "ticker": "XLC",
+    "provider": "State Street",
+    "category": "sector_etf"
+  },
+  "consumer-cyclical": {
+    "name": "Consumer Discretionary Select Sector SPDR Fund",
+    "ticker": "XLY",
+    "provider": "State Street",
+    "category": "sector_etf"
+  },
+  "consumer-defensive": {
+    "name": "Consumer Staples Select Sector SPDR Fund",
+    "ticker": "XLP",
+    "provider": "State Street",
+    "category": "sector_etf"
+  },
+  "energy": {
+    "name": "Energy Select Sector SPDR Fund",
+    "ticker": "XLE",
+    "provider": "State Street",
+    "category": "sector_etf"
+  },
+  "financial-services": {
+    "name": "Financial Select Sector SPDR Fund",
+    "ticker": "XLF",
+    "provider": "State Street",
+    "category": "sector_etf"
+  },
+  "healthcare": {
+    "name": "Health Care Select Sector SPDR Fund",
+    "ticker": "XLV",
+    "provider": "State Street",
+    "category": "sector_etf"
+  },
+  "industrials": {
+    "name": "Industrial Select Sector SPDR Fund",
+    "ticker": "XLI",
+    "provider": "State Street",
+    "category": "sector_etf"
+  },
+  "real-estate": {
+    "name": "Real Estate Select Sector SPDR Fund",
+    "ticker": "XLRE",
+    "provider": "State Street",
+    "category": "sector_etf"
+  },
+  "technology": {
+    "name": "Technology Select Sector SPDR Fund",
+    "ticker": "XLK",
+    "provider": "State Street",
+    "category": "sector_etf"
+  },
+  "utilities": {
+    "name": "Utilities Select Sector SPDR Fund",
+    "ticker": "XLU",
+    "provider": "State Street",
+    "category": "sector_etf"
+  }
+}
