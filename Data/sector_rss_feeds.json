@@ -1,0 +1,117 @@
+{
+  "https://www.cnbc.com/id/19854910/device/rss/rss.html": {
+    "feed_name": "Technology News",
+    "sector_name": "Information Technology",
+    "sector_key": "technology",
+    "category": "sector_rss_feed",
+    "mapping_type": "direct",
+    "topic_tag": "technology"
+  },
+  "https://www.cnbc.com/id/19836768/device/rss/rss.html": {
+    "feed_name": "Energy",
+    "sector_name": "Energy",
+    "sector_key": "energy",
+    "category": "sector_rss_feed",
+    "mapping_type": "direct",
+    "topic_tag": "energy"
+  },
+  "https://www.cnbc.com/id/10000108/device/rss/rss.html": {
+    "feed_name": "Health and Science",
+    "sector_name": "Health Care",
+    "sector_key": "healthcare",
+    "category": "sector_rss_feed",
+    "mapping_type": "mostly_sector",
+    "topic_tag": "health_science",
+    "notes": "Primarily health care, with some adjacent science and biotech coverage."
+  },
+  "https://www.cnbc.com/id/10000115/device/rss/rss.html": {
+    "feed_name": "Real Estate",
+    "sector_name": "Real Estate",
+    "sector_key": "real-estate",
+    "category": "sector_rss_feed",
+    "mapping_type": "direct",
+    "topic_tag": "real_estate"
+  },
+  "https://www.cnbc.com/id/10000664/device/rss/rss.html": {
+    "feed_name": "Finance",
+    "sector_name": "Financials",
+    "sector_key": "financial-services",
+    "category": "sector_rss_feed",
+    "mapping_type": "direct",
+    "topic_tag": "finance"
+  },
+  "https://www.cnbc.com/id/100646281/device/rss/rss.html": {
+    "feed_name": "Financial Advisors",
+    "sector_name": "Financials",
+    "sector_key": "financial-services",
+    "category": "sector_rss_feed",
+    "mapping_type": "direct",
+    "topic_tag": "financial_advisors"
+  },
+  "https://www.cnbc.com/id/10001054/device/rss/rss.html": {
+    "feed_name": "Wealth",
+    "sector_name": "Financials",
+    "sector_key": "financial-services",
+    "category": "sector_rss_feed",
+    "mapping_type": "direct",
+    "topic_tag": "wealth"
+  },
+  "https://www.cnbc.com/id/10000101/device/rss/rss.html": {
+    "feed_name": "Autos",
+    "sector_name": "Consumer Discretionary",
+    "sector_key": "consumer-cyclical",
+    "category": "sector_rss_feed",
+    "mapping_type": "mostly_sector",
+    "topic_tag": "autos",
+    "notes": "Mostly consumer discretionary, with some industrials overlap."
+  },
+  "https://www.cnbc.com/id/10000116/device/rss/rss.html": {
+    "feed_name": "Retail",
+    "sector_name": "Consumer Discretionary",
+    "sector_key": "consumer-cyclical",
+    "category": "sector_rss_feed",
+    "mapping_type": "mostly_sector",
+    "topic_tag": "retail",
+    "notes": "Mostly consumer discretionary, though some consumer staples names may appear."
+  },
+  "https://www.cnbc.com/id/10000739/device/rss/rss.html": {
+    "feed_name": "Travel",
+    "sector_name": "Consumer Discretionary",
+    "sector_key": "consumer-cyclical",
+    "category": "sector_rss_feed",
+    "mapping_type": "mostly_sector",
+    "topic_tag": "travel",
+    "notes": "Mostly consumer discretionary, especially airlines, hotels, cruise, booking, and leisure."
+  },
+  "https://www.cnbc.com/id/21324812/device/rss/rss.html": {
+    "feed_name": "Personal Finance",
+    "sector_name": null,
+    "sector_key": null,
+    "category": "sector_rss_feed",
+    "mapping_type": "mixed",
+    "topic_tag": "consumer_finance",
+    "suggested_sector_keys": [
+      "consumer-cyclical",
+      "financial-services"
+    ],
+    "notes": "Mostly household-finance and macro content rather than a pure equity sector feed."
+  },
+  "https://www.cnbc.com/id/44877279/device/rss/rss.html": {
+    "feed_name": "Small Business",
+    "sector_name": "Industrials",
+    "sector_key": "industrials",
+    "category": "sector_rss_feed",
+    "mapping_type": "mostly_sector",
+    "topic_tag": "small_business",
+    "notes": "Mixed, but useful as an industrials, entrepreneurship, and operating-business feed."
+  },
+  "https://www.cnbc.com/id/100004032/device/rss/rss.html": {
+    "feed_name": "CEO Interviews",
+    "sector_name": null,
+    "sector_key": null,
+    "category": "sector_rss_feed",
+    "mapping_type": "mixed",
+    "topic_tag": "management_leadership",
+    "notes": "Cross-sector executive commentary rather than a pure sector feed."
+  }
+}
