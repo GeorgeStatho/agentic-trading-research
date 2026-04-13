@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 import sys
+import time
 from typing import Any
 
 AGENT_STAGES_DIR = Path(__file__).resolve().parent
@@ -33,6 +34,10 @@ DEFAULT_MODEL = os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "wor
 DEFAULT_MAX_ARTICLE_AGE_DAYS = 3
 DEFAULT_CONTEXT_LIMIT = 4096
 DEFAULT_PROMPT_OVERHEAD_TOKENS = 1200
+DEFAULT_BATCH_PAUSE_SECONDS = max(
+    0.0,
+    float(os.getenv("MACRO_NEWS_BATCH_PAUSE_SECONDS", "0.75")),
+)
 macro_news_classifier = get_ollama_client(OLLAMA_HOST)
 LOGGER = logging.getLogger(__name__)
 
@@ -208,7 +213,14 @@ def _collect_cleaned_pairs(
     cleaned_pairs: list[dict[str, Any]] = []
     seen_pairs: set[tuple[int, int]] = set()
 
-    for article_batch in article_batches:
+    for batch_index, article_batch in enumerate(article_batches):
+        if (
+            batch_index > 0
+            and client.provider == "vertex"
+            and DEFAULT_BATCH_PAUSE_SECONDS > 0
+        ):
+            time.sleep(DEFAULT_BATCH_PAUSE_SECONDS)
+
         raw_response, batch_pairs = _classify_article_batch(
             article_batch,
             sectors=sectors,
