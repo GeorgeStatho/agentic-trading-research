@@ -4,9 +4,12 @@
 *.sqlite
 *.sqlite3
 
-# Keep frontend package metadata tracked
+# Keep frontend JSON config tracked
 !web_dashboard/package.json
 !web_dashboard/package-lock.json
+!web_dashboard/tsconfig.json
+!web_dashboard/tsconfig.app.json
+!web_dashboard/tsconfig.node.json
 
 # Binary artifacts
 *.bin
