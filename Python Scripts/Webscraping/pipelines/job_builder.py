@@ -187,6 +187,8 @@ def build_industry_source_jobs(industries: list[dict]) -> list[IndustrySourceJob
 
     for industry in industries:
         for source_name, source_config in INDUSTRY_NEWS_SOURCES.items():
+            if source_config.get("company_specific"):
+                continue
             url = build_source_url(industry["name"], source_config)
             if not supports_source_type(url, source_config["type"]):
                 continue

@@ -6,6 +6,7 @@ from news_db import (
     add_industry_opportunist_impact,
     add_sector_news_article,
     add_sector_opportunist_impact,
+    add_strategist_company_summary,
     add_us_news_article,
     add_us_news_sector_impact,
     add_world_news_article,
