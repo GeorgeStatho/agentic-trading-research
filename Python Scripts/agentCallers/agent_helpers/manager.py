@@ -274,6 +274,22 @@ def _serialize_quote_snapshot(quote: Any) -> dict[str, Any]:
     }
 
 
+def _get_contract_market_price(contract: dict[str, Any]) -> float | None:
+    latest_quote = contract.get("latest_quote", {})
+    if isinstance(latest_quote, dict):
+        for key in ("midpoint_price", "ask_price", "bid_price"):
+            price = _safe_float(latest_quote.get(key))
+            if price is not None and price > 0:
+                return price
+
+    for key in ("latest_trade_price", "close_price"):
+        price = _safe_float(contract.get(key))
+        if price is not None and price > 0:
+            return price
+
+    return None
+
+
 def _serialize_option_contract(contract: Any) -> dict[str, Any]:
     return {
         "contract_id": _serialize_scalar(_get_field(contract, "id")),

@@ -22,6 +22,14 @@ DATA_DIR = ROOT_DIR / "Data"
 LOGS_DIR = DATA_DIR / "logs"
 ENV_PATH = ROOT_DIR / ".env"
 AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
+
+for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
+    normalized = str(path)
+    if normalized not in sys.path:
+        sys.path.append(normalized)
+
+load_dotenv(ENV_PATH)
+
 STATUS_PATH = Path(
     os.getenv("SCRIPT_STATUS_PATH", str(ROOT_DIR / "web_dashboard" / "public" / "script_status.json"))
 )
@@ -31,13 +39,6 @@ TRADE_OUTPUT_PATH = Path(
         str(DATA_DIR / "trade_execution_output.json"),
     )
 )
-
-for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.append(normalized)
-
-load_dotenv(ENV_PATH)
 
 from agentCallers.main import run_full_agent_stack
 from db_helpers import (
