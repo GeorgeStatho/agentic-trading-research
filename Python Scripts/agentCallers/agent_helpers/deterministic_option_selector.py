@@ -127,6 +127,16 @@ def _get_contract_market_price(contract: dict[str, Any]) -> float | None:
     return None
 
 
+def _is_otm_contract(contract_type: str, strike_price: float | None, reference_stock_price: float | None) -> bool:
+    if strike_price is None or reference_stock_price is None:
+        return False
+    if contract_type == "call":
+        return strike_price >= reference_stock_price
+    if contract_type == "put":
+        return strike_price <= reference_stock_price
+    return False
+
+
 def _pick_matching_contract(
     *,
     decision: str,
@@ -157,7 +167,7 @@ def _pick_matching_contract(
     if not matching_contracts:
         return None
 
-    def sort_key(contract: dict[str, Any]) -> tuple[float, float, str, float, int]:
+    def sort_key(contract: dict[str, Any]) -> tuple[float, float, float, str, float, int]:
         contract_price = _get_contract_market_price(contract)
         has_contract_price = 0.0 if contract_price is not None else 1.0
 
@@ -167,6 +177,7 @@ def _pick_matching_contract(
             if strike_price is not None and reference_stock_price is not None
             else float("inf")
         )
+        otm_preference = 0.0 if _is_otm_contract(normalized_decision, strike_price, reference_stock_price) else 1.0
 
         expiration_date = str(contract.get("expiration_date") or "9999-12-31")
         open_interest = _coerce_float(contract.get("open_interest"))
@@ -175,6 +186,7 @@ def _pick_matching_contract(
 
         return (
             has_contract_price,
+            otm_preference,
             strike_distance,
             expiration_date,
             open_interest_rank,
