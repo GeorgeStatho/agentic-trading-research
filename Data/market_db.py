@@ -369,7 +369,11 @@ def load_sector_definitions(
             if normalized_sector_key is None:
                 continue
 
-            sector_name = clean_text(payload.get("name")) or normalized_sector_key.replace("-", " ").title()
+            sector_name = (
+                clean_text(payload.get("sector_name"))
+                or clean_text(payload.get("name"))
+                or normalized_sector_key.replace("-", " ").title()
+            )
             add_sector(
                 normalized_sector_key,
                 sector_name,
