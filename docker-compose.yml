@@ -43,6 +43,7 @@ services:
       WORLD_NEWS_OLLAMA_HOST: http://ollama:11434
     volumes:
       - runtime_data:/shared
+      - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
     command: ["python", "Python Scripts/main.py"]
 
   api:
@@ -57,6 +58,13 @@ services:
       TRADE_EXECUTION_OUTPUT_PATH: /shared/trade_execution_output.json
     volumes:
       - runtime_data:/shared
+      - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     command: ["python", "api.py"]
 
   web:
@@ -66,8 +74,10 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - api
-      - worker
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_started
 
 volumes:
   runtime_data:
