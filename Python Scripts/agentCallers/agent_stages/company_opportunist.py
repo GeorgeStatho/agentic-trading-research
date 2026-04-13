@@ -51,6 +51,9 @@ DEFAULT_PROMPT_OVERHEAD_TOKENS = 1200
 
 company_opportunist = get_ollama_client(OLLAMA_HOST)
 LOGGER = logging.getLogger(__name__)
+DEFAULT_TOP_COMPANIES_LIMIT = max(1, int(os.getenv("COMPANY_OPPORTUNIST_TOP_COMPANIES_LIMIT", "12")))
+DEFAULT_RANKED_COMPANIES_LIMIT = max(1, int(os.getenv("COMPANY_OPPORTUNIST_RANKED_COMPANIES_LIMIT", "6")))
+DEFAULT_ARTICLE_BODY_CHAR_LIMIT = max(200, int(os.getenv("COMPANY_OPPORTUNIST_ARTICLE_BODY_CHAR_LIMIT", "1200")))
 COMPANY_IMPACTS_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -98,6 +101,28 @@ def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) 
     )
 
 
+def _truncate_text(value: Any, *, limit: int) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _build_trimmed_peer_groups(peer_groups: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "industry": dict(peer_groups.get("industry") or {}),
+        "top_companies": list(peer_groups.get("top_companies") or [])[:DEFAULT_TOP_COMPANIES_LIMIT],
+        "top_growth_companies": list(peer_groups.get("top_growth_companies") or [])[:DEFAULT_RANKED_COMPANIES_LIMIT],
+        "top_performing_companies": list(peer_groups.get("top_performing_companies") or [])[:DEFAULT_RANKED_COMPANIES_LIMIT],
+    }
+
+
+def _is_empty_vertex_max_tokens_error(exc: Exception) -> bool:
+    message = str(exc or "")
+    normalized = message.upper()
+    return "MODEL RETURNED EMPTY CONTENT" in normalized and "MAX_TOKENS" in normalized
+
+
 def build_company_opportunist_prompt(
     company: dict[str, Any],
     peer_groups: dict[str, Any],
@@ -124,14 +149,17 @@ def build_company_opportunist_prompt(
     payload = {
         "task": str(task_override or "Map each company-linked article to the likely impact on the supplied company."),
         "company": company,
-        "peer_groups": peer_groups,
+        "peer_groups": _build_trimmed_peer_groups(peer_groups),
         "articles": [
             {
                 "article_id": article["article_id"],
                 "article_scope": article["article_scope"],
                 "title": article["title"],
                 "summary": article["summary"],
-                "body": article["body"] or article["summary"],
+                "body": _truncate_text(
+                    article["body"] or article["summary"],
+                    limit=DEFAULT_ARTICLE_BODY_CHAR_LIMIT,
+                ),
                 "published_at": article["published_at"],
                 "source": article["source"],
                 "source_url": article["source_url"],
@@ -201,15 +229,27 @@ def _collect_cleaned_impacts(
     for article_batch in article_batches:
         for article in article_batch:
             single_article_batch = [article]
-            raw_response, batch_impacts = _classify_article_batch(
-                single_article_batch,
-                company=company,
-                peer_groups=peer_groups,
-                client=client,
-                model=model,
-                system_prompt_override=system_prompt_override,
-                task_override=task_override,
-            )
+            try:
+                raw_response, batch_impacts = _classify_article_batch(
+                    single_article_batch,
+                    company=company,
+                    peer_groups=peer_groups,
+                    client=client,
+                    model=model,
+                    system_prompt_override=system_prompt_override,
+                    task_override=task_override,
+                )
+            except RuntimeError as exc:
+                if not _is_empty_vertex_max_tokens_error(exc):
+                    raise
+
+                raw_response = str(exc)
+                batch_impacts = []
+                LOGGER.warning(
+                    "Skipping company article %s for %s because the model hit MAX_TOKENS and returned no JSON content.",
+                    int(article["article_id"]),
+                    valid_symbol,
+                )
             batch_cleaned_impacts: list[dict[str, Any]] = []
 
             for impact in batch_impacts:
