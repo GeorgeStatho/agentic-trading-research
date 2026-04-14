@@ -38,8 +38,10 @@ DEFAULT_MODEL = os.getenv(
     os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "world-news-sectors")),
 )
 
-VALID_DECISIONS = {"buy", "do_not_buy"}
+VALID_DECISIONS = {"trade_candidate", "do_not_trade"}
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
+VALID_OPTION_DIRECTIONS = {"call", "put", "neither"}
+VALID_STOCK_DIRECTIONS = {"up", "down", "neutral"}
 
 strategist = get_ollama_client(OLLAMA_HOST)
 STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
@@ -48,8 +50,10 @@ STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
         "recommendation": {
             "type": "object",
             "properties": {
-                "decision": {"type": "string", "enum": ["buy", "do_not_buy"]},
+                "decision": {"type": "string", "enum": ["trade_candidate", "do_not_trade"]},
                 "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                "preferred_option_direction": {"type": "string", "enum": ["call", "put", "neither"]},
+                "expected_stock_direction": {"type": "string", "enum": ["up", "down", "neutral"]},
                 "summary": {"type": "string"},
                 "thesis": {
                     "type": "array",
@@ -60,7 +64,15 @@ STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
                     "items": {"type": "string"},
                 },
             },
-            "required": ["decision", "confidence", "summary", "thesis", "risks"],
+            "required": [
+                "decision",
+                "confidence",
+                "preferred_option_direction",
+                "expected_stock_direction",
+                "summary",
+                "thesis",
+                "risks",
+            ],
             "additionalProperties": False,
         }
     },
@@ -125,24 +137,32 @@ def build_strategist_prompt(
     task_override: str | None = None,
 ) -> tuple[str, str]:
     default_system_prompt = (
-        "You are an investment strategist deciding whether a company is currently a buy or not a buy. "
+        "You are an investment strategist deciding whether a company currently supports opening an options trade candidate on the underlying equity. "
         "Use only the supplied structured context. "
         "Treat upstream agent conclusions as signals, not certainty, and weigh them against the article evidence "
         "and the supplied 1d, 5d, 1mo, and 3mo historical price action. "
-        "If the evidence is mixed, weak, or mostly negative, prefer 'do_not_buy'. "
+        "Your job is not to pick stock shares and not to select a specific contract. "
+        "Your job is to decide whether the company has enough high-quality evidence and tradable setup quality to pass forward as an options trade candidate, "
+        "and to express the directional bias as both a stock direction (up, down, neutral) and an options bias (call, put, neither). "
+        "If the evidence is mixed, weak, stale, contradictory, or mostly negative, prefer 'do_not_trade'. "
         "Return only valid JSON with a top-level key named 'recommendation'. "
         "Do not include markdown fences, notes, or extra keys. "
-        "The recommendation object must contain: decision, confidence, summary, thesis, and risks. "
-        "decision must be one of: buy, do_not_buy. "
+        "The recommendation object must contain: decision, confidence, preferred_option_direction, expected_stock_direction, summary, thesis, and risks. "
+        "decision must be one of: trade_candidate, do_not_trade. "
         "confidence must be one of: high, medium, low. "
+        "preferred_option_direction must be one of: call, put, neither. "
+        "expected_stock_direction must be one of: up, down, neutral. "
         "summary must be a short paragraph. "
-        "thesis must be a short list of bullish supporting points. "
-        "risks must be a short list of reasons the company should not be bought or should be watched carefully."
+        "thesis must be a short list of supporting points for opening an options trade on this underlying. "
+        "risks must be a short list of reasons the company should not be traded or should be watched carefully."
     )
     system_prompt = str(system_prompt_override or default_system_prompt)
 
     user_payload = {
-        "task": str(task_override or "Decide whether the supplied company is a buy right now using the layered strategist context."),
+        "task": str(
+            task_override
+            or "Decide whether the supplied company should move forward as an options trade candidate using the layered strategist context."
+        ),
         "company": payload["company"],
         "peer_groups": payload.get("peer_groups", {}),
         "filters": payload.get("filters", {}),
@@ -150,8 +170,10 @@ def build_strategist_prompt(
         "supporting_articles": payload.get("supporting_articles", {}),
         "required_output": {
             "recommendation": {
-                "decision": "buy|do_not_buy",
+                "decision": "trade_candidate|do_not_trade",
                 "confidence": "high|medium|low",
+                "preferred_option_direction": "call|put|neither",
+                "expected_stock_direction": "up|down|neutral",
                 "summary": "short paragraph",
                 "thesis": ["short point"],
                 "risks": ["short point"],
@@ -171,7 +193,15 @@ def _extract_recommendation(payload: dict[str, Any] | None) -> dict[str, Any] | 
 
     if any(
         key in payload
-        for key in ("decision", "confidence", "summary", "thesis", "risks")
+        for key in (
+            "decision",
+            "confidence",
+            "preferred_option_direction",
+            "expected_stock_direction",
+            "summary",
+            "thesis",
+            "risks",
+        )
     ):
         return payload
 
@@ -183,7 +213,15 @@ def _extract_recommendation(payload: dict[str, Any] | None) -> dict[str, Any] | 
                 return nested_recommendation
             if any(
                 inner_key in nested
-                for inner_key in ("decision", "confidence", "summary", "thesis", "risks")
+                for inner_key in (
+                    "decision",
+                    "confidence",
+                    "preferred_option_direction",
+                    "expected_stock_direction",
+                    "summary",
+                    "thesis",
+                    "risks",
+                )
             ):
                 return nested
 
@@ -207,23 +245,40 @@ def _normalize_string_list(value: Any) -> list[str]:
 def _normalize_decision(value: Any) -> str:
     decision = str(value or "").strip().lower()
     replacements = {
-        "no_buy": "do_not_buy",
-        "not_buy": "do_not_buy",
-        "dont_buy": "do_not_buy",
-        "don't_buy": "do_not_buy",
-        "do not buy": "do_not_buy",
-        "not a buy": "do_not_buy",
-        "avoid": "do_not_buy",
-        "hold": "do_not_buy",
-        "pass": "do_not_buy",
+        "buy": "trade_candidate",
+        "candidate": "trade_candidate",
+        "trade": "trade_candidate",
+        "tradeable": "trade_candidate",
+        "tradable": "trade_candidate",
+        "trade_candidate": "trade_candidate",
+        "trade candidate": "trade_candidate",
+        "options_candidate": "trade_candidate",
+        "options candidate": "trade_candidate",
+        "no_buy": "do_not_trade",
+        "not_buy": "do_not_trade",
+        "dont_buy": "do_not_trade",
+        "don't_buy": "do_not_trade",
+        "do not buy": "do_not_trade",
+        "not a buy": "do_not_trade",
+        "avoid": "do_not_trade",
+        "hold": "do_not_trade",
+        "pass": "do_not_trade",
+        "do_not_trade": "do_not_trade",
+        "do not trade": "do_not_trade",
+        "not_trade": "do_not_trade",
+        "not trade": "do_not_trade",
     }
     decision = replacements.get(decision, decision)
     if decision in VALID_DECISIONS:
         return decision
+    if any(token in decision for token in ("trade_candidate", "trade candidate", "tradable", "tradeable")):
+        return "trade_candidate"
     if "buy" in decision and "not" not in decision and "no" not in decision:
-        return "buy"
+        return "trade_candidate"
+    if "trade" in decision and "not" not in decision and "no" not in decision:
+        return "trade_candidate"
     if any(token in decision for token in ("not", "avoid", "hold", "pass")):
-        return "do_not_buy"
+        return "do_not_trade"
     return ""
 
 
@@ -242,12 +297,71 @@ def _normalize_confidence(value: Any) -> str:
     return confidence if confidence in VALID_CONFIDENCE_LEVELS else ""
 
 
+def _normalize_option_direction(value: Any) -> str:
+    direction = str(value or "").strip().lower()
+    replacements = {
+        "buy_call": "call",
+        "buy call": "call",
+        "bullish": "call",
+        "long_call": "call",
+        "long call": "call",
+        "calls": "call",
+        "buy_put": "put",
+        "buy put": "put",
+        "bearish": "put",
+        "long_put": "put",
+        "long put": "put",
+        "puts": "put",
+        "none": "neither",
+        "neutral": "neither",
+        "no_trade": "neither",
+        "no trade": "neither",
+        "do_not_trade": "neither",
+    }
+    direction = replacements.get(direction, direction)
+    return direction if direction in VALID_OPTION_DIRECTIONS else ""
+
+
+def _normalize_stock_direction(value: Any) -> str:
+    direction = str(value or "").strip().lower()
+    replacements = {
+        "bullish": "up",
+        "rise": "up",
+        "higher": "up",
+        "upside": "up",
+        "bearish": "down",
+        "fall": "down",
+        "lower": "down",
+        "downside": "down",
+        "flat": "neutral",
+        "sideways": "neutral",
+        "none": "neutral",
+        "no_trade": "neutral",
+        "no trade": "neutral",
+        "do_not_trade": "neutral",
+    }
+    direction = replacements.get(direction, direction)
+    return direction if direction in VALID_STOCK_DIRECTIONS else ""
+
+
 def _normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(recommendation, dict):
         return None
 
     decision = _normalize_decision(recommendation.get("decision"))
     confidence = _normalize_confidence(recommendation.get("confidence"))
+    preferred_option_direction = _normalize_option_direction(
+        recommendation.get("preferred_option_direction")
+        or recommendation.get("option_direction")
+        or recommendation.get("options_bias")
+        or recommendation.get("option_bias")
+    )
+    expected_stock_direction = _normalize_stock_direction(
+        recommendation.get("expected_stock_direction")
+        or recommendation.get("stock_direction")
+        or recommendation.get("direction")
+        or recommendation.get("price_direction")
+    )
     summary = str(recommendation.get("summary") or recommendation.get("reason") or "").strip()
     thesis = _normalize_string_list(recommendation.get("thesis"))
     risks = _normalize_string_list(recommendation.get("risks"))
@@ -265,9 +379,27 @@ def _normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str
     if not summary and thesis:
         summary = thesis[0]
 
+    if not preferred_option_direction and expected_stock_direction:
+        direction_map = {"up": "call", "down": "put", "neutral": "neither"}
+        preferred_option_direction = direction_map.get(expected_stock_direction, "")
+    if not expected_stock_direction and preferred_option_direction:
+        direction_map = {"call": "up", "put": "down", "neither": "neutral"}
+        expected_stock_direction = direction_map.get(preferred_option_direction, "")
+
+    if decision == "trade_candidate":
+        preferred_option_direction = preferred_option_direction or "neither"
+        expected_stock_direction = expected_stock_direction or "neutral"
+    if decision == "do_not_trade":
+        preferred_option_direction = preferred_option_direction or "neither"
+        expected_stock_direction = expected_stock_direction or "neutral"
+
     if decision not in VALID_DECISIONS:
         return None
     if confidence not in VALID_CONFIDENCE_LEVELS:
+        return None
+    if preferred_option_direction not in VALID_OPTION_DIRECTIONS:
+        return None
+    if expected_stock_direction not in VALID_STOCK_DIRECTIONS:
         return None
     if not summary:
         return None
@@ -275,6 +407,8 @@ def _normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str
     return {
         "decision": decision,
         "confidence": confidence,
+        "preferred_option_direction": preferred_option_direction,
+        "expected_stock_direction": expected_stock_direction,
         "summary": summary,
         "thesis": thesis,
         "risks": risks,
@@ -314,7 +448,17 @@ def _extract_recommendation_from_text(raw_response: str) -> dict[str, Any] | Non
     normalized_text = text.replace("**", "")
 
     decision_match = re.search(
-        r"recommendation\s*:?\s*(buy|do[_\s-]*not[_\s-]*buy|hold|avoid|pass)",
+        r"recommendation\s*:?\s*(trade[_\s-]*candidate|do[_\s-]*not[_\s-]*trade|buy|do[_\s-]*not[_\s-]*buy|hold|avoid|pass)",
+        normalized_text,
+        re.IGNORECASE,
+    )
+    option_direction_match = re.search(
+        r"(preferred[_\s]?option[_\s]?direction|option[_\s]?direction|option[_\s]?bias|options[_\s]?bias)\s*:?\s*(call|put|neither|buy[_\s-]*call|buy[_\s-]*put|bullish|bearish|neutral)",
+        normalized_text,
+        re.IGNORECASE,
+    )
+    stock_direction_match = re.search(
+        r"(expected[_\s]?stock[_\s]?direction|stock[_\s]?direction|direction|price[_\s]?direction)\s*:?\s*(up|down|neutral|bullish|bearish|flat|sideways)",
         normalized_text,
         re.IGNORECASE,
     )
@@ -355,6 +499,8 @@ def _extract_recommendation_from_text(raw_response: str) -> dict[str, Any] | Non
     recommendation = {
         "decision": decision_match.group(1) if decision_match else "",
         "confidence": confidence_match.group(1) if confidence_match else "",
+        "preferred_option_direction": option_direction_match.group(2) if option_direction_match else "",
+        "expected_stock_direction": stock_direction_match.group(2) if stock_direction_match else "",
         "summary": summary,
         "thesis": _clean_bullet_lines(thesis_text),
         "risks": _clean_bullet_lines(risks_text),
@@ -368,9 +514,11 @@ def _build_no_evidence_result(company: dict[str, Any], *, context_snapshot: dict
         "company": company,
         "context_snapshot": context_snapshot,
         "recommendation": {
-            "decision": "do_not_buy",
+            "decision": "do_not_trade",
             "confidence": "low",
-            "summary": "There was not enough processed article evidence available to support a buy decision.",
+            "preferred_option_direction": "neither",
+            "expected_stock_direction": "neutral",
+            "summary": "There was not enough processed article evidence available to support opening an options trade on this underlying.",
             "thesis": [],
             "risks": ["Insufficient supporting evidence from macro, sector, industry, and company article analysis."],
         },

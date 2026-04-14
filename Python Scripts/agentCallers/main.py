@@ -136,7 +136,10 @@ def _run_strategist_and_manager(company_symbols: list[str]) -> tuple[list[dict[s
         )
 
         LOGGER.info("Running manager for %s", symbol)
-        manager_result = decide_company_option_position(symbol)
+        manager_result = decide_company_option_position(
+            symbol,
+            strategist_recommendation=strategist_result.get("recommendation", {}),
+        )
         manager_result = apply_deterministic_option_selection(manager_result)
         manager_results.append(manager_result)
         LOGGER.info(
