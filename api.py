@@ -99,6 +99,10 @@ def _alpaca_base_url() -> str:
     )
 
 
+def _alpaca_data_base_url() -> str:
+    return "https://data.alpaca.markets"
+
+
 def _alpaca_get_json(path: str, query: dict[str, str] | None = None):
     api_key = str(os.getenv("PUBLIC_KEY") or "").strip()
     api_secret = str(os.getenv("PRIVATE_KEY") or "").strip()
@@ -127,6 +131,36 @@ def _alpaca_get_json(path: str, query: dict[str, str] | None = None):
         raise RuntimeError(f"Alpaca request failed with status {exc.code}: {details}") from exc
     except URLError as exc:
         raise RuntimeError(f"Failed to reach Alpaca API: {exc.reason}") from exc
+
+
+def _alpaca_data_get_json(path: str, query: dict[str, str] | None = None):
+    api_key = str(os.getenv("PUBLIC_KEY") or "").strip()
+    api_secret = str(os.getenv("PRIVATE_KEY") or "").strip()
+
+    if not api_key or not api_secret:
+        raise RuntimeError("PUBLIC_KEY and PRIVATE_KEY must be configured in Stock-trading-experiment/.env")
+
+    url = f"{_alpaca_data_base_url()}{path}"
+    if query:
+        url = f"{url}?{urlencode(query)}"
+
+    request = Request(
+        url,
+        headers={
+            "APCA-API-KEY-ID": api_key,
+            "APCA-API-SECRET-KEY": api_secret,
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urlopen(request) as response:
+            return json.load(response)
+    except HTTPError as exc:
+        details = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Alpaca market-data request failed with status {exc.code}: {details}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Failed to reach Alpaca market-data API: {exc.reason}") from exc
 
 
 def _read_json_payload(path: Path):
@@ -261,6 +295,19 @@ def _compute_max_drawdown_pct(portfolio_history: dict) -> float | None:
     return round(max_drawdown_pct, 2)
 
 
+def _compute_days_to_expiration(expiration_date_text: str | None) -> float | None:
+    if not expiration_date_text:
+        return None
+
+    parsed_expiration = _parse_datetime(str(expiration_date_text))
+    if parsed_expiration is None:
+        return None
+
+    expiration_date = parsed_expiration.date()
+    current_date = datetime.now(timezone.utc).date()
+    return float((expiration_date - current_date).days)
+
+
 def _compute_win_rate_from_fills(fills) -> dict:
     if not isinstance(fills, list):
         return {"wins": 0, "closed_trades": 0, "win_rate_pct": None}
@@ -346,6 +393,59 @@ def _load_option_management_snapshot() -> tuple[dict[str, dict], dict]:
     return by_symbol, payload
 
 
+def _extract_option_quote_fields(quote_payload: dict) -> dict[str, float | str | None]:
+    if not isinstance(quote_payload, dict):
+        return {"bid_price": None, "ask_price": None, "timestamp": ""}
+
+    bid_price = _safe_float(
+        quote_payload.get("bid_price")
+        or quote_payload.get("bp")
+    )
+    ask_price = _safe_float(
+        quote_payload.get("ask_price")
+        or quote_payload.get("ap")
+    )
+    timestamp = str(
+        quote_payload.get("timestamp")
+        or quote_payload.get("t")
+        or ""
+    )
+    return {
+        "bid_price": bid_price,
+        "ask_price": ask_price,
+        "timestamp": timestamp,
+    }
+
+
+def _get_latest_option_quote(symbol: str, quote_cache: dict[str, dict]) -> dict[str, float | str | None]:
+    normalized_symbol = str(symbol or "").strip().upper()
+    if not normalized_symbol:
+        return {"bid_price": None, "ask_price": None, "timestamp": ""}
+
+    if normalized_symbol in quote_cache:
+        return quote_cache[normalized_symbol]
+
+    fallback = {"bid_price": None, "ask_price": None, "timestamp": ""}
+    try:
+        payload = _alpaca_data_get_json(
+            "/v1beta1/options/quotes/latest",
+            {"symbols": normalized_symbol},
+        )
+    except Exception:
+        quote_cache[normalized_symbol] = fallback
+        return fallback
+
+    quotes = payload.get("quotes") if isinstance(payload, dict) else None
+    if not isinstance(quotes, dict):
+        quote_cache[normalized_symbol] = fallback
+        return fallback
+
+    quote = quotes.get(normalized_symbol)
+    extracted = _extract_option_quote_fields(quote)
+    quote_cache[normalized_symbol] = extracted
+    return extracted
+
+
 def _format_exit_rule_status(position_summary: dict, management_payload: dict) -> str:
     reasons = position_summary.get("decision_reasons")
     normalized_reasons = reasons if isinstance(reasons, list) else []
@@ -393,6 +493,7 @@ def _build_open_positions_payload() -> dict:
     live_positions = _alpaca_get_json("/v2/positions")
     normalized_positions = live_positions if isinstance(live_positions, list) else []
     option_snapshots, management_payload = _load_option_management_snapshot()
+    option_quote_cache: dict[str, dict] = {}
 
     rows: list[dict] = []
     option_count = 0
@@ -418,7 +519,15 @@ def _build_open_positions_payload() -> dict:
 
         current_bid = _safe_float(snapshot.get("current_bid")) if is_option else None
         current_ask = _safe_float(snapshot.get("current_ask")) if is_option else None
+        if is_option and (current_bid is None or current_ask is None):
+            latest_quote = _get_latest_option_quote(symbol, option_quote_cache)
+            if current_bid is None:
+                current_bid = _safe_float(latest_quote.get("bid_price"))
+            if current_ask is None:
+                current_ask = _safe_float(latest_quote.get("ask_price"))
         mid_price = _safe_float(snapshot.get("mid_price")) if is_option else None
+        if mid_price is None and current_bid is not None and current_ask is not None:
+            mid_price = round((current_bid + current_ask) / 2.0, 4)
         if mid_price is None:
             mid_price = _safe_float(raw_position.get("current_price"))
 
@@ -426,6 +535,11 @@ def _build_open_positions_payload() -> dict:
         if unrealized_pl_pct is None:
             live_unrealized = _safe_float(raw_position.get("unrealized_plpc"))
             unrealized_pl_pct = round(live_unrealized * 100.0, 4) if live_unrealized is not None else None
+
+        expiration_text = str(snapshot.get("expiration_date") or parsed_option.get("expiration_date") or "")
+        days_to_expiration = _safe_float(snapshot.get("days_to_expiration"))
+        if days_to_expiration is None and is_option:
+            days_to_expiration = _compute_days_to_expiration(expiration_text)
 
         if is_option:
             option_count += 1
@@ -437,14 +551,14 @@ def _build_open_positions_payload() -> dict:
                     "position_kind": "option",
                     "type": contract_type.title() if contract_type else "Option",
                     "strike": _safe_float(snapshot.get("strike")) if snapshot else parsed_option.get("strike"),
-                    "expiration": str(snapshot.get("expiration_date") or parsed_option.get("expiration_date") or ""),
+                    "expiration": expiration_text,
                     "quantity": quantity,
                     "entry_price": entry_price,
                     "current_bid": current_bid,
                     "current_ask": current_ask,
                     "mid_price": mid_price,
                     "unrealized_pl_pct": unrealized_pl_pct,
-                    "days_to_expiration": _safe_float(snapshot.get("days_to_expiration")),
+                    "days_to_expiration": days_to_expiration,
                     "exit_rule_status": _format_exit_rule_status(snapshot, management_payload),
                     "decision": str(snapshot.get("decision") or ""),
                     "decision_reasons": snapshot.get("decision_reasons") if isinstance(snapshot.get("decision_reasons"), list) else [],
