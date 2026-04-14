@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 import time
@@ -39,6 +39,12 @@ TRADE_OUTPUT_PATH = Path(
         str(DATA_DIR / "trade_execution_output.json"),
     )
 )
+OPTION_POSITION_MANAGEMENT_OUTPUT_PATH = Path(
+    os.getenv(
+        "OPTION_POSITION_MANAGEMENT_OUTPUT_PATH",
+        str(DATA_DIR / "option_position_management_output.json"),
+    )
+)
 
 from agentCallers.main import run_full_agent_stack
 from db_helpers import (
@@ -49,18 +55,44 @@ from db_helpers import (
     initialize_market_database,
     initialize_news_database,
 )
+from Trading import ManageCurrentOptionPositions
 
 
 LOGGER = logging.getLogger("front_main")
 DEFAULT_OPTION_ORDER_QTY = max(1, int(os.getenv("AGENT_OPTION_ORDER_QTY", "1")))
 OPTION_CONTRACT_MULTIPLIER = 100
-RUN_INTERVAL_SECONDS = 3 * 60 * 60
+RUN_INTERVAL_SECONDS = max(60, int(os.getenv("RUN_INTERVAL_SECONDS", str(3 * 60 * 60))))
 MARKET_RECHECK_SECONDS = 5 * 60
 
 
 def _env_flag(name: str, default: bool) -> bool:
     value = str(os.getenv(name, str(default))).strip().lower()
     return value not in {"0", "false", "no", "off"}
+
+
+AUTO_MANAGE_OPTION_POSITIONS = _env_flag("AUTO_MANAGE_OPTION_POSITIONS", True)
+AUTO_CLOSE_OPTION_POSITIONS = _env_flag("AUTO_CLOSE_OPTION_POSITIONS", True)
+OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS = max(
+    60,
+    int(os.getenv("OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS", str(MARKET_RECHECK_SECONDS))),
+)
+OPTION_POSITION_TAKE_PROFIT_PCT = float(
+    os.getenv("OPTION_POSITION_TAKE_PROFIT_PCT", "25")
+)
+OPTION_POSITION_STOP_LOSS_PCT = float(
+    os.getenv("OPTION_POSITION_STOP_LOSS_PCT", "-20")
+)
+_option_position_exit_hours_env = str(
+    os.getenv(
+        "OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION",
+        os.getenv("OPTION_POSITION_EXIT_DAYS_TO_EXPIRATION", "1"),
+    )
+).strip()
+OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION = max(
+    0.0,
+    float(_option_position_exit_hours_env)
+    * (1.0 if os.getenv("OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION") is not None else 24.0),
+)
 
 
 def _run_cold_start_sanity_check() -> dict[str, Any]:
@@ -409,6 +441,32 @@ def execute_selected_option_trades(
     }
 
 
+def run_option_position_management_cycle(
+    *,
+    trading_client: TradingClient,
+) -> dict[str, Any]:
+    management_result = ManageCurrentOptionPositions(
+        execute_sales=AUTO_CLOSE_OPTION_POSITIONS,
+        take_profit_pct=OPTION_POSITION_TAKE_PROFIT_PCT,
+        stop_loss_pct=OPTION_POSITION_STOP_LOSS_PCT,
+        exit_hours_to_expiration=OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION,
+        trading_client_override=trading_client,
+    )
+
+    OPTION_POSITION_MANAGEMENT_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with OPTION_POSITION_MANAGEMENT_OUTPUT_PATH.open("w", encoding="utf-8") as handle:
+        json.dump(management_result, handle, ensure_ascii=True, indent=2)
+
+    LOGGER.info(
+        "Managed %s option positions; sell_count=%s close_submitted_count=%s",
+        management_result.get("position_count"),
+        management_result.get("sell_count"),
+        management_result.get("close_submitted_count"),
+    )
+
+    return management_result
+
+
 def main(trading_client: TradingClient | None = None) -> dict[str, Any]:
     LOGGER.info("Starting full agent stack run")
     agent_result = run_full_agent_stack()
@@ -455,15 +513,20 @@ def main(trading_client: TradingClient | None = None) -> dict[str, Any]:
 
 def main_loop() -> None:
     trading_client = _get_trading_client()
+    next_trading_cycle_at = datetime.now()
+    next_option_management_at = datetime.now()
+
     LOGGER.info(
-        "Starting front-facing main loop with interval=%s seconds and market recheck=%s seconds",
+        "Starting front-facing main loop with interval=%s seconds, option management interval=%s seconds, and market recheck=%s seconds",
         RUN_INTERVAL_SECONDS,
+        OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS,
         MARKET_RECHECK_SECONDS,
     )
     write_status(
         "starting",
         "Front-facing main loop started",
         run_interval_seconds=RUN_INTERVAL_SECONDS,
+        option_position_management_interval_seconds=OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS,
         market_recheck_seconds=MARKET_RECHECK_SECONDS,
     )
 
@@ -475,6 +538,7 @@ def main_loop() -> None:
                 "starting",
                 "Cold-start sanity check passed",
                 run_interval_seconds=RUN_INTERVAL_SECONDS,
+                option_position_management_interval_seconds=OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS,
                 market_recheck_seconds=MARKET_RECHECK_SECONDS,
                 cold_start_sanity_check=sanity_result,
             )
@@ -484,7 +548,7 @@ def main_loop() -> None:
             raise
 
     while True:
-        cycle_started_at = datetime.now()
+        loop_started_at = datetime.now()
 
         if not market_is_open(trading_client):
             LOGGER.info("Market is closed. Sleeping %s seconds before checking again.", MARKET_RECHECK_SECONDS)
@@ -497,22 +561,62 @@ def main_loop() -> None:
             time.sleep(MARKET_RECHECK_SECONDS)
             continue
 
-        try:
-            write_status("running", "Executing trading cycle")
-            result = main(trading_client=trading_client)
-            print(json.dumps(result, ensure_ascii=True, indent=2))
-        except Exception as exc:
-            write_status("error", f"Front-facing main cycle failed: {exc}")
-            LOGGER.exception("Front-facing main cycle failed: %s", exc)
+        current_time = datetime.now()
 
-        elapsed_seconds = (datetime.now() - cycle_started_at).total_seconds()
-        sleep_seconds = max(0, RUN_INTERVAL_SECONDS - elapsed_seconds)
-        LOGGER.info("Cycle complete. Sleeping %.1f seconds until next run.", sleep_seconds)
+        if AUTO_MANAGE_OPTION_POSITIONS and current_time >= next_option_management_at:
+            try:
+                write_status("running", "Managing current option positions")
+                option_management_result = run_option_position_management_cycle(
+                    trading_client=trading_client
+                )
+                LOGGER.info(
+                    "Option management cycle finished with %s tracked positions.",
+                    option_management_result.get("position_count"),
+                )
+            except Exception as exc:
+                write_status("error", f"Option position management failed: {exc}")
+                LOGGER.exception("Option position management failed: %s", exc)
+            finally:
+                next_option_management_at = datetime.now() + timedelta(
+                    seconds=OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS
+                )
+
+        current_time = datetime.now()
+        if current_time >= next_trading_cycle_at:
+            try:
+                write_status("running", "Executing trading cycle")
+                result = main(trading_client=trading_client)
+                print(json.dumps(result, ensure_ascii=True, indent=2))
+            except Exception as exc:
+                write_status("error", f"Front-facing main cycle failed: {exc}")
+                LOGGER.exception("Front-facing main cycle failed: %s", exc)
+            finally:
+                next_trading_cycle_at = datetime.now() + timedelta(
+                    seconds=RUN_INTERVAL_SECONDS
+                )
+
+        next_wake_targets = [datetime.now() + timedelta(seconds=MARKET_RECHECK_SECONDS)]
+        if AUTO_MANAGE_OPTION_POSITIONS:
+            next_wake_targets.append(next_option_management_at)
+        next_wake_targets.append(next_trading_cycle_at)
+
+        current_time = datetime.now()
+        sleep_seconds = max(
+            0.0,
+            min((target - current_time).total_seconds() for target in next_wake_targets),
+        )
+        LOGGER.info("Loop iteration complete. Sleeping %.1f seconds until next task.", sleep_seconds)
         write_status(
             "paused",
-            "Sleeping until next cycle",
+            "Sleeping until next task",
             sleep_seconds=sleep_seconds,
-            last_cycle_started_at=cycle_started_at.isoformat(),
+            last_loop_started_at=loop_started_at.isoformat(),
+            next_trading_cycle_at=next_trading_cycle_at.isoformat(),
+            next_option_management_at=(
+                next_option_management_at.isoformat()
+                if AUTO_MANAGE_OPTION_POSITIONS
+                else ""
+            ),
         )
         time.sleep(sleep_seconds)
 
