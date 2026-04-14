@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 import time
+import math
 from typing import Any
 
 from dotenv import load_dotenv
@@ -291,7 +292,7 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
-def _get_option_reference_price(selected_option: dict[str, Any]) -> float | None:
+def _get_option_reference_price(selected_option: dict[str, Any]) -> float:
     latest_quote = selected_option.get("latest_quote", {})
     if isinstance(latest_quote, dict):
         for key in ("ask_price", "midpoint_price", "bid_price"):
@@ -304,7 +305,7 @@ def _get_option_reference_price(selected_option: dict[str, Any]) -> float | None
         if price is not None and price > 0:
             return price
 
-    return None
+    return 0.0
 
 
 def _get_available_buying_power(trading_client: TradingClient) -> float:
@@ -325,6 +326,7 @@ def execute_selected_option_trades(
     available_buying_power = _get_available_buying_power(trading_client)
     max_deployable_buying_power = available_buying_power * 0.90
     remaining_deployable_buying_power = max_deployable_buying_power
+    
 
     for candidate in order_candidates:
         option_symbol = str(candidate.get("selected_option_symbol") or "").strip().upper()
@@ -333,12 +335,13 @@ def execute_selected_option_trades(
 
         selected_option = candidate.get("selected_option") or {}
         option_reference_price = _get_option_reference_price(selected_option)
-        estimated_order_cost = (
-            option_reference_price * OPTION_CONTRACT_MULTIPLIER * order_qty
-            if option_reference_price is not None
-            else None
-        )
-
+        if(option_reference_price!=0.0):
+            estimated_order_cost = (
+                option_reference_price * OPTION_CONTRACT_MULTIPLIER)
+            
+            order_qty=max(order_qty,min(math.floor((available_buying_power*0.3)/estimated_order_cost),order_qty*50))#choose between 1 order or 50 orders
+        else:
+            order_qty=0
         if estimated_order_cost is None:
             LOGGER.info(
                 "Skipping %s because no usable option price was available to estimate order cost.",
