@@ -641,14 +641,6 @@ def _build_risk_controls_payload() -> dict:
                     "subject to contract-price math and the AGENT_OPTION_ORDER_QTY baseline."
                 ),
                 "status": "configured",
-                "source": "PER_ORDER_SIZING_BUYING_POWER_PCT",
-            },
-            {
-                "label": "Max daily loss",
-                "value": "Not configured",
-                "detail": "No explicit daily loss cutoff is enforced in the current trading loop.",
-                "status": "missing",
-                "source": "No active setting found",
             },
             {
                 "label": "Max open contracts",
@@ -658,7 +650,6 @@ def _build_risk_controls_payload() -> dict:
                     "by the configured multiplier on top of the AGENT_OPTION_ORDER_QTY baseline."
                 ),
                 "status": "configured",
-                "source": "AGENT_OPTION_ORDER_QTY + MAX_OPTION_ORDER_QTY_MULTIPLIER",
             },
             {
                 "label": "Max total options exposure",
@@ -668,21 +659,18 @@ def _build_risk_controls_payload() -> dict:
                     "deployable buying power allowance is consumed."
                 ),
                 "status": "configured",
-                "source": "MAX_DEPLOYABLE_BUYING_POWER_PCT",
             },
             {
                 "label": "Stop-loss rule",
                 "value": f"{stop_loss_pct:.0f}% P/L" if stop_loss_pct is not None else "Not configured",
                 "detail": "Open option positions are flagged for exit once unrealized P/L falls through the configured stop-loss floor.",
                 "status": "configured" if stop_loss_pct is not None else "missing",
-                "source": "OPTION_POSITION_STOP_LOSS_PCT",
             },
             {
                 "label": "Take-profit rule",
                 "value": f"{take_profit_pct:.0f}% P/L" if take_profit_pct is not None else "Not configured",
                 "detail": "Open option positions are flagged for exit once unrealized P/L reaches the configured take-profit target.",
                 "status": "configured" if take_profit_pct is not None else "missing",
-                "source": "OPTION_POSITION_TAKE_PROFIT_PCT",
             },
             {
                 "label": "Expiration exit rule",
@@ -693,7 +681,6 @@ def _build_risk_controls_payload() -> dict:
                 ),
                 "detail": "The option manager exits contracts once they are at or inside the configured hours-to-expiration threshold.",
                 "status": "configured" if expiration_exit_hours is not None else "missing",
-                "source": "OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION",
             },
         ],
     }

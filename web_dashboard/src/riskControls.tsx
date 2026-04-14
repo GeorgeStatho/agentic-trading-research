@@ -6,7 +6,6 @@ type RiskControl = {
   value: string;
   detail: string;
   status: 'configured' | 'missing' | string;
-  source: string;
 };
 
 type RiskControlsPayload = {
@@ -107,7 +106,6 @@ function RiskControlsPanel() {
             <p className="risk-control-card__label">{control.label}</p>
             <p className="risk-control-card__value">{control.value}</p>
             <p className="risk-control-card__detail">{control.detail}</p>
-            <p className="risk-control-card__source">Source: {control.source}</p>
           </article>
         ))}
       </div>
