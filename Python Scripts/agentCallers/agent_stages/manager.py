@@ -119,6 +119,7 @@ def _payload_has_evidence(payload: dict[str, Any]) -> bool:
 
 def _build_context_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     market_context = payload.get("market_context", {})
+    strategist_recommendation = payload.get("strategist_recommendation", {})
     return {
         "view_counts": {
             key: int(value.get("count") or 0)
@@ -135,6 +136,13 @@ def _build_context_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
             .get("company_position_state", {})
             .get("matching_position_count")
             or 0
+        ),
+        "strategist_decision": str(strategist_recommendation.get("decision") or ""),
+        "strategist_option_direction": str(
+            strategist_recommendation.get("preferred_option_direction") or ""
+        ),
+        "strategist_stock_direction": str(
+            strategist_recommendation.get("expected_stock_direction") or ""
         ),
     }
 
@@ -170,7 +178,10 @@ def build_manager_prompt(
         "Use only the supplied structured context. "
         "Treat upstream agent conclusions as signals, not certainty, and weigh them against the article evidence, "
         "the current stock price snapshot, the supplied 1d, 5d, 1mo, and 3mo stock price history, "
-        "account buying power, and the current position state. "
+        "account buying power, the current position state, and the supplied strategist recommendation. "
+        "The strategist recommendation includes whether the company is a trade candidate, the expected stock direction, "
+        "and the preferred options direction. Use that as one input, but do not follow it blindly if the stronger "
+        "market or account context points elsewhere. "
         "Do not use or infer a specific option contract from Alpaca contract data. "
         "Contract selection happens in a separate deterministic step after your decision. "
         "Choose 'call' only when the combined evidence is convincingly bullish and the account context can support it. "
@@ -193,6 +204,7 @@ def build_manager_prompt(
         "filters": payload.get("filters", {}),
         "views": payload.get("views", {}),
         "supporting_articles": payload.get("supporting_articles", {}),
+        "strategist_recommendation": payload.get("strategist_recommendation", {}),
         "market_context": _build_manager_visible_market_context(payload),
         "required_output": {
             "recommendation": {
@@ -622,6 +634,7 @@ def decide_company_option_position(
     *,
     client: Client = manager,
     model: str = DEFAULT_MODEL,
+    strategist_recommendation: dict[str, Any] | None = None,
     system_prompt_override: str | None = None,
     task_override: str | None = None,
     start_time: datetime | None = None,
@@ -650,6 +663,7 @@ def decide_company_option_position(
         option_strike_price_lte=option_strike_price_lte,
         option_contract_limit_per_type=option_contract_limit_per_type,
     )
+    payload["strategist_recommendation"] = dict(strategist_recommendation or {})
 
     company = payload["company"]
     market_context = payload.get("market_context", {})
