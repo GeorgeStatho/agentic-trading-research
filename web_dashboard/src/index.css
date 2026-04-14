@@ -88,7 +88,8 @@ p {
   flex-direction: column;
   align-items: center;
   min-height: 100vh;
-  padding-top: 12vh;
+  padding: 48px 0 72px;
+  gap: 24px;
 }
 
 

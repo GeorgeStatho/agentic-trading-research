@@ -1,0 +1,116 @@
+.kpi-grid {
+  width: min(1100px, 92vw);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.kpi-grid--error {
+  grid-template-columns: 1fr;
+}
+
+.kpi-card {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 18px 18px 16px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 92%, white) 0%, color-mix(in srgb, var(--bg) 98%, black) 100%);
+  box-shadow: var(--shadow);
+  min-height: 132px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+}
+
+.kpi-card__label {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.kpi-card__value {
+  font-size: 1.7rem;
+  line-height: 1.05;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.kpi-card__detail {
+  font-size: 0.94rem;
+  line-height: 1.35;
+  opacity: 0.85;
+}
+
+.kpi-card--positive {
+  border-color: color-mix(in srgb, #16a34a 35%, var(--border));
+}
+
+.kpi-card--positive .kpi-card__value {
+  color: #16a34a;
+}
+
+.kpi-card--negative {
+  border-color: color-mix(in srgb, #dc2626 35%, var(--border));
+}
+
+.kpi-card--negative .kpi-card__value {
+  color: #dc2626;
+}
+
+.kpi-card--status .kpi-card__value {
+  color: var(--text-h);
+}
+
+.kpi-card--state-healthy,
+.kpi-card--state-open,
+.kpi-card--state-running {
+  border-color: color-mix(in srgb, #16a34a 35%, var(--border));
+}
+
+.kpi-card--state-healthy .kpi-card__value,
+.kpi-card--state-open .kpi-card__value,
+.kpi-card--state-running .kpi-card__value {
+  color: #16a34a;
+}
+
+.kpi-card--state-degraded,
+.kpi-card--state-paused,
+.kpi-card--state-starting,
+.kpi-card--state-closed {
+  border-color: color-mix(in srgb, #f59e0b 35%, var(--border));
+}
+
+.kpi-card--state-degraded .kpi-card__value,
+.kpi-card--state-paused .kpi-card__value,
+.kpi-card--state-starting .kpi-card__value,
+.kpi-card--state-closed .kpi-card__value {
+  color: #d97706;
+}
+
+.kpi-card--state-down,
+.kpi-card--state-error {
+  border-color: color-mix(in srgb, #dc2626 35%, var(--border));
+}
+
+.kpi-card--state-down .kpi-card__value,
+.kpi-card--state-error .kpi-card__value {
+  color: #dc2626;
+}
+
+@media (max-width: 720px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kpi-card {
+    min-height: 122px;
+    padding: 16px;
+  }
+
+  .kpi-card__value {
+    font-size: 1.45rem;
+  }
+}

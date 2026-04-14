@@ -2,17 +2,18 @@
   display: grid;
   gap: 20px;
   width: min(1100px, 92vw);
-  margin: 3rem auto 0;
+  margin: 0 auto;
 }
 
 
 .order-card {
   display: flex;
   flex-direction: column;
-  border: 1px solid #d1d5db;
-  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
   padding: 16px;
-  background: #ffffff;
+  background: color-mix(in srgb, var(--bg) 94%, white);
+  box-shadow: var(--shadow);
 }
 
 .order-card__title {
