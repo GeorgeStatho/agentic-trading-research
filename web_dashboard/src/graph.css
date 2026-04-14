@@ -1,10 +1,13 @@
 .graph {
-  width: 100%;
-  max-width: 800px;
-  height: 320px;
-  margin: 10vh auto 0;
-  border: 1px solid #d1d5db;
-  border-radius: 12px;
+  width: min(1100px, 92vw);
+  height: 360px;
+  margin: 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 12px 10px 6px;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--bg) 94%, white);
+  box-shadow: var(--shadow);
 }
 
 
