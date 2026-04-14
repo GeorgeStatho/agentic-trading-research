@@ -157,9 +157,9 @@ def _run_cold_start_sanity_check() -> dict[str, Any]:
     return result
 
 
-def _build_log_path() -> Path:
+def _build_log_path(prefix: str = "front_main") -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return LOGS_DIR / f"front_main_{timestamp}.log"
+    return LOGS_DIR / f"{prefix}_{timestamp}.log"
 
 
 def _configure_logging(log_path: Path) -> None:
@@ -617,6 +617,97 @@ def main_loop() -> None:
                 if AUTO_MANAGE_OPTION_POSITIONS
                 else ""
             ),
+        )
+        time.sleep(sleep_seconds)
+
+
+def option_manager_loop() -> None:
+    trading_client = _get_trading_client()
+    next_option_management_at = datetime.now()
+
+    LOGGER.info(
+        "Starting dedicated option manager loop with interval=%s seconds and market recheck=%s seconds",
+        OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS,
+        MARKET_RECHECK_SECONDS,
+    )
+    write_status(
+        "starting",
+        "Dedicated option manager loop started",
+        option_position_management_interval_seconds=OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS,
+        market_recheck_seconds=MARKET_RECHECK_SECONDS,
+        auto_manage_option_positions=AUTO_MANAGE_OPTION_POSITIONS,
+        auto_close_option_positions=AUTO_CLOSE_OPTION_POSITIONS,
+    )
+
+    if not AUTO_MANAGE_OPTION_POSITIONS:
+        LOGGER.warning(
+            "AUTO_MANAGE_OPTION_POSITIONS is disabled; dedicated option manager will stay idle until enabled."
+        )
+
+    while True:
+        loop_started_at = datetime.now()
+
+        if not AUTO_MANAGE_OPTION_POSITIONS:
+            write_status(
+                "paused",
+                "Option manager disabled via AUTO_MANAGE_OPTION_POSITIONS",
+                sleep_seconds=MARKET_RECHECK_SECONDS,
+                last_loop_started_at=loop_started_at.isoformat(),
+            )
+            time.sleep(MARKET_RECHECK_SECONDS)
+            continue
+
+        if not market_is_open(trading_client):
+            LOGGER.info(
+                "Market is closed for dedicated option manager. Sleeping %s seconds before checking again.",
+                MARKET_RECHECK_SECONDS,
+            )
+            write_status(
+                "paused",
+                "Market is closed",
+                sleep_seconds=MARKET_RECHECK_SECONDS,
+                last_loop_started_at=loop_started_at.isoformat(),
+            )
+            time.sleep(MARKET_RECHECK_SECONDS)
+            continue
+
+        current_time = datetime.now()
+        if current_time >= next_option_management_at:
+            try:
+                write_status("running", "Managing current option positions")
+                option_management_result = run_option_position_management_cycle(
+                    trading_client=trading_client
+                )
+                LOGGER.info(
+                    "Dedicated option manager finished with %s tracked positions.",
+                    option_management_result.get("position_count"),
+                )
+            except Exception as exc:
+                write_status("error", f"Option position management failed: {exc}")
+                LOGGER.exception("Dedicated option manager failed: %s", exc)
+            finally:
+                next_option_management_at = datetime.now() + timedelta(
+                    seconds=OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS
+                )
+
+        current_time = datetime.now()
+        sleep_seconds = max(
+            0.0,
+            min(
+                MARKET_RECHECK_SECONDS,
+                (next_option_management_at - current_time).total_seconds(),
+            ),
+        )
+        LOGGER.info(
+            "Dedicated option manager sleeping %.1f seconds until next task.",
+            sleep_seconds,
+        )
+        write_status(
+            "paused",
+            "Sleeping until next option management cycle",
+            sleep_seconds=sleep_seconds,
+            last_loop_started_at=loop_started_at.isoformat(),
+            next_option_management_at=next_option_management_at.isoformat(),
         )
         time.sleep(sleep_seconds)
 
