@@ -71,6 +71,24 @@ def _env_flag(name: str, default: bool) -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
+def _env_percentage(name: str, default: float) -> float:
+    raw_value = str(os.getenv(name, str(default))).strip()
+    try:
+        parsed = float(raw_value)
+    except ValueError:
+        parsed = float(default)
+    return min(100.0, max(0.0, parsed))
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    raw_value = str(os.getenv(name, str(default))).strip()
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        parsed = int(default)
+    return max(1, parsed)
+
+
 AUTO_MANAGE_OPTION_POSITIONS = _env_flag("AUTO_MANAGE_OPTION_POSITIONS", True)
 AUTO_CLOSE_OPTION_POSITIONS = _env_flag("AUTO_CLOSE_OPTION_POSITIONS", True)
 OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS = max(
@@ -93,6 +111,20 @@ OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION = max(
     0.0,
     float(_option_position_exit_hours_env)
     * (1.0 if os.getenv("OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION") is not None else 24.0),
+)
+MAX_DEPLOYABLE_BUYING_POWER_PCT = _env_percentage(
+    "MAX_DEPLOYABLE_BUYING_POWER_PCT",
+    30.0,
+)
+MAX_DEPLOYABLE_BUYING_POWER_RATIO = MAX_DEPLOYABLE_BUYING_POWER_PCT / 100.0
+PER_ORDER_SIZING_BUYING_POWER_PCT = _env_percentage(
+    "PER_ORDER_SIZING_BUYING_POWER_PCT",
+    30.0,
+)
+PER_ORDER_SIZING_BUYING_POWER_RATIO = PER_ORDER_SIZING_BUYING_POWER_PCT / 100.0
+MAX_OPTION_ORDER_QTY_MULTIPLIER = _env_positive_int(
+    "MAX_OPTION_ORDER_QTY_MULTIPLIER",
+    50,
 )
 
 
@@ -324,7 +356,7 @@ def execute_selected_option_trades(
 ) -> dict[str, Any]:
     executions: list[dict[str, Any]] = []
     available_buying_power = _get_available_buying_power(trading_client)
-    max_deployable_buying_power = available_buying_power * 0.90
+    max_deployable_buying_power = available_buying_power * MAX_DEPLOYABLE_BUYING_POWER_RATIO
     remaining_deployable_buying_power = max_deployable_buying_power
     
 
@@ -339,7 +371,16 @@ def execute_selected_option_trades(
             estimated_order_cost = (
                 option_reference_price * OPTION_CONTRACT_MULTIPLIER)
             
-            order_qty=max(order_qty,min(math.floor((available_buying_power*0.3)/estimated_order_cost),order_qty*50))#choose between 1 order or 50 orders
+            order_qty=max(
+                order_qty,
+                min(
+                    math.floor(
+                        (max_deployable_buying_power * PER_ORDER_SIZING_BUYING_POWER_RATIO)
+                        / estimated_order_cost
+                    ),
+                    order_qty * MAX_OPTION_ORDER_QTY_MULTIPLIER,
+                ),
+            )#choose between the base order count or the configured scaled ceiling
         else:
             order_qty=0
         if estimated_order_cost is None:
@@ -364,10 +405,11 @@ def execute_selected_option_trades(
 
         if estimated_order_cost > remaining_deployable_buying_power:
             LOGGER.info(
-                "Skipping %s because estimated cost %.2f exceeds remaining deployable buying power %.2f (90%% of account buying power).",
+                "Skipping %s because estimated cost %.2f exceeds remaining deployable buying power %.2f (%.2f%% of account buying power).",
                 option_symbol,
                 estimated_order_cost,
                 remaining_deployable_buying_power,
+                MAX_DEPLOYABLE_BUYING_POWER_PCT,
             )
             executions.append(
                 {
@@ -379,13 +421,16 @@ def execute_selected_option_trades(
                     "available_buying_power": available_buying_power,
                     "max_deployable_buying_power": max_deployable_buying_power,
                     "remaining_deployable_buying_power": remaining_deployable_buying_power,
-                    "error": "Estimated order cost exceeded 90% buying power allowance.",
+                    "error": (
+                        f"Estimated order cost exceeded {MAX_DEPLOYABLE_BUYING_POWER_PCT:.2f}% "
+                        "buying power allowance."
+                    ),
                 }
             )
             continue
 
         LOGGER.info(
-            "Submitting BUY market order for %s via %s (company=%s, decision=%s, confidence=%s, estimated_cost=%.2f, remaining_buying_power_90=%.2f)",
+            "Submitting BUY market order for %s via %s (company=%s, decision=%s, confidence=%s, estimated_cost=%.2f, remaining_buying_power_cap=%.2f, cap_pct=%.2f)",
             option_symbol,
             candidate.get("selected_option_source"),
             candidate.get("symbol"),
@@ -393,6 +438,7 @@ def execute_selected_option_trades(
             candidate.get("confidence"),
             estimated_order_cost,
             remaining_deployable_buying_power,
+            MAX_DEPLOYABLE_BUYING_POWER_PCT,
         )
 
         try:

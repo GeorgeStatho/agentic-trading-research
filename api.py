@@ -77,6 +77,20 @@ def _safe_float(value):
         return None
 
 
+MAX_DEPLOYABLE_BUYING_POWER_PCT = min(
+    100.0,
+    max(0.0, _safe_float(os.getenv("MAX_DEPLOYABLE_BUYING_POWER_PCT")) or 30.0),
+)
+PER_ORDER_SIZING_BUYING_POWER_PCT = min(
+    100.0,
+    max(0.0, _safe_float(os.getenv("PER_ORDER_SIZING_BUYING_POWER_PCT")) or 30.0),
+)
+MAX_OPTION_ORDER_QTY_MULTIPLIER = max(
+    1,
+    int(_safe_float(os.getenv("MAX_OPTION_ORDER_QTY_MULTIPLIER")) or 50),
+)
+
+
 def _alpaca_base_url() -> str:
     return (
         "https://paper-api.alpaca.markets"
@@ -606,21 +620,28 @@ def _build_risk_controls_payload() -> dict:
         )
     )
 
-    per_trade_buying_power_cap_pct = 30.0
-    total_options_exposure_cap_pct = 90.0
+    per_trade_buying_power_cap_pct = PER_ORDER_SIZING_BUYING_POWER_PCT
+    total_options_exposure_cap_pct = MAX_DEPLOYABLE_BUYING_POWER_PCT
+    effective_per_trade_cap_pct = round(
+        (MAX_DEPLOYABLE_BUYING_POWER_PCT * PER_ORDER_SIZING_BUYING_POWER_PCT) / 100.0,
+        2,
+    )
 
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
         "controls": [
             {
                 "label": "Max risk per trade",
-                "value": f"{per_trade_buying_power_cap_pct:.0f}% of available buying power",
+                "value": (
+                    f"{per_trade_buying_power_cap_pct:.0f}% of deployable buying power "
+                    f"(~{effective_per_trade_cap_pct:.2f}% of total buying power)"
+                ),
                 "detail": (
-                    "Current order sizing uses roughly 30% of available buying power for a single option idea, "
+                    "Current order sizing uses the configured share of deployable buying power for a single option idea, "
                     "subject to contract-price math and the AGENT_OPTION_ORDER_QTY baseline."
                 ),
                 "status": "configured",
-                "source": "Python Scripts/main.py",
+                "source": "PER_ORDER_SIZING_BUYING_POWER_PCT",
             },
             {
                 "label": "Max daily loss",
@@ -631,20 +652,23 @@ def _build_risk_controls_payload() -> dict:
             },
             {
                 "label": "Max open contracts",
-                "value": "Not configured",
+                "value": f"Base qty {DEFAULT_OPTION_ORDER_QTY}, up to x{MAX_OPTION_ORDER_QTY_MULTIPLIER} per idea",
                 "detail": (
-                    "There is no portfolio-wide cap on total open contracts right now. "
-                    f"AGENT_OPTION_ORDER_QTY is {DEFAULT_OPTION_ORDER_QTY}, but code may scale a single order above that."
+                    "There is still no portfolio-wide cap on total open contracts, but a single idea's order size is bounded "
+                    "by the configured multiplier on top of the AGENT_OPTION_ORDER_QTY baseline."
                 ),
-                "status": "missing",
-                "source": "AGENT_OPTION_ORDER_QTY + dynamic sizing",
+                "status": "configured",
+                "source": "AGENT_OPTION_ORDER_QTY + MAX_OPTION_ORDER_QTY_MULTIPLIER",
             },
             {
                 "label": "Max total options exposure",
                 "value": f"{total_options_exposure_cap_pct:.0f}% of account buying power",
-                "detail": "The execution loop stops adding new option orders once the 90% deployable buying power allowance is consumed.",
+                "detail": (
+                    "The execution loop stops adding new option orders once the configured "
+                    "deployable buying power allowance is consumed."
+                ),
                 "status": "configured",
-                "source": "Python Scripts/main.py",
+                "source": "MAX_DEPLOYABLE_BUYING_POWER_PCT",
             },
             {
                 "label": "Stop-loss rule",
