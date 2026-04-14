@@ -1,0 +1,103 @@
+.risk-controls-panel {
+  width: min(1100px, 92vw);
+  border: 1px solid color-mix(in srgb, #dc2626 26%, var(--border));
+  border-radius: 18px;
+  padding: 20px;
+  box-sizing: border-box;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #dc2626 12%, transparent), transparent 38%),
+    color-mix(in srgb, var(--bg) 94%, white);
+  box-shadow: var(--shadow);
+}
+
+.risk-controls-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.risk-controls-panel__eyebrow {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #dc2626;
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+.risk-controls-panel__badge {
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  border: 1px solid color-mix(in srgb, #dc2626 35%, var(--border));
+  color: #b91c1c;
+  background: color-mix(in srgb, #dc2626 10%, transparent);
+}
+
+.risk-controls-panel__empty {
+  padding-top: 8px;
+}
+
+.risk-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.risk-control-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--bg) 96%, white);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.risk-control-card--configured {
+  border-color: color-mix(in srgb, #dc2626 24%, var(--border));
+}
+
+.risk-control-card--missing {
+  border-color: color-mix(in srgb, #f59e0b 30%, var(--border));
+}
+
+.risk-control-card__label {
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.risk-control-card__value {
+  color: var(--text-h);
+  font-size: 1.12rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.risk-control-card__detail {
+  font-size: 0.94rem;
+  line-height: 1.4;
+  opacity: 0.88;
+}
+
+.risk-control-card__source {
+  font-size: 0.8rem;
+  opacity: 0.62;
+  margin-top: auto;
+}
+
+@media (max-width: 720px) {
+  .risk-controls-panel {
+    padding: 16px;
+  }
+
+  .risk-controls-panel__header {
+    flex-direction: column;
+    align-items: start;
+  }
+}

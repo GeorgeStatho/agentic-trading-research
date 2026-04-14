@@ -43,6 +43,7 @@ BOT_DOWN_THRESHOLD_SECONDS = max(
     30,
     int(os.getenv("BOT_STATUS_DOWN_THRESHOLD_SECONDS", "90")),
 )
+DEFAULT_OPTION_ORDER_QTY = max(1, int(os.getenv("AGENT_OPTION_ORDER_QTY", "1")))
 
 
 @app.after_request
@@ -595,6 +596,85 @@ def _build_trade_explanation_payload() -> dict:
     }
 
 
+def _build_risk_controls_payload() -> dict:
+    stop_loss_pct = _safe_float(os.getenv("OPTION_POSITION_STOP_LOSS_PCT"))
+    take_profit_pct = _safe_float(os.getenv("OPTION_POSITION_TAKE_PROFIT_PCT"))
+    expiration_exit_hours = _safe_float(
+        os.getenv(
+            "OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION",
+            os.getenv("OPTION_POSITION_EXIT_DAYS_TO_EXPIRATION"),
+        )
+    )
+
+    per_trade_buying_power_cap_pct = 30.0
+    total_options_exposure_cap_pct = 90.0
+
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "controls": [
+            {
+                "label": "Max risk per trade",
+                "value": f"{per_trade_buying_power_cap_pct:.0f}% of available buying power",
+                "detail": (
+                    "Current order sizing uses roughly 30% of available buying power for a single option idea, "
+                    "subject to contract-price math and the AGENT_OPTION_ORDER_QTY baseline."
+                ),
+                "status": "configured",
+                "source": "Python Scripts/main.py",
+            },
+            {
+                "label": "Max daily loss",
+                "value": "Not configured",
+                "detail": "No explicit daily loss cutoff is enforced in the current trading loop.",
+                "status": "missing",
+                "source": "No active setting found",
+            },
+            {
+                "label": "Max open contracts",
+                "value": "Not configured",
+                "detail": (
+                    "There is no portfolio-wide cap on total open contracts right now. "
+                    f"AGENT_OPTION_ORDER_QTY is {DEFAULT_OPTION_ORDER_QTY}, but code may scale a single order above that."
+                ),
+                "status": "missing",
+                "source": "AGENT_OPTION_ORDER_QTY + dynamic sizing",
+            },
+            {
+                "label": "Max total options exposure",
+                "value": f"{total_options_exposure_cap_pct:.0f}% of account buying power",
+                "detail": "The execution loop stops adding new option orders once the 90% deployable buying power allowance is consumed.",
+                "status": "configured",
+                "source": "Python Scripts/main.py",
+            },
+            {
+                "label": "Stop-loss rule",
+                "value": f"{stop_loss_pct:.0f}% P/L" if stop_loss_pct is not None else "Not configured",
+                "detail": "Open option positions are flagged for exit once unrealized P/L falls through the configured stop-loss floor.",
+                "status": "configured" if stop_loss_pct is not None else "missing",
+                "source": "OPTION_POSITION_STOP_LOSS_PCT",
+            },
+            {
+                "label": "Take-profit rule",
+                "value": f"{take_profit_pct:.0f}% P/L" if take_profit_pct is not None else "Not configured",
+                "detail": "Open option positions are flagged for exit once unrealized P/L reaches the configured take-profit target.",
+                "status": "configured" if take_profit_pct is not None else "missing",
+                "source": "OPTION_POSITION_TAKE_PROFIT_PCT",
+            },
+            {
+                "label": "Expiration exit rule",
+                "value": (
+                    f"{expiration_exit_hours:.0f} hours to expiration"
+                    if expiration_exit_hours is not None
+                    else "Not configured"
+                ),
+                "detail": "The option manager exits contracts once they are at or inside the configured hours-to-expiration threshold.",
+                "status": "configured" if expiration_exit_hours is not None else "missing",
+                "source": "OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION",
+            },
+        ],
+    }
+
+
 def _build_dashboard_kpis() -> dict:
     account = _alpaca_get_json("/v2/account")
     positions = _alpaca_get_json("/v2/positions")
@@ -695,6 +775,14 @@ def open_positions():
 def why_bot_traded():
     try:
         return jsonify(_build_trade_explanation_payload()), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/risk-controls")
+def risk_controls():
+    try:
+        return jsonify(_build_risk_controls_payload()), 200
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
