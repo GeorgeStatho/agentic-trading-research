@@ -1,73 +1,83 @@
-# React + TypeScript + Vite
+# Web Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This folder contains the React + TypeScript dashboard for the stock-trading experiment.
 
-Currently, two official plugins are available:
+## Purpose
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+The dashboard is a monitoring UI for the backend worker and API. It is not the trading engine itself.
 
-## React Compiler
+It currently shows:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- script/worker status
+- portfolio-history graph
+- trade execution output cards
 
-## Expanding the ESLint configuration
+## Main Files
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- [src/App.tsx](src/App.tsx): top-level layout
+- [src/scriptStatus.tsx](src/scriptStatus.tsx): status indicator
+- [src/Graph.tsx](src/Graph.tsx): portfolio-history chart
+- [src/orderCard.tsx](src/orderCard.tsx): trade execution cards
+- [src/displayPreviousorder.ts](src/displayPreviousorder.ts): portfolio-history fetch + transform helper
+- [nginx.conf](nginx.conf): nginx config used in the Docker image
+- [Dockerfile](Dockerfile): frontend build + nginx image
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## API Usage
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+The frontend expects these routes:
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- `/api/health`
+- `/api/script-status`
+- `/api/portfolio-history`
+- `/api/trade-execution-output`
+
+In Docker, nginx proxies `/api/*` to the internal Flask service.
+
+## Local Development
+
+Install dependencies:
+
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Run the Vite dev server:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run dev
 ```
+
+By default, the app is available at:
+
+```text
+http://localhost:5173
+```
+
+## Docker
+
+The production Docker image:
+
+1. builds the Vite app
+2. copies the static bundle into nginx
+3. proxies API requests to the backend container
+
+When run through the repo-level `docker-compose.yml`, the dashboard is exposed on:
+
+```text
+http://localhost:8080
+```
+
+## Styling
+
+The current UI is split across:
+
+- [src/index.css](src/index.css)
+- [src/App.css](src/App.css)
+- [src/graph.css](src/graph.css)
+- [src/card.css](src/card.css)
+- [src/status.css](src/status.css)
+
+## Notes
+
+- The graph currently fetches portfolio-history data on mount, not on a polling interval.
+- The status badge does poll the API so it can show `running`, `paused`, `error`, or `down`.

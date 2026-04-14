@@ -1,297 +1,207 @@
 # Stock Trading Experiment
 
-An experimental stock-research and trading project focused on combining:
+This repository is a mostly-finished stock research and options paper-trading system with:
 
-- **market data**
-- **news and article gathering**
-- **deterministic scoring / filtering**
-- and, over time, **agent-driven research and decision support**
+- a Python worker that runs the research and execution loop
+- a Flask API that exposes portfolio history, trade output, and script status
+- a React dashboard for monitoring the system
+- a model layer that can use either Vertex AI or Ollama
 
-This repository is currently a **work-in-progress trading research platform**, not just a finished trading bot. It already contains real infrastructure for collecting market data and scraping financial news, and it is gradually moving toward a more structured pipeline for industry research, company research, evidence scoring, and trade decision support.
+It is still an experiment, not production trading software.
 
----
+## Current Architecture
 
-## What this project is trying to do
-
-The long-term goal of this repo is to build a system that can:
-
-1. gather **market and company data**
-2. gather **industry and company news**
-3. score and filter that information deterministically
-4. organize evidence by company / industry / source quality
-5. support a deeper research loop for the most promising opportunities
-6. eventually help decide whether a stock should be **bought, sold, or held**
-
-In other words, this project is moving toward a workflow like:
+The current runtime stack is:
 
 ```text
-Market / Sector Data
-        +
-Industry / Company News
-        ↓
-Filtering + Deduplication + Source Scoring
-        ↓
-Industry and Company Research
-        ↓
-Evidence Evaluation
-        ↓
-Trading / Paper-Trading Decision Support
+React dashboard (web_dashboard)
+        |
+        v
+Flask API (api.py)
+        |
+        +--> Alpaca portfolio history
+        +--> shared runtime JSON
+        |
+        v
+Python worker (Python Scripts/main.py)
+        |
+        v
+Agent pipeline (agentCallers/)
+        |
+        +--> scraping + market/news collection
+        +--> strategist stage
+        +--> manager stage
+        +--> deterministic option selection
+        +--> Alpaca paper-trade execution
 ```
 
----
+Docker Compose currently runs:
 
-## What the repo already does
+- `web`: nginx + built React frontend
+- `api`: Flask API
+- `worker`: long-running research / execution loop
+- `ollama`: optional profile only, for local fallback
 
-The repository already contains several useful pieces of infrastructure:
+## What The Project Does Today
 
-### 1. Financial market-data ingestion
-The repo includes a Yahoo Finance-based market-data layer that can:
-- fetch company fast info
-- fetch sector snapshots
-- fetch industry snapshots
-- stream stock prices
-- store structured sector / industry / company data for later use
+The implemented flow is roughly:
 
-### 2. Webscraping pipeline for financial news
-The repo includes a more advanced webscraping system than the old README suggests. It already supports:
-- deterministic source URL generation
-- crawling source/search pages
-- extracting article links
-- following filtered article links one level deeper
-- article-body extraction
-- normalization and deduplication support
-- failed URL tracking
-- evidence-oriented article scoring
+1. collect market/news inputs through the agent pipeline
+2. choose candidate companies
+3. run the strategist stage to decide `buy` vs `do_not_buy`
+4. run the manager stage to decide `call`, `put`, or `neither`
+5. apply deterministic option-contract selection
+6. submit option market orders through Alpaca when conditions allow
+7. write runtime outputs for the dashboard
 
-### 3. Source-aware extraction
-There is already logic for handling and extracting from multiple finance/news sources, with generic extraction plus some source-specific handling for certain sites.
+The worker entrypoint is [Python Scripts/main.py](Python%20Scripts/main.py), and the orchestrated agent stack lives under [Python Scripts/agentCallers](Python%20Scripts/agentCallers).
 
-### 4. Stored article metadata and scoring
-Saved articles can include scoring-related metadata such as:
-- recency
-- source reputation
-- directness
-- factuality
-- overall evidence score
+## Dashboard
 
-### 5. Structured direction toward a research pipeline
-The repo is no longer just “fetch prices + fetch articles + train a model.” It is clearly evolving toward a structured research system with:
-- industry-level discovery
-- company-level research
-- evidence tracking
-- follow-up research rounds
-- stronger source filtering and validation
+The dashboard lives in [web_dashboard](web_dashboard) and currently shows:
 
----
+- script status (`running`, `paused`, `error`, `down`)
+- portfolio-history graph from `/api/portfolio-history`
+- trade execution cards from `/api/trade-execution-output`
 
-## Current project direction
+The main frontend files are:
 
-The current direction of the repo is closer to a **research-first trading system** than a simple bot.
+- [web_dashboard/src/App.tsx](web_dashboard/src/App.tsx)
+- [web_dashboard/src/Graph.tsx](web_dashboard/src/Graph.tsx)
+- [web_dashboard/src/orderCard.tsx](web_dashboard/src/orderCard.tsx)
+- [web_dashboard/src/scriptStatus.tsx](web_dashboard/src/scriptStatus.tsx)
 
-The system is being shaped into something like this:
+## Model Providers
 
-### Stage 1: Industry discovery
-Gather industry-level news and structured market signals to identify promising industries.
+The repo now supports two model backends behind a shared helper:
 
-### Stage 2: Company candidate selection
-Use predefined companies within those industries, plus structured metrics, to choose which companies deserve deeper research.
+- `vertex`: recommended for cloud deployment
+- `ollama`: optional local fallback
 
-### Stage 3: Company research
-Scrape company-relevant articles, extract useful content, and store scored evidence.
+The provider abstraction lives in [Python Scripts/agentCallers/agent_helpers/shared.py](Python%20Scripts/agentCallers/agent_helpers/shared.py).
 
-### Stage 4: Follow-up research
-Generate targeted follow-up searches/questions and scrape additional evidence in a controlled way.
+### Recommended Vertex split
 
-### Stage 5: Synthesis and decision support
-Combine the gathered evidence into a clearer thesis for whether a company looks attractive, risky, or neutral.
+The current recommended stage/model split is captured in [.env.example](.env.example):
 
----
+- `WORLD_NEWS_MODEL=gemini-2.5-flash-lite`
+- `MACRO_NEWS_MODEL=gemini-2.5-flash-lite`
+- `SECTOR_OPPURUNTIST_MODEL=gemini-2.5-flash-lite`
+- `INDUSTRY_OPPURUNTINST_MODEL=gemini-2.5-flash-lite`
+- `COMPANY_OPPURUNTIST_MODEL=gemini-2.5-flash-lite`
+- `STRATEGIST_MODEL=gemini-2.5-flash`
+- `MANAGER_MODEL=gemini-2.5-pro`
 
-## Why this repo may look mixed right now
+## Quick Start
 
-This project is actively evolving, so the repo currently contains a mix of:
+### 1. Create environment config
 
-- older scripts from an earlier “bot” phase
-- newer market-data utilities
-- newer webscraping and article-processing infrastructure
-- database-backed storage and scoring logic
-- work-in-progress architecture for a more structured research loop
-
-That is normal for the current stage of the project. The repo is in transition from a simpler prototype into a better-organized trading research platform.
-
----
-
-## Main components
-
-## `Python Scripts/Webscraping/`
-This is one of the most important parts of the repo right now.
-
-It contains:
-- article scraping
-- source-page crawling
-- source-specific extraction helpers
-- source configuration utilities
-- scoring logic
-- Yahoo Finance data gathering helpers
-- company and industry news pipelines
-
-## `Python Scripts/Webscraping/market_data/`
-This area focuses on Yahoo Finance-backed market data, sector trees, industry snapshots, and company information.
-
-## `Python Scripts/Webscraping/pipelines/`
-This area handles higher-level data gathering flows, such as collecting company news and saving results.
-
-## older trading / execution scripts
-The repo also contains older trading-oriented pieces referenced by the original README, including Alpaca-related usage and a simpler bot workflow.
-
----
-
-## What is finished vs what is still being built
-
-### Already in place
-- Yahoo Finance market-data ingestion
-- sector / industry / company structured data gathering
-- deterministic news-source crawling
-- article extraction
-- URL filtering and allowlisting
-- failed URL tracking
-- article reuse from storage
-- article scoring and evidence metadata
-
-### Still being improved
-- Yahoo Finance news discovery integration
-- stronger cross-source confirmation scoring
-- follow-up scraping for research loops
-- tighter runtime research limits
-- better source-specific extractors for weaker sources
-- more explicit company/industry research-round storage
-- stronger relevance checks after article extraction
-
----
-
-## Planned improvements
-
-Some of the most important next steps are:
-
-- add **Yahoo Finance news discovery** as a lightweight discovery layer
-- keep scraping for **full article text**
-- improve **independent-source confirmation**
-- add **follow-up query scraping**
-- improve **claim-level evidence storage**
-- strengthen **post-fetch relevance validation**
-- continue consolidating older and newer ingestion paths
-
----
-
-## Intended use
-
-Right now, this project is best understood as:
-
-- a **learning project**
-- a **trading-system experiment**
-- a **research/data pipeline prototype**
-- and a foundation for future agent-assisted trading research
-
-It should **not** be treated as production trading software.
-
----
-
-## Setup notes
-
-The repo has evolved beyond the original setup instructions, but the older README still reflects the early project shape.
-
-Historically, the project used:
-- **Alpaca API** for trading
-- **NewsMesh API** for article discovery
-- local key storage through a `Keys.py` file
-
-Depending on which part of the repo you are running, you may still need API keys and local configuration files.
-
-At minimum, expect to configure:
-- trading credentials if using Alpaca-related scripts
-- news/API credentials if using older NewsMesh-based scripts
-- source configuration for the newer scraping pipeline
-- local database / data directories used by the scraping and market-data systems
-
-### Vertex AI credentials in Docker
-
-If you run the worker/API through Docker with `LLM_PROVIDER=vertex`, the containers also need
-Google Application Default Credentials.
-
-The default local-dev setup now mounts the host `~/.config/gcloud` directory into the Python
-containers as read-only. That means local Docker runs can use the same ADC file created by:
+Use the template:
 
 ```bash
-gcloud auth application-default login
+cp .env.example .env
 ```
 
-After that, a rebuild/restart is enough:
+Then fill in at minimum:
+
+- `PUBLIC_KEY`
+- `PRIVATE_KEY`
+- `GOOGLE_CLOUD_PROJECT`
+- `GOOGLE_CLOUD_LOCATION`
+
+### 2. Run with Docker
+
+Default cloud-friendly startup:
 
 ```bash
 docker compose up --build
 ```
 
-Typical `.env` values:
+If you want the local Ollama fallback too:
+
+```bash
+docker compose --profile ollama up --build
+```
+
+### 3. Open the dashboard
+
+By default:
+
+```text
+http://localhost:8080
+```
+
+## Vertex AI Authentication
+
+The current Docker configuration is set up for Google Application Default Credentials rather than a checked-in key file.
+
+Recommended cloud setup:
+
+- attach a service account to the VM / Cloud Run workload
+- grant it `roles/aiplatform.user`
+- set:
 
 ```env
 LLM_PROVIDER=vertex
-GOOGLE_CLOUD_PROJECT=your-google-cloud-project-id
+GOOGLE_CLOUD_PROJECT=your-project-id
 GOOGLE_CLOUD_LOCATION=global
 ```
 
-If you prefer a service-account JSON outside the repo instead, you can still point
-`GOOGLE_APPLICATION_CREDENTIALS` at another mounted path via a local compose override.
+On Google Cloud, the containers should authenticate automatically through the attached service account.
 
-### Persistent database storage in Docker
+## API Endpoints
 
-The app uses SQLite. By default, local non-Docker runs keep the database at:
+The Flask service in [api.py](api.py) exposes:
 
-```text
-Data/stock_experiment.db
-```
+- `GET /api/health`
+- `GET /api/portfolio-history`
+- `GET /api/script-status`
+- `GET /api/trade-execution-output`
 
-Docker now sets `DB_PATH` to:
+These are intended for the dashboard and internal monitoring.
 
-```text
-/var/lib/stock-experiment/stock_experiment.db
-```
+## Runtime Outputs
 
-and mounts that directory to the named volume `db_data`, so the database survives container
-rebuilds and recreation.
+The worker currently writes shared JSON outputs used by the dashboard:
 
-Typical workflow after pulling this change:
+- `script_status.json`
+- `trade_execution_output.json`
+- `selected_options_output.json`
 
-```bash
-docker compose up -d --build
-```
+During Docker runs, the main shared runtime paths are:
 
-If you ever want a fresh database, remove only that volume:
+- `/shared/script_status.json`
+- `/shared/trade_execution_output.json`
 
-```bash
-docker volume rm stock-trading-experiment_db_data
-```
+## Important Files
 
----
+- [Python Scripts/main.py](Python%20Scripts/main.py): front-facing worker loop
+- [Python Scripts/agentCallers/main.py](Python%20Scripts/agentCallers/main.py): agent-stack orchestration
+- [Python Scripts/agentCallers/agent_stages/strategist.py](Python%20Scripts/agentCallers/agent_stages/strategist.py): buy/do-not-buy stage
+- [Python Scripts/agentCallers/agent_stages/manager.py](Python%20Scripts/agentCallers/agent_stages/manager.py): call/put/neither stage
+- [portfolio_history_service.py](portfolio_history_service.py): Alpaca portfolio-history fetch helper
+- [docker-compose.yml](docker-compose.yml): local/cloud VM orchestration
 
-## Recommended future README split
+## Current Status
 
-As the repo matures, it will probably make sense to split this README into:
-- a top-level project overview
-- a setup guide
-- a scraping/data-ingestion guide
-- a trading/execution guide
-- a research-pipeline architecture doc
+What is already in place:
 
-For now, this README is meant to help visitors understand the **purpose and direction** of the project.
+- Dockerized `web` / `api` / `worker` stack
+- React monitoring dashboard
+- Alpaca-backed portfolio history API
+- status heartbeat and trade execution outputs
+- provider abstraction for Vertex AI vs Ollama
+- first-stage Vertex migration
 
----
+What is still being finished:
 
-## Disclaimer
+- converting the remaining stage files from Ollama-specific naming to the generic provider interface
+- moving some shared JSON runtime state to more cloud-native storage
+- hardening deployment for Cloud Run jobs/services
+- polishing documentation and cleanup of older prototype scripts
 
-This repository is an experiment and research project. Nothing here should be taken as financial advice, investment advice, or a recommendation to trade live capital.
+## Safety Notes
 
----
-
-## Original project background
-
-The original README described the project as a stock trading bot using Alpaca for trades and NewsMesh for articles, with the data feeding into an ML model for trade decisions. That background is still useful context, but the repo has grown beyond that earlier description and now includes a much richer data-gathering and research pipeline. 
+- This project can place paper trades and contains real trading logic.
+- Do not treat it as financial advice.
+- Review and rotate credentials if they have ever been exposed during development.

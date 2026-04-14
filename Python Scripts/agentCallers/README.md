@@ -1,5 +1,7 @@
 # agentCallers
 
+This folder contains the current agent-driven research and decision pipeline.
+
 Grouped layout:
 
 - `agent_stages/`: model-facing stage implementations
@@ -9,4 +11,12 @@ Grouped layout:
 - `agent_pipeline/`: orchestration entry points
 - `agent_runtime/`: local experiments and runtime scripts
 
-The legacy top-level filenames are kept as compatibility wrappers so older imports and direct script execution still work.
+Main entrypoint:
+
+- [main.py](main.py): runs the pipeline, strategist stage, manager stage, and deterministic option selection
+
+Notes:
+
+- the project is in the middle of an Ollama -> Vertex migration
+- the shared provider abstraction already lives in `agent_helpers/shared.py`
+- some older wrappers and filenames still exist for compatibility
