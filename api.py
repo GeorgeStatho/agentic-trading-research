@@ -26,6 +26,12 @@ TRADE_EXECUTION_OUTPUT_PATH = Path(
         str(ROOT_DIR / "Data" / "trade_execution_output.json"),
     )
 )
+OPTION_POSITION_MANAGEMENT_OUTPUT_PATH = Path(
+    os.getenv(
+        "OPTION_POSITION_MANAGEMENT_OUTPUT_PATH",
+        str(ROOT_DIR / "Data" / "option_position_management_output.json"),
+    )
+)
 OPTION_MANAGER_STATUS_PATH = Path(
     os.getenv(
         "OPTION_MANAGER_STATUS_PATH",
@@ -198,6 +204,27 @@ def _looks_like_option_symbol(symbol: str, asset_class: str = "") -> bool:
     return bool(re.fullmatch(r"[A-Z]+\d{6}[CP]\d{8}", str(symbol or "").strip().upper()))
 
 
+def _parse_option_symbol(symbol: str) -> dict[str, object]:
+    normalized_symbol = str(symbol or "").strip().upper()
+    match = re.fullmatch(r"([A-Z]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})", normalized_symbol)
+    if not match:
+        return {
+            "underlying_symbol": normalized_symbol,
+            "contract_type": "",
+            "expiration_date": "",
+            "strike": None,
+        }
+
+    underlying, year, month, day, contract_type, strike_text = match.groups()
+    strike = int(strike_text) / 1000.0
+    return {
+        "underlying_symbol": underlying,
+        "contract_type": "call" if contract_type == "C" else "put",
+        "expiration_date": f"20{year}-{month}-{day}",
+        "strike": strike,
+    }
+
+
 def _compute_max_drawdown_pct(portfolio_history: dict) -> float | None:
     equity_series = portfolio_history.get("equity")
     if not isinstance(equity_series, list) or not equity_series:
@@ -280,6 +307,171 @@ def _summarize_market_status(clock_payload: dict) -> dict:
         "timestamp": timestamp,
         "next_open": next_open,
         "next_close": next_close,
+    }
+
+
+def _load_option_management_snapshot() -> tuple[dict[str, dict], dict]:
+    payload = _read_json_payload(OPTION_POSITION_MANAGEMENT_OUTPUT_PATH)
+    if not isinstance(payload, dict):
+        return {}, {}
+
+    positions = payload.get("positions")
+    if not isinstance(positions, list):
+        return {}, payload
+
+    by_symbol: dict[str, dict] = {}
+    for entry in positions:
+        if not isinstance(entry, dict):
+            continue
+        symbol = str(entry.get("symbol") or "").strip().upper()
+        if symbol:
+            by_symbol[symbol] = entry
+
+    return by_symbol, payload
+
+
+def _format_exit_rule_status(position_summary: dict, management_payload: dict) -> str:
+    reasons = position_summary.get("decision_reasons")
+    normalized_reasons = reasons if isinstance(reasons, list) else []
+    reason_text = " ".join(str(reason) for reason in normalized_reasons).lower()
+    decision = str(position_summary.get("decision") or "").strip().lower()
+
+    if "stop-loss" in reason_text:
+        return "Stop loss triggered" if decision == "sell" else "Near stop loss"
+    if "take-profit" in reason_text:
+        return "Take profit triggered" if decision == "sell" else "Near take profit"
+    if "expiration" in reason_text or "hours to expiration" in reason_text:
+        return "Near expiration"
+
+    unrealized_pl_pct = _safe_float(position_summary.get("unrealized_pl_pct"))
+    stop_loss_pct = _safe_float(management_payload.get("stop_loss_pct"))
+    take_profit_pct = _safe_float(management_payload.get("take_profit_pct"))
+    hours_to_expiration = _safe_float(position_summary.get("hours_to_expiration"))
+    exit_hours = _safe_float(management_payload.get("exit_hours_to_expiration"))
+
+    if (
+        unrealized_pl_pct is not None
+        and stop_loss_pct is not None
+        and stop_loss_pct < 0
+        and unrealized_pl_pct <= stop_loss_pct * 0.75
+    ):
+        return "Near stop loss"
+    if (
+        unrealized_pl_pct is not None
+        and take_profit_pct is not None
+        and take_profit_pct > 0
+        and unrealized_pl_pct >= take_profit_pct * 0.75
+    ):
+        return "Near take profit"
+    if (
+        hours_to_expiration is not None
+        and exit_hours is not None
+        and hours_to_expiration <= exit_hours * 1.5
+    ):
+        return "Near expiration"
+
+    return "Monitoring"
+
+
+def _build_open_positions_payload() -> dict:
+    live_positions = _alpaca_get_json("/v2/positions")
+    normalized_positions = live_positions if isinstance(live_positions, list) else []
+    option_snapshots, management_payload = _load_option_management_snapshot()
+
+    rows: list[dict] = []
+    option_count = 0
+    stock_count = 0
+
+    for raw_position in normalized_positions:
+        if not isinstance(raw_position, dict):
+            continue
+
+        symbol = str(raw_position.get("symbol") or "").strip().upper()
+        asset_class = str(raw_position.get("asset_class") or "")
+        is_option = _looks_like_option_symbol(symbol, asset_class)
+        snapshot = option_snapshots.get(symbol, {})
+        parsed_option = _parse_option_symbol(symbol) if is_option else {}
+
+        quantity = _safe_float(snapshot.get("quantity")) if is_option else None
+        if quantity is None:
+            quantity = _safe_float(raw_position.get("qty"))
+
+        entry_price = _safe_float(snapshot.get("entry_price")) if is_option else None
+        if entry_price is None:
+            entry_price = _safe_float(raw_position.get("avg_entry_price"))
+
+        current_bid = _safe_float(snapshot.get("current_bid")) if is_option else None
+        current_ask = _safe_float(snapshot.get("current_ask")) if is_option else None
+        mid_price = _safe_float(snapshot.get("mid_price")) if is_option else None
+        if mid_price is None:
+            mid_price = _safe_float(raw_position.get("current_price"))
+
+        unrealized_pl_pct = _safe_float(snapshot.get("unrealized_pl_pct")) if is_option else None
+        if unrealized_pl_pct is None:
+            live_unrealized = _safe_float(raw_position.get("unrealized_plpc"))
+            unrealized_pl_pct = round(live_unrealized * 100.0, 4) if live_unrealized is not None else None
+
+        if is_option:
+            option_count += 1
+            contract_type = str(snapshot.get("contract_type") or parsed_option.get("contract_type") or "").strip().lower()
+            rows.append(
+                {
+                    "symbol": str(snapshot.get("underlying_symbol") or parsed_option.get("underlying_symbol") or symbol),
+                    "contract_symbol": symbol,
+                    "position_kind": "option",
+                    "type": contract_type.title() if contract_type else "Option",
+                    "strike": _safe_float(snapshot.get("strike")) if snapshot else parsed_option.get("strike"),
+                    "expiration": str(snapshot.get("expiration_date") or parsed_option.get("expiration_date") or ""),
+                    "quantity": quantity,
+                    "entry_price": entry_price,
+                    "current_bid": current_bid,
+                    "current_ask": current_ask,
+                    "mid_price": mid_price,
+                    "unrealized_pl_pct": unrealized_pl_pct,
+                    "days_to_expiration": _safe_float(snapshot.get("days_to_expiration")),
+                    "exit_rule_status": _format_exit_rule_status(snapshot, management_payload),
+                    "decision": str(snapshot.get("decision") or ""),
+                    "decision_reasons": snapshot.get("decision_reasons") if isinstance(snapshot.get("decision_reasons"), list) else [],
+                }
+            )
+            continue
+
+        stock_count += 1
+        rows.append(
+            {
+                "symbol": symbol,
+                "contract_symbol": symbol,
+                "position_kind": "stock",
+                "type": "Stock",
+                "strike": None,
+                "expiration": "",
+                "quantity": quantity,
+                "entry_price": entry_price,
+                "current_bid": None,
+                "current_ask": None,
+                "mid_price": mid_price,
+                "unrealized_pl_pct": unrealized_pl_pct,
+                "days_to_expiration": None,
+                "exit_rule_status": "N/A",
+                "decision": "",
+                "decision_reasons": [],
+            }
+        )
+
+    rows.sort(
+        key=lambda row: (
+            0 if row.get("position_kind") == "option" else 1,
+            str(row.get("expiration") or "9999-99-99"),
+            str(row.get("symbol") or ""),
+        )
+    )
+
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "position_count": len(rows),
+        "option_count": option_count,
+        "stock_count": stock_count,
+        "positions": rows,
     }
 
 
@@ -367,6 +559,14 @@ def trade_execution_output():
 def dashboard_kpis():
     try:
         return jsonify(_build_dashboard_kpis()), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/open-positions")
+def open_positions():
+    try:
+        return jsonify(_build_open_positions_payload()), 200
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 

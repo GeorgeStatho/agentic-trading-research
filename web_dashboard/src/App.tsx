@@ -1,6 +1,7 @@
 import './App.css'
 import DashboardKpis from './dashboardKpis.tsx'
 import Graph from './Graph.tsx'
+import OpenPositionsTable from './openPositionsTable.tsx'
 import OrderCardList from './orderCard.tsx'
 import ScriptStatusIndicator from './scriptStatus.tsx'
 function App() {
@@ -9,6 +10,7 @@ function App() {
       <DashboardKpis />
       <ScriptStatusIndicator />
       <Graph />
+      <OpenPositionsTable />
       <OrderCardList />
     </main>
   )
