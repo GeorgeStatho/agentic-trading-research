@@ -361,6 +361,7 @@ def execute_selected_option_trades(
     
 
     for candidate in order_candidates:
+        order_qty=DEFAULT_OPTION_ORDER_QTY
         option_symbol = str(candidate.get("selected_option_symbol") or "").strip().upper()
         if not option_symbol:
             continue
@@ -401,6 +402,7 @@ def execute_selected_option_trades(
                     "error": "No usable option price was available to estimate order cost.",
                 }
             )
+
             continue
 
         if estimated_order_cost > remaining_deployable_buying_power:
@@ -475,7 +477,10 @@ def execute_selected_option_trades(
                     "remaining_deployable_buying_power": remaining_deployable_buying_power,
                     "error": str(exc),
                 }
+        
             )
+        
+    
 
     return {
         "ran_at": datetime.now().isoformat(),
