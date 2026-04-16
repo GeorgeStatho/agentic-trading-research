@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""Deterministically choose an option contract after the manager stage decides direction.
+
+This module exists so the LLM only decides directional intent. Contract
+selection remains fully rule-based, which makes the final output easier to
+debug and safer to tune.
+"""
+
 import copy
 import json
 import logging
@@ -13,15 +20,15 @@ SELECTOR_VERSION = "deterministic-selector-v4-short-swing-greeks"
 
 LOGGER = logging.getLogger(__name__)
 
-AGENT_HELPERS_DIR = Path(__file__).resolve().parent
-AGENT_CALLERS_DIR = AGENT_HELPERS_DIR.parent
-PYTHON_SCRIPTS_DIR = AGENT_CALLERS_DIR.parent
-DATA_DIR = PYTHON_SCRIPTS_DIR.parent / "Data"
+if __package__ in {None, ""}:
+    AGENT_CALLERS_DIR = Path(__file__).resolve().parents[1]
+    if str(AGENT_CALLERS_DIR) not in sys.path:
+        sys.path.append(str(AGENT_CALLERS_DIR))
 
-for path in (AGENT_CALLERS_DIR, PYTHON_SCRIPTS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.append(normalized)
+from _paths import bootstrap_agent_callers
+
+
+bootstrap_agent_callers()
 
 
 # =========================
@@ -613,6 +620,13 @@ def _pick_matching_contract(
 
 
 def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict[str, Any]:
+    """Attach a concrete option contract to a manager result when rules allow it.
+
+    Usage:
+        Pass the dict returned by ``agent_stages.manager.decide_company_option_position``.
+        The helper preserves the original payload and adds ``selected_option``
+        plus selection diagnostics under ``recommendation.selection_debug``.
+    """
     recommendation = dict(manager_result.get("recommendation") or {})
     market_context = dict(manager_result.get("market_context") or {})
     option_market = dict(market_context.get("option_market") or {})

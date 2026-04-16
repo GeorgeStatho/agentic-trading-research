@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+"""Persistence and normalization helpers for the industry opportunist stage."""
+
 from datetime import datetime
 from pathlib import Path
 import sys
 from typing import Any
 
+if __package__ in {None, ""}:
+    AGENT_CALLERS_DIR = Path(__file__).resolve().parents[1]
+    if str(AGENT_CALLERS_DIR) not in sys.path:
+        sys.path.append(str(AGENT_CALLERS_DIR))
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT_DIR / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
+from _paths import bootstrap_agent_callers
 
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
+
+bootstrap_agent_callers()
 
 from OppurtunistPayloadBuilder import build_opportunist_input
 from db_helpers import (
@@ -25,6 +27,14 @@ from db_helpers import (
     mark_industry_opportunist_article_processed,
 )
 from db_helpers.market import ensure_sector_market_data
+from agent_helpers.opportunist_support import (
+    build_base_article_record,
+    extract_impacts_from_payload,
+    filter_unprocessed_articles,
+    merge_macro_articles,
+    seed_sector_rss_articles,
+    sort_articles_by_recency,
+)
 
 
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
@@ -43,6 +53,7 @@ __all__ = [
 
 
 def get_sector_industry_reference(sector_identifier: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Load the sector plus the industries that are eligible for it."""
     ensure_sector_market_data(sector_identifier)
     payload = build_opportunist_input(sector_identifier, max_age_days=None)
     sector = payload["sector"]
@@ -78,101 +89,30 @@ def _load_opportunist_payload(
 
 
 def _make_base_article_record(article: dict[str, Any], *, article_scope: str, sector_source: str) -> dict[str, Any]:
-    return {
-        "article_id": int(article["article_id"]),
-        "title": article.get("title") or "",
-        "summary": article.get("summary") or "",
-        "body": article.get("body") or "",
-        "source": article.get("source") or "",
-        "source_url": article.get("source_url") or "",
-        "published_at": article.get("published_at") or "",
-        "article_scope": article_scope,
-        "sector_context": {
-            "sector_source": sector_source,
-        },
-    }
+    return build_base_article_record(article, article_scope=article_scope, sector_source=sector_source)
 
 
 def _seed_articles_from_sector_rss(payload: dict[str, Any]) -> dict[int, dict[str, Any]]:
-    deduped_articles: dict[int, dict[str, Any]] = {}
-
-    for article in payload.get("sector_rss_news", []):
-        article_record = _make_base_article_record(
-            article,
-            article_scope="sector_rss",
-            sector_source="cnbc_rss",
-        )
-        deduped_articles[article_record["article_id"]] = article_record
-
-    return deduped_articles
+    return seed_sector_rss_articles(payload)
 
 
 def _merge_macro_articles(
     deduped_articles: dict[int, dict[str, Any]],
     payload: dict[str, Any],
 ) -> dict[int, dict[str, Any]]:
-    for article in payload.get("related_macro_news", []):
-        article_id = int(article["article_id"])
-        entry = deduped_articles.setdefault(
-            article_id,
-            _make_base_article_record(
-                article,
-                article_scope="macro_news",
-                sector_source="macro_news_high_confidence",
-            ),
-        )
-        entry["macro_context"] = {
-            "news_scope": article.get("news_scope") or "",
-            "confidence": article.get("confidence") or "",
-            "reason": article.get("reason") or "",
-        }
-        if entry.get("article_scope") == "sector_rss":
-            entry["article_scope"] = "sector_rss_and_macro_news"
-
-    return deduped_articles
+    return merge_macro_articles(deduped_articles, payload)
 
 
 def _sort_articles(deduped_articles: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(
-        deduped_articles.values(),
-        key=lambda article: (
-            str(article.get("published_at") or ""),
-            int(article.get("article_id") or 0),
-        ),
-        reverse=True,
-    )
-
-
-def _load_processed_article_ids(article_ids: list[int]) -> set[int]:
-    if not article_ids:
-        return set()
-
-    placeholders = ",".join("?" for _ in article_ids)
-    with get_connection(DB_PATH) as conn:
-        rows = conn.execute(
-            f"""
-            SELECT article_id
-            FROM industry_opportunist_article_processing
-            WHERE article_id IN ({placeholders})
-            """,
-            tuple(article_ids),
-        ).fetchall()
-
-    return {int(row["article_id"]) for row in rows}
+    return sort_articles_by_recency(deduped_articles)
 
 
 def _filter_unprocessed_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    processed_article_ids = _load_processed_article_ids(
-        [int(article["article_id"]) for article in articles]
+    return filter_unprocessed_articles(
+        articles,
+        db_path=str(DB_PATH),
+        table_name="industry_opportunist_article_processing",
     )
-    if not processed_article_ids:
-        return articles
-
-    return [
-        article
-        for article in articles
-        if int(article["article_id"]) not in processed_article_ids
-    ]
 
 
 def build_industry_opportunist_articles(
@@ -182,6 +122,7 @@ def build_industry_opportunist_articles(
     end_time: datetime | None = None,
     max_age_days: int | None = 5,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Assemble the industry opportunist article batch for one sector."""
     payload = _load_opportunist_payload(
         sector_identifier,
         start_time=start_time,
@@ -201,26 +142,12 @@ def build_industry_opportunist_articles(
 
 
 def extract_impacts(payload: Any) -> list[dict[str, Any]] | None:
-    if isinstance(payload, list):
-        return payload
-    if not isinstance(payload, dict):
-        return None
-
-    impacts = payload.get("impacts")
-    if isinstance(impacts, list):
-        return impacts
-
-    for key in ("output_schema", "required_output"):
-        nested = payload.get(key)
-        if isinstance(nested, dict):
-            nested_impacts = nested.get("impacts")
-            if isinstance(nested_impacts, list):
-                return nested_impacts
-
-    return None
+    """Extract the normalized impact list from a model response payload."""
+    return extract_impacts_from_payload(payload)
 
 
 def build_empty_result(sector: dict[str, Any], industries: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return the empty industry-opportunist response shape."""
     return {
         "sector": sector,
         "industries": industries,
@@ -232,6 +159,7 @@ def build_valid_reference_sets(
     industries: list[dict[str, Any]],
     articles: list[dict[str, Any]],
 ) -> tuple[set[int], set[str], set[int]]:
+    """Build validation sets for model-produced industry impacts."""
     valid_industry_ids = {industry["industry_id"] for industry in industries}
     valid_industry_keys = {industry["industry_key"] for industry in industries}
     valid_article_ids = {article["article_id"] for article in articles}
@@ -245,6 +173,7 @@ def normalize_impact(
     valid_industry_ids: set[int],
     valid_industry_keys: set[str],
 ) -> dict[str, Any] | None:
+    """Validate one model-produced industry impact before persistence."""
     try:
         industry_id = int(impact.get("industry_id"))
     except (TypeError, ValueError):
@@ -289,6 +218,7 @@ def save_industry_opportunist_batch_results(
     model: str,
     raw_response: str,
 ) -> None:
+    """Persist the cleaned impacts and mark the article batch as processed."""
     initialize_news_database()
     batch_impacts_by_article: dict[int, list[dict[str, Any]]] = {}
     for impact in impacts:

@@ -9,26 +9,15 @@ import re
 import sys
 from typing import Any
 
+if __package__ in {None, ""}:
+    AGENT_CALLERS_DIR = Path(__file__).resolve().parents[1]
+    if str(AGENT_CALLERS_DIR) not in sys.path:
+        sys.path.append(str(AGENT_CALLERS_DIR))
 
-AGENT_STAGES_DIR = Path(__file__).resolve().parent
-AGENT_CALLERS_DIR = AGENT_STAGES_DIR.parent
-PYTHON_SCRIPTS_DIR = AGENT_CALLERS_DIR.parent
-PROJECT_DIR = PYTHON_SCRIPTS_DIR.parent
-DATA_DIR = PROJECT_DIR / "Data"
-ENV_PATH = PROJECT_DIR / ".env"
+from _paths import bootstrap_agent_callers
 
-for path in (AGENT_CALLERS_DIR, PYTHON_SCRIPTS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.append(normalized)
 
-try:
-    from dotenv import load_dotenv
-except ImportError:
-    load_dotenv = None
-
-if load_dotenv is not None:
-    load_dotenv(ENV_PATH)
+bootstrap_agent_callers(load_env_file=True)
 from agent_helpers.manager import (
     DEFAULT_FULL_ARTICLE_LIMIT,
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
@@ -52,7 +41,7 @@ MANAGER_STAGE_VERSION = "decision-only-v2"
 VALID_DECISIONS = {"call", "put", "neither"}
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
 
-manager = get_model_client(MODEL_BACKEND_LABEL)
+_manager_client: Client | None = None
 LOGGER = logging.getLogger(__name__)
 MANAGER_RECOMMENDATION_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -76,6 +65,13 @@ __all__ = [
     "build_manager_prompt",
     "decide_company_option_position",
 ]
+
+
+def _get_default_client() -> Client:
+    global _manager_client
+    if _manager_client is None:
+        _manager_client = get_model_client(MODEL_BACKEND_LABEL)
+    return _manager_client
 
 
 def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> str:
@@ -172,6 +168,11 @@ def build_manager_prompt(
     system_prompt_override: str | None = None,
     task_override: str | None = None,
 ) -> tuple[str, str]:
+    """Build the manager stage prompt pair from a prepared payload.
+
+    Usage:
+        Pass the result of ``agent_helpers.manager.build_manager_input(...)``.
+    """
     default_system_prompt = (
         "You are an investment manager deciding whether a company currently supports a bullish options call, "
         "a bearish options put, or neither. "
@@ -632,7 +633,7 @@ def _build_no_evidence_result(
 def decide_company_option_position(
     company_identifier: str,
     *,
-    client: Client = manager,
+    client: Client | None = None,
     model: str = DEFAULT_MODEL,
     strategist_recommendation: dict[str, Any] | None = None,
     system_prompt_override: str | None = None,
@@ -649,6 +650,8 @@ def decide_company_option_position(
     option_strike_price_lte: float | None = None,
     option_contract_limit_per_type: int = DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
 ) -> dict[str, Any]:
+    """Run the manager stage for one company and return a structured recommendation."""
+    client = client or _get_default_client()
     payload = build_manager_input(
         company_identifier,
         start_time=start_time,

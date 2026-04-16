@@ -25,7 +25,7 @@ from StrategistPayloadBuilder import (
     DEFAULT_SUMMARY_ARTICLE_LIMIT,
     build_strategist_input,
 )
-from _shared import Client, ask_ollama_model, extract_json_value, get_ollama_client
+from _shared import Client, ask_llm_model, extract_json_value, get_model_client
 from db_helpers import add_strategist_company_summary, initialize_news_database
 
 
@@ -43,7 +43,7 @@ VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
 VALID_OPTION_DIRECTIONS = {"call", "put", "neither"}
 VALID_STOCK_DIRECTIONS = {"up", "down", "neutral"}
 
-strategist = get_ollama_client(OLLAMA_HOST)
+_strategist_client: Client | None = None
 STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -86,8 +86,15 @@ __all__ = [
 ]
 
 
+def _get_default_client() -> Client:
+    global _strategist_client
+    if _strategist_client is None:
+        _strategist_client = get_model_client(OLLAMA_HOST)
+    return _strategist_client
+
+
 def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> str:
-    return ask_ollama_model(
+    return ask_llm_model(
         client,
         model,
         system_prompt,
@@ -553,7 +560,7 @@ def _save_strategist_summary(
 def decide_company_purchase(
     company_identifier: str,
     *,
-    client: Client = strategist,
+    client: Client | None = None,
     model: str = DEFAULT_MODEL,
     system_prompt_override: str | None = None,
     task_override: str | None = None,
@@ -563,6 +570,7 @@ def decide_company_purchase(
     summary_article_limit: int = DEFAULT_SUMMARY_ARTICLE_LIMIT,
     full_article_limit: int = DEFAULT_FULL_ARTICLE_LIMIT,
 ) -> dict[str, Any]:
+    client = client or _get_default_client()
     payload = build_strategist_input(
         company_identifier,
         start_time=start_time,

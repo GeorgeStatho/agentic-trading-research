@@ -24,7 +24,7 @@ from _macro_news_helpers import (
     get_sector_reference,
     save_batch_results,
 )
-from _shared import Client, ask_ollama_model, build_token_limited_batches, extract_json_object, get_ollama_client
+from _shared import Client, ask_llm_model, build_token_limited_batches, extract_json_object, get_model_client
 from db_helpers import initialize_news_database
 
 
@@ -38,7 +38,7 @@ DEFAULT_BATCH_PAUSE_SECONDS = max(
     0.0,
     float(os.getenv("MACRO_NEWS_BATCH_PAUSE_SECONDS", "0.75")),
 )
-macro_news_classifier = get_ollama_client(OLLAMA_HOST)
+_macro_news_classifier_client: Client | None = None
 LOGGER = logging.getLogger(__name__)
 MACRO_SECTOR_PAIRS_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -68,6 +68,13 @@ MACRO_SECTOR_PAIRS_SCHEMA: dict[str, Any] = {
 }
 
 
+def _get_default_client() -> Client:
+    global _macro_news_classifier_client
+    if _macro_news_classifier_client is None:
+        _macro_news_classifier_client = get_model_client(OLLAMA_HOST)
+    return _macro_news_classifier_client
+
+
 def _configure_console_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -77,7 +84,7 @@ def _configure_console_logging() -> None:
 
 
 def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> str:
-    return ask_ollama_model(
+    return ask_llm_model(
         client,
         model,
         system_prompt,
@@ -345,12 +352,13 @@ def _collect_cleaned_pairs(
 def classify_macro_news_to_sectors(
     *,
     news_scope: str,
-    client: Client = macro_news_classifier,
+    client: Client | None = None,
     model: str = DEFAULT_MODEL,
     max_age_days: int = DEFAULT_MAX_ARTICLE_AGE_DAYS,
     context_limit: int = DEFAULT_CONTEXT_LIMIT,
     prompt_overhead_tokens: int = DEFAULT_PROMPT_OVERHEAD_TOKENS,
 ) -> list[dict[str, Any]]:
+    client = client or _get_default_client()
     initialize_news_database()
     articles = get_recent_macro_news_articles(news_scope, max_age_days=max_age_days)
     LOGGER.info(

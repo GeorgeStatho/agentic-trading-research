@@ -12,14 +12,10 @@ if __package__ in {None, ""}:
     if str(AGENT_CALLERS_DIR) not in sys.path:
         sys.path.append(str(AGENT_CALLERS_DIR))
 
-WEBSCRAPING_DIR = Path(__file__).resolve().parents[2] / "Webscraping"
-if str(WEBSCRAPING_DIR) not in sys.path:
-    sys.path.append(str(WEBSCRAPING_DIR))
-
-from _paths import DATA_DIR, add_agent_caller_paths
+from _paths import DATA_DIR, WEBSCRAPING_DIR, bootstrap_agent_callers
 
 
-add_agent_caller_paths()
+bootstrap_agent_callers(include_webscraping=True)
 
 from agent_analysis.industry_interest import getIndustryScores, getTopThreeIndustries
 from agent_analysis.sector_interest import getSectorScores, getTopThreeSectors
@@ -180,6 +176,7 @@ def collect_ranked_companies_for_industry(
     *,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
 ) -> dict[str, Any]:
+    """Return the top ranked companies for one industry for downstream stages."""
     company_groups = get_industry_company_groups(industry_identifier)
     top_companies = _slice_companies(
         company_groups.get("top_companies", []),
@@ -205,6 +202,7 @@ def collect_ranked_companies_for_industry(
 
 
 def build_company_opportunist_summary(result: dict[str, Any]) -> dict[str, Any]:
+    """Summarize one company opportunist result into compact dashboard counts."""
     company = result.get("company", {})
     impacts = result.get("impacts", [])
 
@@ -293,6 +291,7 @@ def get_current_rankings(
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
 ) -> dict[str, Any]:
+    """Return the current ranked sectors and industries without running the pipeline."""
     ranked_sectors = _get_ranked_sectors(top_sector_count=top_sector_count)
     ranked_industries_by_sector = {
         sector["sector_key"]: _get_ranked_industries_for_sector(
@@ -314,6 +313,7 @@ def get_current_pipeline_targets(
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
 ) -> dict[str, Any]:
+    """Return the sectors, industries, and companies that the pipeline would target now."""
     rankings = get_current_rankings(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
@@ -399,6 +399,7 @@ def clear_current_pipeline_targets(
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
 ) -> dict[str, Any]:
+    """Delete persisted outputs for the currently ranked pipeline targets."""
     targets = get_current_pipeline_targets(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
@@ -535,6 +536,7 @@ def run_agent_pipeline(
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
 ) -> dict[str, Any]:
+    """Run the scrape plus sector/industry/company pipeline end to end."""
     print("Scraping U.S. news from RSS")
     us_news_saved = _run_scrape_subprocess(
         "pipelines.USNewsPipeline",

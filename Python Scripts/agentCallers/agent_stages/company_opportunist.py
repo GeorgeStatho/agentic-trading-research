@@ -30,10 +30,10 @@ from _company_opportunist_helpers import (
 )
 from _shared import (
     Client,
-    ask_ollama_model,
+    ask_llm_model,
     build_token_limited_batches,
     extract_json_value,
-    get_ollama_client,
+    get_model_client,
 )
 
 
@@ -49,7 +49,7 @@ DEFAULT_MODEL = os.getenv(
 DEFAULT_CONTEXT_LIMIT = 4096
 DEFAULT_PROMPT_OVERHEAD_TOKENS = 1200
 
-company_opportunist = get_ollama_client(OLLAMA_HOST)
+_company_opportunist_client: Client | None = None
 LOGGER = logging.getLogger(__name__)
 DEFAULT_TOP_COMPANIES_LIMIT = max(1, int(os.getenv("COMPANY_OPPORTUNIST_TOP_COMPANIES_LIMIT", "12")))
 DEFAULT_RANKED_COMPANIES_LIMIT = max(1, int(os.getenv("COMPANY_OPPORTUNIST_RANKED_COMPANIES_LIMIT", "6")))
@@ -89,8 +89,15 @@ __all__ = [
 ]
 
 
+def _get_default_client() -> Client:
+    global _company_opportunist_client
+    if _company_opportunist_client is None:
+        _company_opportunist_client = get_model_client(OLLAMA_HOST)
+    return _company_opportunist_client
+
+
 def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> str:
-    return ask_ollama_model(
+    return ask_llm_model(
         client,
         model,
         system_prompt,
@@ -300,7 +307,7 @@ def _collect_cleaned_impacts(
 def classify_company_articles(
     company_identifier: str,
     *,
-    client: Client = company_opportunist,
+    client: Client | None = None,
     model: str = DEFAULT_MODEL,
     system_prompt_override: str | None = None,
     task_override: str | None = None,
@@ -310,6 +317,7 @@ def classify_company_articles(
     context_limit: int = DEFAULT_CONTEXT_LIMIT,
     prompt_overhead_tokens: int = DEFAULT_PROMPT_OVERHEAD_TOKENS,
 ) -> dict[str, Any]:
+    client = client or _get_default_client()
     company, peer_groups, articles = build_company_opportunist_articles(
         company_identifier,
         start_time=start_time,
