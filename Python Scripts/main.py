@@ -358,10 +358,10 @@ def execute_selected_option_trades(
     available_buying_power = _get_available_buying_power(trading_client)
     max_deployable_buying_power = available_buying_power * MAX_DEPLOYABLE_BUYING_POWER_RATIO
     remaining_deployable_buying_power = max_deployable_buying_power
-    
+    base_order_qty = DEFAULT_OPTION_ORDER_QTY
 
     for candidate in order_candidates:
-        order_qty=DEFAULT_OPTION_ORDER_QTY
+        calculated_order_qty = base_order_qty
         option_symbol = str(candidate.get("selected_option_symbol") or "").strip().upper()
         if not option_symbol:
             continue
@@ -372,14 +372,14 @@ def execute_selected_option_trades(
             estimated_order_cost = (
                 option_reference_price * OPTION_CONTRACT_MULTIPLIER)
             
-            order_qty=max(
-                order_qty,
+            calculated_order_qty=max(
+                calculated_order_qty,
                 min(
                     math.floor(
                         (max_deployable_buying_power * PER_ORDER_SIZING_BUYING_POWER_RATIO)
                         / estimated_order_cost
                     ),
-                    order_qty * MAX_OPTION_ORDER_QTY_MULTIPLIER,
+                    calculated_order_qty * MAX_OPTION_ORDER_QTY_MULTIPLIER,
                 ),
             )#choose between the base order count or the configured scaled ceiling
         else:
