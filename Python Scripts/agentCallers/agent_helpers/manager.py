@@ -580,12 +580,30 @@ def _build_option_market_snapshot(
             if effective_strike_price_lte is None:
                 effective_strike_price_lte = reference_stock_price + 25.0
 
+        # -----------------------------
+        # NEW: default multi-day expiry window
+        # -----------------------------
+        effective_expiration_date = expiration_date
+        effective_expiration_date_gte = expiration_date_gte
+        effective_expiration_date_lte = expiration_date_lte
+
+        # If caller did not explicitly request a single expiration or a date range,
+        # default to a short swing-friendly multi-day window.
+        if (
+            not effective_expiration_date
+            and not effective_expiration_date_gte
+            and not effective_expiration_date_lte
+        ):
+            today = date.today()
+            effective_expiration_date_gte = (today.fromordinal(today.toordinal() + 2)).isoformat()
+            effective_expiration_date_lte = (today.fromordinal(today.toordinal() + 10)).isoformat()
+
         call_contracts = _fetch_option_contracts(
             company_symbol,
             contract_type=ContractType.CALL,
-            expiration_date=expiration_date,
-            expiration_date_gte=expiration_date_gte,
-            expiration_date_lte=expiration_date_lte,
+            expiration_date=effective_expiration_date,
+            expiration_date_gte=effective_expiration_date_gte,
+            expiration_date_lte=effective_expiration_date_lte,
             strike_price_gte=effective_strike_price_gte,
             strike_price_lte=effective_strike_price_lte,
             limit=raw_fetch_limit,
@@ -593,9 +611,9 @@ def _build_option_market_snapshot(
         put_contracts = _fetch_option_contracts(
             company_symbol,
             contract_type=ContractType.PUT,
-            expiration_date=expiration_date,
-            expiration_date_gte=expiration_date_gte,
-            expiration_date_lte=expiration_date_lte,
+            expiration_date=effective_expiration_date,
+            expiration_date_gte=effective_expiration_date_gte,
+            expiration_date_lte=effective_expiration_date_lte,
             strike_price_gte=effective_strike_price_gte,
             strike_price_lte=effective_strike_price_lte,
             limit=raw_fetch_limit,
@@ -611,7 +629,21 @@ def _build_option_market_snapshot(
             contract_map[symbol] = contract
 
     if not contract_map:
-        unavailable["error"] = f"No matching option contracts were returned for {company_symbol}."
+        unavailable["error"] = (
+            f"No matching option contracts were returned for {company_symbol} "
+            f"within expiration window "
+            f"{effective_expiration_date or ''} "
+            f"{effective_expiration_date_gte or ''} "
+            f"{effective_expiration_date_lte or ''}."
+        )
+        unavailable["selection_filters"] = {
+            **unavailable["selection_filters"],
+            "effective_expiration_date": effective_expiration_date or "",
+            "effective_expiration_date_gte": effective_expiration_date_gte or "",
+            "effective_expiration_date_lte": effective_expiration_date_lte or "",
+            "effective_strike_price_gte": effective_strike_price_gte,
+            "effective_strike_price_lte": effective_strike_price_lte,
+        }
         return unavailable
 
     snapshots_by_symbol: dict[str, Any] = {}
@@ -620,9 +652,9 @@ def _build_option_market_snapshot(
         chain_response = clients["option"].get_option_chain(
             OptionChainRequest(
                 underlying_symbol=company_symbol,
-                expiration_date=expiration_date,
-                expiration_date_gte=expiration_date_gte,
-                expiration_date_lte=expiration_date_lte,
+                expiration_date=effective_expiration_date,
+                expiration_date_gte=effective_expiration_date_gte,
+                expiration_date_lte=effective_expiration_date_lte,
                 strike_price_gte=effective_strike_price_gte,
                 strike_price_lte=effective_strike_price_lte,
             )
@@ -678,6 +710,9 @@ def _build_option_market_snapshot(
         "underlying_symbol": company_symbol,
         "selection_filters": {
             **unavailable["selection_filters"],
+            "effective_expiration_date": effective_expiration_date or "",
+            "effective_expiration_date_gte": effective_expiration_date_gte or "",
+            "effective_expiration_date_lte": effective_expiration_date_lte or "",
             "effective_strike_price_gte": effective_strike_price_gte,
             "effective_strike_price_lte": effective_strike_price_lte,
         },
