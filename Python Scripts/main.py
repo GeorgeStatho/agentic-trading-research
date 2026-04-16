@@ -359,7 +359,7 @@ def execute_selected_option_trades(
     max_deployable_buying_power = available_buying_power * MAX_DEPLOYABLE_BUYING_POWER_RATIO
     remaining_deployable_buying_power = max_deployable_buying_power
     base_order_qty = DEFAULT_OPTION_ORDER_QTY
-
+    estimated_contract_cost=0.0
     for candidate in order_candidates:
         calculated_order_qty = base_order_qty
         option_symbol = str(candidate.get("selected_option_symbol") or "").strip().upper()
@@ -368,7 +368,7 @@ def execute_selected_option_trades(
 
         selected_option = candidate.get("selected_option") or {}
         option_reference_price = _get_option_reference_price(selected_option)
-        if(option_reference_price!=0.0):
+        if(option_reference_price>0.0):
             estimated_contract_cost = (
                 option_reference_price * OPTION_CONTRACT_MULTIPLIER)
             
@@ -384,6 +384,7 @@ def execute_selected_option_trades(
             )#choose between the base order count or the configured scaled ceiling
         else:
             calculated_order_qty=0
+            estimated_contract_cost=0.0
         if estimated_contract_cost ==0.0:
             LOGGER.info(
                 "Skipping %s because no usable option price was available to estimate order cost.",
@@ -392,7 +393,7 @@ def execute_selected_option_trades(
             executions.append(
                 {
                     **candidate,
-                    "order_qty": calculated_order_qty,
+                    "order_qty": base_order_qty,
                     "submitted": False,
                     "order": None,
                     "estimated_order_cost": None,
