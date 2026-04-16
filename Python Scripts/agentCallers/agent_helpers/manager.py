@@ -57,6 +57,7 @@ from StrategistPayloadBuilder import (
 
 DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE = max(1, int(os.getenv("MANAGER_OPTION_CHAIN_LIMIT_PER_TYPE", "6")))
 DEFAULT_OPTION_CHAIN_FETCH_MULTIPLIER = max(2, int(os.getenv("MANAGER_OPTION_CHAIN_FETCH_MULTIPLIER", "6")))
+DEFAULT_OPTION_FETCH_MIN = max(100, int(os.getenv("MANAGER_OPTION_FETCH_MIN", "500")))
 OPTION_SYMBOL_TEMPLATE = r"\d{6}[CP]\d{8}$"
 _ALPACA_CLIENTS: dict[str, Any] | None | bool = None
 
@@ -229,6 +230,24 @@ def _build_current_stock_price_snapshot(company: dict[str, Any]) -> dict[str, An
         return fallback
 
 
+def _get_reference_stock_price_from_snapshot(stock_snapshot: dict[str, Any]) -> float | None:
+    bid = _safe_float(stock_snapshot.get("bid_price"))
+    ask = _safe_float(stock_snapshot.get("ask_price"))
+    midpoint = _safe_float(stock_snapshot.get("midpoint_price"))
+    price = _safe_float(stock_snapshot.get("price"))
+
+    if bid is not None and ask is not None and bid > 0 and ask > 0:
+        spread_ratio = (ask - bid) / max(midpoint or bid, 0.0001)
+        if spread_ratio <= 0.02 and midpoint is not None and midpoint > 0:
+            return midpoint
+
+    for candidate in (midpoint, price, ask, bid):
+        if candidate is not None and candidate > 0:
+            return candidate
+
+    return None
+
+
 def _extract_contract_items(contracts_response: Any) -> list[Any]:
     if isinstance(contracts_response, dict):
         contract_items = contracts_response.get("option_contracts", [])
@@ -306,6 +325,13 @@ def _serialize_option_contract(contract: Any) -> dict[str, Any]:
         "close_price": _safe_float(_get_field(contract, "close_price")),
     }
 
+def _format_strike_filter(value: float | None) -> str | None:
+    if value is None:
+        return None
+    normalized = round(float(value), 2)
+    text = f"{normalized:.2f}".rstrip("0").rstrip(".")
+    return text
+
 
 def _build_contract_request(
     *,
@@ -325,8 +351,8 @@ def _build_contract_request(
         expiration_date=expiration_date,
         expiration_date_gte=expiration_date_gte,
         expiration_date_lte=expiration_date_lte,
-        strike_price_gte=strike_price_gte,
-        strike_price_lte=strike_price_lte,
+        strike_price_gte=_format_strike_filter(strike_price_gte),
+        strike_price_lte=_format_strike_filter(strike_price_lte),
         limit=limit,
     )
 
@@ -355,37 +381,22 @@ def _normalize_contract_type(value: Any) -> str:
     return contract_type if contract_type in {"call", "put"} else ""
 
 
-def _is_otm_contract(contract_type: str, strike_price: float | None, reference_stock_price: float | None) -> bool:
-    if strike_price is None or reference_stock_price is None:
-        return False
-    if contract_type == "call":
-        return strike_price >= reference_stock_price
-    if contract_type == "put":
-        return strike_price <= reference_stock_price
-    return False
-
-
-def _contract_preference_key(contract: dict[str, Any], reference_stock_price: float | None) -> tuple[float, float, str, float, int]:
-    contract_type = _normalize_contract_type(contract.get("contract_type"))
-    contract_price = _get_contract_market_price(contract)
-    has_contract_price = 0.0 if contract_price is not None else 1.0
-
+def _contract_preference_key(
+    contract: dict[str, Any],
+    target_strike: float | None,
+) -> tuple[float, str, float, int]:
     strike_price = _safe_float(contract.get("strike_price"))
     strike_distance = (
-        abs(strike_price - reference_stock_price)
-        if strike_price is not None and reference_stock_price is not None
+        abs(strike_price - target_strike)
+        if strike_price is not None and target_strike is not None
         else float("inf")
     )
-    otm_preference = 0.0 if _is_otm_contract(contract_type, strike_price, reference_stock_price) else 1.0
-
     expiration_date = str(contract.get("expiration_date") or "9999-12-31")
     open_interest = _safe_float(contract.get("open_interest"))
     open_interest_rank = -(open_interest if open_interest is not None else -1.0)
     option_id = int(contract.get("option_id") or 10**9)
 
     return (
-        has_contract_price,
-        otm_preference,
         strike_distance,
         expiration_date,
         open_interest_rank,
@@ -399,18 +410,74 @@ def _select_contract_subset_near_reference(
     reference_stock_price: float | None,
     per_type_limit: int,
 ) -> list[dict[str, Any]]:
-    selected: list[dict[str, Any]] = []
+    if reference_stock_price is None:
+        return []
 
-    for contract_type in ("call", "put"):
-        matching = [
-            contract
-            for contract in contracts
-            if _normalize_contract_type(contract.get("contract_type")) == contract_type
-        ]
-        matching.sort(key=lambda contract: _contract_preference_key(contract, reference_stock_price))
-        selected.extend(matching[: max(1, int(per_type_limit))])
+    limit = max(1, int(per_type_limit))
+    call_target = reference_stock_price + 1.0
+    put_target = reference_stock_price - 1.0
 
-    return selected
+    all_calls = [
+        contract
+        for contract in contracts
+        if _normalize_contract_type(contract.get("contract_type")) == "call"
+        and (_safe_float(contract.get("strike_price")) is not None)
+        and (_safe_float(contract.get("strike_price")) >= reference_stock_price)
+    ]
+    all_puts = [
+        contract
+        for contract in contracts
+        if _normalize_contract_type(contract.get("contract_type")) == "put"
+        and (_safe_float(contract.get("strike_price")) is not None)
+        and (_safe_float(contract.get("strike_price")) <= reference_stock_price)
+    ]
+
+    preferred_calls = [
+        contract
+        for contract in all_calls
+        if (_safe_float(contract.get("strike_price")) or 0.0) >= call_target
+    ]
+    preferred_puts = [
+        contract
+        for contract in all_puts
+        if (_safe_float(contract.get("strike_price")) or 0.0) <= put_target
+    ]
+
+    def call_sort_key(contract: dict[str, Any]) -> tuple[float, str, float, int]:
+        return _contract_preference_key(contract, call_target)
+
+    def put_sort_key(contract: dict[str, Any]) -> tuple[float, str, float, int]:
+        return _contract_preference_key(contract, put_target)
+
+    if preferred_calls:
+        preferred_calls.sort(key=call_sort_key)
+        selected_calls = preferred_calls[:limit]
+    else:
+        all_calls.sort(
+            key=lambda contract: (
+                abs((_safe_float(contract.get("strike_price")) or 0.0) - reference_stock_price),
+                str(contract.get("expiration_date") or "9999-12-31"),
+                -(_safe_float(contract.get("open_interest")) or -1.0),
+                int(contract.get("option_id") or 10**9),
+            )
+        )
+        selected_calls = all_calls[:limit]
+
+    if preferred_puts:
+        preferred_puts.sort(key=put_sort_key)
+        selected_puts = preferred_puts[:limit]
+    else:
+        all_puts.sort(
+            key=lambda contract: (
+                abs((_safe_float(contract.get("strike_price")) or 0.0) - reference_stock_price),
+                str(contract.get("expiration_date") or "9999-12-31"),
+                -(_safe_float(contract.get("open_interest")) or -1.0),
+                int(contract.get("option_id") or 10**9),
+            )
+        )
+        selected_puts = all_puts[:limit]
+
+    return selected_calls + selected_puts
 
 
 def _fetch_option_contracts(
@@ -501,16 +568,26 @@ def _build_option_market_snapshot(
     try:
         raw_fetch_limit = max(
             contract_limit_per_type * DEFAULT_OPTION_CHAIN_FETCH_MULTIPLIER,
-            contract_limit_per_type + 10,
+            DEFAULT_OPTION_FETCH_MIN,
         )
+
+        effective_strike_price_gte = strike_price_gte
+        effective_strike_price_lte = strike_price_lte
+
+        if reference_stock_price is not None:
+            if effective_strike_price_gte is None:
+                effective_strike_price_gte = max(0.0, reference_stock_price - 25.0)
+            if effective_strike_price_lte is None:
+                effective_strike_price_lte = reference_stock_price + 25.0
+
         call_contracts = _fetch_option_contracts(
             company_symbol,
             contract_type=ContractType.CALL,
             expiration_date=expiration_date,
             expiration_date_gte=expiration_date_gte,
             expiration_date_lte=expiration_date_lte,
-            strike_price_gte=strike_price_gte,
-            strike_price_lte=strike_price_lte,
+            strike_price_gte=effective_strike_price_gte,
+            strike_price_lte=effective_strike_price_lte,
             limit=raw_fetch_limit,
         )
         put_contracts = _fetch_option_contracts(
@@ -519,8 +596,8 @@ def _build_option_market_snapshot(
             expiration_date=expiration_date,
             expiration_date_gte=expiration_date_gte,
             expiration_date_lte=expiration_date_lte,
-            strike_price_gte=strike_price_gte,
-            strike_price_lte=strike_price_lte,
+            strike_price_gte=effective_strike_price_gte,
+            strike_price_lte=effective_strike_price_lte,
             limit=raw_fetch_limit,
         )
     except Exception as exc:
@@ -546,8 +623,8 @@ def _build_option_market_snapshot(
                 expiration_date=expiration_date,
                 expiration_date_gte=expiration_date_gte,
                 expiration_date_lte=expiration_date_lte,
-                strike_price_gte=strike_price_gte,
-                strike_price_lte=strike_price_lte,
+                strike_price_gte=effective_strike_price_gte,
+                strike_price_lte=effective_strike_price_lte,
             )
         )
         snapshots_by_symbol = _normalize_option_snapshot_map(chain_response)
@@ -595,14 +672,15 @@ def _build_option_market_snapshot(
         reference_stock_price=reference_stock_price,
         per_type_limit=contract_limit_per_type,
     )
-    selected_contracts.sort(
-        key=lambda contract: _contract_preference_key(contract, reference_stock_price)
-    )
 
     payload = {
         "available": True,
         "underlying_symbol": company_symbol,
-        "selection_filters": unavailable["selection_filters"],
+        "selection_filters": {
+            **unavailable["selection_filters"],
+            "effective_strike_price_gte": effective_strike_price_gte,
+            "effective_strike_price_lte": effective_strike_price_lte,
+        },
         "reference_stock_price": reference_stock_price,
         "raw_contract_count": len(serialized_contracts),
         "contract_count": len(selected_contracts),
@@ -717,11 +795,8 @@ def build_market_context(
 ) -> dict[str, Any]:
     company_symbol = str(company.get("symbol") or "").strip().upper()
     stock_snapshot = _build_current_stock_price_snapshot(company)
-    reference_stock_price = None
-    for key in ("midpoint_price", "price", "ask_price", "bid_price"):
-        reference_stock_price = _safe_float(stock_snapshot.get(key))
-        if reference_stock_price is not None and reference_stock_price > 0:
-            break
+    reference_stock_price = _get_reference_stock_price_from_snapshot(stock_snapshot)
+
     return {
         "current_stock_price": stock_snapshot,
         "option_market": _build_option_market_snapshot(
