@@ -369,7 +369,7 @@ def execute_selected_option_trades(
         selected_option = candidate.get("selected_option") or {}
         option_reference_price = _get_option_reference_price(selected_option)
         if(option_reference_price!=0.0):
-            estimated_order_cost = (
+            estimated_contract_cost = (
                 option_reference_price * OPTION_CONTRACT_MULTIPLIER)
             
             calculated_order_qty=max(
@@ -377,14 +377,14 @@ def execute_selected_option_trades(
                 min(
                     math.floor(
                         (max_deployable_buying_power * PER_ORDER_SIZING_BUYING_POWER_RATIO)
-                        / estimated_order_cost
+                        / estimated_contract_cost
                     ),
                     calculated_order_qty * MAX_OPTION_ORDER_QTY_MULTIPLIER,
                 ),
             )#choose between the base order count or the configured scaled ceiling
         else:
-            order_qty=0
-        if estimated_order_cost is None:
+            calculated_order_qty=0
+        if estimated_contract_cost ==0.0:
             LOGGER.info(
                 "Skipping %s because no usable option price was available to estimate order cost.",
                 option_symbol,
@@ -392,7 +392,7 @@ def execute_selected_option_trades(
             executions.append(
                 {
                     **candidate,
-                    "order_qty": order_qty,
+                    "order_qty": calculated_order_qty,
                     "submitted": False,
                     "order": None,
                     "estimated_order_cost": None,
@@ -405,6 +405,8 @@ def execute_selected_option_trades(
 
             continue
 
+        estimated_order_cost=calculated_order_qty*estimated_contract_cost
+
         if estimated_order_cost > remaining_deployable_buying_power:
             LOGGER.info(
                 "Skipping %s because estimated cost %.2f exceeds remaining deployable buying power %.2f (%.2f%% of account buying power).",
@@ -416,7 +418,7 @@ def execute_selected_option_trades(
             executions.append(
                 {
                     **candidate,
-                    "order_qty": order_qty,
+                    "order_qty": calculated_order_qty,
                     "submitted": False,
                     "order": None,
                     "estimated_order_cost": estimated_order_cost,
@@ -447,13 +449,13 @@ def execute_selected_option_trades(
             order_summary = _submit_option_market_order(
                 trading_client,
                 option_symbol=option_symbol,
-                qty=order_qty,
+                qty=calculated_order_qty,
             )
             remaining_deployable_buying_power -= estimated_order_cost
             executions.append(
                 {
                     **candidate,
-                    "order_qty": order_qty,
+                    "order_qty": calculated_order_qty,
                     "submitted": True,
                     "order": order_summary,
                     "estimated_order_cost": estimated_order_cost,
@@ -468,7 +470,7 @@ def execute_selected_option_trades(
             executions.append(
                 {
                     **candidate,
-                    "order_qty": order_qty,
+                    "order_qty": calculated_order_qty,
                     "submitted": False,
                     "order": None,
                     "estimated_order_cost": estimated_order_cost,
@@ -485,7 +487,7 @@ def execute_selected_option_trades(
     return {
         "ran_at": datetime.now().isoformat(),
         "paper": _env_flag("ALPACA_PAPER", True),
-        "order_qty": order_qty,
+        "order_qty": calculated_order_qty,
         "available_buying_power": available_buying_power,
         "max_deployable_buying_power": max_deployable_buying_power,
         "remaining_deployable_buying_power": remaining_deployable_buying_power,
