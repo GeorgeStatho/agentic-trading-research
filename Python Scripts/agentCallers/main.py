@@ -5,24 +5,17 @@ import logging
 from datetime import datetime
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, Callable
+
+if __package__ in {None, ""}:
+    AGENT_CALLERS_DIR = Path(__file__).resolve().parent
+    if str(AGENT_CALLERS_DIR) not in sys.path:
+        sys.path.append(str(AGENT_CALLERS_DIR))
+
+from _paths import DATA_DIR, LOGS_DIR, ROOT_DIR, bootstrap_agent_callers
 
 
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-PYTHON_SCRIPTS_DIR = AGENT_CALLERS_DIR.parent
-ROOT_DIR = PYTHON_SCRIPTS_DIR.parent
-DATA_DIR = ROOT_DIR / "Data"
-LOGS_DIR = DATA_DIR / "logs"
-
-for path in (AGENT_CALLERS_DIR, PYTHON_SCRIPTS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.append(normalized)
-
-from _paths import add_agent_caller_paths
-
-
-add_agent_caller_paths()
+bootstrap_agent_callers()
 
 from agent_helpers.deterministic_option_selector import apply_deterministic_option_selection
 from agent_pipeline.main import run_agent_pipeline
@@ -118,7 +111,11 @@ def _build_selected_option_output(
     }
 
 
-def _run_strategist_and_manager(company_symbols: list[str]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _run_strategist_and_manager(
+    company_symbols: list[str],
+    *,
+    on_manager_result: Callable[[dict[str, Any]], None] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     strategist_results: list[dict[str, Any]] = []
     manager_results: list[dict[str, Any]] = []
 
@@ -151,17 +148,26 @@ def _run_strategist_and_manager(company_symbols: list[str]) -> tuple[list[dict[s
             manager_result.get("recommendation", {}).get("selected_expiration_date"),
             manager_result.get("recommendation", {}).get("selected_strike_price"),
         )
+        if on_manager_result is not None:
+            on_manager_result(manager_result)
 
     return strategist_results, manager_results
 
 
-def run_full_agent_stack() -> dict[str, Any]:
+def run_full_agent_stack(
+    *,
+    on_manager_result: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Run the full agent pipeline plus strategist and manager follow-up stages."""
     LOGGER.info("Starting agent pipeline stage")
     pipeline_result = run_agent_pipeline()
     LOGGER.info("Finished agent pipeline stage")
 
     company_symbols = _dedupe_company_symbols(pipeline_result)
-    strategist_results, manager_results = _run_strategist_and_manager(company_symbols)
+    strategist_results, manager_results = _run_strategist_and_manager(
+        company_symbols,
+        on_manager_result=on_manager_result,
+    )
     ran_at = datetime.now().isoformat()
 
     return {
@@ -174,9 +180,17 @@ def run_full_agent_stack() -> dict[str, Any]:
     }
 
 
-def run_strategist_manager_only(company_symbols: list[str]) -> dict[str, Any]:
+def run_strategist_manager_only(
+    company_symbols: list[str],
+    *,
+    on_manager_result: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Run only the strategist and manager stages for explicit company symbols."""
     normalized_symbols = _normalize_company_symbols(company_symbols)
-    strategist_results, manager_results = _run_strategist_and_manager(normalized_symbols)
+    strategist_results, manager_results = _run_strategist_and_manager(
+        normalized_symbols,
+        on_manager_result=on_manager_result,
+    )
     ran_at = datetime.now().isoformat()
 
     return {

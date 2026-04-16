@@ -30,10 +30,10 @@ from _industry_opportunist_helpers import (
 )
 from _shared import (
     Client,
-    ask_ollama_model,
+    ask_llm_model,
     build_token_limited_batches,
     extract_json_value,
-    get_ollama_client,
+    get_model_client,
 )
 
 
@@ -50,7 +50,7 @@ DEFAULT_MAX_ARTICLE_AGE_DAYS = 5
 DEFAULT_CONTEXT_LIMIT = 4096
 DEFAULT_PROMPT_OVERHEAD_TOKENS = 1200
 
-industry_opportunist = get_ollama_client(OLLAMA_HOST)
+_industry_opportunist_client: Client | None = None
 LOGGER = logging.getLogger(__name__)
 INDUSTRY_IMPACTS_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -91,8 +91,15 @@ __all__ = [
 ]
 
 
+def _get_default_client() -> Client:
+    global _industry_opportunist_client
+    if _industry_opportunist_client is None:
+        _industry_opportunist_client = get_model_client(OLLAMA_HOST)
+    return _industry_opportunist_client
+
+
 def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> str:
-    return ask_ollama_model(
+    return ask_llm_model(
         client,
         model,
         system_prompt,
@@ -267,7 +274,7 @@ def _collect_cleaned_impacts(
 def classify_sector_articles_to_industries(
     sector_identifier: str,
     *,
-    client: Client = industry_opportunist,
+    client: Client | None = None,
     model: str = DEFAULT_MODEL,
     system_prompt_override: str | None = None,
     task_override: str | None = None,
@@ -277,6 +284,7 @@ def classify_sector_articles_to_industries(
     context_limit: int = DEFAULT_CONTEXT_LIMIT,
     prompt_overhead_tokens: int = DEFAULT_PROMPT_OVERHEAD_TOKENS,
 ) -> dict[str, Any]:
+    client = client or _get_default_client()
     sector, industries, articles = build_industry_opportunist_articles(
         sector_identifier,
         start_time=start_time,

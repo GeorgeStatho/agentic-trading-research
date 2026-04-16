@@ -61,7 +61,19 @@ Purpose: assemble the multi-layer evidence package used by the strategist stage.
 
 ### `manager.py`
 
-Purpose: gather the live market/account context used by the manager stage.
+Purpose: public façade for assembling the full manager payload.
+
+Use these functions:
+
+- `build_manager_input(company_identifier, ...)`
+  Use when you want the full strategist evidence package plus live market data.
+- `test_market_context(company_identifier, ...)`
+  Use when you want a diagnostics-first snapshot to verify Alpaca data before running the manager LLM stage.
+
+Internal SOLID split:
+
+- `manager.py` now owns orchestration only
+- `market_context.py` owns Alpaca client wiring, stock snapshots, option snapshots, and account-state assembly
 
 This includes:
 
@@ -69,6 +81,58 @@ This includes:
 - option-chain snapshot
 - account buying power
 - matching position state
+
+### `market_context.py`
+
+Purpose: isolated market/account service layer for the manager stage.
+
+Use:
+
+- `build_market_context(company, ...)`
+  Accepts the company block from a strategist payload and returns a JSON-safe market context payload.
+
+### `opportunist_support.py`
+
+Purpose: shared article merge, sort, and processed-id filtering helpers used by the sector/industry/company opportunist helpers.
+
+Use:
+
+- `sort_articles_by_recency(...)`
+- `filter_unprocessed_articles(...)`
+- `extract_impacts_from_payload(...)`
+
+These exist so each opportunist helper can focus on stage-specific validation and persistence rules instead of repeating common article handling logic.
+
+## Quick Examples
+
+Build manager input:
+
+```python
+from agent_helpers.manager import build_manager_input
+
+payload = build_manager_input(
+    "AAPL",
+    start_time=None,
+    end_time=None,
+    max_age_days=5,
+    summary_article_limit=20,
+    full_article_limit=5,
+    option_expiration_date=None,
+    option_expiration_date_gte=None,
+    option_expiration_date_lte=None,
+    option_strike_price_gte=None,
+    option_strike_price_lte=None,
+    option_contract_limit_per_type=6,
+)
+```
+
+Apply deterministic contract selection after the manager stage:
+
+```python
+from agent_helpers.deterministic_option_selector import apply_deterministic_option_selection
+
+enriched_result = apply_deterministic_option_selection(manager_result)
+```
 
 ## Current Migration Note
 

@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+"""Persistence and normalization helpers for the company opportunist stage."""
+
 from datetime import datetime
 import json
 from pathlib import Path
 import sys
 from typing import Any
 
+if __package__ in {None, ""}:
+    AGENT_CALLERS_DIR = Path(__file__).resolve().parents[1]
+    if str(AGENT_CALLERS_DIR) not in sys.path:
+        sys.path.append(str(AGENT_CALLERS_DIR))
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT_DIR / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
+from _paths import bootstrap_agent_callers
 
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
+
+bootstrap_agent_callers()
 
 from CompanyOppurtunityBuilder import get_company_linked_articles, get_industry_company_groups
 from db_helpers import (
@@ -23,6 +25,11 @@ from db_helpers import (
     get_connection,
     initialize_news_database,
     mark_company_opportunist_article_processed,
+)
+from agent_helpers.opportunist_support import (
+    extract_impacts_from_payload,
+    filter_unprocessed_articles,
+    sort_articles_by_recency,
 )
 
 
@@ -43,12 +50,11 @@ __all__ = [
 
 
 def get_company_reference(company_identifier: str) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    """Load the company, its peer groups, and its linked news articles."""
     company_payload = get_company_linked_articles(company_identifier)
     company = company_payload["company"]
     peer_groups = get_industry_company_groups(company["industry_key"])
-    #get companies from the same industry to undertsand how they are doing
     articles = company_payload["articles"]
-    #get articles linked to company
     return company, peer_groups, articles
 
 
@@ -57,6 +63,7 @@ def get_company_opportunist_summary(
     *,
     sample_reason_limit: int = 3,
 ) -> dict[str, Any]:
+    """Summarize the saved company opportunist impacts for one company."""
     company_payload = get_company_linked_articles(company_identifier)
     company = company_payload["company"]
 
@@ -110,7 +117,6 @@ def get_company_opportunist_summary(
         "magnitude_counts": magnitude_counts,
         "sample_reasons": reasons[: max(0, int(sample_reason_limit))],
     }
-    #get the saved company oppurtunist from the db, returned in usable dict
 
 
 def _make_company_article_record(article: dict[str, Any]) -> dict[str, Any]:
@@ -128,48 +134,16 @@ def _make_company_article_record(article: dict[str, Any]) -> dict[str, Any]:
 
 
 def _sort_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(
-        articles,
-        key=lambda article: (
-            str(article.get("published_at") or ""),
-            int(article.get("article_id") or 0),
-        ),
-        reverse=True,
-    )
-
-
-def _load_processed_article_ids(article_ids: list[int], company_id: int) -> set[int]:
-    if not article_ids:
-        return set()
-
-    placeholders = ",".join("?" for _ in article_ids)
-    with get_connection(DB_PATH) as conn:
-        rows = conn.execute(
-            f"""
-            SELECT article_id
-            FROM company_opportunist_article_processing
-            WHERE company_id = ?
-              AND article_id IN ({placeholders})
-            """,
-            (int(company_id), *tuple(article_ids)),
-        ).fetchall()
-
-    return {int(row["article_id"]) for row in rows}
+    return sort_articles_by_recency(articles)
 
 
 def _filter_unprocessed_articles(articles: list[dict[str, Any]], company_id: int) -> list[dict[str, Any]]:
-    processed_article_ids = _load_processed_article_ids(
-        [int(article["article_id"]) for article in articles],
-        company_id,
+    return filter_unprocessed_articles(
+        articles,
+        db_path=str(DB_PATH),
+        table_name="company_opportunist_article_processing",
+        company_id=company_id,
     )
-    if not processed_article_ids:
-        return articles
-
-    return [
-        article
-        for article in articles
-        if int(article["article_id"]) not in processed_article_ids
-    ]
 
 
 def build_company_opportunist_articles(
@@ -179,6 +153,7 @@ def build_company_opportunist_articles(
     end_time: datetime | None = None,
     max_age_days: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    """Assemble the company opportunist article batch for one company."""
     company, peer_groups, raw_articles = get_company_reference(company_identifier)
 
     articles = [_make_company_article_record(article) for article in raw_articles]
@@ -186,7 +161,6 @@ def build_company_opportunist_articles(
     articles = _filter_unprocessed_articles(articles, int(company["company_id"]))
 
     return company, peer_groups, articles
-    #builds what articles the oppurtunist will go through
 
 
 def _parse_company_payload(text: str) -> Any:
@@ -222,33 +196,17 @@ def _parse_company_payload(text: str) -> Any:
                 continue
 
     return None
-    #clean what the model produced itno usable data
 
 
 def extract_company_impacts(payload: Any) -> list[dict[str, Any]] | None:
+    """Extract the normalized impact list from a model response payload."""
     if isinstance(payload, str):
         payload = _parse_company_payload(payload)
-
-    if isinstance(payload, list):
-        return payload
-    if not isinstance(payload, dict):
-        return None
-
-    impacts = payload.get("impacts")
-    if isinstance(impacts, list):
-        return impacts
-
-    for key in ("output_schema", "required_output"):
-        nested = payload.get(key)
-        if isinstance(nested, dict):
-            nested_impacts = nested.get("impacts")
-            if isinstance(nested_impacts, list):
-                return nested_impacts
-
-    return None
+    return extract_impacts_from_payload(payload)
 
 
 def build_empty_company_result(company: dict[str, Any], peer_groups: dict[str, Any]) -> dict[str, Any]:
+    """Return the empty company-opportunist response shape."""
     return {
         "company": company,
         "peer_groups": peer_groups,
@@ -260,6 +218,7 @@ def build_company_valid_reference_sets(
     company: dict[str, Any],
     articles: list[dict[str, Any]],
 ) -> tuple[int, str, set[int]]:
+    """Build validation sets for model-produced company impacts."""
     valid_company_id = int(company["company_id"])
     valid_symbol = str(company["symbol"])
     valid_article_ids = {article["article_id"] for article in articles}
@@ -273,6 +232,7 @@ def normalize_company_impact(
     valid_company_id: int,
     valid_symbol: str,
 ) -> dict[str, Any] | None:
+    """Validate one model-produced company impact before persistence."""
     confidence = str(impact.get("confidence") or "").strip().lower()
     impact_direction = str(impact.get("impact_direction") or "").strip().lower()
     impact_magnitude = str(impact.get("impact_magnitude") or "").strip().lower()
@@ -308,6 +268,7 @@ def save_company_opportunist_batch_results(
     model: str,
     raw_response: str,
 ) -> None:
+    """Persist the cleaned impacts and mark the article batch as processed."""
     initialize_news_database()
     batch_impacts_by_article: dict[int, list[dict[str, Any]]] = {}
     for impact in impacts:
