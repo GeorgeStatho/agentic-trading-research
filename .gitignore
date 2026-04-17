@@ -4,6 +4,10 @@
 *.sqlite
 *.sqlite3
 
+# Local environment files
+.env
+!.env.example
+
 # Keep frontend JSON config tracked
 !web_dashboard/package.json
 !web_dashboard/package-lock.json
