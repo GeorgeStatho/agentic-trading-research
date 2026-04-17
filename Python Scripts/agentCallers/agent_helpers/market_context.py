@@ -50,7 +50,7 @@ OPTION_SYMBOL_TEMPLATE = r"\d{6}[CP]\d{8}$"
 _ALPACA_CLIENTS: dict[str, Any] | None | bool = None
 
 CLOSEST_EXPIRATION_LTE=1
-FARTHEST_EXPIRATION_GTE=3
+FARTHEST_EXPIRATION_GTE=8
 
 
 __all__ = [
@@ -535,8 +535,8 @@ def _build_option_market_snapshot(
         effective_expiration_date_lte = expiration_date_lte
         if not effective_expiration_date and not effective_expiration_date_gte and not effective_expiration_date_lte:
             today = date.today()
-            effective_expiration_date_gte = (today.fromordinal(today.toordinal() + CLOSEST_EXPIRATION_LTE)).isoformat()
-            effective_expiration_date_lte = (today.fromordinal(today.toordinal() + FARTHEST_EXPIRATION_GTE)).isoformat()
+            effective_expiration_date_gte = (today.fromordinal(today.toordinal() + CLOSEST_EXPIRATION_GTE)).isoformat()
+            effective_expiration_date_lte = (today.fromordinal(today.toordinal() + FARTHEST_EXPIRATION_LTE)).isoformat()
 
         call_contracts = _fetch_option_contracts(
             company_symbol,
