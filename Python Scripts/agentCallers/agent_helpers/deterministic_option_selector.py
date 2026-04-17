@@ -10,13 +10,14 @@ debug and safer to tune.
 import copy
 import json
 import logging
+import os
 from datetime import date, datetime
 from pathlib import Path
 import sys
 from typing import Any
 
 
-SELECTOR_VERSION = "deterministic-selector-v4-short-swing-greeks"
+SELECTOR_VERSION = "deterministic-selector-v5-simple-hybrid-greeks"
 
 LOGGER = logging.getLogger(__name__)
 
@@ -32,21 +33,58 @@ bootstrap_agent_callers()
 
 
 # =========================
-# TUNABLE DEFAULTS
+# ENV HELPERS
 # =========================
-MIN_DTE = 3
-MAX_DTE = 10
+def _env_flag(name: str, default: bool) -> bool:
+    value = str(os.getenv(name, str(default))).strip().lower()
+    return value not in {"0", "false", "no", "off"}
 
-MIN_OPEN_INTEREST = 500.0
-MAX_SPREAD_PCT = 0.15
 
-MIN_ABS_DELTA = 0.25
-MAX_ABS_DELTA = 0.45
-TARGET_ABS_DELTA = 0.35
+def _env_str(name: str, default: str) -> str:
+    value = str(os.getenv(name, default)).strip().lower()
+    return value or default.lower()
 
-MIN_GAMMA = 0.03
-MAX_THETA_TO_PRICE = 0.35
 
+OPTION_SELECTOR_MODE = _env_str("OPTION_SELECTOR_MODE", "hybrid")
+ALLOW_RISKY_SIMPLE_FALLBACK = _env_flag("ALLOW_RISKY_SIMPLE_FALLBACK", True)
+
+
+# =========================
+# SIMPLE MODE TUNABLES
+# =========================
+SIMPLE_REQUIRE_ONE_DOLLAR_OTM = False
+SIMPLE_PREFERRED_OTM_DISTANCE = 1.0
+
+
+# =========================
+# HYBRID MODE TUNABLES
+# keeps old short-DTE / near-strike behavior
+# but filters obvious junk
+# =========================
+HYBRID_MIN_DTE = 1
+HYBRID_MAX_DTE = 3
+HYBRID_MIN_OPEN_INTEREST = 300.0
+HYBRID_MAX_SPREAD_PCT = 0.18
+HYBRID_MIN_ABS_DELTA = 0.15
+HYBRID_TARGET_ABS_DELTA = 0.28
+HYBRID_MAX_THETA_TO_PRICE = 0.80
+HYBRID_MIN_GAMMA = 0.01
+HYBRID_PREFERRED_OTM_DISTANCE = 1.0
+
+
+# =========================
+# GREEKS MODE TUNABLES
+# stricter / more swing-like
+# =========================
+MIN_DTE = 1
+MAX_DTE = 5
+MIN_OPEN_INTEREST = 300.0
+MAX_SPREAD_PCT = 0.18
+MIN_ABS_DELTA = 0.15
+MAX_ABS_DELTA = 0.28
+TARGET_ABS_DELTA = 0.28
+MIN_GAMMA = 0.01
+MAX_THETA_TO_PRICE = 0.80
 REQUIRE_ONE_DOLLAR_OTM = False
 PREFERRED_OTM_DISTANCE = 1.0
 
@@ -285,14 +323,16 @@ def _otm_distance(
     return float("inf")
 
 
-def _distance_to_preferred_otm(
+def _distance_to_target_otm(
     contract_type: str,
     strike_price: float | None,
     reference_stock_price: float | None,
+    *,
+    target_distance: float,
 ) -> float:
     return abs(
         _otm_distance(contract_type, strike_price, reference_stock_price)
-        - PREFERRED_OTM_DISTANCE
+        - target_distance
     )
 
 
@@ -301,17 +341,19 @@ def _basic_sort_key(
     *,
     normalized_decision: str,
     reference_stock_price: float | None,
-    prefer_one_dollar_otm: bool,
+    prefer_target_otm: bool,
+    target_distance: float,
 ) -> tuple[float, float, str, float, int]:
     contract_price = _get_contract_market_price(contract)
     has_contract_price = 0.0 if contract_price is not None else 1.0
 
     strike_price = _coerce_float(contract.get("strike_price"))
-    if prefer_one_dollar_otm:
-        distance = _distance_to_preferred_otm(
+    if prefer_target_otm:
+        distance = _distance_to_target_otm(
             normalized_decision,
             strike_price,
             reference_stock_price,
+            target_distance=target_distance,
         )
     else:
         distance = _otm_distance(
@@ -366,6 +408,283 @@ def _contract_debug_snapshot(
     }
 
 
+# =========================
+# SIMPLE MODE
+# =========================
+def _pick_matching_contract_simple(
+    *,
+    decision: str,
+    option_contracts: list[dict[str, Any]],
+    market_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    normalized_decision = _normalize_decision(decision)
+    if normalized_decision not in {"call", "put"}:
+        return None
+
+    reference_stock_price = _get_reference_stock_price(market_context)
+
+    matching_contracts = [
+        contract
+        for contract in option_contracts
+        if _normalize_contract_type(contract.get("contract_type")) == normalized_decision
+    ]
+    if not matching_contracts:
+        return None
+
+    preferred_contracts = [
+        contract
+        for contract in matching_contracts
+        if (
+            _is_one_dollar_otm_contract(
+                normalized_decision,
+                _coerce_float(contract.get("strike_price")),
+                reference_stock_price,
+            )
+            if SIMPLE_REQUIRE_ONE_DOLLAR_OTM
+            else _is_otm_contract(
+                normalized_decision,
+                _coerce_float(contract.get("strike_price")),
+                reference_stock_price,
+            )
+        )
+    ]
+
+    fallback_contracts = [
+        contract
+        for contract in matching_contracts
+        if _is_valid_fallback_side_contract(
+            normalized_decision,
+            _coerce_float(contract.get("strike_price")),
+            reference_stock_price,
+        )
+    ]
+
+    if preferred_contracts:
+        candidate_pool = list(preferred_contracts)
+        selection_mode = "simple_preferred_near_otm"
+        candidate_pool.sort(
+            key=lambda contract: _basic_sort_key(
+                contract,
+                normalized_decision=normalized_decision,
+                reference_stock_price=reference_stock_price,
+                prefer_target_otm=True,
+                target_distance=SIMPLE_PREFERRED_OTM_DISTANCE,
+            )
+        )
+    elif fallback_contracts:
+        candidate_pool = list(fallback_contracts)
+        selection_mode = "simple_fallback_closest_side_correct"
+        candidate_pool.sort(
+            key=lambda contract: _basic_sort_key(
+                contract,
+                normalized_decision=normalized_decision,
+                reference_stock_price=reference_stock_price,
+                prefer_target_otm=False,
+                target_distance=SIMPLE_PREFERRED_OTM_DISTANCE,
+            )
+        )
+    else:
+        return None
+
+    selected = dict(candidate_pool[0])
+    selected["_selection_mode"] = selection_mode
+    selected["_selector_debug"] = {
+        "selector_mode_requested": OPTION_SELECTOR_MODE,
+        "reference_stock_price": reference_stock_price,
+        "matching_contract_count": len(matching_contracts),
+        "preferred_contract_count": len(preferred_contracts),
+        "fallback_contract_count": len(fallback_contracts),
+        "candidate_pool_count": len(candidate_pool),
+        "selection_mode": selection_mode,
+        "selected_contract_snapshot": _contract_debug_snapshot(
+            selected,
+            reference_stock_price=reference_stock_price,
+        ),
+    }
+    return selected
+
+
+# =========================
+# HYBRID MODE
+# =========================
+def _passes_hybrid_fast_filters(
+    contract: dict[str, Any],
+    *,
+    normalized_decision: str,
+    reference_stock_price: float | None,
+) -> tuple[bool, list[str]]:
+    reasons: list[str] = []
+
+    strike_price = _coerce_float(contract.get("strike_price"))
+    if strike_price is None:
+        reasons.append("missing_strike_price")
+        return False, reasons
+
+    if not _is_valid_fallback_side_contract(
+        normalized_decision,
+        strike_price,
+        reference_stock_price,
+    ):
+        reasons.append("wrong_side")
+        return False, reasons
+
+    dte = _get_dte(contract)
+    if dte is None:
+        reasons.append("missing_dte")
+    elif dte < HYBRID_MIN_DTE:
+        reasons.append("dte_below_min")
+    elif dte > HYBRID_MAX_DTE:
+        reasons.append("dte_above_max")
+
+    open_interest = _coerce_float(contract.get("open_interest"))
+    if open_interest is None:
+        reasons.append("missing_open_interest")
+    elif open_interest < HYBRID_MIN_OPEN_INTEREST:
+        reasons.append("open_interest_below_min")
+
+    spread_pct = _get_spread_pct(contract)
+    if spread_pct is None:
+        reasons.append("missing_spread_pct")
+    elif spread_pct > HYBRID_MAX_SPREAD_PCT:
+        reasons.append("spread_above_max")
+
+    delta = _get_greek(contract, "delta")
+    abs_delta = abs(delta) if delta is not None else None
+    if abs_delta is None:
+        reasons.append("missing_delta")
+    elif abs_delta < HYBRID_MIN_ABS_DELTA:
+        reasons.append("delta_below_min")
+
+    theta_to_price = _get_theta_to_price(contract)
+    if theta_to_price is None:
+        reasons.append("missing_theta_to_price")
+    elif theta_to_price > HYBRID_MAX_THETA_TO_PRICE:
+        reasons.append("theta_to_price_above_max")
+
+    gamma = _get_greek(contract, "gamma")
+    if gamma is None:
+        reasons.append("missing_gamma")
+    elif gamma < HYBRID_MIN_GAMMA:
+        reasons.append("gamma_below_min")
+
+    return len(reasons) == 0, reasons
+
+
+def _hybrid_fast_score(
+    contract: dict[str, Any],
+    *,
+    normalized_decision: str,
+    reference_stock_price: float | None,
+) -> tuple[float, float, float, float, float, str, int]:
+    strike_price = _coerce_float(contract.get("strike_price"))
+    spread_pct = _get_spread_pct(contract) or 999.0
+    open_interest = _coerce_float(contract.get("open_interest")) or 0.0
+    abs_delta = abs(_get_greek(contract, "delta") or 0.0)
+    gamma = _get_greek(contract, "gamma") or 0.0
+    expiration_date = str(contract.get("expiration_date") or "9999-12-31")
+    option_id = _normalize_option_id(contract.get("option_id")) or 10**9
+
+    strike_distance_score = _distance_to_target_otm(
+        normalized_decision,
+        strike_price,
+        reference_stock_price,
+        target_distance=HYBRID_PREFERRED_OTM_DISTANCE,
+    )
+
+    return (
+        strike_distance_score,
+        spread_pct,
+        abs(abs_delta - HYBRID_TARGET_ABS_DELTA),
+        -open_interest,
+        -gamma,
+        expiration_date,
+        option_id,
+    )
+
+
+def _pick_matching_contract_hybrid(
+    *,
+    decision: str,
+    option_contracts: list[dict[str, Any]],
+    market_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    normalized_decision = _normalize_decision(decision)
+    if normalized_decision not in {"call", "put"}:
+        return None
+
+    reference_stock_price = _get_reference_stock_price(market_context)
+
+    matching_contracts = [
+        contract
+        for contract in option_contracts
+        if _normalize_contract_type(contract.get("contract_type")) == normalized_decision
+    ]
+    if not matching_contracts:
+        return None
+
+    passed_contracts: list[dict[str, Any]] = []
+    rejected_contracts_debug: list[dict[str, Any]] = []
+
+    for contract in matching_contracts:
+        passed, reasons = _passes_hybrid_fast_filters(
+            contract,
+            normalized_decision=normalized_decision,
+            reference_stock_price=reference_stock_price,
+        )
+        if passed:
+            passed_contracts.append(contract)
+        else:
+            rejected_contracts_debug.append(
+                {
+                    **_contract_debug_snapshot(
+                        contract,
+                        reference_stock_price=reference_stock_price,
+                    ),
+                    "rejection_reasons": reasons,
+                }
+            )
+
+    if not passed_contracts:
+        if not ALLOW_RISKY_SIMPLE_FALLBACK:
+            return None
+        fallback = _pick_matching_contract_simple(
+            decision=decision,
+            option_contracts=option_contracts,
+            market_context=market_context,
+        )
+        if fallback is not None:
+            fallback["_selection_mode"] = "hybrid_fallback_to_simple"
+        return fallback
+
+    candidate_pool = list(passed_contracts)
+    candidate_pool.sort(
+        key=lambda contract: _hybrid_fast_score(
+            contract,
+            normalized_decision=normalized_decision,
+            reference_stock_price=reference_stock_price,
+        )
+    )
+
+    selected = dict(candidate_pool[0])
+    selected["_selection_mode"] = "hybrid_fast_short_dte"
+    selected["_selector_debug"] = {
+        "selector_mode_requested": OPTION_SELECTOR_MODE,
+        "reference_stock_price": reference_stock_price,
+        "passed_hybrid_count": len(passed_contracts),
+        "rejected_hybrid_count": len(rejected_contracts_debug),
+        "rejected_hybrid_examples": rejected_contracts_debug[:10],
+        "candidate_pool_count": len(candidate_pool),
+        "selected_contract_snapshot": _contract_debug_snapshot(
+            selected,
+            reference_stock_price=reference_stock_price,
+        ),
+    }
+    return selected
+
+
+# =========================
+# GREEKS MODE
+# =========================
 def _passes_short_swing_filters(
     contract: dict[str, Any],
     *,
@@ -445,10 +764,11 @@ def _short_swing_score(
     gamma = _get_greek(contract, "gamma") or 0.0
     open_interest = _coerce_float(contract.get("open_interest")) or 0.0
     strike_price = _coerce_float(contract.get("strike_price"))
-    otm_distance_pref = _distance_to_preferred_otm(
+    otm_distance_pref = _distance_to_target_otm(
         normalized_decision,
         strike_price,
         reference_stock_price,
+        target_distance=PREFERRED_OTM_DISTANCE,
     )
     expiration_date = str(contract.get("expiration_date") or "9999-12-31")
     option_id = _normalize_option_id(contract.get("option_id")) or 10**9
@@ -465,7 +785,7 @@ def _short_swing_score(
     )
 
 
-def _pick_matching_contract(
+def _pick_matching_contract_greeks(
     *,
     decision: str,
     option_contracts: list[dict[str, Any]],
@@ -477,11 +797,6 @@ def _pick_matching_contract(
 
     reference_stock_price = _get_reference_stock_price(market_context)
 
-    seen_contract_types = [
-        str(contract.get("contract_type") or "").strip()
-        for contract in option_contracts[:6]
-    ]
-
     matching_contracts = [
         contract
         for contract in option_contracts
@@ -489,15 +804,13 @@ def _pick_matching_contract(
     ]
 
     LOGGER.info(
-        "Selector saw contract types=%s for decision=%s and matched %s of %s contracts",
-        seen_contract_types,
-        normalized_decision,
+        "Greeks selector matched %s of %s contracts for decision=%s",
         len(matching_contracts),
         len(option_contracts),
+        normalized_decision,
     )
 
     if not matching_contracts:
-        LOGGER.info("No contracts matched decision=%s.", normalized_decision)
         return None
 
     passed_contracts: list[dict[str, Any]] = []
@@ -522,35 +835,6 @@ def _pick_matching_contract(
                 }
             )
 
-    preferred_contracts = [
-        contract
-        for contract in matching_contracts
-        if _is_one_dollar_otm_contract(
-            normalized_decision,
-            _coerce_float(contract.get("strike_price")),
-            reference_stock_price,
-        )
-    ]
-
-    fallback_contracts = [
-        contract
-        for contract in matching_contracts
-        if _is_valid_fallback_side_contract(
-            normalized_decision,
-            _coerce_float(contract.get("strike_price")),
-            reference_stock_price,
-        )
-    ]
-
-    LOGGER.info(
-        "Reference stock price=%s decision=%s passed_short_swing=%s preferred_one_dollar_otm=%s fallback_side_correct=%s",
-        reference_stock_price,
-        normalized_decision,
-        len(passed_contracts),
-        len(preferred_contracts),
-        len(fallback_contracts),
-    )
-
     if passed_contracts:
         candidate_pool = list(passed_contracts)
         selection_mode = "greeks_filtered_short_swing"
@@ -561,38 +845,36 @@ def _pick_matching_contract(
                 reference_stock_price=reference_stock_price,
             )
         )
-    elif preferred_contracts:
-        candidate_pool = list(preferred_contracts)
-        selection_mode = "fallback_preferred_one_dollar_otm"
-        candidate_pool.sort(
-            key=lambda contract: _basic_sort_key(
-                contract,
-                normalized_decision=normalized_decision,
-                reference_stock_price=reference_stock_price,
-                prefer_one_dollar_otm=True,
-            )
+    elif ALLOW_RISKY_SIMPLE_FALLBACK:
+        fallback = _pick_matching_contract_simple(
+            decision=decision,
+            option_contracts=option_contracts,
+            market_context=market_context,
         )
-    elif fallback_contracts:
-        candidate_pool = list(fallback_contracts)
-        selection_mode = "fallback_closest_side_correct"
-        candidate_pool.sort(
-            key=lambda contract: _basic_sort_key(
-                contract,
-                normalized_decision=normalized_decision,
+        if fallback is None:
+            return None
+        fallback["_selection_mode"] = "greeks_fallback_to_simple"
+        fallback["_selector_debug"] = {
+            "selector_mode_requested": OPTION_SELECTOR_MODE,
+            "reference_stock_price": reference_stock_price,
+            "passed_short_swing_count": len(passed_contracts),
+            "rejected_short_swing_count": len(rejected_contracts_debug),
+            "rejected_short_swing_examples": rejected_contracts_debug[:10],
+            "fallback_used": True,
+            "fallback_mode": "simple",
+            "selected_contract_snapshot": _contract_debug_snapshot(
+                fallback,
                 reference_stock_price=reference_stock_price,
-                prefer_one_dollar_otm=False,
-            )
-        )
+            ),
+        }
+        return fallback
     else:
-        LOGGER.info(
-            "No usable %s contracts were available for short-swing, preferred, or fallback selection.",
-            normalized_decision,
-        )
         return None
 
     selected = dict(candidate_pool[0])
     selected["_selection_mode"] = selection_mode
     selected["_selector_debug"] = {
+        "selector_mode_requested": OPTION_SELECTOR_MODE,
         "reference_stock_price": reference_stock_price,
         "passed_short_swing_count": len(passed_contracts),
         "rejected_short_swing_count": len(rejected_contracts_debug),
@@ -605,28 +887,52 @@ def _pick_matching_contract(
         ),
     }
 
-    LOGGER.info(
-        "Selected option decision=%s mode=%s option_id=%s symbol=%s strike=%s expiration=%s reference_stock_price=%s",
-        normalized_decision,
-        selection_mode,
-        selected.get("option_id"),
-        selected.get("symbol"),
-        selected.get("strike_price"),
-        selected.get("expiration_date"),
-        reference_stock_price,
-    )
-
     return selected
 
 
-def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict[str, Any]:
-    """Attach a concrete option contract to a manager result when rules allow it.
+# =========================
+# DISPATCHER
+# =========================
+def _pick_matching_contract(
+    *,
+    decision: str,
+    option_contracts: list[dict[str, Any]],
+    market_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    if OPTION_SELECTOR_MODE == "simple":
+        return _pick_matching_contract_simple(
+            decision=decision,
+            option_contracts=option_contracts,
+            market_context=market_context,
+        )
 
-    Usage:
-        Pass the dict returned by ``agent_stages.manager.decide_company_option_position``.
-        The helper preserves the original payload and adds ``selected_option``
-        plus selection diagnostics under ``recommendation.selection_debug``.
-    """
+    if OPTION_SELECTOR_MODE == "hybrid":
+        return _pick_matching_contract_hybrid(
+            decision=decision,
+            option_contracts=option_contracts,
+            market_context=market_context,
+        )
+
+    if OPTION_SELECTOR_MODE == "greeks":
+        return _pick_matching_contract_greeks(
+            decision=decision,
+            option_contracts=option_contracts,
+            market_context=market_context,
+        )
+
+    LOGGER.warning(
+        "Unknown OPTION_SELECTOR_MODE=%s; defaulting to hybrid.",
+        OPTION_SELECTOR_MODE,
+    )
+    return _pick_matching_contract_hybrid(
+        decision=decision,
+        option_contracts=option_contracts,
+        market_context=market_context,
+    )
+
+
+def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict[str, Any]:
+    """Attach a concrete option contract to a manager result when rules allow it."""
     recommendation = dict(manager_result.get("recommendation") or {})
     market_context = dict(manager_result.get("market_context") or {})
     option_market = dict(market_context.get("option_market") or {})
@@ -686,6 +992,8 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
         "selected_option_source": selected_option_source,
         "selection_debug": {
             "selector_version": SELECTOR_VERSION,
+            "option_selector_mode": OPTION_SELECTOR_MODE,
+            "allow_risky_simple_fallback": ALLOW_RISKY_SIMPLE_FALLBACK,
             "decision_seen": decision,
             "confidence_seen": confidence,
             "reference_stock_price": reference_stock_price,
@@ -715,7 +1023,22 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
                     reference_stock_price,
                 )
             ),
-            "short_swing_thresholds": {
+            "simple_thresholds": {
+                "require_one_dollar_otm": SIMPLE_REQUIRE_ONE_DOLLAR_OTM,
+                "preferred_otm_distance": SIMPLE_PREFERRED_OTM_DISTANCE,
+            },
+            "hybrid_thresholds": {
+                "min_dte": HYBRID_MIN_DTE,
+                "max_dte": HYBRID_MAX_DTE,
+                "min_open_interest": HYBRID_MIN_OPEN_INTEREST,
+                "max_spread_pct": HYBRID_MAX_SPREAD_PCT,
+                "min_abs_delta": HYBRID_MIN_ABS_DELTA,
+                "target_abs_delta": HYBRID_TARGET_ABS_DELTA,
+                "min_gamma": HYBRID_MIN_GAMMA,
+                "max_theta_to_price": HYBRID_MAX_THETA_TO_PRICE,
+                "preferred_otm_distance": HYBRID_PREFERRED_OTM_DISTANCE,
+            },
+            "greeks_thresholds": {
                 "min_dte": MIN_DTE,
                 "max_dte": MAX_DTE,
                 "min_open_interest": MIN_OPEN_INTEREST,
