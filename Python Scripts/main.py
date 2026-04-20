@@ -955,21 +955,18 @@ class FrontMainApplication:
             time.sleep(sleep_seconds)
 
     def run_option_manager_loop(self) -> None:
-        """Run the dedicated option-manager loop with immediate order execution."""
+        """Run the dedicated option-manager loop for existing option positions only."""
         trading_client = self._trading_gateway.create_client()
-        next_trading_cycle_at = datetime.now()
         next_option_management_at = datetime.now()
 
         self._logger.info(
-            "Starting dedicated option manager loop with trading interval=%s seconds, option management interval=%s seconds and market recheck=%s seconds",
-            self._settings.run_interval_seconds,
+            "Starting dedicated option manager loop with option management interval=%s seconds and market recheck=%s seconds",
             self._settings.option_position_management_interval_seconds,
             self._settings.market_recheck_seconds,
         )
         self._status_reporter.write(
             "starting",
             "Dedicated option manager loop started",
-            run_interval_seconds=self._settings.run_interval_seconds,
             option_position_management_interval_seconds=self._settings.option_position_management_interval_seconds,
             market_recheck_seconds=self._settings.market_recheck_seconds,
             auto_manage_option_positions=self._settings.auto_manage_option_positions,
@@ -981,7 +978,7 @@ class FrontMainApplication:
 
         if not self._settings.auto_manage_option_positions:
             self._logger.warning(
-                "AUTO_MANAGE_OPTION_POSITIONS is disabled; dedicated option manager will still execute new orders but skip position management."
+                "AUTO_MANAGE_OPTION_POSITIONS is disabled; dedicated option manager will remain idle aside from market-open checks."
             )
 
         while True:
@@ -1021,22 +1018,7 @@ class FrontMainApplication:
                     )
 
             current_time = datetime.now()
-            if current_time >= next_trading_cycle_at:
-                try:
-                    self._status_reporter.write("running", "Executing immediate option manager trading cycle")
-                    result = self.run_streaming_trading_cycle(trading_client=trading_client)
-                    print(json.dumps(result, ensure_ascii=True, indent=2))
-                except Exception as exc:
-                    self._status_reporter.write("error", f"Dedicated option manager trading cycle failed: {exc}")
-                    self._logger.exception("Dedicated option manager trading cycle failed: %s", exc)
-                finally:
-                    next_trading_cycle_at = datetime.now() + timedelta(seconds=self._settings.run_interval_seconds)
-
-            current_time = datetime.now()
-            next_wake_targets = [
-                datetime.now() + timedelta(seconds=self._settings.market_recheck_seconds),
-                next_trading_cycle_at,
-            ]
+            next_wake_targets = [datetime.now() + timedelta(seconds=self._settings.market_recheck_seconds)]
             if self._settings.auto_manage_option_positions:
                 next_wake_targets.append(next_option_management_at)
             sleep_seconds = max(0.0, min((target - current_time).total_seconds() for target in next_wake_targets))
@@ -1049,11 +1031,10 @@ class FrontMainApplication:
                 (
                     "Sleeping until next task"
                     if self._settings.auto_manage_option_positions
-                    else "Option management disabled; sleeping until next trading cycle"
+                    else "Option management disabled; sleeping until next market check"
                 ),
                 sleep_seconds=sleep_seconds,
                 last_loop_started_at=loop_started_at.isoformat(),
-                next_trading_cycle_at=next_trading_cycle_at.isoformat(),
                 next_option_management_at=(
                     next_option_management_at.isoformat()
                     if self._settings.auto_manage_option_positions
