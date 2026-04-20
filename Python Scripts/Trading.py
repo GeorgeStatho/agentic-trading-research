@@ -20,6 +20,7 @@ load_dotenv(env_path)
 
 API_KEY = os.getenv("PUBLIC_KEY")
 API_SECRET_KEY: str = os.getenv("PRIVATE_KEY")
+ALPACA_PAPER = str(os.getenv("ALPACA_PAPER", "true")).strip().lower() not in {"0", "false", "no", "off", ""}
 OPTION_SYMBOL_TEMPLATE = r"\d{6}[CP]\d{8}$"
 OPTION_SYMBOL_PATTERN = re.compile(
     r"^(?P<underlying>[A-Z0-9]{1,8})(?P<yy>\d{2})(?P<mm>\d{2})(?P<dd>\d{2})(?P<contract_type>[CP])(?P<strike>\d{8})$"
@@ -46,7 +47,7 @@ def IntializeTradingClient(api_key: str, secret: str, paper: bool) -> TradingCli
     return trading_client
 
 
-trading_client = IntializeTradingClient(API_KEY, API_SECRET_KEY, True)
+trading_client = IntializeTradingClient(API_KEY, API_SECRET_KEY, ALPACA_PAPER)
 option_history_client = OptionHistoricalDataClient(API_KEY, API_SECRET_KEY)
 stock_history_client = StockHistoricalDataClient(API_KEY, API_SECRET_KEY)
 

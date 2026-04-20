@@ -44,6 +44,7 @@ load_dotenv(ENV_PATH)
 
 API_KEY = os.getenv("PUBLIC_KEY")
 API_SECRET_KEY = os.getenv("PRIVATE_KEY")
+ALPACA_PAPER = str(os.getenv("ALPACA_PAPER", "true")).strip().lower() not in {"0", "false", "no", "off", ""}
 
 
 def _require_api_credentials() -> tuple[str, str]:
@@ -62,7 +63,12 @@ stockRealTimeClient = StockDataStream(_api_key, _api_secret_key)
 
 optionHistoryClient = OptionHistoricalDataClient(_api_key, _api_secret_key)
 optionRealTimeClient = OptionDataStream(_api_key, _api_secret_key)
-tradingClient = TradingClient(api_key=_api_key, secret_key=_api_secret_key, oauth_token=None, paper=True)
+tradingClient = TradingClient(
+    api_key=_api_key,
+    secret_key=_api_secret_key,
+    oauth_token=None,
+    paper=ALPACA_PAPER,
+)
 
 ##########ENVIRONMENT AND CLIENTS##########
 
