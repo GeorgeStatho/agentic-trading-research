@@ -370,7 +370,7 @@ def _extract_model_selected_option_id(
 
 def _get_reference_stock_price(market_context: dict[str, Any]) -> float | None:
     stock_snapshot = market_context.get("current_stock_price", {})
-    for key in ("midpoint_price", "price", "ask_price", "bid_price"):
+    for key in ("latest_trade_price", "price", "ask_price", "midpoint_price", "bid_price"):
         price = _coerce_float(stock_snapshot.get(key))
         if price is not None and price > 0:
             return price
