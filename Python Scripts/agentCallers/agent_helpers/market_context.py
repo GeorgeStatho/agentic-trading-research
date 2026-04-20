@@ -50,8 +50,8 @@ DEFAULT_OPTION_FETCH_MIN = max(100, int(os.getenv("MANAGER_OPTION_FETCH_MIN", "5
 OPTION_SYMBOL_TEMPLATE = r"\d{6}[CP]\d{8}$"
 _ALPACA_CLIENTS: dict[str, Any] | None | bool = None
 
-CLOSEST_EXPIRATION_LTE=1
-FARTHEST_EXPIRATION_GTE=8
+CLOSEST_EXPIRATION_GTE = 1
+FARTHEST_EXPIRATION_LTE = 8
 LOGGER = logging.getLogger("agent_helpers.market_context")
 
 
