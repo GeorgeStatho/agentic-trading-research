@@ -8,6 +8,7 @@ stay focused on orchestration instead of vendor details.
 """
 
 from datetime import date, datetime
+import logging
 import os
 from pathlib import Path
 import re
@@ -51,6 +52,7 @@ _ALPACA_CLIENTS: dict[str, Any] | None | bool = None
 
 CLOSEST_EXPIRATION_LTE=1
 FARTHEST_EXPIRATION_GTE=8
+LOGGER = logging.getLogger("agent_helpers.market_context")
 
 
 __all__ = [
@@ -327,6 +329,31 @@ def _build_contract_request(
     )
 
 
+def _build_contract_request_debug(
+    *,
+    company_symbol: str,
+    contract_type: Any,
+    expiration_date: str | None,
+    expiration_date_gte: str | None,
+    expiration_date_lte: str | None,
+    strike_price_gte: float | None,
+    strike_price_lte: float | None,
+    limit: int,
+) -> dict[str, Any]:
+    return {
+        "underlying_symbols": [company_symbol],
+        "root_symbol": company_symbol,
+        "type": _serialize_scalar(contract_type),
+        "expiration_date": expiration_date or "",
+        "expiration_date_gte": expiration_date_gte or "",
+        "expiration_date_lte": expiration_date_lte or "",
+        "strike_price_gte": _format_strike_filter(strike_price_gte) or "",
+        "strike_price_lte": _format_strike_filter(strike_price_lte) or "",
+        "limit": limit,
+        "paper": _env_flag("ALPACA_PAPER", True),
+    }
+
+
 def _normalize_contract_type(value: Any) -> str:
     enum_value = getattr(value, "value", None)
     if enum_value not in (None, ""):
@@ -538,6 +565,34 @@ def _build_option_market_snapshot(
             effective_expiration_date_gte = (today.fromordinal(today.toordinal() + CLOSEST_EXPIRATION_GTE)).isoformat()
             effective_expiration_date_lte = (today.fromordinal(today.toordinal() + FARTHEST_EXPIRATION_LTE)).isoformat()
 
+        call_request_debug = _build_contract_request_debug(
+            company_symbol=company_symbol,
+            contract_type=ContractType.CALL,
+            expiration_date=effective_expiration_date,
+            expiration_date_gte=effective_expiration_date_gte,
+            expiration_date_lte=effective_expiration_date_lte,
+            strike_price_gte=effective_strike_price_gte,
+            strike_price_lte=effective_strike_price_lte,
+            limit=raw_fetch_limit,
+        )
+        put_request_debug = _build_contract_request_debug(
+            company_symbol=company_symbol,
+            contract_type=ContractType.PUT,
+            expiration_date=effective_expiration_date,
+            expiration_date_gte=effective_expiration_date_gte,
+            expiration_date_lte=effective_expiration_date_lte,
+            strike_price_gte=effective_strike_price_gte,
+            strike_price_lte=effective_strike_price_lte,
+            limit=raw_fetch_limit,
+        )
+
+        LOGGER.info(
+            "Option contract lookup for %s using call_request=%s put_request=%s",
+            company_symbol,
+            call_request_debug,
+            put_request_debug,
+        )
+
         call_contracts = _fetch_option_contracts(
             company_symbol,
             contract_type=ContractType.CALL,
@@ -560,6 +615,13 @@ def _build_option_market_snapshot(
         )
     except Exception as exc:
         unavailable["error"] = str(exc)
+        LOGGER.warning(
+            "Option market lookup failed for %s with error=%s call_request=%s put_request=%s",
+            company_symbol,
+            unavailable["error"],
+            locals().get("call_request_debug", {}),
+            locals().get("put_request_debug", {}),
+        )
         return unavailable
 
     contract_map: dict[str, Any] = {}
@@ -582,6 +644,17 @@ def _build_option_market_snapshot(
             "effective_strike_price_gte": effective_strike_price_gte,
             "effective_strike_price_lte": effective_strike_price_lte,
         }
+        unavailable["request_debug"] = {
+            "call_request": call_request_debug,
+            "put_request": put_request_debug,
+        }
+        LOGGER.warning(
+            "Option market returned no contracts for %s. option_market.error=%s call_request=%s put_request=%s",
+            company_symbol,
+            unavailable["error"],
+            call_request_debug,
+            put_request_debug,
+        )
         return unavailable
 
     snapshots_by_symbol: dict[str, Any] = {}
@@ -660,6 +733,10 @@ def _build_option_market_snapshot(
         "available_expirations": sorted(expiration_values),
         "available_strikes": sorted(strike_values),
         "contracts": selected_contracts,
+        "request_debug": {
+            "call_request": call_request_debug,
+            "put_request": put_request_debug,
+        },
     }
     if chain_error:
         payload["warning"] = f"Option chain snapshots were unavailable: {chain_error}"
