@@ -175,6 +175,7 @@ class FrontMainSettings:
     market_recheck_seconds: int
     auto_manage_option_positions: bool
     auto_close_option_positions: bool
+    immediate_option_execution: bool
     option_position_management_interval_seconds: int
     option_position_take_profit_pct: float
     option_position_stop_loss_pct: float
@@ -203,6 +204,7 @@ class FrontMainSettings:
             market_recheck_seconds=market_recheck_seconds,
             auto_manage_option_positions=_env_flag("AUTO_MANAGE_OPTION_POSITIONS", True),
             auto_close_option_positions=_env_flag("AUTO_CLOSE_OPTION_POSITIONS", True),
+            immediate_option_execution=_env_flag("IMMEDIATE_OPTION_EXECUTION", False),
             option_position_management_interval_seconds=max(
                 60,
                 int(os.getenv("OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS", str(market_recheck_seconds))),
@@ -871,10 +873,11 @@ class FrontMainApplication:
         next_option_management_at = datetime.now()
 
         self._logger.info(
-            "Starting front-facing main loop with interval=%s seconds, option management interval=%s seconds, and market recheck=%s seconds",
+            "Starting front-facing main loop with interval=%s seconds, option management interval=%s seconds, market recheck=%s seconds, and immediate_option_execution=%s",
             self._settings.run_interval_seconds,
             self._settings.option_position_management_interval_seconds,
             self._settings.market_recheck_seconds,
+            self._settings.immediate_option_execution,
         )
         self._status_reporter.write(
             "starting",
@@ -882,6 +885,7 @@ class FrontMainApplication:
             run_interval_seconds=self._settings.run_interval_seconds,
             option_position_management_interval_seconds=self._settings.option_position_management_interval_seconds,
             market_recheck_seconds=self._settings.market_recheck_seconds,
+            immediate_option_execution=self._settings.immediate_option_execution,
         )
 
         if self._settings.cold_start_sanity_check_enabled:
@@ -926,8 +930,12 @@ class FrontMainApplication:
             current_time = datetime.now()
             if current_time >= next_trading_cycle_at:
                 try:
-                    self._status_reporter.write("running", "Executing trading cycle")
-                    result = self.run_trading_cycle(trading_client=trading_client)
+                    if self._settings.immediate_option_execution:
+                        self._status_reporter.write("running", "Executing trading cycle with immediate option execution")
+                        result = self.run_streaming_trading_cycle(trading_client=trading_client)
+                    else:
+                        self._status_reporter.write("running", "Executing trading cycle")
+                        result = self.run_trading_cycle(trading_client=trading_client)
                     print(json.dumps(result, ensure_ascii=True, indent=2))
                 except Exception as exc:
                     self._status_reporter.write("error", f"Front-facing main cycle failed: {exc}")
