@@ -7,6 +7,8 @@ with live market context. Keeping that logic here lets ``agent_helpers.manager``
 stay focused on orchestration instead of vendor details.
 """
 
+import json
+import argparse
 from datetime import date, datetime
 import logging
 import os
@@ -27,7 +29,7 @@ bootstrap_agent_callers(load_env_file=True)
 
 try:
     from alpaca.data import OptionHistoricalDataClient, StockHistoricalDataClient
-    from alpaca.data.requests import OptionChainRequest, StockLatestQuoteRequest
+    from alpaca.data.requests import OptionChainRequest, StockLatestQuoteRequest, StockLatestTradeRequest
     from alpaca.trading.client import TradingClient
     from alpaca.trading.enums import ContractType
     from alpaca.trading.requests import GetOptionContractsRequest
@@ -38,6 +40,7 @@ except ImportError as exc:  # pragma: no cover - optional dependency
     OptionChainRequest = None
     StockHistoricalDataClient = None
     StockLatestQuoteRequest = None
+    StockLatestTradeRequest = None
     TradingClient = None
     ContractType = None
     GetOptionContractsRequest = None
@@ -158,6 +161,7 @@ def _build_stock_fallback_snapshot(company: dict[str, Any]) -> dict[str, Any]:
         "symbol": company.get("symbol") or "",
         "source": "company_market_data",
         "price": None,
+        "latest_trade_price": None,
         "bid_price": None,
         "ask_price": None,
         "midpoint_price": None,
@@ -188,21 +192,42 @@ def _build_current_stock_price_snapshot(company: dict[str, Any]) -> dict[str, An
             fallback["error"] = f"No latest stock quote was returned for {symbol}."
             return fallback
 
+        latest_trade_price = None
+        latest_trade_timestamp = ""
+        if StockLatestTradeRequest is not None:
+            try:
+                trades = clients["stock"].get_stock_latest_trade(
+                    StockLatestTradeRequest(symbol_or_symbols=symbol)
+                )
+                trade = trades.get(symbol) if hasattr(trades, "get") else None
+                if trade is not None:
+                    latest_trade_price = _safe_float(_get_field(trade, "price"))
+                    latest_trade_timestamp = (
+                        _serialize_scalar(_get_field(trade, "timestamp")) or ""
+                    )
+            except Exception:
+                latest_trade_price = None
+                latest_trade_timestamp = ""
+
         bid_price = _safe_float(_get_field(quote, "bid_price"))
         ask_price = _safe_float(_get_field(quote, "ask_price"))
         midpoint_price = None
         if bid_price is not None and ask_price is not None:
             midpoint_price = round((bid_price + ask_price) / 2.0, 4)
 
-        price = ask_price if ask_price is not None else bid_price
+        price = latest_trade_price
+        if price is None:
+            price = ask_price if ask_price is not None else bid_price
         if price is None:
             price = midpoint_price
 
         return {
             "available": price is not None,
             "symbol": symbol,
-            "source": "alpaca_latest_quote",
+            "source": "alpaca_latest_trade" if latest_trade_price is not None else "alpaca_latest_quote",
             "price": price,
+            "latest_trade_price": latest_trade_price,
+            "latest_trade_timestamp": latest_trade_timestamp,
             "bid_price": bid_price,
             "ask_price": ask_price,
             "midpoint_price": midpoint_price,
@@ -219,17 +244,21 @@ def _build_current_stock_price_snapshot(company: dict[str, Any]) -> dict[str, An
 
 
 def _get_reference_stock_price_from_snapshot(stock_snapshot: dict[str, Any]) -> float | None:
+    latest_trade = _safe_float(stock_snapshot.get("latest_trade_price"))
     bid = _safe_float(stock_snapshot.get("bid_price"))
     ask = _safe_float(stock_snapshot.get("ask_price"))
     midpoint = _safe_float(stock_snapshot.get("midpoint_price"))
     price = _safe_float(stock_snapshot.get("price"))
+
+    if latest_trade is not None and latest_trade > 0:
+        return latest_trade
 
     if bid is not None and ask is not None and bid > 0 and ask > 0:
         spread_ratio = (ask - bid) / max(midpoint or bid, 0.0001)
         if spread_ratio <= 0.02 and midpoint is not None and midpoint > 0:
             return midpoint
 
-    for candidate in (midpoint, price, ask, bid):
+    for candidate in (price, ask, midpoint, bid):
         if candidate is not None and candidate > 0:
             return candidate
 
@@ -869,3 +898,40 @@ def build_market_context(
         ),
         "account_state": _build_account_state(company_symbol),
     }
+
+
+def _run_reference_price_smoke_test(symbol: str) -> int:
+    normalized_symbol = str(symbol or "").strip().upper()
+    if not normalized_symbol:
+        print("Usage: python market_context.py <SYMBOL>")
+        return 1
+
+    company = {"symbol": normalized_symbol}
+    stock_snapshot = _build_current_stock_price_snapshot(company)
+    reference_stock_price = _get_reference_stock_price_from_snapshot(stock_snapshot)
+
+    print(f"symbol: {normalized_symbol}")
+    print(f"snapshot_source: {stock_snapshot.get('source')}")
+    print(f"snapshot_timestamp: {stock_snapshot.get('timestamp')}")
+    print(f"latest_trade_timestamp: {stock_snapshot.get('latest_trade_timestamp')}")
+    print(f"latest_trade_price: {stock_snapshot.get('latest_trade_price')}")
+    print(f"price: {stock_snapshot.get('price')}")
+    print(f"bid_price: {stock_snapshot.get('bid_price')}")
+    print(f"ask_price: {stock_snapshot.get('ask_price')}")
+    print(f"midpoint_price: {stock_snapshot.get('midpoint_price')}")
+    print(f"reference_stock_price: {reference_stock_price}")
+    print(f"available: {stock_snapshot.get('available')}")
+    print(f"error: {stock_snapshot.get('error', '')}")
+    print("snapshot_json:")
+    print(json.dumps(stock_snapshot, indent=2, sort_keys=True))
+
+    return 0
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Smoke-test the Alpaca-backed stock reference price calculation."
+    )
+    parser.add_argument("symbol", nargs="?", help="Ticker symbol to inspect, e.g. SHOP")
+    args = parser.parse_args()
+    raise SystemExit(_run_reference_price_smoke_test(args.symbol or "AAPL"))
