@@ -52,7 +52,7 @@ ALLOW_RISKY_SIMPLE_FALLBACK = _env_flag("ALLOW_RISKY_SIMPLE_FALLBACK", True)
 # =========================
 # SIMPLE MODE TUNABLES
 # =========================
-SIMPLE_REQUIRE_ONE_DOLLAR_OTM = False
+SIMPLE_REQUIRE_ONE_DOLLAR_OTM = True
 SIMPLE_PREFERRED_OTM_DISTANCE = 1.0
 
 
@@ -70,6 +70,7 @@ HYBRID_TARGET_ABS_DELTA = 0.28
 HYBRID_MAX_THETA_TO_PRICE = 0.80
 HYBRID_MIN_GAMMA = 0.01
 HYBRID_PREFERRED_OTM_DISTANCE = 1.0
+HYBRID_REQUIRE_MIN_OTM_DISTANCE = True
 
 
 # =========================
@@ -85,7 +86,7 @@ MAX_ABS_DELTA = 0.28
 TARGET_ABS_DELTA = 0.28
 MIN_GAMMA = 0.01
 MAX_THETA_TO_PRICE = 0.80
-REQUIRE_ONE_DOLLAR_OTM = False
+REQUIRE_ONE_DOLLAR_OTM = True
 PREFERRED_OTM_DISTANCE = 1.0
 
 
@@ -289,6 +290,18 @@ def _is_one_dollar_otm_contract(
     return False
 
 
+def _meets_min_otm_distance(
+    contract_type: str,
+    strike_price: float | None,
+    reference_stock_price: float | None,
+    *,
+    min_distance: float,
+) -> bool:
+    if strike_price is None or reference_stock_price is None:
+        return False
+    return _otm_distance(contract_type, strike_price, reference_stock_price) >= min_distance
+
+
 def _is_valid_fallback_side_contract(
     contract_type: str,
     strike_price: float | None,
@@ -452,7 +465,7 @@ def _pick_matching_contract_simple(
     fallback_contracts = [
         contract
         for contract in matching_contracts
-        if _is_valid_fallback_side_contract(
+        if _is_otm_contract(
             normalized_decision,
             _coerce_float(contract.get("strike_price")),
             reference_stock_price,
@@ -526,6 +539,15 @@ def _passes_hybrid_fast_filters(
         reference_stock_price,
     ):
         reasons.append("wrong_side")
+        return False, reasons
+
+    if HYBRID_REQUIRE_MIN_OTM_DISTANCE and not _meets_min_otm_distance(
+        normalized_decision,
+        strike_price,
+        reference_stock_price,
+        min_distance=HYBRID_PREFERRED_OTM_DISTANCE,
+    ):
+        reasons.append("otm_distance_below_preferred_min")
         return False, reasons
 
     dte = _get_dte(contract)
@@ -1036,6 +1058,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
                 "target_abs_delta": HYBRID_TARGET_ABS_DELTA,
                 "min_gamma": HYBRID_MIN_GAMMA,
                 "max_theta_to_price": HYBRID_MAX_THETA_TO_PRICE,
+                "require_min_otm_distance": HYBRID_REQUIRE_MIN_OTM_DISTANCE,
                 "preferred_otm_distance": HYBRID_PREFERRED_OTM_DISTANCE,
             },
             "greeks_thresholds": {
