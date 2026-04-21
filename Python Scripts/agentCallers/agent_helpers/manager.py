@@ -128,6 +128,7 @@ def test_market_context(
     )
 
     stock_snapshot = market_context.get("current_stock_price", {})
+    market_indices = market_context.get("market_indices", {})
     option_market = market_context.get("option_market", {})
     account_state = market_context.get("account_state", {})
 
@@ -136,6 +137,11 @@ def test_market_context(
         "diagnostics": {
             "stock_price_available": bool(stock_snapshot.get("available")),
             "stock_price_error": str(stock_snapshot.get("error") or ""),
+            "market_index_count_available": sum(
+                1
+                for snapshot in market_indices.values()
+                if isinstance(snapshot, dict) and snapshot.get("available")
+            ),
             "option_market_available": bool(option_market.get("available")),
             "option_market_error": str(option_market.get("error") or ""),
             "option_contract_count": int(option_market.get("contract_count") or 0),
