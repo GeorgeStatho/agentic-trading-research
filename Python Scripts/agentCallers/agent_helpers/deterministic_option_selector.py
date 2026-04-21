@@ -53,7 +53,7 @@ ALLOW_RISKY_SIMPLE_FALLBACK = _env_flag("ALLOW_RISKY_SIMPLE_FALLBACK", True)
 # SIMPLE MODE TUNABLES
 # =========================
 SIMPLE_REQUIRE_ONE_DOLLAR_OTM = True
-SIMPLE_PREFERRED_OTM_DISTANCE = 1.0
+SIMPLE_PREFERRED_OTM_DISTANCE = 0.75
 
 
 # =========================
@@ -69,7 +69,7 @@ HYBRID_MIN_ABS_DELTA = 0.15
 HYBRID_TARGET_ABS_DELTA = 0.28
 HYBRID_MAX_THETA_TO_PRICE = 0.80
 HYBRID_MIN_GAMMA = 0.01
-HYBRID_PREFERRED_OTM_DISTANCE = 1.0
+HYBRID_PREFERRED_OTM_DISTANCE = 0.75
 HYBRID_REQUIRE_MIN_OTM_DISTANCE = True
 
 
@@ -87,7 +87,7 @@ TARGET_ABS_DELTA = 0.28
 MIN_GAMMA = 0.01
 MAX_THETA_TO_PRICE = 0.80
 REQUIRE_ONE_DOLLAR_OTM = True
-PREFERRED_OTM_DISTANCE = 1.0
+PREFERRED_OTM_DISTANCE = 0.75
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -282,10 +282,10 @@ def _is_one_dollar_otm_contract(
         return False
 
     if contract_type == "call":
-        return strike_price >= (reference_stock_price + 1.0)
+        return strike_price >= (reference_stock_price + SIMPLE_PREFERRED_OTM_DISTANCE)
 
     if contract_type == "put":
-        return strike_price <= (reference_stock_price - 1.0)
+        return strike_price <= (reference_stock_price - SIMPLE_PREFERRED_OTM_DISTANCE)
 
     return False
 
