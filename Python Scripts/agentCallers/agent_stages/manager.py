@@ -116,6 +116,7 @@ def _payload_has_evidence(payload: dict[str, Any]) -> bool:
 def _build_context_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     market_context = payload.get("market_context", {})
     strategist_recommendation = payload.get("strategist_recommendation", {})
+    market_indices = market_context.get("market_indices", {})
     return {
         "view_counts": {
             key: int(value.get("count") or 0)
@@ -125,6 +126,11 @@ def _build_context_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
         "article_summary_count": len(payload.get("supporting_articles", {}).get("article_summaries", [])),
         "full_article_count": len(payload.get("supporting_articles", {}).get("full_articles", [])),
         "stock_price_available": bool(market_context.get("current_stock_price", {}).get("available")),
+        "market_index_count_available": sum(
+            1
+            for snapshot in market_indices.values()
+            if isinstance(snapshot, dict) and snapshot.get("available")
+        ),
         "option_contract_count": int(market_context.get("option_market", {}).get("contract_count") or 0),
         "account_state_available": bool(market_context.get("account_state", {}).get("available")),
         "matching_position_count": int(
@@ -149,6 +155,7 @@ def _build_manager_visible_market_context(payload: dict[str, Any]) -> dict[str, 
 
     return {
         "current_stock_price": market_context.get("current_stock_price", {}),
+        "market_indices": market_context.get("market_indices", {}),
         "account_state": market_context.get("account_state", {}),
         "option_market_summary": {
             "available": bool(option_market.get("available")),
@@ -177,24 +184,26 @@ def build_manager_prompt(
         "You are an investment manager deciding whether a company currently supports a bullish options call, "
         "a bearish options put, or neither. "
         "Use only the supplied structured context. "
-        "Treat upstream agent conclusions as signals, not certainty, and weigh them against the article evidence, "
-        "the current stock price snapshot, the supplied 1d, 5d, 1mo, and 3mo stock price history, "
-        "account buying power, the current position state, and the supplied strategist recommendation. "
-        "The strategist recommendation includes whether the company is a trade candidate, the expected stock direction, "
-        "and the preferred options direction. Use that as one input, but do not follow it blindly if the stronger "
-        "market or account context points elsewhere. "
-        "Do not use or infer a specific option contract from Alpaca contract data. "
-        "Contract selection happens in a separate deterministic step after your decision. "
+        "You are reviewing three inputs together: "
+        "1) the same structured research package used by the strategist, including article evidence and 1d, 5d, 1mo, and 3mo price history; "
+        "2) live market and account context, including current stock price, option market summary, buying power, and current position state; "
+        "and 3) the strategist recommendation as an additional upstream signal. "
+        "Treat the strategist recommendation as a useful summary, not as ground truth. "
+        "The strategist recommendation may include whether the company is a trade candidate, the expected stock direction, "
+        "the preferred option direction, and supporting summary/thesis/risks. "
+        "Use that information as one input, but make your own final call from the full combined context. "
+        "Your job is only to choose call, put, or neither for the underlying at this time. "
+        "Do not choose, rank, or infer a specific option contract from Alpaca contract data. "
+        "Contract selection happens later in a separate deterministic selection step after your decision. "
         "Choose 'call' only when the combined evidence is convincingly bullish and the account context can support it. "
         "Choose 'put' only when the combined evidence is convincingly bearish and the account context can support it. "
-        "If the evidence is mixed, weak, operationally constrained, or mostly inconclusive, prefer 'neither'. "
-        "Do not choose a specific option contract yourself. "
+        "If the evidence is mixed, weak, operationally constrained, too contradictory, or mostly inconclusive, prefer 'neither'. "
         "Return only valid JSON with a top-level key named 'recommendation'. "
         "Do not include markdown fences, notes, or extra keys. "
         "The recommendation object must contain: decision, confidence, reason. "
         "decision must be one of: call, put, neither. "
         "confidence must be one of: high, medium, low. "
-        "reason must be a short paragraph."
+        "reason must be a short paragraph that explains the main drivers of the decision."
     )
     system_prompt = str(system_prompt_override or default_system_prompt)
 

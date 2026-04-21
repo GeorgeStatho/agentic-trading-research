@@ -25,7 +25,7 @@ if __package__ in {None, ""}:
 from _paths import bootstrap_agent_callers
 
 
-bootstrap_agent_callers(load_env_file=True)
+bootstrap_agent_callers(include_webscraping=True, load_env_file=True)
 
 try:
     from alpaca.data import OptionHistoricalDataClient, StockHistoricalDataClient
@@ -46,12 +46,27 @@ except ImportError as exc:  # pragma: no cover - optional dependency
     GetOptionContractsRequest = None
     ALPACA_IMPORT_ERROR = exc
 
+try:
+    import yfinance as yf
+except ImportError:  # pragma: no cover - optional dependency
+    yf = None
+
+try:
+    from yfinance_client import REQUEST_HANDLER
+except ImportError:  # pragma: no cover - optional dependency
+    REQUEST_HANDLER = None
+
 
 DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE = max(1, int(os.getenv("MANAGER_OPTION_CHAIN_LIMIT_PER_TYPE", "6")))
 DEFAULT_OPTION_CHAIN_FETCH_MULTIPLIER = max(2, int(os.getenv("MANAGER_OPTION_CHAIN_FETCH_MULTIPLIER", "6")))
 DEFAULT_OPTION_FETCH_MIN = max(100, int(os.getenv("MANAGER_OPTION_FETCH_MIN", "500")))
 OPTION_SYMBOL_TEMPLATE = r"\d{6}[CP]\d{8}$"
 _ALPACA_CLIENTS: dict[str, Any] | None | bool = None
+MARKET_INDEX_DEFINITIONS: tuple[tuple[str, str, str], ...] = (
+    ("sp500", "^GSPC", "S&P 500"),
+    ("dow_jones_industrial_average", "^DJI", "Dow Jones Industrial Average"),
+    ("vix", "^VIX", "CBOE Volatility Index"),
+)
 
 CLOSEST_EXPIRATION_GTE = 1
 FARTHEST_EXPIRATION_LTE = 8
@@ -76,6 +91,14 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _first_float(source: Any, *keys: str) -> float | None:
+    for key in keys:
+        value = _safe_float(_get_field(source, key))
+        if value is not None:
+            return value
+    return None
 
 
 def _serialize_scalar(value: Any) -> Any:
@@ -166,6 +189,114 @@ def _build_stock_fallback_snapshot(company: dict[str, Any]) -> dict[str, Any]:
         "ask_price": None,
         "midpoint_price": None,
         "timestamp": "",
+    }
+
+
+def _empty_market_index_snapshot(*, symbol: str, label: str, error: str = "") -> dict[str, Any]:
+    return {
+        "available": False,
+        "symbol": symbol,
+        "label": label,
+        "source": "yfinance",
+        "price": None,
+        "previous_close": None,
+        "absolute_change": None,
+        "percent_change": None,
+        "timestamp": "",
+        "error": error,
+    }
+
+
+def _build_market_index_snapshot(*, symbol: str, label: str) -> dict[str, Any]:
+    unavailable = _empty_market_index_snapshot(symbol=symbol, label=label)
+    if not symbol:
+        unavailable["error"] = "Market index symbol was missing."
+        return unavailable
+
+    if yf is None or REQUEST_HANDLER is None:
+        unavailable["error"] = "yfinance integration is unavailable."
+        return unavailable
+
+    try:
+        ticker = REQUEST_HANDLER.run(
+            yf.Ticker,
+            symbol,
+            _context=f"Ticker({symbol})",
+        )
+
+        fast_info = REQUEST_HANDLER.run(
+            lambda: ticker.fast_info,
+            _context=f"fast_info({symbol})",
+        )
+
+        price = _first_float(
+            fast_info,
+            "lastPrice",
+            "last_price",
+            "regularMarketPrice",
+            "regular_market_price",
+            "currentPrice",
+            "current_price",
+        )
+        previous_close = _first_float(
+            fast_info,
+            "previousClose",
+            "previous_close",
+            "regularMarketPreviousClose",
+            "regular_market_previous_close",
+        )
+        timestamp = str(
+            _get_field(fast_info, "lastTradeTime")
+            or _get_field(fast_info, "last_trade_time")
+            or _get_field(fast_info, "marketTime")
+            or _get_field(fast_info, "market_time")
+            or ""
+        )
+
+        if price is None:
+            history = REQUEST_HANDLER.run(
+                lambda: ticker.history(period="5d", interval="1d", auto_adjust=False, prepost=False),
+                _context=f"history({symbol},5d,1d)",
+            )
+            if history is not None and not getattr(history, "empty", True):
+                last_close = _safe_float(history["Close"].iloc[-1])
+                previous_history_close = None
+                if len(history.index) >= 2:
+                    previous_history_close = _safe_float(history["Close"].iloc[-2])
+                price = last_close
+                if previous_close is None:
+                    previous_close = previous_history_close
+                if not timestamp:
+                    timestamp = _serialize_scalar(history.index[-1]) or ""
+
+        absolute_change = None
+        percent_change = None
+        if price is not None and previous_close is not None:
+            absolute_change = round(price - previous_close, 4)
+            if previous_close != 0:
+                percent_change = round(((price - previous_close) / previous_close) * 100.0, 4)
+
+        return {
+            "available": price is not None,
+            "symbol": symbol,
+            "label": label,
+            "source": "yfinance_fast_info" if price is not None else "yfinance",
+            "price": price,
+            "previous_close": previous_close,
+            "absolute_change": absolute_change,
+            "percent_change": percent_change,
+            "timestamp": timestamp,
+            "error": "" if price is not None else "No index price was returned.",
+        }
+    except Exception as exc:
+        unavailable["error"] = str(exc)
+        return unavailable
+
+
+def _build_market_indices_snapshot() -> dict[str, Any]:
+    return {
+        key: _build_market_index_snapshot(symbol=symbol, label=label)
+        for key, symbol, label in MARKET_INDEX_DEFINITIONS
     }
 
 
@@ -886,6 +1017,7 @@ def build_market_context(
 
     return {
         "current_stock_price": stock_snapshot,
+        "market_indices": _build_market_indices_snapshot(),
         "option_market": _build_option_market_snapshot(
             company_symbol,
             reference_stock_price=reference_stock_price,
