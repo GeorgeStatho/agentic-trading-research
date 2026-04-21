@@ -60,6 +60,7 @@ except ImportError:  # pragma: no cover - optional dependency
 DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE = max(1, int(os.getenv("MANAGER_OPTION_CHAIN_LIMIT_PER_TYPE", "6")))
 DEFAULT_OPTION_CHAIN_FETCH_MULTIPLIER = max(2, int(os.getenv("MANAGER_OPTION_CHAIN_FETCH_MULTIPLIER", "6")))
 DEFAULT_OPTION_FETCH_MIN = max(100, int(os.getenv("MANAGER_OPTION_FETCH_MIN", "500")))
+PREFERRED_OTM_DISTANCE = 0.75
 OPTION_SYMBOL_TEMPLATE = r"\d{6}[CP]\d{8}$"
 _ALPACA_CLIENTS: dict[str, Any] | None | bool = None
 MARKET_INDEX_DEFINITIONS: tuple[tuple[str, str, str], ...] = (
@@ -564,8 +565,8 @@ def _select_contract_subset_near_reference(
         return []
 
     limit = max(1, int(per_type_limit))
-    call_target = reference_stock_price + 1.0
-    put_target = reference_stock_price - 1.0
+    call_target = reference_stock_price + PREFERRED_OTM_DISTANCE
+    put_target = reference_stock_price - PREFERRED_OTM_DISTANCE
 
     all_calls = [
         contract
