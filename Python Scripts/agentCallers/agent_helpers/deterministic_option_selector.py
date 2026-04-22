@@ -61,8 +61,8 @@ SIMPLE_PREFERRED_OTM_DISTANCE = 0.3
 # keeps old short-DTE / near-strike behavior
 # but filters obvious junk
 # =========================
-HYBRID_MIN_DTE = 1
-HYBRID_MAX_DTE = 3
+HYBRID_MIN_DTE = 2
+HYBRID_MAX_DTE = 7
 HYBRID_MIN_OPEN_INTEREST = 300.0
 HYBRID_MAX_SPREAD_PCT = 0.18
 HYBRID_MIN_ABS_DELTA = 0.15
@@ -77,8 +77,8 @@ HYBRID_REQUIRE_MIN_OTM_DISTANCE = True
 # GREEKS MODE TUNABLES
 # stricter / more swing-like
 # =========================
-MIN_DTE = 1
-MAX_DTE = 5
+MIN_DTE = 4
+MAX_DTE = 10
 MIN_OPEN_INTEREST = 300.0
 MAX_SPREAD_PCT = 0.18
 MIN_ABS_DELTA = 0.15
