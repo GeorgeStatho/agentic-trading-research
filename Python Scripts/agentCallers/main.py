@@ -111,6 +111,43 @@ def _build_selected_option_output(
     }
 
 
+def _summarize_selector_rejection_reasons(manager_result: dict[str, Any]) -> str:
+    recommendation = manager_result.get("recommendation", {})
+    selection_debug = recommendation.get("selection_debug", {})
+    nested_selector_debug = selection_debug.get("selector_debug", {})
+
+    rejection_examples = []
+    for key in ("rejected_hybrid_examples", "rejected_short_swing_examples"):
+        value = nested_selector_debug.get(key, [])
+        if isinstance(value, list) and value:
+            rejection_examples.extend(value)
+
+    if not rejection_examples:
+        selection_mode = str(selection_debug.get("selection_mode") or "").strip()
+        if selection_mode:
+            return f"none_recorded mode={selection_mode}"
+        return "none_recorded"
+
+    reason_counts: dict[str, int] = {}
+    for example in rejection_examples:
+        if not isinstance(example, dict):
+            continue
+        reasons = example.get("rejection_reasons", [])
+        if not isinstance(reasons, list):
+            continue
+        for reason in reasons:
+            normalized_reason = str(reason or "").strip()
+            if not normalized_reason:
+                continue
+            reason_counts[normalized_reason] = reason_counts.get(normalized_reason, 0) + 1
+
+    if not reason_counts:
+        return "none_recorded"
+
+    top_reasons = sorted(reason_counts.items(), key=lambda item: (-item[1], item[0]))[:3]
+    return ", ".join(f"{reason}({count})" for reason, count in top_reasons)
+
+
 def _run_strategist_and_manager(
     company_symbols: list[str],
     *,
@@ -148,6 +185,13 @@ def _run_strategist_and_manager(
             manager_result.get("recommendation", {}).get("selected_expiration_date"),
             manager_result.get("recommendation", {}).get("selected_strike_price"),
         )
+        if manager_result.get("recommendation", {}).get("selected_option_id") is None:
+            LOGGER.info(
+                "No selected option for %s: source=%s top_rejection_reasons=%s",
+                symbol,
+                manager_result.get("recommendation", {}).get("selected_option_source"),
+                _summarize_selector_rejection_reasons(manager_result),
+            )
         if on_manager_result is not None:
             on_manager_result(manager_result)
 
