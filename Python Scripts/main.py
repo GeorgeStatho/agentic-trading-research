@@ -408,15 +408,59 @@ class OrderCandidateBuilder:
         return companies if isinstance(companies, list) else []
 
     @staticmethod
+    def _normalize_strategist_decision(value: Any) -> str:
+        decision = str(value or "").strip().lower()
+        replacements = {
+            "trade candidate": "trade_candidate",
+            "watch list": "watchlist",
+            "do not trade": "do_not_trade",
+        }
+        decision = replacements.get(decision, decision)
+        return decision if decision in {"trade_candidate", "watchlist", "do_not_trade"} else ""
+
+    @staticmethod
+    def _coerce_bool(value: Any) -> bool | None:
+        if isinstance(value, bool):
+            return value
+        if value in (None, ""):
+            return None
+        text = str(value).strip().lower()
+        if text in {"true", "yes", "1"}:
+            return True
+        if text in {"false", "no", "0"}:
+            return False
+        return None
+
+    @classmethod
+    def _is_trade_eligible(cls, company_result: dict[str, Any]) -> bool:
+        decision = str(company_result.get("decision") or "").strip().lower()
+        confidence = str(company_result.get("confidence") or "").strip().lower()
+        strategist_recommendation = company_result.get("strategist_recommendation") or {}
+        strategist_decision = cls._normalize_strategist_decision(
+            strategist_recommendation.get("decision")
+        )
+        contradictions_present = cls._coerce_bool(
+            strategist_recommendation.get("contradictions_present")
+        )
+
+        if decision not in {"call", "put"}:
+            return False
+        if confidence not in {"high", "medium"}:
+            return False
+        if strategist_decision == "do_not_trade":
+            return False
+        if contradictions_present is True:
+            return False
+        return True
+
+    @staticmethod
     def _build_candidate(company_result: dict[str, Any]) -> dict[str, Any] | None:
         decision = str(company_result.get("decision") or "").strip().lower()
         confidence = str(company_result.get("confidence") or "").strip().lower()
         selected_option = company_result.get("selected_option") or {}
         option_symbol = str(selected_option.get("symbol") or "").strip().upper()
 
-        if decision not in {"call", "put"}:
-            return None
-        if confidence != "high":
+        if not OrderCandidateBuilder._is_trade_eligible(company_result):
             return None
         if not option_symbol:
             return None
@@ -433,6 +477,7 @@ class OrderCandidateBuilder:
             "selected_option_source": company_result.get("selected_option_source"),
             "selected_option_symbol": option_symbol,
             "selected_option": selected_option,
+            "strategist_recommendation": company_result.get("strategist_recommendation", {}),
             "reason": company_result.get("reason"),
         }
 
@@ -472,6 +517,7 @@ class OrderCandidateBuilder:
             "selected_expiration_date": recommendation.get("selected_expiration_date"),
             "selected_strike_price": recommendation.get("selected_strike_price"),
             "selected_option_source": recommendation.get("selected_option_source"),
+            "strategist_recommendation": manager_result.get("strategist_recommendation", {}),
             "selected_option": manager_result.get("selected_option"),
             "reason": recommendation.get("reason"),
         }

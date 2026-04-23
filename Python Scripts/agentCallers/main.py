@@ -99,6 +99,7 @@ def _build_selected_option_output(
                 "selected_strike_price": recommendation.get("selected_strike_price"),
                 "selected_option_source": recommendation.get("selected_option_source"),
                 "selection_debug": recommendation.get("selection_debug", {}),
+                "strategist_recommendation": manager_result.get("strategist_recommendation", {}),
                 "selected_option": manager_result.get("selected_option"),
                 "reason": recommendation.get("reason"),
             }
