@@ -54,6 +54,7 @@ ALLOW_RISKY_SIMPLE_FALLBACK = _env_flag("ALLOW_RISKY_SIMPLE_FALLBACK", True)
 # =========================
 SIMPLE_REQUIRE_ONE_DOLLAR_OTM = True
 SIMPLE_PREFERRED_OTM_DISTANCE = 0.3
+SIMPLE_TARGET_ABS_DELTA = 0.28
 
 
 # =========================
@@ -88,6 +89,15 @@ MIN_GAMMA = 0.01
 MAX_THETA_TO_PRICE = 0.80
 REQUIRE_ONE_DOLLAR_OTM = True
 PREFERRED_OTM_DISTANCE = 0.3
+
+
+DTE_BUCKET_TO_TARGET_OTM_PCT = {
+    "3_7": 0.005,
+    "7_14": 0.008,
+    "14_30": 0.012,
+}
+MIN_TARGET_OTM_DOLLARS = 0.25
+MAX_TARGET_OTM_DOLLARS = 3.00
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -143,6 +153,37 @@ def _normalize_confidence(value: Any) -> str:
     if confidence in {"high", "medium", "low"}:
         return confidence
     return ""
+
+
+def _normalize_target_dte_bucket(value: Any) -> str:
+    bucket = str(value or "").strip().lower()
+    replacements = {
+        "3-7": "3_7",
+        "3 to 7": "3_7",
+        "7-14": "7_14",
+        "7 to 14": "7_14",
+        "14-30": "14_30",
+        "14 to 30": "14_30",
+        "n/a": "none",
+        "na": "none",
+        "not_applicable": "none",
+    }
+    bucket = replacements.get(bucket, bucket)
+    return bucket if bucket in {"3_7", "7_14", "14_30", "none"} else ""
+
+
+def _resolve_target_otm_distance(
+    *,
+    reference_stock_price: float | None,
+    target_dte_bucket: str,
+    default_distance: float,
+) -> float:
+    normalized_bucket = _normalize_target_dte_bucket(target_dte_bucket)
+    target_pct = DTE_BUCKET_TO_TARGET_OTM_PCT.get(normalized_bucket)
+    if target_pct is None or reference_stock_price is None or reference_stock_price <= 0:
+        return default_distance
+    target_otm_dollars = reference_stock_price * target_pct
+    return min(max(target_otm_dollars, MIN_TARGET_OTM_DOLLARS), MAX_TARGET_OTM_DOLLARS)
 
 
 def _normalize_contract_type(value: Any) -> str:
@@ -233,6 +274,40 @@ def _get_dte(contract: dict[str, Any]) -> int | None:
     return (expiration - date.today()).days
 
 
+def _get_dte_bucket_range(bucket: str) -> tuple[int, int] | None:
+    normalized_bucket = _normalize_target_dte_bucket(bucket)
+    mapping = {
+        "3_7": (3, 7),
+        "7_14": (7, 14),
+        "14_30": (14, 30),
+        "none": None,
+    }
+    return mapping.get(normalized_bucket)
+
+
+def _resolve_dte_range(
+    *,
+    target_dte_bucket: str,
+    default_min_dte: int,
+    default_max_dte: int,
+) -> tuple[int, int]:
+    bucket_range = _get_dte_bucket_range(target_dte_bucket)
+    if bucket_range is not None:
+        return bucket_range
+    return default_min_dte, default_max_dte
+
+
+def _contract_matches_target_dte_bucket(contract: dict[str, Any], target_dte_bucket: str) -> bool:
+    bucket_range = _get_dte_bucket_range(target_dte_bucket)
+    if bucket_range is None:
+        return True
+    dte = _get_dte(contract)
+    if dte is None:
+        return False
+    min_dte, max_dte = bucket_range
+    return min_dte <= dte <= max_dte
+
+
 def _get_spread_pct(contract: dict[str, Any]) -> float | None:
     bid = _get_bid_price(contract)
     ask = _get_ask_price(contract)
@@ -277,15 +352,17 @@ def _is_one_dollar_otm_contract(
     contract_type: str,
     strike_price: float | None,
     reference_stock_price: float | None,
+    *,
+    target_otm_distance: float,
 ) -> bool:
     if strike_price is None or reference_stock_price is None:
         return False
 
     if contract_type == "call":
-        return strike_price >= (reference_stock_price + SIMPLE_PREFERRED_OTM_DISTANCE)
+        return strike_price >= (reference_stock_price + target_otm_distance)
 
     if contract_type == "put":
-        return strike_price <= (reference_stock_price - SIMPLE_PREFERRED_OTM_DISTANCE)
+        return strike_price <= (reference_stock_price - target_otm_distance)
 
     return False
 
@@ -356,7 +433,8 @@ def _basic_sort_key(
     reference_stock_price: float | None,
     prefer_target_otm: bool,
     target_distance: float,
-) -> tuple[float, float, str, float, int]:
+    target_abs_delta: float,
+) -> tuple[float, float, float, str, float, int]:
     contract_price = _get_contract_market_price(contract)
     has_contract_price = 0.0 if contract_price is not None else 1.0
 
@@ -376,6 +454,8 @@ def _basic_sort_key(
         )
 
     expiration_date = str(contract.get("expiration_date") or "9999-12-31")
+    delta = _get_greek(contract, "delta")
+    abs_delta_distance = abs(abs(delta) - target_abs_delta) if delta is not None else 999.0
     open_interest = _coerce_float(contract.get("open_interest"))
     open_interest_rank = -(open_interest if open_interest is not None else -1.0)
     option_id = _normalize_option_id(contract.get("option_id")) or 10**9
@@ -383,6 +463,7 @@ def _basic_sort_key(
     return (
         has_contract_price,
         distance,
+        abs_delta_distance,
         expiration_date,
         open_interest_rank,
         option_id,
@@ -393,6 +474,8 @@ def _contract_debug_snapshot(
     contract: dict[str, Any],
     *,
     reference_stock_price: float | None,
+    target_otm_distance: float | None = None,
+    target_dte_bucket: str = "",
 ) -> dict[str, Any]:
     strike_price = _coerce_float(contract.get("strike_price"))
     return {
@@ -402,6 +485,8 @@ def _contract_debug_snapshot(
         "expiration_date": str(contract.get("expiration_date") or "").strip(),
         "strike_price": strike_price,
         "reference_stock_price": reference_stock_price,
+        "target_dte_bucket": target_dte_bucket,
+        "target_otm_distance": target_otm_distance,
         "otm_distance": _otm_distance(
             _normalize_contract_type(contract.get("contract_type")),
             strike_price,
@@ -429,18 +514,31 @@ def _pick_matching_contract_simple(
     decision: str,
     option_contracts: list[dict[str, Any]],
     market_context: dict[str, Any],
+    target_dte_bucket: str = "none",
 ) -> dict[str, Any] | None:
     normalized_decision = _normalize_decision(decision)
     if normalized_decision not in {"call", "put"}:
         return None
 
     reference_stock_price = _get_reference_stock_price(market_context)
+    target_otm_distance = _resolve_target_otm_distance(
+        reference_stock_price=reference_stock_price,
+        target_dte_bucket=target_dte_bucket,
+        default_distance=SIMPLE_PREFERRED_OTM_DISTANCE,
+    )
 
     matching_contracts = [
         contract
         for contract in option_contracts
         if _normalize_contract_type(contract.get("contract_type")) == normalized_decision
+        and _contract_matches_target_dte_bucket(contract, target_dte_bucket)
     ]
+    if not matching_contracts:
+        matching_contracts = [
+            contract
+            for contract in option_contracts
+            if _normalize_contract_type(contract.get("contract_type")) == normalized_decision
+        ]
     if not matching_contracts:
         return None
 
@@ -452,6 +550,7 @@ def _pick_matching_contract_simple(
                 normalized_decision,
                 _coerce_float(contract.get("strike_price")),
                 reference_stock_price,
+                target_otm_distance=target_otm_distance,
             )
             if SIMPLE_REQUIRE_ONE_DOLLAR_OTM
             else _is_otm_contract(
@@ -481,7 +580,8 @@ def _pick_matching_contract_simple(
                 normalized_decision=normalized_decision,
                 reference_stock_price=reference_stock_price,
                 prefer_target_otm=True,
-                target_distance=SIMPLE_PREFERRED_OTM_DISTANCE,
+                target_distance=target_otm_distance,
+                target_abs_delta=SIMPLE_TARGET_ABS_DELTA,
             )
         )
     elif fallback_contracts:
@@ -493,7 +593,8 @@ def _pick_matching_contract_simple(
                 normalized_decision=normalized_decision,
                 reference_stock_price=reference_stock_price,
                 prefer_target_otm=False,
-                target_distance=SIMPLE_PREFERRED_OTM_DISTANCE,
+                target_distance=target_otm_distance,
+                target_abs_delta=SIMPLE_TARGET_ABS_DELTA,
             )
         )
     else:
@@ -503,6 +604,8 @@ def _pick_matching_contract_simple(
     selected["_selection_mode"] = selection_mode
     selected["_selector_debug"] = {
         "selector_mode_requested": OPTION_SELECTOR_MODE,
+        "target_dte_bucket": target_dte_bucket,
+        "target_otm_distance": target_otm_distance,
         "reference_stock_price": reference_stock_price,
         "matching_contract_count": len(matching_contracts),
         "preferred_contract_count": len(preferred_contracts),
@@ -512,6 +615,8 @@ def _pick_matching_contract_simple(
         "selected_contract_snapshot": _contract_debug_snapshot(
             selected,
             reference_stock_price=reference_stock_price,
+            target_otm_distance=target_otm_distance,
+            target_dte_bucket=target_dte_bucket,
         ),
     }
     return selected
@@ -525,8 +630,14 @@ def _passes_hybrid_fast_filters(
     *,
     normalized_decision: str,
     reference_stock_price: float | None,
+    target_dte_bucket: str = "none",
 ) -> tuple[bool, list[str]]:
     reasons: list[str] = []
+    target_otm_distance = _resolve_target_otm_distance(
+        reference_stock_price=reference_stock_price,
+        target_dte_bucket=target_dte_bucket,
+        default_distance=HYBRID_PREFERRED_OTM_DISTANCE,
+    )
 
     strike_price = _coerce_float(contract.get("strike_price"))
     if strike_price is None:
@@ -545,17 +656,22 @@ def _passes_hybrid_fast_filters(
         normalized_decision,
         strike_price,
         reference_stock_price,
-        min_distance=HYBRID_PREFERRED_OTM_DISTANCE,
+        min_distance=target_otm_distance,
     ):
         reasons.append("otm_distance_below_preferred_min")
         return False, reasons
 
     dte = _get_dte(contract)
+    effective_min_dte, effective_max_dte = _resolve_dte_range(
+        target_dte_bucket=target_dte_bucket,
+        default_min_dte=HYBRID_MIN_DTE,
+        default_max_dte=HYBRID_MAX_DTE,
+    )
     if dte is None:
         reasons.append("missing_dte")
-    elif dte < HYBRID_MIN_DTE:
+    elif dte < effective_min_dte:
         reasons.append("dte_below_min")
-    elif dte > HYBRID_MAX_DTE:
+    elif dte > effective_max_dte:
         reasons.append("dte_above_max")
 
     open_interest = _coerce_float(contract.get("open_interest"))
@@ -597,6 +713,7 @@ def _hybrid_fast_score(
     *,
     normalized_decision: str,
     reference_stock_price: float | None,
+    target_dte_bucket: str = "none",
 ) -> tuple[float, float, float, float, float, str, int]:
     strike_price = _coerce_float(contract.get("strike_price"))
     spread_pct = _get_spread_pct(contract) or 999.0
@@ -605,12 +722,17 @@ def _hybrid_fast_score(
     gamma = _get_greek(contract, "gamma") or 0.0
     expiration_date = str(contract.get("expiration_date") or "9999-12-31")
     option_id = _normalize_option_id(contract.get("option_id")) or 10**9
+    target_otm_distance = _resolve_target_otm_distance(
+        reference_stock_price=reference_stock_price,
+        target_dte_bucket=target_dte_bucket,
+        default_distance=HYBRID_PREFERRED_OTM_DISTANCE,
+    )
 
     strike_distance_score = _distance_to_target_otm(
         normalized_decision,
         strike_price,
         reference_stock_price,
-        target_distance=HYBRID_PREFERRED_OTM_DISTANCE,
+        target_distance=target_otm_distance,
     )
 
     return (
@@ -629,12 +751,18 @@ def _pick_matching_contract_hybrid(
     decision: str,
     option_contracts: list[dict[str, Any]],
     market_context: dict[str, Any],
+    target_dte_bucket: str = "none",
 ) -> dict[str, Any] | None:
     normalized_decision = _normalize_decision(decision)
     if normalized_decision not in {"call", "put"}:
         return None
 
     reference_stock_price = _get_reference_stock_price(market_context)
+    target_otm_distance = _resolve_target_otm_distance(
+        reference_stock_price=reference_stock_price,
+        target_dte_bucket=target_dte_bucket,
+        default_distance=HYBRID_PREFERRED_OTM_DISTANCE,
+    )
 
     matching_contracts = [
         contract
@@ -652,6 +780,7 @@ def _pick_matching_contract_hybrid(
             contract,
             normalized_decision=normalized_decision,
             reference_stock_price=reference_stock_price,
+            target_dte_bucket=target_dte_bucket,
         )
         if passed:
             passed_contracts.append(contract)
@@ -673,6 +802,7 @@ def _pick_matching_contract_hybrid(
             decision=decision,
             option_contracts=option_contracts,
             market_context=market_context,
+            target_dte_bucket=target_dte_bucket,
         )
         if fallback is not None:
             fallback["_selection_mode"] = "hybrid_fallback_to_simple"
@@ -684,6 +814,7 @@ def _pick_matching_contract_hybrid(
             contract,
             normalized_decision=normalized_decision,
             reference_stock_price=reference_stock_price,
+            target_dte_bucket=target_dte_bucket,
         )
     )
 
@@ -691,6 +822,8 @@ def _pick_matching_contract_hybrid(
     selected["_selection_mode"] = "hybrid_fast_short_dte"
     selected["_selector_debug"] = {
         "selector_mode_requested": OPTION_SELECTOR_MODE,
+        "target_dte_bucket": target_dte_bucket,
+        "target_otm_distance": target_otm_distance,
         "reference_stock_price": reference_stock_price,
         "passed_hybrid_count": len(passed_contracts),
         "rejected_hybrid_count": len(rejected_contracts_debug),
@@ -699,6 +832,8 @@ def _pick_matching_contract_hybrid(
         "selected_contract_snapshot": _contract_debug_snapshot(
             selected,
             reference_stock_price=reference_stock_price,
+            target_otm_distance=target_otm_distance,
+            target_dte_bucket=target_dte_bucket,
         ),
     }
     return selected
@@ -712,8 +847,14 @@ def _passes_short_swing_filters(
     *,
     normalized_decision: str,
     reference_stock_price: float | None,
+    target_dte_bucket: str = "none",
 ) -> tuple[bool, list[str]]:
     reasons: list[str] = []
+    target_otm_distance = _resolve_target_otm_distance(
+        reference_stock_price=reference_stock_price,
+        target_dte_bucket=target_dte_bucket,
+        default_distance=PREFERRED_OTM_DISTANCE,
+    )
 
     strike_price = _coerce_float(contract.get("strike_price"))
     if strike_price is None:
@@ -722,7 +863,10 @@ def _passes_short_swing_filters(
 
     if REQUIRE_ONE_DOLLAR_OTM:
         if not _is_one_dollar_otm_contract(
-            normalized_decision, strike_price, reference_stock_price
+            normalized_decision,
+            strike_price,
+            reference_stock_price,
+            target_otm_distance=target_otm_distance,
         ):
             reasons.append("not_one_dollar_otm")
     else:
@@ -730,11 +874,16 @@ def _passes_short_swing_filters(
             reasons.append("not_otm")
 
     dte = _get_dte(contract)
+    effective_min_dte, effective_max_dte = _resolve_dte_range(
+        target_dte_bucket=target_dte_bucket,
+        default_min_dte=MIN_DTE,
+        default_max_dte=MAX_DTE,
+    )
     if dte is None:
         reasons.append("missing_dte")
-    elif dte < MIN_DTE:
+    elif dte < effective_min_dte:
         reasons.append("dte_below_min")
-    elif dte > MAX_DTE:
+    elif dte > effective_max_dte:
         reasons.append("dte_above_max")
 
     delta = _get_greek(contract, "delta")
@@ -779,6 +928,7 @@ def _short_swing_score(
     *,
     normalized_decision: str,
     reference_stock_price: float | None,
+    target_dte_bucket: str = "none",
 ) -> tuple[float, float, float, float, float, float, str, int]:
     abs_delta = abs(_get_greek(contract, "delta") or 0.0)
     spread_pct = _get_spread_pct(contract) or 999.0
@@ -786,11 +936,16 @@ def _short_swing_score(
     gamma = _get_greek(contract, "gamma") or 0.0
     open_interest = _coerce_float(contract.get("open_interest")) or 0.0
     strike_price = _coerce_float(contract.get("strike_price"))
+    target_otm_distance = _resolve_target_otm_distance(
+        reference_stock_price=reference_stock_price,
+        target_dte_bucket=target_dte_bucket,
+        default_distance=PREFERRED_OTM_DISTANCE,
+    )
     otm_distance_pref = _distance_to_target_otm(
         normalized_decision,
         strike_price,
         reference_stock_price,
-        target_distance=PREFERRED_OTM_DISTANCE,
+        target_distance=target_otm_distance,
     )
     expiration_date = str(contract.get("expiration_date") or "9999-12-31")
     option_id = _normalize_option_id(contract.get("option_id")) or 10**9
@@ -812,12 +967,18 @@ def _pick_matching_contract_greeks(
     decision: str,
     option_contracts: list[dict[str, Any]],
     market_context: dict[str, Any],
+    target_dte_bucket: str = "none",
 ) -> dict[str, Any] | None:
     normalized_decision = _normalize_decision(decision)
     if normalized_decision not in {"call", "put"}:
         return None
 
     reference_stock_price = _get_reference_stock_price(market_context)
+    target_otm_distance = _resolve_target_otm_distance(
+        reference_stock_price=reference_stock_price,
+        target_dte_bucket=target_dte_bucket,
+        default_distance=PREFERRED_OTM_DISTANCE,
+    )
 
     matching_contracts = [
         contract
@@ -843,6 +1004,7 @@ def _pick_matching_contract_greeks(
             contract,
             normalized_decision=normalized_decision,
             reference_stock_price=reference_stock_price,
+            target_dte_bucket=target_dte_bucket,
         )
         if passed:
             passed_contracts.append(contract)
@@ -865,6 +1027,7 @@ def _pick_matching_contract_greeks(
                 contract,
                 normalized_decision=normalized_decision,
                 reference_stock_price=reference_stock_price,
+                target_dte_bucket=target_dte_bucket,
             )
         )
     elif ALLOW_RISKY_SIMPLE_FALLBACK:
@@ -872,12 +1035,15 @@ def _pick_matching_contract_greeks(
             decision=decision,
             option_contracts=option_contracts,
             market_context=market_context,
+            target_dte_bucket=target_dte_bucket,
         )
         if fallback is None:
             return None
         fallback["_selection_mode"] = "greeks_fallback_to_simple"
         fallback["_selector_debug"] = {
             "selector_mode_requested": OPTION_SELECTOR_MODE,
+            "target_dte_bucket": target_dte_bucket,
+            "target_otm_distance": target_otm_distance,
             "reference_stock_price": reference_stock_price,
             "passed_short_swing_count": len(passed_contracts),
             "rejected_short_swing_count": len(rejected_contracts_debug),
@@ -887,6 +1053,8 @@ def _pick_matching_contract_greeks(
             "selected_contract_snapshot": _contract_debug_snapshot(
                 fallback,
                 reference_stock_price=reference_stock_price,
+                target_otm_distance=target_otm_distance,
+                target_dte_bucket=target_dte_bucket,
             ),
         }
         return fallback
@@ -897,6 +1065,8 @@ def _pick_matching_contract_greeks(
     selected["_selection_mode"] = selection_mode
     selected["_selector_debug"] = {
         "selector_mode_requested": OPTION_SELECTOR_MODE,
+        "target_dte_bucket": target_dte_bucket,
+        "target_otm_distance": target_otm_distance,
         "reference_stock_price": reference_stock_price,
         "passed_short_swing_count": len(passed_contracts),
         "rejected_short_swing_count": len(rejected_contracts_debug),
@@ -906,6 +1076,8 @@ def _pick_matching_contract_greeks(
         "selected_contract_snapshot": _contract_debug_snapshot(
             selected,
             reference_stock_price=reference_stock_price,
+            target_otm_distance=target_otm_distance,
+            target_dte_bucket=target_dte_bucket,
         ),
     }
 
@@ -920,12 +1092,14 @@ def _pick_matching_contract(
     decision: str,
     option_contracts: list[dict[str, Any]],
     market_context: dict[str, Any],
+    target_dte_bucket: str = "none",
 ) -> dict[str, Any] | None:
     if OPTION_SELECTOR_MODE == "simple":
         return _pick_matching_contract_simple(
             decision=decision,
             option_contracts=option_contracts,
             market_context=market_context,
+            target_dte_bucket=target_dte_bucket,
         )
 
     if OPTION_SELECTOR_MODE == "hybrid":
@@ -933,6 +1107,7 @@ def _pick_matching_contract(
             decision=decision,
             option_contracts=option_contracts,
             market_context=market_context,
+            target_dte_bucket=target_dte_bucket,
         )
 
     if OPTION_SELECTOR_MODE == "greeks":
@@ -940,6 +1115,7 @@ def _pick_matching_contract(
             decision=decision,
             option_contracts=option_contracts,
             market_context=market_context,
+            target_dte_bucket=target_dte_bucket,
         )
 
     LOGGER.warning(
@@ -950,6 +1126,7 @@ def _pick_matching_contract(
         decision=decision,
         option_contracts=option_contracts,
         market_context=market_context,
+        target_dte_bucket=target_dte_bucket,
     )
 
 
@@ -962,8 +1139,20 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
 
     decision = _normalize_decision(recommendation.get("decision"))
     confidence = _normalize_confidence(recommendation.get("confidence"))
+    target_dte_bucket = _normalize_target_dte_bucket(recommendation.get("target_dte_bucket")) or "none"
     selection_filters = dict(option_market.get("selection_filters") or {})
     reference_stock_price = _get_reference_stock_price(market_context)
+    resolved_target_otm_distance = _resolve_target_otm_distance(
+        reference_stock_price=reference_stock_price,
+        target_dte_bucket=target_dte_bucket,
+        default_distance=(
+            SIMPLE_PREFERRED_OTM_DISTANCE
+            if OPTION_SELECTOR_MODE == "simple"
+            else HYBRID_PREFERRED_OTM_DISTANCE
+            if OPTION_SELECTOR_MODE == "hybrid"
+            else PREFERRED_OTM_DISTANCE
+        ),
+    )
 
     selected_option: dict[str, Any] | None = None
     selected_option_source = "not_applicable"
@@ -975,6 +1164,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
             decision=decision,
             option_contracts=option_contracts,
             market_context=market_context,
+            target_dte_bucket=target_dte_bucket,
         )
 
         if selected_option is not None:
@@ -1018,6 +1208,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
             "allow_risky_simple_fallback": ALLOW_RISKY_SIMPLE_FALLBACK,
             "decision_seen": decision,
             "confidence_seen": confidence,
+            "target_dte_bucket_seen": target_dte_bucket,
             "reference_stock_price": reference_stock_price,
             "option_contract_count": len(option_contracts),
             "matching_contract_count": sum(
@@ -1033,6 +1224,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
                     decision,
                     _coerce_float(contract.get("strike_price")),
                     reference_stock_price,
+                    target_otm_distance=resolved_target_otm_distance,
                 )
             ),
             "fallback_side_correct_matching_count": sum(
@@ -1048,6 +1240,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
             "simple_thresholds": {
                 "require_one_dollar_otm": SIMPLE_REQUIRE_ONE_DOLLAR_OTM,
                 "preferred_otm_distance": SIMPLE_PREFERRED_OTM_DISTANCE,
+                "target_abs_delta": SIMPLE_TARGET_ABS_DELTA,
             },
             "hybrid_thresholds": {
                 "min_dte": HYBRID_MIN_DTE,
@@ -1073,6 +1266,13 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
                 "max_theta_to_price": MAX_THETA_TO_PRICE,
                 "require_one_dollar_otm": REQUIRE_ONE_DOLLAR_OTM,
                 "preferred_otm_distance": PREFERRED_OTM_DISTANCE,
+            },
+            "dynamic_target_otm": {
+                "bucket_to_target_otm_pct": DTE_BUCKET_TO_TARGET_OTM_PCT,
+                "min_otm_dollars": MIN_TARGET_OTM_DOLLARS,
+                "max_otm_dollars": MAX_TARGET_OTM_DOLLARS,
+                "resolved_target_dte_bucket": target_dte_bucket,
+                "resolved_target_otm_distance": resolved_target_otm_distance,
             },
             "selection_mode": selection_mode,
             "selected_option_id": selected_option_id,
