@@ -92,12 +92,12 @@ PREFERRED_OTM_DISTANCE = 0.3
 
 
 DTE_BUCKET_TO_TARGET_OTM_PCT = {
-    "3_7": 0.015,
-    "7_14": 0.040,
-    "14_30": 0.070,
+    "3_7": 0.0075,
+    "7_14": 0.016,
+    "14_30": 0.025,
 }
-MIN_TARGET_OTM_DOLLARS = 1.00
-MAX_TARGET_OTM_DOLLARS = 12.00
+MIN_TARGET_OTM_DOLLARS = 0.50
+MAX_TARGET_OTM_DOLLARS = 5.00
 
 
 def _coerce_float(value: Any) -> float | None:
