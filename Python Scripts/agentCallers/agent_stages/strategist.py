@@ -38,10 +38,13 @@ DEFAULT_MODEL = os.getenv(
     os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "world-news-sectors")),
 )
 
-VALID_DECISIONS = {"trade_candidate", "do_not_trade"}
+VALID_DECISIONS = {"trade_candidate", "watchlist", "do_not_trade"}
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
 VALID_OPTION_DIRECTIONS = {"call", "put", "neither"}
 VALID_STOCK_DIRECTIONS = {"up", "down", "neutral"}
+VALID_QUALITY_LEVELS = {"strong", "moderate", "weak"}
+VALID_TIMING_CLARITY = {"clear", "unclear"}
+VALID_TIME_HORIZONS = {"very_short_term", "short_term", "medium_term", "unclear"}
 
 _strategist_client: Client | None = None
 STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
@@ -50,34 +53,77 @@ STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
         "recommendation": {
             "type": "object",
             "properties": {
-                "decision": {"type": "string", "enum": ["trade_candidate", "do_not_trade"]},
-                "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-                "preferred_option_direction": {"type": "string", "enum": ["call", "put", "neither"]},
-                "expected_stock_direction": {"type": "string", "enum": ["up", "down", "neutral"]},
+                "decision": {
+                    "type": "string",
+                    "enum": ["trade_candidate", "watchlist", "do_not_trade"]
+                },
+                "confidence": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                },
+                "evidence_quality": {
+                    "type": "string",
+                    "enum": ["strong", "moderate", "weak"]
+                },
+                "setup_quality": {
+                    "type": "string",
+                    "enum": ["strong", "moderate", "weak"]
+                },
+                "timing_clarity": {
+                    "type": "string",
+                    "enum": ["clear", "unclear"]
+                },
+                "preferred_option_direction": {
+                    "type": "string",
+                    "enum": ["call", "put", "neither"]
+                },
+                "expected_stock_direction": {
+                    "type": "string",
+                    "enum": ["up", "down", "neutral"]
+                },
+                "time_horizon": {
+                    "type": "string",
+                    "enum": ["very_short_term", "short_term", "medium_term", "unclear"]
+                },
+                "why_now": {"type": "string"},
                 "summary": {"type": "string"},
+                "catalyst": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
                 "thesis": {
                     "type": "array",
-                    "items": {"type": "string"},
+                    "items": {"type": "string"}
                 },
                 "risks": {
                     "type": "array",
-                    "items": {"type": "string"},
+                    "items": {"type": "string"}
                 },
+                "contradictions_present": {"type": "boolean"},
+                "watchlist_reason": {"type": "string"}
             },
             "required": [
                 "decision",
                 "confidence",
+                "evidence_quality",
+                "setup_quality",
+                "timing_clarity",
                 "preferred_option_direction",
                 "expected_stock_direction",
+                "time_horizon",
+                "why_now",
                 "summary",
+                "catalyst",
                 "thesis",
                 "risks",
+                "contradictions_present",
+                "watchlist_reason"
             ],
-            "additionalProperties": False,
+            "additionalProperties": False
         }
     },
     "required": ["recommendation"],
-    "additionalProperties": False,
+    "additionalProperties": False
 }
 
 __all__ = [
@@ -145,31 +191,47 @@ def build_strategist_prompt(
 ) -> tuple[str, str]:
     default_system_prompt = (
         "You are an investment strategist deciding whether a company currently supports opening an options trade candidate on the underlying equity. "
-        "Use only the supplied structured context. "
-        "Treat upstream agent conclusions as signals, not certainty, and weigh them against the article evidence "
-        "and the supplied 1d, 5d, 1mo, and 3mo historical price action. "
-        "Your job is not to pick stock shares and not to select a specific contract. "
-        "Your job is to decide whether the company has enough high-quality evidence and tradable setup quality to pass forward as an options trade candidate, "
-        "and to express the directional bias as both a stock direction (up, down, neutral) and an options bias (call, put, neither). "
-        "If the evidence is mixed, weak, stale, contradictory, or mostly negative, prefer 'do_not_trade'. "
-        "Return only valid JSON with a top-level key named 'recommendation'. "
-        "Do not include markdown fences, notes, or extra keys. "
-        "The recommendation object must contain: decision, confidence, preferred_option_direction, expected_stock_direction, summary, thesis, and risks. "
-        "decision must be one of: trade_candidate, do_not_trade. "
-        "confidence must be one of: high, medium, low. "
-        "preferred_option_direction must be one of: call, put, neither. "
-        "expected_stock_direction must be one of: up, down, neutral. "
-        "summary must be a short paragraph. "
-        "thesis must be a short list of supporting points for opening an options trade on this underlying. "
-        "risks must be a short list of reasons the company should not be traded or should be watched carefully."
+    "Use only the supplied structured context. Do not invent facts, catalysts, prices, or risks that are not supported by the input. "
+    "Treat upstream agent conclusions as signals, not truth. Weigh them against the article evidence, evidence freshness, contradiction level, "
+    "and the supplied 1d, 5d, 1mo, and 3mo historical price action. "
+    "Your job is not to choose stock shares and not to select a specific option contract. "
+    "Your job is to decide whether the company should be passed forward as: trade_candidate, watchlist, or do_not_trade. "
+    "A trade_candidate should have sufficiently strong evidence, a reasonably clear directional bias, and enough timing clarity to justify evaluating an options trade now. "
+    "A watchlist decision should be used when the thesis may be promising but the evidence, timing, or setup quality is not yet strong enough for immediate trade consideration. "
+    "A do_not_trade decision should be used when the evidence is weak, stale, contradictory, low-quality, mostly negative, or directionally unclear. "
+    "Be conservative. If the evidence is mixed or timing is unclear, prefer watchlist or do_not_trade over trade_candidate. "
+    "Express the directional view twice: expected_stock_direction as up, down, or neutral; and preferred_option_direction as call, put, or neither. "
+    "These fields must be internally consistent with the decision. If there is no actionable options setup, preferred_option_direction should usually be neither. "
+    "Distinguish between evidence quality and setup quality: a company can have an interesting story but still be a poor trade setup. "
+    "why_now must explain why the setup is actionable now, or why it is not actionable now. "
+    "summary must be a short paragraph. thesis, catalyst, and risks must be concise lists of short strings. "
+    "Return only valid JSON with a top-level key named recommendation. "
+    "Do not include markdown fences, explanations, or extra keys."
     )
     system_prompt = str(system_prompt_override or default_system_prompt)
+    task_prompt = (
+        "Evaluate the company using the provided structured context and return JSON matching the required schema.\n"
+        "\n"
+        "Field guidance:\n"
+        "- decision: trade_candidate, watchlist, or do_not_trade\n"
+        "- confidence: overall confidence in this recommendation\n"
+        "- evidence_quality: strength and credibility of the supporting evidence\n"
+        "- setup_quality: quality of the current trade setup for options, considering direction clarity and timing\n"
+        "- timing_clarity: whether the expected move appears actionable now\n"
+        "- preferred_option_direction: call, put, or neither\n"
+        "- expected_stock_direction: up, down, or neutral\n"
+        "- time_horizon: expected time frame for the thesis to matter\n"
+        "- why_now: one short explanation of why the setup is actionable now, or why it is not\n"
+        "- summary: short paragraph\n"
+        "- catalyst: concrete possible drivers or near-term triggers from the input\n"
+        "- thesis: strongest reasons supporting the recommendation\n"
+        "- risks: strongest reasons the trade could fail or should be avoided\n"
+        "- contradictions_present: true if meaningful conflicting evidence exists\n"
+        "- watchlist_reason: explain what is missing before this could become a trade_candidate; empty string if not applicable\n"
+    )
 
     user_payload = {
-        "task": str(
-            task_override
-            or "Decide whether the supplied company should move forward as an options trade candidate using the layered strategist context."
-        ),
+        "task": str(task_override or task_prompt),
         "company": payload["company"],
         "peer_groups": payload.get("peer_groups", {}),
         "filters": payload.get("filters", {}),
@@ -177,13 +239,21 @@ def build_strategist_prompt(
         "supporting_articles": payload.get("supporting_articles", {}),
         "required_output": {
             "recommendation": {
-                "decision": "trade_candidate|do_not_trade",
+                "decision": "trade_candidate|watchlist|do_not_trade",
                 "confidence": "high|medium|low",
+                "evidence_quality": "strong|moderate|weak",
+                "setup_quality": "strong|moderate|weak",
+                "timing_clarity": "clear|unclear",
                 "preferred_option_direction": "call|put|neither",
                 "expected_stock_direction": "up|down|neutral",
+                "time_horizon": "very_short_term|short_term|medium_term|unclear",
+                "why_now": "short explanation",
                 "summary": "short paragraph",
+                "catalyst": ["short point"],
                 "thesis": ["short point"],
                 "risks": ["short point"],
+                "contradictions_present": True,
+                "watchlist_reason": "short explanation or empty string",
             }
         },
     }
@@ -203,11 +273,19 @@ def _extract_recommendation(payload: dict[str, Any] | None) -> dict[str, Any] | 
         for key in (
             "decision",
             "confidence",
+            "evidence_quality",
+            "setup_quality",
+            "timing_clarity",
             "preferred_option_direction",
             "expected_stock_direction",
+            "time_horizon",
+            "why_now",
             "summary",
+            "catalyst",
             "thesis",
             "risks",
+            "contradictions_present",
+            "watchlist_reason",
         )
     ):
         return payload
@@ -223,11 +301,19 @@ def _extract_recommendation(payload: dict[str, Any] | None) -> dict[str, Any] | 
                 for inner_key in (
                     "decision",
                     "confidence",
+                    "evidence_quality",
+                    "setup_quality",
+                    "timing_clarity",
                     "preferred_option_direction",
                     "expected_stock_direction",
+                    "time_horizon",
+                    "why_now",
                     "summary",
+                    "catalyst",
                     "thesis",
                     "risks",
+                    "contradictions_present",
+                    "watchlist_reason",
                 )
             ):
                 return nested
@@ -304,6 +390,56 @@ def _normalize_confidence(value: Any) -> str:
     return confidence if confidence in VALID_CONFIDENCE_LEVELS else ""
 
 
+def _normalize_quality(value: Any) -> str:
+    quality = str(value or "").strip().lower()
+    replacements = {
+        "high": "strong",
+        "medium": "moderate",
+        "low": "weak",
+    }
+    quality = replacements.get(quality, quality)
+    return quality if quality in VALID_QUALITY_LEVELS else ""
+
+
+def _normalize_timing_clarity(value: Any) -> str:
+    timing = str(value or "").strip().lower()
+    replacements = {
+        "timely": "clear",
+        "actionable": "clear",
+        "good": "clear",
+        "bad": "unclear",
+        "mixed": "unclear",
+    }
+    timing = replacements.get(timing, timing)
+    return timing if timing in VALID_TIMING_CLARITY else ""
+
+
+def _normalize_time_horizon(value: Any) -> str:
+    horizon = str(value or "").strip().lower()
+    replacements = {
+        "1-3_days": "very_short_term",
+        "1-3 days": "very_short_term",
+        "very short term": "very_short_term",
+        "short term": "short_term",
+        "swing": "medium_term",
+    }
+    horizon = replacements.get(horizon, horizon)
+    return horizon if horizon in VALID_TIME_HORIZONS else ""
+
+
+def _coerce_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return None
+    text = str(value).strip().lower()
+    if text in {"true", "yes", "1"}:
+        return True
+    if text in {"false", "no", "0"}:
+        return False
+    return None
+
+
 def _normalize_option_direction(value: Any) -> str:
     direction = str(value or "").strip().lower()
     replacements = {
@@ -357,6 +493,9 @@ def _normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str
 
     decision = _normalize_decision(recommendation.get("decision"))
     confidence = _normalize_confidence(recommendation.get("confidence"))
+    evidence_quality = _normalize_quality(recommendation.get("evidence_quality"))
+    setup_quality = _normalize_quality(recommendation.get("setup_quality"))
+    timing_clarity = _normalize_timing_clarity(recommendation.get("timing_clarity"))
     preferred_option_direction = _normalize_option_direction(
         recommendation.get("preferred_option_direction")
         or recommendation.get("option_direction")
@@ -369,9 +508,19 @@ def _normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str
         or recommendation.get("direction")
         or recommendation.get("price_direction")
     )
+    time_horizon = _normalize_time_horizon(recommendation.get("time_horizon"))
+    why_now = str(
+        recommendation.get("why_now")
+        or recommendation.get("why_now_summary")
+        or recommendation.get("timing_reason")
+        or ""
+    ).strip()
     summary = str(recommendation.get("summary") or recommendation.get("reason") or "").strip()
+    catalyst = _normalize_string_list(recommendation.get("catalyst"))
     thesis = _normalize_string_list(recommendation.get("thesis"))
     risks = _normalize_string_list(recommendation.get("risks"))
+    contradictions_present = _coerce_bool(recommendation.get("contradictions_present"))
+    watchlist_reason = str(recommendation.get("watchlist_reason") or "").strip()
 
     if not thesis:
         thesis = _normalize_string_list(recommendation.get("bull_case"))
@@ -385,6 +534,23 @@ def _normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str
 
     if not summary and thesis:
         summary = thesis[0]
+    if not why_now:
+        why_now = summary or watchlist_reason
+    if not evidence_quality and confidence:
+        evidence_quality = {"high": "strong", "medium": "moderate", "low": "weak"}.get(confidence, "")
+    if not setup_quality:
+        if decision == "trade_candidate":
+            setup_quality = {"high": "strong", "medium": "moderate", "low": "weak"}.get(confidence, "")
+        elif decision in {"watchlist", "do_not_trade"}:
+            setup_quality = "weak" if confidence == "low" else "moderate"
+    if not timing_clarity:
+        timing_clarity = "clear" if decision == "trade_candidate" else "unclear"
+    if not time_horizon:
+        time_horizon = "unclear"
+    if contradictions_present is None:
+        contradictions_present = False
+    if decision == "watchlist" and not watchlist_reason:
+        watchlist_reason = why_now or summary
 
     if not preferred_option_direction and expected_stock_direction:
         direction_map = {"up": "call", "down": "put", "neutral": "neither"}
@@ -394,6 +560,9 @@ def _normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str
         expected_stock_direction = direction_map.get(preferred_option_direction, "")
 
     if decision == "trade_candidate":
+        preferred_option_direction = preferred_option_direction or "neither"
+        expected_stock_direction = expected_stock_direction or "neutral"
+    if decision == "watchlist":
         preferred_option_direction = preferred_option_direction or "neither"
         expected_stock_direction = expected_stock_direction or "neutral"
     if decision == "do_not_trade":
@@ -414,11 +583,19 @@ def _normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str
     return {
         "decision": decision,
         "confidence": confidence,
+        "evidence_quality": evidence_quality,
+        "setup_quality": setup_quality,
+        "timing_clarity": timing_clarity,
         "preferred_option_direction": preferred_option_direction,
         "expected_stock_direction": expected_stock_direction,
+        "time_horizon": time_horizon,
+        "why_now": why_now,
         "summary": summary,
+        "catalyst": catalyst,
         "thesis": thesis,
         "risks": risks,
+        "contradictions_present": contradictions_present,
+        "watchlist_reason": watchlist_reason,
     }
 
 
@@ -523,11 +700,19 @@ def _build_no_evidence_result(company: dict[str, Any], *, context_snapshot: dict
         "recommendation": {
             "decision": "do_not_trade",
             "confidence": "low",
+            "evidence_quality": "weak",
+            "setup_quality": "weak",
+            "timing_clarity": "unclear",
             "preferred_option_direction": "neither",
             "expected_stock_direction": "neutral",
+            "time_horizon": "unclear",
+            "why_now": "There is not enough processed evidence to justify an actionable near-term options setup.",
             "summary": "There was not enough processed article evidence available to support opening an options trade on this underlying.",
+            "catalyst": [],
             "thesis": [],
             "risks": ["Insufficient supporting evidence from macro, sector, industry, and company article analysis."],
+            "contradictions_present": False,
+            "watchlist_reason": "",
         },
     }
 
