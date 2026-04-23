@@ -45,6 +45,11 @@ VALID_STRATEGIST_DECISIONS = {"trade_candidate", "watchlist", "do_not_trade"}
 VALID_QUALITY_LEVELS = {"strong", "moderate", "weak"}
 VALID_TIMING_CLARITY = {"clear", "unclear"}
 VALID_TIME_HORIZONS = {"very_short_term", "short_term", "medium_term", "unclear"}
+TIME_HORIZON_TO_DTE_BUCKET = {
+    "very_short_term": "3_7",
+    "short_term": "7_14",
+    "medium_term": "14_30",
+}
 
 _manager_client: Client | None = None
 LOGGER = logging.getLogger(__name__)
@@ -412,13 +417,15 @@ def build_manager_prompt(
     "Treat the strategist recommendation as useful but not authoritative. "
     "The strategist may include decision, confidence, evidence_quality, setup_quality, timing_clarity, "
     "preferred_option_direction, expected_stock_direction, time_horizon, why_now, thesis, risks, and contradictions_present. "
-    "Use that information as one input, but make your own final call from the full combined context. "
+    "Use that information as the upstream thesis input, then decide whether that thesis is tradable now under current conditions and constraints. "
+    "Your primary job is execution permission: decide whether the setup should be acted on now, given live market context, account context, and timing. "
     "If the article and research evidence is strong, fresh, specific, and internally consistent, prefer that evidence over ordinary one-day market noise, intraday weakness, or broad volatility. "
     "Use the live market context primarily to judge timing, tradability, current risk, account constraints, and whether the setup is too volatile right now. "
     "Do not let a weak daily move by itself overturn a very convincing bullish or bearish evidence-based thesis unless the live context clearly signals a meaningful contradiction or an unacceptably risky setup. "
     "Be willing to take a reasonable amount of risk when the opportunity looks genuinely strong, especially when the evidence is clear and timing is still actionable. "
     "Your job is only to choose call, put, or neither for the underlying at this time. "
     "Do not choose, rank, or infer a specific option contract. "
+    "Do not make the final affordability or liquidity decision yourself. Contract affordability and liquidity are enforced later by the deterministic selector and risk layer. "
     "Choose 'call' only when the evidence is convincingly bullish, timing is sufficiently actionable for options, "
     "and account/market context can support opening the trade. "
     "Choose 'put' only when the evidence is convincingly bearish, timing is sufficiently actionable for options, "
@@ -428,6 +435,8 @@ def build_manager_prompt(
     "setup quality is weak, or account constraints make the trade unattractive. "
     "If the strategist says watchlist, weak setup, unclear timing, or contradictions_present=true, that should usually push toward 'neither' "
     "unless the full context strongly supports immediate action anyway. "
+        "Map time_horizon to target_dte_bucket explicitly when a trade is supported: very_short_term -> 3_7, short_term -> 7_14, medium_term -> 14_30. "
+        "If no trade should be opened, or no clear horizon applies, use none. "
         "Return only valid JSON with a top-level key named 'recommendation'. "
         "The recommendation object must contain: decision, confidence, target_dte_bucket, reason. "
         "decision must be one of: call, put, neither. "
@@ -439,7 +448,10 @@ def build_manager_prompt(
     system_prompt = str(system_prompt_override or default_system_prompt)
 
     user_payload = {
-        "task": str(task_override or "Decide whether the supplied company currently supports a call, put, or neither."),
+        "task": str(
+            task_override
+            or "Decide whether the supplied strategist thesis is tradable now as a call, put, or neither under current market and account constraints."
+        ),
         "company": payload["company"],
         "peer_groups": payload.get("peer_groups", {}),
         "filters": payload.get("filters", {}),
@@ -537,6 +549,11 @@ def _normalize_target_dte_bucket(value: Any) -> str:
     }
     bucket = replacements.get(bucket, bucket)
     return bucket if bucket in VALID_TARGET_DTE_BUCKETS else ""
+
+
+def _map_time_horizon_to_target_dte_bucket(value: Any) -> str:
+    time_horizon = _normalize_time_horizon(value)
+    return TIME_HORIZON_TO_DTE_BUCKET.get(time_horizon, "")
 
 
 def _normalize_option_id(value: Any) -> int | None:
@@ -751,6 +768,7 @@ def _normalize_recommendation(
     *,
     option_contracts: list[dict[str, Any]] | None = None,
     market_context: dict[str, Any] | None = None,
+    strategist_recommendation: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     if not isinstance(recommendation, dict):
         return None
@@ -758,6 +776,12 @@ def _normalize_recommendation(
     decision = _normalize_decision(recommendation.get("decision"))
     confidence = _normalize_confidence(recommendation.get("confidence"))
     target_dte_bucket = _normalize_target_dte_bucket(recommendation.get("target_dte_bucket"))
+    strategist_recommendation = (
+        strategist_recommendation if isinstance(strategist_recommendation, dict) else {}
+    )
+    strategist_time_horizon_bucket = _map_time_horizon_to_target_dte_bucket(
+        strategist_recommendation.get("time_horizon")
+    )
     raw_reason = recommendation.get("reason") or recommendation.get("summary") or ""
     if not raw_reason and isinstance(recommendation.get("thesis"), list):
         raw_reason = "; ".join(str(x).strip() for x in recommendation["thesis"][:3] if str(x).strip())
@@ -768,7 +792,10 @@ def _normalize_recommendation(
     if confidence not in VALID_CONFIDENCE_LEVELS:
         return None
     if not target_dte_bucket:
-        target_dte_bucket = "none"
+        if decision in {"call", "put"} and strategist_time_horizon_bucket:
+            target_dte_bucket = strategist_time_horizon_bucket
+        else:
+            target_dte_bucket = "none"
     if not reason:
         return None
 
@@ -968,12 +995,14 @@ def decide_company_option_position(
         _extract_recommendation(parsed),
         option_contracts=option_contracts,
         market_context=market_context,
+        strategist_recommendation=payload.get("strategist_recommendation", {}),
     )
     if recommendation is None:
         recommendation = _normalize_recommendation(
             _extract_recommendation_from_text(raw_response),
             option_contracts=option_contracts,
             market_context=market_context,
+            strategist_recommendation=payload.get("strategist_recommendation", {}),
         )
     if recommendation is None:
         raise RuntimeError(
@@ -1003,6 +1032,7 @@ def decide_company_option_position(
         "company": company,
         "context_snapshot": context_snapshot,
         "market_context": market_context,
+        "strategist_recommendation": payload.get("strategist_recommendation", {}),
         "recommendation": recommendation,
         "selected_option": selected_option,
     }

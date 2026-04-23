@@ -4,7 +4,9 @@ from __future__ import annotations
 
 This module exists so the LLM only decides directional intent. Contract
 selection remains fully rule-based, which makes the final output easier to
-debug and safer to tune.
+debug and safer to tune. This layer is responsible for contract-level
+viability such as DTE fit, liquidity, affordability-related gating, and
+deterministic strike/expiration selection.
 """
 
 import copy
@@ -153,6 +155,54 @@ def _normalize_confidence(value: Any) -> str:
     if confidence in {"high", "medium", "low"}:
         return confidence
     return ""
+
+
+def _normalize_strategist_decision(value: Any) -> str:
+    decision = str(value or "").strip().lower()
+    replacements = {
+        "trade candidate": "trade_candidate",
+        "watch list": "watchlist",
+        "do not trade": "do_not_trade",
+    }
+    decision = replacements.get(decision, decision)
+    return decision if decision in {"trade_candidate", "watchlist", "do_not_trade"} else ""
+
+
+def _coerce_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return None
+    text = str(value).strip().lower()
+    if text in {"true", "yes", "1"}:
+        return True
+    if text in {"false", "no", "0"}:
+        return False
+    return None
+
+
+def _is_selection_eligible_under_confidence_guardrails(
+    *,
+    decision: str,
+    confidence: str,
+    strategist_recommendation: dict[str, Any] | None,
+) -> tuple[bool, str]:
+    if decision not in {"call", "put"}:
+        return False, "decision_not_directional"
+    if confidence not in {"high", "medium"}:
+        return False, "confidence_below_medium"
+
+    strategist_recommendation = (
+        strategist_recommendation if isinstance(strategist_recommendation, dict) else {}
+    )
+    strategist_decision = _normalize_strategist_decision(strategist_recommendation.get("decision"))
+    contradictions_present = _coerce_bool(strategist_recommendation.get("contradictions_present"))
+
+    if strategist_decision == "do_not_trade":
+        return False, "strategist_do_not_trade"
+    if contradictions_present is True:
+        return False, "strategist_contradictions_present"
+    return True, ""
 
 
 def _normalize_target_dte_bucket(value: Any) -> str:
@@ -1148,6 +1198,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
     """Attach a concrete option contract to a manager result when rules allow it."""
     recommendation = dict(manager_result.get("recommendation") or {})
     market_context = dict(manager_result.get("market_context") or {})
+    strategist_recommendation = dict(manager_result.get("strategist_recommendation") or {})
     option_market = dict(market_context.get("option_market") or {})
     option_contracts = list(option_market.get("contracts") or [])
 
@@ -1172,8 +1223,13 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
     selected_option_source = "not_applicable"
     selection_mode = ""
     selector_debug: dict[str, Any] = {}
+    selection_allowed, selection_guardrail_reason = _is_selection_eligible_under_confidence_guardrails(
+        decision=decision,
+        confidence=confidence,
+        strategist_recommendation=strategist_recommendation,
+    )
 
-    if decision in {"call", "put"} and confidence == "high":
+    if selection_allowed:
         selected_option = _pick_matching_contract(
             decision=decision,
             option_contracts=option_contracts,
@@ -1191,12 +1247,12 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
             }
 
         selected_option_source = (
-            f"deterministic_high_confidence_{selection_mode}"
+            f"deterministic_{confidence}_confidence_{selection_mode}"
             if selected_option is not None and selection_mode
             else "unavailable"
         )
     elif decision in {"call", "put"}:
-        selected_option_source = "confidence_below_high"
+        selected_option_source = selection_guardrail_reason or "confidence_below_medium"
 
     selected_option_id = _normalize_option_id(selected_option.get("option_id")) if selected_option else None
     selected_expiration_date = (
@@ -1222,6 +1278,14 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
             "allow_risky_simple_fallback": ALLOW_RISKY_SIMPLE_FALLBACK,
             "decision_seen": decision,
             "confidence_seen": confidence,
+            "selection_allowed": selection_allowed,
+            "selection_guardrail_reason": selection_guardrail_reason,
+            "strategist_decision_seen": _normalize_strategist_decision(
+                strategist_recommendation.get("decision")
+            ),
+            "strategist_contradictions_present_seen": _coerce_bool(
+                strategist_recommendation.get("contradictions_present")
+            ),
             "target_dte_bucket_seen": target_dte_bucket,
             "reference_stock_price": reference_stock_price,
             "option_contract_count": len(option_contracts),
