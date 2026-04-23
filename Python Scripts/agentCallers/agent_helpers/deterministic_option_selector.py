@@ -520,10 +520,11 @@ def _pick_matching_contract_simple(
     if normalized_decision not in {"call", "put"}:
         return None
 
+    normalized_target_dte_bucket = _normalize_target_dte_bucket(target_dte_bucket) or "none"
     reference_stock_price = _get_reference_stock_price(market_context)
     target_otm_distance = _resolve_target_otm_distance(
         reference_stock_price=reference_stock_price,
-        target_dte_bucket=target_dte_bucket,
+        target_dte_bucket=normalized_target_dte_bucket,
         default_distance=SIMPLE_PREFERRED_OTM_DISTANCE,
     )
 
@@ -531,7 +532,7 @@ def _pick_matching_contract_simple(
         contract
         for contract in option_contracts
         if _normalize_contract_type(contract.get("contract_type")) == normalized_decision
-        and _contract_matches_target_dte_bucket(contract, target_dte_bucket)
+        and _contract_matches_target_dte_bucket(contract, normalized_target_dte_bucket)
     ]
     if not matching_contracts:
         matching_contracts = [
@@ -564,10 +565,19 @@ def _pick_matching_contract_simple(
     fallback_contracts = [
         contract
         for contract in matching_contracts
-        if _is_otm_contract(
-            normalized_decision,
-            _coerce_float(contract.get("strike_price")),
-            reference_stock_price,
+        if (
+            _meets_min_otm_distance(
+                normalized_decision,
+                _coerce_float(contract.get("strike_price")),
+                reference_stock_price,
+                min_distance=target_otm_distance,
+            )
+            if normalized_target_dte_bucket in DTE_BUCKET_TO_TARGET_OTM_PCT
+            else _is_otm_contract(
+                normalized_decision,
+                _coerce_float(contract.get("strike_price")),
+                reference_stock_price,
+            )
         )
     ]
 
@@ -586,7 +596,11 @@ def _pick_matching_contract_simple(
         )
     elif fallback_contracts:
         candidate_pool = list(fallback_contracts)
-        selection_mode = "simple_fallback_closest_side_correct"
+        selection_mode = (
+            "simple_fallback_min_distance_bucketed"
+            if normalized_target_dte_bucket in DTE_BUCKET_TO_TARGET_OTM_PCT
+            else "simple_fallback_closest_side_correct"
+        )
         candidate_pool.sort(
             key=lambda contract: _basic_sort_key(
                 contract,
@@ -604,7 +618,7 @@ def _pick_matching_contract_simple(
     selected["_selection_mode"] = selection_mode
     selected["_selector_debug"] = {
         "selector_mode_requested": OPTION_SELECTOR_MODE,
-        "target_dte_bucket": target_dte_bucket,
+        "target_dte_bucket": normalized_target_dte_bucket,
         "target_otm_distance": target_otm_distance,
         "reference_stock_price": reference_stock_price,
         "matching_contract_count": len(matching_contracts),
@@ -616,7 +630,7 @@ def _pick_matching_contract_simple(
             selected,
             reference_stock_price=reference_stock_price,
             target_otm_distance=target_otm_distance,
-            target_dte_bucket=target_dte_bucket,
+            target_dte_bucket=normalized_target_dte_bucket,
         ),
     }
     return selected
