@@ -111,6 +111,7 @@ def _payload_has_evidence(payload: dict[str, Any]) -> bool:
 
     market_context = payload.get("market_context", {})
     stock_price_available = bool(market_context.get("current_stock_price", {}).get("available"))
+    sector_etf_available = bool(market_context.get("sector_etf", {}).get("available"))
     option_contract_count = int(market_context.get("option_market", {}).get("contract_count") or 0)
     account_state_available = bool(market_context.get("account_state", {}).get("available"))
 
@@ -119,6 +120,7 @@ def _payload_has_evidence(payload: dict[str, Any]) -> bool:
         or bool(article_summaries)
         or bool(full_articles)
         or stock_price_available
+        or sector_etf_available
         or option_contract_count > 0
         or account_state_available
     )
@@ -350,6 +352,7 @@ def _build_context_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
             for snapshot in market_indices.values()
             if isinstance(snapshot, dict) and snapshot.get("available")
         ),
+        "sector_etf_available": bool(market_context.get("sector_etf", {}).get("available")),
         "option_contract_count": int(market_context.get("option_market", {}).get("contract_count") or 0),
         "account_state_available": bool(market_context.get("account_state", {}).get("available")),
         "matching_position_count": int(
@@ -382,6 +385,7 @@ def _build_manager_visible_market_context(payload: dict[str, Any]) -> dict[str, 
     return {
         "current_stock_price": market_context.get("current_stock_price", {}),
         "market_indices": market_context.get("market_indices", {}),
+        "sector_etf": market_context.get("sector_etf", {}),
         "account_state": market_context.get("account_state", {}),
         "option_market_summary": {
             "available": bool(option_market.get("available")),
@@ -412,7 +416,7 @@ def build_manager_prompt(
     "Use only the supplied structured context. "
     "You are reviewing: "
     "1) the structured research package, including article evidence and 1d, 5d, 1mo, and 3mo price history; "
-    "2) live market and account context, including current stock price, option market summary, buying power, and current position state; "
+    "2) live market and account context, including current stock price, relevant sector ETF performance, broad market indexes, option market summary, buying power, and current position state; "
     "and 3) the strategist recommendation as an upstream signal. "
     "Treat the strategist recommendation as useful but not authoritative. "
     "The strategist may include decision, confidence, evidence_quality, setup_quality, timing_clarity, "

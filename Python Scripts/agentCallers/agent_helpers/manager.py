@@ -129,6 +129,7 @@ def test_market_context(
 
     stock_snapshot = market_context.get("current_stock_price", {})
     market_indices = market_context.get("market_indices", {})
+    sector_etf = market_context.get("sector_etf", {})
     option_market = market_context.get("option_market", {})
     account_state = market_context.get("account_state", {})
 
@@ -142,6 +143,8 @@ def test_market_context(
                 for snapshot in market_indices.values()
                 if isinstance(snapshot, dict) and snapshot.get("available")
             ),
+            "sector_etf_available": bool(sector_etf.get("available")),
+            "sector_etf_error": str(sector_etf.get("error") or ""),
             "option_market_available": bool(option_market.get("available")),
             "option_market_error": str(option_market.get("error") or ""),
             "option_contract_count": int(option_market.get("contract_count") or 0),
