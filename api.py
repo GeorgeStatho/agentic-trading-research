@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sys
@@ -17,6 +18,7 @@ from portfolio_history_service import env_flag, fetch_portfolio_history, load_en
 
 load_env()
 app = Flask(__name__)
+logger = logging.getLogger(__name__)
 ROOT_DIR = Path(__file__).resolve().parent
 PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
 AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
@@ -77,7 +79,7 @@ def portfolio_history():
         payload = fetch_portfolio_history()
         return jsonify(payload), 200
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _internal_error("Failed to load portfolio history.", exc)
 
 
 def _safe_float(value):
@@ -96,6 +98,11 @@ def _trim_text(value: str | None, limit: int) -> str:
     if len(normalized) <= limit:
         return normalized
     return f"{normalized[: max(0, limit - 1)].rstrip()}..."
+
+
+def _internal_error(message: str, exc: Exception):
+    logger.exception(message, exc_info=exc)
+    return jsonify({"error": message}), 500
 
 
 MAX_DEPLOYABLE_BUYING_POWER_PCT = min(
@@ -1059,7 +1066,7 @@ def read_json_file(path: Path) -> tuple[dict, int]:
     except FileNotFoundError:
         return jsonify({"error": f"File not found: {path.name}"}), 404
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _internal_error(f"Failed to read {path.name}.", exc)
 
 
 @app.get("/api/script-status")
@@ -1077,7 +1084,7 @@ def dashboard_kpis():
     try:
         return jsonify(_build_dashboard_kpis()), 200
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _internal_error("Failed to load dashboard KPIs.", exc)
 
 
 @app.get("/api/open-positions")
@@ -1085,7 +1092,7 @@ def open_positions():
     try:
         return jsonify(_build_open_positions_payload()), 200
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _internal_error("Failed to load open positions.", exc)
 
 
 @app.get("/api/why-bot-traded")
@@ -1093,7 +1100,7 @@ def why_bot_traded():
     try:
         return jsonify(_build_trade_explanation_payload()), 200
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _internal_error("Failed to load trade explanations.", exc)
 
 
 @app.get("/api/risk-controls")
@@ -1101,7 +1108,7 @@ def risk_controls():
     try:
         return jsonify(_build_risk_controls_payload()), 200
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _internal_error("Failed to load risk controls.", exc)
 
 
 @app.get("/api/opportunist-company-news")
@@ -1109,7 +1116,7 @@ def opportunist_company_news():
     try:
         return jsonify(_build_analyzed_company_news_payload()), 200
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        return _internal_error("Failed to load analyzed company news.", exc)
 
 
 if __name__ == "__main__":

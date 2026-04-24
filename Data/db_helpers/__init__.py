@@ -1,4 +1,4 @@
-from db_helpers.common import DB_PATH, DATA_DIR, get_connection
+from db_helpers.common import DB_PATH, DATA_DIR, get_connection, validate_sql_identifier
 from db_helpers.market import (
     ensure_all_sector_market_data,
     ensure_industry_market_data,
