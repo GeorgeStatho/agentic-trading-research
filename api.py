@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -17,6 +18,17 @@ from portfolio_history_service import env_flag, fetch_portfolio_history, load_en
 load_env()
 app = Flask(__name__)
 ROOT_DIR = Path(__file__).resolve().parent
+PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
+AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
+DATA_DIR = ROOT_DIR / "Data"
+for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
+    normalized = str(path)
+    if normalized not in sys.path:
+        sys.path.append(normalized)
+
+from agent_pipeline.main import get_current_pipeline_targets
+from db_helpers import DB_PATH, get_connection
+
 SCRIPT_STATUS_PATH = Path(
     os.getenv("SCRIPT_STATUS_PATH", str(ROOT_DIR / "web_dashboard" / "public" / "script_status.json"))
 )
@@ -75,6 +87,15 @@ def _safe_float(value):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _trim_text(value: str | None, limit: int) -> str:
+    normalized = " ".join(str(value or "").split()).strip()
+    if not normalized:
+        return ""
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[: max(0, limit - 1)].rstrip()}..."
 
 
 MAX_DEPLOYABLE_BUYING_POWER_PCT = min(
@@ -860,6 +881,175 @@ def _build_dashboard_kpis() -> dict:
     }
 
 
+def _build_analyzed_company_news_payload() -> dict:
+    targets = get_current_pipeline_targets()
+    selected_companies = targets.get("selected_companies", [])
+    if not isinstance(selected_companies, list) or not selected_companies:
+        return {
+            "as_of": datetime.now(timezone.utc).isoformat(),
+            "company_count": 0,
+            "article_count": 0,
+            "companies": [],
+        }
+
+    company_lookup: dict[int, dict] = {}
+    company_ids: list[int] = []
+    for company in selected_companies:
+        try:
+            company_id = int(company.get("company_id"))
+        except (TypeError, ValueError):
+            continue
+        company_ids.append(company_id)
+        company_lookup[company_id] = {
+            "company_id": company_id,
+            "symbol": str(company.get("symbol") or "").strip().upper(),
+            "name": str(company.get("name") or "").strip(),
+            "industry_key": str(company.get("industry_key") or "").strip(),
+            "sector_key": str(company.get("sector_key") or "").strip(),
+        }
+
+    if not company_ids:
+        return {
+            "as_of": datetime.now(timezone.utc).isoformat(),
+            "company_count": 0,
+            "article_count": 0,
+            "companies": [],
+        }
+
+    placeholders = ",".join("?" for _ in company_ids)
+    with get_connection(DB_PATH) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT
+                coi.article_id,
+                coi.company_id,
+                c.symbol,
+                c.name AS company_name,
+                c.industry_key,
+                c.sector_key,
+                coi.confidence,
+                coi.impact_direction,
+                coi.impact_magnitude,
+                coi.reason,
+                coi.created_at AS impact_created_at,
+                cop.processed_at,
+                cop.model,
+                na.title,
+                na.summary,
+                na.body,
+                na.source,
+                na.source_url,
+                na.published_at
+            FROM company_opportunist_impacts AS coi
+            JOIN companies AS c ON c.id = coi.company_id
+            JOIN news_articles AS na ON na.id = coi.article_id
+            LEFT JOIN company_opportunist_article_processing AS cop
+                ON cop.article_id = coi.article_id
+               AND cop.company_id = coi.company_id
+            WHERE coi.company_id IN ({placeholders})
+            ORDER BY c.symbol ASC, na.published_at DESC, coi.article_id DESC, coi.created_at DESC
+            """,
+            tuple(company_ids),
+        ).fetchall()
+
+    companies_by_id: dict[int, dict] = {}
+    total_article_count = 0
+    for company_id in company_ids:
+        company_info = company_lookup.get(company_id, {})
+        companies_by_id[company_id] = {
+            **company_info,
+            "analyzed_article_count": 0,
+            "confidence_counts": {"high": 0, "medium": 0, "low": 0},
+            "articles": [],
+            "_articles_by_id": {},
+        }
+
+    for row in rows:
+        row_data = dict(row)
+        company_id = int(row_data["company_id"])
+        article_id = int(row_data["article_id"])
+        company_entry = companies_by_id.get(company_id)
+        if company_entry is None:
+            continue
+
+        articles_by_id = company_entry["_articles_by_id"]
+        article_entry = articles_by_id.get(article_id)
+        if article_entry is None:
+            article_entry = {
+                "article_id": article_id,
+                "title": str(row_data.get("title") or "").strip(),
+                "summary": str(row_data.get("summary") or "").strip(),
+                "body_preview": _trim_text(
+                    str(row_data.get("body") or row_data.get("summary") or "").strip(),
+                    320,
+                ),
+                "source": str(row_data.get("source") or "").strip(),
+                "source_url": str(row_data.get("source_url") or "").strip(),
+                "published_at": str(row_data.get("published_at") or "").strip(),
+                "processed_at": str(row_data.get("processed_at") or "").strip(),
+                "model": str(row_data.get("model") or "").strip(),
+                "assessments": [],
+                "_assessment_keys": set(),
+            }
+            articles_by_id[article_id] = article_entry
+            company_entry["articles"].append(article_entry)
+            company_entry["analyzed_article_count"] += 1
+            total_article_count += 1
+
+        confidence = str(row_data.get("confidence") or "").strip().lower()
+        impact_direction = str(row_data.get("impact_direction") or "").strip().lower()
+        impact_magnitude = str(row_data.get("impact_magnitude") or "").strip().lower()
+        reason = str(row_data.get("reason") or "").strip()
+        impact_created_at = str(row_data.get("impact_created_at") or "").strip()
+        assessment_key = "|".join(
+            [
+                confidence,
+                impact_direction,
+                impact_magnitude,
+                reason,
+                impact_created_at,
+            ]
+        )
+        if assessment_key not in article_entry["_assessment_keys"]:
+            article_entry["_assessment_keys"].add(assessment_key)
+            article_entry["assessments"].append(
+                {
+                    "confidence": confidence,
+                    "impact_direction": impact_direction,
+                    "impact_magnitude": impact_magnitude,
+                    "reason": reason,
+                    "created_at": impact_created_at,
+                }
+            )
+            if confidence in company_entry["confidence_counts"]:
+                company_entry["confidence_counts"][confidence] += 1
+
+    normalized_companies: list[dict] = []
+    for company_id in company_ids:
+        company_entry = companies_by_id.get(company_id)
+        if company_entry is None:
+            continue
+
+        articles = company_entry.pop("_articles_by_id", None)
+        del articles
+        for article in company_entry["articles"]:
+            assessment_keys = article.pop("_assessment_keys", None)
+            del assessment_keys
+
+        latest_published_at = ""
+        if company_entry["articles"]:
+            latest_published_at = str(company_entry["articles"][0].get("published_at") or "").strip()
+        company_entry["latest_published_at"] = latest_published_at
+        normalized_companies.append(company_entry)
+
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "company_count": len(normalized_companies),
+        "article_count": total_article_count,
+        "companies": normalized_companies,
+    }
+
+
 def read_json_file(path: Path) -> tuple[dict, int]:
     try:
         with path.open("r", encoding="utf-8") as handle:
@@ -908,6 +1098,14 @@ def why_bot_traded():
 def risk_controls():
     try:
         return jsonify(_build_risk_controls_payload()), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/opportunist-company-news")
+def opportunist_company_news():
+    try:
+        return jsonify(_build_analyzed_company_news_payload()), 200
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
