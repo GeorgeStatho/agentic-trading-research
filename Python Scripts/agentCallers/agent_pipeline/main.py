@@ -25,7 +25,7 @@ from agent_stages.company_opportunist import classify_company_articles
 from agent_stages.industry_opportunist import classify_sector_articles_to_industries
 from agent_stages.macro_news_to_sectors import classify_macro_news_to_sectors
 from agent_stages.sector_opportunist import classify_sector_articles
-from db_helpers import DB_PATH, get_connection
+from db_helpers import DB_PATH, get_connection, validate_sql_identifier
 
 DEFAULT_TOP_SECTOR_COUNT = 3
 DEFAULT_TOP_INDUSTRY_COUNT = 3
@@ -365,9 +365,11 @@ def _count_rows_for_ids(
 ) -> int:
     if not values:
         return 0
+    safe_table_name = validate_sql_identifier(table_name)
+    safe_column_name = validate_sql_identifier(column_name)
     placeholders = ",".join("?" for _ in values)
     row = conn.execute(
-        f"SELECT COUNT(*) AS c FROM {table_name} WHERE {column_name} IN ({placeholders})",
+        f"SELECT COUNT(*) AS c FROM {safe_table_name} WHERE {safe_column_name} IN ({placeholders})",
         tuple(values),
     ).fetchone()
     return int(row["c"]) if row is not None else 0
@@ -382,12 +384,14 @@ def _load_article_ids_for_target_rows(
 ) -> list[int]:
     if not target_ids:
         return []
+    safe_impact_table = validate_sql_identifier(impact_table)
+    safe_id_column = validate_sql_identifier(id_column)
     placeholders = ",".join("?" for _ in target_ids)
     rows = conn.execute(
         f"""
         SELECT DISTINCT article_id
-        FROM {impact_table}
-        WHERE {id_column} IN ({placeholders})
+        FROM {safe_impact_table}
+        WHERE {safe_id_column} IN ({placeholders})
         ORDER BY article_id
         """,
         tuple(target_ids),
