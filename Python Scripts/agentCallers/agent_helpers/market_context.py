@@ -22,7 +22,7 @@ if __package__ in {None, ""}:
     if str(AGENT_CALLERS_DIR) not in sys.path:
         sys.path.append(str(AGENT_CALLERS_DIR))
 
-from _paths import bootstrap_agent_callers
+from _paths import DATA_DIR, bootstrap_agent_callers
 
 
 bootstrap_agent_callers(include_webscraping=True, load_env_file=True)
@@ -63,11 +63,13 @@ DEFAULT_OPTION_FETCH_MIN = max(100, int(os.getenv("MANAGER_OPTION_FETCH_MIN", "5
 PREFERRED_OTM_DISTANCE = 0.75
 OPTION_SYMBOL_TEMPLATE = r"\d{6}[CP]\d{8}$"
 _ALPACA_CLIENTS: dict[str, Any] | None | bool = None
+_SECTOR_ETF_MAP: dict[str, dict[str, Any]] | None = None
 MARKET_INDEX_DEFINITIONS: tuple[tuple[str, str, str], ...] = (
     ("sp500", "^GSPC", "S&P 500"),
     ("dow_jones_industrial_average", "^DJI", "Dow Jones Industrial Average"),
     ("vix", "^VIX", "CBOE Volatility Index"),
 )
+SECTOR_ETF_FILE = DATA_DIR / "sector_etfs.json"
 
 CLOSEST_EXPIRATION_GTE = 1
 FARTHEST_EXPIRATION_LTE = 8
@@ -128,6 +130,10 @@ def _get_field(source: Any, key: str, default: Any = None) -> Any:
     if isinstance(source, dict):
         return source.get(key, default)
     return getattr(source, key, default)
+
+
+def _normalize_identifier(value: Any) -> str:
+    return str(value or "").strip().lower()
 
 
 def _get_alpaca_clients() -> dict[str, Any] | None:
@@ -292,6 +298,112 @@ def _build_market_index_snapshot(*, symbol: str, label: str) -> dict[str, Any]:
     except Exception as exc:
         unavailable["error"] = str(exc)
         return unavailable
+
+
+def _load_sector_etf_map() -> dict[str, dict[str, Any]]:
+    global _SECTOR_ETF_MAP
+    if _SECTOR_ETF_MAP is not None:
+        return _SECTOR_ETF_MAP
+
+    try:
+        raw_payload = json.loads(SECTOR_ETF_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        LOGGER.warning("Sector ETF file was not found at %s", SECTOR_ETF_FILE)
+        _SECTOR_ETF_MAP = {}
+        return _SECTOR_ETF_MAP
+    except json.JSONDecodeError as exc:
+        LOGGER.warning("Sector ETF file at %s could not be decoded: %s", SECTOR_ETF_FILE, exc)
+        _SECTOR_ETF_MAP = {}
+        return _SECTOR_ETF_MAP
+
+    if not isinstance(raw_payload, dict):
+        LOGGER.warning("Sector ETF file at %s did not contain a JSON object", SECTOR_ETF_FILE)
+        _SECTOR_ETF_MAP = {}
+        return _SECTOR_ETF_MAP
+
+    normalized_payload: dict[str, dict[str, Any]] = {}
+    for raw_key, raw_value in raw_payload.items():
+        normalized_key = _normalize_identifier(raw_key)
+        if not normalized_key or not isinstance(raw_value, dict):
+            continue
+        normalized_payload[normalized_key] = raw_value
+
+    _SECTOR_ETF_MAP = normalized_payload
+    return _SECTOR_ETF_MAP
+
+
+def _resolve_company_sector_etf(company: dict[str, Any]) -> tuple[str, dict[str, Any], str] | None:
+    sector_etf_map = _load_sector_etf_map()
+    if not sector_etf_map:
+        return None
+
+    sector_key = _normalize_identifier(company.get("sector_key"))
+    if sector_key:
+        etf_entry = sector_etf_map.get(sector_key)
+        if isinstance(etf_entry, dict):
+            return sector_key, etf_entry, "sector_key"
+
+    sector_name = _normalize_identifier(company.get("sector_name"))
+    if not sector_name:
+        return None
+
+    for etf_key, etf_entry in sector_etf_map.items():
+        if not isinstance(etf_entry, dict):
+            continue
+        if sector_name == _normalize_identifier(etf_entry.get("name")):
+            return etf_key, etf_entry, "sector_name"
+
+    return None
+
+
+def _build_sector_etf_snapshot(company: dict[str, Any]) -> dict[str, Any]:
+    sector_key = _normalize_identifier(company.get("sector_key"))
+    sector_name = str(company.get("sector_name") or "").strip()
+    unavailable = {
+        "available": False,
+        "sector_key": sector_key,
+        "sector_name": sector_name,
+        "symbol": "",
+        "ticker": "",
+        "label": "",
+        "fund_name": "",
+        "provider": "",
+        "category": "sector_etf",
+        "source": "yfinance",
+        "price": None,
+        "previous_close": None,
+        "absolute_change": None,
+        "percent_change": None,
+        "timestamp": "",
+        "matched_on": "",
+        "error": "",
+    }
+
+    resolved = _resolve_company_sector_etf(company)
+    if resolved is None:
+        unavailable["error"] = (
+            "No sector ETF mapping was found for the company sector."
+            if sector_key or sector_name
+            else "Company sector metadata was missing."
+        )
+        return unavailable
+
+    resolved_sector_key, etf_entry, matched_on = resolved
+    ticker = str(etf_entry.get("ticker") or "").strip().upper()
+    label = str(etf_entry.get("fund_name") or etf_entry.get("name") or "").strip()
+    snapshot = _build_market_index_snapshot(symbol=ticker, label=label)
+    snapshot.update(
+        {
+            "sector_key": resolved_sector_key,
+            "sector_name": str(etf_entry.get("name") or sector_name or "").strip(),
+            "ticker": ticker,
+            "fund_name": str(etf_entry.get("fund_name") or "").strip(),
+            "provider": str(etf_entry.get("provider") or "").strip(),
+            "category": str(etf_entry.get("category") or "sector_etf").strip(),
+            "matched_on": matched_on,
+        }
+    )
+    return snapshot
 
 
 def _build_market_indices_snapshot() -> dict[str, Any]:
@@ -1019,6 +1131,7 @@ def build_market_context(
     return {
         "current_stock_price": stock_snapshot,
         "market_indices": _build_market_indices_snapshot(),
+        "sector_etf": _build_sector_etf_snapshot(company),
         "option_market": _build_option_market_snapshot(
             company_symbol,
             reference_stock_price=reference_stock_price,
