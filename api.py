@@ -925,8 +925,8 @@ def _build_analyzed_company_news_payload() -> dict:
                 coi.company_id,
                 c.symbol,
                 c.name AS company_name,
-                c.industry_key,
-                c.sector_key,
+                i.industry_key,
+                s.sector_key,
                 coi.confidence,
                 coi.impact_direction,
                 coi.impact_magnitude,
@@ -942,6 +942,8 @@ def _build_analyzed_company_news_payload() -> dict:
                 na.published_at
             FROM company_opportunist_impacts AS coi
             JOIN companies AS c ON c.id = coi.company_id
+            JOIN industries AS i ON i.id = c.industry_id
+            JOIN sectors AS s ON s.id = i.sector_id
             JOIN news_articles AS na ON na.id = coi.article_id
             LEFT JOIN company_opportunist_article_processing AS cop
                 ON cop.article_id = coi.article_id
