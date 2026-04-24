@@ -449,8 +449,6 @@ class OrderCandidateBuilder:
             return False
         if strategist_decision == "do_not_trade":
             return False
-        if contradictions_present is True:
-            return False
         return True
 
     @staticmethod
