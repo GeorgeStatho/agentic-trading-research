@@ -196,12 +196,9 @@ def _is_selection_eligible_under_confidence_guardrails(
         strategist_recommendation if isinstance(strategist_recommendation, dict) else {}
     )
     strategist_decision = _normalize_strategist_decision(strategist_recommendation.get("decision"))
-    contradictions_present = _coerce_bool(strategist_recommendation.get("contradictions_present"))
 
     if strategist_decision == "do_not_trade":
         return False, "strategist_do_not_trade"
-    if contradictions_present is True:
-        return False, "strategist_contradictions_present"
     return True, ""
 
 
