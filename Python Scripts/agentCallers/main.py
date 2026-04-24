@@ -18,7 +18,7 @@ from _paths import DATA_DIR, LOGS_DIR, ROOT_DIR, bootstrap_agent_callers
 bootstrap_agent_callers()
 
 from agent_helpers.deterministic_option_selector import apply_deterministic_option_selection
-from agent_pipeline.main import run_agent_pipeline
+from agent_pipeline.main import run_agent_pipeline_from_existing_data
 from agent_stages.manager import decide_company_option_position
 from agent_stages.strategist import decide_company_purchase
 
@@ -207,6 +207,32 @@ def run_full_agent_stack(
     LOGGER.info("Starting agent pipeline stage")
     pipeline_result = run_agent_pipeline()
     LOGGER.info("Finished agent pipeline stage")
+
+    company_symbols = _dedupe_company_symbols(pipeline_result)
+    strategist_results, manager_results = _run_strategist_and_manager(
+        company_symbols,
+        on_manager_result=on_manager_result,
+    )
+    ran_at = datetime.now().isoformat()
+
+    return {
+        "ran_at": ran_at,
+        "company_symbols": company_symbols,
+        "pipeline": pipeline_result,
+        "strategist": strategist_results,
+        "manager": manager_results,
+        "selected_options": _build_selected_option_output(ran_at=ran_at, manager_results=manager_results),
+    }
+
+
+def run_full_agent_stack_from_existing_data(
+    *,
+    on_manager_result: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Run strategist and manager stages using the current persisted DB pipeline state."""
+    LOGGER.info("Starting agent pipeline stage using existing DB data")
+    pipeline_result = run_agent_pipeline_from_existing_data()
+    LOGGER.info("Finished agent pipeline stage using existing DB data")
 
     company_symbols = _dedupe_company_symbols(pipeline_result)
     strategist_results, manager_results = _run_strategist_and_manager(
