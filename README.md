@@ -25,36 +25,42 @@ Flask API (api.py)
         v
 Python worker (Python Scripts/main.py)
         |
-        v
-Agent pipeline (agentCallers/)
-        |
-        +--> scraping + market/news collection
         +--> strategist stage
         +--> manager stage
         +--> deterministic option selection
         +--> Alpaca paper-trade execution
+        |
+        v
+Persisted market/news DB state
+        ^
+        |
+News collector (Python Scripts/news_collector_main.py)
+        |
+        +--> scraping + market/news collection
+        +--> sector/industry/company classification
 ```
 
 Docker Compose currently runs:
 
 - `web`: nginx + built React frontend
 - `api`: Flask API
-- `worker`: long-running research / execution loop
+- `worker`: long-running strategist/manager/trading loop using existing DB data
+- `news_collector`: long-running scrape/classification refresh loop
 - `ollama`: optional profile only, for local fallback
 
 ## What The Project Does Today
 
 The implemented flow is roughly:
 
-1. collect market/news inputs through the agent pipeline
-2. choose candidate companies
-3. run the strategist stage to decide `buy` vs `do_not_buy`
-4. run the manager stage to decide `call`, `put`, or `neither`
-5. apply deterministic option-contract selection
-6. submit option market orders through Alpaca when conditions allow
-7. write runtime outputs for the dashboard
+1. `news_collector` refreshes market/news inputs through the agent pipeline
+2. `worker` chooses candidate companies from the current DB state
+3. `worker` runs the strategist stage to decide `buy` vs `do_not_buy`
+4. `worker` runs the manager stage to decide `call`, `put`, or `neither`
+5. `worker` applies deterministic option-contract selection
+6. `worker` submits option market orders through Alpaca when conditions allow
+7. the runtime writes outputs and logs for the dashboard and monitoring
 
-The worker entrypoint is [Python Scripts/main.py](Python%20Scripts/main.py), and the orchestrated agent stack lives under [Python Scripts/agentCallers](Python%20Scripts/agentCallers).
+The worker entrypoint is [Python Scripts/main.py](Python%20Scripts/main.py), the news refresh entrypoint is [Python Scripts/news_collector_main.py](Python%20Scripts/news_collector_main.py), and the orchestrated agent stack lives under [Python Scripts/agentCallers](Python%20Scripts/agentCallers).
 
 ## Dashboard
 
@@ -176,6 +182,7 @@ During Docker runs, the main shared runtime paths are:
 ## Important Files
 
 - [Python Scripts/main.py](Python%20Scripts/main.py): front-facing worker loop
+- [Python Scripts/news_collector_main.py](Python%20Scripts/news_collector_main.py): scrape/classification refresh loop
 - [Python Scripts/agentCallers/main.py](Python%20Scripts/agentCallers/main.py): agent-stack orchestration
 - [Python Scripts/agentCallers/agent_stages/strategist.py](Python%20Scripts/agentCallers/agent_stages/strategist.py): buy/do-not-buy stage
 - [Python Scripts/agentCallers/agent_stages/manager.py](Python%20Scripts/agentCallers/agent_stages/manager.py): call/put/neither stage
@@ -186,7 +193,7 @@ During Docker runs, the main shared runtime paths are:
 
 What is already in place:
 
-- Dockerized `web` / `api` / `worker` stack
+- Dockerized `web` / `api` / `worker` / `news_collector` stack
 - React monitoring dashboard
 - Alpaca-backed portfolio history API
 - status heartbeat and trade execution outputs

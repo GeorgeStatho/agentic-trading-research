@@ -51,6 +51,31 @@ services:
       - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
     command: ["python", "Python Scripts/main.py"]
 
+  news_collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *google-cloud-env
+      DB_PATH: /var/lib/stock-experiment/stock_experiment.db
+      NEWS_COLLECTION_OUTPUT_PATH: /shared/agent_pipeline_output.json
+      OLLAMA_HOST: http://ollama:11434
+      MANAGER_OLLAMA_HOST: http://ollama:11434
+      STRATEGIST_OLLAMA_HOST: http://ollama:11434
+      COMPANY_OPPURUNTIST_OLLAMA_HOST: http://ollama:11434
+      INDUSTRY_OPPURUNTINST_OLLAMA_HOST: http://ollama:11434
+      SECTOR_OPPURUNTIST_OLLAMA_HOST: http://ollama:11434
+      MACRO_NEWS_OLLAMA_HOST: http://ollama:11434
+      WORLD_NEWS_OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - runtime_data:/shared
+      - db_data:/var/lib/stock-experiment
+      - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
+    command: ["python", "Python Scripts/news_collector_main.py"]
+
   option_manager:
     build:
       context: .
@@ -116,6 +141,8 @@ services:
       api:
         condition: service_healthy
       worker:
+        condition: service_started
+      news_collector:
         condition: service_started
       option_manager:
         condition: service_started

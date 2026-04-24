@@ -61,7 +61,7 @@ for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
 if load_dotenv is not None:
     load_dotenv(ENV_PATH)
 
-from agentCallers.main import run_full_agent_stack
+from agentCallers.main import run_full_agent_stack_from_existing_data
 from db_helpers import (
     ensure_all_sector_market_data,
     get_all_companies,
@@ -830,7 +830,7 @@ class FrontMainApplication:
     def run_trading_cycle(self, trading_client: TradingClient | None = None) -> dict[str, Any]:
         """Run one end-to-end agent + trading cycle."""
         self._logger.info("Starting full agent stack run")
-        agent_result = run_full_agent_stack()
+        agent_result = run_full_agent_stack_from_existing_data()
         self._logger.info("Finished full agent stack run")
 
         order_candidates = self._order_candidate_builder.build(agent_result)
@@ -884,7 +884,7 @@ class FrontMainApplication:
             JsonFileWriter.write(self._paths.trade_output_path, self._trade_executor.finalize_session(trade_session))
 
         self._logger.info("Starting full agent stack run with immediate option execution")
-        agent_result = run_full_agent_stack(on_manager_result=handle_manager_result)
+        agent_result = run_full_agent_stack_from_existing_data(on_manager_result=handle_manager_result)
         self._logger.info("Finished full agent stack run with immediate option execution")
 
         trade_result = self._trade_executor.finalize_session(trade_session)
