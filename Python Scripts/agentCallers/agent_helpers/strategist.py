@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from pathlib import Path
 import sys
 from typing import Any
@@ -44,6 +45,18 @@ def get_company_context(company_identifier: str) -> tuple[dict[str, Any], dict[s
     return company, peer_groups
 
 
+def _deserialize_impact_raw_json(raw_json: Any) -> dict[str, Any]:
+    if isinstance(raw_json, dict):
+        return raw_json
+    if isinstance(raw_json, str):
+        try:
+            parsed = json.loads(raw_json)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
 def _build_processed_article_record(
     row: dict[str, Any],
     *,
@@ -52,15 +65,20 @@ def _build_processed_article_record(
     subject_key_key: str,
     subject_name_key: str,
 ) -> dict[str, Any]:
+    impact_payload = _deserialize_impact_raw_json(row.get("impact_raw_json"))
     return {
         "article_id": row["article_id"],
         subject_id_key: row[subject_id_key],
         subject_key_key: row[subject_key_key],
         subject_name_key: row[subject_name_key],
-        "confidence": row["confidence"] or "",
-        "impact_direction": row["impact_direction"] or "",
-        "impact_magnitude": row["impact_magnitude"] or "",
-        "reason": row["reason"] or "",
+        "confidence": impact_payload.get("confidence") or row["confidence"] or "",
+        "impact_direction": impact_payload.get("impact_direction") or row["impact_direction"] or "",
+        "impact_magnitude": impact_payload.get("impact_magnitude") or row["impact_magnitude"] or "",
+        "materiality": impact_payload.get("materiality") or "",
+        "time_horizon": impact_payload.get("time_horizon") or "",
+        "effect_type": impact_payload.get("effect_type") or "",
+        "relative_positioning": impact_payload.get("relative_positioning") or "",
+        "reason": impact_payload.get("reason") or row["reason"] or "",
         "impact_created_at": row["impact_created_at"] or "",
         "processed_at": row["processed_at"] or "",
         "model": row["model"] or "",
@@ -140,6 +158,7 @@ def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
                 soi.impact_direction,
                 soi.impact_magnitude,
                 soi.reason,
+                soi.raw_json AS impact_raw_json,
                 soi.created_at AS impact_created_at,
                 sop.processed_at,
                 sop.model,
@@ -202,6 +221,7 @@ def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]
                 ioi.impact_direction,
                 ioi.impact_magnitude,
                 ioi.reason,
+                ioi.raw_json AS impact_raw_json,
                 ioi.created_at AS impact_created_at,
                 iop.processed_at,
                 iop.model,
@@ -264,6 +284,7 @@ def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
                 coi.impact_direction,
                 coi.impact_magnitude,
                 coi.reason,
+                coi.raw_json AS impact_raw_json,
                 coi.created_at AS impact_created_at,
                 cop.processed_at,
                 cop.model,

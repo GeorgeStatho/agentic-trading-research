@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timezone
 import json
 import math
@@ -48,6 +49,20 @@ HISTORICAL_PERIOD_CONFIG: tuple[tuple[str, str, int], ...] = (
     ("1mo", "1d", 10),
     ("3mo", "1d", 12),
 )
+ROLLUP_DIRECTIONS: tuple[str, ...] = ("positive", "negative", "mixed", "neutral")
+ROLLUP_MATERIALITY: tuple[str, ...] = ("high", "medium", "low")
+ROLLUP_HORIZONS: tuple[str, ...] = ("immediate", "short_term", "medium_term", "unclear")
+ROLLUP_EFFECT_TYPES: tuple[str, ...] = ("direct", "indirect")
+ROLLUP_RELATIVE_POSITIONING: tuple[str, ...] = (
+    "better_than_peers",
+    "worse_than_peers",
+    "similar",
+    "not_applicable",
+)
+MATERIALITY_WEIGHTS = {"high": 3.0, "medium": 2.0, "low": 1.0}
+MAGNITUDE_WEIGHTS = {"major": 3.0, "moderate": 2.25, "modest": 1.5, "minimal": 1.0}
+EFFECT_TYPE_WEIGHTS = {"direct": 1.5, "indirect": 1.0}
+CONFIDENCE_WEIGHTS = {"high": 1.2, "medium": 1.0, "low": 0.8}
 
 __all__ = [
     "DEFAULT_MAX_ARTICLE_AGE_DAYS",
@@ -324,6 +339,349 @@ def _build_company_historical_price_data(symbol: Any) -> dict[str, Any]:
     return history_by_period
 
 
+def _round_rollup_metric(value: float) -> float:
+    return round(float(value), 4)
+
+
+def _normalize_reason_key(reason: Any) -> str:
+    return " ".join(str(reason or "").strip().lower().split())
+
+
+def _get_signal_weight(item: dict[str, Any]) -> float:
+    materiality_weight = MATERIALITY_WEIGHTS.get(str(item.get("materiality") or "").strip().lower(), 0.0)
+    magnitude_weight = MAGNITUDE_WEIGHTS.get(str(item.get("impact_magnitude") or "").strip().lower(), 0.0)
+    effect_type_weight = EFFECT_TYPE_WEIGHTS.get(str(item.get("effect_type") or "").strip().lower(), 1.0)
+    confidence_weight = CONFIDENCE_WEIGHTS.get(str(item.get("confidence") or "").strip().lower(), 1.0)
+    return materiality_weight * magnitude_weight * effect_type_weight * confidence_weight
+
+
+def _build_empty_count_map(keys: tuple[str, ...]) -> dict[str, int]:
+    return {key: 0 for key in keys}
+
+
+def _build_empty_weight_map(keys: tuple[str, ...]) -> dict[str, float]:
+    return {key: 0.0 for key in keys}
+
+
+def _pick_dominant_bucket(weighted_totals: dict[str, float], *, default: str) -> str:
+    if not weighted_totals:
+        return default
+    ranked = sorted(weighted_totals.items(), key=lambda item: (item[1], item[0]), reverse=True)
+    if not ranked or ranked[0][1] <= 0:
+        return default
+    if len(ranked) > 1 and math.isclose(ranked[0][1], ranked[1][1], rel_tol=0.0, abs_tol=0.001):
+        return default
+    return ranked[0][0]
+
+
+def _build_top_reasons(
+    items: list[dict[str, Any]],
+    *,
+    directions: set[str] | None = None,
+    effect_type: str | None = None,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    reasons: dict[str, dict[str, Any]] = {}
+
+    for item in items:
+        direction = str(item.get("impact_direction") or "").strip().lower()
+        if directions is not None and direction not in directions:
+            continue
+        current_effect_type = str(item.get("effect_type") or "").strip().lower()
+        if effect_type is not None and current_effect_type != effect_type:
+            continue
+
+        reason = str(item.get("reason") or "").strip()
+        if not reason:
+            continue
+
+        key = _normalize_reason_key(reason)
+        if not key:
+            continue
+
+        weight = _get_signal_weight(item)
+        published_at = item.get("published_at") or ""
+        entry = reasons.setdefault(
+            key,
+            {
+                "reason": reason,
+                "count": 0,
+                "weighted_score": 0.0,
+                "latest_published_at": "",
+            },
+        )
+        entry["count"] += 1
+        entry["weighted_score"] += weight
+        if published_at and str(published_at) > str(entry["latest_published_at"]):
+            entry["latest_published_at"] = str(published_at)
+
+    ranked_reasons = sorted(
+        reasons.values(),
+        key=lambda entry: (
+            entry["weighted_score"],
+            entry["count"],
+            entry["latest_published_at"],
+            entry["reason"],
+        ),
+        reverse=True,
+    )
+
+    return [
+        {
+            "reason": entry["reason"],
+            "count": int(entry["count"]),
+            "weighted_score": _round_rollup_metric(entry["weighted_score"]),
+            "latest_published_at": entry["latest_published_at"],
+        }
+        for entry in ranked_reasons[: max(0, int(limit))]
+    ]
+
+
+def _build_rollup_section(
+    items: list[dict[str, Any]],
+    *,
+    include_relative_positioning: bool = False,
+) -> dict[str, Any]:
+    direction_counts = _build_empty_count_map(ROLLUP_DIRECTIONS)
+    materiality_counts = _build_empty_count_map(ROLLUP_MATERIALITY)
+    horizon_counts = _build_empty_count_map(ROLLUP_HORIZONS)
+    effect_type_counts = _build_empty_count_map(ROLLUP_EFFECT_TYPES)
+    weighted_direction_totals = _build_empty_weight_map(ROLLUP_DIRECTIONS)
+    weighted_materiality_totals = _build_empty_weight_map(ROLLUP_MATERIALITY)
+    weighted_horizon_totals = _build_empty_weight_map(ROLLUP_HORIZONS)
+    relative_positioning_summary = {
+        key: {"count": 0, "weighted_score": 0.0}
+        for key in ROLLUP_RELATIVE_POSITIONING
+    }
+
+    positive_high_materiality_direct_count = 0
+    negative_high_materiality_direct_count = 0
+    direct_positive_weight = 0.0
+    direct_negative_weight = 0.0
+    unique_article_ids: set[int] = set()
+
+    for item in items:
+        direction = str(item.get("impact_direction") or "").strip().lower()
+        materiality = str(item.get("materiality") or "").strip().lower()
+        horizon = str(item.get("time_horizon") or "").strip().lower()
+        effect_type = str(item.get("effect_type") or "").strip().lower()
+        relative_positioning = str(item.get("relative_positioning") or "").strip().lower()
+        weight = _get_signal_weight(item)
+
+        article_id = _safe_int(item.get("article_id"))
+        if article_id is not None:
+            unique_article_ids.add(article_id)
+
+        if direction in direction_counts:
+            direction_counts[direction] += 1
+            weighted_direction_totals[direction] += weight
+        if materiality in materiality_counts:
+            materiality_counts[materiality] += 1
+            weighted_materiality_totals[materiality] += weight
+        if horizon in horizon_counts:
+            horizon_counts[horizon] += 1
+            weighted_horizon_totals[horizon] += weight
+        if effect_type in effect_type_counts:
+            effect_type_counts[effect_type] += 1
+
+        if effect_type == "direct" and direction == "positive":
+            direct_positive_weight += weight
+        if effect_type == "direct" and direction == "negative":
+            direct_negative_weight += weight
+        if materiality == "high" and effect_type == "direct" and direction == "positive":
+            positive_high_materiality_direct_count += 1
+        if materiality == "high" and effect_type == "direct" and direction == "negative":
+            negative_high_materiality_direct_count += 1
+
+        if include_relative_positioning and relative_positioning in relative_positioning_summary:
+            relative_positioning_summary[relative_positioning]["count"] += 1
+            relative_positioning_summary[relative_positioning]["weighted_score"] += weight
+
+    contradiction_flags = {
+        "has_directional_conflict": weighted_direction_totals["positive"] > 0 and weighted_direction_totals["negative"] > 0,
+        "has_high_materiality_conflict": (
+            positive_high_materiality_direct_count > 0 and negative_high_materiality_direct_count > 0
+        ),
+        "has_direct_conflict": direct_positive_weight > 0 and direct_negative_weight > 0,
+    }
+
+    rollup = {
+        "impact_count": len(items),
+        "article_count": len(unique_article_ids),
+        "positive_count": direction_counts["positive"],
+        "negative_count": direction_counts["negative"],
+        "mixed_count": direction_counts["mixed"],
+        "neutral_count": direction_counts["neutral"],
+        "high_materiality_count": materiality_counts["high"],
+        "medium_materiality_count": materiality_counts["medium"],
+        "low_materiality_count": materiality_counts["low"],
+        "immediate_count": horizon_counts["immediate"],
+        "short_term_count": horizon_counts["short_term"],
+        "medium_term_count": horizon_counts["medium_term"],
+        "unclear_count": horizon_counts["unclear"],
+        "direct_count": effect_type_counts["direct"],
+        "indirect_count": effect_type_counts["indirect"],
+        "high_materiality_direct_count": positive_high_materiality_direct_count + negative_high_materiality_direct_count,
+        "direction_counts": direction_counts,
+        "materiality_counts": materiality_counts,
+        "time_horizon_counts": horizon_counts,
+        "effect_type_counts": effect_type_counts,
+        "weighted_direction_totals": {
+            key: _round_rollup_metric(value) for key, value in weighted_direction_totals.items()
+        },
+        "weighted_materiality_totals": {
+            key: _round_rollup_metric(value) for key, value in weighted_materiality_totals.items()
+        },
+        "weighted_horizon_totals": {
+            key: _round_rollup_metric(value) for key, value in weighted_horizon_totals.items()
+        },
+        "dominant_direction": _pick_dominant_bucket(weighted_direction_totals, default="unclear"),
+        "dominant_time_horizon": _pick_dominant_bucket(weighted_horizon_totals, default="unclear"),
+        "dominant_effect_type": _pick_dominant_bucket(
+            {
+                key: float(effect_type_counts[key]) * EFFECT_TYPE_WEIGHTS.get(key, 1.0)
+                for key in ROLLUP_EFFECT_TYPES
+            },
+            default="unclear",
+        ),
+        "net_direction_score": _round_rollup_metric(
+            weighted_direction_totals["positive"] - weighted_direction_totals["negative"]
+        ),
+        "contradiction_flags": contradiction_flags,
+        "contradictions_present": any(contradiction_flags.values()),
+        "top_reasons": _build_top_reasons(items, limit=4),
+        "top_positive_reasons": _build_top_reasons(items, directions={"positive"}, limit=3),
+        "top_negative_reasons": _build_top_reasons(items, directions={"negative"}, limit=3),
+        "top_direct_reasons": _build_top_reasons(items, effect_type="direct", limit=3),
+        "top_indirect_reasons": _build_top_reasons(items, effect_type="indirect", limit=3),
+    }
+
+    if include_relative_positioning:
+        rollup["relative_positioning_summary"] = {
+            key: {
+                "count": int(value["count"]),
+                "weighted_score": _round_rollup_metric(value["weighted_score"]),
+            }
+            for key, value in relative_positioning_summary.items()
+        }
+
+    return rollup
+
+
+def _build_grouped_rollups(
+    items: list[dict[str, Any]],
+    *,
+    subject_id_key: str,
+    subject_key_key: str,
+    subject_name_key: str,
+) -> list[dict[str, Any]]:
+    grouped_items: dict[str, list[dict[str, Any]]] = defaultdict(list)
+
+    for item in items:
+        subject_key = str(item.get(subject_key_key) or item.get(subject_name_key) or "").strip()
+        if not subject_key:
+            continue
+        grouped_items[subject_key].append(item)
+
+    grouped_rollups: list[dict[str, Any]] = []
+    for subject_key, subject_items in grouped_items.items():
+        summary = _build_rollup_section(subject_items)
+        grouped_rollups.append(
+            {
+                subject_id_key: subject_items[0].get(subject_id_key),
+                subject_key_key: subject_key,
+                subject_name_key: subject_items[0].get(subject_name_key) or subject_key,
+                **summary,
+            }
+        )
+
+    return sorted(
+        grouped_rollups,
+        key=lambda item: (
+            abs(float(item.get("net_direction_score") or 0.0)),
+            int(item.get("impact_count") or 0),
+            str(item.get(subject_name_key) or ""),
+        ),
+        reverse=True,
+    )
+
+
+def _build_opportunist_rollup(evidence: dict[str, Any]) -> dict[str, Any]:
+    sector_items = evidence.get("sector_impacts", [])
+    industry_items = evidence.get("industry_impacts", [])
+    company_items = evidence.get("company_impacts", [])
+
+    sector_rollup = _build_rollup_section(sector_items)
+    if sector_items:
+        sector_rollup.update(
+            {
+                "sector_id": sector_items[0].get("sector_id"),
+                "sector_key": sector_items[0].get("sector_key") or "",
+                "sector_name": sector_items[0].get("sector_name") or "",
+            }
+        )
+
+    industry_rollup = _build_rollup_section(industry_items)
+    industry_summaries = _build_grouped_rollups(
+        industry_items,
+        subject_id_key="industry_id",
+        subject_key_key="industry_key",
+        subject_name_key="industry_name",
+    )
+    industry_rollup.update(
+        {
+            "industry_summaries": industry_summaries,
+            "top_supportive_industries": [
+                {
+                    "industry_id": entry.get("industry_id"),
+                    "industry_key": entry.get("industry_key") or "",
+                    "industry_name": entry.get("industry_name") or "",
+                    "net_direction_score": entry.get("net_direction_score"),
+                    "impact_count": entry.get("impact_count"),
+                    "dominant_time_horizon": entry.get("dominant_time_horizon") or "unclear",
+                }
+                for entry in sorted(
+                    industry_summaries,
+                    key=lambda entry: float(entry.get("net_direction_score") or 0.0),
+                    reverse=True,
+                )
+                if float(entry.get("net_direction_score") or 0.0) > 0
+            ][:3],
+            "top_risky_industries": [
+                {
+                    "industry_id": entry.get("industry_id"),
+                    "industry_key": entry.get("industry_key") or "",
+                    "industry_name": entry.get("industry_name") or "",
+                    "net_direction_score": entry.get("net_direction_score"),
+                    "impact_count": entry.get("impact_count"),
+                    "dominant_time_horizon": entry.get("dominant_time_horizon") or "unclear",
+                }
+                for entry in sorted(
+                    industry_summaries,
+                    key=lambda entry: float(entry.get("net_direction_score") or 0.0),
+                )
+                if float(entry.get("net_direction_score") or 0.0) < 0
+            ][:3],
+        }
+    )
+
+    company_rollup = _build_rollup_section(company_items, include_relative_positioning=True)
+    if company_items:
+        company_rollup.update(
+            {
+                "company_id": company_items[0].get("company_id"),
+                "symbol": company_items[0].get("symbol") or "",
+                "company_name": company_items[0].get("company_name") or "",
+            }
+        )
+
+    return {
+        "sector": sector_rollup,
+        "industries": industry_rollup,
+        "company": company_rollup,
+    }
+
+
 def _serialize_signal(item: dict[str, Any], *, layer: str) -> dict[str, Any]:
     signal = {
         "layer": layer,
@@ -340,6 +698,14 @@ def _serialize_signal(item: dict[str, Any], *, layer: str) -> dict[str, Any]:
         signal["impact_direction"] = item["impact_direction"]
     if item.get("impact_magnitude"):
         signal["impact_magnitude"] = item["impact_magnitude"]
+    if item.get("materiality"):
+        signal["materiality"] = item["materiality"]
+    if item.get("time_horizon"):
+        signal["time_horizon"] = item["time_horizon"]
+    if item.get("effect_type"):
+        signal["effect_type"] = item["effect_type"]
+    if item.get("relative_positioning"):
+        signal["relative_positioning"] = item["relative_positioning"]
     if item.get("news_scope"):
         signal["news_scope"] = item["news_scope"]
     if item.get("sector_name"):
@@ -496,6 +862,7 @@ def build_strategist_input(
         max_age_days=max_age_days,
     )
     company = evidence["company"]
+    opportunist_rollup = _build_opportunist_rollup(evidence)
 
     return {
         "company": _serialize_company_scope(company),
@@ -507,6 +874,7 @@ def build_strategist_input(
             summary_article_limit=summary_article_limit,
             full_article_limit=full_article_limit,
         ),
+        "opportunist_rollup": opportunist_rollup,
         "views": {
             "macro_view": _build_view(
                 layer="macro_view",

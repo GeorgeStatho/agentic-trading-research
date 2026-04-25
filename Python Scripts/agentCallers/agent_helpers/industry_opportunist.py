@@ -32,14 +32,10 @@ from agent_helpers.opportunist_support import (
     extract_impacts_from_payload,
     filter_unprocessed_articles,
     merge_macro_articles,
+    normalize_shared_opportunist_impact_fields,
     seed_sector_rss_articles,
     sort_articles_by_recency,
 )
-
-
-VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
-VALID_IMPACT_DIRECTIONS = {"positive", "negative"}
-VALID_IMPACT_MAGNITUDES = {"major", "moderate", "modest"}
 
 __all__ = [
     "build_empty_result",
@@ -180,10 +176,6 @@ def normalize_impact(
         return None
 
     industry_key = str(impact.get("industry_key") or "").strip()
-    confidence = str(impact.get("confidence") or "").strip().lower()
-    impact_direction = str(impact.get("impact_direction") or "").strip().lower()
-    impact_magnitude = str(impact.get("impact_magnitude") or "").strip().lower()
-    reason = str(impact.get("reason") or "").strip()
 
     if int(source_article_id) <= 0:
         return None
@@ -191,23 +183,15 @@ def normalize_impact(
         return None
     if industry_key not in valid_industry_keys:
         return None
-    if confidence not in VALID_CONFIDENCE_LEVELS:
-        return None
-    if impact_direction not in VALID_IMPACT_DIRECTIONS:
-        return None
-    if impact_magnitude not in VALID_IMPACT_MAGNITUDES:
-        return None
-    if not reason:
+    shared_fields = normalize_shared_opportunist_impact_fields(impact)
+    if shared_fields is None:
         return None
 
     return {
         "article_id": int(source_article_id),
         "industry_id": industry_id,
         "industry_key": industry_key,
-        "confidence": confidence,
-        "impact_direction": impact_direction,
-        "impact_magnitude": impact_magnitude,
-        "reason": reason,
+        **shared_fields,
     }
 
 
