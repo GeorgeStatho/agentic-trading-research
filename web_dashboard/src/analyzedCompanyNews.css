@@ -39,7 +39,7 @@
 
 .company-news-hero__stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
   align-self: stretch;
 }
@@ -68,6 +68,11 @@
 .company-news-stat__value--timestamp {
   font-size: 1rem;
   line-height: 1.35;
+}
+
+.company-news-stat__value--stacked {
+  font-size: 1rem;
+  line-height: 1.45;
 }
 
 .company-news-controls {
@@ -179,6 +184,53 @@
   font-size: 0.92rem;
 }
 
+.company-news-scope-list {
+  display: grid;
+  gap: 16px;
+}
+
+.company-news-scope {
+  border: 1px solid color-mix(in srgb, var(--accent) 10%, var(--border));
+  border-radius: 18px;
+  padding: 18px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 4%, transparent), transparent 30%),
+    color-mix(in srgb, var(--bg) 98%, white);
+}
+
+.company-news-scope__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 14px;
+}
+
+.company-news-scope__eyebrow {
+  margin-bottom: 6px;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+}
+
+.company-news-scope h3 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+}
+
+.company-news-scope__meta {
+  opacity: 0.75;
+}
+
+.company-news-scope__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: right;
+  font-size: 0.88rem;
+}
+
 .company-news-article-list {
   display: grid;
   gap: 14px;
@@ -213,17 +265,17 @@
   gap: 8px;
 }
 
-.company-news-article h3 {
+.company-news-article h4 {
   margin: 0 0 10px;
   font-size: 1.15rem;
 }
 
-.company-news-article h3 a {
+.company-news-article h4 a {
   color: var(--text-h);
   text-decoration: none;
 }
 
-.company-news-article h3 a:hover {
+.company-news-article h4 a:hover {
   text-decoration: underline;
 }
 
@@ -293,8 +345,13 @@
     flex-direction: column;
   }
 
-  .company-news-company__summary {
+  .company-news-company__summary,
+  .company-news-scope__summary {
     text-align: left;
+  }
+
+  .company-news-scope__header {
+    flex-direction: column;
   }
 }
 
