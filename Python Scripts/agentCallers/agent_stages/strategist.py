@@ -216,13 +216,19 @@ def build_strategist_prompt(
     task_prompt = (
         "Evaluate the company using the provided structured context and return JSON matching the required schema.\n"
         "Focus first on whether there is a real evidence-backed directional thesis. Treat setup_quality and timing_clarity as secondary descriptors, not as the final execution permission decision.\n"
+        "Use opportunist_rollup as the primary summarized evidence layer, and use the article-level views and supporting_articles as the grounding detail behind it.\n"
+        "High-materiality direct company impacts should dominate the directional prior. Industry evidence can support or weaken that thesis, and sector evidence should mostly act as backdrop rather than lead the trade decision.\n"
+        "Use impact_direction to set the directional prior, impact_magnitude as evidence strength rather than trade permission, materiality to judge whether the article really matters for this entity, effect_type to weight direct above indirect, and company relative_positioning to strengthen or weaken company-specific conviction versus peers.\n"
+        "Build time_horizon from the dominant weighted opportunist horizons rather than copying a single article. Map immediate to very_short_term, short_term to short_term, medium_term to medium_term, and use unclear when timing conflicts or the evidence is mostly indirect.\n"
+        "Set contradictions_present to true when meaningful bullish and bearish signals materially conflict, especially if direct high-materiality company evidence disagrees with itself or with the industry and sector rollups.\n"
+        "Use top reasons and the most material direct evidence to write why_now, summary, thesis, catalyst, risks, and watchlist_reason. Prefer watchlist or do_not_trade when evidence is low-materiality, indirect-only, contradictory, weakly timed, or lacks peer differentiation.\n"
         "\n"
         "Field guidance:\n"
         "- decision: trade_candidate, watchlist, or do_not_trade\n"
         "- confidence: overall confidence in this recommendation\n"
-        "- evidence_quality: strength and credibility of the supporting evidence\n"
+        "- evidence_quality: strength and credibility of the supporting evidence; strong usually means multiple direct, high-materiality, internally consistent impacts\n"
         "- setup_quality: quality of the current trade setup for options, considering direction clarity and timing\n"
-        "- timing_clarity: whether the expected move appears actionable now\n"
+        "- timing_clarity: whether the expected move appears actionable now; use unclear when the opportunist horizons conflict or the timing signal is mostly indirect\n"
         "- preferred_option_direction: call, put, or neither\n"
         "- expected_stock_direction: up, down, or neutral\n"
         "- time_horizon: expected time frame for the thesis to matter; use very_short_term for setups that fit 3_7 DTE, short_term for 7_14 DTE, and medium_term for 14_30 DTE\n"
@@ -240,6 +246,7 @@ def build_strategist_prompt(
         "company": payload["company"],
         "peer_groups": payload.get("peer_groups", {}),
         "filters": payload.get("filters", {}),
+        "opportunist_rollup": payload.get("opportunist_rollup", {}),
         "views": payload.get("views", {}),
         "supporting_articles": payload.get("supporting_articles", {}),
         "required_output": {

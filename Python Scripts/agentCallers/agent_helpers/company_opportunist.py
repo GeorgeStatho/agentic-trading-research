@@ -29,13 +29,17 @@ from db_helpers import (
 from agent_helpers.opportunist_support import (
     extract_impacts_from_payload,
     filter_unprocessed_articles,
+    normalize_shared_opportunist_impact_fields,
     sort_articles_by_recency,
 )
 
 
-VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
-VALID_IMPACT_DIRECTIONS = {"positive", "negative"}
-VALID_IMPACT_MAGNITUDES = {"major", "moderate", "modest"}
+VALID_RELATIVE_POSITIONING = {
+    "better_than_peers",
+    "worse_than_peers",
+    "similar",
+    "not_applicable",
+}
 
 __all__ = [
     "build_company_opportunist_articles",
@@ -225,6 +229,29 @@ def build_company_valid_reference_sets(
     return valid_company_id, valid_symbol, valid_article_ids
 
 
+def _normalize_relative_positioning(value: Any) -> str:
+    relative_positioning = str(value or "").strip().lower()
+    replacements = {
+        "better": "better_than_peers",
+        "advantaged": "better_than_peers",
+        "outperform": "better_than_peers",
+        "outperforms": "better_than_peers",
+        "worse": "worse_than_peers",
+        "disadvantaged": "worse_than_peers",
+        "underperform": "worse_than_peers",
+        "underperforms": "worse_than_peers",
+        "same": "similar",
+        "inline": "similar",
+        "in_line": "similar",
+        "neutral": "similar",
+        "n/a": "not_applicable",
+        "na": "not_applicable",
+        "none": "not_applicable",
+    }
+    relative_positioning = replacements.get(relative_positioning, relative_positioning)
+    return relative_positioning if relative_positioning in VALID_RELATIVE_POSITIONING else ""
+
+
 def normalize_company_impact(
     impact: dict[str, Any],
     *,
@@ -233,30 +260,21 @@ def normalize_company_impact(
     valid_symbol: str,
 ) -> dict[str, Any] | None:
     """Validate one model-produced company impact before persistence."""
-    confidence = str(impact.get("confidence") or "").strip().lower()
-    impact_direction = str(impact.get("impact_direction") or "").strip().lower()
-    impact_magnitude = str(impact.get("impact_magnitude") or "").strip().lower()
-    reason = str(impact.get("reason") or "").strip()
-
     if int(source_article_id) <= 0:
         return None
-    if confidence not in VALID_CONFIDENCE_LEVELS:
+    shared_fields = normalize_shared_opportunist_impact_fields(impact)
+    if shared_fields is None:
         return None
-    if impact_direction not in VALID_IMPACT_DIRECTIONS:
-        return None
-    if impact_magnitude not in VALID_IMPACT_MAGNITUDES:
-        return None
-    if not reason:
+    relative_positioning = _normalize_relative_positioning(impact.get("relative_positioning"))
+    if not relative_positioning:
         return None
 
     return {
         "article_id": int(source_article_id),
         "company_id": int(valid_company_id),
         "symbol": str(valid_symbol).strip().upper(),
-        "confidence": confidence,
-        "impact_direction": impact_direction,
-        "impact_magnitude": impact_magnitude,
-        "reason": reason,
+        "relative_positioning": relative_positioning,
+        **shared_fields,
     }
 
 

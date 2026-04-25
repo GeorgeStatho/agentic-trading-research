@@ -28,6 +28,7 @@ from _sector_opportunist_helpers import (
     normalize_sector_impact,
     save_sector_opportunist_batch_results,
 )
+from agent_helpers.opportunist_support import build_shared_opportunist_impacts_schema
 from _shared import (
     Client,
     ask_llm_model,
@@ -52,32 +53,7 @@ DEFAULT_PROMPT_OVERHEAD_TOKENS = 1200
 
 _sector_opportunist_client: Client | None = None
 LOGGER = logging.getLogger(__name__)
-SECTOR_IMPACTS_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "impacts": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-                    "impact_direction": {"type": "string", "enum": ["positive", "negative"]},
-                    "impact_magnitude": {"type": "string", "enum": ["major", "moderate", "modest"]},
-                    "reason": {"type": "string"},
-                },
-                "required": [
-                    "confidence",
-                    "impact_direction",
-                    "impact_magnitude",
-                    "reason",
-                ],
-                "additionalProperties": False,
-            },
-        }
-    },
-    "required": ["impacts"],
-    "additionalProperties": False,
-}
+SECTOR_IMPACTS_SCHEMA: dict[str, Any] = build_shared_opportunist_impacts_schema()
 
 __all__ = [
     "build_sector_opportunist_articles",
@@ -117,11 +93,22 @@ def build_sector_opportunist_prompt(
         "You are a market analyst that maps sector-level news to likely impact for one sector. "
         "Return only valid JSON with a top-level key named 'impacts'. "
         "Do not include markdown fences, notes, or extra keys. "
-        "Each item in 'impacts' must contain: confidence, impact_direction, impact_magnitude, and reason. "
+        "Each item in 'impacts' must contain: confidence, impact_direction, impact_magnitude, materiality, "
+        "time_horizon, effect_type, and reason. "
         "Do not include article_id. Do not include sector_id. Do not include sector_name. "
         "confidence must be one of: high, medium, low. "
-        "impact_direction must be one of: positive, negative. "
-        "impact_magnitude must be one of: major, moderate, modest. "
+        "impact_direction must be one of: positive, negative, neutral, mixed. "
+        "impact_magnitude must be one of: major, moderate, modest, minimal. "
+        "materiality must be one of: high, medium, low. "
+        "impact_magnitude = size of the likely effect if the thesis is real. "
+        "materiality = how important or relevant the article is for this sector. "
+        "time_horizon must be one of: immediate, short_term, medium_term, unclear. "
+        "effect_type must be one of: direct, indirect. "
+        "Return an empty impacts array if the article is not materially relevant. "
+        "Use neutral or mixed when the impact is unclear or two-sided. "
+        "Reason must explain the causal chain. "
+        "Do not classify sentiment alone; focus on likely business or investor impact. "
+        "Prefer omission over weak guesses. "
         "Only include the supplied sector."
     )
     system_prompt = str(system_prompt_override or default_system_prompt)
@@ -148,9 +135,12 @@ def build_sector_opportunist_prompt(
             "impacts": [
                 {
                     "confidence": "high|medium|low",
-                    "impact_direction": "positive|negative",
-                    "impact_magnitude": "major|moderate|modest",
-                    "reason": "short explanation",
+                    "impact_direction": "positive|negative|neutral|mixed",
+                    "impact_magnitude": "major|moderate|modest|minimal",
+                    "materiality": "high|medium|low",
+                    "time_horizon": "immediate|short_term|medium_term|unclear",
+                    "effect_type": "direct|indirect",
+                    "reason": "short causal explanation",
                 }
             ]
         },
@@ -198,7 +188,7 @@ def _collect_cleaned_impacts(
     task_override: str | None = None,
 ) -> list[dict[str, Any]]:
     cleaned_impacts: list[dict[str, Any]] = []
-    seen_impacts: set[tuple[int, int, str, str]] = set()
+    seen_impacts: set[tuple[int, int]] = set()
 
     for article_batch in article_batches:
         for article in article_batch:
@@ -229,8 +219,6 @@ def _collect_cleaned_impacts(
                 dedupe_key = (
                     normalized_impact["article_id"],
                     normalized_impact["sector_id"],
-                    normalized_impact["impact_direction"],
-                    normalized_impact["impact_magnitude"],
                 )
                 if dedupe_key in seen_impacts:
                     continue

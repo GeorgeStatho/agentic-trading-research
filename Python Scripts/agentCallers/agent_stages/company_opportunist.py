@@ -28,6 +28,7 @@ from _company_opportunist_helpers import (
     normalize_company_impact,
     save_company_opportunist_batch_results,
 )
+from agent_helpers.opportunist_support import build_shared_opportunist_impacts_schema
 from _shared import (
     Client,
     ask_llm_model,
@@ -54,32 +55,20 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_TOP_COMPANIES_LIMIT = max(1, int(os.getenv("COMPANY_OPPORTUNIST_TOP_COMPANIES_LIMIT", "12")))
 DEFAULT_RANKED_COMPANIES_LIMIT = max(1, int(os.getenv("COMPANY_OPPORTUNIST_RANKED_COMPANIES_LIMIT", "6")))
 DEFAULT_ARTICLE_BODY_CHAR_LIMIT = max(200, int(os.getenv("COMPANY_OPPORTUNIST_ARTICLE_BODY_CHAR_LIMIT", "1200")))
-COMPANY_IMPACTS_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "impacts": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-                    "impact_direction": {"type": "string", "enum": ["positive", "negative"]},
-                    "impact_magnitude": {"type": "string", "enum": ["major", "moderate", "modest"]},
-                    "reason": {"type": "string"},
-                },
-                "required": [
-                    "confidence",
-                    "impact_direction",
-                    "impact_magnitude",
-                    "reason",
-                ],
-                "additionalProperties": False,
-            },
-        }
+COMPANY_IMPACTS_SCHEMA: dict[str, Any] = build_shared_opportunist_impacts_schema(
+    additional_properties={
+        "relative_positioning": {
+            "type": "string",
+            "enum": [
+                "better_than_peers",
+                "worse_than_peers",
+                "similar",
+                "not_applicable",
+            ],
+        },
     },
-    "required": ["impacts"],
-    "additionalProperties": False,
-}
+    additional_required=["relative_positioning"],
+)
 
 __all__ = [
     "build_company_opportunist_articles",
@@ -140,21 +129,37 @@ def build_company_opportunist_prompt(
 ) -> tuple[str, str]:
     default_system_prompt = (
         "You are a market analyst that maps company-specific news to likely stock impact for one company. "
+        "Use the supplied peer group context to judge whether this company is helped or hurt relative to comparable companies. "
         "Return only valid JSON. "
         "You may return either a top-level array or an object with a top-level key named 'impacts'. "
         "Do not include markdown fences, notes, or extra keys. "
-        "Each impact item must contain: confidence, impact_direction, impact_magnitude, and reason. "
+        "Each impact item must contain: confidence, impact_direction, impact_magnitude, materiality, "
+        "time_horizon, effect_type, relative_positioning, and reason. "
         "Do not include company_id. Do not include symbol. "
         "Do not include article_id. "
         "confidence must be one of: high, medium, low. "
-        "impact_direction must be one of: positive, negative. "
-        "impact_magnitude must be one of: major, moderate, modest. "
+        "impact_direction must be one of: positive, negative, neutral, mixed. "
+        "impact_magnitude must be one of: major, moderate, modest, minimal. "
+        "materiality must be one of: high, medium, low. "
+        "impact_magnitude = size of the likely effect if the thesis is real. "
+        "materiality = how important or relevant the article is for this company. "
+        "time_horizon must be one of: immediate, short_term, medium_term, unclear. "
+        "effect_type must be one of: direct, indirect. "
+        "relative_positioning must be one of: better_than_peers, worse_than_peers, similar, not_applicable. "
+        "Return an empty impacts array if the article is not materially relevant. "
+        "Use neutral or mixed when the impact is unclear or two-sided. "
+        "Reason must explain the causal chain. "
+        "Do not classify sentiment alone; focus on likely business or investor impact. "
+        "Prefer omission over weak guesses. "
         "Only include the supplied company. Do not invent other companies."
     )
     system_prompt = str(system_prompt_override or default_system_prompt)
 
     payload = {
-        "task": str(task_override or "Map each company-linked article to the likely impact on the supplied company."),
+        "task": str(
+            task_override
+            or "Map each company-linked article to the likely impact on the supplied company and compare that impact against the supplied peer group."
+        ),
         "company": company,
         "peer_groups": _build_trimmed_peer_groups(peer_groups),
         "articles": [
@@ -178,9 +183,13 @@ def build_company_opportunist_prompt(
             "impacts": [
                 {
                     "confidence": "high|medium|low",
-                    "impact_direction": "positive|negative",
-                    "impact_magnitude": "major|moderate|modest",
-                    "reason": "short explanation",
+                    "impact_direction": "positive|negative|neutral|mixed",
+                    "impact_magnitude": "major|moderate|modest|minimal",
+                    "materiality": "high|medium|low",
+                    "time_horizon": "immediate|short_term|medium_term|unclear",
+                    "effect_type": "direct|indirect",
+                    "relative_positioning": "better_than_peers|worse_than_peers|similar|not_applicable",
+                    "reason": "short causal explanation",
                 }
             ]
         },
@@ -231,7 +240,7 @@ def _collect_cleaned_impacts(
     task_override: str | None = None,
 ) -> list[dict[str, Any]]:
     cleaned_impacts: list[dict[str, Any]] = []
-    seen_impacts: set[tuple[int, int, str, str]] = set()
+    seen_impacts: set[tuple[int, int]] = set()
 
     for article_batch in article_batches:
         for article in article_batch:
@@ -275,8 +284,6 @@ def _collect_cleaned_impacts(
                 dedupe_key = (
                     normalized_impact["article_id"],
                     normalized_impact["company_id"],
-                    normalized_impact["impact_direction"],
-                    normalized_impact["impact_magnitude"],
                 )
                 if dedupe_key in seen_impacts:
                     continue
