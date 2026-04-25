@@ -238,6 +238,7 @@ def _collect_cleaned_impacts(
             save_sector_opportunist_batch_results(
                 single_article_batch,
                 batch_cleaned_impacts,
+                sector_id=valid_sector_id,
                 model=model,
                 raw_response=raw_response,
             )

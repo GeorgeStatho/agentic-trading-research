@@ -26,6 +26,8 @@ from db_helpers import (
     mark_sector_opportunist_article_processed,
 )
 from agent_helpers.opportunist_support import (
+    CURRENT_OPPORTUNIST_SCHEMA_VERSION,
+    SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
     build_base_article_record,
     extract_impacts_from_payload,
     filter_unprocessed_articles,
@@ -91,6 +93,8 @@ def _filter_unprocessed_articles(articles: list[dict[str, Any]]) -> list[dict[st
         articles,
         db_path=str(DB_PATH),
         table_name="sector_opportunist_article_processing",
+        required_impact_fields=SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
+        minimum_schema_version=CURRENT_OPPORTUNIST_SCHEMA_VERSION,
     )
 
 
@@ -172,6 +176,7 @@ def save_sector_opportunist_batch_results(
     article_batch: list[dict[str, Any]],
     impacts: list[dict[str, Any]],
     *,
+    sector_id: int,
     model: str,
     raw_response: str,
 ) -> None:
@@ -183,6 +188,18 @@ def save_sector_opportunist_batch_results(
         batch_impacts_by_article.setdefault(article_id, []).append(impact)
 
     with get_connection(DB_PATH) as conn:
+        article_ids = [int(article["article_id"]) for article in article_batch]
+        if article_ids:
+            placeholders = ",".join("?" for _ in article_ids)
+            conn.execute(
+                f"""
+                DELETE FROM sector_opportunist_impacts
+                WHERE sector_id = ?
+                  AND article_id IN ({placeholders})
+                """,
+                (int(sector_id), *article_ids),
+            )
+
         for impact in impacts:
             add_sector_opportunist_impact(
                 article_id=int(impact["article_id"]),
@@ -202,6 +219,9 @@ def save_sector_opportunist_batch_results(
                 model=model,
                 raw_json={
                     "article_id": article_id,
+                    "sector_id": int(sector_id),
+                    "schema_version": CURRENT_OPPORTUNIST_SCHEMA_VERSION,
+                    "required_impact_fields": list(SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS),
                     "impacts": batch_impacts_by_article.get(article_id, []),
                     "raw_response": raw_response,
                 },

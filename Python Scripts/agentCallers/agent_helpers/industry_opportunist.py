@@ -28,6 +28,8 @@ from db_helpers import (
 )
 from db_helpers.market import ensure_sector_market_data
 from agent_helpers.opportunist_support import (
+    CURRENT_OPPORTUNIST_SCHEMA_VERSION,
+    SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
     build_base_article_record,
     extract_impacts_from_payload,
     filter_unprocessed_articles,
@@ -108,6 +110,8 @@ def _filter_unprocessed_articles(articles: list[dict[str, Any]]) -> list[dict[st
         articles,
         db_path=str(DB_PATH),
         table_name="industry_opportunist_article_processing",
+        required_impact_fields=SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
+        minimum_schema_version=CURRENT_OPPORTUNIST_SCHEMA_VERSION,
     )
 
 
@@ -199,6 +203,7 @@ def save_industry_opportunist_batch_results(
     article_batch: list[dict[str, Any]],
     impacts: list[dict[str, Any]],
     *,
+    valid_industry_ids: set[int],
     model: str,
     raw_response: str,
 ) -> None:
@@ -210,6 +215,20 @@ def save_industry_opportunist_batch_results(
         batch_impacts_by_article.setdefault(article_id, []).append(impact)
 
     with get_connection(DB_PATH) as conn:
+        article_ids = [int(article["article_id"]) for article in article_batch]
+        scoped_industry_ids = sorted({int(industry_id) for industry_id in valid_industry_ids})
+        if article_ids and scoped_industry_ids:
+            article_placeholders = ",".join("?" for _ in article_ids)
+            industry_placeholders = ",".join("?" for _ in scoped_industry_ids)
+            conn.execute(
+                f"""
+                DELETE FROM industry_opportunist_impacts
+                WHERE article_id IN ({article_placeholders})
+                  AND industry_id IN ({industry_placeholders})
+                """,
+                (*article_ids, *scoped_industry_ids),
+            )
+
         for impact in impacts:
             add_industry_opportunist_impact(
                 article_id=int(impact["article_id"]),
@@ -229,6 +248,9 @@ def save_industry_opportunist_batch_results(
                 model=model,
                 raw_json={
                     "article_id": article_id,
+                    "schema_version": CURRENT_OPPORTUNIST_SCHEMA_VERSION,
+                    "required_impact_fields": list(SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS),
+                    "valid_industry_ids": scoped_industry_ids,
                     "impacts": batch_impacts_by_article.get(article_id, []),
                     "raw_response": raw_response,
                 },

@@ -27,6 +27,8 @@ from db_helpers import (
     mark_company_opportunist_article_processed,
 )
 from agent_helpers.opportunist_support import (
+    CURRENT_OPPORTUNIST_SCHEMA_VERSION,
+    SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
     extract_impacts_from_payload,
     filter_unprocessed_articles,
     normalize_shared_opportunist_impact_fields,
@@ -40,6 +42,10 @@ VALID_RELATIVE_POSITIONING = {
     "similar",
     "not_applicable",
 }
+COMPANY_OPPORTUNIST_REQUIRED_IMPACT_FIELDS: tuple[str, ...] = (
+    *SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
+    "relative_positioning",
+)
 
 __all__ = [
     "build_company_opportunist_articles",
@@ -147,6 +153,8 @@ def _filter_unprocessed_articles(articles: list[dict[str, Any]], company_id: int
         db_path=str(DB_PATH),
         table_name="company_opportunist_article_processing",
         company_id=company_id,
+        required_impact_fields=COMPANY_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
+        minimum_schema_version=CURRENT_OPPORTUNIST_SCHEMA_VERSION,
     )
 
 
@@ -294,6 +302,18 @@ def save_company_opportunist_batch_results(
         batch_impacts_by_article.setdefault(article_id, []).append(impact)
 
     with get_connection(DB_PATH) as conn:
+        article_ids = [int(article["article_id"]) for article in article_batch]
+        if article_ids:
+            placeholders = ",".join("?" for _ in article_ids)
+            conn.execute(
+                f"""
+                DELETE FROM company_opportunist_impacts
+                WHERE company_id = ?
+                  AND article_id IN ({placeholders})
+                """,
+                (int(company_id), *article_ids),
+            )
+
         for impact in impacts:
             add_company_opportunist_impact(
                 article_id=int(impact["article_id"]),
@@ -315,6 +335,8 @@ def save_company_opportunist_batch_results(
                 raw_json={
                     "article_id": article_id,
                     "company_id": int(company_id),
+                    "schema_version": CURRENT_OPPORTUNIST_SCHEMA_VERSION,
+                    "required_impact_fields": list(COMPANY_OPPORTUNIST_REQUIRED_IMPACT_FIELDS),
                     "impacts": batch_impacts_by_article.get(article_id, []),
                     "raw_response": raw_response,
                 },

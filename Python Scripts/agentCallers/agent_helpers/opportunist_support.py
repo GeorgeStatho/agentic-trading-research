@@ -8,6 +8,7 @@ shared logic here keeps each stage helper focused on its own persistence rules.
 """
 
 from copy import deepcopy
+import json
 from typing import Any
 
 from db_helpers import get_connection
@@ -19,6 +20,16 @@ VALID_OPPORTUNIST_IMPACT_MAGNITUDES = {"major", "moderate", "modest", "minimal"}
 VALID_OPPORTUNIST_MATERIALITY_LEVELS = {"high", "medium", "low"}
 VALID_OPPORTUNIST_TIME_HORIZONS = {"immediate", "short_term", "medium_term", "unclear"}
 VALID_OPPORTUNIST_EFFECT_TYPES = {"direct", "indirect"}
+CURRENT_OPPORTUNIST_SCHEMA_VERSION = 2
+SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS: tuple[str, ...] = (
+    "confidence",
+    "impact_direction",
+    "impact_magnitude",
+    "materiality",
+    "time_horizon",
+    "effect_type",
+    "reason",
+)
 
 _BASE_SHARED_IMPACT_PROPERTIES: dict[str, Any] = {
     "confidence": {"type": "string", "enum": sorted(VALID_OPPORTUNIST_CONFIDENCE_LEVELS)},
@@ -254,14 +265,61 @@ def sort_articles_by_recency(
     )
 
 
+def _deserialize_processing_raw_json(raw_json: Any) -> dict[str, Any]:
+    if isinstance(raw_json, dict):
+        return raw_json
+    if isinstance(raw_json, str):
+        try:
+            parsed = json.loads(raw_json)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _processing_payload_has_required_fields(
+    raw_json: Any,
+    *,
+    required_impact_fields: tuple[str, ...],
+    minimum_schema_version: int,
+) -> bool:
+    payload = _deserialize_processing_raw_json(raw_json)
+    if not payload:
+        return False
+
+    try:
+        schema_version = int(payload.get("schema_version") or 0)
+    except (TypeError, ValueError):
+        return False
+    if schema_version < int(minimum_schema_version):
+        return False
+
+    impacts = payload.get("impacts")
+    if not isinstance(impacts, list):
+        return False
+    if not impacts:
+        return True
+
+    for impact in impacts:
+        if not isinstance(impact, dict):
+            return False
+        for field_name in required_impact_fields:
+            if str(impact.get(field_name) or "").strip() == "":
+                return False
+
+    return True
+
+
 def load_processed_article_ids(
     *,
     db_path: str,
     table_name: str,
     article_ids: list[int],
     company_id: int | None = None,
+    required_impact_fields: tuple[str, ...] = (),
+    minimum_schema_version: int = CURRENT_OPPORTUNIST_SCHEMA_VERSION,
 ) -> set[int]:
-    """Load processed article ids from one opportunist tracking table."""
+    """Load processed article ids that already satisfy the current opportunist schema."""
     if not article_ids:
         return set()
 
@@ -276,14 +334,23 @@ def load_processed_article_ids(
     with get_connection(db_path) as conn:
         rows = conn.execute(
             f"""
-            SELECT article_id
+            SELECT article_id, raw_json
             FROM {table_name}
             WHERE {" AND ".join(where_clauses)}
             """,
             tuple(parameters),
         ).fetchall()
 
-    return {int(row["article_id"]) for row in rows}
+    processed_article_ids: set[int] = set()
+    for row in rows:
+        if _processing_payload_has_required_fields(
+            row["raw_json"],
+            required_impact_fields=required_impact_fields,
+            minimum_schema_version=minimum_schema_version,
+        ):
+            processed_article_ids.add(int(row["article_id"]))
+
+    return processed_article_ids
 
 
 def filter_unprocessed_articles(
@@ -293,13 +360,17 @@ def filter_unprocessed_articles(
     table_name: str,
     company_id: int | None = None,
     article_id_key: str = "article_id",
+    required_impact_fields: tuple[str, ...] = (),
+    minimum_schema_version: int = CURRENT_OPPORTUNIST_SCHEMA_VERSION,
 ) -> list[dict[str, Any]]:
-    """Remove articles that were already processed by an opportunist stage."""
+    """Remove articles that were already processed with the current opportunist schema."""
     processed_article_ids = load_processed_article_ids(
         db_path=db_path,
         table_name=table_name,
         article_ids=[int(article[article_id_key]) for article in articles],
         company_id=company_id,
+        required_impact_fields=required_impact_fields,
+        minimum_schema_version=minimum_schema_version,
     )
     if not processed_article_ids:
         return articles
