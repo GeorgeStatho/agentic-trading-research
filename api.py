@@ -11,7 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 
 from portfolio_history_service import env_flag, fetch_portfolio_history, load_env
 
@@ -58,6 +58,14 @@ BOT_DOWN_THRESHOLD_SECONDS = max(
     int(os.getenv("BOT_STATUS_DOWN_THRESHOLD_SECONDS", "90")),
 )
 DEFAULT_OPTION_ORDER_QTY = max(1, int(os.getenv("AGENT_OPTION_ORDER_QTY", "1")))
+ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE = max(
+    1,
+    int(os.getenv("ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE", "5")),
+)
+ANALYZED_COMPANY_NEWS_MAX_PAGE_SIZE = max(
+    ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE,
+    int(os.getenv("ANALYZED_COMPANY_NEWS_MAX_PAGE_SIZE", "20")),
+)
 
 
 @app.after_request
@@ -103,6 +111,18 @@ def _trim_text(value: str | None, limit: int) -> str:
 def _internal_error(message: str, exc: Exception):
     logger.exception(message, exc_info=exc)
     return jsonify({"error": message}), 500
+
+
+def _safe_int(value, default: int, *, minimum: int = 1, maximum: int | None = None) -> int:
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        normalized = default
+
+    normalized = max(minimum, normalized)
+    if maximum is not None:
+        normalized = min(maximum, normalized)
+    return normalized
 
 
 MAX_DEPLOYABLE_BUYING_POWER_PCT = min(
@@ -902,10 +922,52 @@ def _build_news_section_payload() -> dict:
     }
 
 
-def _empty_analyzed_company_news_payload() -> dict:
+def _build_analyzed_company_news_pagination_payload(
+    *,
+    page: int,
+    page_size: int,
+    total_company_count: int,
+    page_company_count: int,
+) -> dict:
+    if total_company_count <= 0:
+        return {
+            "page": 1,
+            "page_size": page_size,
+            "total_pages": 0,
+            "has_previous_page": False,
+            "has_next_page": False,
+            "page_start": 0,
+            "page_end": 0,
+            "page_company_count": 0,
+            "company_count": 0,
+        }
+
+    total_pages = (total_company_count + page_size - 1) // page_size
+    normalized_page = max(1, min(page, total_pages))
+    page_start = ((normalized_page - 1) * page_size) + 1 if page_company_count else 0
+    page_end = page_start + page_company_count - 1 if page_company_count else 0
+    return {
+        "page": normalized_page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "has_previous_page": normalized_page > 1,
+        "has_next_page": normalized_page < total_pages,
+        "page_start": page_start,
+        "page_end": page_end,
+        "page_company_count": page_company_count,
+        "company_count": total_company_count,
+    }
+
+
+def _empty_analyzed_company_news_payload(*, page: int, page_size: int, total_company_count: int = 0) -> dict:
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
-        "company_count": 0,
+        **_build_analyzed_company_news_pagination_payload(
+            page=page,
+            page_size=page_size,
+            total_company_count=total_company_count,
+            page_company_count=0,
+        ),
         "article_count": 0,
         "section_article_counts": {
             "company": 0,
@@ -1039,14 +1101,18 @@ def _max_timestamp_value(*values: str) -> str:
     return latest_value
 
 
-def _build_analyzed_company_news_payload() -> dict:
+def _build_analyzed_company_news_payload(
+    *,
+    page: int = 1,
+    page_size: int = ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE,
+) -> dict:
     targets = get_current_pipeline_targets()
     selected_companies = targets.get("selected_companies", [])
     if not isinstance(selected_companies, list) or not selected_companies:
-        return _empty_analyzed_company_news_payload()
+        return _empty_analyzed_company_news_payload(page=page, page_size=page_size)
 
     company_lookup: dict[int, dict] = {}
-    company_ids: list[int] = []
+    all_company_ids: list[int] = []
     seen_company_ids: set[int] = set()
     for company in selected_companies:
         try:
@@ -1056,7 +1122,7 @@ def _build_analyzed_company_news_payload() -> dict:
         if company_id in seen_company_ids:
             continue
         seen_company_ids.add(company_id)
-        company_ids.append(company_id)
+        all_company_ids.append(company_id)
         company_lookup[company_id] = {
             "company_id": company_id,
             "symbol": str(company.get("symbol") or "").strip().upper(),
@@ -1069,8 +1135,21 @@ def _build_analyzed_company_news_payload() -> dict:
             "sector_name": "",
         }
 
+    if not all_company_ids:
+        return _empty_analyzed_company_news_payload(page=page, page_size=page_size)
+
+    total_company_count = len(all_company_ids)
+    total_pages = (total_company_count + page_size - 1) // page_size
+    normalized_page = max(1, min(page, total_pages))
+    page_start_index = (normalized_page - 1) * page_size
+    company_ids = all_company_ids[page_start_index : page_start_index + page_size]
+
     if not company_ids:
-        return _empty_analyzed_company_news_payload()
+        return _empty_analyzed_company_news_payload(
+            page=normalized_page,
+            page_size=page_size,
+            total_company_count=total_company_count,
+        )
 
     placeholders = ",".join("?" for _ in company_ids)
     with get_connection(DB_PATH) as conn:
@@ -1405,7 +1484,12 @@ def _build_analyzed_company_news_payload() -> dict:
 
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
-        "company_count": len(normalized_companies),
+        **_build_analyzed_company_news_pagination_payload(
+            page=normalized_page,
+            page_size=page_size,
+            total_company_count=total_company_count,
+            page_company_count=len(normalized_companies),
+        ),
         "article_count": total_article_count,
         "section_article_counts": section_article_counts,
         "companies": normalized_companies,
@@ -1467,7 +1551,13 @@ def risk_controls():
 @app.get("/api/opportunist-company-news")
 def opportunist_company_news():
     try:
-        return jsonify(_build_analyzed_company_news_payload()), 200
+        page = _safe_int(request.args.get("page"), 1)
+        page_size = _safe_int(
+            request.args.get("page_size"),
+            ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE,
+            maximum=ANALYZED_COMPANY_NEWS_MAX_PAGE_SIZE,
+        )
+        return jsonify(_build_analyzed_company_news_payload(page=page, page_size=page_size)), 200
     except Exception as exc:
         return _internal_error("Failed to load analyzed company news.", exc)
 
