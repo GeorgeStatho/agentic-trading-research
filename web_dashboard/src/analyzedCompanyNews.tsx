@@ -62,6 +62,14 @@ type CompanyNewsEntry = {
 
 type CompanyNewsPayload = {
   as_of: string;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  has_previous_page: boolean;
+  has_next_page: boolean;
+  page_start: number;
+  page_end: number;
+  page_company_count: number;
   company_count: number;
   article_count: number;
   section_article_counts: {
@@ -74,6 +82,8 @@ type CompanyNewsPayload = {
 };
 
 const COMPANY_NEWS_POLL_INTERVAL_MS = 60_000;
+const DEFAULT_PAGE_SIZE = 5;
+const PAGE_SIZE_OPTIONS = [3, 5, 10, 15];
 const SECTION_ORDER: Array<{ key: NewsSectionKey; title: string; eyebrow: string }> = [
   { key: 'company_news', title: 'Company-Specific News', eyebrow: 'Company' },
   { key: 'sector_news', title: 'Sector News', eyebrow: 'Sector' },
@@ -81,8 +91,13 @@ const SECTION_ORDER: Array<{ key: NewsSectionKey; title: string; eyebrow: string
   { key: 'macro_news', title: 'Macro News', eyebrow: 'Macro' },
 ];
 
-async function getAnalyzedCompanyNews(): Promise<CompanyNewsPayload> {
-  const response = await fetch(`/api/opportunist-company-news?ts=${Date.now()}`);
+async function getAnalyzedCompanyNews(page: number, pageSize: number): Promise<CompanyNewsPayload> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+    ts: String(Date.now()),
+  });
+  const response = await fetch(`/api/opportunist-company-news?${params.toString()}`);
 
   if (!response.ok) {
     throw new Error(`Failed to load analyzed company news: ${response.status}`);
@@ -189,14 +204,18 @@ function filterArticles(articles: NewsArticle[], confidence: ConfidenceLevel): N
 function AnalyzedCompanyNewsPage() {
   const [payload, setPayload] = useState<CompanyNewsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchValue, setSearchValue] = useState('');
   const [activeConfidence, setActiveConfidence] = useState<ConfidenceLevel>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadCompanyNews = () => {
-      getAnalyzedCompanyNews()
+      setIsLoading(true);
+      getAnalyzedCompanyNews(currentPage, pageSize)
         .then((nextPayload) => {
           if (!isMounted) {
             return;
@@ -204,6 +223,9 @@ function AnalyzedCompanyNewsPage() {
 
           setPayload(nextPayload);
           setError(null);
+          if (nextPayload.page !== currentPage) {
+            setCurrentPage(nextPayload.page);
+          }
         })
         .catch((err: unknown) => {
           if (!isMounted) {
@@ -211,6 +233,12 @@ function AnalyzedCompanyNewsPage() {
           }
 
           setError(err instanceof Error ? err.message : 'Failed to load analyzed company news.');
+        })
+        .finally(() => {
+          if (!isMounted) {
+            return;
+          }
+          setIsLoading(false);
         });
     };
 
@@ -221,7 +249,7 @@ function AnalyzedCompanyNewsPage() {
       isMounted = false;
       window.clearInterval(intervalId);
     };
-  }, []);
+  }, [currentPage, pageSize]);
 
   const filteredCompanies = (payload?.companies ?? [])
     .filter((company) => matchesSearch(company, searchValue))
@@ -235,7 +263,7 @@ function AnalyzedCompanyNewsPage() {
           <h1>Analyzed News Context</h1>
           <p className="company-news-hero__text">
             Review the company, sector, industry, and macro context the opportunist pipeline analyzed for the current
-            ranked companies.
+            ranked companies one page at a time.
           </p>
         </div>
         <div className="company-news-hero__stats" aria-label="Company news summary">
@@ -244,11 +272,21 @@ function AnalyzedCompanyNewsPage() {
             <p className="company-news-stat__value">{formatCount(payload?.company_count ?? 0)}</p>
           </article>
           <article className="company-news-stat">
-            <p className="company-news-stat__label">Surfaced Articles</p>
+            <p className="company-news-stat__label">Loaded This Page</p>
+            <p className="company-news-stat__value">{formatCount(payload?.page_company_count ?? 0)}</p>
+          </article>
+          <article className="company-news-stat">
+            <p className="company-news-stat__label">Loaded Articles</p>
             <p className="company-news-stat__value">{formatCount(payload?.article_count ?? 0)}</p>
           </article>
           <article className="company-news-stat">
-            <p className="company-news-stat__label">Context Split</p>
+            <p className="company-news-stat__label">Page</p>
+            <p className="company-news-stat__value company-news-stat__value--timestamp">
+              {payload ? `${payload.page} / ${payload.total_pages || 1}` : 'Loading'}
+            </p>
+          </article>
+          <article className="company-news-stat">
+            <p className="company-news-stat__label">Loaded Split</p>
             <p className="company-news-stat__value company-news-stat__value--stacked">
               C {formatCount(payload?.section_article_counts.company ?? 0)} / S{' '}
               {formatCount(payload?.section_article_counts.sector ?? 0)} / I{' '}
@@ -267,12 +305,12 @@ function AnalyzedCompanyNewsPage() {
 
       <section className="company-news-controls">
         <label className="company-news-search">
-          <span>Search companies or headlines</span>
+          <span>Search loaded page</span>
           <input
             type="search"
             value={searchValue}
             onChange={(event) => setSearchValue(event.target.value)}
-            placeholder="Search ticker, company, sector, industry, source, or reason"
+            placeholder="Filter the current page by ticker, company, sector, industry, source, or reason"
           />
         </label>
         <div className="company-news-filter-group" aria-label="Confidence filter">
@@ -289,6 +327,58 @@ function AnalyzedCompanyNewsPage() {
         </div>
       </section>
 
+      <section className="company-news-pagination" aria-label="Pagination controls">
+        <div className="company-news-pagination__summary">
+          {payload ? (
+            <>
+              Showing {formatCount(payload.page_start)}-{formatCount(payload.page_end)} of{' '}
+              {formatCount(payload.company_count)} companies. Search filters only the loaded page.
+            </>
+          ) : (
+            'Preparing the first page of analyzed news.'
+          )}
+        </div>
+        <div className="company-news-pagination__controls">
+          <label className="company-news-pagination__size">
+            <span>Companies per page</span>
+            <select
+              value={pageSize}
+              onChange={(event) => {
+                const nextPageSize = Number(event.target.value);
+                setPageSize(nextPageSize);
+                setCurrentPage(1);
+              }}
+              disabled={isLoading}
+            >
+              {PAGE_SIZE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="company-news-pagination__button"
+            onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+            disabled={isLoading || !payload?.has_previous_page}
+          >
+            Previous
+          </button>
+          <span className="company-news-pagination__page">
+            {payload ? `Page ${payload.page} of ${payload.total_pages || 1}` : 'Loading page'}
+          </span>
+          <button
+            type="button"
+            className="company-news-pagination__button"
+            onClick={() => setCurrentPage((page) => page + 1)}
+            disabled={isLoading || !payload?.has_next_page}
+          >
+            Next
+          </button>
+        </div>
+      </section>
+
       {error ? (
         <section className="company-news-feedback">
           <h2>Analyzed news unavailable</h2>
@@ -301,8 +391,8 @@ function AnalyzedCompanyNewsPage() {
         </section>
       ) : filteredCompanies.length === 0 ? (
         <section className="company-news-feedback">
-          <h2>No matching analyzed news</h2>
-          <p>Try clearing the search or switching the confidence filter.</p>
+          <h2>No matching analyzed news on this page</h2>
+          <p>Try clearing the search, switching the confidence filter, or moving to another page.</p>
         </section>
       ) : (
         <section className="company-news-list">
