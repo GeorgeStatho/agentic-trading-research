@@ -212,3 +212,20 @@ What is still being finished:
 - This project can place paper trades and contains real trading logic.
 - Do not treat it as financial advice.
 - Review and rotate credentials if they have ever been exposed during development.
+
+## Contact / Collaboration
+
+I’m actively developing this agentic trading system and exploring improvements in:
+
+- risk management strategies for options trading  
+- LLM-driven decision systems  
+- deterministic contract selection under real-world constraints  
+
+If you’re working on similar systems, have feedback, or are interested in collaborating, feel free to reach out:
+
+- GitHub: https://github.com/GeorgeStatho  
+- LinkedIn: www.linkedin.com/in/george-stathopoulos-0601b1229  
+- Email: georgestathopou [at] gmail [dot] com  
+
+
+ 
