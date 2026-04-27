@@ -1,6 +1,7 @@
-# Stock Trading Experiment
+# Agentic Trading Experiment
 
-This repository is a mostly-finished stock research and options paper-trading system with:
+LLM-driven agentic options trading system with deterministic execution and real-time market integration.
+Includes:
 
 - a Python worker that runs the research and execution loop
 - a Flask API that exposes portfolio history, trade output, and script status
