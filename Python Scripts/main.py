@@ -20,6 +20,7 @@ import json
 import logging
 import math
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -109,6 +110,14 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _looks_like_option_symbol(symbol: str, asset_class: str = "") -> bool:
+    """Match Alpaca option positions by asset class or OCC-style symbol."""
+    normalized_asset_class = str(asset_class or "").strip().lower()
+    if "option" in normalized_asset_class:
+        return True
+    return bool(re.fullmatch(r"[A-Z]+\d{6}[CP]\d{8}", str(symbol or "").strip().upper()))
 
 
 def _load_exit_hours_to_expiration() -> float:
@@ -230,6 +239,24 @@ class TradeExecutionSession:
     base_order_qty: int
     executions: list[dict[str, Any]] = field(default_factory=list)
     seen_option_symbols: set[str] = field(default_factory=set)
+
+
+@dataclass(frozen=True)
+class OptionExposureSnapshot:
+    """Current open-option exposure versus the configured buying-power cap."""
+
+    available_buying_power: float
+    max_deployable_buying_power: float
+    current_option_exposure: float
+    option_position_count: int
+
+    @property
+    def remaining_deployable_buying_power(self) -> float:
+        return max(0.0, self.max_deployable_buying_power - self.current_option_exposure)
+
+    @property
+    def exceeds_max_exposure(self) -> bool:
+        return self.current_option_exposure >= self.max_deployable_buying_power
 
 
 class StatusReporter:
@@ -367,6 +394,24 @@ class AlpacaTradingGateway:
         if buying_power is None:
             raise RuntimeError("Unable to read buying_power from Alpaca account.")
         return buying_power
+
+    def get_open_option_exposure(self, trading_client: TradingClient) -> tuple[float, int]:
+        positions = trading_client.get_all_positions()
+        option_exposure = 0.0
+        option_position_count = 0
+        for position in positions or []:
+            symbol = str(getattr(position, "symbol", "") or "").strip().upper()
+            asset_class = str(getattr(position, "asset_class", "") or "")
+            if not _looks_like_option_symbol(symbol, asset_class):
+                continue
+
+            option_position_count += 1
+            exposure_value = _safe_float(getattr(position, "market_value", None))
+            if exposure_value is None:
+                exposure_value = _safe_float(getattr(position, "cost_basis", None))
+            option_exposure += abs(exposure_value or 0.0)
+
+        return option_exposure, option_position_count
 
     def submit_option_market_order(
         self,
@@ -827,8 +872,102 @@ class FrontMainApplication:
         self._position_manager = position_manager
         self._logger = logger
 
-    def run_trading_cycle(self, trading_client: TradingClient | None = None) -> dict[str, Any]:
+    def _get_option_exposure_snapshot(self, trading_client: TradingClient) -> OptionExposureSnapshot:
+        available_buying_power = self._trading_gateway.get_available_buying_power(trading_client)
+        current_option_exposure, option_position_count = self._trading_gateway.get_open_option_exposure(
+            trading_client
+        )
+        return OptionExposureSnapshot(
+            available_buying_power=available_buying_power,
+            max_deployable_buying_power=(
+                available_buying_power * self._settings.max_deployable_buying_power_ratio
+            ),
+            current_option_exposure=current_option_exposure,
+            option_position_count=option_position_count,
+        )
+
+    def _build_option_exposure_skip_message(self, exposure_snapshot: OptionExposureSnapshot) -> str:
+        return (
+            f"Skipping trading cycle because current open option exposure "
+            f"({exposure_snapshot.current_option_exposure:.2f}) is at or above the configured "
+            f"MAX_DEPLOYABLE_BUYING_POWER_PCT cap ({exposure_snapshot.max_deployable_buying_power:.2f}, "
+            f"{self._settings.max_deployable_buying_power_pct:.2f}% of account buying power)."
+        )
+
+    def _persist_trading_cycle_outputs(
+        self,
+        *,
+        agent_result: dict[str, Any],
+        trade_result: dict[str, Any],
+        combined_result: dict[str, Any],
+    ) -> None:
+        JsonFileWriter.write(self._paths.agent_output_path, agent_result)
+        JsonFileWriter.write(self._paths.selected_options_output_path, agent_result.get("selected_options", {}))
+        JsonFileWriter.write(self._paths.trade_output_path, trade_result)
+        JsonFileWriter.write(self._paths.combined_output_path, combined_result)
+
+        self._logger.info("Saved agent output to %s", self._paths.agent_output_path)
+        self._logger.info("Saved selected options output to %s", self._paths.selected_options_output_path)
+        self._logger.info("Saved trade execution output to %s", self._paths.trade_output_path)
+        self._logger.info("Saved combined front-main output to %s", self._paths.combined_output_path)
+
+    def _skip_trading_cycle_for_option_exposure(
+        self,
+        *,
+        exposure_snapshot: OptionExposureSnapshot,
+    ) -> dict[str, Any]:
+        skip_reason = self._build_option_exposure_skip_message(exposure_snapshot)
+        self._logger.info(skip_reason)
+
+        agent_result = {
+            "skipped": True,
+            "skip_reason": skip_reason,
+            "selected_options": {
+                "selected_option_count": 0,
+                "companies": [],
+            },
+        }
+        trade_result = {
+            "ran_at": datetime.now().isoformat(),
+            "paper": self._settings.alpaca_paper,
+            "order_qty": self._settings.default_option_order_qty,
+            "available_buying_power": exposure_snapshot.available_buying_power,
+            "max_deployable_buying_power": exposure_snapshot.max_deployable_buying_power,
+            "remaining_deployable_buying_power": exposure_snapshot.remaining_deployable_buying_power,
+            "current_option_exposure": exposure_snapshot.current_option_exposure,
+            "option_position_count": exposure_snapshot.option_position_count,
+            "submitted_count": 0,
+            "candidate_count": 0,
+            "executions": [],
+            "skipped": True,
+            "error": skip_reason,
+        }
+        combined_result = {
+            "ran_at": datetime.now().isoformat(),
+            "skipped": True,
+            "agent_result": agent_result,
+            "trade_result": trade_result,
+        }
+
+        self._persist_trading_cycle_outputs(
+            agent_result=agent_result,
+            trade_result=trade_result,
+            combined_result=combined_result,
+        )
+        return combined_result
+
+    def run_trading_cycle(
+        self,
+        trading_client: TradingClient | None = None,
+        *,
+        exposure_snapshot: OptionExposureSnapshot | None = None,
+    ) -> dict[str, Any]:
         """Run one end-to-end agent + trading cycle."""
+        trading_client = trading_client or self._trading_gateway.create_client()
+        exposure_snapshot = exposure_snapshot or self._get_option_exposure_snapshot(trading_client)
+        if exposure_snapshot.exceeds_max_exposure:
+            return self._skip_trading_cycle_for_option_exposure(exposure_snapshot=exposure_snapshot)
+
         self._logger.info("Starting full agent stack run")
         agent_result = run_full_agent_stack_from_existing_data()
         self._logger.info("Finished full agent stack run")
@@ -836,7 +975,6 @@ class FrontMainApplication:
         order_candidates = self._order_candidate_builder.build(agent_result)
         self._logger.info("Prepared %s selected option candidates for trading", len(order_candidates))
 
-        trading_client = trading_client or self._trading_gateway.create_client()
         trade_result = self._trade_executor.execute(
             trading_client=trading_client,
             order_candidates=order_candidates,
@@ -848,21 +986,26 @@ class FrontMainApplication:
             "trade_result": trade_result,
         }
 
-        JsonFileWriter.write(self._paths.agent_output_path, agent_result)
-        JsonFileWriter.write(self._paths.selected_options_output_path, agent_result.get("selected_options", {}))
-        JsonFileWriter.write(self._paths.trade_output_path, trade_result)
-        JsonFileWriter.write(self._paths.combined_output_path, combined_result)
-
-        self._logger.info("Saved agent output to %s", self._paths.agent_output_path)
-        self._logger.info("Saved selected options output to %s", self._paths.selected_options_output_path)
-        self._logger.info("Saved trade execution output to %s", self._paths.trade_output_path)
-        self._logger.info("Saved combined front-main output to %s", self._paths.combined_output_path)
+        self._persist_trading_cycle_outputs(
+            agent_result=agent_result,
+            trade_result=trade_result,
+            combined_result=combined_result,
+        )
 
         return combined_result
 
-    def run_streaming_trading_cycle(self, trading_client: TradingClient | None = None) -> dict[str, Any]:
+    def run_streaming_trading_cycle(
+        self,
+        trading_client: TradingClient | None = None,
+        *,
+        exposure_snapshot: OptionExposureSnapshot | None = None,
+    ) -> dict[str, Any]:
         """Run the agent stack and execute qualifying options immediately per manager result."""
         trading_client = trading_client or self._trading_gateway.create_client()
+        exposure_snapshot = exposure_snapshot or self._get_option_exposure_snapshot(trading_client)
+        if exposure_snapshot.exceeds_max_exposure:
+            return self._skip_trading_cycle_for_option_exposure(exposure_snapshot=exposure_snapshot)
+
         trade_session = self._trade_executor.create_session(trading_client=trading_client)
 
         def handle_manager_result(manager_result: dict[str, Any]) -> None:
@@ -894,15 +1037,11 @@ class FrontMainApplication:
             "trade_result": trade_result,
         }
 
-        JsonFileWriter.write(self._paths.agent_output_path, agent_result)
-        JsonFileWriter.write(self._paths.selected_options_output_path, agent_result.get("selected_options", {}))
-        JsonFileWriter.write(self._paths.trade_output_path, trade_result)
-        JsonFileWriter.write(self._paths.combined_output_path, combined_result)
-
-        self._logger.info("Saved agent output to %s", self._paths.agent_output_path)
-        self._logger.info("Saved selected options output to %s", self._paths.selected_options_output_path)
-        self._logger.info("Saved trade execution output to %s", self._paths.trade_output_path)
-        self._logger.info("Saved combined front-main output to %s", self._paths.combined_output_path)
+        self._persist_trading_cycle_outputs(
+            agent_result=agent_result,
+            trade_result=trade_result,
+            combined_result=combined_result,
+        )
 
         return combined_result
 
@@ -974,12 +1113,37 @@ class FrontMainApplication:
             current_time = datetime.now()
             if current_time >= next_trading_cycle_at:
                 try:
-                    if self._settings.immediate_option_execution:
-                        self._status_reporter.write("running", "Executing trading cycle with immediate option execution")
-                        result = self.run_streaming_trading_cycle(trading_client=trading_client)
+                    exposure_snapshot = self._get_option_exposure_snapshot(trading_client)
+                    if exposure_snapshot.exceeds_max_exposure:
+                        result = self._skip_trading_cycle_for_option_exposure(
+                            exposure_snapshot=exposure_snapshot
+                        )
+                        self._status_reporter.write(
+                            "paused",
+                            "Skipping trading cycle because option exposure cap is already consumed",
+                            current_option_exposure=exposure_snapshot.current_option_exposure,
+                            option_position_count=exposure_snapshot.option_position_count,
+                            max_deployable_buying_power=exposure_snapshot.max_deployable_buying_power,
+                            remaining_deployable_buying_power=(
+                                exposure_snapshot.remaining_deployable_buying_power
+                            ),
+                        )
                     else:
-                        self._status_reporter.write("running", "Executing trading cycle")
-                        result = self.run_trading_cycle(trading_client=trading_client)
+                        if self._settings.immediate_option_execution:
+                            self._status_reporter.write(
+                                "running",
+                                "Executing trading cycle with immediate option execution",
+                            )
+                            result = self.run_streaming_trading_cycle(
+                                trading_client=trading_client,
+                                exposure_snapshot=exposure_snapshot,
+                            )
+                        else:
+                            self._status_reporter.write("running", "Executing trading cycle")
+                            result = self.run_trading_cycle(
+                                trading_client=trading_client,
+                                exposure_snapshot=exposure_snapshot,
+                            )
                     print(json.dumps(result, ensure_ascii=True, indent=2))
                 except Exception as exc:
                     self._status_reporter.write("error", f"Front-facing main cycle failed: {exc}")
