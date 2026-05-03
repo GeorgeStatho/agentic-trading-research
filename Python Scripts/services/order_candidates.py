@@ -6,6 +6,9 @@ from typing import Any
 class OrderCandidateBuilder:
     """Turn agent output into executable option-order candidates."""
 
+    def __init__(self, *, execute_medium_confidence_trades: bool = True) -> None:
+        self._execute_medium_confidence_trades = execute_medium_confidence_trades
+
     @staticmethod
     def _extract_selected_option_candidates(agent_result: dict[str, Any]) -> list[dict[str, Any]]:
         selected_options = agent_result.get("selected_options", {})
@@ -23,12 +26,11 @@ class OrderCandidateBuilder:
         decision = replacements.get(decision, decision)
         return decision if decision in {"trade_candidate", "watchlist", "do_not_trade"} else ""
 
-    @classmethod
-    def _is_trade_eligible(cls, company_result: dict[str, Any]) -> bool:
+    def _is_trade_eligible(self, company_result: dict[str, Any]) -> bool:
         decision = str(company_result.get("decision") or "").strip().lower()
         confidence = str(company_result.get("confidence") or "").strip().lower()
         strategist_recommendation = company_result.get("strategist_recommendation") or {}
-        strategist_decision = cls._normalize_strategist_decision(
+        strategist_decision = self._normalize_strategist_decision(
             strategist_recommendation.get("decision")
         )
 
@@ -36,18 +38,19 @@ class OrderCandidateBuilder:
             return False
         if confidence not in {"high", "medium"}:
             return False
+        if confidence == "medium" and not self._execute_medium_confidence_trades:
+            return False
         if strategist_decision == "do_not_trade":
             return False
         return True
 
-    @staticmethod
-    def _build_candidate(company_result: dict[str, Any]) -> dict[str, Any] | None:
+    def _build_candidate(self, company_result: dict[str, Any]) -> dict[str, Any] | None:
         decision = str(company_result.get("decision") or "").strip().lower()
         confidence = str(company_result.get("confidence") or "").strip().lower()
         selected_option = company_result.get("selected_option") or {}
         option_symbol = str(selected_option.get("symbol") or "").strip().upper()
 
-        if not OrderCandidateBuilder._is_trade_eligible(company_result):
+        if not self._is_trade_eligible(company_result):
             return None
         if not option_symbol:
             return None

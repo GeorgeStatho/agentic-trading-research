@@ -47,7 +47,9 @@ APP_PATHS = FrontMainPaths.from_env()
 APP_SETTINGS = FrontMainSettings.from_env()
 STATUS_REPORTER = StatusReporter(APP_PATHS.status_path)
 TRADING_GATEWAY = AlpacaTradingGateway(paper=APP_SETTINGS.alpaca_paper, logger=LOGGER)
-ORDER_CANDIDATE_BUILDER = OrderCandidateBuilder()
+ORDER_CANDIDATE_BUILDER = OrderCandidateBuilder(
+    execute_medium_confidence_trades=APP_SETTINGS.execute_medium_confidence_trades
+)
 TRADE_EXECUTOR = OptionTradeExecutor(
     settings=APP_SETTINGS,
     trading_gateway=TRADING_GATEWAY,
