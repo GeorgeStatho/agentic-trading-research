@@ -60,6 +60,7 @@ class FrontMainSettings:
     auto_manage_option_positions: bool
     auto_close_option_positions: bool
     immediate_option_execution: bool
+    execute_medium_confidence_trades: bool
     option_position_management_interval_seconds: int
     option_position_take_profit_pct: float
     option_position_stop_loss_pct: float
@@ -89,6 +90,7 @@ class FrontMainSettings:
             auto_manage_option_positions=env_flag("AUTO_MANAGE_OPTION_POSITIONS", True),
             auto_close_option_positions=env_flag("AUTO_CLOSE_OPTION_POSITIONS", True),
             immediate_option_execution=env_flag("IMMEDIATE_OPTION_EXECUTION", False),
+            execute_medium_confidence_trades=env_flag("EXECUTE_MEDIUM_CONFIDENCE_TRADES", True),
             option_position_management_interval_seconds=max(
                 60,
                 int(os.getenv("OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS", str(market_recheck_seconds))),
