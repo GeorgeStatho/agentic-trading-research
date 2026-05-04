@@ -441,6 +441,8 @@ def build_manager_prompt(
     "If the strategist says watchlist, weak setup, unclear timing, or contradictions_present=true, that should usually push toward 'neither' "
     "unless the full context strongly supports immediate action anyway. "
         "Map time_horizon to target_dte_bucket explicitly when a trade is supported: very_short_term -> 3_7, short_term -> 7_14, medium_term -> 14_30. "
+        "Prefer the short_term bucket 7_14 by default when the setup looks actionable but there is no strong reason to force a very short term 3_7 trade or a medium term 14_30 trade. "
+        "Use 3_7 only when the catalyst and timing look unusually immediate, and use 14_30 only when the thesis likely needs more time to play out. "
         "If no trade should be opened, or no clear horizon applies, use none. "
         "Return only valid JSON with a top-level key named 'recommendation'. "
         "The recommendation object must contain: decision, confidence, target_dte_bucket, reason. "
