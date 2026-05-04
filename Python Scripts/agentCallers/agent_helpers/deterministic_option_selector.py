@@ -553,6 +553,73 @@ def _contract_debug_snapshot(
     }
 
 
+def _debug_contract_with_reasons(
+    contract: dict[str, Any],
+    *,
+    reference_stock_price: float | None,
+    target_otm_distance: float | None = None,
+    target_dte_bucket: str = "",
+    rejection_reasons: list[str],
+) -> dict[str, Any]:
+    return {
+        **_contract_debug_snapshot(
+            contract,
+            reference_stock_price=reference_stock_price,
+            target_otm_distance=target_otm_distance,
+            target_dte_bucket=target_dte_bucket,
+        ),
+        "rejection_reasons": rejection_reasons,
+    }
+
+
+def _build_simple_rejection_reasons(
+    contract: dict[str, Any],
+    *,
+    normalized_decision: str,
+    reference_stock_price: float | None,
+    target_otm_distance: float,
+    normalized_target_dte_bucket: str,
+) -> list[str]:
+    reasons: list[str] = []
+    strike_price = _coerce_float(contract.get("strike_price"))
+
+    if strike_price is None:
+        reasons.append("missing_strike_price")
+        return reasons
+
+    if SIMPLE_REQUIRE_ONE_DOLLAR_OTM:
+        if not _is_one_dollar_otm_contract(
+            normalized_decision,
+            strike_price,
+            reference_stock_price,
+            target_otm_distance=target_otm_distance,
+        ):
+            reasons.append("not_one_dollar_otm")
+    elif not _is_otm_contract(
+        normalized_decision,
+        strike_price,
+        reference_stock_price,
+    ):
+        reasons.append("not_otm")
+
+    if normalized_target_dte_bucket in DTE_BUCKET_TO_TARGET_OTM_PCT:
+        if not _meets_min_otm_distance(
+            normalized_decision,
+            strike_price,
+            reference_stock_price,
+            min_distance=target_otm_distance,
+        ):
+            reasons.append("otm_distance_below_preferred_min")
+    elif not _is_otm_contract(
+        normalized_decision,
+        strike_price,
+        reference_stock_price,
+    ):
+        reasons.append("not_otm")
+
+    return reasons
+
+
 # =========================
 # SIMPLE MODE
 # =========================
@@ -562,10 +629,10 @@ def _pick_matching_contract_simple(
     option_contracts: list[dict[str, Any]],
     market_context: dict[str, Any],
     target_dte_bucket: str = "none",
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     normalized_decision = _normalize_decision(decision)
     if normalized_decision not in {"call", "put"}:
-        return None
+        return None, {}
 
     normalized_target_dte_bucket = _normalize_target_dte_bucket(target_dte_bucket) or "none"
     reference_stock_price = _get_reference_stock_price(market_context)
@@ -575,12 +642,13 @@ def _pick_matching_contract_simple(
         default_distance=SIMPLE_PREFERRED_OTM_DISTANCE,
     )
 
-    matching_contracts = [
+    bucket_matching_contracts = [
         contract
         for contract in option_contracts
         if _normalize_contract_type(contract.get("contract_type")) == normalized_decision
         and _contract_matches_target_dte_bucket(contract, normalized_target_dte_bucket)
     ]
+    matching_contracts = list(bucket_matching_contracts)
     if not matching_contracts:
         matching_contracts = [
             contract
@@ -588,7 +656,23 @@ def _pick_matching_contract_simple(
             if _normalize_contract_type(contract.get("contract_type")) == normalized_decision
         ]
     if not matching_contracts:
-        return None
+        return (
+            None,
+            {
+                "selector_mode_requested": OPTION_SELECTOR_MODE,
+                "target_dte_bucket": normalized_target_dte_bucket,
+                "target_otm_distance": target_otm_distance,
+                "reference_stock_price": reference_stock_price,
+                "matching_contract_count": 0,
+                "bucket_matching_contract_count": 0,
+                "preferred_contract_count": 0,
+                "fallback_contract_count": 0,
+                "candidate_pool_count": 0,
+                "selection_mode": "simple_no_matching_contracts",
+                "rejected_simple_count": 0,
+                "rejected_simple_examples": [],
+            },
+        )
 
     preferred_contracts = [
         contract
@@ -628,6 +712,24 @@ def _pick_matching_contract_simple(
         )
     ]
 
+    rejected_contracts_debug = [
+        _debug_contract_with_reasons(
+            contract,
+            reference_stock_price=reference_stock_price,
+            target_otm_distance=target_otm_distance,
+            target_dte_bucket=normalized_target_dte_bucket,
+            rejection_reasons=_build_simple_rejection_reasons(
+                contract,
+                normalized_decision=normalized_decision,
+                reference_stock_price=reference_stock_price,
+                target_otm_distance=target_otm_distance,
+                normalized_target_dte_bucket=normalized_target_dte_bucket,
+            ),
+        )
+        for contract in matching_contracts
+        if contract not in fallback_contracts
+    ]
+
     if preferred_contracts:
         candidate_pool = list(preferred_contracts)
         selection_mode = "simple_preferred_near_otm"
@@ -659,7 +761,26 @@ def _pick_matching_contract_simple(
             )
         )
     else:
-        return None
+        return (
+            None,
+            {
+                "selector_mode_requested": OPTION_SELECTOR_MODE,
+                "target_dte_bucket": normalized_target_dte_bucket,
+                "target_otm_distance": target_otm_distance,
+                "reference_stock_price": reference_stock_price,
+                "matching_contract_count": len(matching_contracts),
+                "bucket_matching_contract_count": len(bucket_matching_contracts),
+                "used_direction_only_fallback": (
+                    len(bucket_matching_contracts) == 0 and len(matching_contracts) > 0
+                ),
+                "preferred_contract_count": len(preferred_contracts),
+                "fallback_contract_count": len(fallback_contracts),
+                "candidate_pool_count": 0,
+                "selection_mode": "simple_no_candidate_pool",
+                "rejected_simple_count": len(rejected_contracts_debug),
+                "rejected_simple_examples": rejected_contracts_debug[:10],
+            },
+        )
 
     selected = dict(candidate_pool[0])
     selected["_selection_mode"] = selection_mode
@@ -669,9 +790,15 @@ def _pick_matching_contract_simple(
         "target_otm_distance": target_otm_distance,
         "reference_stock_price": reference_stock_price,
         "matching_contract_count": len(matching_contracts),
+        "bucket_matching_contract_count": len(bucket_matching_contracts),
+        "used_direction_only_fallback": (
+            len(bucket_matching_contracts) == 0 and len(matching_contracts) > 0
+        ),
         "preferred_contract_count": len(preferred_contracts),
         "fallback_contract_count": len(fallback_contracts),
         "candidate_pool_count": len(candidate_pool),
+        "rejected_simple_count": len(rejected_contracts_debug),
+        "rejected_simple_examples": rejected_contracts_debug[:10],
         "selection_mode": selection_mode,
         "selected_contract_snapshot": _contract_debug_snapshot(
             selected,
@@ -680,7 +807,7 @@ def _pick_matching_contract_simple(
             target_dte_bucket=normalized_target_dte_bucket,
         ),
     }
-    return selected
+    return selected, dict(selected["_selector_debug"])
 
 
 # =========================
@@ -813,10 +940,10 @@ def _pick_matching_contract_hybrid(
     option_contracts: list[dict[str, Any]],
     market_context: dict[str, Any],
     target_dte_bucket: str = "none",
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     normalized_decision = _normalize_decision(decision)
     if normalized_decision not in {"call", "put"}:
-        return None
+        return None, {}
 
     reference_stock_price = _get_reference_stock_price(market_context)
     target_otm_distance = _resolve_target_otm_distance(
@@ -831,7 +958,20 @@ def _pick_matching_contract_hybrid(
         if _normalize_contract_type(contract.get("contract_type")) == normalized_decision
     ]
     if not matching_contracts:
-        return None
+        return (
+            None,
+            {
+                "selector_mode_requested": OPTION_SELECTOR_MODE,
+                "target_dte_bucket": target_dte_bucket,
+                "target_otm_distance": target_otm_distance,
+                "reference_stock_price": reference_stock_price,
+                "passed_hybrid_count": 0,
+                "rejected_hybrid_count": 0,
+                "rejected_hybrid_examples": [],
+                "candidate_pool_count": 0,
+                "selection_mode": "hybrid_no_matching_contracts",
+            },
+        )
 
     passed_contracts: list[dict[str, Any]] = []
     rejected_contracts_debug: list[dict[str, Any]] = []
@@ -847,19 +987,33 @@ def _pick_matching_contract_hybrid(
             passed_contracts.append(contract)
         else:
             rejected_contracts_debug.append(
-                {
-                    **_contract_debug_snapshot(
-                        contract,
-                        reference_stock_price=reference_stock_price,
-                    ),
-                    "rejection_reasons": reasons,
-                }
+                _debug_contract_with_reasons(
+                    contract,
+                    reference_stock_price=reference_stock_price,
+                    target_dte_bucket=target_dte_bucket,
+                    rejection_reasons=reasons,
+                )
             )
 
     if not passed_contracts:
         if not ALLOW_RISKY_SIMPLE_FALLBACK:
-            return None
-        fallback = _pick_matching_contract_simple(
+            return (
+                None,
+                {
+                    "selector_mode_requested": OPTION_SELECTOR_MODE,
+                    "target_dte_bucket": target_dte_bucket,
+                    "target_otm_distance": target_otm_distance,
+                    "reference_stock_price": reference_stock_price,
+                    "passed_hybrid_count": 0,
+                    "rejected_hybrid_count": len(rejected_contracts_debug),
+                    "rejected_hybrid_examples": rejected_contracts_debug[:10],
+                    "candidate_pool_count": 0,
+                    "selection_mode": "hybrid_no_candidate_pool",
+                    "fallback_used": False,
+                    "fallback_mode": "",
+                },
+            )
+        fallback, fallback_debug = _pick_matching_contract_simple(
             decision=decision,
             option_contracts=option_contracts,
             market_context=market_context,
@@ -867,7 +1021,45 @@ def _pick_matching_contract_hybrid(
         )
         if fallback is not None:
             fallback["_selection_mode"] = "hybrid_fallback_to_simple"
-        return fallback
+            fallback["_selector_debug"] = {
+                **fallback_debug,
+                "selector_mode_requested": OPTION_SELECTOR_MODE,
+                "target_dte_bucket": target_dte_bucket,
+                "target_otm_distance": target_otm_distance,
+                "reference_stock_price": reference_stock_price,
+                "passed_hybrid_count": 0,
+                "rejected_hybrid_count": len(rejected_contracts_debug),
+                "rejected_hybrid_examples": rejected_contracts_debug[:10],
+                "candidate_pool_count": 1,
+                "selection_mode": "hybrid_fallback_to_simple",
+                "fallback_used": True,
+                "fallback_mode": "simple",
+                "fallback_selector_debug": fallback_debug,
+                "selected_contract_snapshot": _contract_debug_snapshot(
+                    fallback,
+                    reference_stock_price=reference_stock_price,
+                    target_otm_distance=target_otm_distance,
+                    target_dte_bucket=target_dte_bucket,
+                ),
+            }
+            return fallback, dict(fallback["_selector_debug"])
+        return (
+            None,
+            {
+                "selector_mode_requested": OPTION_SELECTOR_MODE,
+                "target_dte_bucket": target_dte_bucket,
+                "target_otm_distance": target_otm_distance,
+                "reference_stock_price": reference_stock_price,
+                "passed_hybrid_count": 0,
+                "rejected_hybrid_count": len(rejected_contracts_debug),
+                "rejected_hybrid_examples": rejected_contracts_debug[:10],
+                "candidate_pool_count": 0,
+                "selection_mode": "hybrid_fallback_simple_no_candidate_pool",
+                "fallback_used": True,
+                "fallback_mode": "simple",
+                "fallback_selector_debug": fallback_debug,
+            },
+        )
 
     candidate_pool = list(passed_contracts)
     candidate_pool.sort(
@@ -897,7 +1089,7 @@ def _pick_matching_contract_hybrid(
             target_dte_bucket=target_dte_bucket,
         ),
     }
-    return selected
+    return selected, dict(selected["_selector_debug"])
 
 
 # =========================
@@ -1029,10 +1221,10 @@ def _pick_matching_contract_greeks(
     option_contracts: list[dict[str, Any]],
     market_context: dict[str, Any],
     target_dte_bucket: str = "none",
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     normalized_decision = _normalize_decision(decision)
     if normalized_decision not in {"call", "put"}:
-        return None
+        return None, {}
 
     reference_stock_price = _get_reference_stock_price(market_context)
     target_otm_distance = _resolve_target_otm_distance(
@@ -1055,7 +1247,20 @@ def _pick_matching_contract_greeks(
     )
 
     if not matching_contracts:
-        return None
+        return (
+            None,
+            {
+                "selector_mode_requested": OPTION_SELECTOR_MODE,
+                "target_dte_bucket": target_dte_bucket,
+                "target_otm_distance": target_otm_distance,
+                "reference_stock_price": reference_stock_price,
+                "passed_short_swing_count": 0,
+                "rejected_short_swing_count": 0,
+                "rejected_short_swing_examples": [],
+                "candidate_pool_count": 0,
+                "selection_mode": "greeks_no_matching_contracts",
+            },
+        )
 
     passed_contracts: list[dict[str, Any]] = []
     rejected_contracts_debug: list[dict[str, Any]] = []
@@ -1071,13 +1276,12 @@ def _pick_matching_contract_greeks(
             passed_contracts.append(contract)
         else:
             rejected_contracts_debug.append(
-                {
-                    **_contract_debug_snapshot(
-                        contract,
-                        reference_stock_price=reference_stock_price,
-                    ),
-                    "rejection_reasons": reasons,
-                }
+                _debug_contract_with_reasons(
+                    contract,
+                    reference_stock_price=reference_stock_price,
+                    target_dte_bucket=target_dte_bucket,
+                    rejection_reasons=reasons,
+                )
             )
 
     if passed_contracts:
@@ -1092,16 +1296,33 @@ def _pick_matching_contract_greeks(
             )
         )
     elif ALLOW_RISKY_SIMPLE_FALLBACK:
-        fallback = _pick_matching_contract_simple(
+        fallback, fallback_debug = _pick_matching_contract_simple(
             decision=decision,
             option_contracts=option_contracts,
             market_context=market_context,
             target_dte_bucket=target_dte_bucket,
         )
         if fallback is None:
-            return None
+            return (
+                None,
+                {
+                    "selector_mode_requested": OPTION_SELECTOR_MODE,
+                    "target_dte_bucket": target_dte_bucket,
+                    "target_otm_distance": target_otm_distance,
+                    "reference_stock_price": reference_stock_price,
+                    "passed_short_swing_count": len(passed_contracts),
+                    "rejected_short_swing_count": len(rejected_contracts_debug),
+                    "rejected_short_swing_examples": rejected_contracts_debug[:10],
+                    "candidate_pool_count": 0,
+                    "selection_mode": "greeks_fallback_simple_no_candidate_pool",
+                    "fallback_used": True,
+                    "fallback_mode": "simple",
+                    "fallback_selector_debug": fallback_debug,
+                },
+            )
         fallback["_selection_mode"] = "greeks_fallback_to_simple"
         fallback["_selector_debug"] = {
+            **fallback_debug,
             "selector_mode_requested": OPTION_SELECTOR_MODE,
             "target_dte_bucket": target_dte_bucket,
             "target_otm_distance": target_otm_distance,
@@ -1111,6 +1332,7 @@ def _pick_matching_contract_greeks(
             "rejected_short_swing_examples": rejected_contracts_debug[:10],
             "fallback_used": True,
             "fallback_mode": "simple",
+            "fallback_selector_debug": fallback_debug,
             "selected_contract_snapshot": _contract_debug_snapshot(
                 fallback,
                 reference_stock_price=reference_stock_price,
@@ -1118,9 +1340,24 @@ def _pick_matching_contract_greeks(
                 target_dte_bucket=target_dte_bucket,
             ),
         }
-        return fallback
+        return fallback, dict(fallback["_selector_debug"])
     else:
-        return None
+        return (
+            None,
+            {
+                "selector_mode_requested": OPTION_SELECTOR_MODE,
+                "target_dte_bucket": target_dte_bucket,
+                "target_otm_distance": target_otm_distance,
+                "reference_stock_price": reference_stock_price,
+                "passed_short_swing_count": len(passed_contracts),
+                "rejected_short_swing_count": len(rejected_contracts_debug),
+                "rejected_short_swing_examples": rejected_contracts_debug[:10],
+                "candidate_pool_count": 0,
+                "selection_mode": "greeks_no_candidate_pool",
+                "fallback_used": False,
+                "fallback_mode": "",
+            },
+        )
 
     selected = dict(candidate_pool[0])
     selected["_selection_mode"] = selection_mode
@@ -1142,7 +1379,7 @@ def _pick_matching_contract_greeks(
         ),
     }
 
-    return selected
+    return selected, dict(selected["_selector_debug"])
 
 
 # =========================
@@ -1154,7 +1391,7 @@ def _pick_matching_contract(
     option_contracts: list[dict[str, Any]],
     market_context: dict[str, Any],
     target_dte_bucket: str = "none",
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     if OPTION_SELECTOR_MODE == "simple":
         return _pick_matching_contract_simple(
             decision=decision,
@@ -1227,7 +1464,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
     )
 
     if selection_allowed:
-        selected_option = _pick_matching_contract(
+        selected_option, selector_debug = _pick_matching_contract(
             decision=decision,
             option_contracts=option_contracts,
             market_context=market_context,
@@ -1236,12 +1473,14 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
 
         if selected_option is not None:
             selection_mode = str(selected_option.get("_selection_mode") or "")
-            selector_debug = dict(selected_option.get("_selector_debug") or {})
+            selector_debug = dict(selected_option.get("_selector_debug") or selector_debug)
             selected_option = {
                 k: v
                 for k, v in selected_option.items()
                 if k not in {"_selection_mode", "_selector_debug"}
             }
+        else:
+            selection_mode = str(selector_debug.get("selection_mode") or "")
 
         selected_option_source = (
             f"deterministic_{confidence}_confidence_{selection_mode}"
