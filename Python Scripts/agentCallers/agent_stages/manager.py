@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import json
 import logging
 import os
@@ -23,6 +23,7 @@ from agent_helpers.manager import (
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
     DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
     DEFAULT_SUMMARY_ARTICLE_LIMIT,
+    build_market_context,
     build_manager_input,
 )
 from _shared import Client, ask_llm_model, extract_json_value, get_model_client
@@ -560,6 +561,99 @@ def _map_time_horizon_to_target_dte_bucket(value: Any) -> str:
     return TIME_HORIZON_TO_DTE_BUCKET.get(time_horizon, "")
 
 
+def _target_dte_bucket_to_expiration_filters(
+    target_dte_bucket: Any,
+) -> tuple[str | None, str | None, str | None]:
+    normalized_bucket = _normalize_target_dte_bucket(target_dte_bucket)
+    bucket_ranges = {
+        "3_7": (3, 7),
+        "7_14": (7, 14),
+        "14_30": (14, 30),
+    }
+    day_range = bucket_ranges.get(normalized_bucket)
+    if day_range is None:
+        return None, None, None
+
+    today = date.today()
+    min_days, max_days = day_range
+    return (
+        None,
+        (today + timedelta(days=min_days)).isoformat(),
+        (today + timedelta(days=max_days)).isoformat(),
+    )
+
+
+def _refresh_market_context_for_target_dte_bucket(
+    *,
+    company: dict[str, Any],
+    market_context: dict[str, Any],
+    recommendation: dict[str, Any],
+    option_expiration_date: str | None,
+    option_expiration_date_gte: str | None,
+    option_expiration_date_lte: str | None,
+    option_strike_price_gte: float | None,
+    option_strike_price_lte: float | None,
+    option_contract_limit_per_type: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    decision = _normalize_decision(recommendation.get("decision"))
+    target_dte_bucket = _normalize_target_dte_bucket(recommendation.get("target_dte_bucket"))
+    explicit_expiration_filters_present = any(
+        value
+        for value in (
+            option_expiration_date,
+            option_expiration_date_gte,
+            option_expiration_date_lte,
+        )
+    )
+
+    refresh_debug = {
+        "bucket_upstream_refresh_attempted": False,
+        "bucket_upstream_refresh_applied": False,
+        "bucket_upstream_refresh_skipped_reason": "",
+        "bucket_upstream_refresh_filters": {},
+        "bucket_upstream_contract_count": int(
+            market_context.get("option_market", {}).get("contract_count") or 0
+        ),
+    }
+
+    if decision not in {"call", "put"}:
+        refresh_debug["bucket_upstream_refresh_skipped_reason"] = "decision_not_directional"
+        return market_context, refresh_debug
+
+    if not target_dte_bucket or target_dte_bucket == "none":
+        refresh_debug["bucket_upstream_refresh_skipped_reason"] = "target_dte_bucket_none"
+        return market_context, refresh_debug
+
+    if explicit_expiration_filters_present:
+        refresh_debug["bucket_upstream_refresh_skipped_reason"] = "explicit_expiration_filters_present"
+        return market_context, refresh_debug
+
+    translated_expiration_date, translated_expiration_date_gte, translated_expiration_date_lte = (
+        _target_dte_bucket_to_expiration_filters(target_dte_bucket)
+    )
+    refresh_debug["bucket_upstream_refresh_attempted"] = True
+    refresh_debug["bucket_upstream_refresh_filters"] = {
+        "expiration_date": translated_expiration_date or "",
+        "expiration_date_gte": translated_expiration_date_gte or "",
+        "expiration_date_lte": translated_expiration_date_lte or "",
+    }
+
+    refreshed_market_context = build_market_context(
+        company,
+        option_expiration_date=translated_expiration_date,
+        option_expiration_date_gte=translated_expiration_date_gte,
+        option_expiration_date_lte=translated_expiration_date_lte,
+        option_strike_price_gte=option_strike_price_gte,
+        option_strike_price_lte=option_strike_price_lte,
+        option_contract_limit_per_type=option_contract_limit_per_type,
+    )
+    refresh_debug["bucket_upstream_refresh_applied"] = True
+    refresh_debug["bucket_upstream_contract_count"] = int(
+        refreshed_market_context.get("option_market", {}).get("contract_count") or 0
+    )
+    return refreshed_market_context, refresh_debug
+
+
 def _normalize_option_id(value: Any) -> int | None:
     if value is None:
         return None
@@ -1015,12 +1109,30 @@ def decide_company_option_position(
             f"Raw response: {raw_response[:800]}"
         )
 
+    market_context, upstream_bucket_refresh_debug = _refresh_market_context_for_target_dte_bucket(
+        company=company,
+        market_context=market_context,
+        recommendation=recommendation,
+        option_expiration_date=option_expiration_date,
+        option_expiration_date_gte=option_expiration_date_gte,
+        option_expiration_date_lte=option_expiration_date_lte,
+        option_strike_price_gte=option_strike_price_gte,
+        option_strike_price_lte=option_strike_price_lte,
+        option_contract_limit_per_type=option_contract_limit_per_type,
+    )
+    option_contracts = market_context.get("option_market", {}).get("contracts", [])
+    context_snapshot = {
+        **context_snapshot,
+        "option_contract_count": len(option_contracts),
+    }
+
     recommendation = {
         **recommendation,
         "selection_debug": {
             "manager_module_path": __file__,
             "manager_stage_version": MANAGER_STAGE_VERSION,
             "option_contract_count": len(option_contracts),
+            **upstream_bucket_refresh_debug,
         },
     }
     selected_option = None
