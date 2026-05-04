@@ -117,11 +117,24 @@ def _summarize_selector_rejection_reasons(manager_result: dict[str, Any]) -> str
     selection_debug = recommendation.get("selection_debug", {})
     nested_selector_debug = selection_debug.get("selector_debug", {})
 
-    rejection_examples = []
-    for key in ("rejected_hybrid_examples", "rejected_short_swing_examples"):
-        value = nested_selector_debug.get(key, [])
-        if isinstance(value, list) and value:
-            rejection_examples.extend(value)
+    rejection_examples: list[dict[str, Any]] = []
+
+    def _collect_rejection_examples(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, nested_value in value.items():
+                if key.endswith("_examples") and isinstance(nested_value, list):
+                    for example in nested_value:
+                        if isinstance(example, dict) and isinstance(
+                            example.get("rejection_reasons"), list
+                        ):
+                            rejection_examples.append(example)
+                else:
+                    _collect_rejection_examples(nested_value)
+        elif isinstance(value, list):
+            for item in value:
+                _collect_rejection_examples(item)
+
+    _collect_rejection_examples(nested_selector_debug)
 
     if not rejection_examples:
         selection_mode = str(selection_debug.get("selection_mode") or "").strip()
