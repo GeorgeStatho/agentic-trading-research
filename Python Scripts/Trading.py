@@ -35,6 +35,42 @@ DEFAULT_OPTION_STOP_LOSS_PCT = float(
 DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION = float(
     os.getenv("OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION", "24")
 )
+
+
+def _load_env_float(name: str, default: float) -> float:
+    raw_value = str(os.getenv(name, str(default))).strip()
+    try:
+        return float(raw_value)
+    except ValueError:
+        return float(default)
+
+
+OPTION_EXIT_DTE_RULES = (
+    {
+        "label": "3-7 DTE",
+        "min_days_to_expiration": 3,
+        "max_days_to_expiration": 7,
+        "take_profit_pct": _load_env_float("OPTION_POSITION_3_7_DTE_TAKE_PROFIT_PCT", 30.0),
+        "stop_loss_pct": _load_env_float("OPTION_POSITION_3_7_DTE_STOP_LOSS_PCT", -22.0),
+        "force_exit_days_to_expiration": 1,
+    },
+    {
+        "label": "7-14 DTE",
+        "min_days_to_expiration": 7,
+        "max_days_to_expiration": 14,
+        "take_profit_pct": _load_env_float("OPTION_POSITION_7_14_DTE_TAKE_PROFIT_PCT", 40.0),
+        "stop_loss_pct": _load_env_float("OPTION_POSITION_7_14_DTE_STOP_LOSS_PCT", -28.0),
+        "force_exit_days_to_expiration": 3,
+    },
+    {
+        "label": "14-30 DTE",
+        "min_days_to_expiration": 14,
+        "max_days_to_expiration": 30,
+        "take_profit_pct": _load_env_float("OPTION_POSITION_14_30_DTE_TAKE_PROFIT_PCT", 60.0),
+        "stop_loss_pct": _load_env_float("OPTION_POSITION_14_30_DTE_STOP_LOSS_PCT", -35.0),
+        "force_exit_days_to_expiration": 7,
+    },
+)
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
 OPTION_EXPIRATION_MARKET_CLOSE_HOUR = 16
 
@@ -50,6 +86,39 @@ def IntializeTradingClient(api_key: str, secret: str, paper: bool) -> TradingCli
 trading_client = IntializeTradingClient(API_KEY, API_SECRET_KEY, ALPACA_PAPER)
 option_history_client = OptionHistoricalDataClient(API_KEY, API_SECRET_KEY)
 stock_history_client = StockHistoricalDataClient(API_KEY, API_SECRET_KEY)
+
+
+def GetAccountDiagnostics(
+    *,
+    trading_client_override: TradingClient | None = None,
+    echo: bool = True,
+) -> dict[str, Any]:
+    active_trading_client = trading_client_override or trading_client
+    account = active_trading_client.get_account()
+
+    diagnostics = {
+        "account_number": str(getattr(account, "account_number", "") or ""),
+        "status": str(getattr(account, "status", "") or ""),
+        "buying_power": _safe_float(getattr(account, "buying_power", None)),
+        "options_buying_power": _safe_float(getattr(account, "options_buying_power", None)),
+        "cash": _safe_float(getattr(account, "cash", None)),
+        "equity": _safe_float(getattr(account, "equity", None)),
+        "portfolio_value": _safe_float(getattr(account, "portfolio_value", None)),
+        "daytrading_buying_power": _safe_float(getattr(account, "daytrading_buying_power", None)),
+        "regt_buying_power": _safe_float(getattr(account, "regt_buying_power", None)),
+        "trading_blocked": getattr(account, "trading_blocked", None),
+        "account_blocked": getattr(account, "account_blocked", None),
+        "shorting_enabled": getattr(account, "shorting_enabled", None),
+        "options_approved_level": getattr(account, "options_approved_level", None),
+        "options_trading_level": getattr(account, "options_trading_level", None),
+        "paper": ALPACA_PAPER,
+    }
+
+    if echo:
+        for key, value in diagnostics.items():
+            print(f"{key}: {value}")
+
+    return diagnostics
 
 
 def _safe_float(value: Any) -> float | None:
@@ -210,7 +279,7 @@ def _days_to_expiration(expiration_date_text: str | None) -> int | None:
     except ValueError:
         return None
 
-    return (expiration_date - date.today()).days
+    return (expiration_date - datetime.now(MARKET_TIMEZONE).date()).days
 
 
 def _hours_to_expiration(expiration_date_text: str | None) -> float | None:
@@ -231,6 +300,38 @@ def _hours_to_expiration(expiration_date_text: str | None) -> float | None:
     )
     now = datetime.now(MARKET_TIMEZONE)
     return round((expiration_close - now).total_seconds() / 3600.0, 4)
+
+
+def _resolve_option_exit_thresholds(
+    *,
+    days_to_expiration: int | None,
+    default_take_profit_pct: float,
+    default_stop_loss_pct: float,
+    default_exit_hours_to_expiration: float,
+) -> dict[str, Any]:
+    if days_to_expiration is not None:
+        for rule in OPTION_EXIT_DTE_RULES:
+            min_days_to_expiration = int(rule["min_days_to_expiration"])
+            max_days_to_expiration = int(rule["max_days_to_expiration"])
+            if min_days_to_expiration <= days_to_expiration <= max_days_to_expiration:
+                force_exit_days_to_expiration = int(rule["force_exit_days_to_expiration"])
+                return {
+                    "dte_rule_label": str(rule["label"]),
+                    "take_profit_pct": float(rule["take_profit_pct"]),
+                    "stop_loss_pct": float(rule["stop_loss_pct"]),
+                    "force_exit_days_to_expiration": force_exit_days_to_expiration,
+                    "exit_hours_to_expiration": float(force_exit_days_to_expiration * 24),
+                    "is_default_rule": False,
+                }
+
+    return {
+        "dte_rule_label": "default",
+        "take_profit_pct": default_take_profit_pct,
+        "stop_loss_pct": default_stop_loss_pct,
+        "force_exit_days_to_expiration": None,
+        "exit_hours_to_expiration": default_exit_hours_to_expiration,
+        "is_default_rule": True,
+    }
 
 
 def _is_option_position_symbol(symbol: str, company: str | None = None) -> bool:
@@ -292,12 +393,18 @@ def _build_option_position_snapshot(
     days_to_expiration = _days_to_expiration(expiration_date_text)
     hours_to_expiration = _hours_to_expiration(expiration_date_text)
     unrealized_pl_pct = _normalize_unrealized_pl_pct(position, entry_price, mid_price)
+    exit_thresholds = _resolve_option_exit_thresholds(
+        days_to_expiration=days_to_expiration,
+        default_take_profit_pct=take_profit_pct,
+        default_stop_loss_pct=stop_loss_pct,
+        default_exit_hours_to_expiration=exit_hours_to_expiration,
+    )
     decision, decision_reasons = _deterministic_option_exit_decision(
         unrealized_pl_pct=unrealized_pl_pct,
         hours_to_expiration=hours_to_expiration,
-        take_profit_pct=take_profit_pct,
-        stop_loss_pct=stop_loss_pct,
-        exit_hours_to_expiration=exit_hours_to_expiration,
+        take_profit_pct=exit_thresholds["take_profit_pct"],
+        stop_loss_pct=exit_thresholds["stop_loss_pct"],
+        exit_hours_to_expiration=exit_thresholds["exit_hours_to_expiration"],
     )
 
     quote_errors = [error for error in (option_quote.get("error"), stock_quote.get("error")) if error]
@@ -316,6 +423,12 @@ def _build_option_position_snapshot(
         "unrealized_pl_pct": unrealized_pl_pct,
         "days_to_expiration": days_to_expiration,
         "hours_to_expiration": hours_to_expiration,
+        "dte_exit_rule": exit_thresholds["dte_rule_label"],
+        "take_profit_pct": exit_thresholds["take_profit_pct"],
+        "stop_loss_pct": exit_thresholds["stop_loss_pct"],
+        "force_exit_days_to_expiration": exit_thresholds["force_exit_days_to_expiration"],
+        "exit_hours_to_expiration": exit_thresholds["exit_hours_to_expiration"],
+        "uses_default_exit_thresholds": exit_thresholds["is_default_rule"],
         "underlying_stock_price": stock_quote.get("price"),
         "decision": decision,
         "decision_reasons": decision_reasons,
@@ -506,6 +619,7 @@ def ManageCurrentOptionPositions(
         "evaluated_at": datetime.now().isoformat(),
         "company_filter": str(company or "").strip().upper(),
         "execute_sales": execute_sales,
+        "uses_dte_based_exit_thresholds": True,
         "take_profit_pct": take_profit_pct,
         "stop_loss_pct": stop_loss_pct,
         "exit_hours_to_expiration": exit_hours_to_expiration,
@@ -529,4 +643,4 @@ def GetCallOptionsForCompany(company: str):
 
 
 if __name__ == "__main__":
-    print(GetCallOptionsForCompany("AAPL"))
+    GetAccountDiagnostics()
