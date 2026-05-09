@@ -22,6 +22,7 @@ React dashboard (web_dashboard)
 Flask API (api.py)
         |
         +--> Alpaca portfolio history
+        +--> SQLite-backed executed trade journal
         +--> shared runtime JSON
         |
         v
@@ -69,8 +70,9 @@ The implemented flow is roughly:
 5. `worker` applies deterministic option-contract selection
 6. `worker` skips fresh option entries on Fridays in `America/New_York` market time
 7. `worker` submits option market orders through Alpaca when conditions allow
-8. `option_manager` monitors open option positions and can close them using DTE-aware exit thresholds
-9. the runtime writes outputs and logs for the dashboard and monitoring
+8. successful live option submissions are recorded into SQLite for durable trade history
+9. `option_manager` monitors open option positions and can close them using DTE-aware exit thresholds
+10. the runtime writes outputs and logs for the dashboard and monitoring
 
 The worker entrypoint is [Python Scripts/main.py](Python%20Scripts/main.py), the dedicated position-manager entrypoint is [Python Scripts/option_manager_main.py](Python%20Scripts/option_manager_main.py), the news refresh entrypoint is [Python Scripts/news_collector_main.py](Python%20Scripts/news_collector_main.py), and the orchestrated agent stack lives under [Python Scripts/agentCallers](Python%20Scripts/agentCallers).
 
@@ -81,7 +83,7 @@ The dashboard lives in [web_dashboard](web_dashboard) and currently shows:
 - script status (`running`, `paused`, `error`, `down`)
 - combined worker + option-manager status via the API
 - portfolio-history graph from `/api/portfolio-history`
-- trade execution cards from `/api/trade-execution-output`
+- executed trade cards from the SQLite-backed `/api/executed-trades` endpoint
 - option position management output from the dedicated option manager
 
 The main frontend files are:
@@ -177,12 +179,18 @@ The Flask service in [api.py](api.py) exposes:
 - `GET /api/portfolio-history`
 - `GET /api/script-status`
 - `GET /api/trade-execution-output`
+- `GET /api/executed-trades`
 
 These are intended for the dashboard and internal monitoring.
 
 ## Runtime Outputs
 
-The worker currently writes shared JSON outputs used by the dashboard:
+The runtime currently persists trade data in two ways:
+
+- SQLite table `option_trade_executions` for durable executed-trade history used by `/api/executed-trades`
+- shared JSON outputs for compatibility and dashboard/runtime state
+
+The shared JSON outputs currently written are:
 
 - `script_status.json`
 - `option_manager_status.json`
@@ -202,7 +210,10 @@ During Docker runs, the main shared runtime paths are:
 - [Python Scripts/main.py](Python%20Scripts/main.py): front-facing worker loop
 - [Python Scripts/option_manager_main.py](Python%20Scripts/option_manager_main.py): dedicated option-position management loop
 - [Python Scripts/services/front_main_application.py](Python%20Scripts/services/front_main_application.py): scheduled worker loop, Friday entry guard, and position-management orchestration
+- [Python Scripts/services/trade_journal.py](Python%20Scripts/services/trade_journal.py): records successful live option submissions into SQLite
 - [Python Scripts/trading_support](Python%20Scripts/trading_support): split trading helpers for client setup, account diagnostics, option management, and stock/order helpers
+- [Data/market_schema.sql](Data/market_schema.sql): market-side SQLite schema, including the executed-trade journal table
+- [Data/market_db.py](Data/market_db.py): market-side DB writes and executed-trade query helpers
 - [Python Scripts/news_collector_main.py](Python%20Scripts/news_collector_main.py): scrape/classification refresh loop
 - [Python Scripts/agentCallers/main.py](Python%20Scripts/agentCallers/main.py): agent-stack orchestration
 - [Python Scripts/agentCallers/agent_stages/strategist.py](Python%20Scripts/agentCallers/agent_stages/strategist.py): buy/do-not-buy stage
@@ -219,6 +230,7 @@ What is already in place:
 - React monitoring dashboard
 - Alpaca-backed portfolio history API
 - status heartbeat and trade execution outputs
+- SQLite-backed executed trade journal plus `/api/executed-trades`
 - option position management output and option-manager status reporting
 - Friday block for new option entries in the worker pipeline
 - refactored trading helpers under `Python Scripts/trading_support`
