@@ -29,7 +29,7 @@ for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
         sys.path.append(normalized)
 
 from agent_pipeline.main import get_current_pipeline_targets
-from db_helpers import DB_PATH, get_connection
+from db_helpers import DB_PATH, get_connection, initialize_market_database, list_option_trade_executions
 
 SCRIPT_STATUS_PATH = Path(
     os.getenv("SCRIPT_STATUS_PATH", str(ROOT_DIR / "web_dashboard" / "public" / "script_status.json"))
@@ -134,6 +134,16 @@ def _trim_text(value: str | None, limit: int) -> str:
     if len(normalized) <= limit:
         return normalized
     return f"{normalized[: max(0, limit - 1)].rstrip()}..."
+
+
+def _safe_json_loads(value: str | None) -> Any:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
 
 
 def _internal_error(message: str, exc: Exception):
@@ -1579,6 +1589,61 @@ def read_json_file(path: Path) -> tuple[dict, int]:
         return _internal_error(f"Failed to read {path.name}.", exc)
 
 
+def _build_executed_trades_payload(
+    *,
+    underlying_symbol: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    initialize_market_database(db_path=DB_PATH)
+    rows = list_option_trade_executions(
+        underlying_symbol=underlying_symbol,
+        limit=limit,
+        db_path=DB_PATH,
+    )
+
+    trades: list[dict[str, Any]] = []
+    for row in rows:
+        raw_execution = _safe_json_loads(row["raw_json"])
+        trades.append(
+            {
+                "id": row["id"],
+                "company_id": row["company_id"],
+                "order_id": row["order_id"],
+                "underlying_symbol": row["underlying_symbol"],
+                "company_name": row["company_name"],
+                "option_symbol": row["option_symbol"],
+                "decision": row["decision"],
+                "confidence": row["confidence"],
+                "selected_option_id": row["selected_option_id"],
+                "selected_option_source": row["selected_option_source"],
+                "expiration_date": row["expiration_date"],
+                "strike_price": row["strike_price"],
+                "order_qty": row["order_qty"],
+                "estimated_order_cost": row["estimated_order_cost"],
+                "available_buying_power": row["available_buying_power"],
+                "max_deployable_buying_power": row["max_deployable_buying_power"],
+                "remaining_deployable_buying_power": row["remaining_deployable_buying_power"],
+                "paper": bool(row["paper"]),
+                "order_status": row["order_status"],
+                "order_side": row["order_side"],
+                "order_type": row["order_type"],
+                "time_in_force": row["time_in_force"],
+                "submitted_at": row["submitted_at"],
+                "recorded_at": row["recorded_at"],
+                "execution": raw_execution if isinstance(raw_execution, dict) else None,
+            }
+        )
+
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "db_path": str(DB_PATH),
+        "underlying_symbol": str(underlying_symbol or "").strip().upper(),
+        "limit": max(1, int(limit)),
+        "count": len(trades),
+        "trades": trades,
+    }
+
+
 @app.get("/api/script-status")
 def script_status():
     return read_json_file(SCRIPT_STATUS_PATH)
@@ -1587,6 +1652,21 @@ def script_status():
 @app.get("/api/trade-execution-output")
 def trade_execution_output():
     return read_json_file(TRADE_EXECUTION_OUTPUT_PATH)
+
+
+@app.get("/api/executed-trades")
+def executed_trades():
+    try:
+        underlying_symbol = request.args.get("symbol")
+        limit = _safe_int(request.args.get("limit"), 100, maximum=500)
+        return jsonify(
+            _build_executed_trades_payload(
+                underlying_symbol=underlying_symbol,
+                limit=limit,
+            )
+        ), 200
+    except Exception as exc:
+        return _internal_error("Failed to load executed trades from SQLite.", exc)
 
 
 @app.get("/api/dashboard-kpis")

@@ -5,6 +5,7 @@ from db_helpers.market import (
     ensure_sector_market_data,
     initialize_market_database,
     list_companies_by_industry,
+    list_option_trade_executions,
     load_sector_tree,
     load_sector_tree_from_json,
 )

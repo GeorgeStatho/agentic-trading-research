@@ -9,9 +9,11 @@ from market_db import (
     list_companies_by_industry,
     list_company_price_snapshots,
     list_industry_company_rankings,
+    list_option_trade_executions,
     load_sector_definitions_from_json,
     load_sector_tree,
     load_sector_tree_from_json,
+    record_option_trade_execution,
 )
 
 

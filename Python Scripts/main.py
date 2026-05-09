@@ -36,6 +36,7 @@ from services.io_utils import JsonFileWriter, StatusReporter
 from services.logging_utils import _build_log_path, _configure_logging
 from services.order_candidates import OrderCandidateBuilder
 from services.position_manager import OptionPositionManagerService
+from services.trade_journal import OptionTradeJournal
 from services.trade_executor import OptionExposureSnapshot, OptionTradeExecutor, TradeExecutionSession
 from services.trading_gateway import AlpacaTradingGateway
 from services.trading_gateway import TradingClient
@@ -50,9 +51,14 @@ TRADING_GATEWAY = AlpacaTradingGateway(paper=APP_SETTINGS.alpaca_paper, logger=L
 ORDER_CANDIDATE_BUILDER = OrderCandidateBuilder(
     execute_medium_confidence_trades=APP_SETTINGS.execute_medium_confidence_trades
 )
+TRADE_JOURNAL = OptionTradeJournal(
+    paper=APP_SETTINGS.alpaca_paper,
+    logger=LOGGER,
+)
 TRADE_EXECUTOR = OptionTradeExecutor(
     settings=APP_SETTINGS,
     trading_gateway=TRADING_GATEWAY,
+    trade_journal=TRADE_JOURNAL,
     logger=LOGGER,
 )
 POSITION_MANAGER = OptionPositionManagerService(

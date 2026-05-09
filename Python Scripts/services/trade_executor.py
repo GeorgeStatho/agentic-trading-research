@@ -49,10 +49,12 @@ class OptionTradeExecutor:
         *,
         settings: FrontMainSettings,
         trading_gateway: Any,
+        trade_journal: Any | None = None,
         logger: logging.Logger,
     ) -> None:
         self._settings = settings
         self._trading_gateway = trading_gateway
+        self._trade_journal = trade_journal
         self._logger = logger
 
     def _get_option_reference_price(self, selected_option: dict[str, Any]) -> float:
@@ -264,6 +266,19 @@ class OptionTradeExecutor:
                 estimated_order_cost=estimated_order_cost,
                 error="",
             )
+            if self._trade_journal is not None:
+                try:
+                    record_id = self._trade_journal.record_execution(execution)
+                    execution["db_recorded"] = record_id is not None
+                    execution["db_record_id"] = record_id
+                except Exception as exc:
+                    self._logger.exception(
+                        "Failed to record executed option trade in DB for %s: %s",
+                        option_symbol,
+                        exc,
+                    )
+                    execution["db_recorded"] = False
+                    execution["db_record_error"] = str(exc)
         except Exception as exc:
             self._logger.exception("Failed to submit option order for %s: %s", option_symbol, exc)
             execution = self._build_execution(
