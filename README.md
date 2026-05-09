@@ -193,7 +193,7 @@ http://localhost
 Public HTTPS deployment target:
 
 ```text
-https://dashboard.huvle.org/#/company-news
+https://dashboard.huvle.org/#/dashboard
 ```
 
 ## Vertex AI Authentication
