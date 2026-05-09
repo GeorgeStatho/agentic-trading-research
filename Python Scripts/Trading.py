@@ -310,7 +310,9 @@ def _resolve_option_exit_thresholds(
     default_exit_hours_to_expiration: float,
 ) -> dict[str, Any]:
     if days_to_expiration is not None:
-        for rule in OPTION_EXIT_DTE_RULES:
+        # Match higher DTE buckets first so boundary days resolve to the later range:
+        # 7 DTE -> 7-14, 14 DTE -> 14-30.
+        for rule in reversed(OPTION_EXIT_DTE_RULES):
             min_days_to_expiration = int(rule["min_days_to_expiration"])
             max_days_to_expiration = int(rule["max_days_to_expiration"])
             if min_days_to_expiration <= days_to_expiration <= max_days_to_expiration:
