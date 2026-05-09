@@ -4,6 +4,7 @@ LLM-driven agentic options trading system with deterministic execution and real-
 Includes:
 
 - a Python worker that runs the research and execution loop
+- a dedicated option manager that monitors and closes existing option positions
 - a Flask API that exposes portfolio history, trade output, and script status
 - a React dashboard for monitoring the system
 - a model layer that can use either Vertex AI or Ollama
@@ -29,7 +30,14 @@ Python worker (Python Scripts/main.py)
         +--> strategist stage
         +--> manager stage
         +--> deterministic option selection
+        +--> Friday entry guard for new option buys
         +--> Alpaca paper-trade execution
+        |
+        v
+Dedicated option manager (Python Scripts/option_manager_main.py)
+        |
+        +--> DTE-aware option position management
+        +--> deterministic exits / auto-close rules
         |
         v
 Persisted market/news DB state
@@ -46,6 +54,7 @@ Docker Compose currently runs:
 - `web`: nginx + built React frontend
 - `api`: Flask API
 - `worker`: long-running strategist/manager/trading loop using existing DB data
+- `option_manager`: long-running existing-position management loop for options
 - `news_collector`: long-running scrape/classification refresh loop
 - `ollama`: optional profile only, for local fallback
 
@@ -58,18 +67,22 @@ The implemented flow is roughly:
 3. `worker` runs the strategist stage to decide `buy` vs `do_not_buy`
 4. `worker` runs the manager stage to decide `call`, `put`, or `neither`
 5. `worker` applies deterministic option-contract selection
-6. `worker` submits option market orders through Alpaca when conditions allow
-7. the runtime writes outputs and logs for the dashboard and monitoring
+6. `worker` skips fresh option entries on Fridays in `America/New_York` market time
+7. `worker` submits option market orders through Alpaca when conditions allow
+8. `option_manager` monitors open option positions and can close them using DTE-aware exit thresholds
+9. the runtime writes outputs and logs for the dashboard and monitoring
 
-The worker entrypoint is [Python Scripts/main.py](Python%20Scripts/main.py), the news refresh entrypoint is [Python Scripts/news_collector_main.py](Python%20Scripts/news_collector_main.py), and the orchestrated agent stack lives under [Python Scripts/agentCallers](Python%20Scripts/agentCallers).
+The worker entrypoint is [Python Scripts/main.py](Python%20Scripts/main.py), the dedicated position-manager entrypoint is [Python Scripts/option_manager_main.py](Python%20Scripts/option_manager_main.py), the news refresh entrypoint is [Python Scripts/news_collector_main.py](Python%20Scripts/news_collector_main.py), and the orchestrated agent stack lives under [Python Scripts/agentCallers](Python%20Scripts/agentCallers).
 
 ## Dashboard
 
 The dashboard lives in [web_dashboard](web_dashboard) and currently shows:
 
 - script status (`running`, `paused`, `error`, `down`)
+- combined worker + option-manager status via the API
 - portfolio-history graph from `/api/portfolio-history`
 - trade execution cards from `/api/trade-execution-output`
+- option position management output from the dedicated option manager
 
 The main frontend files are:
 
@@ -172,17 +185,24 @@ These are intended for the dashboard and internal monitoring.
 The worker currently writes shared JSON outputs used by the dashboard:
 
 - `script_status.json`
+- `option_manager_status.json`
 - `trade_execution_output.json`
 - `selected_options_output.json`
+- `option_position_management_output.json`
 
 During Docker runs, the main shared runtime paths are:
 
 - `/shared/script_status.json`
+- `/shared/option_manager_status.json`
 - `/shared/trade_execution_output.json`
+- `/shared/option_position_management_output.json`
 
 ## Important Files
 
 - [Python Scripts/main.py](Python%20Scripts/main.py): front-facing worker loop
+- [Python Scripts/option_manager_main.py](Python%20Scripts/option_manager_main.py): dedicated option-position management loop
+- [Python Scripts/services/front_main_application.py](Python%20Scripts/services/front_main_application.py): scheduled worker loop, Friday entry guard, and position-management orchestration
+- [Python Scripts/trading_support](Python%20Scripts/trading_support): split trading helpers for client setup, account diagnostics, option management, and stock/order helpers
 - [Python Scripts/news_collector_main.py](Python%20Scripts/news_collector_main.py): scrape/classification refresh loop
 - [Python Scripts/agentCallers/main.py](Python%20Scripts/agentCallers/main.py): agent-stack orchestration
 - [Python Scripts/agentCallers/agent_stages/strategist.py](Python%20Scripts/agentCallers/agent_stages/strategist.py): buy/do-not-buy stage
@@ -195,9 +215,13 @@ During Docker runs, the main shared runtime paths are:
 What is already in place:
 
 - Dockerized `web` / `api` / `worker` / `news_collector` stack
+- dedicated `option_manager` runtime for existing position supervision
 - React monitoring dashboard
 - Alpaca-backed portfolio history API
 - status heartbeat and trade execution outputs
+- option position management output and option-manager status reporting
+- Friday block for new option entries in the worker pipeline
+- refactored trading helpers under `Python Scripts/trading_support`
 - provider abstraction for Vertex AI vs Ollama
 - first-stage Vertex migration
 
