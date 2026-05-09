@@ -99,6 +99,34 @@ def _safe_float(value):
         return None
 
 
+def _load_env_float(name: str, default: float) -> float:
+    value = _safe_float(os.getenv(name))
+    return float(default if value is None else value)
+
+
+def _load_dte_exit_rule_configs() -> list[dict]:
+    return [
+        {
+            "label": "3-7 DTE",
+            "take_profit_pct": _load_env_float("OPTION_POSITION_3_7_DTE_TAKE_PROFIT_PCT", 30.0),
+            "stop_loss_pct": _load_env_float("OPTION_POSITION_3_7_DTE_STOP_LOSS_PCT", -22.0),
+            "force_exit_days_to_expiration": 1,
+        },
+        {
+            "label": "7-14 DTE",
+            "take_profit_pct": _load_env_float("OPTION_POSITION_7_14_DTE_TAKE_PROFIT_PCT", 40.0),
+            "stop_loss_pct": _load_env_float("OPTION_POSITION_7_14_DTE_STOP_LOSS_PCT", -28.0),
+            "force_exit_days_to_expiration": 3,
+        },
+        {
+            "label": "14-30 DTE",
+            "take_profit_pct": _load_env_float("OPTION_POSITION_14_30_DTE_TAKE_PROFIT_PCT", 60.0),
+            "stop_loss_pct": _load_env_float("OPTION_POSITION_14_30_DTE_STOP_LOSS_PCT", -35.0),
+            "force_exit_days_to_expiration": 7,
+        },
+    ]
+
+
 def _trim_text(value: str | None, limit: int) -> str:
     normalized = " ".join(str(value or "").split()).strip()
     if not normalized:
@@ -508,10 +536,16 @@ def _format_exit_rule_status(position_summary: dict, management_payload: dict) -
         return "Near expiration"
 
     unrealized_pl_pct = _safe_float(position_summary.get("unrealized_pl_pct"))
-    stop_loss_pct = _safe_float(management_payload.get("stop_loss_pct"))
-    take_profit_pct = _safe_float(management_payload.get("take_profit_pct"))
+    stop_loss_pct = _safe_float(position_summary.get("stop_loss_pct"))
+    if stop_loss_pct is None:
+        stop_loss_pct = _safe_float(management_payload.get("stop_loss_pct"))
+    take_profit_pct = _safe_float(position_summary.get("take_profit_pct"))
+    if take_profit_pct is None:
+        take_profit_pct = _safe_float(management_payload.get("take_profit_pct"))
     hours_to_expiration = _safe_float(position_summary.get("hours_to_expiration"))
-    exit_hours = _safe_float(management_payload.get("exit_hours_to_expiration"))
+    exit_hours = _safe_float(position_summary.get("exit_hours_to_expiration"))
+    if exit_hours is None:
+        exit_hours = _safe_float(management_payload.get("exit_hours_to_expiration"))
 
     if (
         unrealized_pl_pct is not None
@@ -788,6 +822,25 @@ def _build_risk_controls_payload() -> dict:
         (MAX_DEPLOYABLE_BUYING_POWER_PCT * PER_ORDER_SIZING_BUYING_POWER_PCT) / 100.0,
         2,
     )
+    dte_rule_configs = _load_dte_exit_rule_configs()
+    take_profit_rule_summary = ", ".join(
+        f"{rule['label']}: +{rule['take_profit_pct']:.0f}%"
+        for rule in dte_rule_configs
+    )
+    stop_loss_rule_summary = ", ".join(
+        f"{rule['label']}: {rule['stop_loss_pct']:.0f}%"
+        for rule in dte_rule_configs
+    )
+    expiration_rule_summary = ", ".join(
+        f"{rule['label']}: <={rule['force_exit_days_to_expiration']} DTE"
+        for rule in dte_rule_configs
+    )
+    fallback_threshold_detail = (
+        "Positions outside those DTE buckets fall back to the legacy defaults "
+        f"({take_profit_pct:.0f}% TP / {stop_loss_pct:.0f}% SL / {expiration_exit_hours:.0f}h expiration exit)."
+        if take_profit_pct is not None and stop_loss_pct is not None and expiration_exit_hours is not None
+        else "Positions outside those DTE buckets fall back to the legacy default thresholds when configured."
+    )
 
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
@@ -824,25 +877,30 @@ def _build_risk_controls_payload() -> dict:
             },
             {
                 "label": "Stop-loss rule",
-                "value": f"{stop_loss_pct:.0f}% P/L" if stop_loss_pct is not None else "Not configured",
-                "detail": "Open option positions are flagged for exit once unrealized P/L falls through the configured stop-loss floor.",
-                "status": "configured" if stop_loss_pct is not None else "missing",
+                "value": stop_loss_rule_summary,
+                "detail": (
+                    "Open option positions use DTE-specific stop-loss floors. "
+                    + fallback_threshold_detail
+                ),
+                "status": "configured",
             },
             {
                 "label": "Take-profit rule",
-                "value": f"{take_profit_pct:.0f}% P/L" if take_profit_pct is not None else "Not configured",
-                "detail": "Open option positions are flagged for exit once unrealized P/L reaches the configured take-profit target.",
-                "status": "configured" if take_profit_pct is not None else "missing",
+                "value": take_profit_rule_summary,
+                "detail": (
+                    "Open option positions use DTE-specific take-profit targets. "
+                    + fallback_threshold_detail
+                ),
+                "status": "configured",
             },
             {
                 "label": "Expiration exit rule",
-                "value": (
-                    f"{expiration_exit_hours:.0f} hours to expiration"
-                    if expiration_exit_hours is not None
-                    else "Not configured"
+                "value": expiration_rule_summary,
+                "detail": (
+                    "The option manager uses DTE-specific forced exits before expiration. "
+                    + fallback_threshold_detail
                 ),
-                "detail": "The option manager exits contracts once they are at or inside the configured hours-to-expiration threshold.",
-                "status": "configured" if expiration_exit_hours is not None else "missing",
+                "status": "configured",
             },
         ],
     }
