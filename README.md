@@ -193,7 +193,7 @@ http://localhost
 Public HTTPS deployment target:
 
 ```text
-https://dashboard.example.com/#/company-news
+https://dashboard.example.com/#/dashboard
 ```
 
 ## Vertex AI Authentication

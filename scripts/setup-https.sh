@@ -47,4 +47,4 @@ docker compose up -d
 
 echo "Done."
 echo "Your dashboard should be available at:"
-echo "https://$DOMAIN/#/company-news"
+echo "https://$DOMAIN/#/dashboard"
