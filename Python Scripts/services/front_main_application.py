@@ -5,6 +5,7 @@ import logging
 import time
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from agentCallers.main import run_full_agent_stack_from_existing_data
 from services.cold_start import ColdStartSanityChecker
@@ -14,6 +15,10 @@ from services.order_candidates import OrderCandidateBuilder
 from services.position_manager import OptionPositionManagerService
 from services.trade_executor import OptionExposureSnapshot, OptionTradeExecutor
 from services.trading_gateway import TradingClient
+
+
+MARKET_TIMEZONE = ZoneInfo("America/New_York")
+FRIDAY_WEEKDAY = 4
 
 
 class FrontMainApplication:
@@ -62,6 +67,20 @@ class FrontMainApplication:
             f"({exposure_snapshot.current_option_exposure:.2f}) is at or above the configured "
             f"MAX_DEPLOYABLE_BUYING_POWER_PCT cap ({exposure_snapshot.max_deployable_buying_power:.2f}, "
             f"{self._settings.max_deployable_buying_power_pct:.2f}% of account buying power)."
+        )
+
+    @staticmethod
+    def _market_now() -> datetime:
+        return datetime.now(MARKET_TIMEZONE)
+
+    def _is_friday_entry_block(self) -> bool:
+        return self._market_now().weekday() == FRIDAY_WEEKDAY
+
+    def _build_friday_entry_skip_message(self) -> str:
+        market_now = self._market_now()
+        return (
+            "Skipping trading cycle because new option entries are disabled on Fridays "
+            f"({market_now.date().isoformat()} America/New_York)."
         )
 
     def _persist_trading_cycle_outputs(
@@ -141,6 +160,60 @@ class FrontMainApplication:
         )
         return combined_result
 
+    def _skip_trading_cycle_for_friday(
+        self,
+        *,
+        exposure_snapshot: OptionExposureSnapshot,
+    ) -> dict[str, Any]:
+        skip_reason = self._build_friday_entry_skip_message()
+        self._logger.info(skip_reason)
+
+        agent_result = {
+            "skipped": True,
+            "skip_reason": skip_reason,
+            "selected_options": {
+                "selected_option_count": 0,
+                "companies": [],
+            },
+        }
+        trade_result = {
+            "ran_at": self._market_now().isoformat(),
+            "paper": self._settings.alpaca_paper,
+            "order_qty": self._settings.default_option_order_qty,
+            "available_buying_power": exposure_snapshot.available_buying_power,
+            "max_deployable_buying_power": exposure_snapshot.max_deployable_buying_power,
+            "remaining_deployable_buying_power": exposure_snapshot.remaining_deployable_buying_power,
+            "current_option_exposure": exposure_snapshot.current_option_exposure,
+            "option_position_count": exposure_snapshot.option_position_count,
+            "submitted_count": 0,
+            "candidate_count": 0,
+            "executions": [],
+            "skipped": True,
+            "error": skip_reason,
+        }
+        combined_result = self._build_combined_result(
+            agent_result=agent_result,
+            trade_result=trade_result,
+            skipped=True,
+        )
+
+        self._status_reporter.write(
+            "paused",
+            "Skipping trading cycle because Friday entry block is active",
+            current_option_exposure=exposure_snapshot.current_option_exposure,
+            option_position_count=exposure_snapshot.option_position_count,
+            max_deployable_buying_power=exposure_snapshot.max_deployable_buying_power,
+            remaining_deployable_buying_power=exposure_snapshot.remaining_deployable_buying_power,
+            market_date=self._market_now().date().isoformat(),
+            market_timezone="America/New_York",
+        )
+        self._persist_trading_cycle_outputs(
+            agent_result=agent_result,
+            trade_result=trade_result,
+            combined_result=combined_result,
+        )
+        return combined_result
+
     def run_trading_cycle(
         self,
         trading_client: TradingClient | None = None,
@@ -150,6 +223,8 @@ class FrontMainApplication:
         """Run one end-to-end agent + trading cycle."""
         trading_client = trading_client or self._trading_gateway.create_client()
         exposure_snapshot = exposure_snapshot or self._get_option_exposure_snapshot(trading_client)
+        if self._is_friday_entry_block():
+            return self._skip_trading_cycle_for_friday(exposure_snapshot=exposure_snapshot)
         if exposure_snapshot.exceeds_max_exposure:
             return self._skip_trading_cycle_for_option_exposure(exposure_snapshot=exposure_snapshot)
 
@@ -187,6 +262,8 @@ class FrontMainApplication:
         """Run the agent stack and execute qualifying options immediately per manager result."""
         trading_client = trading_client or self._trading_gateway.create_client()
         exposure_snapshot = exposure_snapshot or self._get_option_exposure_snapshot(trading_client)
+        if self._is_friday_entry_block():
+            return self._skip_trading_cycle_for_friday(exposure_snapshot=exposure_snapshot)
         if exposure_snapshot.exceeds_max_exposure:
             return self._skip_trading_cycle_for_option_exposure(exposure_snapshot=exposure_snapshot)
 
