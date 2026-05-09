@@ -1,69 +1,78 @@
 import { useEffect, useState } from 'react';
 import './card.css';
 
-type Execution = {
-  symbol: string;
-  name: string;
+type ExecutedTrade = {
+  id: number;
+  order_id: string;
+  underlying_symbol: string;
+  company_name: string | null;
+  option_symbol: string;
   decision: string;
-  selected_expiration_date: string;
-  selected_strike_price: number;
-  submitted: boolean;
+  expiration_date: string | null;
+  strike_price: number | null;
+  order_status: string | null;
+  submitted_at: string | null;
   error: string | null;
 };
 
-type TradeExecutionOutput = {
-  executions: Execution[];
+type ExecutedTradesResponse = {
+  trades: ExecutedTrade[];
 };
 
-async function getOrders(): Promise<TradeExecutionOutput> {
-  const response = await fetch('/api/trade-execution-output');
+async function getExecutedTrades(): Promise<ExecutedTradesResponse> {
+  const response = await fetch(`/api/executed-trades?ts=${Date.now()}`);
 
   if (!response.ok) {
-    throw new Error(`Failed to load orders: ${response.status}`);
+    throw new Error(`Failed to load executed trades: ${response.status}`);
   }
 
-  return response.json() as Promise<TradeExecutionOutput>;
+  return response.json() as Promise<ExecutedTradesResponse>;
 }
 
-function getExecutions(orders: TradeExecutionOutput): Execution[] {
-  return orders.executions;
+function getExecutedTradeRows(payload: ExecutedTradesResponse): ExecutedTrade[] {
+  return Array.isArray(payload.trades) ? payload.trades : [];
 }
 
-function orderJsonToText(execution: Execution): string {
-  const status = execution.submitted ? 'placed' : 'not placed';
+function executedTradeToText(trade: ExecutedTrade): string {
+  const normalizedDecision = trade.decision.toUpperCase();
+  const companyName = trade.company_name || 'Unknown company';
+  const strikeText = trade.strike_price == null ? 'unknown strike' : `strike ${trade.strike_price}`;
+  const expirationText = trade.expiration_date || 'unknown expiration';
+  const statusText = trade.order_status || 'unknown';
+  const submittedText = trade.submitted_at ? ` Submitted at ${trade.submitted_at}.` : '';
 
-  return `Option order ${execution.decision} for ${execution.symbol} (${execution.name}) expiring on ${execution.selected_expiration_date} at strike ${execution.selected_strike_price} was ${status}.`;
+  return `Option order ${normalizedDecision} for ${trade.underlying_symbol} (${companyName}) used contract ${trade.option_symbol} expiring on ${expirationText} at ${strikeText} with status ${statusText}.${submittedText}`;
 }
 
-function OrderCard({ execution }: { execution: Execution }) {
+function OrderCard({ trade }: { trade: ExecutedTrade }) {
   return (
     <article className="order-card">
       <h3 className="order-card__title">
-        {execution.symbol} {execution.decision.toUpperCase()}
+        {trade.underlying_symbol} {trade.decision.toUpperCase()}
       </h3>
-      <p className="order-card__text">{orderJsonToText(execution)}</p>
-      {execution.error ? (
-        <p className="order-card__error">{execution.error}</p>
+      <p className="order-card__text">{executedTradeToText(trade)}</p>
+      {trade.error ? (
+        <p className="order-card__error">{trade.error}</p>
       ) : null}
     </article>
   );
 }
 
 function OrderCardList() {
-  const [executions, setExecutions] = useState<Execution[]>([]);
+  const [trades, setTrades] = useState<ExecutedTrade[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
 
-    getOrders()
-      .then((orders) => {
+    getExecutedTrades()
+      .then((payload) => {
         if (!isMounted) {
           return;
         }
 
-        setExecutions(getExecutions(orders));
+        setTrades(getExecutedTradeRows(payload));
         setError(null);
       })
       .catch((err: unknown) => {
@@ -71,7 +80,7 @@ function OrderCardList() {
           return;
         }
 
-        setError(err instanceof Error ? err.message : 'Failed to load orders.');
+        setError(err instanceof Error ? err.message : 'Failed to load executed trades.');
       })
       .finally(() => {
         if (isMounted) {
@@ -85,19 +94,23 @@ function OrderCardList() {
   }, []);
 
   if (isLoading) {
-    return <p>Loading orders...</p>;
+    return <p>Loading executed trades...</p>;
   }
 
   if (error) {
     return <p>{error}</p>;
   }
 
+  if (trades.length === 0) {
+    return <p>No executed trades have been recorded yet.</p>;
+  }
+
   return (
     <section className="order-card-list">
-      {executions.map((execution) => (
+      {trades.map((trade) => (
         <OrderCard
-          key={`${execution.symbol}-${execution.selected_expiration_date}-${execution.selected_strike_price}`}
-          execution={execution}
+          key={`${trade.id}-${trade.order_id}`}
+          trade={trade}
         />
       ))}
     </section>
