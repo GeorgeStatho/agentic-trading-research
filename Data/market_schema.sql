@@ -60,6 +60,35 @@ CREATE TABLE IF NOT EXISTS company_price_snapshots (
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS option_trade_executions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER,
+    order_id TEXT NOT NULL UNIQUE,
+    underlying_symbol TEXT,
+    company_name TEXT,
+    option_symbol TEXT NOT NULL,
+    decision TEXT,
+    confidence TEXT,
+    selected_option_id TEXT,
+    selected_option_source TEXT,
+    expiration_date TEXT,
+    strike_price REAL,
+    order_qty INTEGER,
+    estimated_order_cost REAL,
+    available_buying_power REAL,
+    max_deployable_buying_power REAL,
+    remaining_deployable_buying_power REAL,
+    paper INTEGER NOT NULL DEFAULT 1,
+    order_status TEXT,
+    order_side TEXT,
+    order_type TEXT,
+    time_in_force TEXT,
+    submitted_at TEXT,
+    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    raw_json TEXT,
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_sectors_sector_key
     ON sectors (sector_key);
 
@@ -92,3 +121,15 @@ CREATE INDEX IF NOT EXISTS idx_company_price_snapshots_symbol
 
 CREATE INDEX IF NOT EXISTS idx_company_price_snapshots_captured_at
     ON company_price_snapshots (captured_at);
+
+CREATE INDEX IF NOT EXISTS idx_option_trade_executions_company_id
+    ON option_trade_executions (company_id);
+
+CREATE INDEX IF NOT EXISTS idx_option_trade_executions_underlying_symbol
+    ON option_trade_executions (underlying_symbol);
+
+CREATE INDEX IF NOT EXISTS idx_option_trade_executions_option_symbol
+    ON option_trade_executions (option_symbol);
+
+CREATE INDEX IF NOT EXISTS idx_option_trade_executions_submitted_at
+    ON option_trade_executions (submitted_at);
