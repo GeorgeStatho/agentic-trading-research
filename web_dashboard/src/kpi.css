@@ -36,6 +36,7 @@
   line-height: 1.05;
   font-weight: 700;
   color: var(--text-h);
+  overflow-wrap: anywhere;
 }
 
 .kpi-card__detail {
@@ -62,6 +63,11 @@
 
 .kpi-card--status .kpi-card__value {
   color: var(--text-h);
+}
+
+.kpi-card--compact .kpi-card__value {
+  font-size: 1.05rem;
+  line-height: 1.35;
 }
 
 .kpi-card--state-healthy,

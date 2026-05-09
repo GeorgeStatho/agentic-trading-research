@@ -943,6 +943,9 @@ def _build_dashboard_kpis() -> dict:
         for position in option_positions
     )
     option_exposure_pct = round((option_exposure / equity) * 100.0, 2) if equity not in (None, 0) else None
+    take_profit_pct = _safe_float(os.getenv("OPTION_POSITION_TAKE_PROFIT_PCT"))
+    stop_loss_pct = _safe_float(os.getenv("OPTION_POSITION_STOP_LOSS_PCT"))
+    dte_rule_configs = _load_dte_exit_rule_configs()
     win_rate = _compute_win_rate_from_fills(fills)
     worker_status = _read_json_payload(SCRIPT_STATUS_PATH)
     option_manager_status = _read_json_payload(OPTION_MANAGER_STATUS_PATH)
@@ -958,6 +961,18 @@ def _build_dashboard_kpis() -> dict:
             "market_value": round(option_exposure, 2),
             "equity_pct": option_exposure_pct,
             "position_count": len(option_positions),
+        },
+        "option_exit_rules": {
+            "take_profit_summary": " / ".join(
+                f"{rule['label']}: +{rule['take_profit_pct']:.0f}%"
+                for rule in dte_rule_configs
+            ),
+            "stop_loss_summary": " / ".join(
+                f"{rule['label']}: {rule['stop_loss_pct']:.0f}%"
+                for rule in dte_rule_configs
+            ),
+            "fallback_take_profit_pct": take_profit_pct,
+            "fallback_stop_loss_pct": stop_loss_pct,
         },
         "win_rate": win_rate,
         "max_drawdown_pct": _compute_max_drawdown_pct(portfolio_history),

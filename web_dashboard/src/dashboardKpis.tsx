@@ -12,6 +12,12 @@ type DashboardKpiPayload = {
     equity_pct: number | null;
     position_count: number;
   };
+  option_exit_rules: {
+    take_profit_summary: string;
+    stop_loss_summary: string;
+    fallback_take_profit_pct: number | null;
+    fallback_stop_loss_pct: number | null;
+  };
   win_rate: {
     wins: number;
     closed_trades: number;
@@ -36,6 +42,7 @@ type KpiCardConfig = {
   detail: string;
   tone?: 'neutral' | 'positive' | 'negative' | 'status';
   state?: string;
+  compactValue?: boolean;
 };
 
 const KPI_POLL_INTERVAL_MS = 60_000;
@@ -140,6 +147,26 @@ function buildCards(payload: DashboardKpiPayload): KpiCardConfig[] {
         payload.options_exposure.equity_pct === null
           ? `${formatInteger(payload.options_exposure.position_count)} option positions`
           : `${formatPercent(payload.options_exposure.equity_pct)} of equity across ${formatInteger(payload.options_exposure.position_count)} positions`,
+    },
+    {
+      title: 'Option Take-Profit',
+      value: payload.option_exit_rules.take_profit_summary || 'N/A',
+      detail:
+        payload.option_exit_rules.fallback_take_profit_pct === null
+          ? 'Legacy fallback target unavailable'
+          : `Fallback target outside DTE buckets: +${payload.option_exit_rules.fallback_take_profit_pct.toFixed(0)}%`,
+      tone: 'positive',
+      compactValue: true,
+    },
+    {
+      title: 'Option Stop-Loss',
+      value: payload.option_exit_rules.stop_loss_summary || 'N/A',
+      detail:
+        payload.option_exit_rules.fallback_stop_loss_pct === null
+          ? 'Legacy fallback floor unavailable'
+          : `Fallback floor outside DTE buckets: ${payload.option_exit_rules.fallback_stop_loss_pct.toFixed(0)}%`,
+      tone: 'negative',
+      compactValue: true,
     },
     {
       title: 'Win Rate',
@@ -248,7 +275,7 @@ function DashboardKpis() {
       {cards.map((card) => (
         <article
           key={card.title}
-          className={`kpi-card kpi-card--${card.tone ?? 'neutral'}${card.state ? ` kpi-card--state-${card.state}` : ''}`}
+          className={`kpi-card kpi-card--${card.tone ?? 'neutral'}${card.state ? ` kpi-card--state-${card.state}` : ''}${card.compactValue ? ' kpi-card--compact' : ''}`}
         >
           <p className="kpi-card__label">{card.title}</p>
           <p className="kpi-card__value">{card.value}</p>
