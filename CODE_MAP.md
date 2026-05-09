@@ -36,6 +36,14 @@ Stock-trading-experiment/
 │   ├── main.py
 │   ├── MarketData.py
 │   ├── Trading.py
+│   ├── trading_support/
+│   │   ├── __init__.py
+│   │   ├── account.py
+│   │   ├── clients.py
+│   │   ├── option_contracts.py
+│   │   ├── option_positions.py
+│   │   ├── stock_orders.py
+│   │   └── utils.py
 │   ├── Companies/
 │   │   └── Company.py
 │   ├── WritingToDataBase/
@@ -290,7 +298,9 @@ Ollama + SQLite + Alpaca
 - `Python Scripts/main.py`
   - Older trading loop with prediction-based buy/sell planning.
 - `Python Scripts/Trading.py`
-  - Alpaca trading client and order helpers.
+  - Thin compatibility facade that re-exports the legacy trading helpers.
+- `Python Scripts/trading_support/`
+  - Focused trading modules split by concern: client setup, account diagnostics, stock orders, option contracts, and option position management.
 - `Python Scripts/MarketData.py`
   - Quote, option, and streaming-related utilities.
 
@@ -413,6 +423,7 @@ while the older architecture is centered around:
 ```text
 main.py
   + Trading.py
+  + trading_support/*
   + MarketData.py
 ```
 
