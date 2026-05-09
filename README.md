@@ -145,12 +145,55 @@ If you want the local Ollama fallback too:
 docker compose --profile ollama up --build
 ```
 
-### 3. Open the dashboard
+### 3. First-time HTTPS setup for a public server
 
-By default:
+If you are deploying the dashboard publicly at `dashboard.huvle.org`, do the one-time certificate bootstrap first.
+
+Prerequisites:
+
+- create an A record for `dashboard.huvle.org` pointing at your server IP
+- make sure ports `80` and `443` are open on the server
+- make sure Docker and Docker Compose are available on the host
+
+The repo already includes:
+
+- [docker-compose.bootstrap.yml](docker-compose.bootstrap.yml): temporary bootstrap override that mounts the HTTP-only ACME Nginx config
+- [web_dashboard/nginx.bootstrap.conf](web_dashboard/nginx.bootstrap.conf): HTTP-only config used before the certificate exists
+- [web_dashboard/nginx.conf](web_dashboard/nginx.conf): final HTTPS config for `dashboard.huvle.org`
+- [scripts/setup-https.sh](scripts/setup-https.sh): helper script that runs the bootstrap flow
+
+Run:
+
+```bash
+./scripts/setup-https.sh dashboard.huvle.org your-email@example.com
+```
+
+Or without email:
+
+```bash
+./scripts/setup-https.sh dashboard.huvle.org
+```
+
+What the script does:
+
+1. creates `certbot/conf` and `certbot/www`
+2. starts the temporary web container with the bootstrap Nginx config
+3. requests the Let's Encrypt certificate for `dashboard.huvle.org`
+4. restarts the web container with the production HTTPS Nginx config
+5. starts the full stack, including automatic certificate renewal via the `certbot` service
+
+### 4. Open the dashboard
+
+Local Docker default:
 
 ```text
-http://localhost:8080
+http://localhost
+```
+
+Public HTTPS deployment target:
+
+```text
+https://dashboard.huvle.org/#/company-news
 ```
 
 ## Vertex AI Authentication
@@ -214,6 +257,8 @@ During Docker runs, the main shared runtime paths are:
 - [Python Scripts/trading_support](Python%20Scripts/trading_support): split trading helpers for client setup, account diagnostics, option management, and stock/order helpers
 - [Data/market_schema.sql](Data/market_schema.sql): market-side SQLite schema, including the executed-trade journal table
 - [Data/market_db.py](Data/market_db.py): market-side DB writes and executed-trade query helpers
+- [docker-compose.bootstrap.yml](docker-compose.bootstrap.yml): temporary Compose override used for first-time Let's Encrypt bootstrap
+- [scripts/setup-https.sh](scripts/setup-https.sh): one-command first-time HTTPS setup helper for `dashboard.huvle.org`
 - [Python Scripts/news_collector_main.py](Python%20Scripts/news_collector_main.py): scrape/classification refresh loop
 - [Python Scripts/agentCallers/main.py](Python%20Scripts/agentCallers/main.py): agent-stack orchestration
 - [Python Scripts/agentCallers/agent_stages/strategist.py](Python%20Scripts/agentCallers/agent_stages/strategist.py): buy/do-not-buy stage
