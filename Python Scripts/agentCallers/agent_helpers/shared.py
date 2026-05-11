@@ -18,6 +18,11 @@ except ImportError:  # pragma: no cover - optional provider dependency
     genai_types = None
 
 try:
+    from google.auth import default as google_auth_default
+except ImportError:  # pragma: no cover - optional provider dependency
+    google_auth_default = None
+
+try:
     from ollama import Client as OllamaClient
 except ImportError:  # pragma: no cover - optional provider dependency
     OllamaClient = None
@@ -38,6 +43,9 @@ VERTEX_MODEL_ALIASES: dict[str, str] = {
     "llama3.1": "gemini-2.5-flash",
     "world-news-sectors": "gemini-2.5-flash",
 }
+VERTEX_AUTH_SCOPES: tuple[str, ...] = (
+    "https://www.googleapis.com/auth/cloud-platform",
+)
 
 VERTEX_MAX_ATTEMPTS = max(1, int(os.getenv("VERTEX_MAX_ATTEMPTS", "5")))
 VERTEX_RETRY_INITIAL_DELAY_SECONDS = max(
@@ -60,11 +68,19 @@ def _build_vertex_client() -> Any:
             "The 'google-genai' Python package is required for Vertex AI requests. "
             "Install it in your environment with: pip install google-genai"
         )
+    if google_auth_default is None:
+        raise RuntimeError(
+            "The 'google-auth' Python package is required for Vertex AI requests. "
+            "Install it in your environment with: pip install google-auth"
+        )
+
+    adc_credentials, detected_project = google_auth_default(scopes=VERTEX_AUTH_SCOPES)
 
     project = str(
         os.getenv("GOOGLE_CLOUD_PROJECT")
         or os.getenv("VERTEX_PROJECT")
         or os.getenv("GCP_PROJECT")
+        or detected_project
         or ""
     ).strip()
     location = str(
@@ -78,7 +94,12 @@ def _build_vertex_client() -> Any:
             "GOOGLE_CLOUD_PROJECT must be set when LLM_PROVIDER=vertex."
         )
 
-    return genai.Client(vertexai=True, project=project, location=location)
+    return genai.Client(
+        vertexai=True,
+        project=project,
+        location=location,
+        credentials=adc_credentials,
+    )
 
 
 def get_model_client(label: str | None = None) -> Client:
@@ -177,6 +198,19 @@ def _build_vertex_error_message(exc: Exception, model_name: str) -> str:
         return (
             f"Vertex AI rate limit hit for model '{model_name}' after {VERTEX_MAX_ATTEMPTS} attempts. "
             f"Last error: {message or 'RESOURCE_EXHAUSTED'}"
+        )
+
+    if (
+        "access_token_scope_insufficient" in normalized_message
+        or "insufficient authentication scopes" in normalized_message
+    ):
+        return (
+            "Could not complete the Vertex AI request because the runtime credentials were found, "
+            "but they do not include the required Cloud Platform scope for Vertex AI. "
+            "If you are using local ADC, refresh them with "
+            "`gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform`. "
+            "If you are running on Google Cloud, ensure the attached service account has Vertex AI access "
+            "and the workload/VM allows Cloud Platform scope."
         )
 
     if "default credentials" in normalized_message:
