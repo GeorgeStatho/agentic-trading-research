@@ -19,6 +19,7 @@ if str(DATA_DIR) not in sys.path:
 from _company_opportunist_helpers import get_company_reference
 from _opportunist_payload_helpers import (
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
+    ACCEPTED_CONFIDENCE_LEVELS,
     HIGH_CONFIDENCE,
     get_high_confidence_macro_news_for_sector,
     get_sector_rss_news,
@@ -173,10 +174,10 @@ def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
             JOIN news_articles AS na ON na.id = soi.article_id
             LEFT JOIN sector_opportunist_article_processing AS sop ON sop.article_id = soi.article_id
             WHERE soi.sector_id = ?
-              AND lower(coalesce(soi.confidence, '')) = ?
+              AND lower(coalesce(soi.confidence, '')) IN (?, ?)
             ORDER BY na.published_at DESC, soi.article_id DESC
             """,
-            (sector_id, HIGH_CONFIDENCE),
+            (sector_id, *ACCEPTED_CONFIDENCE_LEVELS),
         ).fetchall()
 
     return [dict(row) for row in rows]
@@ -236,10 +237,10 @@ def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]
             JOIN news_articles AS na ON na.id = ioi.article_id
             LEFT JOIN industry_opportunist_article_processing AS iop ON iop.article_id = ioi.article_id
             WHERE ioi.industry_id = ?
-              AND lower(coalesce(ioi.confidence, '')) = ?
+              AND lower(coalesce(ioi.confidence, '')) IN (?, ?)
             ORDER BY na.published_at DESC, ioi.article_id DESC
             """,
-            (industry_id, HIGH_CONFIDENCE),
+            (industry_id, *ACCEPTED_CONFIDENCE_LEVELS),
         ).fetchall()
 
     return [dict(row) for row in rows]
@@ -301,10 +302,10 @@ def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
                 ON cop.article_id = coi.article_id
                AND cop.company_id = coi.company_id
             WHERE coi.company_id = ?
-              AND lower(coalesce(coi.confidence, '')) = ?
+              AND lower(coalesce(coi.confidence, '')) IN (?, ?)
             ORDER BY na.published_at DESC, coi.article_id DESC
             """,
-            (company_id, HIGH_CONFIDENCE),
+            (company_id, *ACCEPTED_CONFIDENCE_LEVELS),
         ).fetchall()
 
     return [dict(row) for row in rows]
