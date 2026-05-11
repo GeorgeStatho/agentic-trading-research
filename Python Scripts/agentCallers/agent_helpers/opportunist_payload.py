@@ -21,9 +21,12 @@ from db_helpers import DB_PATH, get_all_sectors, get_connection, initialize_news
 
 DEFAULT_MAX_ARTICLE_AGE_DAYS = 5
 HIGH_CONFIDENCE = "high"
+MEDIUM_CONFIDENCE = "medium"
+ACCEPTED_CONFIDENCE_LEVELS = (HIGH_CONFIDENCE, MEDIUM_CONFIDENCE)
 CNBC_SOURCE = "cnbc.com"
 
 __all__ = [
+    "ACCEPTED_CONFIDENCE_LEVELS",
     "DEFAULT_MAX_ARTICLE_AGE_DAYS",
     "HIGH_CONFIDENCE",
     "find_sector",
@@ -204,10 +207,10 @@ def get_high_confidence_macro_news_for_sector(
                 LEFT JOIN us_news_article_processing AS unap ON unap.article_id = usi.article_id
             ) AS combined
             WHERE combined.sector_id = ?
-              AND lower(coalesce(combined.confidence, '')) = ?
+              AND lower(coalesce(combined.confidence, '')) IN (?, ?)
             ORDER BY combined.published_at DESC, combined.article_id DESC
             """,
-            (sector["id"], HIGH_CONFIDENCE),
+            (sector["id"], *ACCEPTED_CONFIDENCE_LEVELS),
         ).fetchall()
 
     results: list[dict[str, Any]] = []
