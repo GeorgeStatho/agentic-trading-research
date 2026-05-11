@@ -214,6 +214,17 @@ GOOGLE_CLOUD_LOCATION=global
 
 On Google Cloud, the containers should authenticate automatically through the attached service account.
 
+Local Docker note:
+
+- the containers mount the host ADC directory from `~/.config/gcloud`
+- refresh local ADC with:
+
+```bash
+gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform
+```
+
+- if you still receive `ACCESS_TOKEN_SCOPE_INSUFFICIENT`, verify the runtime is using ADC rather than a different cached credential source
+
 ## API Endpoints
 
 The Flask service in [api.py](api.py) exposes:
