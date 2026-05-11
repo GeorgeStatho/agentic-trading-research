@@ -1,0 +1,7 @@
+certbot/
+.git/
+__pycache__/
+Data/logs/
+*.pyc
+*.pyo
+*.pyd
