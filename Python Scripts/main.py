@@ -64,6 +64,8 @@ TRADE_EXECUTOR = OptionTradeExecutor(
 POSITION_MANAGER = OptionPositionManagerService(
     settings=APP_SETTINGS,
     paths=APP_PATHS,
+    trading_gateway=TRADING_GATEWAY,
+    trade_journal=TRADE_JOURNAL,
     logger=LOGGER,
 )
 FRONT_MAIN_APP = FrontMainApplication(
