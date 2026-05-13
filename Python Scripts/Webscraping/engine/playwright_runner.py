@@ -93,6 +93,7 @@ async def _prepare_page_for_capture(page, url: str, timeout_ms: int) -> None:
 
 
 async def _log_cnbc_search_debug(page, url: str) -> None:
+    # Handle the log cnbc search debug flow in one place so callers can rely on a single, well-defined result.
     if not _is_cnbc_search_url(url):
         return
 
@@ -157,6 +158,7 @@ def _get_async_playwright():
 
 
 async def _fetch_single_rendered_page(context, url: str, timeout_ms: int) -> dict[str, Any]:
+    # Fetch the single rendered page and normalize the result for the next stage.
     page = await context.new_page()
     try:
         LOGGER.info("Playwright requesting %s", url)
@@ -197,6 +199,7 @@ async def _fetch_rendered_pages_async(
     *,
     timeout_ms: int,
 ) -> list[dict[str, Any]]:
+    # Fetch the rendered pages async and normalize the result for the next stage.
     if not urls:
         return []
 

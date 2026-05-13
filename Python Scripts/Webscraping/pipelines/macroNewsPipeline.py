@@ -164,6 +164,7 @@ def _extract_cell(row_html: str, class_name: str) -> str | None:
 
 
 def _parse_calendar_row(row_html: str) -> dict | None:
+    # Parse the calendar row into a structure the rest of the helper flow can use directly.
     event_id = _extract_attr(row_html, "event_attr_ID")
     raw_country = _extract_attr(row_html, "data-country")
 
@@ -235,6 +236,7 @@ def _looks_like_date_heading(value: str) -> bool:
 
 
 def _parse_generic_table_calendar(html: str, source_url: str) -> list[dict]:
+    # Parse the generic table calendar into a structure the rest of the helper flow can use directly.
     rows = _extract_table_rows(html)
     if not rows:
         return []
@@ -281,6 +283,7 @@ def _parse_generic_table_calendar(html: str, source_url: str) -> list[dict]:
 
 
 def fetch_investing_macro_calendar() -> list[dict]:
+    # Fetch the investing macro calendar and normalize the result for the next stage.
     for url in INVESTING_CALENDAR_URLS:
         try:
             html = _fetch_text(url)

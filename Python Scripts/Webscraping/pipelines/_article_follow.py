@@ -80,6 +80,7 @@ def collect_article_urls_to_fetch(
     max_age_days: int = MAX_ARTICLE_AGE_DAYS,
     should_include_link: Callable[[str, dict], bool] | None = None,
 ) -> list[str]:
+    # Collect the article urls to fetch into one cleaned result for the next step.
     urls_to_fetch: list[str] = []
     seen_urls: set[str] = set()
 
@@ -117,6 +118,7 @@ def _get_article_content_fetcher(url: str) -> Callable[[str], dict[str, Any]] | 
 
 
 def _extract_article_result_from_api_payload(payload: dict[str, Any], fallback_url: str) -> ArticleExtractionResult:
+    # Extract the article result from api payload from the raw response and return a stable value.
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, dict):
         return ArticleExtractionResult(
@@ -154,6 +156,7 @@ def fetch_articles_with_preferred_extractors(
     *,
     logger=None,
 ) -> dict[str, ArticleExtractionResult]:
+    # Fetch the articles with preferred extractors and normalize the result for the next stage.
     fetched_articles: dict[str, ArticleExtractionResult] = {}
     fallback_urls: list[str] = []
 
@@ -194,6 +197,7 @@ def save_followed_article_links(
     fetched_articles: dict[str, ArticleExtractionResult] | None = None,
     should_include_link: Callable[[str, dict], bool] | None = None,
 ) -> int:
+    # Persist the followed article results, related article records, and scoring metadata in one transaction-like flow.
     saved_count = 0
     fetched_articles = dict(fetched_articles or {})
     normalized_fetched_articles: dict[str, ArticleExtractionResult] = {}

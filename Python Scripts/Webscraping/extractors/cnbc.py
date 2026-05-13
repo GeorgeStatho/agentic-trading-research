@@ -151,6 +151,7 @@ def _append_cnbc_search_result(
     author: str = "",
     published_at: str = "",
 ) -> None:
+    # Handle the append cnbc search result flow in one place so callers can rely on a single, well-defined result.
     absolute_href = href.strip()
     if not absolute_href:
         return
@@ -205,6 +206,7 @@ def _extract_cnbc_search_links_from_html(response: Response) -> list[dict]:
 
 
 def _extract_cnbc_search_links_from_ld_json(response: Response) -> list[dict]:
+    # Extract the cnbc search links from ld json from the raw response and return a stable value.
     results: list[dict] = []
     seen_hrefs: set[str] = set()
 
@@ -259,6 +261,7 @@ def _extract_cnbc_search_links_from_ld_json(response: Response) -> list[dict]:
 
 
 def _extract_cnbc_search_links_from_json_scripts(response: Response) -> list[dict]:
+    # Extract the cnbc search links from json scripts from the raw response and return a stable value.
     results: list[dict] = []
     seen_hrefs: set[str] = set()
 
@@ -316,6 +319,7 @@ def response_looks_like_cnbc_search(response: Response) -> bool:
 
 
 def extract_cnbc_search_links(response: Response) -> list[dict]:
+    # Extract the cnbc search links from the raw response and return a stable value.
     results: list[dict] = []
     seen_hrefs: set[str] = set()
     debug_resultlink_hrefs = [
@@ -462,6 +466,7 @@ def _extract_cnbc_body_children(children) -> list[str]:
 
 
 def _extract_cnbc_article_from_state(response: Response) -> ArticleExtractionResult | None:
+    # Extract the cnbc article from state from the raw response and return a stable value.
     html = response.text
     match = CNBC_STATE_RE.search(html)
     if not match:
@@ -557,6 +562,7 @@ def _extract_cnbc_article_from_state(response: Response) -> ArticleExtractionRes
 
 
 def extract_cnbc_article(response: Response) -> ArticleExtractionResult:
+    # Extract the cnbc article from the raw response and return a stable value.
     state_result = _extract_cnbc_article_from_state(response)
     if state_result is not None:
         return state_result

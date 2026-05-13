@@ -31,6 +31,7 @@ LOGGER = get_scrape_logger("common_pipeline")
 
 
 def filter_article_links(page_url: str, links: list[dict], skip_existing: bool = True) -> list[dict]:
+    # Filter the article links down to the rows this helper should keep.
     if not is_allowed_source(page_url):
         LOGGER.warning("Skipping source page %s because the source is not allowed", page_url)
         return []
@@ -92,6 +93,7 @@ def article_age_days(published_at: str | None) -> float | None:
 
 
 def compute_article_scores(article, link: dict, href: str, source_metadata: dict) -> dict:
+    # Compute the article scores once so callers can reuse the same scoring logic.
     age_days = article_age_days(article.published_at)
     recency_value = recency_score(age_days) if age_days is not None else 0.0
     source_reputation_value = float(source_metadata.get("reputation_score") or 0.0)
@@ -139,6 +141,7 @@ def build_source_url(search_term: str, source_config: dict) -> str:
 
 
 def fetch_existing_article_by_url(url: str) -> dict | None:
+    # Fetch the existing article by url and normalize the result for the next stage.
     normalized = normalize_url(url)
     if not normalized:
         return None

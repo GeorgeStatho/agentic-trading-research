@@ -65,6 +65,7 @@ def _parse_rss_pub_date(pub_date: str) -> datetime | None:
 
 
 def extract_recent_rss_urls(rss_xml: str, max_age_days: int = DEFAULT_RSS_MAX_AGE_DAYS) -> list[str]:
+    # Extract the recent rss urls from the raw response and return a stable value.
     root = ET.fromstring(rss_xml)
     now = datetime.now(timezone.utc)
     urls: list[str] = []

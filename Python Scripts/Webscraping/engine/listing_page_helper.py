@@ -4,6 +4,7 @@ from sources.source_config import get_article_patterns, is_allowed_source, suppo
 
 
 def extract_listing_article_links(page_url: str, links: list[dict], topic_text: str) -> list[dict]:
+    # Extract the listing article links from the raw response and return a stable value.
     if not is_allowed_source(page_url) or not supports_source_type(page_url, "listing"):
         return []
 

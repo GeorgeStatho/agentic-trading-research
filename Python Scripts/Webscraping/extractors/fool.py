@@ -71,6 +71,7 @@ def response_looks_like_fool_quote(response: Response) -> bool:
 
 
 def _extract_fool_links_from_json_ld(response: Response) -> list[dict]:
+    # Extract the fool links from json ld from the raw response and return a stable value.
     results: list[dict] = []
     seen_hrefs: set[str] = set()
 
@@ -112,6 +113,7 @@ def _extract_fool_links_from_json_ld(response: Response) -> list[dict]:
 
 
 def extract_fool_quote_links(response: Response) -> list[dict]:
+    # Extract the fool quote links from the raw response and return a stable value.
     json_ld_results = _extract_fool_links_from_json_ld(response)
     if json_ld_results:
         return json_ld_results
@@ -167,6 +169,7 @@ def extract_fool_quote_links(response: Response) -> list[dict]:
 
 
 def extract_fool_article(response: Response) -> ArticleExtractionResult:
+    # Extract the fool article from the raw response and return a stable value.
     title = _first_text(response, ARTICLE_TITLE_SELECTORS)
     published_at = _first_text(response, ARTICLE_TIMESTAMP_SELECTORS)
 

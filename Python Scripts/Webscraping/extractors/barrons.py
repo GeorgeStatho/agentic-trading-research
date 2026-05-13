@@ -106,6 +106,7 @@ def barrons_response_is_blocked(response: Response) -> bool:
 
 
 def extract_barrons_search_links(response: Response) -> list[dict]:
+    # Extract the barrons search links from the raw response and return a stable value.
     results: list[dict] = []
     seen_hrefs: set[str] = set()
 
@@ -173,6 +174,7 @@ def extract_barrons_search_links(response: Response) -> list[dict]:
 
 
 def _extract_barrons_article_from_json_ld(response: Response) -> ArticleExtractionResult | None:
+    # Extract the barrons article from json ld from the raw response and return a stable value.
     for script_text in response.css("script[type='application/ld+json']::text").getall():
         try:
             payload = json.loads(unescape(script_text))
@@ -206,6 +208,7 @@ def _extract_barrons_article_from_json_ld(response: Response) -> ArticleExtracti
 
 
 def extract_barrons_article(response: Response) -> ArticleExtractionResult:
+    # Extract the barrons article from the raw response and return a stable value.
     if barrons_response_is_blocked(response):
         return ArticleExtractionResult(
             url=response.url,

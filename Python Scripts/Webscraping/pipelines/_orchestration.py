@@ -31,6 +31,7 @@ def build_search_article_save_requests(
     build_request: Callable[[dict, dict, list[dict]], ArticleSaveRequest],
     handle_page_failure: Callable[[dict, list[dict]], None] | None = None,
 ) -> list[ArticleSaveRequest]:
+    # Assemble the search article save requests so downstream callers can work from one normalized shape.
     requests: list[ArticleSaveRequest] = []
 
     for page in crawled_pages:
@@ -72,6 +73,7 @@ def collect_save_request_article_urls(
     *,
     should_include_link: Callable[[str, dict], bool] | None = None,
 ) -> list[str]:
+    # Collect the save request article urls into one cleaned result for the next step.
     urls_to_fetch: list[str] = []
     seen_urls: set[str] = set()
 
@@ -111,6 +113,7 @@ def run_article_save_requests(
     should_include_link: Callable[[str, dict], bool] | None = None,
     accumulate_saved_count: Callable[[dict, ArticleSaveRequest, int], None] | None = None,
 ) -> dict:
+    # Orchestrate the article save requests flow and return the next useful result for the caller.
     saved_counts: dict = defaultdict(int)
     article_urls = collect_save_request_article_urls(
         save_requests,
@@ -140,6 +143,7 @@ def run_mixed_job_orchestration(
     should_include_link: Callable[[str, dict], bool] | None = None,
     accumulate_saved_count: Callable[[dict, ArticleSaveRequest, int], None] | None = None,
 ) -> dict:
+    # Orchestrate the mixed job orchestration flow and return the next useful result for the caller.
     crawled_pages: list[dict] = []
 
     if search_jobs:

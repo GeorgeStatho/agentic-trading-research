@@ -92,6 +92,7 @@ def _frame_to_records(frame) -> dict[str, dict]:
 
 
 def GetCompanyInfo(company: str) -> dict:
+    # Load the company snapshot from yfinance and normalize the fields this project persists and reuses.
     try:
         info = fetch_company_fast_info(company)
     except Exception as exc:
@@ -129,6 +130,7 @@ def GetIndustryInfo(
     include_top_performing: bool = True,
     include_research_reports: bool = True,
 ) -> dict:
+    # Load the industry snapshot and reshape the upstream data into the project's saved industry payload.
     snapshot = fetch_industry_snapshot(
         industry,
         include_top_growth=include_top_growth,
@@ -169,6 +171,7 @@ def GetSectorInfo(
     include_research_reports: bool = True,
     include_sector_top_companies: bool = True,
 ) -> dict:
+    # Load the sector snapshot and normalize the top-level fields this project stores for sectors.
     sector_payload = _build_sector_payload(
         sector,
         include_company_details=include_company_details,
@@ -193,6 +196,7 @@ def _build_sector_payload(
     include_research_reports: bool = True,
     include_sector_top_companies: bool = True,
 ) -> dict:
+    # Assemble the sector payload so downstream callers can work from one normalized shape.
     snapshot = fetch_sector_snapshot(
         sector,
         include_research_reports=include_research_reports,
@@ -236,6 +240,7 @@ def _build_sector_payload(
 
 
 def _build_sector_tree_from_industries(industry_payloads: dict[str, dict]) -> dict[str, dict]:
+    # Assemble the sector tree from industries so downstream callers can work from one normalized shape.
     sector_tree: dict[str, dict] = {}
 
     for industry_key, industry_payload in industry_payloads.items():
@@ -268,6 +273,7 @@ def saveIndustries(
     include_top_performing: bool = True,
     include_research_reports: bool = True,
 ) -> dict[str, dict]:
+    # Handle the saveIndustries flow in one place so callers can rely on a single, well-defined result.
     saved_industries: dict[str, dict] = {}
 
     for industry in industries:
@@ -341,6 +347,7 @@ def saveSectors(
     include_research_reports: bool = True,
     include_sector_top_companies: bool = True,
 ) -> dict[str, dict]:
+    # Handle the saveSectors flow in one place so callers can rely on a single, well-defined result.
     all_sectors: dict[str, dict] = {}
     for sector in SECTORS:
         LOGGER.info("Starting sector save for %s", sector)

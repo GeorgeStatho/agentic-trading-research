@@ -97,6 +97,7 @@ def _build_company_match_variants(company: dict) -> set[str]:
 
 
 def _extract_api_news_pairs(payload: Any) -> list[tuple[str, str]]:
+    # Extract the api news pairs from the raw response and return a stable value.
     pairs: list[tuple[str, str]] = []
     seen_urls: set[str] = set()
 
@@ -127,6 +128,7 @@ def _extract_api_news_pairs(payload: Any) -> list[tuple[str, str]]:
 
 
 def _build_api_jobs(company: dict) -> list[CompanySourceJob]:
+    # Assemble the api jobs so downstream callers can work from one normalized shape.
     symbol = str(company.get("symbol") or "").strip()
     if not symbol:
         return []
@@ -370,6 +372,7 @@ def _find_industry(industry_identifier: str) -> dict | None:
 
 
 def _get_companies_for_industries(industry_identifiers: list[str]) -> tuple[list[dict], list[dict]]:
+    # Load the companies for industries and normalize it for downstream processing.
     resolved_industries: list[dict] = []
     seen_industry_ids: set[int] = set()
 
@@ -416,6 +419,7 @@ def _get_top_companies(limit: int) -> list[dict]:
 
 
 def _get_top_processed_sector_keys(limit: int) -> list[str]:
+    # Load the top processed sector keys and normalize it for downstream processing.
     normalized_limit = max(0, int(limit))
     if normalized_limit <= 0:
         return []
@@ -455,6 +459,7 @@ def _get_top_processed_sector_keys(limit: int) -> list[str]:
 
 
 def _get_top_processed_industry_keys_for_sector(sector_key: str, limit: int) -> list[str]:
+    # Load the top processed industry keys for sector and normalize it for downstream processing.
     normalized_limit = max(0, int(limit))
     normalized_sector_key = str(sector_key or "").strip()
     if normalized_limit <= 0 or not normalized_sector_key:
@@ -484,6 +489,7 @@ def _get_top_processed_industry_keys_for_sector(sector_key: str, limit: int) -> 
 
 
 def get_company_news(company_identifier: str) -> int:
+    # Load the company news and normalize it for downstream processing.
     initialize_news_database()
     company = _find_company(company_identifier)
     if company is None:
@@ -525,6 +531,7 @@ def get_all_company_news() -> None:
 
 
 def get_industries_company_news(industry_identifiers: list[str]) -> int:
+    # Load the industries company news and normalize it for downstream processing.
     initialize_news_database()
     industries, companies = _get_companies_for_industries(industry_identifiers)
     if not companies:
@@ -557,6 +564,7 @@ def get_industries_company_news(industry_identifiers: list[str]) -> int:
 
 
 def get_top_companies_news(*, top_company_count: int = 25) -> int:
+    # Load the top companies news and normalize it for downstream processing.
     initialize_news_database()
     ensure_all_sector_market_data()
     companies = _get_top_companies(top_company_count)
@@ -593,6 +601,7 @@ def get_top_processed_industries_company_news(
     top_sector_count: int = 10,
     top_industry_count: int = 10,
 ) -> int:
+    # Load the top processed industries company news and normalize it for downstream processing.
     sector_keys = _get_top_processed_sector_keys(top_sector_count)
     if not sector_keys:
         LOGGER.info("No processed sectors available for top-industry company news scrape")

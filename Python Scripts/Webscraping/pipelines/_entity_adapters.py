@@ -19,6 +19,7 @@ def make_entity_article_saver(
     save_article: Callable[..., Any],
     build_raw_json: Callable[..., dict[str, Any]],
 ):
+    # Build the configured helper callable so the rest of the pipeline can reuse one implementation.
     def _save(
         *,
         source_page_url: str,
@@ -30,6 +31,7 @@ def make_entity_article_saver(
         should_include_link: Callable[[str, dict], bool] | None = None,
         **extra: Any,
     ) -> int:
+        # Handle the save flow in one place so callers can rely on a single, well-defined result.
         return save_followed_article_links(
             source_page_url=source_page_url,
             candidate_links=candidate_links,
@@ -68,7 +70,9 @@ def make_search_request_builder(
     max_articles: int,
     failure_message: Callable[[dict, dict], tuple[str, tuple[Any, ...]]] | None = None,
 ):
+    # Build the configured helper callable so the rest of the pipeline can reuse one implementation.
     def _build(crawled_pages: list[dict], jobs_by_url: dict[str, list[dict]]) -> list[ArticleSaveRequest]:
+        # Handle the build flow in one place so callers can rely on a single, well-defined result.
         def _handle_failure(page: dict, jobs: list[dict]) -> None:
             if failure_message is None:
                 return
@@ -103,6 +107,7 @@ def make_direct_request_builder(
     build_request_payload: Callable[[dict], dict[str, Any]],
     max_articles: int = 1,
 ):
+    # Build the configured helper callable so the rest of the pipeline can reuse one implementation.
     return lambda jobs: build_direct_article_save_requests(
         jobs=jobs,
         build_request=lambda job: {
