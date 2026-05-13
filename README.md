@@ -64,6 +64,7 @@ Docker Compose currently runs:
 The implemented flow is roughly:
 
 1. `news_collector` refreshes market/news inputs through the agent pipeline
+   Top sector and industry rankings can be limited to recent processed news with `PIPELINE_RANKING_MAX_AGE_DAYS` (for example, `7` means rank from the last 7 days only).
 2. `worker` chooses candidate companies from the current DB state
 3. `worker` runs the strategist stage to decide `buy` vs `do_not_buy`
 4. `worker` runs the manager stage to decide `call`, `put`, or `neither`
