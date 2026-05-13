@@ -37,6 +37,8 @@ class FrontMainApplication:
         position_manager: OptionPositionManagerService,
         logger: logging.Logger,
     ) -> None:
+        # Keep the runtime dependencies assembled here so the loop methods can
+        # stay focused on scheduling and trading flow instead of object creation.
         self._paths = paths
         self._settings = settings
         self._status_reporter = status_reporter
@@ -121,6 +123,8 @@ class FrontMainApplication:
         *,
         exposure_snapshot: OptionExposureSnapshot,
     ) -> dict[str, Any]:
+        # Build the same persisted output shape as a normal cycle, but mark it
+        # skipped so the dashboard and worker status still have a full snapshot.
         skip_reason = self._build_option_exposure_skip_message(exposure_snapshot)
         self._logger.info(skip_reason)
 
@@ -165,6 +169,8 @@ class FrontMainApplication:
         *,
         exposure_snapshot: OptionExposureSnapshot,
     ) -> dict[str, Any]:
+        # Mirror the normal cycle outputs when Friday entry blocking is active
+        # so operators can see why no new trades were opened for that session.
         skip_reason = self._build_friday_entry_skip_message()
         self._logger.info(skip_reason)
 
@@ -221,6 +227,8 @@ class FrontMainApplication:
         exposure_snapshot: OptionExposureSnapshot | None = None,
     ) -> dict[str, Any]:
         """Run one end-to-end agent + trading cycle."""
+        # This is the batch path: run the agent stack, convert its selections
+        # into order candidates, execute them, then persist the full cycle outputs.
         trading_client = trading_client or self._trading_gateway.create_client()
         exposure_snapshot = exposure_snapshot or self._get_option_exposure_snapshot(trading_client)
         if self._is_friday_entry_block():
@@ -260,6 +268,8 @@ class FrontMainApplication:
         exposure_snapshot: OptionExposureSnapshot | None = None,
     ) -> dict[str, Any]:
         """Run the agent stack and execute qualifying options immediately per manager result."""
+        # This path keeps one shared trade session open and lets each manager
+        # result trigger an immediate execution before the full agent run completes.
         trading_client = trading_client or self._trading_gateway.create_client()
         exposure_snapshot = exposure_snapshot or self._get_option_exposure_snapshot(trading_client)
         if self._is_friday_entry_block():
@@ -310,6 +320,8 @@ class FrontMainApplication:
         return self._position_manager.run_cycle(trading_client=trading_client)
 
     def _sleep_for_market_close(self, *, loop_label: str, loop_started_at: datetime | None = None) -> None:
+        # Centralize the "market closed" pause so both long-running loops report
+        # the same status payload before backing off for the configured interval.
         if loop_label == "option manager":
             message = "Market is closed for dedicated option manager."
         else:
@@ -339,6 +351,8 @@ class FrontMainApplication:
         loop_log_prefix: str,
         loop_exception_label: str,
     ) -> datetime:
+        # Run the option-manager side task only when its own timer is due, then
+        # always return the next scheduled run so the outer loop stays simple.
         current_time = datetime.now()
         if not self._settings.auto_manage_option_positions or current_time < next_option_management_at:
             return next_option_management_at
@@ -361,6 +375,8 @@ class FrontMainApplication:
         )
 
     def _run_scheduled_trading_cycle(self, *, trading_client: TradingClient) -> dict[str, Any]:
+        # Reuse one exposure snapshot to decide whether to pause, stream trades
+        # immediately, or run the standard batch cycle for this scheduled slot.
         exposure_snapshot = self._get_option_exposure_snapshot(trading_client)
         if exposure_snapshot.exceeds_max_exposure:
             result = self._skip_trading_cycle_for_option_exposure(
@@ -396,6 +412,8 @@ class FrontMainApplication:
 
     def run_main_loop(self) -> None:
         """Run the full scheduled loop that alternates trading and position management."""
+        # Drive the all-in-one worker: wait for market-open windows, interleave
+        # trading cycles with position management, and publish status on each pass.
         trading_client = self._trading_gateway.create_client()
         next_trading_cycle_at = datetime.now()
         next_option_management_at = datetime.now()
@@ -465,6 +483,8 @@ class FrontMainApplication:
 
     def run_option_manager_loop(self) -> None:
         """Run the dedicated option-manager loop for existing option positions only."""
+        # This lighter loop exists for deployments that only need position
+        # management; it never opens new trades and wakes on its own schedule.
         trading_client = self._trading_gateway.create_client()
         next_option_management_at = datetime.now()
 

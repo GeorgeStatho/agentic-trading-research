@@ -81,6 +81,8 @@ class ExitThresholds:
 
 
 def _parse_option_symbol(symbol: str) -> dict[str, Any]:
+    # Decode the OCC-style option symbol once so the exit logic can work with
+    # explicit underlying, expiration, contract type, and strike fields.
     normalized_symbol = str(symbol or "").strip().upper()
     match = OPTION_SYMBOL_PATTERN.match(normalized_symbol)
     if match is None:
@@ -109,6 +111,8 @@ def _parse_option_symbol(symbol: str) -> dict[str, Any]:
 
 
 def _get_latest_option_quote(symbol: str) -> dict[str, Any]:
+    # Fetch the latest option quote and normalize it into one stable shape so
+    # downstream exit checks do not have to know Alpaca's response details.
     normalized_symbol = str(symbol or "").strip().upper()
     fallback = {
         "symbol": normalized_symbol,
@@ -153,6 +157,8 @@ def _get_latest_option_quote(symbol: str) -> dict[str, Any]:
 
 
 def _get_latest_stock_price(symbol: str) -> dict[str, Any]:
+    # Pull the underlying stock quote alongside the option quote so position
+    # snapshots can include a reference price even when only bid/ask is available.
     normalized_symbol = str(symbol or "").strip().upper()
     fallback = {
         "symbol": normalized_symbol,
@@ -253,6 +259,8 @@ def _resolve_option_exit_thresholds(
     default_stop_loss_pct: float,
     default_exit_hours_to_expiration: float,
 ) -> ExitThresholds:
+    # Prefer the configured DTE buckets when the contract expiration is known,
+    # then fall back to the global defaults for incomplete or long-dated symbols.
     if days_to_expiration is not None:
         # Match higher DTE buckets first so 7 DTE resolves to 7-14 and 14 DTE resolves to 14-30.
         for rule in reversed(OPTION_EXIT_DTE_RULES):
@@ -297,6 +305,8 @@ def _deterministic_option_exit_decision(
     stop_loss_pct: float,
     exit_hours_to_expiration: float,
 ) -> tuple[str, list[str]]:
+    # Evaluate the pure rules first so the caller gets both a simple hold/sell
+    # decision and human-readable reasons that explain exactly which threshold fired.
     reasons: list[str] = []
 
     if unrealized_pl_pct is not None and unrealized_pl_pct >= take_profit_pct:
@@ -322,6 +332,8 @@ def _build_option_position_snapshot(
     stop_loss_pct: float,
     exit_hours_to_expiration: float,
 ) -> dict[str, Any]:
+    # Combine quote lookups, derived P/L and expiration math, and deterministic
+    # exit rules into one snapshot that the manager can log, test, and act on.
     option_symbol = str(getattr(position, "symbol", "") or "").strip().upper()
     parsed_symbol = _parse_option_symbol(option_symbol)
     option_quote = _get_latest_option_quote(option_symbol)
@@ -390,6 +402,8 @@ def CloseOptionPositions(
     *,
     trading_client_override: TradingClient | None = None,
 ) -> list[dict[str, Any]]:
+    # Close every matching option position immediately and return a compact
+    # per-symbol summary so callers can persist what was submitted to the broker.
     close_results: list[dict[str, Any]] = []
     active_trading_client = trading_client_override or get_default_trading_client()
     positions = active_trading_client.get_all_positions()
@@ -421,6 +435,8 @@ def ManageCurrentOptionPositions(
     exit_hours_to_expiration: float = DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION,
     trading_client_override: TradingClient | None = None,
 ) -> dict[str, Any]:
+    # Walk every open option position, build a consistent decision snapshot, and
+    # optionally submit closes so monitoring and automation share the same payload.
     position_summaries: list[dict[str, Any]] = []
     active_trading_client = trading_client_override or get_default_trading_client()
     positions = active_trading_client.get_all_positions()

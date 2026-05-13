@@ -83,6 +83,8 @@ class AlpacaTradingGateway:
         option_symbol: str,
         qty: int,
     ) -> dict[str, Any]:
+        # Keep broker-specific order construction here, then normalize the
+        # response so the service layer can treat order results as plain data.
         if MarketOrderRequest is None or OrderSide is None or TimeInForce is None:
             raise RuntimeError("alpaca-py is required to submit option orders.")
 
