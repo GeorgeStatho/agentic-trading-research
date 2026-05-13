@@ -30,7 +30,12 @@ front_main = importlib.util.module_from_spec(FRONT_MAIN_SPEC)
 FRONT_MAIN_SPEC.loader.exec_module(front_main)
 
 
-class OptionPositionManagerServiceTests(unittest.TestCase):
+class VerboseTestCase(unittest.TestCase):
+    def log_pass(self, message: str) -> None:
+        print(f"[PASS] {self.__class__.__name__}.{self._testMethodName}: {message}")
+
+
+class OptionPositionManagerServiceTests(VerboseTestCase):
     @patch("services.position_manager.JsonFileWriter.write")
     def test_run_cycle_executes_management_and_persists_output(self, mock_json_write):
         management_result = {
@@ -111,9 +116,10 @@ class OptionPositionManagerServiceTests(unittest.TestCase):
         logger.info.assert_called_once()
         log_message = logger.info.call_args.args[0]
         self.assertIn("Managed %s option positions", log_message)
+        self.log_pass("option manager service forwarded trailing-profit settings, callbacks, and persisted the cycle output")
 
 
-class OptionManagerCompatibilityTests(unittest.TestCase):
+class OptionManagerCompatibilityTests(VerboseTestCase):
     @patch.object(front_main.FRONT_MAIN_APP, "run_option_position_management_cycle")
     def test_main_wrapper_delegates_to_front_main_application(self, mock_run_cycle):
         expected = {
@@ -130,6 +136,7 @@ class OptionManagerCompatibilityTests(unittest.TestCase):
 
         self.assertEqual(result, expected)
         mock_run_cycle.assert_called_once_with(trading_client=trading_client)
+        self.log_pass("public option-manager wrapper still delegates directly to the front-main application")
 
 
 if __name__ == "__main__":

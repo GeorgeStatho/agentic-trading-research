@@ -40,13 +40,19 @@ from agent_stages.strategist_prompt import (  # noqa: E402
 from agent_stages.strategist_runner import decide_company_purchase  # noqa: E402
 
 
-class PipelineSplitTests(unittest.TestCase):
+class VerboseTestCase(unittest.TestCase):
+    def log_pass(self, message: str) -> None:
+        print(f"[PASS] {self.__class__.__name__}.{self._testMethodName}: {message}")
+
+
+class PipelineSplitTests(VerboseTestCase):
     def test_pipeline_facade_reexports_split_entrypoints(self):
         self.assertIs(agent_pipeline_main.run_agent_pipeline, agent_pipeline_news_refresh.run_agent_pipeline)
         self.assertIs(
             agent_pipeline_main.get_current_pipeline_targets,
             agent_pipeline_target_selection.get_current_pipeline_targets,
         )
+        self.log_pass("pipeline facade still re-exports the split entrypoints")
 
     @patch("agent_pipeline.target_selection.collect_ranked_companies_for_industry")
     @patch("agent_pipeline.target_selection.get_current_rankings")
@@ -94,6 +100,7 @@ class PipelineSplitTests(unittest.TestCase):
         self.assertEqual(result["selected_company_ids"], [1, 2, 3])
         self.assertEqual(result["selected_company_symbols"], ["AAPL", "MSFT", "NVDA"])
         self.assertEqual(result["ranking_max_age_days"], 7)
+        self.log_pass("pipeline targets deduped overlapping companies across ranked industries")
 
     @patch("agent_pipeline.existing_db_view.get_company_opportunist_summary")
     @patch("agent_pipeline.existing_db_view.collect_ranked_companies_for_industry")
@@ -124,6 +131,7 @@ class PipelineSplitTests(unittest.TestCase):
         self.assertEqual(len(result["company_opportunist_summaries"]), 2)
         mock_get_company_summary.assert_any_call("AAPL", max_age_days=7)
         mock_get_company_summary.assert_any_call("MSFT", max_age_days=7)
+        self.log_pass("existing-data industry view forwarded the ranking window into company summaries")
 
     def test_build_company_opportunist_summary_counts_and_dedupes_reasons(self):
         result = build_company_opportunist_summary(
@@ -163,12 +171,14 @@ class PipelineSplitTests(unittest.TestCase):
         self.assertEqual(result["direction_counts"], {"positive": 2, "negative": 1})
         self.assertEqual(result["magnitude_counts"], {"major": 2, "minor": 1})
         self.assertEqual(result["sample_reasons"], ["Strong demand tailwind", "Margin pressure risk"])
+        self.log_pass("company opportunist summary aggregated counts and deduped repeated reasons")
 
 
-class StrategistSplitTests(unittest.TestCase):
+class StrategistSplitTests(VerboseTestCase):
     def test_strategist_facade_reexports_split_entrypoints(self):
         self.assertIs(strategist_facade.build_strategist_prompt, strategist_prompt_module.build_strategist_prompt)
         self.assertIs(strategist_facade.decide_company_purchase, strategist_runner_module.decide_company_purchase)
+        self.log_pass("strategist facade still points at the split prompt and runner modules")
 
     def test_payload_helpers_build_snapshot_and_no_evidence_result(self):
         payload = {
@@ -201,6 +211,7 @@ class StrategistSplitTests(unittest.TestCase):
         no_evidence_result = build_no_evidence_result(payload["company"], context_snapshot=snapshot)
         self.assertEqual(no_evidence_result["recommendation"]["decision"], "do_not_trade")
         self.assertEqual(no_evidence_result["context_snapshot"], snapshot)
+        self.log_pass("payload helpers built a context snapshot and a no-evidence result with that snapshot attached")
 
     def test_extract_and_normalize_recommendation_handles_aliases_and_defaults(self):
         nested_payload = {
@@ -229,6 +240,7 @@ class StrategistSplitTests(unittest.TestCase):
         self.assertEqual(normalized["thesis"], ["Services growth supports upside"])
         self.assertEqual(normalized["risks"], ["Regulatory pressure"])
         self.assertFalse(normalized["contradictions_present"])
+        self.log_pass("strategist normalization converted aliases and defaults into the canonical recommendation shape")
 
     def test_extract_recommendation_from_text_parses_labeled_response(self):
         raw_response = """
@@ -252,6 +264,7 @@ Risks:
         self.assertEqual(recommendation["expected_stock_direction"], "up")
         self.assertEqual(recommendation["thesis"], ["Product cycle remains strong", "Services mix is expanding"])
         self.assertEqual(recommendation["risks"], ["Valuation could compress"])
+        self.log_pass("text fallback parsing recovered a structured strategist recommendation from labeled prose")
 
     @patch("agent_stages.strategist_runner._save_strategist_summary")
     @patch("agent_stages.strategist_runner.ask_model")
@@ -278,6 +291,7 @@ Risks:
         self.assertEqual(result["recommendation"]["decision"], "do_not_trade")
         mock_ask_model.assert_not_called()
         mock_save_summary.assert_called_once()
+        self.log_pass("strategist runner short-circuited to do-not-trade when no evidence was present")
 
     @patch("agent_stages.strategist_runner._save_strategist_summary")
     @patch("agent_stages.strategist_runner.extract_json_value")
@@ -323,6 +337,7 @@ Risks:
         self.assertEqual(result["recommendation"]["expected_stock_direction"], "up")
         mock_ask_model.assert_called_once()
         mock_save_summary.assert_called_once()
+        self.log_pass("strategist runner fell back to text parsing when structured JSON extraction failed")
 
 
 if __name__ == "__main__":
