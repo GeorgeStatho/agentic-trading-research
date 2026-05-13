@@ -44,7 +44,12 @@ class _FakeConnection:
         return False
 
 
-class SectorRankingTests(unittest.TestCase):
+class VerboseTestCase(unittest.TestCase):
+    def log_pass(self, message: str) -> None:
+        print(f"[PASS] {self.__class__.__name__}.{self._testMethodName}: {message}")
+
+
+class SectorRankingTests(VerboseTestCase):
     @patch("agent_analysis.sector_interest.initialize_news_database")
     @patch("agent_analysis.sector_interest.get_connection")
     def test_processed_sector_interest_respects_max_age_window(self, mock_get_connection, _mock_init_db):
@@ -85,6 +90,7 @@ class SectorRankingTests(unittest.TestCase):
 
         self.assertEqual(len(processed), 1)
         self.assertEqual(processed[0]["sector_key"], "technology")
+        self.log_pass("sector-interest loader kept only the recent row inside the configured max-age window")
 
     @patch("agent_analysis.sector_interest.get_processed_sector_interest")
     def test_sector_scores_and_top_three_only_count_high_confidence(self, mock_processed_interest):
@@ -103,9 +109,10 @@ class SectorRankingTests(unittest.TestCase):
         self.assertEqual(scores["technology"], 1)
         self.assertNotIn("medium", scores)
         self.assertEqual(top_three, [("technology", 1), ("energy", 1), ("healthcare", 1)])
+        self.log_pass("sector ranking counted only high-confidence impacts when building scores and top-three output")
 
 
-class IndustryRankingTests(unittest.TestCase):
+class IndustryRankingTests(VerboseTestCase):
     @patch("agent_analysis.industry_interest.initialize_news_database")
     @patch("agent_analysis.industry_interest.find_sector")
     @patch("agent_analysis.industry_interest.get_connection")
@@ -162,6 +169,7 @@ class IndustryRankingTests(unittest.TestCase):
 
         self.assertEqual(len(processed), 1)
         self.assertEqual(processed[0]["industry_key"], "semiconductors")
+        self.log_pass("industry-interest loader respected both the target sector and the recency window")
 
     @patch("agent_analysis.industry_interest.get_processed_industry_interest")
     def test_industry_scores_and_top_three_only_count_high_confidence(self, mock_processed_interest):
@@ -181,6 +189,7 @@ class IndustryRankingTests(unittest.TestCase):
             top_three,
             [("semiconductors", 1), ("software", 1), ("hardware", 1)],
         )
+        self.log_pass("industry ranking counted only high-confidence rows when computing scores and top-three output")
 
 
 if __name__ == "__main__":

@@ -113,7 +113,12 @@ def _make_trailing_profit_config(module, **overrides):
     return module.TrailingProfitConfig(**values)
 
 
-class OptionPositionTests(unittest.TestCase):
+class VerboseTestCase(unittest.TestCase):
+    def log_pass(self, message: str) -> None:
+        print(f"[PASS] {self.__class__.__name__}.{self._testMethodName}: {message}")
+
+
+class OptionPositionTests(VerboseTestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.option_positions = _load_option_positions_module()
@@ -173,6 +178,7 @@ class OptionPositionTests(unittest.TestCase):
             self.assertEqual(reconciliation["pending_order_status"], "pending_cancel")
             self.assertEqual(persisted_state["pending_order_id"], "order-123")
             self.assertIn("last_cancel_attempt_at", persisted_state)
+            self.log_pass("stale pending exit order was canceled and the state kept the cancel attempt details")
 
     def test_reconcile_retryable_partial_fill_preserves_scale_out_flag(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -218,6 +224,7 @@ class OptionPositionTests(unittest.TestCase):
             self.assertTrue(persisted_state["took_first_scale_out"])
             self.assertEqual(persisted_state["last_filled_qty"], 1)
             self.assertEqual(persisted_state["last_retryable_exit_status"], "canceled")
+            self.log_pass("retryable partial fill kept the first scale-out flag while clearing the pending order")
 
     def test_reconcile_retryable_zero_fill_resets_scale_out_flag(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -262,6 +269,7 @@ class OptionPositionTests(unittest.TestCase):
             self.assertEqual(persisted_state["pending_order_id"], "")
             self.assertFalse(persisted_state["took_first_scale_out"])
             self.assertEqual(persisted_state["last_retryable_exit_status"], "rejected")
+            self.log_pass("retryable zero-fill rejection reset the first scale-out flag for a clean retry")
 
     def test_structured_exit_action_triggers_momentum_failed_after_tp(self) -> None:
         exit_action, updated_state = self.option_positions._structured_exit_action(
@@ -298,6 +306,7 @@ class OptionPositionTests(unittest.TestCase):
         self.assertEqual(exit_action["action"], "sell_full")
         self.assertEqual(exit_action["reason"], "momentum_failed_after_tp")
         self.assertEqual(updated_state["last_decision_reason"], "momentum_failed_after_tp")
+        self.log_pass("momentum failure after take-profit escalated to a full exit")
 
     def test_structured_exit_action_does_not_force_momentum_exit_when_disabled(self) -> None:
         exit_action, updated_state = self.option_positions._structured_exit_action(
@@ -334,6 +343,7 @@ class OptionPositionTests(unittest.TestCase):
         self.assertEqual(exit_action["action"], "sell_partial")
         self.assertEqual(exit_action["reason"], "first_scale_out_trigger")
         self.assertEqual(updated_state["last_decision_reason"], "first_scale_out_trigger")
+        self.log_pass("disabled momentum exit preserved the trailing scale-out path instead of forcing a full exit")
 
     def test_structured_exit_action_allows_stop_loss_with_noncritical_quote_note(self) -> None:
         exit_action, updated_state = self.option_positions._structured_exit_action(
@@ -363,6 +373,7 @@ class OptionPositionTests(unittest.TestCase):
         self.assertEqual(exit_action["action"], "sell_full")
         self.assertEqual(exit_action["reason"], "stop_loss")
         self.assertIn("Underlying stock quote was unavailable", exit_action["notes"][0])
+        self.log_pass("stop-loss still fired when only a noncritical underlying-quote note was present")
 
     def test_structured_exit_action_allows_near_expiration_exit_without_option_pricing(self) -> None:
         exit_action, updated_state = self.option_positions._structured_exit_action(
@@ -394,6 +405,7 @@ class OptionPositionTests(unittest.TestCase):
         self.assertEqual(exit_action["action"], "sell_full")
         self.assertEqual(exit_action["reason"], "near_expiration")
         self.assertIn("Option quote was unavailable", exit_action["notes"][0])
+        self.log_pass("near-expiration rule still protected the position even without option pricing")
 
     def test_trailing_giveback_uses_same_bucket_boundaries_as_exit_thresholds(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(
@@ -411,6 +423,7 @@ class OptionPositionTests(unittest.TestCase):
             self.option_positions._resolve_trailing_giveback_pct(14, trailing_profit_config),
             0.33,
         )
+        self.log_pass("trailing giveback buckets matched the same 7 and 14 DTE boundaries as exit thresholds")
 
     def test_structured_exit_action_activates_profit_protection_after_trigger(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(
@@ -449,6 +462,7 @@ class OptionPositionTests(unittest.TestCase):
         self.assertEqual(updated_state["protected_profit_floor_pct"], 0.10)
         self.assertEqual(updated_state["trailing_giveback_pct"], trailing_profit_config.giveback_7_14_pct)
         self.assertIn("Profit protection activated.", exit_action["notes"])
+        self.log_pass("profit protection activated once gains crossed the configured trigger")
 
     def test_structured_exit_action_triggers_trailing_profit_stop_after_giveback(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(
@@ -489,6 +503,7 @@ class OptionPositionTests(unittest.TestCase):
         self.assertEqual(exit_action["reason"], "trailing_profit_stop")
         self.assertAlmostEqual(exit_action["protected_profit_floor_pct"], 0.65, places=6)
         self.assertEqual(updated_state["last_decision_reason"], "trailing_profit_stop")
+        self.log_pass("trailing profit stop sold after gains gave back through the protected floor")
 
     def test_manage_current_option_positions_submits_partial_scale_out_for_trailing_profit(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -561,6 +576,7 @@ class OptionPositionTests(unittest.TestCase):
             self.assertEqual(summary["qty_to_sell"], 2)
             self.assertTrue(summary["close_submitted"])
             self.assertTrue(summary["took_first_scale_out"])
+            self.log_pass("position manager submitted the first partial scale-out order for a trailing-profit trigger")
 
     def test_momentum_marks_itm_call_getting_deeper_itm_as_good(self) -> None:
         assessment = evaluate_option_momentum(
@@ -574,6 +590,7 @@ class OptionPositionTests(unittest.TestCase):
         self.assertTrue(assessment.moved_in_profitable_direction)
         self.assertTrue(assessment.moved_toward_strike)
         self.assertLess(assessment.distance_to_strike_now, assessment.distance_to_strike_at_entry)
+        self.log_pass("ITM call momentum was marked good when the underlying moved deeper in the profitable direction")
 
     def test_momentum_marks_itm_put_getting_deeper_itm_as_good(self) -> None:
         assessment = evaluate_option_momentum(
@@ -587,6 +604,7 @@ class OptionPositionTests(unittest.TestCase):
         self.assertTrue(assessment.moved_in_profitable_direction)
         self.assertTrue(assessment.moved_toward_strike)
         self.assertLess(assessment.distance_to_strike_now, assessment.distance_to_strike_at_entry)
+        self.log_pass("ITM put momentum was marked good when the underlying moved deeper in the profitable direction")
 
 
 if __name__ == "__main__":
