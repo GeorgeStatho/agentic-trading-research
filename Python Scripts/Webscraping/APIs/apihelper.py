@@ -61,6 +61,7 @@ def _validate_url_host(url: str, allowed_hosts: tuple[str, ...]) -> None:
 
 
 def _extract_article_date(soup: BeautifulSoup) -> Optional[str]:
+    # Extract the article date from the raw response and return a stable value.
     candidates: list[str] = []
 
     meta_selectors = [

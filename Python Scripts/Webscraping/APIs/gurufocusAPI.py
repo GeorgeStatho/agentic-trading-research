@@ -83,6 +83,7 @@ class StockResponse(BaseModel):
 # -----------------------------------------------------------------------------
 
 def _request(url: str, params: Optional[dict] = None) -> requests.Response:
+    # Handle the request flow in one place so callers can rely on a single, well-defined result.
     headers = {
         "User-Agent": USER_AGENT,
         "Accept": (
@@ -157,6 +158,7 @@ def _extract_date_from_path(path: str) -> Optional[date]:
 
 
 def _extract_date_from_text(text: str) -> Optional[date]:
+    # Extract the date from text from the raw response and return a stable value.
     if not text:
         return None
 
@@ -367,6 +369,7 @@ def _collect_links_from_html(
     skip_subscription_urls: bool = True,
     verify_access: bool = False,
 ) -> list[LinkItem]:
+    # Collect the links from html into one cleaned result for the next step.
     soup = BeautifulSoup(html, "html.parser")
     items: list[LinkItem] = []
 
@@ -446,6 +449,7 @@ def get_stock_data(
     skip_subscription_urls: bool = True,
     verify_access: bool = False,
 ) -> list[dict]:
+    # Fetch the provider-specific stock data payload and normalize the fields this scraper expects to save.
     symbol = symbol.strip().upper()
     if not symbol:
         raise HTTPException(status_code=400, detail="symbol is required")
@@ -533,6 +537,7 @@ def get_stock_data(
 
 
 def get_article_content(article_url: str, reject_premium: bool = True) -> dict:
+    # Fetch the target article and normalize its body, title, and metadata into one stable payload.
     _validate_url_host(article_url, ("gurufocus.com", "www.gurufocus.com"))
 
     response = _request(article_url)

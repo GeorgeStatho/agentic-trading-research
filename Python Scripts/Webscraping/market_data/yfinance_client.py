@@ -52,6 +52,7 @@ class YFinanceRequestHandler:
             time.sleep(remaining)
 
     def run(self, func, *args, **kwargs):
+        # Run the helper workflow end to end and return the normalized result that downstream code expects.
         last_exc: Exception | None = None
         context = kwargs.pop("_context", getattr(func, "__name__", "yfinance_call"))
         for attempt in range(self.max_retries + 1):
@@ -125,6 +126,7 @@ def fetch_industry_snapshot(
     include_top_performing: bool = True,
     include_research_reports: bool = True,
 ) -> dict[str, Any]:
+    # Fetch the industry snapshot and normalize the result for the next stage.
     LOGGER.info("Loading industry payload for %s", industry)
     industry_info = cast(
         Any,
@@ -172,6 +174,7 @@ def fetch_sector_snapshot(
     include_research_reports: bool = True,
     include_sector_top_companies: bool = True,
 ) -> dict[str, Any]:
+    # Fetch the sector snapshot and normalize the result for the next stage.
     LOGGER.info("Loading sector payload for %s", sector)
     sector_info = cast(
         Any,

@@ -144,6 +144,7 @@ def _extract_date_from_path(path: str) -> Optional[date]:
 
 
 def _extract_date_from_text(text: str) -> Optional[date]:
+    # Extract the date from text from the raw response and return a stable value.
     if not text:
         return None
 
@@ -266,6 +267,7 @@ def _extract_company_name(soup: BeautifulSoup) -> Optional[str]:
 
 
 def _extract_analyst_opinion(soup: BeautifulSoup) -> AnalystOpinion:
+    # Extract the analyst opinion from the raw response and return a stable value.
     text = soup.get_text(" ", strip=True)
 
     fair_value = None
@@ -304,6 +306,7 @@ def _extract_analyst_opinion(soup: BeautifulSoup) -> AnalystOpinion:
 
 
 def _is_real_morningstar_article_url(url: str, path: str) -> bool:
+    # Handle the is real morningstar article url flow in one place so callers can rely on a single, well-defined result.
     lower = path.lower()
     host = (urlparse(url).netloc or "").lower()
 
@@ -354,6 +357,7 @@ def _split_title_source_date(text: str) -> tuple[str, Optional[str], Optional[st
 
 
 def _collect_quote_page_news(html: str) -> list[LinkItem]:
+    # Collect the quote page news into one cleaned result for the next step.
     soup = BeautifulSoup(html, "html.parser")
     items: list[LinkItem] = []
 
@@ -433,6 +437,7 @@ def get_stock_data(
     exchange: Optional[str] = None,
     source_mode: SourceMode = SourceMode.quote_only,
 ) -> list[dict]:
+    # Fetch the provider-specific stock data payload and normalize the fields this scraper expects to save.
     symbol = symbol.strip().upper()
     if not symbol:
         raise HTTPException(status_code=400, detail="symbol is required")
@@ -499,6 +504,7 @@ def _extract_title_from_page(soup: BeautifulSoup) -> Optional[str]:
 
 
 def _extract_body_from_page(soup: BeautifulSoup) -> str:
+    # Extract the body from page from the raw response and return a stable value.
     article_container = None
     candidates = [
         soup.find("article"),
@@ -547,6 +553,7 @@ def _extract_body_from_page(soup: BeautifulSoup) -> str:
 
 
 def get_article_content(article_url: str) -> dict:
+    # Fetch the target article and normalize its body, title, and metadata into one stable payload.
     _validate_url_host(article_url, ("morningstar.com", "www.morningstar.com"))
 
     parsed = urlparse(article_url)

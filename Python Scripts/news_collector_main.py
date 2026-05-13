@@ -79,6 +79,7 @@ class JsonFileWriter:
 
 
 def _run_cold_start_sanity_check() -> dict[str, Any]:
+    # Orchestrate the cold start sanity check flow and return the next useful result for the caller.
     initialize_market_database()
     initialize_news_database()
 
@@ -161,6 +162,7 @@ def run_news_collection_cycle() -> dict[str, Any]:
 
 
 def main_loop() -> None:
+    # Handle the main loop flow in one place so callers can rely on a single, well-defined result.
     LOGGER.info(
         "Starting news collector loop with interval=%s seconds",
         SETTINGS.interval_seconds,

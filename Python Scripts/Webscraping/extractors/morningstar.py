@@ -134,6 +134,7 @@ def response_looks_like_morningstar_search(response: Response) -> bool:
 
 
 def extract_morningstar_search_links(response: Response) -> list[dict]:
+    # Extract the morningstar search links from the raw response and return a stable value.
     results: list[dict] = []
     seen_hrefs: set[str] = set()
 
@@ -218,6 +219,7 @@ def extract_morningstar_search_links(response: Response) -> list[dict]:
 
 
 def extract_morningstar_article(response: Response) -> ArticleExtractionResult:
+    # Extract the morningstar article from the raw response and return a stable value.
     title = _first_text(response, ARTICLE_TITLE_SELECTORS)
     published_at = _first_text(response, ARTICLE_TIMESTAMP_SELECTORS)
 

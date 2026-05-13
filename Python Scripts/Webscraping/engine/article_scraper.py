@@ -111,6 +111,7 @@ class _KeyboardStopMonitor:
                 return
 
     def _watch_posix(self) -> None:
+        # Handle the watch posix flow in one place so callers can rely on a single, well-defined result.
         import select
         import termios
         import tty
@@ -152,6 +153,7 @@ def extract_search_links(response: Response) -> list[dict[str, str]]:
 
 
 def extract_links(response: Response) -> list[dict[str, str]]:
+    # Extract the links from the raw response and return a stable value.
     links: list[dict[str, str]] = []
     seen_hrefs: set[str] = set()
 
@@ -177,6 +179,7 @@ def extract_links(response: Response) -> list[dict[str, str]]:
 
 
 def _build_scraped_item(response: Response, *, request_url: str | None = None) -> dict:
+    # Assemble the scraped item so downstream callers can work from one normalized shape.
     if response.status >= 400:
         LOGGER.warning("Non-200 response for %s: HTTP %s", response.url, response.status)
         return {
@@ -212,6 +215,7 @@ def _build_scraped_item(response: Response, *, request_url: str | None = None) -
 
 
 def _build_item_from_rendered_extraction(rendered_extraction: RenderedPageExtraction) -> dict:
+    # Assemble the item from rendered extraction so downstream callers can work from one normalized shape.
     request_url = str(rendered_extraction.request_url or "").strip()
     page_url = str(rendered_extraction.page_url or request_url).strip()
     status = rendered_extraction.status
@@ -252,6 +256,7 @@ def _build_item_from_rendered_extraction(rendered_extraction: RenderedPageExtrac
 
 
 def _build_article_results(crawled_pages: list[dict]) -> dict[str, ArticleExtractionResult]:
+    # Assemble the article results so downstream callers can work from one normalized shape.
     results: dict[str, ArticleExtractionResult] = {}
 
     for page in crawled_pages:
@@ -307,6 +312,7 @@ class ArticleSpider(scrapy.Spider):
         self.start_urls = urls or []
 
     def start_requests(self):
+        # Handle the start requests flow in one place so callers can rely on a single, well-defined result.
         for url in self.start_urls:
             headers = {
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -351,6 +357,7 @@ class ArticleSpider(scrapy.Spider):
 
 
 def crawl_articles(urls: list[str]) -> list[dict]:
+    # Run the article crawl for the prepared jobs and return normalized results for the save pipeline.
     if not urls:
         return []
 
@@ -396,6 +403,7 @@ def crawl_articles(urls: list[str]) -> list[dict]:
 
 
 def _run_crawl(urls: list[str], *, enable_keyboard_stop: bool, announce_log: bool) -> list[dict]:
+    # Orchestrate the crawl flow and return the next useful result for the caller.
     items: list[dict] = []
     log_file = get_log_file_path()
     LOGGER.info("Starting source-page crawl for %s URLs", len(urls))
@@ -454,6 +462,7 @@ def _stop_article_worker(worker: multiprocessing.process.BaseProcess) -> None:
 
 
 def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
+    # Drive the article crawling workflow end to end, including request setup and result normalization.
     if not urls:
         return {}
 

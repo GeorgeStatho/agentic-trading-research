@@ -256,6 +256,7 @@ class OptionsData(_QuoteDataBase):
 
     @staticmethod
     def _extract_contract_symbols(contracts_response: Any) -> list[str]:
+        # Extract the contract symbols from the raw response and return a stable value.
         if isinstance(contracts_response, dict):
             contract_items = contracts_response.get("option_contracts", [])
         else:
@@ -289,6 +290,7 @@ class OptionsData(_QuoteDataBase):
         expiration_date: str,
         limit: int = 10,
     ) -> list["OptionsData"]:
+        # Fetch the option chain for the target company and reshape it into the simplified contract list used downstream.
         normalized_contract_type = str(contract_type or "").strip().lower()
         contract_type_map = {
             "call": ContractType.CALL,
@@ -360,6 +362,7 @@ async def _run_stream_once(
     data_factory: Callable[[str], _QuoteDataBase],
     symbol_kind: str,
 ) -> None:
+    # Orchestrate the stream once flow and return the next useful result for the caller.
     initialize_data_files()
 
     receivers = {symbol: data_factory(symbol) for symbol in symbols}

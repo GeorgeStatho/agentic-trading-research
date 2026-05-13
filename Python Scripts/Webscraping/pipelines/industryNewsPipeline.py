@@ -45,6 +45,7 @@ __all__ = [
 
 
 def _expand_industry_variant_forms(value: str) -> set[str]:
+    # Handle the expand industry variant forms flow in one place so callers can rely on a single, well-defined result.
     variants = {value}
     tokens = value.split()
 
@@ -75,6 +76,7 @@ def _expand_industry_variant_forms(value: str) -> set[str]:
 
 
 def _build_industry_match_variants(industry: dict) -> set[str]:
+    # Assemble the industry match variants so downstream callers can work from one normalized shape.
     industry_name = normalize_match_text(industry.get("name"))
     if not industry_name:
         return set()
@@ -105,6 +107,7 @@ def _build_industry_match_variants(industry: dict) -> set[str]:
 
 
 def _filter_industry_candidate_links(page_url: str, links: list[dict], industry: dict) -> list[dict]:
+    # Filter the industry candidate links down to the rows this helper should keep.
     base_candidates = filter_article_links(page_url, links)
     if not base_candidates:
         return []
@@ -297,6 +300,7 @@ def list_supported_industries() -> list[dict[str, str]]:
 
 
 def get_industry_news(industry_identifier: str) -> int:
+    # Load the industry news and normalize it for downstream processing.
     initialize_news_database()
     industry = _find_industry(industry_identifier)
     if industry is None:
@@ -328,6 +332,7 @@ def get_industry_news(industry_identifier: str) -> int:
 
 
 def get_sector_industry_news(sector_identifier: str) -> int:
+    # Load the sector industry news and normalize it for downstream processing.
     initialize_news_database()
     sector, industries = _get_industries_for_sector(sector_identifier)
     if not industries:

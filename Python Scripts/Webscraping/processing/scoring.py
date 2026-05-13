@@ -78,6 +78,7 @@ def compute_directness_score(
     source_url: str,
     source_metadata: dict | None = None,
 ) -> float:
+    # Compute the directness score once so callers can reuse the same scoring logic.
     text = _score_window(title, body, summary)
     metadata = source_metadata or get_source_metadata(source_url)
     base = 0.45

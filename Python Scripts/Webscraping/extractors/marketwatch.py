@@ -72,6 +72,7 @@ def _first_text(response: Response, selectors: Iterable[str]) -> str:
 
 
 def _walk_nested_text(value) -> list[str]:
+    # Walk the nested structure and return the pieces this extractor needs for normalization.
     parts: list[str] = []
     if isinstance(value, dict):
         text = value.get("text")
@@ -96,6 +97,7 @@ def _walk_nested_text(value) -> list[str]:
 
 
 def _extract_marketwatch_article_from_next_data(response: Response) -> ArticleExtractionResult | None:
+    # Extract the marketwatch article from next data from the raw response and return a stable value.
     script = response.css("script#__NEXT_DATA__::text").get()
     if not script:
         return None
@@ -168,6 +170,7 @@ def is_marketwatch_article_url(url: str) -> bool:
 
 
 def extract_marketwatch_search_links(response: Response) -> list[dict]:
+    # Extract the marketwatch search links from the raw response and return a stable value.
     results: list[dict] = []
     seen_hrefs: set[str] = set()
 
@@ -227,6 +230,7 @@ def extract_marketwatch_search_links(response: Response) -> list[dict]:
 
 
 def extract_marketwatch_article(response: Response) -> ArticleExtractionResult:
+    # Extract the marketwatch article from the raw response and return a stable value.
     next_data_result = _extract_marketwatch_article_from_next_data(response)
     if next_data_result is not None:
         return next_data_result

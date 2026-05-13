@@ -84,6 +84,7 @@ def is_yahoo_article_url(url: str) -> bool:
 
 
 def extract_yahoo_article(response: Response) -> ArticleExtractionResult:
+    # Extract the yahoo article from the raw response and return a stable value.
     schema = _extract_yahoo_article_schema(response) or {}
 
     title = str(schema.get("headline") or "").strip() or _first_text(response, ARTICLE_TITLE_SELECTORS)

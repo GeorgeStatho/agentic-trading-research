@@ -36,6 +36,7 @@ def make_region_pipeline(
     rss_feed_url: str,
     save_article: Callable[..., int],
 ):
+    # Build the full region-news pipeline function so callers can reuse one configured orchestration flow.
     logger = get_scrape_logger(logger_name)
     region_context = {
         "id": 1,

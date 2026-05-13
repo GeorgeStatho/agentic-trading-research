@@ -57,6 +57,7 @@ def build_company_source_job(
     source_type: str,
     search_term: str,
 ) -> CompanySourceJob | None:
+    # Assemble the company source job so downstream callers can work from one normalized shape.
     normalized_url = str(url).strip()
     normalized_search_term = " ".join(str(search_term or "").split()).strip()
 
@@ -81,6 +82,7 @@ def build_yahoo_news_jobs(
     source_name: str = "yahoo_finance",
     source_type: str = "article",
 ) -> list[CompanySourceJob]:
+    # Assemble the yahoo news jobs so downstream callers can work from one normalized shape.
     jobs: list[CompanySourceJob] = []
     seen_urls: set[str] = set()
 
@@ -112,6 +114,7 @@ def build_yahoo_news_jobs(
 
 
 def _get_company_exchange_slug(company: dict) -> str | None:
+    # Load the company exchange slug and normalize it for downstream processing.
     raw_json = company.get("raw_json")
     if not raw_json:
         return None
@@ -183,6 +186,7 @@ def build_company_source_jobs(companies: list[dict]) -> list[CompanySourceJob]:
 
 
 def build_industry_source_jobs(industries: list[dict]) -> list[IndustrySourceJob]:
+    # Assemble the industry source jobs so downstream callers can work from one normalized shape.
     jobs: list[IndustrySourceJob] = []
 
     for industry in industries:
@@ -212,6 +216,7 @@ def build_sector_rss_jobs(
     source_name: str = "cnbc_rss",
     source_type: str = "article",
 ) -> list[SectorSourceJob]:
+    # Assemble the sector rss jobs so downstream callers can work from one normalized shape.
     jobs: list[SectorSourceJob] = []
     seen_urls: set[str] = set()
 

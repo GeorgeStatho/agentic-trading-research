@@ -230,6 +230,7 @@ def _extract_company_name(soup: BeautifulSoup) -> Optional[str]:
 
 
 def _extract_analyst_opinion(soup: BeautifulSoup) -> AnalystOpinions:
+    # Extract the analyst opinion from the raw response and return a stable value.
     text = soup.get_text(" ", strip=True)
 
     patterns = [
@@ -261,6 +262,7 @@ def _extract_analyst_opinion(soup: BeautifulSoup) -> AnalystOpinions:
 
 
 def _resolve_instrument(symbol: str) -> dict[str, Any]:
+    # Resolve the instrument into the concrete value the caller should use next.
     response = _request(
         PUBLIC_INSTRUMENT_SEARCH_URL,
         params={
@@ -324,6 +326,7 @@ def _resolve_instrument(symbol: str) -> dict[str, Any]:
 
 
 def _resolve_quote_url(symbol: str, lookup: dict[str, Any]) -> str:
+    # Resolve the quote url into the concrete value the caller should use next.
     existing_url = lookup.get("url")
     if isinstance(existing_url, str) and existing_url.startswith("http"):
         return existing_url
@@ -350,6 +353,7 @@ def _resolve_quote_url(symbol: str, lookup: dict[str, Any]) -> str:
 
 
 def _collect_quote_page_links(html: str) -> tuple[list[LinkItem], list[LinkItem]]:
+    # Collect the quote page links into one cleaned result for the next step.
     soup = BeautifulSoup(html, "html.parser")
     articles: list[LinkItem] = []
     transcripts: list[LinkItem] = []
@@ -377,6 +381,7 @@ def _collect_search_page_links(
     symbol: str,
     company_name: Optional[str],
 ) -> tuple[list[LinkItem], list[LinkItem]]:
+    # Collect the search page links into one cleaned result for the next step.
     soup = BeautifulSoup(html, "html.parser")
     articles: list[LinkItem] = []
     transcripts: list[LinkItem] = []
@@ -404,6 +409,7 @@ def _search_fool_site_pages(
     company_name: Optional[str],
     max_pages: int = DEFAULT_SEARCH_PAGES,
 ) -> tuple[list[LinkItem], list[LinkItem]]:
+    # Search for the fool site pages and return the results in the project's expected shape.
     queries: list[str] = [symbol, f"{symbol} stock"]
     if company_name:
         queries.extend([company_name, f"{company_name} stock"])
@@ -593,6 +599,7 @@ def _postprocess_fool_blocks(blocks: list[str]) -> list[str]:
 
 
 def get_article_content(article_url: str) -> dict[str, Any]:
+    # Fetch the target article and normalize its body, title, and metadata into one stable payload.
     _validate_url_host(article_url, ("fool.com", "www.fool.com"))
 
     response = _request(article_url)
@@ -651,6 +658,7 @@ def get_stock_data(
     limit: int = DEFAULT_LIMIT,
     source_mode: SourceMode = SourceMode.quote_plus_search,
 ) -> list[dict[str, Any]]:
+    # Fetch the provider-specific stock data payload and normalize the fields this scraper expects to save.
     symbol = symbol.strip().upper()
     if not symbol:
         raise HTTPException(status_code=400, detail="Symbol is required.")

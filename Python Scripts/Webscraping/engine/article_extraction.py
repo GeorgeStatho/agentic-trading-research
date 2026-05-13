@@ -51,6 +51,7 @@ def clean_text(parts: Iterable[str]) -> str:
 
 
 def _normalize_datetime(value: str | None) -> str:
+    # Normalize the datetime so downstream code can rely on one consistent shape.
     if not value:
         return ""
 
@@ -114,6 +115,7 @@ def _extract_published_at(response: Response) -> str:
 
 
 def extract_from_response(response: Response) -> ArticleExtractionResult:
+    # Extract the from response from the raw response and return a stable value.
     lowered_url = response.url.lower()
 
     if "marketwatch.com" in lowered_url:
@@ -202,6 +204,7 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
 
 
 def extract_rendered_page(rendered_page: dict) -> RenderedPageExtraction:
+    # Extract the rendered page from the raw response and return a stable value.
     request_url = str(rendered_page.get("request_url") or "").strip()
     page_url = str(rendered_page.get("url") or request_url).strip()
     status = rendered_page.get("status")
@@ -257,6 +260,7 @@ def extract_rendered_pages_parallel(
 
 
 def extract_article(url: str, timeout: int = 20) -> ArticleExtractionResult:
+    # Extract the article from the raw response and return a stable value.
     headers = {
         "User-Agent": DEFAULT_USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
