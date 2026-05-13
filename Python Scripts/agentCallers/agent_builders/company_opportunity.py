@@ -20,6 +20,13 @@ from db_helpers.market import (
     list_companies_by_industry,
     list_industry_company_rankings,
 )
+from agent_contracts import (
+    CompanyLinkedArticlesPayload,
+    CompanySummary,
+    IndustryCompanyGroupsPayload,
+    IndustrySummary,
+    RankedCompanySummary,
+)
 
 
 def _find_industry(industry_identifier: str) -> dict[str, Any] | None:
@@ -53,7 +60,7 @@ def _find_company(company_identifier: str) -> dict[str, Any] | None:
     return None
     #get the company from eitehr name or ticker symbol from the db
 
-def _serialize_company_row(row: Any) -> dict[str, Any]:
+def _serialize_company_row(row: Any) -> CompanySummary:
     return {
         "company_id": row["id"] if "id" in row.keys() else row["company_id"],
         "symbol": row["symbol"],
@@ -63,7 +70,7 @@ def _serialize_company_row(row: Any) -> dict[str, Any]:
     }
 
 
-def _serialize_ranked_company_row(row: Any) -> dict[str, Any]:
+def _serialize_ranked_company_row(row: Any) -> RankedCompanySummary:
     return {
         "rank": row["rank"],
         "ranking_type": row["ranking_type"],
@@ -76,7 +83,7 @@ def _serialize_ranked_company_row(row: Any) -> dict[str, Any]:
     #turn db table row into a usable dict
 
 
-def get_industry_company_groups(industry_identifier: str) -> dict[str, Any]:
+def get_industry_company_groups(industry_identifier: str) -> IndustryCompanyGroupsPayload:
     industry = _find_industry(industry_identifier)
     if industry is None:
         raise ValueError(f"Industry not found for identifier: {industry_identifier}")
@@ -95,8 +102,7 @@ def get_industry_company_groups(industry_identifier: str) -> dict[str, Any]:
         for row in list_industry_company_rankings(industry["industry_key"], "top_performing")
     ]
 
-    return {
-        "industry": {
+    industry_payload: IndustrySummary = {
             "industry_id": industry["id"],
             "industry_key": industry["industry_key"],
             "industry_name": industry["name"],
@@ -104,14 +110,17 @@ def get_industry_company_groups(industry_identifier: str) -> dict[str, Any]:
             "sector_name": industry["sector_name"],
             "symbol": industry.get("symbol"),
             "market_weight": industry.get("market_weight"),
-        },
+        }
+
+    return {
+        "industry": industry_payload,
         "top_companies": top_companies,
         "top_growth_companies": top_growth_companies,
         "top_performing_companies": top_performing_companies,
     }
 
 
-def get_company_linked_articles(company_identifier: str) -> dict[str, Any]:
+def get_company_linked_articles(company_identifier: str) -> CompanyLinkedArticlesPayload:
     company = _find_company(company_identifier)
     if company is None:
         raise ValueError(f"Company not found for identifier: {company_identifier}")
