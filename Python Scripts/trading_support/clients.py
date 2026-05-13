@@ -2,25 +2,17 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from pathlib import Path
 
 from alpaca.data import OptionHistoricalDataClient, StockHistoricalDataClient
 from alpaca.trading.client import TradingClient
-from dotenv import load_dotenv
+from services.config import AlpacaSettings
 
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-load_dotenv(PROJECT_DIR / ".env")
+def _get_alpaca_settings() -> AlpacaSettings:
+    return AlpacaSettings.from_env()
 
-API_KEY = os.getenv("PUBLIC_KEY")
-API_SECRET_KEY = str(os.getenv("PRIVATE_KEY") or "")
-ALPACA_PAPER = str(os.getenv("ALPACA_PAPER", "true")).strip().lower() not in {
-    "0",
-    "false",
-    "no",
-    "off",
-    "",
-}
+
+ALPACA_PAPER = _get_alpaca_settings().paper
 
 
 def InitializeTradingClient(api_key: str, secret: str, paper: bool) -> TradingClient:
@@ -37,19 +29,30 @@ def IntializeTradingClient(api_key: str, secret: str, paper: bool) -> TradingCli
 
 @lru_cache(maxsize=1)
 def get_default_trading_client() -> TradingClient:
-    return InitializeTradingClient(API_KEY, API_SECRET_KEY, ALPACA_PAPER)
+    settings = _get_alpaca_settings()
+    return InitializeTradingClient(settings.api_key, settings.api_secret, settings.paper)
 
 
 @lru_cache(maxsize=1)
 def get_option_history_client() -> OptionHistoricalDataClient:
-    return OptionHistoricalDataClient(API_KEY, API_SECRET_KEY)
+    settings = _get_alpaca_settings()
+    return OptionHistoricalDataClient(settings.api_key, settings.api_secret)
 
 
 @lru_cache(maxsize=1)
 def get_stock_history_client() -> StockHistoricalDataClient:
-    return StockHistoricalDataClient(API_KEY, API_SECRET_KEY)
+    settings = _get_alpaca_settings()
+    return StockHistoricalDataClient(settings.api_key, settings.api_secret)
 
 
-trading_client = get_default_trading_client()
-option_history_client = get_option_history_client()
-stock_history_client = get_stock_history_client()
+class _LazyClientProxy:
+    def __init__(self, factory):
+        self._factory = factory
+
+    def __getattr__(self, name: str):
+        return getattr(self._factory(), name)
+
+
+trading_client = _LazyClientProxy(get_default_trading_client)
+option_history_client = _LazyClientProxy(get_option_history_client)
+stock_history_client = _LazyClientProxy(get_stock_history_client)

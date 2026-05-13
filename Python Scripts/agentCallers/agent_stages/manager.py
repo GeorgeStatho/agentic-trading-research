@@ -14,10 +14,13 @@ if __package__ in {None, ""}:
     if str(AGENT_CALLERS_DIR) not in sys.path:
         sys.path.append(str(AGENT_CALLERS_DIR))
 
-from _paths import bootstrap_agent_callers
+from _paths import bootstrap_agent_callers, load_project_env
 
 
-bootstrap_agent_callers(load_env_file=True)
+if __name__ == "__main__":
+    load_project_env()
+
+bootstrap_agent_callers()
 from agent_helpers.manager import (
     DEFAULT_FULL_ARTICLE_LIMIT,
     DEFAULT_MAX_ARTICLE_AGE_DAYS,

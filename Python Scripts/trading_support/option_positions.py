@@ -15,15 +15,8 @@ from .clients import (
     get_option_history_client,
     get_stock_history_client,
 )
+from services.config import OptionPositionSettings
 from .utils import mid_price, safe_float
-
-
-def _load_env_float(name: str, default: float) -> float:
-    raw_value = str(os.getenv(name, str(default))).strip()
-    try:
-        return float(raw_value)
-    except ValueError:
-        return float(default)
 
 
 @dataclass(frozen=True)
@@ -41,40 +34,35 @@ OPTION_SYMBOL_PATTERN = re.compile(
     r"^(?P<underlying>[A-Z0-9]{1,8})(?P<yy>\d{2})(?P<mm>\d{2})(?P<dd>\d{2})(?P<contract_type>[CP])(?P<strike>\d{8})$"
 )
 
-DEFAULT_OPTION_TAKE_PROFIT_PCT = float(
-    os.getenv("OPTION_POSITION_TAKE_PROFIT_PCT", "25")
-)
-DEFAULT_OPTION_STOP_LOSS_PCT = float(
-    os.getenv("OPTION_POSITION_STOP_LOSS_PCT", "-20")
-)
-DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION = float(
-    os.getenv("OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION", "24")
-)
+_OPTION_POSITION_SETTINGS = OptionPositionSettings.from_env()
+DEFAULT_OPTION_TAKE_PROFIT_PCT = _OPTION_POSITION_SETTINGS.take_profit_pct
+DEFAULT_OPTION_STOP_LOSS_PCT = _OPTION_POSITION_SETTINGS.stop_loss_pct
+DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION = _OPTION_POSITION_SETTINGS.exit_hours_to_expiration
 
 OPTION_EXIT_DTE_RULES = (
     OptionExitRule(
         label="3-7 DTE",
         min_days_to_expiration=3,
         max_days_to_expiration=7,
-        take_profit_pct=_load_env_float("OPTION_POSITION_3_7_DTE_TAKE_PROFIT_PCT", 30.0),
-        stop_loss_pct=_load_env_float("OPTION_POSITION_3_7_DTE_STOP_LOSS_PCT", -22.0),
-        force_exit_days_to_expiration=1,
+        take_profit_pct=_OPTION_POSITION_SETTINGS.dte_rules[0].take_profit_pct,
+        stop_loss_pct=_OPTION_POSITION_SETTINGS.dte_rules[0].stop_loss_pct,
+        force_exit_days_to_expiration=_OPTION_POSITION_SETTINGS.dte_rules[0].force_exit_days_to_expiration,
     ),
     OptionExitRule(
         label="7-14 DTE",
         min_days_to_expiration=7,
         max_days_to_expiration=14,
-        take_profit_pct=_load_env_float("OPTION_POSITION_7_14_DTE_TAKE_PROFIT_PCT", 40.0),
-        stop_loss_pct=_load_env_float("OPTION_POSITION_7_14_DTE_STOP_LOSS_PCT", -28.0),
-        force_exit_days_to_expiration=3,
+        take_profit_pct=_OPTION_POSITION_SETTINGS.dte_rules[1].take_profit_pct,
+        stop_loss_pct=_OPTION_POSITION_SETTINGS.dte_rules[1].stop_loss_pct,
+        force_exit_days_to_expiration=_OPTION_POSITION_SETTINGS.dte_rules[1].force_exit_days_to_expiration,
     ),
     OptionExitRule(
         label="14-30 DTE",
         min_days_to_expiration=14,
         max_days_to_expiration=30,
-        take_profit_pct=_load_env_float("OPTION_POSITION_14_30_DTE_TAKE_PROFIT_PCT", 60.0),
-        stop_loss_pct=_load_env_float("OPTION_POSITION_14_30_DTE_STOP_LOSS_PCT", -35.0),
-        force_exit_days_to_expiration=7,
+        take_profit_pct=_OPTION_POSITION_SETTINGS.dte_rules[2].take_profit_pct,
+        stop_loss_pct=_OPTION_POSITION_SETTINGS.dte_rules[2].stop_loss_pct,
+        force_exit_days_to_expiration=_OPTION_POSITION_SETTINGS.dte_rules[2].force_exit_days_to_expiration,
     ),
 )
 

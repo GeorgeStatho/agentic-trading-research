@@ -4,7 +4,14 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from services.common import env_flag, env_percentage, env_positive_int, load_exit_hours_to_expiration
+from services.common import (
+    env_flag,
+    env_float,
+    env_optional_positive_int,
+    env_percentage,
+    env_positive_int,
+    load_exit_hours_to_expiration,
+)
 from services.runtime_paths import DATA_DIR, LOGS_DIR, ROOT_DIR
 
 
@@ -103,4 +110,157 @@ class FrontMainSettings:
             max_option_order_qty_multiplier=env_positive_int("MAX_OPTION_ORDER_QTY_MULTIPLIER", 50),
             alpaca_paper=env_flag("ALPACA_PAPER", True),
             cold_start_sanity_check_enabled=env_flag("COLD_START_SANITY_CHECK", True),
+        )
+
+
+@dataclass(frozen=True)
+class OptionExitRuleConfig:
+    """Threshold configuration for a DTE bucket."""
+
+    label: str
+    take_profit_pct: float
+    stop_loss_pct: float
+    force_exit_days_to_expiration: int
+
+
+@dataclass(frozen=True)
+class OptionPositionSettings:
+    """Shared option position management settings used by API and trading helpers."""
+
+    take_profit_pct: float
+    stop_loss_pct: float
+    exit_hours_to_expiration: float
+    dte_rules: tuple[OptionExitRuleConfig, ...]
+
+    @classmethod
+    def from_env(cls) -> OptionPositionSettings:
+        return cls(
+            take_profit_pct=env_float("OPTION_POSITION_TAKE_PROFIT_PCT", 25.0),
+            stop_loss_pct=env_float("OPTION_POSITION_STOP_LOSS_PCT", -20.0),
+            exit_hours_to_expiration=load_exit_hours_to_expiration(),
+            dte_rules=(
+                OptionExitRuleConfig(
+                    label="3-7 DTE",
+                    take_profit_pct=env_float("OPTION_POSITION_3_7_DTE_TAKE_PROFIT_PCT", 30.0),
+                    stop_loss_pct=env_float("OPTION_POSITION_3_7_DTE_STOP_LOSS_PCT", -22.0),
+                    force_exit_days_to_expiration=1,
+                ),
+                OptionExitRuleConfig(
+                    label="7-14 DTE",
+                    take_profit_pct=env_float("OPTION_POSITION_7_14_DTE_TAKE_PROFIT_PCT", 40.0),
+                    stop_loss_pct=env_float("OPTION_POSITION_7_14_DTE_STOP_LOSS_PCT", -28.0),
+                    force_exit_days_to_expiration=3,
+                ),
+                OptionExitRuleConfig(
+                    label="14-30 DTE",
+                    take_profit_pct=env_float("OPTION_POSITION_14_30_DTE_TAKE_PROFIT_PCT", 60.0),
+                    stop_loss_pct=env_float("OPTION_POSITION_14_30_DTE_STOP_LOSS_PCT", -35.0),
+                    force_exit_days_to_expiration=7,
+                ),
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class ApiPaths:
+    """Filesystem paths used by the Flask API and dashboard readers."""
+
+    script_status_path: Path
+    trade_execution_output_path: Path
+    selected_options_output_path: Path
+    option_position_management_output_path: Path
+    option_manager_status_path: Path
+
+    @classmethod
+    def from_env(cls) -> ApiPaths:
+        return cls(
+            script_status_path=Path(
+                os.getenv("SCRIPT_STATUS_PATH", str(ROOT_DIR / "web_dashboard" / "public" / "script_status.json"))
+            ),
+            trade_execution_output_path=Path(
+                os.getenv(
+                    "TRADE_EXECUTION_OUTPUT_PATH",
+                    str(DATA_DIR / "trade_execution_output.json"),
+                )
+            ),
+            selected_options_output_path=DATA_DIR / "selected_options_output.json",
+            option_position_management_output_path=Path(
+                os.getenv(
+                    "OPTION_POSITION_MANAGEMENT_OUTPUT_PATH",
+                    str(DATA_DIR / "option_position_management_output.json"),
+                )
+            ),
+            option_manager_status_path=Path(
+                os.getenv(
+                    "OPTION_MANAGER_STATUS_PATH",
+                    str(DATA_DIR / "option_manager_status.json"),
+                )
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class ApiSettings:
+    """Shared API/runtime display settings."""
+
+    bot_status_down_threshold_seconds: int
+    default_option_order_qty: int
+    analyzed_company_news_default_page_size: int
+    analyzed_company_news_max_page_size: int
+    max_deployable_buying_power_pct: float
+    per_order_sizing_buying_power_pct: float
+    max_option_order_qty_multiplier: int
+
+    @classmethod
+    def from_env(cls) -> ApiSettings:
+        default_page_size = env_positive_int("ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE", 5)
+        return cls(
+            bot_status_down_threshold_seconds=max(30, env_positive_int("BOT_STATUS_DOWN_THRESHOLD_SECONDS", 90)),
+            default_option_order_qty=env_positive_int("AGENT_OPTION_ORDER_QTY", 1),
+            analyzed_company_news_default_page_size=default_page_size,
+            analyzed_company_news_max_page_size=max(
+                default_page_size,
+                env_positive_int("ANALYZED_COMPANY_NEWS_MAX_PAGE_SIZE", 20),
+            ),
+            max_deployable_buying_power_pct=env_percentage("MAX_DEPLOYABLE_BUYING_POWER_PCT", 30.0),
+            per_order_sizing_buying_power_pct=env_percentage("PER_ORDER_SIZING_BUYING_POWER_PCT", 30.0),
+            max_option_order_qty_multiplier=env_positive_int("MAX_OPTION_ORDER_QTY_MULTIPLIER", 50),
+        )
+
+
+@dataclass(frozen=True)
+class AlpacaSettings:
+    """Credentials and base URLs for Alpaca-backed services."""
+
+    api_key: str
+    api_secret: str
+    paper: bool
+
+    @property
+    def trading_base_url(self) -> str:
+        return "https://paper-api.alpaca.markets" if self.paper else "https://api.alpaca.markets"
+
+    @property
+    def data_base_url(self) -> str:
+        return "https://data.alpaca.markets"
+
+    @classmethod
+    def from_env(cls) -> AlpacaSettings:
+        return cls(
+            api_key=str(os.getenv("PUBLIC_KEY") or "").strip(),
+            api_secret=str(os.getenv("PRIVATE_KEY") or "").strip(),
+            paper=env_flag("ALPACA_PAPER", True),
+        )
+
+
+@dataclass(frozen=True)
+class AgentPipelineSettings:
+    """Shared pipeline ranking settings for agent callers."""
+
+    ranking_max_age_days: int | None
+
+    @classmethod
+    def from_env(cls) -> AgentPipelineSettings:
+        return cls(
+            ranking_max_age_days=env_optional_positive_int("PIPELINE_RANKING_MAX_AGE_DAYS"),
         )

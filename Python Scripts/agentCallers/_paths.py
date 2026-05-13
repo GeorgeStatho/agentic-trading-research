@@ -65,8 +65,9 @@ def bootstrap_agent_callers(
     Args:
         include_webscraping: Also register the sibling ``Webscraping`` import
             locations used by pipeline runners and market-data builders.
-        load_env_file: Load the project ``.env`` file before the module reads
-            environment variables.
+        load_env_file: Backward-compatible opt-in for direct-script entrypoints.
+            Prefer calling ``load_project_env()`` explicitly in entrypoint code
+            and leaving library modules path-only.
     """
     if include_webscraping:
         add_webscraping_paths()

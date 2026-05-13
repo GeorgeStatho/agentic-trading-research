@@ -30,42 +30,21 @@ for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
 
 from agent_pipeline.main import get_current_pipeline_targets
 from db_helpers import DB_PATH, get_connection, initialize_market_database, list_option_trade_executions
+from services.config import AlpacaSettings, ApiPaths, ApiSettings, OptionPositionSettings
 
-SCRIPT_STATUS_PATH = Path(
-    os.getenv("SCRIPT_STATUS_PATH", str(ROOT_DIR / "web_dashboard" / "public" / "script_status.json"))
-)
-TRADE_EXECUTION_OUTPUT_PATH = Path(
-    os.getenv(
-        "TRADE_EXECUTION_OUTPUT_PATH",
-        str(ROOT_DIR / "Data" / "trade_execution_output.json"),
-    )
-)
-SELECTED_OPTIONS_OUTPUT_PATH = ROOT_DIR / "Data" / "selected_options_output.json"
-OPTION_POSITION_MANAGEMENT_OUTPUT_PATH = Path(
-    os.getenv(
-        "OPTION_POSITION_MANAGEMENT_OUTPUT_PATH",
-        str(ROOT_DIR / "Data" / "option_position_management_output.json"),
-    )
-)
-OPTION_MANAGER_STATUS_PATH = Path(
-    os.getenv(
-        "OPTION_MANAGER_STATUS_PATH",
-        str(ROOT_DIR / "Data" / "option_manager_status.json"),
-    )
-)
-BOT_DOWN_THRESHOLD_SECONDS = max(
-    30,
-    int(os.getenv("BOT_STATUS_DOWN_THRESHOLD_SECONDS", "90")),
-)
-DEFAULT_OPTION_ORDER_QTY = max(1, int(os.getenv("AGENT_OPTION_ORDER_QTY", "1")))
-ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE = max(
-    1,
-    int(os.getenv("ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE", "5")),
-)
-ANALYZED_COMPANY_NEWS_MAX_PAGE_SIZE = max(
-    ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE,
-    int(os.getenv("ANALYZED_COMPANY_NEWS_MAX_PAGE_SIZE", "20")),
-)
+API_PATHS = ApiPaths.from_env()
+API_SETTINGS = ApiSettings.from_env()
+OPTION_POSITION_SETTINGS = OptionPositionSettings.from_env()
+ALPACA_SETTINGS = AlpacaSettings.from_env()
+SCRIPT_STATUS_PATH = API_PATHS.script_status_path
+TRADE_EXECUTION_OUTPUT_PATH = API_PATHS.trade_execution_output_path
+SELECTED_OPTIONS_OUTPUT_PATH = API_PATHS.selected_options_output_path
+OPTION_POSITION_MANAGEMENT_OUTPUT_PATH = API_PATHS.option_position_management_output_path
+OPTION_MANAGER_STATUS_PATH = API_PATHS.option_manager_status_path
+BOT_DOWN_THRESHOLD_SECONDS = API_SETTINGS.bot_status_down_threshold_seconds
+DEFAULT_OPTION_ORDER_QTY = API_SETTINGS.default_option_order_qty
+ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE = API_SETTINGS.analyzed_company_news_default_page_size
+ANALYZED_COMPANY_NEWS_MAX_PAGE_SIZE = API_SETTINGS.analyzed_company_news_max_page_size
 
 
 @app.after_request
@@ -99,31 +78,15 @@ def _safe_float(value):
         return None
 
 
-def _load_env_float(name: str, default: float) -> float:
-    value = _safe_float(os.getenv(name))
-    return float(default if value is None else value)
-
-
 def _load_dte_exit_rule_configs() -> list[dict]:
     return [
         {
-            "label": "3-7 DTE",
-            "take_profit_pct": _load_env_float("OPTION_POSITION_3_7_DTE_TAKE_PROFIT_PCT", 30.0),
-            "stop_loss_pct": _load_env_float("OPTION_POSITION_3_7_DTE_STOP_LOSS_PCT", -22.0),
-            "force_exit_days_to_expiration": 1,
-        },
-        {
-            "label": "7-14 DTE",
-            "take_profit_pct": _load_env_float("OPTION_POSITION_7_14_DTE_TAKE_PROFIT_PCT", 40.0),
-            "stop_loss_pct": _load_env_float("OPTION_POSITION_7_14_DTE_STOP_LOSS_PCT", -28.0),
-            "force_exit_days_to_expiration": 3,
-        },
-        {
-            "label": "14-30 DTE",
-            "take_profit_pct": _load_env_float("OPTION_POSITION_14_30_DTE_TAKE_PROFIT_PCT", 60.0),
-            "stop_loss_pct": _load_env_float("OPTION_POSITION_14_30_DTE_STOP_LOSS_PCT", -35.0),
-            "force_exit_days_to_expiration": 7,
-        },
+            "label": rule.label,
+            "take_profit_pct": rule.take_profit_pct,
+            "stop_loss_pct": rule.stop_loss_pct,
+            "force_exit_days_to_expiration": rule.force_exit_days_to_expiration,
+        }
+        for rule in OPTION_POSITION_SETTINGS.dte_rules
     ]
 
 
@@ -163,37 +126,21 @@ def _safe_int(value, default: int, *, minimum: int = 1, maximum: int | None = No
     return normalized
 
 
-MAX_DEPLOYABLE_BUYING_POWER_PCT = min(
-    100.0,
-    max(0.0, _safe_float(os.getenv("MAX_DEPLOYABLE_BUYING_POWER_PCT")) or 30.0),
-)
-PER_ORDER_SIZING_BUYING_POWER_PCT = min(
-    100.0,
-    max(0.0, _safe_float(os.getenv("PER_ORDER_SIZING_BUYING_POWER_PCT")) or 30.0),
-)
-MAX_OPTION_ORDER_QTY_MULTIPLIER = max(
-    1,
-    int(_safe_float(os.getenv("MAX_OPTION_ORDER_QTY_MULTIPLIER")) or 50),
-)
+MAX_DEPLOYABLE_BUYING_POWER_PCT = API_SETTINGS.max_deployable_buying_power_pct
+PER_ORDER_SIZING_BUYING_POWER_PCT = API_SETTINGS.per_order_sizing_buying_power_pct
+MAX_OPTION_ORDER_QTY_MULTIPLIER = API_SETTINGS.max_option_order_qty_multiplier
 
 
 def _alpaca_base_url() -> str:
-    return (
-        "https://paper-api.alpaca.markets"
-        if env_flag("ALPACA_PAPER", True)
-        else "https://api.alpaca.markets"
-    )
+    return ALPACA_SETTINGS.trading_base_url
 
 
 def _alpaca_data_base_url() -> str:
-    return "https://data.alpaca.markets"
+    return ALPACA_SETTINGS.data_base_url
 
 
 def _alpaca_get_json(path: str, query: dict[str, str] | None = None):
-    api_key = str(os.getenv("PUBLIC_KEY") or "").strip()
-    api_secret = str(os.getenv("PRIVATE_KEY") or "").strip()
-
-    if not api_key or not api_secret:
+    if not ALPACA_SETTINGS.api_key or not ALPACA_SETTINGS.api_secret:
         raise RuntimeError("PUBLIC_KEY and PRIVATE_KEY must be configured in Stock-trading-experiment/.env")
 
     url = f"{_alpaca_base_url()}{path}"
@@ -203,8 +150,8 @@ def _alpaca_get_json(path: str, query: dict[str, str] | None = None):
     request = Request(
         url,
         headers={
-            "APCA-API-KEY-ID": api_key,
-            "APCA-API-SECRET-KEY": api_secret,
+            "APCA-API-KEY-ID": ALPACA_SETTINGS.api_key,
+            "APCA-API-SECRET-KEY": ALPACA_SETTINGS.api_secret,
             "Accept": "application/json",
         },
     )
@@ -220,10 +167,7 @@ def _alpaca_get_json(path: str, query: dict[str, str] | None = None):
 
 
 def _alpaca_data_get_json(path: str, query: dict[str, str] | None = None):
-    api_key = str(os.getenv("PUBLIC_KEY") or "").strip()
-    api_secret = str(os.getenv("PRIVATE_KEY") or "").strip()
-
-    if not api_key or not api_secret:
+    if not ALPACA_SETTINGS.api_key or not ALPACA_SETTINGS.api_secret:
         raise RuntimeError("PUBLIC_KEY and PRIVATE_KEY must be configured in Stock-trading-experiment/.env")
 
     url = f"{_alpaca_data_base_url()}{path}"
@@ -233,8 +177,8 @@ def _alpaca_data_get_json(path: str, query: dict[str, str] | None = None):
     request = Request(
         url,
         headers={
-            "APCA-API-KEY-ID": api_key,
-            "APCA-API-SECRET-KEY": api_secret,
+            "APCA-API-KEY-ID": ALPACA_SETTINGS.api_key,
+            "APCA-API-SECRET-KEY": ALPACA_SETTINGS.api_secret,
             "Accept": "application/json",
         },
     )
