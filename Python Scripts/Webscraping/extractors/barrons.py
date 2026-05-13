@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from scrapy.http import Response
 
-from article_extraction import ArticleExtractionResult, clean_text
+from engine.article_extraction import ArticleExtractionResult, clean_text
 
 
 SEARCH_CARD_SELECTORS = (

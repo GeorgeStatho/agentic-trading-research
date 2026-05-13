@@ -26,9 +26,9 @@ from core.CommonPipeline import (
     record_failed_url,
 )
 from core.scrape_logging import get_log_file_path, get_scrape_logger
-from news_normalization import build_content_hash, normalize_title, normalize_url
-from Normalization import ArticleExtractionResult, crawl_article_pages, crawl_articles
-from source_config import (
+from processing.news_normalization import build_content_hash, normalize_title, normalize_url
+from engine.Normalization import ArticleExtractionResult, crawl_article_pages, crawl_articles
+from sources.source_config import (
     get_max_article_age_days,
     get_source_metadata,
     is_allowed_source,

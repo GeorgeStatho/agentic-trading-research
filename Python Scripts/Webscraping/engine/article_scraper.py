@@ -11,22 +11,22 @@ from scrapy.http import Request
 from scrapy.http import Response
 from scrapy.signalmanager import dispatcher
 
-from article_extraction import (
+from engine.article_extraction import (
     ArticleExtractionResult,
     DEFAULT_USER_AGENT,
     RenderedPageExtraction,
     extract_from_response,
     extract_rendered_pages_parallel,
 )
-from barrons_extractor import extract_barrons_search_links, response_looks_like_barrons_search
-from cnbc_extractor import extract_cnbc_search_links, response_looks_like_cnbc_search
+from extractors.barrons import extract_barrons_search_links, response_looks_like_barrons_search
+from extractors.cnbc import extract_cnbc_search_links, response_looks_like_cnbc_search
 from core.scrape_logging import get_log_file_path, get_scrape_logger, get_scrapy_log_settings
-from fool_extractor import extract_fool_quote_links, response_looks_like_fool_quote
-from investing_extractor import extract_investing_search_links, response_looks_like_investing_search
-from marketwatch_extractor import extract_marketwatch_search_links, response_looks_like_marketwatch_search
-from morningstar_extractor import extract_morningstar_search_links, response_looks_like_morningstar_search
+from extractors.fool import extract_fool_quote_links, response_looks_like_fool_quote
+from extractors.investing import extract_investing_search_links, response_looks_like_investing_search
+from extractors.marketwatch import extract_marketwatch_search_links, response_looks_like_marketwatch_search
+from extractors.morningstar import extract_morningstar_search_links, response_looks_like_morningstar_search
 try:
-    from playwright_runner import (
+    from engine.playwright_runner import (
         fetch_rendered_pages,
         get_article_crawl_backend,
         should_use_playwright_backend,

@@ -9,7 +9,7 @@ if __package__ in {None, ""}:
     if str(WEBSCRAPING_DIR) not in sys.path:
         sys.path.append(str(WEBSCRAPING_DIR))
 
-from source_config import is_allowed_source
+from sources.source_config import is_allowed_source
 
 
 def get_company_news_items(company: str, count: int = 10) -> list[dict]:
