@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 from scrapy.http import Response
 
-from article_extraction import ArticleExtractionResult, clean_text
+from engine.article_extraction import ArticleExtractionResult, clean_text
 
 
 # The saved Fool quote-page HTML shows two useful patterns:

@@ -117,49 +117,49 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
     lowered_url = response.url.lower()
 
     if "marketwatch.com" in lowered_url:
-        from marketwatch_extractor import extract_marketwatch_article
+        from extractors.marketwatch import extract_marketwatch_article
 
         marketwatch_result = extract_marketwatch_article(response)
         if marketwatch_result.success:
             return marketwatch_result
 
     if "morningstar.com" in lowered_url:
-        from morningstar_extractor import extract_morningstar_article
+        from extractors.morningstar import extract_morningstar_article
 
         morningstar_result = extract_morningstar_article(response)
         if morningstar_result.success:
             return morningstar_result
 
     if "barrons.com" in lowered_url:
-        from barrons_extractor import extract_barrons_article
+        from extractors.barrons import extract_barrons_article
 
         barrons_result = extract_barrons_article(response)
         if barrons_result.success:
             return barrons_result
 
     if "cnbc.com" in lowered_url:
-        from cnbc_extractor import extract_cnbc_article
+        from extractors.cnbc import extract_cnbc_article
 
         cnbc_result = extract_cnbc_article(response)
         if cnbc_result.success:
             return cnbc_result
 
     if "investing.com" in lowered_url:
-        from investing_extractor import extract_investing_article
+        from extractors.investing import extract_investing_article
 
         investing_result = extract_investing_article(response)
         if investing_result.success:
             return investing_result
 
     if "fool.com" in lowered_url:
-        from fool_extractor import extract_fool_article
+        from extractors.fool import extract_fool_article
 
         fool_result = extract_fool_article(response)
         if fool_result.success:
             return fool_result
 
     if "finance.yahoo.com" in lowered_url:
-        from yahoo_extractor import extract_yahoo_article
+        from extractors.yahoo import extract_yahoo_article
 
         yahoo_result = extract_yahoo_article(response)
         if yahoo_result.success:

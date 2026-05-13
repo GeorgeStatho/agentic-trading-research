@@ -13,8 +13,8 @@ if str(DATA_DIR) not in sys.path:
 
 from db_common import get_connection
 from news_db import add_failed_url, get_failed_url, remove_failed_url
-from news_normalization import normalize_url
-from scoring import (
+from processing.news_normalization import normalize_url
+from processing.scoring import (
     compute_directness_score,
     compute_evidence_score,
     compute_factuality_score,
@@ -22,7 +22,7 @@ from scoring import (
     recency_score,
 )
 from core.scrape_logging import get_scrape_logger
-from source_config import get_article_patterns, is_allowed_source
+from sources.source_config import get_article_patterns, is_allowed_source
 
 
 MAX_ARTICLES_PER_SEARCH_PAGE = 10

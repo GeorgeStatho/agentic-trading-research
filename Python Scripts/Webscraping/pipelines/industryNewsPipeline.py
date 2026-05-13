@@ -16,7 +16,7 @@ from pipelines._shared import (
     get_scrape_logger,
     supports_source_type,
 )
-from listing_page_helper import extract_listing_article_links
+from engine.listing_page_helper import extract_listing_article_links
 from pipelines._constants import INDUSTRY_NAME_STOPWORDS
 from pipelines._entity_adapters import (
     make_bucketed_count_accumulator,

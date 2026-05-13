@@ -6,7 +6,7 @@ from typing import Iterable
 
 from scrapy.http import Response
 
-from article_extraction import ArticleExtractionResult, clean_text
+from engine.article_extraction import ArticleExtractionResult, clean_text
 
 
 ARTICLE_TITLE_SELECTORS = (

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from typing import Any
-from article_extraction import DEFAULT_USER_AGENT
+from engine.article_extraction import DEFAULT_USER_AGENT
 from core.scrape_logging import get_scrape_logger
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import re
 
-from source_config import get_source_metadata
+from sources.source_config import get_source_metadata
 
 
 DIRECTNESS_POSITIVE_PATTERNS = [
