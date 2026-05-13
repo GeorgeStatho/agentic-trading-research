@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
-
 from agent_helpers.company_opportunist import get_company_opportunist_summary
+from agent_contracts import (
+    PipelineIndustryResult,
+    PipelineRunResult,
+    PipelineSectorResult,
+)
 from agent_pipeline.ranking import (
     DEFAULT_TOP_COMPANY_COUNT,
     DEFAULT_TOP_INDUSTRY_COUNT,
@@ -20,7 +23,7 @@ def _build_industry_result_from_existing_data(
     *,
     top_company_count: int,
     ranking_max_age_days: int | None,
-) -> dict[str, Any]:
+) -> PipelineIndustryResult:
     company_selection = collect_ranked_companies_for_industry(
         industry_key,
         top_company_count=top_company_count,
@@ -45,7 +48,7 @@ def _build_sector_result_from_existing_data(
     top_industry_count: int,
     top_company_count: int,
     ranking_max_age_days: int | None,
-) -> dict[str, Any]:
+) -> PipelineSectorResult:
     top_industry_rankings = _get_ranked_industries_for_sector(
         sector_key,
         top_industry_count=top_industry_count,
@@ -74,7 +77,7 @@ def run_agent_pipeline_from_existing_data(
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
     ranking_max_age_days: int | None | object = RANKING_MAX_AGE_DAYS_UNSET,
-) -> dict[str, Any]:
+) -> PipelineRunResult:
     """Build the current pipeline view from persisted DB state without scraping."""
     ranking_max_age_days = resolve_ranking_max_age_days(ranking_max_age_days)
     rankings_before_sector_stage = get_current_rankings(

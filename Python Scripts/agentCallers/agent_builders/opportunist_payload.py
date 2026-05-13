@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
+from typing import Any
 
 
 AGENT_CALLERS_DIR = Path(__file__).resolve().parent
@@ -23,6 +24,7 @@ from agent_helpers.opportunist_payload import (
     get_sector_rss_news,
 )
 from db_helpers import initialize_news_database
+from agent_contracts import OpportunistInputPayload, OpportunistSectorPayload, PayloadFilters
 
 
 __all__ = [
@@ -37,7 +39,7 @@ def _build_payload_filters(
     start_time: datetime | None,
     end_time: datetime | None,
     max_age_days: int | None,
-) -> dict[str, str | int | None]:
+) -> PayloadFilters:
     return {
         "start_time": start_time.astimezone(timezone.utc).isoformat() if start_time is not None else "",
         "end_time": end_time.astimezone(timezone.utc).isoformat() if end_time is not None else "",
@@ -47,7 +49,7 @@ def _build_payload_filters(
     }
 
 
-def _build_payload_sector(sector: dict) -> dict[str, int | str]:
+def _build_payload_sector(sector: dict[str, Any]) -> OpportunistSectorPayload:
     return {
         "sector_id": sector["id"],
         "sector_key": sector["sector_key"],
@@ -61,7 +63,7 @@ def build_opportunist_input(
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
-) -> dict:
+) -> OpportunistInputPayload:
     initialize_news_database()
     sector = find_sector(sector_identifier)
     if sector is None:

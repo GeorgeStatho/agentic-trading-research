@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
-
 from agent_analysis.industry_interest import getIndustryScores, getTopThreeIndustries
 from agent_analysis.sector_interest import getSectorScores, getTopThreeSectors
 from services.config import AgentPipelineSettings
+from agent_contracts import RankingEntry, RankingsPayload
 
 
 DEFAULT_TOP_SECTOR_COUNT = 3
@@ -59,7 +58,7 @@ def _get_ranked_sectors(
     *,
     top_sector_count: int,
     ranking_max_age_days: int | None | object = RANKING_MAX_AGE_DAYS_UNSET,
-) -> list[dict[str, Any]]:
+) -> list[RankingEntry]:
     ranking_max_age_days = resolve_ranking_max_age_days(ranking_max_age_days)
     ranked = getTopThreeSectors(
         getSectorScores(max_age_days=ranking_max_age_days)
@@ -78,7 +77,7 @@ def _get_ranked_industries_for_sector(
     *,
     top_industry_count: int,
     ranking_max_age_days: int | None | object = RANKING_MAX_AGE_DAYS_UNSET,
-) -> list[dict[str, Any]]:
+) -> list[RankingEntry]:
     ranking_max_age_days = resolve_ranking_max_age_days(ranking_max_age_days)
     ranked = getTopThreeIndustries(
         getIndustryScores(
@@ -100,7 +99,7 @@ def get_current_rankings(
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     ranking_max_age_days: int | None | object = RANKING_MAX_AGE_DAYS_UNSET,
-) -> dict[str, Any]:
+) -> RankingsPayload:
     """Return the current ranked sectors and industries without running the pipeline."""
     ranking_max_age_days = resolve_ranking_max_age_days(ranking_max_age_days)
     ranked_sectors = _get_ranked_sectors(

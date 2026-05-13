@@ -29,6 +29,19 @@ from agent_helpers.strategist import (
     build_strategist_evidence_sections,
 )
 from db_helpers import get_all_companies, initialize_news_database
+from agent_contracts import (
+    AgentSignalPayload,
+    CompanyScopePayload,
+    HistoricalPricePoint,
+    HistoricalPriceSnapshot,
+    PayloadFilters,
+    StrategistInputPayload,
+    StrategistViewsPayload,
+    SupportingArticlesPayload,
+    SupportingArticleSummaryPayload,
+    SupportingFullArticlePayload,
+    ViewPayload,
+)
 
 try:
     import yfinance as yf
@@ -80,7 +93,7 @@ def _serialize_filters(
     max_age_days: int | None,
     summary_article_limit: int,
     full_article_limit: int,
-) -> dict[str, str | int | None]:
+) -> PayloadFilters:
     return {
         "start_time": start_time.astimezone(timezone.utc).isoformat() if start_time is not None else "",
         "end_time": end_time.astimezone(timezone.utc).isoformat() if end_time is not None else "",
@@ -95,7 +108,7 @@ def _serialize_filters(
     }
 
 
-def _serialize_company_scope(company: dict[str, Any]) -> dict[str, Any]:
+def _serialize_company_scope(company: dict[str, Any]) -> CompanyScopePayload:
     company_record = _get_company_market_record(company)
     return {
         "company_id": company["company_id"],
@@ -183,7 +196,7 @@ def _empty_historical_snapshot(
     period: str,
     interval: str,
     error: str = "",
-) -> dict[str, Any]:
+) -> HistoricalPriceSnapshot:
     return {
         "available": False,
         "symbol": symbol,
@@ -221,7 +234,7 @@ def _summarize_history_frame(
         )
 
     sample_rows = frame.tail(max(1, int(sample_limit)))
-    recent_points: list[dict[str, Any]] = []
+    recent_points: list[HistoricalPricePoint] = []
     for timestamp, row in sample_rows.iterrows():
         recent_points.append(
             {
@@ -268,7 +281,7 @@ def _summarize_history_frame(
     }
 
 
-def _build_company_historical_price_data(symbol: Any) -> dict[str, Any]:
+def _build_company_historical_price_data(symbol: Any) -> dict[str, HistoricalPriceSnapshot]:
     normalized_symbol = str(symbol or "").strip().upper()
     history_by_period: dict[str, Any] = {}
 
@@ -682,8 +695,8 @@ def _build_opportunist_rollup(evidence: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _serialize_signal(item: dict[str, Any], *, layer: str) -> dict[str, Any]:
-    signal = {
+def _serialize_signal(item: dict[str, Any], *, layer: str) -> AgentSignalPayload:
+    signal: AgentSignalPayload = {
         "layer": layer,
         "article_id": item["article_id"],
         "confidence": item.get("confidence") or "",
@@ -777,7 +790,7 @@ def _build_supporting_articles(
     *,
     summary_article_limit: int,
     full_article_limit: int,
-) -> dict[str, list[dict[str, Any]]]:
+) -> SupportingArticlesPayload:
     articles_by_id: dict[int, dict[str, Any]] = {}
 
     for item in evidence["macro_impacts"]:
@@ -807,7 +820,7 @@ def _build_supporting_articles(
         reverse=True,
     )
 
-    summary_articles = [
+    summary_articles: list[SupportingArticleSummaryPayload] = [
         {
             "article_id": article["article_id"],
             "title": article["title"],
@@ -822,7 +835,7 @@ def _build_supporting_articles(
         for article in ranked_articles[: max(1, int(summary_article_limit))]
     ]
 
-    full_articles = [
+    full_articles: list[SupportingFullArticlePayload] = [
         {
             "article_id": article["article_id"],
             "title": article["title"],
@@ -853,7 +866,7 @@ def build_strategist_input(
     max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
     summary_article_limit: int = DEFAULT_SUMMARY_ARTICLE_LIMIT,
     full_article_limit: int = DEFAULT_FULL_ARTICLE_LIMIT,
-) -> dict[str, Any]:
+) -> StrategistInputPayload:
     initialize_news_database()
     evidence = build_strategist_evidence_sections(
         company_identifier,
@@ -863,6 +876,29 @@ def build_strategist_input(
     )
     company = evidence["company"]
     opportunist_rollup = _build_opportunist_rollup(evidence)
+
+    views: StrategistViewsPayload = {
+        "macro_view": _build_view(
+            layer="macro_view",
+            items=evidence["macro_impacts"],
+            label="High-confidence macro news mapped to the company sector",
+        ),
+        "sector_view": _build_view(
+            layer="sector_view",
+            items=evidence["sector_impacts"],
+            label="High-confidence sector opportunist impacts",
+        ),
+        "industry_view": _build_view(
+            layer="industry_view",
+            items=evidence["industry_impacts"],
+            label="High-confidence industry opportunist impacts",
+        ),
+        "company_view": _build_view(
+            layer="company_view",
+            items=evidence["company_impacts"],
+            label="High-confidence company opportunist impacts",
+        ),
+    }
 
     return {
         "company": _serialize_company_scope(company),
@@ -875,28 +911,7 @@ def build_strategist_input(
             full_article_limit=full_article_limit,
         ),
         "opportunist_rollup": opportunist_rollup,
-        "views": {
-            "macro_view": _build_view(
-                layer="macro_view",
-                items=evidence["macro_impacts"],
-                label="High-confidence macro news mapped to the company sector",
-            ),
-            "sector_view": _build_view(
-                layer="sector_view",
-                items=evidence["sector_impacts"],
-                label="High-confidence sector opportunist impacts",
-            ),
-            "industry_view": _build_view(
-                layer="industry_view",
-                items=evidence["industry_impacts"],
-                label="High-confidence industry opportunist impacts",
-            ),
-            "company_view": _build_view(
-                layer="company_view",
-                items=evidence["company_impacts"],
-                label="High-confidence company opportunist impacts",
-            ),
-        },
+        "views": views,
         "supporting_articles": _build_supporting_articles(
             evidence,
             summary_article_limit=summary_article_limit,

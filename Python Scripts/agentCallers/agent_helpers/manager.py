@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 import sys
 from typing import Any
+from datetime import datetime
 
 if __package__ in {None, ""}:
     AGENT_CALLERS_DIR = Path(__file__).resolve().parents[1]
@@ -38,6 +39,7 @@ from agent_helpers.market_context import (
     DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
     build_market_context,
 )
+from agent_contracts import ManagerInputPayload
 
 
 __all__ = [
@@ -54,8 +56,8 @@ __all__ = [
 def build_manager_input(
     company_identifier: str,
     *,
-    start_time,
-    end_time,
+    start_time: datetime | None,
+    end_time: datetime | None,
     max_age_days: int | None,
     summary_article_limit: int,
     full_article_limit: int,
@@ -65,7 +67,7 @@ def build_manager_input(
     option_strike_price_gte: float | None,
     option_strike_price_lte: float | None,
     option_contract_limit_per_type: int,
-) -> dict[str, Any]:
+) -> ManagerInputPayload:
     """Build the full manager payload for one company.
 
     Usage:

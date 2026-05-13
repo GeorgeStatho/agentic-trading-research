@@ -4,6 +4,12 @@ from typing import Any
 
 from agent_builders.company_opportunity import get_industry_company_groups
 
+from agent_contracts import (
+    CompanyOpportunistSummaryPayload,
+    IndustryCompanySelectionPayload,
+    PipelineTargetsPayload,
+    SelectedCompany,
+)
 from agent_pipeline.ranking import (
     DEFAULT_TOP_COMPANY_COUNT,
     DEFAULT_TOP_INDUSTRY_COUNT,
@@ -14,7 +20,7 @@ from agent_pipeline.ranking import (
 )
 
 
-def _slice_companies(companies: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+def _slice_companies(companies: list[CompanySummary], limit: int) -> list[CompanySummary]:
     return companies[: max(0, int(limit))]
 
 
@@ -34,7 +40,7 @@ def collect_ranked_companies_for_industry(
     industry_identifier: str,
     *,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
-) -> dict[str, Any]:
+) -> IndustryCompanySelectionPayload:
     """Return the top ranked companies for one industry for downstream stages."""
     company_groups = get_industry_company_groups(industry_identifier)
     top_companies = _slice_companies(
@@ -42,7 +48,7 @@ def collect_ranked_companies_for_industry(
         top_company_count,
     )
 
-    selected_companies = [
+    selected_companies: list[SelectedCompany] = [
         {
             "company_id": int(company["company_id"]),
             "symbol": company["symbol"],
@@ -60,7 +66,7 @@ def collect_ranked_companies_for_industry(
     }
 
 
-def build_company_opportunist_summary(result: dict[str, Any]) -> dict[str, Any]:
+def build_company_opportunist_summary(result: dict[str, Any]) -> CompanyOpportunistSummaryPayload:
     """Summarize one company opportunist result into compact dashboard counts."""
     company = result.get("company", {})
     impacts = result.get("impacts", [])
@@ -107,7 +113,7 @@ def get_current_pipeline_targets(
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
     ranking_max_age_days: int | None | object = RANKING_MAX_AGE_DAYS_UNSET,
-) -> dict[str, Any]:
+) -> PipelineTargetsPayload:
     """Return the sectors, industries, and companies that the pipeline would target now."""
     ranking_max_age_days = resolve_ranking_max_age_days(ranking_max_age_days)
     rankings = get_current_rankings(
@@ -118,7 +124,7 @@ def get_current_pipeline_targets(
     top_sector_keys = [sector["sector_key"] for sector in rankings["top_sectors"]]
 
     top_industry_keys: list[str] = []
-    selected_companies: list[dict[str, Any]] = []
+    selected_companies: list[SelectedCompany] = []
     selected_company_ids: list[int] = []
     selected_company_symbols: list[str] = []
 
