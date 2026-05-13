@@ -7,6 +7,7 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -410,6 +411,156 @@ class OptionPositionTests(unittest.TestCase):
             self.option_positions._resolve_trailing_giveback_pct(14, trailing_profit_config),
             0.33,
         )
+
+    def test_structured_exit_action_activates_profit_protection_after_trigger(self) -> None:
+        trailing_profit_config = _make_trailing_profit_config(
+            self.option_positions,
+            protection_trigger_pct=0.40,
+            initial_floor_pct=0.10,
+            first_scale_out_trigger_pct=0.80,
+        )
+
+        exit_action, updated_state = self.option_positions._structured_exit_action(
+            option_symbol=OPTION_SYMBOL,
+            quantity=2,
+            unrealized_pl_pct_ratio=0.45,
+            days_to_expiration=10,
+            hours_to_expiration=120.0,
+            exit_thresholds=self.option_positions.ExitThresholds(
+                dte_rule_label="7-14 DTE",
+                take_profit_pct=40.0,
+                stop_loss_pct=-28.0,
+                force_exit_days_to_expiration=3,
+                exit_hours_to_expiration=72.0,
+                is_default_rule=False,
+            ),
+            position_state={},
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=trailing_profit_config,
+            momentum_status=MOMENTUM_UNKNOWN,
+            momentum_reasons=[],
+            recently_filled_order=False,
+        )
+
+        self.assertEqual(exit_action["action"], "hold")
+        self.assertTrue(updated_state["profit_protection_active"])
+        self.assertEqual(updated_state["protected_profit_floor_pct"], 0.10)
+        self.assertEqual(updated_state["trailing_giveback_pct"], trailing_profit_config.giveback_7_14_pct)
+        self.assertIn("Profit protection activated.", exit_action["notes"])
+
+    def test_structured_exit_action_triggers_trailing_profit_stop_after_giveback(self) -> None:
+        trailing_profit_config = _make_trailing_profit_config(
+            self.option_positions,
+            floor_100_pct=0.60,
+            first_scale_out_trigger_pct=0.80,
+        )
+
+        exit_action, updated_state = self.option_positions._structured_exit_action(
+            option_symbol=OPTION_SYMBOL,
+            quantity=3,
+            unrealized_pl_pct_ratio=0.58,
+            days_to_expiration=20,
+            hours_to_expiration=200.0,
+            exit_thresholds=self.option_positions.ExitThresholds(
+                dte_rule_label="14-30 DTE",
+                take_profit_pct=60.0,
+                stop_loss_pct=-35.0,
+                force_exit_days_to_expiration=7,
+                exit_hours_to_expiration=168.0,
+                is_default_rule=False,
+            ),
+            position_state={
+                "max_pnl_pct": 1.10,
+                "profit_protection_active": True,
+                "protected_profit_floor_pct": 0.40,
+            },
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=trailing_profit_config,
+            momentum_status=MOMENTUM_GOOD,
+            momentum_reasons=[],
+            recently_filled_order=False,
+        )
+
+        self.assertEqual(exit_action["action"], "sell_full")
+        self.assertEqual(exit_action["reason"], "trailing_profit_stop")
+        self.assertAlmostEqual(exit_action["protected_profit_floor_pct"], 0.65, places=6)
+        self.assertEqual(updated_state["last_decision_reason"], "trailing_profit_stop")
+
+    def test_manage_current_option_positions_submits_partial_scale_out_for_trailing_profit(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "option_state.json"
+            partial_orders: list[tuple[str, int]] = []
+            future_option_symbol = "AAPL260523C00150000"
+
+            position = SimpleNamespace(
+                symbol=future_option_symbol,
+                avg_entry_price="1.0",
+                qty="4",
+                unrealized_plpc=None,
+            )
+
+            class _FakeTradingClient:
+                def get_all_positions(self):
+                    return [position]
+
+            option_history_client = SimpleNamespace(
+                get_option_latest_quote=lambda _request: {
+                    future_option_symbol: SimpleNamespace(
+                        bid_price=1.58,
+                        ask_price=1.62,
+                        timestamp="2026-05-13T15:30:00Z",
+                    )
+                }
+            )
+            stock_history_client = SimpleNamespace(
+                get_stock_latest_quote=lambda _request: {
+                    "AAPL": SimpleNamespace(
+                        bid_price=199.5,
+                        ask_price=200.5,
+                        timestamp="2026-05-13T15:30:00Z",
+                    )
+                }
+            )
+
+            original_option_client = self.option_positions.get_option_history_client
+            original_stock_client = self.option_positions.get_stock_history_client
+            self.option_positions.get_option_history_client = lambda: option_history_client
+            self.option_positions.get_stock_history_client = lambda: stock_history_client
+            try:
+                result = self.option_positions.ManageCurrentOptionPositions(
+                    execute_sales=True,
+                    state_path_override=state_path,
+                    enable_trailing_profit_override=True,
+                    trading_client_override=_FakeTradingClient(),
+                    submit_partial_exit_order=lambda symbol, qty: partial_orders.append((symbol, qty))
+                    or {
+                        "id": "partial-order-1",
+                        "status": "new",
+                        "side": "sell",
+                        "qty": str(qty),
+                        "requested_qty": qty,
+                        "submitted_at": datetime.now().isoformat(),
+                    },
+                )
+            finally:
+                self.option_positions.get_option_history_client = original_option_client
+                self.option_positions.get_stock_history_client = original_stock_client
+
+            self.assertEqual(result["position_count"], 1)
+            self.assertEqual(result["partial_sell_count"], 1)
+            self.assertEqual(result["close_submitted_count"], 1)
+            self.assertEqual(partial_orders, [(future_option_symbol, 2)])
+
+            summary = result["positions"][0]
+            self.assertEqual(summary["exit_action"], "sell_partial")
+            self.assertEqual(summary["exit_reason"], "first_scale_out_trigger")
+            self.assertEqual(summary["qty_to_sell"], 2)
+            self.assertTrue(summary["close_submitted"])
+            self.assertTrue(summary["took_first_scale_out"])
 
     def test_momentum_marks_itm_call_getting_deeper_itm_as_good(self) -> None:
         assessment = evaluate_option_momentum(

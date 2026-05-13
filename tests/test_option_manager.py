@@ -46,19 +46,40 @@ class OptionPositionManagerServiceTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "option_manager_output.json"
+            state_path = Path(temp_dir) / "option_state.json"
             settings = SimpleNamespace(
                 auto_close_option_positions=True,
                 option_position_take_profit_pct=25.0,
                 option_position_stop_loss_pct=-20.0,
                 option_position_exit_hours_to_expiration=24.0,
+                option_position_enable_trailing_profit=True,
+                option_position_trailing_profit_dry_run=False,
+                option_position_enable_momentum_exit=True,
+                option_trail_protection_trigger_pct=0.40,
+                option_trail_initial_floor_pct=0.10,
+                option_trail_first_scale_out_trigger_pct=0.55,
+                option_trail_first_scale_out_fraction=0.50,
+                option_trail_second_scale_out_trigger_pct=2.00,
+                option_trail_second_scale_out_fraction=0.25,
+                option_trail_3_7_giveback_pct=0.25,
+                option_trail_7_14_giveback_pct=0.35,
+                option_trail_14_30_giveback_pct=0.45,
+                option_trail_100_floor_pct=0.60,
+                option_trail_150_floor_pct=1.00,
+                option_trail_200_floor_pct=1.40,
+                option_pending_exit_stale_minutes=10.0,
+                option_pending_exit_cancel_on_stale=True,
             )
             paths = SimpleNamespace(
                 option_position_management_output_path=output_path,
+                option_position_state_path=state_path,
             )
+            trading_gateway = MagicMock()
             logger = MagicMock(spec=logging.Logger)
             service = OptionPositionManagerService(
                 settings=settings,
                 paths=paths,
+                trading_gateway=trading_gateway,
                 logger=logger,
             )
 
@@ -67,13 +88,25 @@ class OptionPositionManagerServiceTests(unittest.TestCase):
                 result = service.run_cycle(trading_client=trading_client)
 
         self.assertEqual(result, management_result)
-        fake_manage_current_option_positions.assert_called_once_with(
-            execute_sales=True,
-            take_profit_pct=25.0,
-            stop_loss_pct=-20.0,
-            exit_hours_to_expiration=24.0,
-            trading_client_override=trading_client,
-        )
+        fake_manage_current_option_positions.assert_called_once()
+        call_kwargs = fake_manage_current_option_positions.call_args.kwargs
+        self.assertEqual(call_kwargs["execute_sales"], True)
+        self.assertEqual(call_kwargs["take_profit_pct"], 25.0)
+        self.assertEqual(call_kwargs["stop_loss_pct"], -20.0)
+        self.assertEqual(call_kwargs["exit_hours_to_expiration"], 24.0)
+        self.assertEqual(call_kwargs["state_path_override"], state_path)
+        self.assertEqual(call_kwargs["enable_trailing_profit_override"], True)
+        self.assertEqual(call_kwargs["trailing_profit_dry_run_override"], False)
+        self.assertEqual(call_kwargs["enable_momentum_exit_override"], True)
+        self.assertEqual(call_kwargs["trail_protection_trigger_pct_override"], 0.40)
+        self.assertEqual(call_kwargs["trail_initial_floor_pct_override"], 0.10)
+        self.assertEqual(call_kwargs["pending_exit_stale_minutes_override"], 10.0)
+        self.assertEqual(call_kwargs["pending_exit_cancel_on_stale_override"], True)
+        self.assertIs(call_kwargs["trading_client_override"], trading_client)
+        self.assertTrue(callable(call_kwargs["submit_full_exit_order"]))
+        self.assertTrue(callable(call_kwargs["submit_partial_exit_order"]))
+        self.assertTrue(callable(call_kwargs["resolve_order_status"]))
+        self.assertTrue(callable(call_kwargs["cancel_order"]))
         mock_json_write.assert_called_once_with(output_path, management_result)
         logger.info.assert_called_once()
         log_message = logger.info.call_args.args[0]
