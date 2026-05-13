@@ -19,7 +19,7 @@ for path in (AGENT_CALLERS_DIR, PYTHON_SCRIPTS_DIR, DATA_DIR):
     if normalized not in sys.path:
         sys.path.append(normalized)
 
-from _company_opportunist_helpers import (
+from agent_helpers.company_opportunist import (
     build_company_opportunist_articles,
     build_company_valid_reference_sets,
     build_empty_company_result,
@@ -29,7 +29,7 @@ from _company_opportunist_helpers import (
     save_company_opportunist_batch_results,
 )
 from agent_helpers.opportunist_support import build_shared_opportunist_impacts_schema
-from _shared import (
+from agent_helpers.shared import (
     Client,
     ask_llm_model,
     build_token_limited_batches,

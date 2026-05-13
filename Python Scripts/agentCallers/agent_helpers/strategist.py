@@ -16,15 +16,15 @@ DATA_DIR = ROOT_DIR / "Data"
 if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
 
-from _company_opportunist_helpers import get_company_reference
-from _opportunist_payload_helpers import (
+from agent_helpers.company_opportunist import get_company_reference
+from agent_helpers.opportunist_payload import (
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
     ACCEPTED_CONFIDENCE_LEVELS,
     HIGH_CONFIDENCE,
     get_high_confidence_macro_news_for_sector,
     get_sector_rss_news,
 )
-from _shared import normalize_time_window, published_at_in_window
+from agent_helpers.shared import normalize_time_window, published_at_in_window
 from db_helpers import DB_PATH, get_connection, initialize_news_database
 
 

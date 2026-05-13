@@ -18,8 +18,8 @@ from _paths import bootstrap_agent_callers
 
 bootstrap_agent_callers()
 
-from CompanyOppurtunityBuilder import get_company_linked_articles, get_industry_company_groups
-from _shared import normalize_time_window, published_at_in_window
+from agent_builders.company_opportunity import get_company_linked_articles, get_industry_company_groups
+from agent_helpers.shared import normalize_time_window, published_at_in_window
 from db_helpers import (
     DB_PATH,
     add_company_opportunist_impact,

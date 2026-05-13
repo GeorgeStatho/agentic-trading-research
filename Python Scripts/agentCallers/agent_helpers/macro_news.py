@@ -15,7 +15,7 @@ AGENT_CALLERS_DIR = Path(__file__).resolve().parent
 if str(AGENT_CALLERS_DIR) not in sys.path:
     sys.path.append(str(AGENT_CALLERS_DIR))
 
-from _shared import parse_published_at
+from agent_helpers.shared import parse_published_at
 from db_helpers import DB_PATH, get_all_sectors, get_connection
 from db_helpers import (
     add_us_news_sector_impact,

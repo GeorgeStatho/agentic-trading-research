@@ -22,8 +22,8 @@ WEBSCRAPING_MARKET_DATA_DIR = PROJECT_DIR / "Python Scripts" / "Webscraping" / "
 if str(WEBSCRAPING_MARKET_DATA_DIR) not in sys.path:
     sys.path.append(str(WEBSCRAPING_MARKET_DATA_DIR))
 
-from _shared import parse_published_at
-from _strategist_helpers import (
+from agent_helpers.shared import parse_published_at
+from agent_helpers.strategist import (
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
     HIGH_CONFIDENCE,
     build_strategist_evidence_sections,

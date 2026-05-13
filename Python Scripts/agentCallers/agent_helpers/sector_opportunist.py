@@ -17,7 +17,7 @@ from _paths import bootstrap_agent_callers
 
 bootstrap_agent_callers()
 
-from OppurtunistPayloadBuilder import build_opportunist_input
+from agent_builders.opportunist_payload import build_opportunist_input
 from db_helpers import (
     DB_PATH,
     add_sector_opportunist_impact,

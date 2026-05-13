@@ -19,13 +19,13 @@ for path in (AGENT_CALLERS_DIR, PYTHON_SCRIPTS_DIR, DATA_DIR):
     if normalized not in sys.path:
         sys.path.append(normalized)
 
-from StrategistPayloadBuilder import (
+from agent_builders.strategist_payload import (
     DEFAULT_FULL_ARTICLE_LIMIT,
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
     DEFAULT_SUMMARY_ARTICLE_LIMIT,
     build_strategist_input,
 )
-from _shared import Client, ask_llm_model, extract_json_value, get_model_client
+from agent_helpers.shared import Client, ask_llm_model, extract_json_value, get_model_client
 from db_helpers import add_strategist_company_summary, initialize_news_database
 
 
