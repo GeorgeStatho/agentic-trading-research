@@ -94,7 +94,8 @@ def get_company_opportunist_summary(
                 impact_direction,
                 impact_magnitude,
                 reason,
-                created_at
+                created_at,
+                na.published_at
             FROM company_opportunist_impacts
             JOIN news_articles AS na ON na.id = company_opportunist_impacts.article_id
             WHERE company_id = ?

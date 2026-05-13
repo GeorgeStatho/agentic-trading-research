@@ -27,7 +27,6 @@ from agent_pipeline.target_selection import (
     get_current_pipeline_targets,
 )
 
-
 __all__ = [
     "collect_ranked_companies_for_industry",
     "build_company_opportunist_summary",
@@ -46,8 +45,6 @@ def _configure_console_logging() -> None:
         format="%(levelname)s:%(name)s:%(message)s",
         force=True,
     )
-
-
 if __name__ == "__main__":
     _configure_console_logging()
     clear_current_pipeline_targets()
