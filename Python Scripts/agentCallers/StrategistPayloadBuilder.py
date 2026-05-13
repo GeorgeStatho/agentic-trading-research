@@ -1,3 +1,9 @@
+"""Compatibility wrapper for ``agent_builders.strategist_payload``.
+
+Prefer importing from ``agent_builders.strategist_payload`` in new code.
+Keep this file as a backward-compatible shim only.
+"""
+
 from __future__ import annotations
 
 import runpy

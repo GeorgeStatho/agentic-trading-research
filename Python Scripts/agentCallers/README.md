@@ -22,6 +22,12 @@ Main entrypoint:
 
 - [main.py](main.py): runs the pipeline, strategist stage, manager stage, and deterministic option selection
 
+Preferred imports for new code:
+
+- canonical import guidance lives in [INTERFACE_GUIDE.md](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/INTERFACE_GUIDE.md)
+- prefer `agent_pipeline.*`, `agent_stages.*`, `agent_helpers.*`, `agent_builders.*`, `agent_analysis.*`, and `agent_runtime.*`
+- treat the misspelled top-level wrapper files in this folder as compatibility-only shims
+
 Common usage:
 
 - build a manager payload: `from agent_helpers.manager import build_manager_input`

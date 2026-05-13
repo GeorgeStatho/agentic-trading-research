@@ -1,3 +1,9 @@
+"""Compatibility wrapper for ``agent_helpers.opportunist_payload``.
+
+Prefer importing from ``agent_helpers.opportunist_payload`` in new code.
+Keep this file as a backward-compatible shim only.
+"""
+
 from __future__ import annotations
 
 import runpy

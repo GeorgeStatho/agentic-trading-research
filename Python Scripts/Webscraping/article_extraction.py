@@ -1,3 +1,9 @@
+"""Compatibility wrapper for ``engine.article_extraction``.
+
+Prefer importing from ``engine.article_extraction`` in new code.
+Keep this file as a backward-compatible shim only.
+"""
+
 from engine.article_extraction import (
     ArticleExtractionResult,
     DEFAULT_USER_AGENT,

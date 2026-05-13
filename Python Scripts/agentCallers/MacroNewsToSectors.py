@@ -1,3 +1,9 @@
+"""Compatibility wrapper for ``agent_stages.macro_news_to_sectors``.
+
+Prefer importing from ``agent_stages.macro_news_to_sectors`` in new code.
+Keep this file as a backward-compatible shim only.
+"""
+
 from __future__ import annotations
 
 import runpy

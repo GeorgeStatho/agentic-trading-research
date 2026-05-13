@@ -11,6 +11,9 @@ Includes:
 
 It is still an experiment, not production trading software.
 
+Preferred import paths and compatibility-wrapper guidance live in
+[INTERFACE_GUIDE.md](INTERFACE_GUIDE.md).
+
 ## Current Architecture
 
 The current runtime stack is:

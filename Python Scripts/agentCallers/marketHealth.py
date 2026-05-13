@@ -1,3 +1,9 @@
+"""Compatibility wrapper for ``agent_runtime.market_health``.
+
+Prefer importing from ``agent_runtime.market_health`` in new code.
+Keep this file as a backward-compatible shim only.
+"""
+
 from __future__ import annotations
 
 import runpy
