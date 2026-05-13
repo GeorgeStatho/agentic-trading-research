@@ -7,7 +7,7 @@ AGENT_CALLERS_DIR = Path(__file__).resolve().parent
 if str(AGENT_CALLERS_DIR) not in sys.path:
     sys.path.append(str(AGENT_CALLERS_DIR))
 
-from _shared import ask_llm_model, get_model_client
+from agent_helpers.shared import ask_llm_model, get_model_client
 
 
 OLLAMA_HOST = "http://localhost:11434"

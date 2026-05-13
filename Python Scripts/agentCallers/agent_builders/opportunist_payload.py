@@ -15,7 +15,7 @@ DATA_DIR = ROOT_DIR / "Data"
 if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
 
-from _opportunist_payload_helpers import (
+from agent_helpers.opportunist_payload import (
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
     HIGH_CONFIDENCE,
     find_sector,

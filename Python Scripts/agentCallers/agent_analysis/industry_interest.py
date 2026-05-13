@@ -15,8 +15,8 @@ DATA_DIR = ROOT_DIR / "Data"
 if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
 
-from _opportunist_payload_helpers import find_sector
-from _shared import normalize_time_window, published_at_in_window
+from agent_helpers.opportunist_payload import find_sector
+from agent_helpers.shared import normalize_time_window, published_at_in_window
 from db_helpers import DB_PATH, get_connection, initialize_news_database
 
 

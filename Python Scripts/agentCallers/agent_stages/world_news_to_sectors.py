@@ -15,7 +15,7 @@ for path in (AGENT_CALLERS_DIR, PYTHON_SCRIPTS_DIR, DATA_DIR):
     if normalized not in sys.path:
         sys.path.append(normalized)
 
-from MacroNewsToSectors import (
+from agent_stages.macro_news_to_sectors import (
     DEFAULT_CONTEXT_LIMIT,
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
     DEFAULT_MODEL,

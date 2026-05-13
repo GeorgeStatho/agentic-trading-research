@@ -18,13 +18,13 @@ for path in (AGENT_CALLERS_DIR, PYTHON_SCRIPTS_DIR, DATA_DIR):
     if normalized not in sys.path:
         sys.path.append(normalized)
 
-from _macro_news_helpers import (
+from agent_helpers.macro_news import (
     get_recent_macro_news_articles,
     get_scope_config,
     get_sector_reference,
     save_batch_results,
 )
-from _shared import Client, ask_llm_model, build_token_limited_batches, extract_json_object, get_model_client
+from agent_helpers.shared import Client, ask_llm_model, build_token_limited_batches, extract_json_object, get_model_client
 from db_helpers import initialize_news_database
 
 

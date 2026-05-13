@@ -26,7 +26,7 @@ from agent_helpers.manager import (
     build_market_context,
     build_manager_input,
 )
-from _shared import Client, ask_llm_model, extract_json_value, get_model_client
+from agent_helpers.shared import Client, ask_llm_model, extract_json_value, get_model_client
 
 
 MODEL_BACKEND_LABEL = os.getenv(

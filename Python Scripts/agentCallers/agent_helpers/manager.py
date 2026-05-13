@@ -25,7 +25,7 @@ from _paths import bootstrap_agent_callers
 
 bootstrap_agent_callers(load_env_file=True)
 
-from StrategistPayloadBuilder import (
+from agent_builders.strategist_payload import (
     DEFAULT_FULL_ARTICLE_LIMIT,
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
     DEFAULT_SUMMARY_ARTICLE_LIMIT,
