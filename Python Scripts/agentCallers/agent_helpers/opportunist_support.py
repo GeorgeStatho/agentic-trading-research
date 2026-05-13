@@ -283,6 +283,7 @@ def _processing_payload_has_required_fields(
     required_impact_fields: tuple[str, ...],
     minimum_schema_version: int,
 ) -> bool:
+    # Handle the processing payload has required fields flow in one place so callers can rely on a single, well-defined result.
     payload = _deserialize_processing_raw_json(raw_json)
     if not payload:
         return False

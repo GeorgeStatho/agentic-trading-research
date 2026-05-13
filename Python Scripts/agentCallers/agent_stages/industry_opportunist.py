@@ -96,6 +96,7 @@ def build_industry_opportunist_prompt(
     system_prompt_override: str | None = None,
     task_override: str | None = None,
 ) -> tuple[str, str]:
+    # Build the industry opportunist prompt with the sector context, article set, and schema instructions.
     default_system_prompt = (
         "You are a market analyst that maps news to stock-market industries inside one sector. "
         "Use only the industries provided by the user. "
@@ -169,6 +170,7 @@ def _classify_article_batch(
     system_prompt_override: str | None = None,
     task_override: str | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
+    # Classify the current batch and return normalized results that the caller can merge or persist.
     system_prompt, user_prompt = build_industry_opportunist_prompt(
         sector,
         industries,
@@ -201,6 +203,7 @@ def _collect_cleaned_impacts(
     system_prompt_override: str | None = None,
     task_override: str | None = None,
 ) -> list[dict[str, Any]]:
+    # Collect the cleaned impacts into one cleaned result for the next stage.
     cleaned_impacts: list[dict[str, Any]] = []
     seen_impacts: set[tuple[int, int]] = set()
 
@@ -274,6 +277,7 @@ def classify_sector_articles_to_industries(
     context_limit: int = DEFAULT_CONTEXT_LIMIT,
     prompt_overhead_tokens: int = DEFAULT_PROMPT_OVERHEAD_TOKENS,
 ) -> dict[str, Any]:
+    # Batch sector articles through the LLM and normalize the resulting industry impacts.
     client = client or _get_default_client()
     sector, industries, articles = build_industry_opportunist_articles(
         sector_identifier,

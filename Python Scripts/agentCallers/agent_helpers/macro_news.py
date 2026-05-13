@@ -55,6 +55,7 @@ def get_scope_config(news_scope: str) -> dict[str, Any]:
 
 
 def _load_unprocessed_macro_news_rows(news_scope: str) -> list[dict[str, Any]]:
+    # Load the unprocessed macro news rows once so the downstream logic can stay focused on orchestration.
     config = get_scope_config(news_scope)
     membership_table = config["membership_table"]
     processing_table = config["processing_table"]
@@ -138,6 +139,7 @@ def save_batch_results(
     raw_response: str,
     news_scope: str,
 ) -> None:
+    # Persist the batch results and return a summary that callers can inspect.
     config = get_scope_config(news_scope)
     impact_saver: ImpactSaver = config["impact_saver"]
     processed_marker: ProcessedMarker = config["processed_marker"]

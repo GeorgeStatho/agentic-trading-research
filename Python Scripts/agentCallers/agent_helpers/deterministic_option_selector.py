@@ -234,6 +234,7 @@ def _resolve_target_otm_distance(
 
 
 def _normalize_contract_type(value: Any) -> str:
+    # Normalize the contract type so downstream code can rely on one consistent shape.
     enum_value = getattr(value, "value", None)
     if enum_value not in (None, ""):
         contract_type = str(enum_value).strip().lower()
@@ -482,6 +483,7 @@ def _basic_sort_key(
     target_distance: float,
     target_abs_delta: float,
 ) -> tuple[float, float, float, str, float, int]:
+    # Handle the basic sort key flow in one place so callers can rely on a single, well-defined result.
     contract_price = _get_contract_market_price(contract)
     has_contract_price = 0.0 if contract_price is not None else 1.0
 
@@ -524,6 +526,7 @@ def _contract_debug_snapshot(
     target_otm_distance: float | None = None,
     target_dte_bucket: str = "",
 ) -> dict[str, Any]:
+    # Handle the contract debug snapshot flow in one place so callers can rely on a single, well-defined result.
     strike_price = _coerce_float(contract.get("strike_price"))
     return {
         "option_id": _normalize_option_id(contract.get("option_id")),
@@ -580,6 +583,7 @@ def _build_simple_rejection_reasons(
     target_otm_distance: float,
     normalized_target_dte_bucket: str,
 ) -> list[str]:
+    # Assemble the simple rejection reasons so callers can work from one normalized shape.
     reasons: list[str] = []
     strike_price = _coerce_float(contract.get("strike_price"))
 
@@ -630,6 +634,7 @@ def _pick_matching_contract_simple(
     market_context: dict[str, Any],
     target_dte_bucket: str = "none",
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    # Apply the simplest contract-matching rules first so obvious candidates can be selected cheaply.
     normalized_decision = _normalize_decision(decision)
     if normalized_decision not in {"call", "put"}:
         return None, {}
@@ -820,6 +825,7 @@ def _passes_hybrid_fast_filters(
     reference_stock_price: float | None,
     target_dte_bucket: str = "none",
 ) -> tuple[bool, list[str]]:
+    # Return whether the current input passes the hybrid fast filters for this selection path.
     reasons: list[str] = []
     target_otm_distance = _resolve_target_otm_distance(
         reference_stock_price=reference_stock_price,
@@ -903,6 +909,7 @@ def _hybrid_fast_score(
     reference_stock_price: float | None,
     target_dte_bucket: str = "none",
 ) -> tuple[float, float, float, float, float, str, int]:
+    # Handle the hybrid fast score flow in one place so callers can rely on a single, well-defined result.
     strike_price = _coerce_float(contract.get("strike_price"))
     spread_pct = _get_spread_pct(contract) or 999.0
     open_interest = _coerce_float(contract.get("open_interest")) or 0.0
@@ -941,6 +948,7 @@ def _pick_matching_contract_hybrid(
     market_context: dict[str, Any],
     target_dte_bucket: str = "none",
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    # Score and filter contracts with the hybrid ruleset so selection balances proximity, liquidity, and conviction.
     normalized_decision = _normalize_decision(decision)
     if normalized_decision not in {"call", "put"}:
         return None, {}
@@ -1102,6 +1110,7 @@ def _passes_short_swing_filters(
     reference_stock_price: float | None,
     target_dte_bucket: str = "none",
 ) -> tuple[bool, list[str]]:
+    # Return whether the current input passes the short swing filters for this selection path.
     reasons: list[str] = []
     target_otm_distance = _resolve_target_otm_distance(
         reference_stock_price=reference_stock_price,
@@ -1183,6 +1192,7 @@ def _short_swing_score(
     reference_stock_price: float | None,
     target_dte_bucket: str = "none",
 ) -> tuple[float, float, float, float, float, float, str, int]:
+    # Handle the short swing score flow in one place so callers can rely on a single, well-defined result.
     abs_delta = abs(_get_greek(contract, "delta") or 0.0)
     spread_pct = _get_spread_pct(contract) or 999.0
     theta_to_price = _get_theta_to_price(contract) or 999.0
@@ -1222,6 +1232,7 @@ def _pick_matching_contract_greeks(
     market_context: dict[str, Any],
     target_dte_bucket: str = "none",
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    # Pick the best contract using the Greeks-aware ruleset when a deeper option-screening pass is needed.
     normalized_decision = _normalize_decision(decision)
     if normalized_decision not in {"call", "put"}:
         return None, {}
@@ -1392,6 +1403,7 @@ def _pick_matching_contract(
     market_context: dict[str, Any],
     target_dte_bucket: str = "none",
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    # Choose the matching contract that best fits the available data and filters.
     if OPTION_SELECTOR_MODE == "simple":
         return _pick_matching_contract_simple(
             decision=decision,

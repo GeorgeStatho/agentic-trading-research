@@ -64,6 +64,7 @@ def build_opportunist_input(
     end_time: datetime | None = None,
     max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
 ) -> OpportunistInputPayload:
+    # Assemble the shared opportunist payload shape so each stage receives the same normalized article context.
     initialize_news_database()
     sector = find_sector(sector_identifier)
     if sector is None:

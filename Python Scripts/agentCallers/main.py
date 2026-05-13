@@ -82,6 +82,7 @@ def _build_selected_option_output(
     ran_at: str,
     manager_results: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    # Translate manager results into the compact selected-options payload written to disk and exposed to the UI.
     companies: list[dict[str, Any]] = []
 
     for manager_result in manager_results:
@@ -116,6 +117,7 @@ def _build_selected_option_output(
 
 
 def _summarize_selector_rejection_reasons(manager_result: dict[str, Any]) -> str:
+    # Aggregate selector rejection reasons so failed contract picks still produce readable diagnostics.
     recommendation = manager_result.get("recommendation", {})
     selection_debug = recommendation.get("selection_debug", {})
     nested_selector_debug = selection_debug.get("selector_debug", {})
@@ -170,6 +172,7 @@ def _run_strategist_and_manager(
     *,
     on_manager_result: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    # Run the strategist and manager stages for one company and keep their outputs aligned for the final payload.
     strategist_results: list[dict[str, Any]] = []
     manager_results: list[dict[str, Any]] = []
 

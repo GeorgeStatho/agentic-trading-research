@@ -45,6 +45,7 @@ class OrderCandidateBuilder:
         return True
 
     def _build_candidate(self, company_result: dict[str, Any]) -> dict[str, Any] | None:
+        # Assemble the candidate so callers can work from one normalized shape.
         decision = str(company_result.get("decision") or "").strip().lower()
         confidence = str(company_result.get("confidence") or "").strip().lower()
         selected_option = company_result.get("selected_option") or {}

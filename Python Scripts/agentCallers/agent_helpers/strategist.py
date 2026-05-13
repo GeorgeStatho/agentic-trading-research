@@ -66,6 +66,7 @@ def _build_processed_article_record(
     subject_key_key: str,
     subject_name_key: str,
 ) -> dict[str, Any]:
+    # Assemble the processed article record so callers can work from one normalized shape.
     impact_payload = _deserialize_impact_raw_json(row.get("impact_raw_json"))
     return {
         "article_id": row["article_id"],
@@ -100,6 +101,7 @@ def _filter_rows_to_window(
     end_time: datetime | None,
     max_age_days: int | None,
 ) -> list[dict[str, Any]]:
+    # Filter the rows to window down to the rows this stage should keep processing.
     normalized_start, normalized_end = normalize_time_window(
         start_time=start_time,
         end_time=end_time,
@@ -147,6 +149,7 @@ def get_sector_news_for_company_sector(
 
 
 def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
+    # Load the high confidence sector rows once so the downstream logic can stay focused on orchestration.
     with get_connection(DB_PATH) as conn:
         rows = conn.execute(
             """
@@ -190,6 +193,7 @@ def get_high_confidence_sector_news(
     end_time: datetime | None = None,
     max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
 ) -> list[dict[str, Any]]:
+    # Load the high confidence sector news and normalize it for downstream callers.
     rows = _load_high_confidence_sector_rows(int(company["sector_id"]))
     rows = _filter_rows_to_window(
         rows,
@@ -210,6 +214,7 @@ def get_high_confidence_sector_news(
 
 
 def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]]:
+    # Load the high confidence industry rows once so the downstream logic can stay focused on orchestration.
     with get_connection(DB_PATH) as conn:
         rows = conn.execute(
             """
@@ -253,6 +258,7 @@ def get_high_confidence_industry_news(
     end_time: datetime | None = None,
     max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
 ) -> list[dict[str, Any]]:
+    # Load the high confidence industry news and normalize it for downstream callers.
     rows = _load_high_confidence_industry_rows(int(company["industry_id"]))
     rows = _filter_rows_to_window(
         rows,
@@ -273,6 +279,7 @@ def get_high_confidence_industry_news(
 
 
 def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
+    # Load the high confidence company rows once so the downstream logic can stay focused on orchestration.
     with get_connection(DB_PATH) as conn:
         rows = conn.execute(
             """
@@ -318,6 +325,7 @@ def get_high_confidence_company_news(
     end_time: datetime | None = None,
     max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
 ) -> list[dict[str, Any]]:
+    # Load the high confidence company news and normalize it for downstream callers.
     rows = _load_high_confidence_company_rows(int(company["company_id"]))
     rows = _filter_rows_to_window(
         rows,
@@ -344,6 +352,7 @@ def build_strategist_evidence_sections(
     end_time: datetime | None = None,
     max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
 ) -> dict[str, Any]:
+    # Assemble the sector, industry, and company evidence blocks so the strategist prompt stays consistent.
     initialize_news_database()
     company, peer_groups = get_company_context(company_identifier)
 

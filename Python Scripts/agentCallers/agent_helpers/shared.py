@@ -63,6 +63,7 @@ def _normalize_provider(provider: str | None = None) -> str:
 
 
 def _build_vertex_client() -> Any:
+    # Build the shared Vertex client lazily so downstream model calls do not have to duplicate provider setup.
     if genai is None:
         raise RuntimeError(
             "The 'google-genai' Python package is required for Vertex AI requests. "
@@ -103,6 +104,7 @@ def _build_vertex_client() -> Any:
 
 
 def get_model_client(label: str | None = None) -> Client:
+    # Choose the configured model backend once and return the callable/client pair the rest of the code should use.
     provider = _normalize_provider()
 
     if provider == "vertex":
@@ -144,6 +146,7 @@ def _resolve_model_name(provider: str, model: str) -> str:
 
 
 def _extract_response_text(response: Any) -> str | None:
+    # Extract the response text from the raw payload and return a stable value.
     text = getattr(response, "text", None)
     if isinstance(text, str) and text.strip():
         return text
@@ -190,6 +193,7 @@ def _is_vertex_rate_limited(exc: Exception) -> bool:
 
 
 def _build_vertex_error_message(exc: Exception, model_name: str) -> str:
+    # Assemble the vertex error message so callers can work from one normalized shape.
     message = str(exc).strip()
     status_code = _extract_status_code(exc)
     normalized_message = message.lower()
@@ -245,6 +249,7 @@ def _ask_vertex_model(
     temperature: float,
     response_schema: dict[str, Any] | None,
 ) -> str:
+    # Call the Vertex model with the shared request settings and translate provider errors into a stable message shape.
     if genai_types is None:
         raise RuntimeError(
             "The 'google-genai' Python package is required for Vertex AI requests."
@@ -307,6 +312,7 @@ def ask_llm_model(
     host_label: str | None = None,
     response_schema: dict[str, Any] | None = None,
 ) -> str:
+    # Route model calls through the supported provider path and normalize the response and error handling for callers.
     if client.provider == "vertex":
         return _ask_vertex_model(
             client,
@@ -460,6 +466,7 @@ def build_token_limited_batches(
     context_limit: int,
     prompt_overhead_tokens: int,
 ) -> list[list[dict[str, Any]]]:
+    # Assemble the token limited batches so callers can work from one normalized shape.
     usable_limit = max(1, int(context_limit) - int(prompt_overhead_tokens))
     batches: list[list[dict[str, Any]]] = []
     current_batch: list[dict[str, Any]] = []

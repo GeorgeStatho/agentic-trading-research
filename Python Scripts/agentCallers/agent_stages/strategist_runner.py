@@ -64,6 +64,7 @@ def _save_strategist_summary(
     recommendation: dict[str, Any],
     model: str,
 ) -> None:
+    # Persist the strategist summary and return a summary that callers can inspect.
     initialize_news_database()
     result_payload = {
         "company": company,
@@ -95,6 +96,7 @@ def decide_company_purchase(
     summary_article_limit: int = DEFAULT_SUMMARY_ARTICLE_LIMIT,
     full_article_limit: int = DEFAULT_FULL_ARTICLE_LIMIT,
 ) -> dict[str, Any]:
+    # Run the strategist stage end to end, including no-evidence short circuits and text fallback parsing.
     client = client or get_default_client()
     payload = build_strategist_input(
         company_identifier,

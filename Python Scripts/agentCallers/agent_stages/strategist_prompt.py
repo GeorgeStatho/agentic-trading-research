@@ -42,6 +42,7 @@ def build_strategist_prompt(
     system_prompt_override: str | None = None,
     task_override: str | None = None,
 ) -> tuple[str, str]:
+    # Build the strategist prompt by weaving together company context, evidence summaries, and decision instructions.
     default_system_prompt = (
         "You are an investment strategist deciding whether a company currently supports opening an options trade candidate on the underlying equity. "
         "Use only the supplied structured context. Do not invent facts, catalysts, prices, or risks that are not supported by the input. "
@@ -126,6 +127,7 @@ def build_strategist_prompt(
 
 
 def build_no_evidence_result(company: dict[str, Any], *, context_snapshot: dict[str, Any]) -> dict[str, Any]:
+    # Assemble the no evidence result so callers can work from one normalized shape.
     return {
         "company": company,
         "context_snapshot": context_snapshot,

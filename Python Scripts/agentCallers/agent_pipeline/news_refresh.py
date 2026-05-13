@@ -39,6 +39,7 @@ def _run_scrape_subprocess(
     *args: Any,
     **kwargs: Any,
 ) -> int:
+    # Run the scraper as a subprocess and stream its output so long-running scrape failures surface immediately.
     runner_payload = {
         "paths": SUBPROCESS_IMPORT_PATHS,
         "module": module_name,
