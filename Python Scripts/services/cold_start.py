@@ -20,6 +20,7 @@ class ColdStartSanityChecker:
         self._logger = logger
 
     def run(self) -> dict[str, Any]:
+        # Run the full workflow for this helper and return a normalized result that callers can log or act on.
         initialize_market_database()
         initialize_news_database()
 

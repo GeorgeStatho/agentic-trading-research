@@ -27,6 +27,7 @@ def get_processed_industry_interest(
     end_time: datetime | None = None,
     max_age_days: int | None = None,
 ) -> list[dict[str, Any]]:
+    # Load processed industry-interest rows from storage and normalize them into plain records for ranking.
     initialize_news_database()
     sector = find_sector(sector_identifier)
     if sector is None:

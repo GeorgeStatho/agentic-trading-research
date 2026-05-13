@@ -31,6 +31,7 @@ class FrontMainPaths:
 
     @classmethod
     def from_env(cls) -> FrontMainPaths:
+        # Read the relevant environment variables in one place and normalize them into this settings object.
         return cls(
             root_dir=ROOT_DIR,
             data_dir=DATA_DIR,
@@ -88,6 +89,7 @@ class FrontMainSettings:
 
     @classmethod
     def from_env(cls) -> FrontMainSettings:
+        # Read the relevant environment variables in one place and normalize them into this settings object.
         market_recheck_seconds = 5 * 60
         return cls(
             default_option_order_qty=max(1, int(os.getenv("AGENT_OPTION_ORDER_QTY", "1"))),
@@ -134,6 +136,7 @@ class OptionPositionSettings:
 
     @classmethod
     def from_env(cls) -> OptionPositionSettings:
+        # Read the relevant environment variables in one place and normalize them into this settings object.
         return cls(
             take_profit_pct=env_float("OPTION_POSITION_TAKE_PROFIT_PCT", 25.0),
             stop_loss_pct=env_float("OPTION_POSITION_STOP_LOSS_PCT", -20.0),
@@ -173,6 +176,7 @@ class ApiPaths:
 
     @classmethod
     def from_env(cls) -> ApiPaths:
+        # Read the relevant environment variables in one place and normalize them into this settings object.
         return cls(
             script_status_path=Path(
                 os.getenv("SCRIPT_STATUS_PATH", str(ROOT_DIR / "web_dashboard" / "public" / "script_status.json"))

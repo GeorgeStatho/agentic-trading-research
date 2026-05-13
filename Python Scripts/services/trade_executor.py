@@ -79,6 +79,7 @@ class OptionTradeExecutor:
         base_order_qty: int,
         max_deployable_buying_power: float,
     ) -> tuple[int, float]:
+        # Handle the calculate order qty flow in one place so callers can rely on a single, well-defined result.
         if option_reference_price <= 0.0:
             return 0, 0.0
 
@@ -136,6 +137,7 @@ class OptionTradeExecutor:
         estimated_order_cost: float | None,
         error: str,
     ) -> dict[str, Any]:
+        # Assemble the execution so callers can work from one normalized shape.
         return {
             **candidate,
             "order_qty": order_qty,

@@ -127,6 +127,7 @@ def build_company_opportunist_prompt(
     system_prompt_override: str | None = None,
     task_override: str | None = None,
 ) -> tuple[str, str]:
+    # Build the company opportunist prompt with the target company, article set, and schema instructions.
     default_system_prompt = (
         "You are a market analyst that maps company-specific news to likely stock impact for one company. "
         "Use the supplied peer group context to judge whether this company is helped or hurt relative to comparable companies. "
@@ -207,6 +208,7 @@ def _classify_article_batch(
     system_prompt_override: str | None = None,
     task_override: str | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
+    # Classify the current batch and return normalized results that the caller can merge or persist.
     system_prompt, user_prompt = build_company_opportunist_prompt(
         company,
         peer_groups,
@@ -239,6 +241,7 @@ def _collect_cleaned_impacts(
     system_prompt_override: str | None = None,
     task_override: str | None = None,
 ) -> list[dict[str, Any]]:
+    # Collect the cleaned impacts into one cleaned result for the next stage.
     cleaned_impacts: list[dict[str, Any]] = []
     seen_impacts: set[tuple[int, int]] = set()
 
@@ -324,6 +327,7 @@ def classify_company_articles(
     context_limit: int = DEFAULT_CONTEXT_LIMIT,
     prompt_overhead_tokens: int = DEFAULT_PROMPT_OVERHEAD_TOKENS,
 ) -> dict[str, Any]:
+    # Batch company articles through the LLM, clean the responses, and persist the resulting impacts.
     client = client or _get_default_client()
     company, peer_groups, articles = build_company_opportunist_articles(
         company_identifier,

@@ -24,6 +24,7 @@ def _build_industry_result_from_existing_data(
     top_company_count: int,
     ranking_max_age_days: int | None,
 ) -> PipelineIndustryResult:
+    # Assemble the industry result from existing data so callers can work from one normalized shape.
     company_selection = collect_ranked_companies_for_industry(
         industry_key,
         top_company_count=top_company_count,
@@ -49,6 +50,7 @@ def _build_sector_result_from_existing_data(
     top_company_count: int,
     ranking_max_age_days: int | None,
 ) -> PipelineSectorResult:
+    # Assemble the sector result from existing data so callers can work from one normalized shape.
     top_industry_rankings = _get_ranked_industries_for_sector(
         sector_key,
         top_industry_count=top_industry_count,

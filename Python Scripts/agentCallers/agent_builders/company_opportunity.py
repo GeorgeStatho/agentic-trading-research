@@ -84,6 +84,7 @@ def _serialize_ranked_company_row(row: Any) -> RankedCompanySummary:
 
 
 def get_industry_company_groups(industry_identifier: str) -> IndustryCompanyGroupsPayload:
+    # Assemble the ranked companies for each industry so downstream stages can work from one grouped payload.
     industry = _find_industry(industry_identifier)
     if industry is None:
         raise ValueError(f"Industry not found for identifier: {industry_identifier}")

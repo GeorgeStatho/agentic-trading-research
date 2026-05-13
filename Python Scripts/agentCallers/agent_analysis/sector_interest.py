@@ -25,6 +25,7 @@ def get_processed_sector_interest(
     end_time: datetime | None = None,
     max_age_days: int | None = None,
 ) -> list[dict[str, Any]]:
+    # Load processed sector-interest rows from storage and normalize them into plain records for ranking.
     initialize_news_database()
     normalized_start, normalized_end = normalize_time_window(
         start_time=start_time,

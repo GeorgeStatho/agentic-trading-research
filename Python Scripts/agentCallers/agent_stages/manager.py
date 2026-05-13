@@ -102,6 +102,7 @@ def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) 
 
 
 def _payload_has_evidence(payload: dict[str, Any]) -> bool:
+    # Handle the payload has evidence flow in one place so callers can rely on a single, well-defined result.
     view_total = 0
     for view in payload.get("views", {}).values():
         try:
@@ -145,6 +146,7 @@ def _normalize_string_list(value: Any) -> list[str]:
 
 
 def _normalize_strategist_decision(value: Any) -> str:
+    # Normalize the strategist decision so downstream code can rely on one consistent shape.
     decision = str(value or "").strip().lower()
     replacements = {
         "buy": "trade_candidate",
@@ -218,6 +220,7 @@ def _coerce_bool(value: Any) -> bool | None:
 
 
 def _normalize_strategist_recommendation(recommendation: dict[str, Any] | None) -> dict[str, Any]:
+    # Normalize the strategist output into one predictable recommendation shape before manager logic uses it.
     if not isinstance(recommendation, dict):
         return {}
 
@@ -339,6 +342,7 @@ def _build_manager_visible_strategist_context(payload: dict[str, Any]) -> dict[s
 
 
 def _build_context_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
+    # Assemble the context snapshot so callers can work from one normalized shape.
     market_context = payload.get("market_context", {})
     strategist_recommendation = _build_manager_visible_strategist_context(payload)
     market_indices = market_context.get("market_indices", {})
@@ -482,6 +486,7 @@ def build_manager_prompt(
 
 
 def _extract_recommendation(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    # Extract the recommendation from the raw payload and return a stable value.
     if not isinstance(payload, dict):
         return None
 
@@ -508,6 +513,7 @@ def _extract_recommendation(payload: dict[str, Any] | None) -> dict[str, Any] | 
 
 
 def _normalize_decision(value: Any) -> str:
+    # Normalize the decision so downstream code can rely on one consistent shape.
     decision = str(value or "").strip().lower()
     replacements = {
         "bullish": "call",
@@ -600,6 +606,7 @@ def _refresh_market_context_for_target_dte_bucket(
     option_strike_price_lte: float | None,
     option_contract_limit_per_type: int,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    # Handle the refresh market context for target dte bucket flow in one place so callers can rely on a single, well-defined result.
     decision = _normalize_decision(recommendation.get("decision"))
     target_dte_bucket = _normalize_target_dte_bucket(recommendation.get("target_dte_bucket"))
     explicit_expiration_filters_present = any(
@@ -712,6 +719,7 @@ def _extract_model_selected_option_id(
     contracts_by_id: dict[int, dict[str, Any]],
     option_id_by_symbol: dict[str, int],
 ) -> tuple[int | None, bool]:
+    # Extract the model selected option id from the raw payload and return a stable value.
     selected_option_id = _normalize_option_id(
         recommendation.get("selected_option_id")
         or recommendation.get("option_id")
@@ -777,6 +785,7 @@ def _pick_fallback_option_id(
     option_contracts: list[dict[str, Any]],
     market_context: dict[str, Any],
 ) -> int | None:
+    # Choose the fallback option id that best fits the available data and filters.
     matching_contracts = [
         contract
         for contract in option_contracts
@@ -791,6 +800,7 @@ def _pick_fallback_option_id(
     reference_stock_price = _get_reference_stock_price(market_context)
 
     def sort_key(contract: dict[str, Any]) -> tuple[float, float, str, float, int]:
+        # Compute the ordering key so fallback selection prefers the most relevant candidate first.
         contract_price = _get_contract_market_price(contract)
         has_contract_price = 0.0 if contract_price is not None else 1.0
 
@@ -824,6 +834,7 @@ def _direct_pick_contract(
     option_contracts: list[dict[str, Any]],
     market_context: dict[str, Any],
 ) -> dict[str, Any] | None:
+    # Handle the direct pick contract flow in one place so callers can rely on a single, well-defined result.
     normalized_decision = str(decision or "").strip().lower()
     if normalized_decision not in {"call", "put"}:
         return None
@@ -873,6 +884,7 @@ def _normalize_recommendation(
     market_context: dict[str, Any] | None = None,
     strategist_recommendation: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
+    # Normalize the recommendation so downstream code can rely on one consistent shape.
     if not isinstance(recommendation, dict):
         return None
 
@@ -927,6 +939,7 @@ def _extract_labeled_section(text: str, label: str, next_labels: list[str]) -> s
 
 
 def _extract_recommendation_from_text(raw_response: str) -> dict[str, Any] | None:
+    # Extract the recommendation from text from the raw payload and return a stable value.
     text = str(raw_response or "").strip()
     if not text:
         return None
@@ -1006,6 +1019,7 @@ def _build_no_evidence_result(
     context_snapshot: dict[str, Any],
     market_context: dict[str, Any],
 ) -> dict[str, Any]:
+    # Assemble the no evidence result so callers can work from one normalized shape.
     return {
         "company": company,
         "context_snapshot": context_snapshot,

@@ -37,6 +37,7 @@ def _load_article_ids_for_target_rows(
     id_column: str,
     target_ids: list[int],
 ) -> list[int]:
+    # Load the article ids for target rows once so the downstream logic can stay focused on orchestration.
     if not target_ids:
         return []
     safe_impact_table = validate_sql_identifier(impact_table)

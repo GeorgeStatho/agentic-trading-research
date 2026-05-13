@@ -50,6 +50,7 @@ def find_sector(sector_identifier: str) -> dict[str, Any] | None:
     return None
 
 def _load_sector_rss_rows(sector_id: int) -> list[dict[str, Any]]:
+    # Load the sector rss rows once so the downstream logic can stay focused on orchestration.
     with get_connection(DB_PATH) as conn:
         rows = conn.execute(
             """
@@ -104,6 +105,7 @@ def get_sector_rss_news(
     end_time: datetime | None = None,
     max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
 ) -> list[dict[str, Any]]:
+    # Load the sector rss news and normalize it for downstream callers.
     initialize_news_database()
     sector = find_sector(sector_identifier)
     if sector is None:
@@ -137,6 +139,7 @@ def get_high_confidence_macro_news_for_sector(
     end_time: datetime | None = None,
     max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
 ) -> list[dict[str, Any]]:
+    # Collect recent high-confidence macro articles for the target sector and package them for opportunist prompts.
     initialize_news_database()
     sector = find_sector(sector_identifier)
     if sector is None:

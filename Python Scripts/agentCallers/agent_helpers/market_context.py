@@ -170,6 +170,7 @@ def _get_alpaca_clients() -> dict[str, Any] | None:
 
 
 def _build_stock_fallback_snapshot(company: dict[str, Any]) -> dict[str, Any]:
+    # Assemble the stock fallback snapshot so callers can work from one normalized shape.
     market_data = company.get("market_data", {})
     if not isinstance(market_data, dict):
         market_data = {}
@@ -218,6 +219,7 @@ def _empty_market_index_snapshot(*, symbol: str, label: str, error: str = "") ->
 
 
 def _build_market_index_snapshot(*, symbol: str, label: str) -> dict[str, Any]:
+    # Assemble the market index snapshot so callers can work from one normalized shape.
     unavailable = _empty_market_index_snapshot(symbol=symbol, label=label)
     if not symbol:
         unavailable["error"] = "Market index symbol was missing."
@@ -304,6 +306,7 @@ def _build_market_index_snapshot(*, symbol: str, label: str) -> dict[str, Any]:
 
 
 def _load_sector_etf_map() -> dict[str, dict[str, Any]]:
+    # Load the sector etf map once so the downstream logic can stay focused on orchestration.
     global _SECTOR_ETF_MAP
     if _SECTOR_ETF_MAP is not None:
         return _SECTOR_ETF_MAP
@@ -336,6 +339,7 @@ def _load_sector_etf_map() -> dict[str, dict[str, Any]]:
 
 
 def _resolve_company_sector_etf(company: dict[str, Any]) -> tuple[str, dict[str, Any], str] | None:
+    # Resolve the company sector etf into the concrete values the caller should use.
     sector_etf_map = _load_sector_etf_map()
     if not sector_etf_map:
         return None
@@ -360,6 +364,7 @@ def _resolve_company_sector_etf(company: dict[str, Any]) -> tuple[str, dict[str,
 
 
 def _build_sector_etf_snapshot(company: dict[str, Any]) -> dict[str, Any]:
+    # Assemble the sector etf snapshot so callers can work from one normalized shape.
     sector_key = _normalize_identifier(company.get("sector_key"))
     sector_name = str(company.get("sector_name") or "").strip()
     unavailable = {
@@ -417,6 +422,7 @@ def _build_market_indices_snapshot() -> dict[str, Any]:
 
 
 def _build_current_stock_price_snapshot(company: dict[str, Any]) -> dict[str, Any]:
+    # Assemble the current stock price snapshot so callers can work from one normalized shape.
     symbol = str(company.get("symbol") or "").strip().upper()
     fallback = _build_stock_fallback_snapshot(company)
     if not symbol:
@@ -592,6 +598,7 @@ def _build_contract_request(
     strike_price_lte: float | None,
     limit: int,
 ) -> Any:
+    # Assemble the contract request so callers can work from one normalized shape.
     return GetOptionContractsRequest(
         underlying_symbols=[company_symbol],
         root_symbol=company_symbol,
@@ -616,6 +623,7 @@ def _build_contract_request_debug(
     strike_price_lte: float | None,
     limit: int,
 ) -> dict[str, Any]:
+    # Assemble the contract request debug so callers can work from one normalized shape.
     return {
         "underlying_symbols": [company_symbol],
         "root_symbol": company_symbol,
@@ -631,6 +639,7 @@ def _build_contract_request_debug(
 
 
 def _normalize_contract_type(value: Any) -> str:
+    # Normalize the contract type so downstream code can rely on one consistent shape.
     enum_value = getattr(value, "value", None)
     if enum_value not in (None, ""):
         contract_type = str(enum_value).strip().lower()
@@ -751,6 +760,7 @@ def _fetch_option_contracts(
     strike_price_lte: float | None,
     limit: int,
 ) -> list[Any]:
+    # Handle the fetch option contracts flow in one place so callers can rely on a single, well-defined result.
     clients = _get_alpaca_clients()
     if clients is None or GetOptionContractsRequest is None:
         return []
@@ -793,6 +803,7 @@ def _build_option_market_snapshot(
     strike_price_lte: float | None,
     contract_limit_per_type: int,
 ) -> dict[str, Any]:
+    # Assemble the option-chain snapshot, filters, and diagnostics that the manager uses to pick contracts.
     unavailable = {
         "available": False,
         "underlying_symbol": company_symbol,
@@ -1036,6 +1047,7 @@ def _serialize_position(position: Any) -> dict[str, Any]:
 
 
 def _build_account_state(company_symbol: str) -> dict[str, Any]:
+    # Build the account and position snapshot that the manager uses to reason about buying power and exposure.
     unavailable = {
         "available": False,
         "buying_power": None,
@@ -1150,6 +1162,7 @@ def build_market_context(
 
 
 def _run_reference_price_smoke_test(symbol: str) -> int:
+    # Exercise the stock-price path with one symbol so market-data configuration issues are easy to spot.
     normalized_symbol = str(symbol or "").strip().upper()
     if not normalized_symbol:
         print("Usage: python market_context.py <SYMBOL>")

@@ -197,6 +197,7 @@ def _empty_historical_snapshot(
     interval: str,
     error: str = "",
 ) -> HistoricalPriceSnapshot:
+    # Handle the empty historical snapshot flow in one place so callers can rely on a single, well-defined result.
     return {
         "available": False,
         "symbol": symbol,
@@ -225,6 +226,7 @@ def _summarize_history_frame(
     interval: str,
     sample_limit: int,
 ) -> dict[str, Any]:
+    # Handle the summarize history frame flow in one place so callers can rely on a single, well-defined result.
     if frame is None or getattr(frame, "empty", True):
         return _empty_historical_snapshot(
             symbol=symbol,
@@ -282,6 +284,7 @@ def _summarize_history_frame(
 
 
 def _build_company_historical_price_data(symbol: Any) -> dict[str, HistoricalPriceSnapshot]:
+    # Assemble the company historical price data so callers can work from one normalized shape.
     normalized_symbol = str(symbol or "").strip().upper()
     history_by_period: dict[str, Any] = {}
 
@@ -394,6 +397,7 @@ def _build_top_reasons(
     effect_type: str | None = None,
     limit: int = 3,
 ) -> list[dict[str, Any]]:
+    # Assemble the top reasons so callers can work from one normalized shape.
     reasons: dict[str, dict[str, Any]] = {}
 
     for item in items:
@@ -455,6 +459,7 @@ def _build_rollup_section(
     *,
     include_relative_positioning: bool = False,
 ) -> dict[str, Any]:
+    # Assemble the rollup section so callers can work from one normalized shape.
     direction_counts = _build_empty_count_map(ROLLUP_DIRECTIONS)
     materiality_counts = _build_empty_count_map(ROLLUP_MATERIALITY)
     horizon_counts = _build_empty_count_map(ROLLUP_HORIZONS)
@@ -588,6 +593,7 @@ def _build_grouped_rollups(
     subject_key_key: str,
     subject_name_key: str,
 ) -> list[dict[str, Any]]:
+    # Assemble the grouped rollups so callers can work from one normalized shape.
     grouped_items: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for item in items:
@@ -620,6 +626,7 @@ def _build_grouped_rollups(
 
 
 def _build_opportunist_rollup(evidence: dict[str, Any]) -> dict[str, Any]:
+    # Assemble the opportunist rollup so callers can work from one normalized shape.
     sector_items = evidence.get("sector_impacts", [])
     industry_items = evidence.get("industry_impacts", [])
     company_items = evidence.get("company_impacts", [])
@@ -696,6 +703,7 @@ def _build_opportunist_rollup(evidence: dict[str, Any]) -> dict[str, Any]:
 
 
 def _serialize_signal(item: dict[str, Any], *, layer: str) -> AgentSignalPayload:
+    # Handle the serialize signal flow in one place so callers can rely on a single, well-defined result.
     signal: AgentSignalPayload = {
         "layer": layer,
         "article_id": item["article_id"],
@@ -754,6 +762,7 @@ def _upsert_supporting_article(
     layer: str,
     include_agent_signal: bool,
 ) -> None:
+    # Handle the upsert supporting article flow in one place so callers can rely on a single, well-defined result.
     article_id = int(item["article_id"])
     entry = articles_by_id.setdefault(
         article_id,
@@ -791,6 +800,7 @@ def _build_supporting_articles(
     summary_article_limit: int,
     full_article_limit: int,
 ) -> SupportingArticlesPayload:
+    # Assemble the supporting articles so callers can work from one normalized shape.
     articles_by_id: dict[int, dict[str, Any]] = {}
 
     for item in evidence["macro_impacts"]:
@@ -867,6 +877,7 @@ def build_strategist_input(
     summary_article_limit: int = DEFAULT_SUMMARY_ARTICLE_LIMIT,
     full_article_limit: int = DEFAULT_FULL_ARTICLE_LIMIT,
 ) -> StrategistInputPayload:
+    # Build the strategist payload by combining company context, rollups, price history, and supporting articles.
     initialize_news_database()
     evidence = build_strategist_evidence_sections(
         company_identifier,

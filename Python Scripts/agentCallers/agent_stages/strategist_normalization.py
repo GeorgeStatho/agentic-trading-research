@@ -15,6 +15,7 @@ from agent_stages.strategist_schema import (
 
 
 def extract_recommendation(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    # Extract the recommendation from the raw payload and return a stable value.
     if not isinstance(payload, dict):
         return None
 
@@ -90,6 +91,7 @@ def _normalize_string_list(value: Any) -> list[str]:
 
 
 def _normalize_decision(value: Any) -> str:
+    # Normalize the decision so downstream code can rely on one consistent shape.
     decision = str(value or "").strip().lower()
     replacements = {
         "buy": "trade_candidate",
@@ -195,6 +197,7 @@ def _coerce_bool(value: Any) -> bool | None:
 
 
 def _normalize_option_direction(value: Any) -> str:
+    # Normalize the option direction so downstream code can rely on one consistent shape.
     direction = str(value or "").strip().lower()
     replacements = {
         "buy_call": "call",
@@ -242,6 +245,7 @@ def _normalize_stock_direction(value: Any) -> str:
 
 
 def normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str, Any] | None:
+    # Normalize the raw strategist output into one recommendation shape so downstream code can rely on fixed fields.
     if not isinstance(recommendation, dict):
         return None
 
@@ -379,6 +383,7 @@ def _clean_bullet_lines(text: str) -> list[str]:
 
 
 def extract_recommendation_from_text(raw_response: str) -> dict[str, Any] | None:
+    # Recover a structured recommendation from free-form model text when JSON parsing fails.
     text = str(raw_response or "").strip()
     if not text:
         return None

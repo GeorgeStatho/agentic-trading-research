@@ -105,6 +105,7 @@ def build_macro_news_to_sectors_prompt(
     *,
     news_scope: str,
 ) -> tuple[str, str]:
+    # Build the macro-news prompt that maps broad articles onto affected sectors.
     config = get_scope_config(news_scope)
     scope_label = config["label"]
     system_prompt = (
@@ -202,6 +203,7 @@ def _classify_article_batch(
     client: Client,
     model: str,
 ) -> tuple[str, list[dict[str, Any]]]:
+    # Classify the current batch and return normalized results that the caller can merge or persist.
     system_prompt, user_prompt = build_macro_news_to_sectors_prompt(
         article_batch,
         sectors,
@@ -227,6 +229,7 @@ def _normalize_pair(
     sectors_by_key: dict[str, dict[str, Any]],
     sectors_by_name: dict[str, dict[str, Any]],
 ) -> dict[str, Any] | None:
+    # Normalize the pair so downstream code can rely on one consistent shape.
     try:
         article_id = int(pair.get("article_id"))
     except (TypeError, ValueError):
@@ -287,6 +290,7 @@ def _collect_cleaned_pairs(
     sectors_by_key: dict[str, dict[str, Any]],
     sectors_by_name: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    # Collect the cleaned pairs into one cleaned result for the next stage.
     cleaned_pairs: list[dict[str, Any]] = []
     seen_pairs: set[tuple[int, int]] = set()
 
@@ -358,6 +362,7 @@ def classify_macro_news_to_sectors(
     context_limit: int = DEFAULT_CONTEXT_LIMIT,
     prompt_overhead_tokens: int = DEFAULT_PROMPT_OVERHEAD_TOKENS,
 ) -> list[dict[str, Any]]:
+    # Classify macro articles to sectors in batches and return cleaned sector pairs.
     client = client or _get_default_client()
     initialize_news_database()
     articles = get_recent_macro_news_articles(news_scope, max_age_days=max_age_days)

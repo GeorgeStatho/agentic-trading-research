@@ -196,6 +196,7 @@ def build_company_opportunist_articles(
 
 
 def _parse_company_payload(text: str) -> Any:
+    # Parse the company payload into a shape the rest of the workflow can use directly.
     raw = str(text or "").strip()
     if not raw:
         return None
@@ -258,6 +259,7 @@ def build_company_valid_reference_sets(
 
 
 def _normalize_relative_positioning(value: Any) -> str:
+    # Normalize the relative positioning so downstream code can rely on one consistent shape.
     relative_positioning = str(value or "").strip().lower()
     replacements = {
         "better": "better_than_peers",
