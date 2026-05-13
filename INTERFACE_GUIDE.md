@@ -12,6 +12,15 @@ backward compatibility, but they should be treated as compatibility-only entrypo
 - Compatibility wrappers may stay in place for old scripts, local tooling, or
   older branches, but should not accumulate new business logic.
 
+## Bootstrap Policy
+
+- Entry points may load `Stock-trading-experiment/.env` before importing
+  env-backed runtime modules.
+- Library modules should use `_paths.bootstrap_agent_callers(...)` for path
+  setup only and should not load `.env` during import.
+- Shared env parsing should live in reusable helpers or settings objects such as
+  `services/common.py` and `services/config.py`.
+
 ## Agent Research System
 
 ### Canonical modules
