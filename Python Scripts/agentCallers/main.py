@@ -12,13 +12,16 @@ if __package__ in {None, ""}:
     if str(AGENT_CALLERS_DIR) not in sys.path:
         sys.path.append(str(AGENT_CALLERS_DIR))
 
-from _paths import DATA_DIR, LOGS_DIR, ROOT_DIR, bootstrap_agent_callers
+from _paths import DATA_DIR, LOGS_DIR, ROOT_DIR, bootstrap_agent_callers, load_project_env
 
+
+if __name__ == "__main__":
+    load_project_env()
 
 bootstrap_agent_callers()
 
 from agent_helpers.deterministic_option_selector import apply_deterministic_option_selection
-from agent_pipeline.main import run_agent_pipeline_from_existing_data
+from agent_pipeline.main import run_agent_pipeline, run_agent_pipeline_from_existing_data
 from agent_stages.manager import decide_company_option_position
 from agent_stages.strategist import decide_company_purchase
 

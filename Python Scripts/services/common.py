@@ -31,6 +31,27 @@ def env_positive_int(name: str, default: int) -> int:
     return max(1, parsed)
 
 
+def env_optional_positive_int(name: str) -> int | None:
+    """Read an optional positive integer environment variable."""
+    raw_value = str(os.getenv(name, "")).strip()
+    if not raw_value:
+        return None
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None
+
+
+def env_float(name: str, default: float) -> float:
+    """Read a float environment variable."""
+    raw_value = str(os.getenv(name, str(default))).strip()
+    try:
+        return float(raw_value)
+    except ValueError:
+        return float(default)
+
+
 def safe_float(value: Any) -> float | None:
     """Convert a value to float when possible."""
     try:

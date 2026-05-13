@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import subprocess
 from pathlib import Path
 import sys
@@ -13,8 +12,10 @@ if __package__ in {None, ""}:
     if str(AGENT_CALLERS_DIR) not in sys.path:
         sys.path.append(str(AGENT_CALLERS_DIR))
 
-from _paths import DATA_DIR, WEBSCRAPING_DIR, bootstrap_agent_callers
+from _paths import DATA_DIR, WEBSCRAPING_DIR, bootstrap_agent_callers, load_project_env
 
+if __name__ == "__main__":
+    load_project_env()
 
 bootstrap_agent_callers(include_webscraping=True)
 
@@ -27,29 +28,12 @@ from agent_stages.industry_opportunist import classify_sector_articles_to_indust
 from agent_stages.macro_news_to_sectors import classify_macro_news_to_sectors
 from agent_stages.sector_opportunist import classify_sector_articles
 from db_helpers import DB_PATH, get_connection, validate_sql_identifier
+from services.config import AgentPipelineSettings
 
 DEFAULT_TOP_SECTOR_COUNT = 3
 DEFAULT_TOP_INDUSTRY_COUNT = 3
 DEFAULT_TOP_COMPANY_COUNT = 3
-
-
-def _env_optional_positive_int(name: str) -> int | None:
-    raw_value = str(os.getenv(name, "")).strip()
-    if not raw_value:
-        return None
-
-    try:
-        parsed_value = int(raw_value)
-    except ValueError:
-        return None
-
-    if parsed_value <= 0:
-        return None
-
-    return parsed_value
-
-
-DEFAULT_RANKING_MAX_AGE_DAYS = _env_optional_positive_int("PIPELINE_RANKING_MAX_AGE_DAYS")
+_RANKING_MAX_AGE_DAYS_UNSET = object()
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SUBPROCESS_IMPORT_PATHS = [
     str(PROJECT_ROOT / "Python Scripts" / "Webscraping"),
@@ -67,6 +51,16 @@ __all__ = [
     "run_news_collection_pipeline",
     "run_agent_pipeline",
 ]
+
+
+def _pipeline_settings() -> AgentPipelineSettings:
+    return AgentPipelineSettings.from_env()
+
+
+def _resolve_ranking_max_age_days(value: int | None | object) -> int | None:
+    if value is _RANKING_MAX_AGE_DAYS_UNSET:
+        return _pipeline_settings().ranking_max_age_days
+    return value if value is None or isinstance(value, int) else _pipeline_settings().ranking_max_age_days
 
 
 def _configure_console_logging() -> None:
@@ -267,8 +261,9 @@ def build_company_opportunist_summary(result: dict[str, Any]) -> dict[str, Any]:
 def _get_top_sector_keys(
     *,
     top_sector_count: int,
-    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
+    ranking_max_age_days: int | None | object = _RANKING_MAX_AGE_DAYS_UNSET,
 ) -> list[str]:
+    ranking_max_age_days = _resolve_ranking_max_age_days(ranking_max_age_days)
     return [
         sector_key
         for sector_key, _score in getTopThreeSectors(
@@ -281,8 +276,9 @@ def _get_top_industry_keys(
     sector_key: str,
     *,
     top_industry_count: int,
-    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
+    ranking_max_age_days: int | None | object = _RANKING_MAX_AGE_DAYS_UNSET,
 ) -> list[str]:
+    ranking_max_age_days = _resolve_ranking_max_age_days(ranking_max_age_days)
     return [
         industry_key
         for industry_key, _score in getTopThreeIndustries(
@@ -297,8 +293,9 @@ def _get_top_industry_keys(
 def _get_ranked_sectors(
     *,
     top_sector_count: int,
-    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
+    ranking_max_age_days: int | None | object = _RANKING_MAX_AGE_DAYS_UNSET,
 ) -> list[dict[str, Any]]:
+    ranking_max_age_days = _resolve_ranking_max_age_days(ranking_max_age_days)
     ranked = getTopThreeSectors(
         getSectorScores(max_age_days=ranking_max_age_days)
     )[: max(0, int(top_sector_count))]
@@ -315,8 +312,9 @@ def _get_ranked_industries_for_sector(
     sector_key: str,
     *,
     top_industry_count: int,
-    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
+    ranking_max_age_days: int | None | object = _RANKING_MAX_AGE_DAYS_UNSET,
 ) -> list[dict[str, Any]]:
+    ranking_max_age_days = _resolve_ranking_max_age_days(ranking_max_age_days)
     ranked = getTopThreeIndustries(
         getIndustryScores(
             sector_key,
@@ -336,9 +334,10 @@ def get_current_rankings(
     *,
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
-    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
+    ranking_max_age_days: int | None | object = _RANKING_MAX_AGE_DAYS_UNSET,
 ) -> dict[str, Any]:
     """Return the current ranked sectors and industries without running the pipeline."""
+    ranking_max_age_days = _resolve_ranking_max_age_days(ranking_max_age_days)
     ranked_sectors = _get_ranked_sectors(
         top_sector_count=top_sector_count,
         ranking_max_age_days=ranking_max_age_days,
@@ -364,9 +363,10 @@ def get_current_pipeline_targets(
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
-    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
+    ranking_max_age_days: int | None | object = _RANKING_MAX_AGE_DAYS_UNSET,
 ) -> dict[str, Any]:
     """Return the sectors, industries, and companies that the pipeline would target now."""
+    ranking_max_age_days = _resolve_ranking_max_age_days(ranking_max_age_days)
     rankings = get_current_rankings(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
@@ -457,9 +457,10 @@ def clear_current_pipeline_targets(
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
-    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
+    ranking_max_age_days: int | None | object = _RANKING_MAX_AGE_DAYS_UNSET,
 ) -> dict[str, Any]:
     """Delete persisted outputs for the currently ranked pipeline targets."""
+    ranking_max_age_days = _resolve_ranking_max_age_days(ranking_max_age_days)
     targets = get_current_pipeline_targets(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
@@ -649,9 +650,10 @@ def run_agent_pipeline_from_existing_data(
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
-    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
+    ranking_max_age_days: int | None | object = _RANKING_MAX_AGE_DAYS_UNSET,
 ) -> dict[str, Any]:
     """Build the current pipeline view from persisted DB state without scraping."""
+    ranking_max_age_days = _resolve_ranking_max_age_days(ranking_max_age_days)
     rankings_before_sector_stage = get_current_rankings(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
@@ -705,9 +707,10 @@ def run_news_collection_pipeline(
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
-    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
+    ranking_max_age_days: int | None | object = _RANKING_MAX_AGE_DAYS_UNSET,
 ) -> dict[str, Any]:
     """Run the scrape plus sector/industry/company pipeline end to end."""
+    ranking_max_age_days = _resolve_ranking_max_age_days(ranking_max_age_days)
     print("Scraping U.S. news from RSS")
     us_news_saved = _run_scrape_subprocess(
         "pipelines.USNewsPipeline",
@@ -838,9 +841,10 @@ def run_agent_pipeline(
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
-    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
+    ranking_max_age_days: int | None | object = _RANKING_MAX_AGE_DAYS_UNSET,
 ) -> dict[str, Any]:
     """Backward-compatible combined pipeline entrypoint."""
+    ranking_max_age_days = _resolve_ranking_max_age_days(ranking_max_age_days)
     return run_news_collection_pipeline(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
