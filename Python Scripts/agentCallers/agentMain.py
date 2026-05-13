@@ -1,3 +1,9 @@
+"""Compatibility wrapper for ``agent_pipeline.main``.
+
+Prefer importing from ``agent_pipeline.main`` in new code.
+Keep this file as a backward-compatible shim only.
+"""
+
 from __future__ import annotations
 
 import runpy

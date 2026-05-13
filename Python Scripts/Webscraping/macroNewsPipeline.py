@@ -1,5 +1,11 @@
 import json
 
+"""Compatibility wrapper for ``pipelines.macroNewsPipeline``.
+
+Prefer importing from ``pipelines.macroNewsPipeline`` in new code.
+Keep this file as a backward-compatible shim only.
+"""
+
 from pipelines.macroNewsPipeline import *  # noqa: F401,F403
 
 

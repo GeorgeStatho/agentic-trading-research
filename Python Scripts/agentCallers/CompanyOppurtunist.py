@@ -1,3 +1,9 @@
+"""Compatibility wrapper for ``agent_stages.company_opportunist``.
+
+Prefer importing from ``agent_stages.company_opportunist`` in new code.
+Keep this file as a backward-compatible shim only.
+"""
+
 from __future__ import annotations
 
 import runpy

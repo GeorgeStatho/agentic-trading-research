@@ -1,3 +1,9 @@
+"""Compatibility wrapper for ``agent_analysis.industry_interest``.
+
+Prefer importing from ``agent_analysis.industry_interest`` in new code.
+Keep this file as a backward-compatible shim only.
+"""
+
 from __future__ import annotations
 
 import runpy

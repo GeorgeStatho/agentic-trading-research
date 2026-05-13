@@ -64,6 +64,11 @@ There are also top-level compatibility wrappers that keep older imports working:
 
 Those wrappers matter because some older modules still import the old names.
 
+For new code, prefer the canonical modules under `pipelines/`, `engine/`,
+`processing/`, `extractors/`, and `sources/`. The root-level files are
+compatibility wrappers only. The full preferred import map lives in
+[INTERFACE_GUIDE.md](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/INTERFACE_GUIDE.md).
+
 ## Core Mental Model
 
 The easiest way to understand the news pipelines is to separate them into three layers:
