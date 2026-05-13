@@ -114,17 +114,23 @@ def get_processed_sector_interest(
         )
 
     return results
-
-
-
-def getSectorScores()->dict[str,int]:
-    sectorCount={}
-    result=get_processed_sector_interest()
+def getSectorScores(
+    *,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    max_age_days: int | None = None,
+) -> dict[str, int]:
+    sector_count: dict[str, int] = {}
+    result = get_processed_sector_interest(
+        start_time=start_time,
+        end_time=end_time,
+        max_age_days=max_age_days,
+    )
     for summary in result:
-        if summary["confidence"]=="high":
-            sectorCount[summary["sector_key"]] = sectorCount.get(summary["sector_key"], 0) + 1
-    
-    return sectorCount
+        if summary["confidence"] == "high":
+            sector_count[summary["sector_key"]] = sector_count.get(summary["sector_key"], 0) + 1
+
+    return sector_count
 
 def getTopThreeSectors(sectorScores: dict[str,int]):
     return sorted(

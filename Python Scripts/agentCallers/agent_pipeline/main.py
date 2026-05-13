@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
 import sys
@@ -30,6 +31,25 @@ from db_helpers import DB_PATH, get_connection, validate_sql_identifier
 DEFAULT_TOP_SECTOR_COUNT = 3
 DEFAULT_TOP_INDUSTRY_COUNT = 3
 DEFAULT_TOP_COMPANY_COUNT = 3
+
+
+def _env_optional_positive_int(name: str) -> int | None:
+    raw_value = str(os.getenv(name, "")).strip()
+    if not raw_value:
+        return None
+
+    try:
+        parsed_value = int(raw_value)
+    except ValueError:
+        return None
+
+    if parsed_value <= 0:
+        return None
+
+    return parsed_value
+
+
+DEFAULT_RANKING_MAX_AGE_DAYS = _env_optional_positive_int("PIPELINE_RANKING_MAX_AGE_DAYS")
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SUBPROCESS_IMPORT_PATHS = [
     str(PROJECT_ROOT / "Python Scripts" / "Webscraping"),
@@ -244,10 +264,16 @@ def build_company_opportunist_summary(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _get_top_sector_keys(*, top_sector_count: int) -> list[str]:
+def _get_top_sector_keys(
+    *,
+    top_sector_count: int,
+    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
+) -> list[str]:
     return [
         sector_key
-        for sector_key, _score in getTopThreeSectors(getSectorScores())[: max(0, int(top_sector_count))]
+        for sector_key, _score in getTopThreeSectors(
+            getSectorScores(max_age_days=ranking_max_age_days)
+        )[: max(0, int(top_sector_count))]
     ]
 
 
@@ -255,15 +281,27 @@ def _get_top_industry_keys(
     sector_key: str,
     *,
     top_industry_count: int,
+    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
 ) -> list[str]:
     return [
         industry_key
-        for industry_key, _score in getTopThreeIndustries(getIndustryScores(sector_key))[: max(0, int(top_industry_count))]
+        for industry_key, _score in getTopThreeIndustries(
+            getIndustryScores(
+                sector_key,
+                max_age_days=ranking_max_age_days,
+            )
+        )[: max(0, int(top_industry_count))]
     ]
 
 
-def _get_ranked_sectors(*, top_sector_count: int) -> list[dict[str, Any]]:
-    ranked = getTopThreeSectors(getSectorScores())[: max(0, int(top_sector_count))]
+def _get_ranked_sectors(
+    *,
+    top_sector_count: int,
+    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
+) -> list[dict[str, Any]]:
+    ranked = getTopThreeSectors(
+        getSectorScores(max_age_days=ranking_max_age_days)
+    )[: max(0, int(top_sector_count))]
     return [
         {
             "sector_key": sector_key,
@@ -277,8 +315,14 @@ def _get_ranked_industries_for_sector(
     sector_key: str,
     *,
     top_industry_count: int,
+    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
 ) -> list[dict[str, Any]]:
-    ranked = getTopThreeIndustries(getIndustryScores(sector_key))[: max(0, int(top_industry_count))]
+    ranked = getTopThreeIndustries(
+        getIndustryScores(
+            sector_key,
+            max_age_days=ranking_max_age_days,
+        )
+    )[: max(0, int(top_industry_count))]
     return [
         {
             "industry_key": industry_key,
@@ -292,13 +336,18 @@ def get_current_rankings(
     *,
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
+    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
 ) -> dict[str, Any]:
     """Return the current ranked sectors and industries without running the pipeline."""
-    ranked_sectors = _get_ranked_sectors(top_sector_count=top_sector_count)
+    ranked_sectors = _get_ranked_sectors(
+        top_sector_count=top_sector_count,
+        ranking_max_age_days=ranking_max_age_days,
+    )
     ranked_industries_by_sector = {
         sector["sector_key"]: _get_ranked_industries_for_sector(
             sector["sector_key"],
             top_industry_count=top_industry_count,
+            ranking_max_age_days=ranking_max_age_days,
         )
         for sector in ranked_sectors
     }
@@ -306,6 +355,7 @@ def get_current_rankings(
     return {
         "top_sectors": ranked_sectors,
         "top_industries_by_sector": ranked_industries_by_sector,
+        "ranking_max_age_days": ranking_max_age_days,
     }
 
 
@@ -314,11 +364,13 @@ def get_current_pipeline_targets(
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
+    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
 ) -> dict[str, Any]:
     """Return the sectors, industries, and companies that the pipeline would target now."""
     rankings = get_current_rankings(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
+        ranking_max_age_days=ranking_max_age_days,
     )
     top_sector_keys = [sector["sector_key"] for sector in rankings["top_sectors"]]
 
@@ -349,6 +401,7 @@ def get_current_pipeline_targets(
 
     return {
         "rankings": rankings,
+        "ranking_max_age_days": ranking_max_age_days,
         "top_sector_keys": _dedupe_preserving_order(top_sector_keys),
         "top_industry_keys": _dedupe_preserving_order(top_industry_keys),
         "selected_companies": selected_companies,
@@ -404,12 +457,14 @@ def clear_current_pipeline_targets(
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
+    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
 ) -> dict[str, Any]:
     """Delete persisted outputs for the currently ranked pipeline targets."""
     targets = get_current_pipeline_targets(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
         top_company_count=top_company_count,
+        ranking_max_age_days=ranking_max_age_days,
     )
 
     with get_connection(DB_PATH) as conn:
@@ -540,13 +595,17 @@ def _build_industry_result_from_existing_data(
     industry_key: str,
     *,
     top_company_count: int,
+    ranking_max_age_days: int | None,
 ) -> dict[str, Any]:
     company_selection = collect_ranked_companies_for_industry(
         industry_key,
         top_company_count=top_company_count,
     )
     company_opportunist_summaries = [
-        get_company_opportunist_summary(company["symbol"])
+        get_company_opportunist_summary(
+            company["symbol"],
+            max_age_days=ranking_max_age_days,
+        )
         for company in company_selection["selected_companies"]
     ]
     return {
@@ -561,15 +620,18 @@ def _build_sector_result_from_existing_data(
     *,
     top_industry_count: int,
     top_company_count: int,
+    ranking_max_age_days: int | None,
 ) -> dict[str, Any]:
     top_industry_rankings = _get_ranked_industries_for_sector(
         sector_key,
         top_industry_count=top_industry_count,
+        ranking_max_age_days=ranking_max_age_days,
     )
     industry_results = [
         _build_industry_result_from_existing_data(
             industry["industry_key"],
             top_company_count=top_company_count,
+            ranking_max_age_days=ranking_max_age_days,
         )
         for industry in top_industry_rankings
     ]
@@ -587,11 +649,13 @@ def run_agent_pipeline_from_existing_data(
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
+    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
 ) -> dict[str, Any]:
     """Build the current pipeline view from persisted DB state without scraping."""
     rankings_before_sector_stage = get_current_rankings(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
+        ranking_max_age_days=ranking_max_age_days,
     )
     top_sector_keys = [sector["sector_key"] for sector in rankings_before_sector_stage["top_sectors"]]
     sector_results = [
@@ -599,18 +663,21 @@ def run_agent_pipeline_from_existing_data(
             sector_key,
             top_industry_count=top_industry_count,
             top_company_count=top_company_count,
+            ranking_max_age_days=ranking_max_age_days,
         )
         for sector_key in top_sector_keys
     ]
     rankings_after_pipeline = get_current_rankings(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
+        ranking_max_age_days=ranking_max_age_days,
     )
 
     return {
         "top_sector_count": top_sector_count,
         "top_industry_count": top_industry_count,
         "top_company_count": top_company_count,
+        "ranking_max_age_days": ranking_max_age_days,
         "pipeline_mode": "existing_db",
         "macro_news_to_sectors": {
             "us": [],
@@ -638,6 +705,7 @@ def run_news_collection_pipeline(
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
+    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
 ) -> dict[str, Any]:
     """Run the scrape plus sector/industry/company pipeline end to end."""
     print("Scraping U.S. news from RSS")
@@ -665,6 +733,7 @@ def run_news_collection_pipeline(
     rankings_before_sector_stage = get_current_rankings(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
+        ranking_max_age_days=ranking_max_age_days,
     )
 
     sector_results: list[dict[str, Any]] = []
@@ -691,6 +760,7 @@ def run_news_collection_pipeline(
         top_industry_rankings = _get_ranked_industries_for_sector(
             sector_key,
             top_industry_count=top_industry_count,
+            ranking_max_age_days=ranking_max_age_days,
         )
         top_industry_keys = [industry["industry_key"] for industry in top_industry_rankings]
         for industry_key in top_industry_keys:
@@ -741,12 +811,14 @@ def run_news_collection_pipeline(
     rankings_after_pipeline = get_current_rankings(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
+        ranking_max_age_days=ranking_max_age_days,
     )
 
     return {
         "top_sector_count": top_sector_count,
         "top_industry_count": top_industry_count,
         "top_company_count": top_company_count,
+        "ranking_max_age_days": ranking_max_age_days,
         "pipeline_mode": "news_refresh",
         "macro_news_to_sectors": {
             "us": us_macro_pairs,
@@ -766,12 +838,14 @@ def run_agent_pipeline(
     top_sector_count: int = DEFAULT_TOP_SECTOR_COUNT,
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
+    ranking_max_age_days: int | None = DEFAULT_RANKING_MAX_AGE_DAYS,
 ) -> dict[str, Any]:
     """Backward-compatible combined pipeline entrypoint."""
     return run_news_collection_pipeline(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
         top_company_count=top_company_count,
+        ranking_max_age_days=ranking_max_age_days,
     )
 
 

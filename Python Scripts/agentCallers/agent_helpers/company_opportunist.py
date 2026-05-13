@@ -19,6 +19,7 @@ from _paths import bootstrap_agent_callers
 bootstrap_agent_callers()
 
 from CompanyOppurtunityBuilder import get_company_linked_articles, get_industry_company_groups
+from _shared import normalize_time_window, published_at_in_window
 from db_helpers import (
     DB_PATH,
     add_company_opportunist_impact,
@@ -71,11 +72,19 @@ def get_company_reference(company_identifier: str) -> tuple[dict[str, Any], dict
 def get_company_opportunist_summary(
     company_identifier: str,
     *,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    max_age_days: int | None = None,
     sample_reason_limit: int = 3,
 ) -> dict[str, Any]:
     """Summarize the saved company opportunist impacts for one company."""
     company_payload = get_company_linked_articles(company_identifier)
     company = company_payload["company"]
+    normalized_start, normalized_end = normalize_time_window(
+        start_time=start_time,
+        end_time=end_time,
+        max_age_days=max_age_days,
+    )
 
     with get_connection(DB_PATH) as conn:
         rows = conn.execute(
@@ -85,10 +94,12 @@ def get_company_opportunist_summary(
                 impact_direction,
                 impact_magnitude,
                 reason,
-                created_at
+                created_at,
+                na.published_at
             FROM company_opportunist_impacts
+            JOIN news_articles AS na ON na.id = company_opportunist_impacts.article_id
             WHERE company_id = ?
-            ORDER BY created_at DESC, id DESC
+            ORDER BY company_opportunist_impacts.created_at DESC, company_opportunist_impacts.id DESC
             """,
             (int(company["company_id"]),),
         ).fetchall()
@@ -97,8 +108,17 @@ def get_company_opportunist_summary(
     direction_counts: dict[str, int] = {}
     magnitude_counts: dict[str, int] = {}
     reasons: list[str] = []
+    impact_count = 0
 
     for row in rows:
+        if not published_at_in_window(
+            row["published_at"],
+            start_time=normalized_start,
+            end_time=normalized_end,
+        ):
+            continue
+
+        impact_count += 1
         confidence = str(row["confidence"] or "").strip().lower()
         impact_direction = str(row["impact_direction"] or "").strip().lower()
         impact_magnitude = str(row["impact_magnitude"] or "").strip().lower()
@@ -121,7 +141,7 @@ def get_company_opportunist_summary(
             "industry_key": company.get("industry_key"),
             "sector_key": company.get("sector_key"),
         },
-        "impact_count": len(rows),
+        "impact_count": impact_count,
         "confidence_counts": confidence_counts,
         "direction_counts": direction_counts,
         "magnitude_counts": magnitude_counts,
