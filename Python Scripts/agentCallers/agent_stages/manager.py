@@ -59,7 +59,7 @@ VALID_TARGET_DTE_BUCKETS = VALID_OPTION_DTE_BUCKET_KEYS_WITH_NONE
 VALID_STRATEGIST_DECISIONS = {"trade_candidate", "watchlist", "do_not_trade"}
 VALID_QUALITY_LEVELS = {"strong", "moderate", "weak"}
 VALID_TIMING_CLARITY = {"clear", "unclear"}
-VALID_TIME_HORIZONS = {"very_short_term", "short_term", "medium_term", "unclear"}
+VALID_TIME_HORIZONS = {*TIME_HORIZON_TO_DTE_BUCKET.keys(), "unclear"}
 
 _manager_client: Client | None = None
 LOGGER = logging.getLogger(__name__)
@@ -213,12 +213,13 @@ def _normalize_time_horizon(value: Any) -> str:
     replacements = {
         "1-3_days": "very_short_term",
         "1-3 days": "very_short_term",
-        "very short term": "very_short_term",
-        "short term": "short_term",
         "swing": "medium_term",
     }
+    for valid_horizon in TIME_HORIZON_TO_DTE_BUCKET:
+        replacements.setdefault(valid_horizon, valid_horizon)
+        replacements.setdefault(valid_horizon.replace("_", " "), valid_horizon)
     horizon = replacements.get(horizon, horizon)
-    return horizon if horizon in VALID_TIME_HORIZONS else ""
+    return horizon if horizon in VALID_TIME_HORIZONS else "unclear"
 
 
 def _coerce_bool(value: Any) -> bool | None:
