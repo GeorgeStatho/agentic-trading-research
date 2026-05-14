@@ -15,6 +15,13 @@ if __package__ in {None, ""}:
         sys.path.append(str(AGENT_CALLERS_DIR))
 
 from _paths import bootstrap_agent_callers, load_project_env
+from services.option_dte_buckets import (
+    ORDERED_OPTION_DTE_BUCKET_KEYS_WITH_NONE,
+    TIME_HORIZON_TO_DTE_BUCKET,
+    normalize_target_dte_bucket,
+    target_dte_bucket_to_expiration_filters,
+    VALID_OPTION_DTE_BUCKET_KEYS_WITH_NONE,
+)
 
 
 if __name__ == "__main__":
@@ -44,16 +51,11 @@ MANAGER_STAGE_VERSION = "decision-only-v3"
 
 VALID_DECISIONS = {"call", "put", "neither"}
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
-VALID_TARGET_DTE_BUCKETS = {"3_7", "7_14", "14_30", "none"}
+VALID_TARGET_DTE_BUCKETS = VALID_OPTION_DTE_BUCKET_KEYS_WITH_NONE
 VALID_STRATEGIST_DECISIONS = {"trade_candidate", "watchlist", "do_not_trade"}
 VALID_QUALITY_LEVELS = {"strong", "moderate", "weak"}
 VALID_TIMING_CLARITY = {"clear", "unclear"}
 VALID_TIME_HORIZONS = {"very_short_term", "short_term", "medium_term", "unclear"}
-TIME_HORIZON_TO_DTE_BUCKET = {
-    "very_short_term": "3_7",
-    "short_term": "7_14",
-    "medium_term": "14_30",
-}
 
 _manager_client: Client | None = None
 LOGGER = logging.getLogger(__name__)
@@ -65,7 +67,7 @@ MANAGER_RECOMMENDATION_SCHEMA: dict[str, Any] = {
             "properties": {
                 "decision": {"type": "string", "enum": ["call", "put", "neither"]},
                 "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-                "target_dte_bucket": {"type": "string", "enum": ["3_7", "7_14", "14_30", "none"]},
+                "target_dte_bucket": {"type": "string", "enum": list(ORDERED_OPTION_DTE_BUCKET_KEYS_WITH_NONE)},
                 "reason": {"type": "string"},
             },
             "required": ["decision", "confidence", "target_dte_bucket", "reason"],
@@ -550,49 +552,9 @@ def _normalize_confidence(value: Any) -> str:
     return confidence if confidence in VALID_CONFIDENCE_LEVELS else ""
 
 
-def _normalize_target_dte_bucket(value: Any) -> str:
-    bucket = str(value or "").strip().lower()
-    replacements = {
-        "3-7": "3_7",
-        "3 to 7": "3_7",
-        "7-14": "7_14",
-        "7 to 14": "7_14",
-        "14-30": "14_30",
-        "14 to 30": "14_30",
-        "n/a": "none",
-        "na": "none",
-        "not_applicable": "none",
-    }
-    bucket = replacements.get(bucket, bucket)
-    return bucket if bucket in VALID_TARGET_DTE_BUCKETS else ""
-
-
 def _map_time_horizon_to_target_dte_bucket(value: Any) -> str:
     time_horizon = _normalize_time_horizon(value)
     return TIME_HORIZON_TO_DTE_BUCKET.get(time_horizon, "")
-
-
-def _target_dte_bucket_to_expiration_filters(
-    target_dte_bucket: Any,
-) -> tuple[str | None, str | None, str | None]:
-    normalized_bucket = _normalize_target_dte_bucket(target_dte_bucket)
-    bucket_ranges = {
-        "3_7": (3, 7),
-        "7_14": (7, 14),
-        "14_30": (14, 30),
-    }
-    day_range = bucket_ranges.get(normalized_bucket)
-    if day_range is None:
-        return None, None, None
-
-    today = date.today()
-    min_days, max_days = day_range
-    return (
-        None,
-        (today + timedelta(days=min_days)).isoformat(),
-        (today + timedelta(days=max_days)).isoformat(),
-    )
-
 
 def _refresh_market_context_for_target_dte_bucket(
     *,
