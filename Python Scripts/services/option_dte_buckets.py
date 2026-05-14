@@ -53,7 +53,7 @@ OPTION_DTE_BUCKETS = (
         force_exit_days_to_expiration=18,
         default_take_profit_pct=70.0,
         default_stop_loss_pct=-35.0,
-        default_trailing_giveback_pct=0.45,
+        default_trailing_giveback_pct=0.55,
         mapped_time_horizon="medium_term",
     ),
     DteBucket(
@@ -65,7 +65,7 @@ OPTION_DTE_BUCKETS = (
         force_exit_days_to_expiration=25,
         default_take_profit_pct=85.0,
         default_stop_loss_pct=-40.0,
-        default_trailing_giveback_pct=0.45,
+        default_trailing_giveback_pct=0.65,
         mapped_time_horizon="longer_term",
     ),
 )

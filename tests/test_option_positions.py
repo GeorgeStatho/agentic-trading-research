@@ -111,6 +111,18 @@ def _make_trailing_profit_config(module, **overrides):
     return module.TrailingProfitConfig(**values)
 
 
+def _make_momentum_history_config(module, **overrides):
+    values = {
+        "enable_after_pnl_pct": module.DEFAULT_OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT,
+        "window_size": module.DEFAULT_OPTION_MOMENTUM_HISTORY_WINDOW_SIZE,
+        "min_samples": module.DEFAULT_OPTION_MOMENTUM_HISTORY_MIN_SAMPLES,
+        "bad_count_exit_threshold": module.DEFAULT_OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD,
+        "consecutive_bad_exit_threshold": module.DEFAULT_OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD,
+    }
+    values.update(overrides)
+    return module.MomentumHistoryConfig(**values)
+
+
 class VerboseTestCase(unittest.TestCase):
     def log_pass(self, message: str) -> None:
         print(f"[PASS] {self.__class__.__name__}.{self._testMethodName}: {message}")
@@ -269,11 +281,11 @@ class OptionPositionTests(VerboseTestCase):
             self.assertEqual(persisted_state["last_retryable_exit_status"], "rejected")
             self.log_pass("retryable zero-fill rejection reset the first scale-out flag for a clean retry")
 
-    def test_structured_exit_action_triggers_momentum_failed_after_tp(self) -> None:
+    def test_structured_exit_action_triggers_momentum_history_failed(self) -> None:
         exit_action, updated_state = self.option_positions._structured_exit_action(
             option_symbol=OPTION_SYMBOL,
             quantity=3,
-            unrealized_pl_pct_ratio=0.60,
+            unrealized_pl_pct_ratio=2.10,
             days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
@@ -285,9 +297,24 @@ class OptionPositionTests(VerboseTestCase):
                 is_default_rule=False,
             ),
             position_state={
-                "max_pnl_pct": 0.70,
+                "max_pnl_pct": 2.20,
                 "profit_protection_active": True,
-                "protected_profit_floor_pct": 0.25,
+                "protected_profit_floor_pct": 1.40,
+                "momentum_tracking_active": True,
+                "momentum_history_sample_count": 10,
+                "momentum_bad_count": 6,
+                "momentum_consecutive_bad_count": 2,
+                "momentum_history": [
+                    {"status": "good", "checked_at": "2026-05-14T10:00:00", "pnl_pct": 2.1, "max_pnl_pct": 2.2},
+                    {"status": "bad", "checked_at": "2026-05-14T10:05:00", "pnl_pct": 2.08, "max_pnl_pct": 2.2},
+                    {"status": "bad", "checked_at": "2026-05-14T10:10:00", "pnl_pct": 2.06, "max_pnl_pct": 2.2},
+                    {"status": "good", "checked_at": "2026-05-14T10:15:00", "pnl_pct": 2.05, "max_pnl_pct": 2.2},
+                    {"status": "bad", "checked_at": "2026-05-14T10:20:00", "pnl_pct": 2.04, "max_pnl_pct": 2.2},
+                    {"status": "bad", "checked_at": "2026-05-14T10:25:00", "pnl_pct": 2.03, "max_pnl_pct": 2.2},
+                    {"status": "bad", "checked_at": "2026-05-14T10:30:00", "pnl_pct": 2.02, "max_pnl_pct": 2.2},
+                    {"status": "good", "checked_at": "2026-05-14T10:35:00", "pnl_pct": 2.01, "max_pnl_pct": 2.2},
+                    {"status": "bad", "checked_at": "2026-05-14T10:40:00", "pnl_pct": 2.00, "max_pnl_pct": 2.2},
+                ],
             },
             critical_errors=[],
             context_notes=[],
@@ -296,21 +323,22 @@ class OptionPositionTests(VerboseTestCase):
                 self.option_positions,
                 enable_momentum_exit=True,
             ),
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
             momentum_status=self.option_positions.MOMENTUM_BAD,
-            momentum_reasons=["Momentum deteriorated after the take-profit trigger."],
+            momentum_reasons=["Momentum deteriorated after the large winner started rolling over."],
             recently_filled_order=False,
         )
 
         self.assertEqual(exit_action["action"], "sell_full")
-        self.assertEqual(exit_action["reason"], "momentum_failed_after_tp")
-        self.assertEqual(updated_state["last_decision_reason"], "momentum_failed_after_tp")
-        self.log_pass("momentum failure after take-profit escalated to a full exit")
+        self.assertEqual(exit_action["reason"], "momentum_history_failed")
+        self.assertEqual(updated_state["last_decision_reason"], "momentum_history_failed")
+        self.log_pass("momentum history full-exit fired once the tracked bad-count threshold was reached")
 
-    def test_structured_exit_action_does_not_force_momentum_exit_when_disabled(self) -> None:
+    def test_structured_exit_action_triggers_momentum_history_failed_on_consecutive_bad_streak(self) -> None:
         exit_action, updated_state = self.option_positions._structured_exit_action(
             option_symbol=OPTION_SYMBOL,
             quantity=3,
-            unrealized_pl_pct_ratio=0.60,
+            unrealized_pl_pct_ratio=2.05,
             days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
@@ -322,9 +350,116 @@ class OptionPositionTests(VerboseTestCase):
                 is_default_rule=False,
             ),
             position_state={
-                "max_pnl_pct": 0.70,
+                "max_pnl_pct": 2.20,
                 "profit_protection_active": True,
-                "protected_profit_floor_pct": 0.25,
+                "protected_profit_floor_pct": 1.40,
+                "momentum_tracking_active": True,
+                "momentum_history_sample_count": 5,
+                "momentum_bad_count": 3,
+                "momentum_consecutive_bad_count": 3,
+                "momentum_history": [
+                    {"status": "good", "checked_at": "2026-05-14T10:00:00", "pnl_pct": 2.15, "max_pnl_pct": 2.2},
+                    {"status": "bad", "checked_at": "2026-05-14T10:05:00", "pnl_pct": 2.10, "max_pnl_pct": 2.2},
+                    {"status": "bad", "checked_at": "2026-05-14T10:10:00", "pnl_pct": 2.08, "max_pnl_pct": 2.2},
+                    {"status": "bad", "checked_at": "2026-05-14T10:15:00", "pnl_pct": 2.06, "max_pnl_pct": 2.2},
+                ],
+            },
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=_make_trailing_profit_config(
+                self.option_positions,
+                enable_momentum_exit=True,
+            ),
+            momentum_history_config=_make_momentum_history_config(
+                self.option_positions,
+                bad_count_exit_threshold=9,
+                consecutive_bad_exit_threshold=3,
+            ),
+            momentum_status=self.option_positions.MOMENTUM_BAD,
+            momentum_reasons=["Momentum deteriorated for three checks in a row after the large winner rolled over."],
+            recently_filled_order=False,
+        )
+
+        self.assertEqual(exit_action["action"], "sell_full")
+        self.assertEqual(exit_action["reason"], "momentum_history_failed")
+        self.assertEqual(updated_state["last_decision_reason"], "momentum_history_failed")
+        self.log_pass("momentum history full-exit fired once the consecutive bad-sample threshold was reached")
+
+    def test_structured_exit_action_does_not_force_momentum_history_exit_before_min_samples(self) -> None:
+        exit_action, updated_state = self.option_positions._structured_exit_action(
+            option_symbol=OPTION_SYMBOL,
+            quantity=3,
+            unrealized_pl_pct_ratio=2.10,
+            days_to_expiration=10,
+            hours_to_expiration=120.0,
+            exit_thresholds=self.option_positions.ExitThresholds(
+                dte_rule_label="7-14 DTE",
+                take_profit_pct=40.0,
+                stop_loss_pct=-28.0,
+                force_exit_days_to_expiration=3,
+                exit_hours_to_expiration=72.0,
+                is_default_rule=False,
+            ),
+            position_state={
+                "max_pnl_pct": 2.20,
+                "profit_protection_active": True,
+                "protected_profit_floor_pct": 1.40,
+                "momentum_tracking_active": True,
+                "momentum_history_sample_count": 2,
+                "momentum_bad_count": 2,
+                "momentum_consecutive_bad_count": 2,
+                "momentum_history": [
+                    {"status": "bad", "checked_at": "2026-05-14T10:00:00", "pnl_pct": 2.1, "max_pnl_pct": 2.2}
+                ],
+            },
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=_make_trailing_profit_config(
+                self.option_positions,
+                enable_momentum_exit=True,
+            ),
+            momentum_history_config=_make_momentum_history_config(
+                self.option_positions,
+                min_samples=5,
+            ),
+            momentum_status=self.option_positions.MOMENTUM_BAD,
+            momentum_reasons=["Momentum deteriorated after the large winner started rolling over."],
+            recently_filled_order=False,
+        )
+
+        self.assertEqual(exit_action["action"], "sell_partial")
+        self.assertEqual(exit_action["reason"], "first_scale_out_trigger")
+        self.assertEqual(updated_state["last_decision_reason"], "first_scale_out_trigger")
+        self.log_pass("momentum history waited for the minimum sample count before allowing a full exit")
+
+    def test_structured_exit_action_does_not_force_momentum_history_exit_when_disabled(self) -> None:
+        exit_action, updated_state = self.option_positions._structured_exit_action(
+            option_symbol=OPTION_SYMBOL,
+            quantity=3,
+            unrealized_pl_pct_ratio=2.10,
+            days_to_expiration=10,
+            hours_to_expiration=120.0,
+            exit_thresholds=self.option_positions.ExitThresholds(
+                dte_rule_label="7-14 DTE",
+                take_profit_pct=40.0,
+                stop_loss_pct=-28.0,
+                force_exit_days_to_expiration=3,
+                exit_hours_to_expiration=72.0,
+                is_default_rule=False,
+            ),
+            position_state={
+                "max_pnl_pct": 2.20,
+                "profit_protection_active": True,
+                "protected_profit_floor_pct": 1.40,
+                "momentum_tracking_active": True,
+                "momentum_history_sample_count": 10,
+                "momentum_bad_count": 7,
+                "momentum_consecutive_bad_count": 4,
+                "momentum_history": [
+                    {"status": "bad", "checked_at": "2026-05-14T10:00:00", "pnl_pct": 2.1, "max_pnl_pct": 2.2}
+                ],
             },
             critical_errors=[],
             context_notes=[],
@@ -333,15 +468,16 @@ class OptionPositionTests(VerboseTestCase):
                 self.option_positions,
                 enable_momentum_exit=False,
             ),
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
             momentum_status=self.option_positions.MOMENTUM_BAD,
-            momentum_reasons=["Momentum deteriorated after the take-profit trigger."],
+            momentum_reasons=["Momentum deteriorated after the large winner started rolling over."],
             recently_filled_order=False,
         )
 
         self.assertEqual(exit_action["action"], "sell_partial")
         self.assertEqual(exit_action["reason"], "first_scale_out_trigger")
         self.assertEqual(updated_state["last_decision_reason"], "first_scale_out_trigger")
-        self.log_pass("disabled momentum exit preserved the trailing scale-out path instead of forcing a full exit")
+        self.log_pass("disabled momentum history exit preserved the trailing scale-out path instead of forcing a full exit")
 
     def test_structured_exit_action_allows_stop_loss_with_noncritical_quote_note(self) -> None:
         exit_action, updated_state = self.option_positions._structured_exit_action(
@@ -363,6 +499,7 @@ class OptionPositionTests(VerboseTestCase):
             context_notes=["Underlying stock quote was unavailable; momentum was left informational only."],
             enable_trailing_profit=True,
             trailing_profit_config=_make_trailing_profit_config(self.option_positions),
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
             momentum_status=MOMENTUM_UNKNOWN,
             momentum_reasons=["Current underlying price was missing or invalid."],
             recently_filled_order=False,
@@ -395,6 +532,7 @@ class OptionPositionTests(VerboseTestCase):
             ],
             enable_trailing_profit=True,
             trailing_profit_config=_make_trailing_profit_config(self.option_positions),
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
             momentum_status=MOMENTUM_UNKNOWN,
             momentum_reasons=["Current underlying price was missing or invalid."],
             recently_filled_order=False,
@@ -461,6 +599,7 @@ class OptionPositionTests(VerboseTestCase):
             context_notes=[],
             enable_trailing_profit=True,
             trailing_profit_config=trailing_profit_config,
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
             momentum_status=MOMENTUM_UNKNOWN,
             momentum_reasons=[],
             recently_filled_order=False,
@@ -503,6 +642,7 @@ class OptionPositionTests(VerboseTestCase):
             context_notes=[],
             enable_trailing_profit=True,
             trailing_profit_config=trailing_profit_config,
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
             momentum_status=MOMENTUM_GOOD,
             momentum_reasons=[],
             recently_filled_order=False,
@@ -513,6 +653,72 @@ class OptionPositionTests(VerboseTestCase):
         self.assertAlmostEqual(exit_action["protected_profit_floor_pct"], 0.65, places=6)
         self.assertEqual(updated_state["last_decision_reason"], "trailing_profit_stop")
         self.log_pass("trailing profit stop sold after gains gave back through the protected floor")
+
+    def test_build_option_position_snapshot_persists_momentum_history_after_threshold(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "option_state.json"
+            option_symbol = "AAPL260523C00150000"
+
+            position = SimpleNamespace(
+                symbol=option_symbol,
+                avg_entry_price="1.0",
+                qty="2",
+                unrealized_plpc=2.10,
+            )
+
+            original_get_latest_option_quote = self.option_positions._get_latest_option_quote
+            original_get_latest_stock_price = self.option_positions._get_latest_stock_price
+            try:
+                self.option_positions._get_latest_option_quote = lambda _symbol: {
+                    "bid_price": 3.05,
+                    "ask_price": 3.15,
+                    "mid_price": 3.10,
+                    "price": 3.10,
+                    "timestamp": "2026-05-14T15:30:00Z",
+                    "error": "",
+                }
+                self.option_positions._get_latest_stock_price = lambda _symbol: {
+                    "price": 120.0,
+                    "timestamp": "2026-05-14T15:30:00Z",
+                    "error": "",
+                }
+
+                summary = self.option_positions._build_option_position_snapshot(
+                    position,
+                    take_profit_pct=25.0,
+                    stop_loss_pct=-20.0,
+                    exit_hours_to_expiration=24.0,
+                    enable_trailing_profit=True,
+                    trailing_profit_dry_run=False,
+                    trailing_profit_config=_make_trailing_profit_config(self.option_positions),
+                    momentum_history_config=_make_momentum_history_config(
+                        self.option_positions,
+                        enable_after_pnl_pct=2.00,
+                        window_size=10,
+                    ),
+                    state_path=state_path,
+                    position_state_override={
+                        "entry_underlying_price": 100.0,
+                    },
+                    pending_reconciliation=None,
+                )
+            finally:
+                self.option_positions._get_latest_option_quote = original_get_latest_option_quote
+                self.option_positions._get_latest_stock_price = original_get_latest_stock_price
+
+            persisted_state = self.option_positions.get_position_state(state_path, option_symbol)
+            assert persisted_state is not None
+
+            self.assertTrue(persisted_state["momentum_tracking_active"])
+            self.assertEqual(persisted_state["momentum_history_sample_count"], 1)
+            self.assertEqual(persisted_state["momentum_bad_count"], 0)
+            self.assertEqual(persisted_state["momentum_consecutive_bad_count"], 0)
+            self.assertEqual(persisted_state["last_momentum_status"], "good")
+            self.assertEqual(len(persisted_state["momentum_history"]), 1)
+            self.assertEqual(persisted_state["momentum_history"][0]["status"], "good")
+            self.assertEqual(summary["momentum_history_sample_count"], 1)
+            self.assertTrue(summary["momentum_tracking_active"])
+            self.log_pass("momentum history sample was persisted once the position exceeded the configured activation threshold")
 
     def test_manage_current_option_positions_submits_partial_scale_out_for_trailing_profit(self) -> None:
         with TemporaryDirectory() as temp_dir:

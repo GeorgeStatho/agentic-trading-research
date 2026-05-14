@@ -60,6 +60,11 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
                 option_position_enable_trailing_profit=True,
                 option_position_trailing_profit_dry_run=False,
                 option_position_enable_momentum_exit=True,
+                option_momentum_history_enable_after_pnl_pct=2.00,
+                option_momentum_history_window_size=10,
+                option_momentum_history_min_samples=5,
+                option_momentum_history_bad_count_exit_threshold=6,
+                option_momentum_history_consecutive_bad_exit_threshold=3,
                 option_trail_protection_trigger_pct=0.40,
                 option_trail_initial_floor_pct=0.10,
                 option_trail_first_scale_out_trigger_pct=0.55,
@@ -111,6 +116,11 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
         self.assertEqual(call_kwargs["enable_trailing_profit_override"], True)
         self.assertEqual(call_kwargs["trailing_profit_dry_run_override"], False)
         self.assertEqual(call_kwargs["enable_momentum_exit_override"], True)
+        self.assertEqual(call_kwargs["momentum_history_enable_after_pnl_pct_override"], 2.00)
+        self.assertEqual(call_kwargs["momentum_history_window_size_override"], 10)
+        self.assertEqual(call_kwargs["momentum_history_min_samples_override"], 5)
+        self.assertEqual(call_kwargs["momentum_history_bad_count_exit_threshold_override"], 6)
+        self.assertEqual(call_kwargs["momentum_history_consecutive_bad_exit_threshold_override"], 3)
         self.assertEqual(call_kwargs["trail_protection_trigger_pct_override"], 0.40)
         self.assertEqual(call_kwargs["trail_initial_floor_pct_override"], 0.10)
         self.assertEqual(
