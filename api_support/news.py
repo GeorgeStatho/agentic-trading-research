@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from agent_pipeline.main import get_current_pipeline_targets
@@ -11,6 +11,8 @@ from api_support.context import (
     DB_PATH,
     get_connection,
 )
+
+ANALYZED_COMPANY_NEWS_MAX_ARTICLE_AGE_DAYS = 7
 
 
 def _empty_confidence_counts() -> dict[str, int]:
@@ -82,6 +84,12 @@ def _empty_analyzed_company_news_payload(*, page: int, page_size: int, total_com
         },
         "companies": [],
     }
+
+
+def _recent_article_cutoff_iso(*, max_age_days: int = ANALYZED_COMPANY_NEWS_MAX_ARTICLE_AGE_DAYS) -> str:
+    # Keep the company news page bounded to recent evidence so each company page loads
+    # only the current news context instead of the full historical article backlog.
+    return (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
 
 
 def _build_company_news_entry(base_company: dict) -> dict:
@@ -256,6 +264,7 @@ def build_analyzed_company_news_payload(
             total_company_count=total_company_count,
         )
 
+    recent_article_cutoff = _recent_article_cutoff_iso()
     placeholders = ",".join("?" for _ in company_ids)
     with get_connection(DB_PATH) as conn:
         metadata_rows = conn.execute(
@@ -309,9 +318,10 @@ def build_analyzed_company_news_payload(
                 ON cop.article_id = coi.article_id
                AND cop.company_id = coi.company_id
             WHERE coi.company_id IN ({placeholders})
+              AND datetime(na.published_at) >= datetime(?)
             ORDER BY c.symbol ASC, na.published_at DESC, coi.article_id DESC, coi.created_at DESC
             """,
-            tuple(company_ids),
+            tuple(company_ids) + (recent_article_cutoff,),
         ).fetchall()
 
         metadata_by_company_id: dict[int, dict] = {}
@@ -369,9 +379,10 @@ def build_analyzed_company_news_payload(
                 LEFT JOIN industry_opportunist_article_processing AS iop
                     ON iop.article_id = ioi.article_id
                 WHERE ioi.industry_id IN ({industry_placeholders})
+                  AND datetime(na.published_at) >= datetime(?)
                 ORDER BY i.industry_key ASC, na.published_at DESC, ioi.article_id DESC, ioi.created_at DESC
                 """,
-                tuple(industry_ids),
+                tuple(industry_ids) + (recent_article_cutoff,),
             ).fetchall()
 
         sector_rows = []
@@ -404,9 +415,10 @@ def build_analyzed_company_news_payload(
                 LEFT JOIN sector_opportunist_article_processing AS sop
                     ON sop.article_id = soi.article_id
                 WHERE soi.sector_id IN ({sector_placeholders})
+                  AND datetime(na.published_at) >= datetime(?)
                 ORDER BY s.sector_key ASC, na.published_at DESC, soi.article_id DESC, soi.created_at DESC
                 """,
-                tuple(sector_ids),
+                tuple(sector_ids) + (recent_article_cutoff,),
             ).fetchall()
 
             macro_rows = conn.execute(
@@ -450,6 +462,7 @@ def build_analyzed_company_news_payload(
                     JOIN news_articles AS na ON na.id = wsi.article_id
                     LEFT JOIN world_news_article_processing AS wnap
                         ON wnap.article_id = wsi.article_id
+                    WHERE datetime(na.published_at) >= datetime(?)
 
                     UNION ALL
 
@@ -472,12 +485,13 @@ def build_analyzed_company_news_payload(
                     JOIN news_articles AS na ON na.id = usi.article_id
                     LEFT JOIN us_news_article_processing AS unap
                         ON unap.article_id = usi.article_id
+                    WHERE datetime(na.published_at) >= datetime(?)
                 ) AS combined
                 JOIN sectors AS s ON s.id = combined.sector_id
                 WHERE combined.sector_id IN ({sector_placeholders})
                 ORDER BY s.sector_key ASC, combined.published_at DESC, combined.article_id DESC, combined.impact_created_at DESC
                 """,
-                tuple(sector_ids),
+                (recent_article_cutoff, recent_article_cutoff, *tuple(sector_ids)),
             ).fetchall()
 
     companies_by_id: dict[int, dict] = {}
