@@ -29,6 +29,12 @@ if __package__ in {None, ""}:
         sys.path.append(str(AGENT_CALLERS_DIR))
 
 from _paths import bootstrap_agent_callers
+from services.option_dte_buckets import (
+    DTE_BUCKET_TO_TARGET_OTM_PCT,
+    get_bucket_target_otm_pct,
+    get_dte_bucket_range,
+    normalize_target_dte_bucket,
+)
 
 
 bootstrap_agent_callers()
@@ -93,11 +99,6 @@ REQUIRE_ONE_DOLLAR_OTM = True
 PREFERRED_OTM_DISTANCE = 0.3
 
 
-DTE_BUCKET_TO_TARGET_OTM_PCT = {
-    "3_7": 0.005,
-    "7_14": 0.010,
-    "14_30": 0.015,
-}
 MIN_TARGET_OTM_DOLLARS = 0.50
 MAX_TARGET_OTM_DOLLARS = 5.00
 
@@ -202,23 +203,6 @@ def _is_selection_eligible_under_confidence_guardrails(
     return True, ""
 
 
-def _normalize_target_dte_bucket(value: Any) -> str:
-    bucket = str(value or "").strip().lower()
-    replacements = {
-        "3-7": "3_7",
-        "3 to 7": "3_7",
-        "7-14": "7_14",
-        "7 to 14": "7_14",
-        "14-30": "14_30",
-        "14 to 30": "14_30",
-        "n/a": "none",
-        "na": "none",
-        "not_applicable": "none",
-    }
-    bucket = replacements.get(bucket, bucket)
-    return bucket if bucket in {"3_7", "7_14", "14_30", "none"} else ""
-
-
 def _resolve_target_otm_distance(
     *,
     reference_stock_price: float | None,
@@ -226,7 +210,7 @@ def _resolve_target_otm_distance(
     default_distance: float,
 ) -> float:
     normalized_bucket = _normalize_target_dte_bucket(target_dte_bucket)
-    target_pct = DTE_BUCKET_TO_TARGET_OTM_PCT.get(normalized_bucket)
+    target_pct = get_bucket_target_otm_pct(normalized_bucket)
     if target_pct is None or reference_stock_price is None or reference_stock_price <= 0:
         return default_distance
     target_otm_dollars = reference_stock_price * target_pct
@@ -320,17 +304,6 @@ def _get_dte(contract: dict[str, Any]) -> int | None:
         return None
 
     return (expiration - date.today()).days
-
-
-def _get_dte_bucket_range(bucket: str) -> tuple[int, int] | None:
-    normalized_bucket = _normalize_target_dte_bucket(bucket)
-    mapping = {
-        "3_7": (3, 7),
-        "7_14": (7, 14),
-        "14_30": (14, 30),
-        "none": None,
-    }
-    return mapping.get(normalized_bucket)
 
 
 def _resolve_dte_range(

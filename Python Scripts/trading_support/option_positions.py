@@ -16,6 +16,7 @@ from .clients import (
     get_stock_history_client,
 )
 from services.config import OptionPositionSettings
+from services.option_dte_buckets import OPTION_DTE_BUCKETS, resolve_dte_bucket_for_days
 from .utils import mid_price, safe_float
 
 
@@ -39,31 +40,23 @@ DEFAULT_OPTION_TAKE_PROFIT_PCT = _OPTION_POSITION_SETTINGS.take_profit_pct
 DEFAULT_OPTION_STOP_LOSS_PCT = _OPTION_POSITION_SETTINGS.stop_loss_pct
 DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION = _OPTION_POSITION_SETTINGS.exit_hours_to_expiration
 
-OPTION_EXIT_DTE_RULES = (
+_OPTION_EXIT_RULE_SETTINGS_BY_KEY = {
+    rule.key: rule for rule in _OPTION_POSITION_SETTINGS.dte_rules
+}
+
+OPTION_EXIT_DTE_RULES = tuple(
     OptionExitRule(
-        label="3-7 DTE",
-        min_days_to_expiration=3,
-        max_days_to_expiration=7,
-        take_profit_pct=_OPTION_POSITION_SETTINGS.dte_rules[0].take_profit_pct,
-        stop_loss_pct=_OPTION_POSITION_SETTINGS.dte_rules[0].stop_loss_pct,
-        force_exit_days_to_expiration=_OPTION_POSITION_SETTINGS.dte_rules[0].force_exit_days_to_expiration,
-    ),
-    OptionExitRule(
-        label="7-14 DTE",
-        min_days_to_expiration=7,
-        max_days_to_expiration=14,
-        take_profit_pct=_OPTION_POSITION_SETTINGS.dte_rules[1].take_profit_pct,
-        stop_loss_pct=_OPTION_POSITION_SETTINGS.dte_rules[1].stop_loss_pct,
-        force_exit_days_to_expiration=_OPTION_POSITION_SETTINGS.dte_rules[1].force_exit_days_to_expiration,
-    ),
-    OptionExitRule(
-        label="14-30 DTE",
-        min_days_to_expiration=14,
-        max_days_to_expiration=30,
-        take_profit_pct=_OPTION_POSITION_SETTINGS.dte_rules[2].take_profit_pct,
-        stop_loss_pct=_OPTION_POSITION_SETTINGS.dte_rules[2].stop_loss_pct,
-        force_exit_days_to_expiration=_OPTION_POSITION_SETTINGS.dte_rules[2].force_exit_days_to_expiration,
-    ),
+        label=bucket.label,
+        min_days_to_expiration=bucket.min_days,
+        max_days_to_expiration=bucket.max_days,
+        take_profit_pct=_OPTION_EXIT_RULE_SETTINGS_BY_KEY[bucket.key].take_profit_pct,
+        stop_loss_pct=_OPTION_EXIT_RULE_SETTINGS_BY_KEY[bucket.key].stop_loss_pct,
+        force_exit_days_to_expiration=_OPTION_EXIT_RULE_SETTINGS_BY_KEY[
+            bucket.key
+        ].force_exit_days_to_expiration,
+    )
+    for bucket in OPTION_DTE_BUCKETS
+    if bucket.key in _OPTION_EXIT_RULE_SETTINGS_BY_KEY
 )
 
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
@@ -261,18 +254,24 @@ def _resolve_option_exit_thresholds(
 ) -> ExitThresholds:
     # Prefer the configured DTE buckets when the contract expiration is known,
     # then fall back to the global defaults for incomplete or long-dated symbols.
-    if days_to_expiration is not None:
-        # Match higher DTE buckets first so 7 DTE resolves to 7-14 and 14 DTE resolves to 14-30.
-        for rule in reversed(OPTION_EXIT_DTE_RULES):
-            if rule.min_days_to_expiration <= days_to_expiration <= rule.max_days_to_expiration:
-                return ExitThresholds(
-                    dte_rule_label=rule.label,
-                    take_profit_pct=rule.take_profit_pct,
-                    stop_loss_pct=rule.stop_loss_pct,
-                    force_exit_days_to_expiration=rule.force_exit_days_to_expiration,
-                    exit_hours_to_expiration=float(rule.force_exit_days_to_expiration * 24),
-                    is_default_rule=False,
-                )
+    resolved_bucket = resolve_dte_bucket_for_days(
+        days_to_expiration,
+        prefer_higher_boundary=True,
+    )
+    if resolved_bucket is not None:
+        rule = next(
+            (candidate for candidate in OPTION_EXIT_DTE_RULES if candidate.label == resolved_bucket.label),
+            None,
+        )
+        if rule is not None:
+            return ExitThresholds(
+                dte_rule_label=rule.label,
+                take_profit_pct=rule.take_profit_pct,
+                stop_loss_pct=rule.stop_loss_pct,
+                force_exit_days_to_expiration=rule.force_exit_days_to_expiration,
+                exit_hours_to_expiration=float(rule.force_exit_days_to_expiration * 24),
+                is_default_rule=False,
+            )
 
     return ExitThresholds(
         dte_rule_label="default",

@@ -12,6 +12,7 @@ from services.common import (
     env_positive_int,
     load_exit_hours_to_expiration,
 )
+from services.option_dte_buckets import OPTION_DTE_BUCKETS
 from services.runtime_paths import DATA_DIR, LOGS_DIR, ROOT_DIR
 
 
@@ -119,6 +120,7 @@ class FrontMainSettings:
 class OptionExitRuleConfig:
     """Threshold configuration for a DTE bucket."""
 
+    key: str
     label: str
     take_profit_pct: float
     stop_loss_pct: float
@@ -141,25 +143,29 @@ class OptionPositionSettings:
             take_profit_pct=env_float("OPTION_POSITION_TAKE_PROFIT_PCT", 25.0),
             stop_loss_pct=env_float("OPTION_POSITION_STOP_LOSS_PCT", -20.0),
             exit_hours_to_expiration=load_exit_hours_to_expiration(),
-            dte_rules=(
+            dte_rules=tuple(
                 OptionExitRuleConfig(
-                    label="3-7 DTE",
-                    take_profit_pct=env_float("OPTION_POSITION_3_7_DTE_TAKE_PROFIT_PCT", 30.0),
-                    stop_loss_pct=env_float("OPTION_POSITION_3_7_DTE_STOP_LOSS_PCT", -22.0),
-                    force_exit_days_to_expiration=1,
-                ),
-                OptionExitRuleConfig(
-                    label="7-14 DTE",
-                    take_profit_pct=env_float("OPTION_POSITION_7_14_DTE_TAKE_PROFIT_PCT", 40.0),
-                    stop_loss_pct=env_float("OPTION_POSITION_7_14_DTE_STOP_LOSS_PCT", -28.0),
-                    force_exit_days_to_expiration=3,
-                ),
-                OptionExitRuleConfig(
-                    label="14-30 DTE",
-                    take_profit_pct=env_float("OPTION_POSITION_14_30_DTE_TAKE_PROFIT_PCT", 60.0),
-                    stop_loss_pct=env_float("OPTION_POSITION_14_30_DTE_STOP_LOSS_PCT", -35.0),
-                    force_exit_days_to_expiration=7,
-                ),
+                    key=bucket.key,
+                    label=bucket.label,
+                    take_profit_pct=env_float(
+                        f"OPTION_POSITION_{bucket.key.upper()}_DTE_TAKE_PROFIT_PCT",
+                        {
+                            "3_7": 30.0,
+                            "7_14": 40.0,
+                            "14_30": 60.0,
+                        }[bucket.key],
+                    ),
+                    stop_loss_pct=env_float(
+                        f"OPTION_POSITION_{bucket.key.upper()}_DTE_STOP_LOSS_PCT",
+                        {
+                            "3_7": -22.0,
+                            "7_14": -28.0,
+                            "14_30": -35.0,
+                        }[bucket.key],
+                    ),
+                    force_exit_days_to_expiration=int(bucket.force_exit_days_to_expiration or 0),
+                )
+                for bucket in OPTION_DTE_BUCKETS
             ),
         )
 
