@@ -90,11 +90,11 @@ def get_company_opportunist_summary(
         rows = conn.execute(
             """
             SELECT
-                company_opportunist_impacts.confidence AS confidence,
-                company_opportunist_impacts.impact_direction AS impact_direction,
-                company_opportunist_impacts.impact_magnitude AS impact_magnitude,
-                company_opportunist_impacts.reason AS reason,
-                company_opportunist_impacts.created_at AS created_at,
+                confidence,
+                impact_direction,
+                impact_magnitude,
+                reason,
+                created_at,
                 na.published_at
             FROM company_opportunist_impacts
             JOIN news_articles AS na ON na.id = company_opportunist_impacts.article_id

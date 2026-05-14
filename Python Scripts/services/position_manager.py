@@ -16,10 +16,14 @@ class OptionPositionManagerService:
         *,
         settings: FrontMainSettings,
         paths: FrontMainPaths,
+        trading_gateway: Any,
+        trade_journal: Any | None = None,
         logger: logging.Logger,
     ) -> None:
         self._settings = settings
         self._paths = paths
+        self._trading_gateway = trading_gateway
+        self._trade_journal = trade_journal
         self._logger = logger
 
     def run_cycle(self, *, trading_client: TradingClient) -> dict[str, Any]:
@@ -30,14 +34,70 @@ class OptionPositionManagerService:
             take_profit_pct=self._settings.option_position_take_profit_pct,
             stop_loss_pct=self._settings.option_position_stop_loss_pct,
             exit_hours_to_expiration=self._settings.option_position_exit_hours_to_expiration,
+            state_path_override=self._paths.option_position_state_path,
+            enable_trailing_profit_override=self._settings.option_position_enable_trailing_profit,
+            trailing_profit_dry_run_override=self._settings.option_position_trailing_profit_dry_run,
+            enable_momentum_exit_override=self._settings.option_position_enable_momentum_exit,
+            trail_protection_trigger_pct_override=self._settings.option_trail_protection_trigger_pct,
+            trail_initial_floor_pct_override=self._settings.option_trail_initial_floor_pct,
+            trail_first_scale_out_trigger_pct_override=self._settings.option_trail_first_scale_out_trigger_pct,
+            trail_first_scale_out_fraction_override=self._settings.option_trail_first_scale_out_fraction,
+            trail_second_scale_out_trigger_pct_override=self._settings.option_trail_second_scale_out_trigger_pct,
+            trail_second_scale_out_fraction_override=self._settings.option_trail_second_scale_out_fraction,
+            trail_3_7_giveback_pct_override=self._settings.option_trail_3_7_giveback_pct,
+            trail_7_14_giveback_pct_override=self._settings.option_trail_7_14_giveback_pct,
+            trail_14_30_giveback_pct_override=self._settings.option_trail_14_30_giveback_pct,
+            trail_100_floor_pct_override=self._settings.option_trail_100_floor_pct,
+            trail_150_floor_pct_override=self._settings.option_trail_150_floor_pct,
+            trail_200_floor_pct_override=self._settings.option_trail_200_floor_pct,
+            pending_exit_stale_minutes_override=self._settings.option_pending_exit_stale_minutes,
+            pending_exit_cancel_on_stale_override=self._settings.option_pending_exit_cancel_on_stale,
+            submit_full_exit_order=lambda option_symbol: self._trading_gateway.close_option_position(
+                trading_client,
+                option_symbol=option_symbol,
+            ),
+            submit_partial_exit_order=lambda option_symbol, qty: self._trading_gateway.submit_option_sell_market_order(
+                trading_client,
+                option_symbol=option_symbol,
+                qty=qty,
+            ),
+            resolve_order_status=lambda order_id: self._trading_gateway.get_order_status_summary(
+                trading_client,
+                order_id=order_id,
+            ),
+            cancel_order=lambda order_id: self._trading_gateway.cancel_order(
+                trading_client,
+                order_id=order_id,
+            ),
             trading_client_override=trading_client,
         )
 
+        for position_summary in management_result.get("positions", []):
+            if not isinstance(position_summary, dict) or not position_summary.get("close_submitted"):
+                continue
+            if self._trade_journal is None:
+                break
+            try:
+                record_id = self._trade_journal.record_position_exit(position_summary)
+                position_summary["db_recorded"] = record_id is not None
+                position_summary["db_record_id"] = record_id
+            except Exception as exc:
+                self._logger.exception(
+                    "Failed to record managed option exit in DB for %s: %s",
+                    position_summary.get("symbol"),
+                    exc,
+                )
+                position_summary["db_recorded"] = False
+                position_summary["db_record_error"] = str(exc)
+
         JsonFileWriter.write(self._paths.option_position_management_output_path, management_result)
         self._logger.info(
-            "Managed %s option positions; sell_count=%s close_submitted_count=%s",
+            "Managed %s option positions; sell_count=%s full_sell_count=%s partial_sell_count=%s close_submitted_count=%s dry_run=%s",
             management_result.get("position_count"),
             management_result.get("sell_count"),
+            management_result.get("full_sell_count"),
+            management_result.get("partial_sell_count"),
             management_result.get("close_submitted_count"),
+            management_result.get("trailing_profit_dry_run"),
         )
         return management_result

@@ -115,6 +115,8 @@ def get_processed_sector_interest(
         )
 
     return results
+
+
 def getSectorScores(
     *,
     start_time: datetime | None = None,
