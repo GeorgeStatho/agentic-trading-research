@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from services.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET
 from agent_stages.strategist_schema import (
     VALID_CONFIDENCE_LEVELS,
     VALID_DECISIONS,
@@ -175,12 +176,13 @@ def _normalize_time_horizon(value: Any) -> str:
     replacements = {
         "1-3_days": "very_short_term",
         "1-3 days": "very_short_term",
-        "very short term": "very_short_term",
-        "short term": "short_term",
         "swing": "medium_term",
     }
+    for valid_horizon in TIME_HORIZON_TO_DTE_BUCKET:
+        replacements.setdefault(valid_horizon, valid_horizon)
+        replacements.setdefault(valid_horizon.replace("_", " "), valid_horizon)
     horizon = replacements.get(horizon, horizon)
-    return horizon if horizon in VALID_TIME_HORIZONS else ""
+    return horizon if horizon in VALID_TIME_HORIZONS else "unclear"
 
 
 def _coerce_bool(value: Any) -> bool | None:

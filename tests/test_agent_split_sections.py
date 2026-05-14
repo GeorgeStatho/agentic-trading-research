@@ -230,6 +230,23 @@ class StrategistSplitTests(unittest.TestCase):
         self.assertEqual(normalized["risks"], ["Regulatory pressure"])
         self.assertFalse(normalized["contradictions_present"])
 
+    def test_normalize_recommendation_preserves_shared_custom_time_horizon(self):
+        recommendation = {
+            "decision": "trade_candidate",
+            "confidence": "high",
+            "preferred_option_direction": "call",
+            "expected_stock_direction": "up",
+            "time_horizon": "longer term",
+            "summary": "Longer-dated setup still looks actionable.",
+            "why_now": "Longer-dated setup still looks actionable.",
+            "thesis": ["Longer-dated setup still looks actionable."],
+            "risks": ["Momentum could fade."],
+        }
+
+        normalized = normalize_recommendation(recommendation)
+
+        self.assertEqual(normalized["time_horizon"], "longer_term")
+
     def test_extract_recommendation_from_text_parses_labeled_response(self):
         raw_response = """
 Recommendation: buy
