@@ -21,8 +21,6 @@ type NewsArticle = {
   source: string;
   source_url: string;
   published_at: string;
-  processed_at: string;
-  model: string;
   assessments: ArticleAssessment[];
 };
 
@@ -62,6 +60,7 @@ type CompanyNewsEntry = {
 
 type CompanyNewsPayload = {
   as_of: string;
+  active_view: ScopeView;
   page: number;
   page_size: number;
   total_pages: number;
@@ -125,10 +124,11 @@ const VIEW_OPTIONS: Array<{ key: ScopeView; label: string; title: string; descri
   },
 ];
 
-async function getAnalyzedCompanyNews(page: number, pageSize: number): Promise<CompanyNewsPayload> {
+async function getAnalyzedCompanyNews(page: number, pageSize: number, view: ScopeView): Promise<CompanyNewsPayload> {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
+    view,
     ts: String(Date.now()),
   });
   const response = await fetch(`/api/opportunist-company-news?${params.toString()}`);
@@ -460,7 +460,7 @@ function AnalyzedCompanyNewsPage() {
 
     const loadCompanyNews = () => {
       setIsLoading(true);
-      getAnalyzedCompanyNews(currentPage, pageSize)
+      getAnalyzedCompanyNews(currentPage, pageSize, activeView)
         .then((nextPayload) => {
           if (!isMounted) {
             return;
@@ -494,7 +494,7 @@ function AnalyzedCompanyNewsPage() {
       isMounted = false;
       window.clearInterval(intervalId);
     };
-  }, [currentPage, pageSize]);
+  }, [activeView, currentPage, pageSize]);
 
   const activeViewMeta = VIEW_OPTIONS.find((view) => view.key === activeView) ?? VIEW_OPTIONS[0];
   const viewCards = buildCardsForView(payload?.companies ?? [], activeView);

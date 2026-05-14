@@ -13,6 +13,7 @@ from api_support.context import (
 )
 
 ANALYZED_COMPANY_NEWS_MAX_ARTICLE_AGE_DAYS = 7
+VALID_ANALYZED_COMPANY_NEWS_VIEWS = {"company", "sector", "industry", "macro"}
 
 
 def _empty_confidence_counts() -> dict[str, int]:
@@ -92,6 +93,11 @@ def _recent_article_cutoff_iso(*, max_age_days: int = ANALYZED_COMPANY_NEWS_MAX_
     return (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
 
 
+def normalize_analyzed_company_news_view(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in VALID_ANALYZED_COMPANY_NEWS_VIEWS else "company"
+
+
 def _build_company_news_entry(base_company: dict) -> dict:
     return {
         "company_id": int(base_company.get("company_id") or 0),
@@ -126,15 +132,10 @@ def _append_scoped_news_row(section: dict, row_data: dict) -> None:
             "article_id": article_id,
             "title": str(row_data.get("title") or "").strip(),
             "summary": str(row_data.get("summary") or "").strip(),
-            "body_preview": trim_text(
-                str(row_data.get("body") or row_data.get("summary") or "").strip(),
-                320,
-            ),
+            "body_preview": trim_text(str(row_data.get("body_preview") or row_data.get("summary") or "").strip(), 320),
             "source": str(row_data.get("source") or "").strip(),
             "source_url": str(row_data.get("source_url") or "").strip(),
             "published_at": str(row_data.get("published_at") or "").strip(),
-            "processed_at": str(row_data.get("processed_at") or "").strip(),
-            "model": str(row_data.get("model") or "").strip(),
             "assessments": [],
             "_assessment_keys": set(),
         }
@@ -218,7 +219,9 @@ def build_analyzed_company_news_payload(
     *,
     page: int = 1,
     page_size: int = ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE,
+    view: str = "company",
 ) -> dict:
+    active_view = normalize_analyzed_company_news_view(view)
     targets = get_current_pipeline_targets()
     selected_companies = targets.get("selected_companies", [])
     if not isinstance(selected_companies, list) or not selected_companies:
@@ -287,42 +290,42 @@ def build_analyzed_company_news_payload(
             tuple(company_ids),
         ).fetchall()
 
-        company_rows = conn.execute(
-            f"""
-            SELECT
-                coi.article_id,
-                coi.company_id,
-                c.symbol,
-                c.name AS company_name,
-                i.industry_key,
-                s.sector_key,
-                coi.confidence,
-                coi.impact_direction,
-                coi.impact_magnitude,
-                coi.reason,
-                coi.created_at AS impact_created_at,
-                cop.processed_at,
-                cop.model,
-                na.title,
-                na.summary,
-                na.body,
-                na.source,
-                na.source_url,
-                na.published_at
-            FROM company_opportunist_impacts AS coi
-            JOIN companies AS c ON c.id = coi.company_id
-            JOIN industries AS i ON i.id = c.industry_id
-            JOIN sectors AS s ON s.id = i.sector_id
-            JOIN news_articles AS na ON na.id = coi.article_id
-            LEFT JOIN company_opportunist_article_processing AS cop
-                ON cop.article_id = coi.article_id
-               AND cop.company_id = coi.company_id
-            WHERE coi.company_id IN ({placeholders})
-              AND datetime(na.published_at) >= datetime(?)
-            ORDER BY c.symbol ASC, na.published_at DESC, coi.article_id DESC, coi.created_at DESC
-            """,
-            tuple(company_ids) + (recent_article_cutoff,),
-        ).fetchall()
+        company_rows = []
+        if active_view == "company":
+            company_rows = conn.execute(
+                f"""
+                SELECT
+                    coi.article_id,
+                    coi.company_id,
+                    c.symbol,
+                    c.name AS company_name,
+                    i.industry_key,
+                    s.sector_key,
+                    coi.confidence,
+                    coi.impact_direction,
+                    coi.impact_magnitude,
+                    coi.reason,
+                    coi.created_at AS impact_created_at,
+                    na.title,
+                    na.summary,
+                    substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
+                    na.source,
+                    na.source_url,
+                    na.published_at
+                FROM company_opportunist_impacts AS coi
+                JOIN companies AS c ON c.id = coi.company_id
+                JOIN industries AS i ON i.id = c.industry_id
+                JOIN sectors AS s ON s.id = i.sector_id
+                JOIN news_articles AS na ON na.id = coi.article_id
+                LEFT JOIN company_opportunist_article_processing AS cop
+                    ON cop.article_id = coi.article_id
+                   AND cop.company_id = coi.company_id
+                WHERE coi.company_id IN ({placeholders})
+                  AND datetime(na.published_at) >= datetime(?)
+                ORDER BY c.symbol ASC, na.published_at DESC, coi.article_id DESC, coi.created_at DESC
+                """,
+                tuple(company_ids) + (recent_article_cutoff,),
+            ).fetchall()
 
         metadata_by_company_id: dict[int, dict] = {}
         industry_ids: list[int] = []
@@ -351,7 +354,7 @@ def build_analyzed_company_news_payload(
                 sector_ids.append(sector_id)
 
         industry_rows = []
-        if industry_ids:
+        if industry_ids and active_view == "industry":
             industry_placeholders = ",".join("?" for _ in industry_ids)
             industry_rows = conn.execute(
                 f"""
@@ -365,11 +368,9 @@ def build_analyzed_company_news_payload(
                     ioi.impact_magnitude,
                     ioi.reason,
                     ioi.created_at AS impact_created_at,
-                    iop.processed_at,
-                    iop.model,
                     na.title,
                     na.summary,
-                    na.body,
+                    substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
                     na.source,
                     na.source_url,
                     na.published_at
@@ -387,7 +388,7 @@ def build_analyzed_company_news_payload(
 
         sector_rows = []
         macro_rows = []
-        if sector_ids:
+        if sector_ids and active_view == "sector":
             sector_placeholders = ",".join("?" for _ in sector_ids)
             sector_rows = conn.execute(
                 f"""
@@ -401,11 +402,9 @@ def build_analyzed_company_news_payload(
                     soi.impact_magnitude,
                     soi.reason,
                     soi.created_at AS impact_created_at,
-                    sop.processed_at,
-                    sop.model,
                     na.title,
                     na.summary,
-                    na.body,
+                    substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
                     na.source,
                     na.source_url,
                     na.published_at
@@ -421,6 +420,8 @@ def build_analyzed_company_news_payload(
                 tuple(sector_ids) + (recent_article_cutoff,),
             ).fetchall()
 
+        if sector_ids and active_view == "macro":
+            sector_placeholders = ",".join("?" for _ in sector_ids)
             macro_rows = conn.execute(
                 f"""
                 SELECT
@@ -434,11 +435,9 @@ def build_analyzed_company_news_payload(
                     '' AS impact_magnitude,
                     combined.reason,
                     combined.impact_created_at,
-                    combined.processed_at,
-                    combined.model,
                     combined.title,
                     combined.summary,
-                    combined.body,
+                    combined.body_preview,
                     combined.source,
                     combined.source_url,
                     combined.published_at
@@ -450,11 +449,9 @@ def build_analyzed_company_news_payload(
                         wsi.confidence,
                         wsi.reason,
                         wsi.created_at AS impact_created_at,
-                        wnap.processed_at,
-                        wnap.model,
                         na.title,
                         na.summary,
-                        na.body,
+                        substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
                         na.source,
                         na.source_url,
                         na.published_at
@@ -473,11 +470,9 @@ def build_analyzed_company_news_payload(
                         usi.confidence,
                         usi.reason,
                         usi.created_at AS impact_created_at,
-                        unap.processed_at,
-                        unap.model,
                         na.title,
                         na.summary,
-                        na.body,
+                        substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
                         na.source,
                         na.source_url,
                         na.published_at
@@ -611,5 +606,6 @@ def build_analyzed_company_news_payload(
         ),
         "article_count": total_article_count,
         "section_article_counts": section_article_counts,
+        "active_view": active_view,
         "companies": normalized_companies,
     }
