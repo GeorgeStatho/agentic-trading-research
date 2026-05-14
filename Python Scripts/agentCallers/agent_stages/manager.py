@@ -16,6 +16,10 @@ if __package__ in {None, ""}:
 
 from _paths import bootstrap_agent_callers, load_project_env
 from services.option_dte_buckets import (
+    DEFAULT_MANAGER_TARGET_DTE_BUCKET,
+    get_all_target_dte_bucket_aliases,
+    get_target_dte_bucket_choices_text,
+    get_time_horizon_mapping_text,
     ORDERED_OPTION_DTE_BUCKET_KEYS_WITH_NONE,
     TIME_HORIZON_TO_DTE_BUCKET,
     normalize_target_dte_bucket,
@@ -59,6 +63,15 @@ VALID_TIME_HORIZONS = {"very_short_term", "short_term", "medium_term", "unclear"
 
 _manager_client: Client | None = None
 LOGGER = logging.getLogger(__name__)
+TARGET_DTE_BUCKET_CHOICES_TEXT = get_target_dte_bucket_choices_text()
+TIME_HORIZON_DTE_MAPPING_TEXT = get_time_horizon_mapping_text()
+TARGET_DTE_BUCKET_REGEX = "|".join(
+    sorted(
+        (re.escape(alias) for alias in get_all_target_dte_bucket_aliases()),
+        key=len,
+        reverse=True,
+    )
+)
 MANAGER_RECOMMENDATION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -449,15 +462,14 @@ def build_manager_prompt(
     "setup quality is weak, or account constraints make the trade unattractive. "
     "If the strategist says watchlist, weak setup, unclear timing, or contradictions_present=true, that should usually push toward 'neither' "
     "unless the full context strongly supports immediate action anyway. "
-        "Map time_horizon to target_dte_bucket explicitly when a trade is supported: very_short_term -> 3_7, short_term -> 7_14, medium_term -> 14_30. "
-        "Prefer the medium_term bucket 14_30 by default when the setup looks actionable but there is no strong reason to force a very short term 3_7 trade or a short term 7_14 trade. "
-        "Use 3_7 only when the catalyst and timing look unusually immediate, and use 7_14 only when the thesis is actionable but still better suited to a shorter swing than 14_30. "
+        f"Map time_horizon to target_dte_bucket explicitly when a trade is supported using this shared mapping: {TIME_HORIZON_DTE_MAPPING_TEXT}. "
+        f"Prefer the default bucket {DEFAULT_MANAGER_TARGET_DTE_BUCKET} when the setup looks actionable but there is no strong reason to force a shorter bucket. "
         "If no trade should be opened, or no clear horizon applies, use none. "
         "Return only valid JSON with a top-level key named 'recommendation'. "
         "The recommendation object must contain: decision, confidence, target_dte_bucket, reason. "
         "decision must be one of: call, put, neither. "
         "confidence must be one of: high, medium, low. "
-        "target_dte_bucket must be one of: 3_7, 7_14, 14_30, none. "
+        f"target_dte_bucket must be one of: {TARGET_DTE_BUCKET_CHOICES_TEXT}. "
         "Use 'none' when no options trade should be opened or when no DTE preference should be expressed. "
         "reason must be a short paragraph explaining the main drivers of the decision."
     )
@@ -479,7 +491,7 @@ def build_manager_prompt(
             "recommendation": {
                 "decision": "call|put|neither",
                 "confidence": "high|medium|low",
-                "target_dte_bucket": "3_7|7_14|14_30|none",
+                "target_dte_bucket": TARGET_DTE_BUCKET_CHOICES_TEXT,
                 "reason": "short paragraph",
             }
         },
@@ -871,6 +883,8 @@ def _normalize_recommendation(
     if not target_dte_bucket:
         if decision in {"call", "put"} and strategist_time_horizon_bucket:
             target_dte_bucket = strategist_time_horizon_bucket
+        elif decision in {"call", "put"}:
+            target_dte_bucket = DEFAULT_MANAGER_TARGET_DTE_BUCKET
         else:
             target_dte_bucket = "none"
     if not reason:
@@ -942,7 +956,7 @@ def _extract_recommendation_from_text(raw_response: str) -> dict[str, Any] | Non
         "reason": reason.strip(),
     }
     target_dte_bucket_match = re.search(
-        r"(target[_\s]?dte[_\s]?bucket|dte[_\s]?bucket)\s*:?\s*(3_7|7_14|14_30|none|3-7|7-14|14-30)",
+        rf"(target[_\s]?dte[_\s]?bucket|dte[_\s]?bucket)\s*:?\s*({TARGET_DTE_BUCKET_REGEX})",
         normalized_text,
         re.IGNORECASE,
     )
