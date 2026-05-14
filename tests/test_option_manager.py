@@ -66,9 +66,17 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
                 option_trail_first_scale_out_fraction=0.50,
                 option_trail_second_scale_out_trigger_pct=2.00,
                 option_trail_second_scale_out_fraction=0.25,
+                option_trail_giveback_pct_by_bucket_key={
+                    "7_14": 0.35,
+                    "14_30": 0.45,
+                    "30_45": 0.45,
+                    "45_60": 0.45,
+                },
                 option_trail_3_7_giveback_pct=0.25,
                 option_trail_7_14_giveback_pct=0.35,
                 option_trail_14_30_giveback_pct=0.45,
+                option_trail_30_45_giveback_pct=0.45,
+                option_trail_45_60_giveback_pct=0.45,
                 option_trail_100_floor_pct=0.60,
                 option_trail_150_floor_pct=1.00,
                 option_trail_200_floor_pct=1.40,
@@ -105,6 +113,15 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
         self.assertEqual(call_kwargs["enable_momentum_exit_override"], True)
         self.assertEqual(call_kwargs["trail_protection_trigger_pct_override"], 0.40)
         self.assertEqual(call_kwargs["trail_initial_floor_pct_override"], 0.10)
+        self.assertEqual(
+            call_kwargs["trail_giveback_pct_by_bucket_key_override"],
+            {
+                "7_14": 0.35,
+                "14_30": 0.45,
+                "30_45": 0.45,
+                "45_60": 0.45,
+            },
+        )
         self.assertEqual(call_kwargs["pending_exit_stale_minutes_override"], 10.0)
         self.assertEqual(call_kwargs["pending_exit_cancel_on_stale_override"], True)
         self.assertIs(call_kwargs["trading_client_override"], trading_client)

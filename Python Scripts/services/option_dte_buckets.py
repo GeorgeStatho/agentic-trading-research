@@ -15,6 +15,7 @@ class DteBucket:
     force_exit_days_to_expiration: int | None = None
     default_take_profit_pct: float | None = None
     default_stop_loss_pct: float | None = None
+    default_trailing_giveback_pct: float | None = None
     mapped_time_horizon: str | None = None
 
 
@@ -28,6 +29,7 @@ OPTION_DTE_BUCKETS = (
     force_exit_days_to_expiration=4,
     default_take_profit_pct=35.0,
     default_stop_loss_pct=-25.0,
+    default_trailing_giveback_pct=0.35,
     mapped_time_horizon="very_short_term",
     ),
     DteBucket(
@@ -39,6 +41,7 @@ OPTION_DTE_BUCKETS = (
         force_exit_days_to_expiration=9,
         default_take_profit_pct=55.0,
         default_stop_loss_pct=-30.0,
+        default_trailing_giveback_pct=0.45,
         mapped_time_horizon="short_term",
     ),
     DteBucket(
@@ -50,6 +53,7 @@ OPTION_DTE_BUCKETS = (
         force_exit_days_to_expiration=18,
         default_take_profit_pct=70.0,
         default_stop_loss_pct=-35.0,
+        default_trailing_giveback_pct=0.45,
         mapped_time_horizon="medium_term",
     ),
     DteBucket(
@@ -61,6 +65,7 @@ OPTION_DTE_BUCKETS = (
         force_exit_days_to_expiration=25,
         default_take_profit_pct=85.0,
         default_stop_loss_pct=-40.0,
+        default_trailing_giveback_pct=0.45,
         mapped_time_horizon="longer_term",
     ),
 )

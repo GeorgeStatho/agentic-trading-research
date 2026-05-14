@@ -101,9 +101,7 @@ def _make_trailing_profit_config(module, **overrides):
         "first_scale_out_fraction": module.DEFAULT_OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION,
         "second_scale_out_trigger_pct": module.DEFAULT_OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT,
         "second_scale_out_fraction": module.DEFAULT_OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION,
-        "giveback_3_7_pct": module.DEFAULT_OPTION_TRAIL_3_7_GIVEBACK_PCT,
-        "giveback_7_14_pct": module.DEFAULT_OPTION_TRAIL_7_14_GIVEBACK_PCT,
-        "giveback_14_30_pct": module.DEFAULT_OPTION_TRAIL_14_30_GIVEBACK_PCT,
+        "giveback_pct_by_bucket_key": dict(module.DEFAULT_OPTION_TRAILING_GIVEBACK_PCT_BY_BUCKET_KEY),
         "floor_100_pct": module.DEFAULT_OPTION_TRAIL_100_FLOOR_PCT,
         "floor_150_pct": module.DEFAULT_OPTION_TRAIL_150_FLOOR_PCT,
         "floor_200_pct": module.DEFAULT_OPTION_TRAIL_200_FLOOR_PCT,
@@ -410,9 +408,12 @@ class OptionPositionTests(VerboseTestCase):
     def test_trailing_giveback_uses_same_bucket_boundaries_as_exit_thresholds(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(
             self.option_positions,
-            giveback_3_7_pct=0.11,
-            giveback_7_14_pct=0.22,
-            giveback_14_30_pct=0.33,
+            giveback_pct_by_bucket_key={
+                "7_14": 0.22,
+                "14_30": 0.33,
+                "30_45": 0.44,
+                "45_60": 0.55,
+            },
         )
 
         self.assertEqual(
@@ -423,7 +424,15 @@ class OptionPositionTests(VerboseTestCase):
             self.option_positions._resolve_trailing_giveback_pct(14, trailing_profit_config),
             0.33,
         )
-        self.log_pass("trailing giveback buckets matched the same 7 and 14 DTE boundaries as exit thresholds")
+        self.assertEqual(
+            self.option_positions._resolve_trailing_giveback_pct(30, trailing_profit_config),
+            0.44,
+        )
+        self.assertEqual(
+            self.option_positions._resolve_trailing_giveback_pct(45, trailing_profit_config),
+            0.55,
+        )
+        self.log_pass("trailing giveback buckets matched the shared DTE boundaries including the newer 30-45 and 45-60 ranges")
 
     def test_structured_exit_action_activates_profit_protection_after_trigger(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(
@@ -460,7 +469,7 @@ class OptionPositionTests(VerboseTestCase):
         self.assertEqual(exit_action["action"], "hold")
         self.assertTrue(updated_state["profit_protection_active"])
         self.assertEqual(updated_state["protected_profit_floor_pct"], 0.10)
-        self.assertEqual(updated_state["trailing_giveback_pct"], trailing_profit_config.giveback_7_14_pct)
+        self.assertEqual(updated_state["trailing_giveback_pct"], trailing_profit_config.giveback_pct_by_bucket_key["7_14"])
         self.assertIn("Profit protection activated.", exit_action["notes"])
         self.log_pass("profit protection activated once gains crossed the configured trigger")
 
