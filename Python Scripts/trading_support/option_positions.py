@@ -16,7 +16,7 @@ from .clients import (
     get_option_history_client,
     get_stock_history_client,
 )
-from services.common import env_float
+from services.common import env_float, env_positive_int
 from services.config import OptionPositionSettings
 from services.option_dte_buckets import OPTION_DTE_BUCKETS, resolve_dte_bucket_for_days
 from .utils import mid_price, safe_float
@@ -59,6 +59,26 @@ DEFAULT_OPTION_POSITION_TRAILING_PROFIT_DRY_RUN = str(
 DEFAULT_OPTION_POSITION_ENABLE_MOMENTUM_EXIT = str(
     os.getenv("OPTION_POSITION_ENABLE_MOMENTUM_EXIT", "false")
 ).strip().lower() not in {"0", "false", "no", "off"}
+DEFAULT_OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT = env_float(
+    "OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT",
+    2.00,
+)
+DEFAULT_OPTION_MOMENTUM_HISTORY_WINDOW_SIZE = env_positive_int(
+    "OPTION_MOMENTUM_HISTORY_WINDOW_SIZE",
+    10,
+)
+DEFAULT_OPTION_MOMENTUM_HISTORY_MIN_SAMPLES = env_positive_int(
+    "OPTION_MOMENTUM_HISTORY_MIN_SAMPLES",
+    5,
+)
+DEFAULT_OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD = env_positive_int(
+    "OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD",
+    6,
+)
+DEFAULT_OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD = env_positive_int(
+    "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD",
+    3,
+)
 DEFAULT_OPTION_TRAIL_PROTECTION_TRIGGER_PCT = env_float("OPTION_TRAIL_PROTECTION_TRIGGER_PCT", 0.40)
 DEFAULT_OPTION_TRAIL_INITIAL_FLOOR_PCT = env_float("OPTION_TRAIL_INITIAL_FLOOR_PCT", 0.10)
 DEFAULT_OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT = env_float(
@@ -176,9 +196,131 @@ class TrailingProfitConfig:
 
 
 @dataclass(frozen=True)
+class MomentumHistoryConfig:
+    enable_after_pnl_pct: float
+    window_size: int
+    min_samples: int
+    bad_count_exit_threshold: int
+    consecutive_bad_exit_threshold: int
+
+
+@dataclass(frozen=True)
 class PendingExitConfig:
     stale_minutes: float
     cancel_on_stale: bool
+
+
+def _normalize_momentum_history(history: Any) -> list[dict[str, Any]]:
+    if not isinstance(history, list):
+        return []
+
+    normalized_history: list[dict[str, Any]] = []
+    for entry in history:
+        if not isinstance(entry, dict):
+            continue
+        status = str(entry.get("status") or "").strip().lower()
+        if status not in {"good", "bad", "unknown"}:
+            continue
+        normalized_history.append(
+            {
+                "status": status,
+                "checked_at": str(entry.get("checked_at") or "").strip(),
+                "pnl_pct": safe_float(entry.get("pnl_pct")),
+                "max_pnl_pct": safe_float(entry.get("max_pnl_pct")),
+            }
+        )
+    return normalized_history
+
+
+def _count_consecutive_bad_momentum(history: list[dict[str, Any]]) -> int:
+    consecutive_bad_count = 0
+    for entry in reversed(history):
+        if str(entry.get("status") or "").strip().lower() != "bad":
+            break
+        consecutive_bad_count += 1
+    return consecutive_bad_count
+
+
+def _evaluate_momentum_history_exit(
+    *,
+    state: dict[str, Any],
+    momentum_history_config: MomentumHistoryConfig,
+) -> tuple[bool, list[str]]:
+    if not _coerce_bool(state.get("momentum_tracking_active"), False):
+        return False, []
+
+    sample_count = max(0, _safe_int(state.get("momentum_history_sample_count")) or 0)
+    if sample_count < momentum_history_config.min_samples:
+        return False, [
+            f"Momentum history tracking is active but only {sample_count} sample(s) have been collected; waiting for {momentum_history_config.min_samples}.",
+        ]
+
+    bad_count = max(0, _safe_int(state.get("momentum_bad_count")) or 0)
+    consecutive_bad_count = max(0, _safe_int(state.get("momentum_consecutive_bad_count")) or 0)
+
+    if bad_count >= momentum_history_config.bad_count_exit_threshold:
+        return True, [
+            (
+                f"Momentum history exit triggered because {bad_count} of the last "
+                f"{sample_count} tracked sample(s) were bad."
+            )
+        ]
+
+    if consecutive_bad_count >= momentum_history_config.consecutive_bad_exit_threshold:
+        return True, [
+            (
+                f"Momentum history exit triggered because {consecutive_bad_count} "
+                "bad momentum samples occurred consecutively."
+            )
+        ]
+
+    return False, [
+        (
+            f"Momentum history tracked {bad_count} bad sample(s) and "
+            f"{consecutive_bad_count} consecutive bad sample(s); exit thresholds were not reached."
+        )
+    ]
+
+
+def _build_momentum_history_updates(
+    *,
+    existing_state: dict[str, Any],
+    current_max_pnl_pct: float | None,
+    unrealized_pl_pct_ratio: float | None,
+    momentum_status: str,
+    momentum_history_config: MomentumHistoryConfig,
+) -> dict[str, Any]:
+    normalized_status = str(momentum_status or "").strip().lower()
+    momentum_tracking_active = (
+        current_max_pnl_pct is not None
+        and current_max_pnl_pct >= momentum_history_config.enable_after_pnl_pct
+    )
+    history = _normalize_momentum_history(existing_state.get("momentum_history"))
+    checked_at = datetime.now().isoformat()
+
+    if momentum_tracking_active and normalized_status in {"good", "bad"}:
+        history.append(
+            {
+                "status": normalized_status,
+                "checked_at": checked_at,
+                "pnl_pct": unrealized_pl_pct_ratio,
+                "max_pnl_pct": current_max_pnl_pct,
+            }
+        )
+        history = history[-momentum_history_config.window_size :]
+
+    bad_count = sum(1 for entry in history if entry.get("status") == "bad")
+    consecutive_bad_count = _count_consecutive_bad_momentum(history)
+
+    return {
+        "momentum_tracking_active": momentum_tracking_active,
+        "momentum_history": history,
+        "momentum_history_sample_count": len(history),
+        "momentum_bad_count": bad_count,
+        "momentum_consecutive_bad_count": consecutive_bad_count,
+        "last_momentum_status": normalized_status,
+        "last_momentum_checked_at": checked_at,
+    }
 
 
 def _resolve_option_position_state_path() -> Path:
@@ -750,6 +892,7 @@ def _structured_exit_action(
     context_notes: list[str],
     enable_trailing_profit: bool,
     trailing_profit_config: TrailingProfitConfig,
+    momentum_history_config: MomentumHistoryConfig,
     momentum_status: str,
     momentum_reasons: list[str],
     recently_filled_order: bool,
@@ -768,6 +911,15 @@ def _structured_exit_action(
     if unrealized_pl_pct_ratio is not None:
         current_max_pnl_pct = max(previous_max_pnl_pct or unrealized_pl_pct_ratio, unrealized_pl_pct_ratio)
     updated_state["max_pnl_pct"] = current_max_pnl_pct
+    updated_state.update(
+        _build_momentum_history_updates(
+            existing_state=existing_state,
+            current_max_pnl_pct=current_max_pnl_pct,
+            unrealized_pl_pct_ratio=unrealized_pl_pct_ratio,
+            momentum_status=momentum_status,
+            momentum_history_config=momentum_history_config,
+        )
+    )
 
     pending_order_id = str(existing_state.get("pending_order_id") or "").strip()
     protected_profit_floor_pct = safe_float(existing_state.get("protected_profit_floor_pct"))
@@ -962,25 +1114,24 @@ def _structured_exit_action(
             updated_state,
         )
 
-    if (
-        trailing_profit_config.enable_momentum_exit
-        and momentum_status == MOMENTUM_BAD
-        and current_max_pnl_pct is not None
-        and current_max_pnl_pct >= trailing_profit_config.first_scale_out_trigger_pct
-    ):
+    momentum_history_exit_triggered, momentum_history_notes = _evaluate_momentum_history_exit(
+        state=updated_state,
+        momentum_history_config=momentum_history_config,
+    )
+    if trailing_profit_config.enable_momentum_exit and momentum_history_exit_triggered:
         updated_state["last_action"] = "sell_full"
-        updated_state["last_decision_reason"] = "momentum_failed_after_tp"
+        updated_state["last_decision_reason"] = "momentum_history_failed"
         return (
             _build_exit_action(
                 action="sell_full",
-                reason="momentum_failed_after_tp",
+                reason="momentum_history_failed",
                 pnl_pct=unrealized_pl_pct_ratio,
                 max_pnl_pct=current_max_pnl_pct,
                 protected_profit_floor_pct=protected_profit_floor_pct,
                 trailing_giveback_pct=trailing_giveback_pct,
                 sell_fraction=1.0,
                 qty_to_sell=quantity,
-                notes=notes + momentum_reasons,
+                notes=notes + momentum_reasons + momentum_history_notes,
             ),
             updated_state,
         )
@@ -1058,6 +1209,7 @@ def _build_option_position_snapshot(
     enable_trailing_profit: bool,
     trailing_profit_dry_run: bool,
     trailing_profit_config: TrailingProfitConfig,
+    momentum_history_config: MomentumHistoryConfig,
     state_path: Path,
     position_state_override: dict[str, Any] | None = None,
     pending_reconciliation: dict[str, Any] | None = None,
@@ -1125,6 +1277,7 @@ def _build_option_position_snapshot(
         context_notes=context_notes,
         enable_trailing_profit=enable_trailing_profit,
         trailing_profit_config=trailing_profit_config,
+        momentum_history_config=momentum_history_config,
         momentum_status=str(momentum_details.get("status") or ""),
         momentum_reasons=list(momentum_details.get("reasons") or []),
         recently_filled_order=(
@@ -1186,6 +1339,10 @@ def _build_option_position_snapshot(
         "last_action_at": str(persisted_state.get("updated_at") or ""),
         "momentum_status": str(momentum_details.get("status") or ""),
         "momentum_reasons": list(momentum_details.get("reasons") or []),
+        "momentum_tracking_active": bool(persisted_state.get("momentum_tracking_active")),
+        "momentum_history_sample_count": int(persisted_state.get("momentum_history_sample_count") or 0),
+        "momentum_bad_count": int(persisted_state.get("momentum_bad_count") or 0),
+        "momentum_consecutive_bad_count": int(persisted_state.get("momentum_consecutive_bad_count") or 0),
         "trailing_profit_enabled": enable_trailing_profit,
         "trailing_profit_dry_run": trailing_profit_dry_run,
         "option_quote_timestamp": option_quote.get("timestamp"),
@@ -1291,6 +1448,11 @@ def ManageCurrentOptionPositions(
     enable_trailing_profit_override: bool | None = None,
     trailing_profit_dry_run_override: bool | None = None,
     enable_momentum_exit_override: bool | None = None,
+    momentum_history_enable_after_pnl_pct_override: float | None = None,
+    momentum_history_window_size_override: int | None = None,
+    momentum_history_min_samples_override: int | None = None,
+    momentum_history_bad_count_exit_threshold_override: int | None = None,
+    momentum_history_consecutive_bad_exit_threshold_override: int | None = None,
     trail_protection_trigger_pct_override: float | None = None,
     trail_initial_floor_pct_override: float | None = None,
     trail_first_scale_out_trigger_pct_override: float | None = None,
@@ -1414,6 +1576,45 @@ def ManageCurrentOptionPositions(
             else bool(enable_momentum_exit_override)
         ),
     )
+    momentum_history_config = MomentumHistoryConfig(
+        enable_after_pnl_pct=float(
+            DEFAULT_OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT
+            if momentum_history_enable_after_pnl_pct_override is None
+            else momentum_history_enable_after_pnl_pct_override
+        ),
+        window_size=max(
+            1,
+            int(
+                DEFAULT_OPTION_MOMENTUM_HISTORY_WINDOW_SIZE
+                if momentum_history_window_size_override is None
+                else momentum_history_window_size_override
+            ),
+        ),
+        min_samples=max(
+            1,
+            int(
+                DEFAULT_OPTION_MOMENTUM_HISTORY_MIN_SAMPLES
+                if momentum_history_min_samples_override is None
+                else momentum_history_min_samples_override
+            ),
+        ),
+        bad_count_exit_threshold=max(
+            1,
+            int(
+                DEFAULT_OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD
+                if momentum_history_bad_count_exit_threshold_override is None
+                else momentum_history_bad_count_exit_threshold_override
+            ),
+        ),
+        consecutive_bad_exit_threshold=max(
+            1,
+            int(
+                DEFAULT_OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD
+                if momentum_history_consecutive_bad_exit_threshold_override is None
+                else momentum_history_consecutive_bad_exit_threshold_override
+            ),
+        ),
+    )
     pending_exit_config = PendingExitConfig(
         stale_minutes=float(
             DEFAULT_OPTION_PENDING_EXIT_STALE_MINUTES
@@ -1453,6 +1654,7 @@ def ManageCurrentOptionPositions(
             enable_trailing_profit=enable_trailing_profit,
             trailing_profit_dry_run=trailing_profit_dry_run,
             trailing_profit_config=trailing_profit_config,
+            momentum_history_config=momentum_history_config,
             state_path=state_path,
             position_state_override=reconciled_state,
             pending_reconciliation=pending_reconciliation,

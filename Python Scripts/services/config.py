@@ -107,6 +107,11 @@ class FrontMainSettings:
     option_position_enable_trailing_profit: bool
     option_position_trailing_profit_dry_run: bool
     option_position_enable_momentum_exit: bool
+    option_momentum_history_enable_after_pnl_pct: float
+    option_momentum_history_window_size: int
+    option_momentum_history_min_samples: int
+    option_momentum_history_bad_count_exit_threshold: int
+    option_momentum_history_consecutive_bad_exit_threshold: int
     option_trail_protection_trigger_pct: float
     option_trail_initial_floor_pct: float
     option_trail_first_scale_out_trigger_pct: float
@@ -162,6 +167,26 @@ class FrontMainSettings:
             option_position_enable_trailing_profit=env_flag("OPTION_POSITION_ENABLE_TRAILING_PROFIT", False),
             option_position_trailing_profit_dry_run=env_flag("OPTION_POSITION_TRAILING_PROFIT_DRY_RUN", False),
             option_position_enable_momentum_exit=env_flag("OPTION_POSITION_ENABLE_MOMENTUM_EXIT", False),
+            option_momentum_history_enable_after_pnl_pct=_env_float(
+                "OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT",
+                2.00,
+            ),
+            option_momentum_history_window_size=env_positive_int(
+                "OPTION_MOMENTUM_HISTORY_WINDOW_SIZE",
+                10,
+            ),
+            option_momentum_history_min_samples=env_positive_int(
+                "OPTION_MOMENTUM_HISTORY_MIN_SAMPLES",
+                5,
+            ),
+            option_momentum_history_bad_count_exit_threshold=env_positive_int(
+                "OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD",
+                6,
+            ),
+            option_momentum_history_consecutive_bad_exit_threshold=env_positive_int(
+                "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD",
+                3,
+            ),
             option_trail_protection_trigger_pct=_env_float("OPTION_TRAIL_PROTECTION_TRIGGER_PCT", 0.40),
             option_trail_initial_floor_pct=_env_float("OPTION_TRAIL_INITIAL_FLOOR_PCT", 0.10),
             option_trail_first_scale_out_trigger_pct=_env_float(
