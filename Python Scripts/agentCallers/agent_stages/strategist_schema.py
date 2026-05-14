@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from services.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET
+
 
 VALID_DECISIONS = {"trade_candidate", "watchlist", "do_not_trade"}
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
@@ -9,7 +11,7 @@ VALID_OPTION_DIRECTIONS = {"call", "put", "neither"}
 VALID_STOCK_DIRECTIONS = {"up", "down", "neutral"}
 VALID_QUALITY_LEVELS = {"strong", "moderate", "weak"}
 VALID_TIMING_CLARITY = {"clear", "unclear"}
-VALID_TIME_HORIZONS = {"very_short_term", "short_term", "medium_term", "unclear"}
+VALID_TIME_HORIZONS = {*TIME_HORIZON_TO_DTE_BUCKET.keys(), "unclear"}
 
 STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -47,7 +49,7 @@ STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
                 },
                 "time_horizon": {
                     "type": "string",
-                    "enum": ["very_short_term", "short_term", "medium_term", "unclear"],
+                    "enum": list(VALID_TIME_HORIZONS),
                 },
                 "why_now": {"type": "string"},
                 "summary": {"type": "string"},
