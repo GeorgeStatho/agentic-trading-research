@@ -27,7 +27,7 @@ class OptionExitRule:
     max_days_to_expiration: int
     take_profit_pct: float
     stop_loss_pct: float
-    force_exit_days_to_expiration: int
+    force_exit_days_to_expiration: int | None
 
 
 OPTION_SYMBOL_TEMPLATE = r"\d{6}[CP]\d{8}$"
@@ -264,12 +264,17 @@ def _resolve_option_exit_thresholds(
             None,
         )
         if rule is not None:
+            force_exit_days_to_expiration = rule.force_exit_days_to_expiration
             return ExitThresholds(
                 dte_rule_label=rule.label,
                 take_profit_pct=rule.take_profit_pct,
                 stop_loss_pct=rule.stop_loss_pct,
-                force_exit_days_to_expiration=rule.force_exit_days_to_expiration,
-                exit_hours_to_expiration=float(rule.force_exit_days_to_expiration * 24),
+                force_exit_days_to_expiration=force_exit_days_to_expiration,
+                exit_hours_to_expiration=(
+                    float(force_exit_days_to_expiration * 24)
+                    if force_exit_days_to_expiration is not None
+                    else default_exit_hours_to_expiration
+                ),
                 is_default_rule=False,
             )
 

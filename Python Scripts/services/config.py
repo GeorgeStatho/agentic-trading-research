@@ -124,7 +124,7 @@ class OptionExitRuleConfig:
     label: str
     take_profit_pct: float
     stop_loss_pct: float
-    force_exit_days_to_expiration: int
+    force_exit_days_to_expiration: int | None
 
 
 @dataclass(frozen=True)
@@ -155,7 +155,11 @@ class OptionPositionSettings:
                         f"OPTION_POSITION_{bucket.key.upper()}_DTE_STOP_LOSS_PCT",
                         float(bucket.default_stop_loss_pct or -20.0),
                     ),
-                    force_exit_days_to_expiration=int(bucket.force_exit_days_to_expiration or 0),
+                    force_exit_days_to_expiration=(
+                        int(bucket.force_exit_days_to_expiration)
+                        if bucket.force_exit_days_to_expiration is not None
+                        else None
+                    ),
                 )
                 for bucket in OPTION_DTE_BUCKETS
             ),
