@@ -19,7 +19,12 @@ from agent_helpers.manager import build_manager_input  # noqa: E402
 from agent_stages.strategist_prompt import build_strategist_prompt  # noqa: E402
 
 
-class StrategistPromptContractTests(unittest.TestCase):
+class VerboseTestCase(unittest.TestCase):
+    def log_pass(self, message: str) -> None:
+        print(f"[PASS] {self.__class__.__name__}.{self._testMethodName}: {message}")
+
+
+class StrategistPromptContractTests(VerboseTestCase):
     def test_build_strategist_prompt_emits_expected_contract_shape(self):
         payload = {
             "company": {
@@ -49,9 +54,10 @@ class StrategistPromptContractTests(unittest.TestCase):
         self.assertEqual(recommendation["preferred_option_direction"], "call|put|neither")
         self.assertEqual(recommendation["expected_stock_direction"], "up|down|neutral")
         self.assertIn("supporting_articles", user_payload)
+        self.log_pass("strategist prompt preserved the expected contract shape and recommendation schema")
 
 
-class ManagerPayloadContractTests(unittest.TestCase):
+class ManagerPayloadContractTests(VerboseTestCase):
     @patch("agent_helpers.manager.build_market_context")
     @patch("agent_helpers.manager.build_strategist_input")
     def test_build_manager_input_attaches_market_context_and_preserves_core_payload(
@@ -92,6 +98,7 @@ class ManagerPayloadContractTests(unittest.TestCase):
         self.assertTrue(payload["market_context"]["current_stock_price"]["available"])
         self.assertEqual(payload["market_context"]["option_market"]["contract_count"], 8)
         self.assertEqual(payload["filters"]["max_age_days"], 5)
+        self.log_pass("manager payload kept the strategist core payload and attached the built market context")
 
 
 if __name__ == "__main__":
