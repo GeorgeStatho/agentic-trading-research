@@ -29,7 +29,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific te
 
 @unittest.skipUnless(FLASK_AVAILABLE, "Flask is not installed in this environment.")
 class ApiNewsTests(unittest.TestCase):
-    def test_analyzed_company_news_only_returns_articles_from_last_week(self):
+    def test_analyzed_company_news_returns_full_company_article_history(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "news_test.sqlite3"
             recent_published_at = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
@@ -202,14 +202,16 @@ class ApiNewsTests(unittest.TestCase):
 
         self.assertEqual(payload["company_count"], 1)
         self.assertEqual(payload["page_company_count"], 1)
-        self.assertEqual(payload["article_count"], 1)
-        self.assertEqual(payload["section_article_counts"]["company"], 1)
+        self.assertEqual(payload["article_count"], 2)
+        self.assertEqual(payload["section_article_counts"]["company"], 2)
 
         company_entry = payload["companies"][0]
         company_articles = company_entry["company_news"]["articles"]
-        self.assertEqual(len(company_articles), 1)
+        self.assertEqual(len(company_articles), 2)
         self.assertEqual(company_articles[0]["title"], "Fresh article")
         self.assertEqual(company_articles[0]["assessments"][0]["reason"], "Fresh reason")
+        self.assertEqual(company_articles[1]["title"], "Stale article")
+        self.assertEqual(company_articles[1]["assessments"][0]["reason"], "Stale reason")
 
 
 if __name__ == "__main__":
