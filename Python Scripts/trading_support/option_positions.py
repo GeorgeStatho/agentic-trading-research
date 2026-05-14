@@ -78,8 +78,28 @@ DEFAULT_OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION = env_float(
     0.25,
 )
 DEFAULT_OPTION_TRAIL_3_7_GIVEBACK_PCT = env_float("OPTION_TRAIL_3_7_GIVEBACK_PCT", 0.25)
-DEFAULT_OPTION_TRAIL_7_14_GIVEBACK_PCT = env_float("OPTION_TRAIL_7_14_GIVEBACK_PCT", 0.35)
-DEFAULT_OPTION_TRAIL_14_30_GIVEBACK_PCT = env_float("OPTION_TRAIL_14_30_GIVEBACK_PCT", 0.45)
+
+
+def _load_default_option_trailing_giveback_pct_by_bucket_key() -> dict[str, float]:
+    # Keep trailing giveback settings aligned with the shared DTE bucket keys so new
+    # buckets automatically participate in trailing-profit logic without label checks.
+    defaults: dict[str, float] = {}
+    for bucket in OPTION_DTE_BUCKETS:
+        env_name = f"OPTION_TRAIL_{bucket.key.upper()}_GIVEBACK_PCT"
+        fallback = (
+            float(bucket.default_trailing_giveback_pct)
+            if bucket.default_trailing_giveback_pct is not None
+            else DEFAULT_OPTION_TRAIL_3_7_GIVEBACK_PCT
+        )
+        defaults[bucket.key] = env_float(env_name, fallback)
+    return defaults
+
+
+DEFAULT_OPTION_TRAILING_GIVEBACK_PCT_BY_BUCKET_KEY = _load_default_option_trailing_giveback_pct_by_bucket_key()
+DEFAULT_OPTION_TRAIL_7_14_GIVEBACK_PCT = DEFAULT_OPTION_TRAILING_GIVEBACK_PCT_BY_BUCKET_KEY.get("7_14", 0.35)
+DEFAULT_OPTION_TRAIL_14_30_GIVEBACK_PCT = DEFAULT_OPTION_TRAILING_GIVEBACK_PCT_BY_BUCKET_KEY.get("14_30", 0.45)
+DEFAULT_OPTION_TRAIL_30_45_GIVEBACK_PCT = DEFAULT_OPTION_TRAILING_GIVEBACK_PCT_BY_BUCKET_KEY.get("30_45", 0.45)
+DEFAULT_OPTION_TRAIL_45_60_GIVEBACK_PCT = DEFAULT_OPTION_TRAILING_GIVEBACK_PCT_BY_BUCKET_KEY.get("45_60", 0.45)
 DEFAULT_OPTION_TRAIL_100_FLOOR_PCT = env_float("OPTION_TRAIL_100_FLOOR_PCT", 0.60)
 DEFAULT_OPTION_TRAIL_150_FLOOR_PCT = env_float("OPTION_TRAIL_150_FLOOR_PCT", 1.00)
 DEFAULT_OPTION_TRAIL_200_FLOOR_PCT = env_float("OPTION_TRAIL_200_FLOOR_PCT", 1.40)
@@ -148,9 +168,7 @@ class TrailingProfitConfig:
     first_scale_out_fraction: float
     second_scale_out_trigger_pct: float
     second_scale_out_fraction: float
-    giveback_3_7_pct: float
-    giveback_7_14_pct: float
-    giveback_14_30_pct: float
+    giveback_pct_by_bucket_key: dict[str, float]
     floor_100_pct: float
     floor_150_pct: float
     floor_200_pct: float
@@ -547,16 +565,15 @@ def _resolve_trailing_giveback_pct(
     days_to_expiration: int | None,
     trailing_profit_config: TrailingProfitConfig,
 ) -> float:
-    rule = _resolve_dte_exit_rule(days_to_expiration)
-    if rule is None:
-        return trailing_profit_config.giveback_7_14_pct
-    if rule.label == "3-7 DTE":
-        return trailing_profit_config.giveback_3_7_pct
-    if rule.label == "7-14 DTE":
-        return trailing_profit_config.giveback_7_14_pct
-    if rule.label == "14-30 DTE":
-        return trailing_profit_config.giveback_14_30_pct
-    return trailing_profit_config.giveback_14_30_pct
+    resolved_bucket = resolve_dte_bucket_for_days(days_to_expiration, prefer_higher_boundary=True)
+    fallback_bucket_key = OPTION_DTE_BUCKETS[0].key if OPTION_DTE_BUCKETS else ""
+    bucket_key = resolved_bucket.key if resolved_bucket is not None else fallback_bucket_key
+    resolved_value = trailing_profit_config.giveback_pct_by_bucket_key.get(bucket_key)
+    if resolved_value is not None:
+        return float(resolved_value)
+    if trailing_profit_config.giveback_pct_by_bucket_key:
+        return float(next(iter(trailing_profit_config.giveback_pct_by_bucket_key.values())))
+    return DEFAULT_OPTION_TRAIL_7_14_GIVEBACK_PCT
 
 
 def _compute_scaled_sell_qty(quantity: int, sell_fraction: float) -> int:
@@ -1280,9 +1297,12 @@ def ManageCurrentOptionPositions(
     trail_first_scale_out_fraction_override: float | None = None,
     trail_second_scale_out_trigger_pct_override: float | None = None,
     trail_second_scale_out_fraction_override: float | None = None,
+    trail_giveback_pct_by_bucket_key_override: dict[str, float] | None = None,
     trail_3_7_giveback_pct_override: float | None = None,
     trail_7_14_giveback_pct_override: float | None = None,
     trail_14_30_giveback_pct_override: float | None = None,
+    trail_30_45_giveback_pct_override: float | None = None,
+    trail_45_60_giveback_pct_override: float | None = None,
     trail_100_floor_pct_override: float | None = None,
     trail_150_floor_pct_override: float | None = None,
     trail_200_floor_pct_override: float | None = None,
@@ -1320,6 +1340,27 @@ def ManageCurrentOptionPositions(
             os.getenv("OPTION_POSITION_TRAILING_PROFIT_DRY_RUN"),
             DEFAULT_OPTION_POSITION_TRAILING_PROFIT_DRY_RUN,
         )
+    giveback_pct_by_bucket_key = dict(DEFAULT_OPTION_TRAILING_GIVEBACK_PCT_BY_BUCKET_KEY)
+    if trail_giveback_pct_by_bucket_key_override:
+        for bucket_key, value in trail_giveback_pct_by_bucket_key_override.items():
+            if bucket_key not in DEFAULT_OPTION_TRAILING_GIVEBACK_PCT_BY_BUCKET_KEY:
+                continue
+            if value in (None, ""):
+                continue
+            try:
+                giveback_pct_by_bucket_key[bucket_key] = float(value)
+            except (TypeError, ValueError):
+                continue
+    if trail_3_7_giveback_pct_override is not None and "3_7" in giveback_pct_by_bucket_key:
+        giveback_pct_by_bucket_key["3_7"] = float(trail_3_7_giveback_pct_override)
+    if trail_7_14_giveback_pct_override is not None:
+        giveback_pct_by_bucket_key["7_14"] = float(trail_7_14_giveback_pct_override)
+    if trail_14_30_giveback_pct_override is not None:
+        giveback_pct_by_bucket_key["14_30"] = float(trail_14_30_giveback_pct_override)
+    if trail_30_45_giveback_pct_override is not None:
+        giveback_pct_by_bucket_key["30_45"] = float(trail_30_45_giveback_pct_override)
+    if trail_45_60_giveback_pct_override is not None:
+        giveback_pct_by_bucket_key["45_60"] = float(trail_45_60_giveback_pct_override)
     trailing_profit_config = TrailingProfitConfig(
         protection_trigger_pct=float(
             DEFAULT_OPTION_TRAIL_PROTECTION_TRIGGER_PCT
@@ -1351,21 +1392,7 @@ def ManageCurrentOptionPositions(
             if trail_second_scale_out_fraction_override is None
             else trail_second_scale_out_fraction_override
         ),
-        giveback_3_7_pct=float(
-            DEFAULT_OPTION_TRAIL_3_7_GIVEBACK_PCT
-            if trail_3_7_giveback_pct_override is None
-            else trail_3_7_giveback_pct_override
-        ),
-        giveback_7_14_pct=float(
-            DEFAULT_OPTION_TRAIL_7_14_GIVEBACK_PCT
-            if trail_7_14_giveback_pct_override is None
-            else trail_7_14_giveback_pct_override
-        ),
-        giveback_14_30_pct=float(
-            DEFAULT_OPTION_TRAIL_14_30_GIVEBACK_PCT
-            if trail_14_30_giveback_pct_override is None
-            else trail_14_30_giveback_pct_override
-        ),
+        giveback_pct_by_bucket_key=giveback_pct_by_bucket_key,
         floor_100_pct=float(
             DEFAULT_OPTION_TRAIL_100_FLOOR_PCT
             if trail_100_floor_pct_override is None

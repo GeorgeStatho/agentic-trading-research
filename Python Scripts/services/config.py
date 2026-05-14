@@ -24,6 +24,21 @@ def _env_float(name: str, default: float) -> float:
         return float(default)
 
 
+def _load_option_trail_giveback_pct_by_bucket_key() -> dict[str, float]:
+    # Build per-bucket trailing giveback settings from the shared bucket list so
+    # newly added DTE buckets inherit config support automatically.
+    values: dict[str, float] = {}
+    for bucket in OPTION_DTE_BUCKETS:
+        env_name = f"OPTION_TRAIL_{bucket.key.upper()}_GIVEBACK_PCT"
+        fallback = (
+            float(bucket.default_trailing_giveback_pct)
+            if bucket.default_trailing_giveback_pct is not None
+            else 0.45
+        )
+        values[bucket.key] = _env_float(env_name, fallback)
+    return values
+
+
 @dataclass(frozen=True)
 class FrontMainPaths:
     """Filesystem paths used by the front-facing trading workflow."""
@@ -98,9 +113,12 @@ class FrontMainSettings:
     option_trail_first_scale_out_fraction: float
     option_trail_second_scale_out_trigger_pct: float
     option_trail_second_scale_out_fraction: float
+    option_trail_giveback_pct_by_bucket_key: dict[str, float]
     option_trail_3_7_giveback_pct: float
     option_trail_7_14_giveback_pct: float
     option_trail_14_30_giveback_pct: float
+    option_trail_30_45_giveback_pct: float
+    option_trail_45_60_giveback_pct: float
     option_trail_100_floor_pct: float
     option_trail_150_floor_pct: float
     option_trail_200_floor_pct: float
@@ -124,6 +142,7 @@ class FrontMainSettings:
     def from_env(cls) -> FrontMainSettings:
         # Read the relevant environment variables in one place and normalize them into this settings object.
         market_recheck_seconds = 5 * 60
+        giveback_pct_by_bucket_key = _load_option_trail_giveback_pct_by_bucket_key()
         return cls(
             default_option_order_qty=max(1, int(os.getenv("AGENT_OPTION_ORDER_QTY", "1"))),
             option_contract_multiplier=100,
@@ -161,9 +180,12 @@ class FrontMainSettings:
                 "OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION",
                 0.25,
             ),
-            option_trail_3_7_giveback_pct=_env_float("OPTION_TRAIL_3_7_GIVEBACK_PCT", 0.25),
-            option_trail_7_14_giveback_pct=_env_float("OPTION_TRAIL_7_14_GIVEBACK_PCT", 0.35),
-            option_trail_14_30_giveback_pct=_env_float("OPTION_TRAIL_14_30_GIVEBACK_PCT", 0.45),
+            option_trail_giveback_pct_by_bucket_key=giveback_pct_by_bucket_key,
+            option_trail_3_7_giveback_pct=giveback_pct_by_bucket_key.get("3_7", 0.25),
+            option_trail_7_14_giveback_pct=giveback_pct_by_bucket_key.get("7_14", 0.35),
+            option_trail_14_30_giveback_pct=giveback_pct_by_bucket_key.get("14_30", 0.45),
+            option_trail_30_45_giveback_pct=giveback_pct_by_bucket_key.get("30_45", 0.45),
+            option_trail_45_60_giveback_pct=giveback_pct_by_bucket_key.get("45_60", 0.45),
             option_trail_100_floor_pct=_env_float("OPTION_TRAIL_100_FLOOR_PCT", 0.60),
             option_trail_150_floor_pct=_env_float("OPTION_TRAIL_150_FLOOR_PCT", 1.00),
             option_trail_200_floor_pct=_env_float("OPTION_TRAIL_200_FLOOR_PCT", 1.40),
