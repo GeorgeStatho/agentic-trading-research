@@ -149,19 +149,11 @@ class OptionPositionSettings:
                     label=bucket.label,
                     take_profit_pct=env_float(
                         f"OPTION_POSITION_{bucket.key.upper()}_DTE_TAKE_PROFIT_PCT",
-                        {
-                            "3_7": 30.0,
-                            "7_14": 40.0,
-                            "14_30": 60.0,
-                        }[bucket.key],
+                        float(bucket.default_take_profit_pct or 25.0),
                     ),
                     stop_loss_pct=env_float(
                         f"OPTION_POSITION_{bucket.key.upper()}_DTE_STOP_LOSS_PCT",
-                        {
-                            "3_7": -22.0,
-                            "7_14": -28.0,
-                            "14_30": -35.0,
-                        }[bucket.key],
+                        float(bucket.default_stop_loss_pct or -20.0),
                     ),
                     force_exit_days_to_expiration=int(bucket.force_exit_days_to_expiration or 0),
                 )

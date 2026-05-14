@@ -13,12 +13,45 @@ class DteBucket:
     max_days: int
     target_otm_pct: float | None = None
     force_exit_days_to_expiration: int | None = None
+    default_take_profit_pct: float | None = None
+    default_stop_loss_pct: float | None = None
+    mapped_time_horizon: str | None = None
 
 
 OPTION_DTE_BUCKETS = (
-    DteBucket("3_7", "3-7 DTE", 3, 7, target_otm_pct=0.005, force_exit_days_to_expiration=1),
-    DteBucket("7_14", "7-14 DTE", 7, 14, target_otm_pct=0.010, force_exit_days_to_expiration=3),
-    DteBucket("14_30", "14-30 DTE", 14, 30, target_otm_pct=0.015, force_exit_days_to_expiration=7),
+    DteBucket(
+        "3_7",
+        "3-7 DTE",
+        3,
+        7,
+        target_otm_pct=0.005,
+        force_exit_days_to_expiration=1,
+        default_take_profit_pct=30.0,
+        default_stop_loss_pct=-22.0,
+        mapped_time_horizon="very_short_term",
+    ),
+    DteBucket(
+        "7_14",
+        "7-14 DTE",
+        7,
+        14,
+        target_otm_pct=0.010,
+        force_exit_days_to_expiration=3,
+        default_take_profit_pct=40.0,
+        default_stop_loss_pct=-28.0,
+        mapped_time_horizon="short_term",
+    ),
+    DteBucket(
+        "14_30",
+        "14-30 DTE",
+        14,
+        30,
+        target_otm_pct=0.015,
+        force_exit_days_to_expiration=7,
+        default_take_profit_pct=60.0,
+        default_stop_loss_pct=-35.0,
+        mapped_time_horizon="medium_term",
+    ),
 )
 
 ORDERED_OPTION_DTE_BUCKET_KEYS = tuple(bucket.key for bucket in OPTION_DTE_BUCKETS)
@@ -32,31 +65,67 @@ DTE_BUCKET_TO_TARGET_OTM_PCT = {
     if bucket.target_otm_pct is not None
 }
 TIME_HORIZON_TO_DTE_BUCKET = {
-    "very_short_term": "3_7",
-    "short_term": "7_14",
-    "medium_term": "14_30",
+    bucket.mapped_time_horizon: bucket.key
+    for bucket in OPTION_DTE_BUCKETS
+    if bucket.mapped_time_horizon
 }
+DEFAULT_MANAGER_TARGET_DTE_BUCKET = (
+    TIME_HORIZON_TO_DTE_BUCKET.get("medium_term")
+    or (OPTION_DTE_BUCKETS[-1].key if OPTION_DTE_BUCKETS else "none")
+)
+
 _DTE_BUCKET_ALIASES = {
-    "3-7": "3_7",
-    "3 to 7": "3_7",
-    "3_7": "3_7",
-    "7-14": "7_14",
-    "7 to 14": "7_14",
-    "7_14": "7_14",
-    "14-30": "14_30",
-    "14 to 30": "14_30",
-    "14_30": "14_30",
     "n/a": "none",
     "na": "none",
     "not_applicable": "none",
     "none": "none",
 }
 
+for bucket in OPTION_DTE_BUCKETS:
+    normalized_label = bucket.label.strip().lower()
+    range_dash = f"{bucket.min_days}-{bucket.max_days}"
+    range_to = f"{bucket.min_days} to {bucket.max_days}"
+    _DTE_BUCKET_ALIASES.update(
+        {
+            bucket.key.lower(): bucket.key,
+            range_dash: bucket.key,
+            range_to: bucket.key,
+            normalized_label: bucket.key,
+            normalized_label.replace(" dte", ""): bucket.key,
+        }
+    )
+
 
 def normalize_target_dte_bucket(value: Any) -> str:
     text = str(value or "").strip().lower()
     normalized = _DTE_BUCKET_ALIASES.get(text, text)
     return normalized if normalized in VALID_OPTION_DTE_BUCKET_KEYS_WITH_NONE else ""
+
+
+def get_all_target_dte_bucket_aliases(*, include_none: bool = True) -> tuple[str, ...]:
+    aliases: list[str] = []
+    seen: set[str] = set()
+    for alias, canonical in _DTE_BUCKET_ALIASES.items():
+        if canonical == "none" and not include_none:
+            continue
+        if alias in seen:
+            continue
+        aliases.append(alias)
+        seen.add(alias)
+    return tuple(aliases)
+
+
+def get_target_dte_bucket_choices_text(*, include_none: bool = True, separator: str = "|") -> str:
+    keys = ORDERED_OPTION_DTE_BUCKET_KEYS_WITH_NONE if include_none else ORDERED_OPTION_DTE_BUCKET_KEYS
+    return separator.join(keys)
+
+
+def get_time_horizon_mapping_text() -> str:
+    parts = [
+        f"{time_horizon} -> {bucket_key}"
+        for time_horizon, bucket_key in TIME_HORIZON_TO_DTE_BUCKET.items()
+    ]
+    return ", ".join(parts)
 
 
 def get_dte_bucket(bucket: Any) -> DteBucket | None:
