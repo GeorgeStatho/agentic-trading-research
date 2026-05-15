@@ -583,7 +583,7 @@ def _refresh_market_context_for_target_dte_bucket(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     # Handle the refresh market context for target dte bucket flow in one place so callers can rely on a single, well-defined result.
     decision = _normalize_decision(recommendation.get("decision"))
-    target_dte_bucket = _normalize_target_dte_bucket(recommendation.get("target_dte_bucket"))
+    target_dte_bucket = normalize_target_dte_bucket(recommendation.get("target_dte_bucket"))
     explicit_expiration_filters_present = any(
         value
         for value in (
@@ -616,7 +616,7 @@ def _refresh_market_context_for_target_dte_bucket(
         return market_context, refresh_debug
 
     translated_expiration_date, translated_expiration_date_gte, translated_expiration_date_lte = (
-        _target_dte_bucket_to_expiration_filters(target_dte_bucket)
+        target_dte_bucket_to_expiration_filters(target_dte_bucket)
     )
     refresh_debug["bucket_upstream_refresh_attempted"] = True
     refresh_debug["bucket_upstream_refresh_filters"] = {
@@ -865,7 +865,7 @@ def _normalize_recommendation(
 
     decision = _normalize_decision(recommendation.get("decision"))
     confidence = _normalize_confidence(recommendation.get("confidence"))
-    target_dte_bucket = _normalize_target_dte_bucket(recommendation.get("target_dte_bucket"))
+    target_dte_bucket = normalize_target_dte_bucket(recommendation.get("target_dte_bucket"))
     strategist_recommendation = (
         strategist_recommendation if isinstance(strategist_recommendation, dict) else {}
     )
