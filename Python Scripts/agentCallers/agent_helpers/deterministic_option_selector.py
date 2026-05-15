@@ -209,7 +209,7 @@ def _resolve_target_otm_distance(
     target_dte_bucket: str,
     default_distance: float,
 ) -> float:
-    normalized_bucket = _normalize_target_dte_bucket(target_dte_bucket)
+    normalized_bucket = normalize_target_dte_bucket(target_dte_bucket)
     target_pct = get_bucket_target_otm_pct(normalized_bucket)
     if target_pct is None or reference_stock_price is None or reference_stock_price <= 0:
         return default_distance
@@ -312,14 +312,14 @@ def _resolve_dte_range(
     default_min_dte: int,
     default_max_dte: int,
 ) -> tuple[int, int]:
-    bucket_range = _get_dte_bucket_range(target_dte_bucket)
+    bucket_range = get_dte_bucket_range(target_dte_bucket)
     if bucket_range is not None:
         return bucket_range
     return default_min_dte, default_max_dte
 
 
 def _contract_matches_target_dte_bucket(contract: dict[str, Any], target_dte_bucket: str) -> bool:
-    bucket_range = _get_dte_bucket_range(target_dte_bucket)
+    bucket_range = get_dte_bucket_range(target_dte_bucket)
     if bucket_range is None:
         return True
     dte = _get_dte(contract)
@@ -612,7 +612,7 @@ def _pick_matching_contract_simple(
     if normalized_decision not in {"call", "put"}:
         return None, {}
 
-    normalized_target_dte_bucket = _normalize_target_dte_bucket(target_dte_bucket) or "none"
+    normalized_target_dte_bucket = normalize_target_dte_bucket(target_dte_bucket) or "none"
     reference_stock_price = _get_reference_stock_price(market_context)
     target_otm_distance = _resolve_target_otm_distance(
         reference_stock_price=reference_stock_price,
@@ -1423,7 +1423,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
 
     decision = _normalize_decision(recommendation.get("decision"))
     confidence = _normalize_confidence(recommendation.get("confidence"))
-    target_dte_bucket = _normalize_target_dte_bucket(recommendation.get("target_dte_bucket")) or "none"
+    target_dte_bucket = normalize_target_dte_bucket(recommendation.get("target_dte_bucket")) or "none"
     selection_filters = dict(option_market.get("selection_filters") or {})
     reference_stock_price = _get_reference_stock_price(market_context)
     resolved_target_otm_distance = _resolve_target_otm_distance(
