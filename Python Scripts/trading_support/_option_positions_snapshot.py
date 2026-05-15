@@ -25,6 +25,46 @@ from ._option_positions_state import _normalize_order_status, _safe_int
 from ._option_positions_strategy import _structured_exit_action
 from .utils import safe_float
 
+_TRUSTED_ENTRY_UNDERLYING_PRICE_SOURCES = {
+    "broker_fill",
+    "historical_backfill",
+    "journal",
+    "manual",
+}
+
+
+def _build_underlying_momentum_details(
+    *,
+    position_state: dict[str, Any] | None,
+    parsed_symbol: dict[str, Any],
+    stock_quote: dict[str, Any],
+) -> dict[str, Any]:
+    entry_underlying_price = safe_float((position_state or {}).get("entry_underlying_price"))
+    entry_underlying_price_source = str(
+        (position_state or {}).get("entry_underlying_price_source") or ""
+    ).strip().lower()
+    if entry_underlying_price is None:
+        return {
+            "status": "unknown",
+            "reasons": [
+                "Entry underlying baseline is unavailable; stock-price momentum is informational only."
+            ],
+        }
+    if entry_underlying_price_source not in _TRUSTED_ENTRY_UNDERLYING_PRICE_SOURCES:
+        return {
+            "status": "unknown",
+            "reasons": [
+                "Entry underlying baseline is untrusted; stock-price momentum is informational only."
+            ],
+        }
+    momentum_snapshot = {
+        "contract_type": parsed_symbol.get("contract_type"),
+        "entry_underlying_price": entry_underlying_price,
+        "underlying_stock_price": stock_quote.get("price"),
+        "strike": parsed_symbol.get("strike"),
+    }
+    return evaluate_option_momentum_from_snapshot(momentum_snapshot)
+
 
 def _build_option_position_snapshot(
     position: Any,
@@ -82,13 +122,11 @@ def _build_option_position_snapshot(
     current_max_pnl_pct = previous_max_pnl_pct
     if unrealized_pl_pct_ratio is not None:
         current_max_pnl_pct = max(previous_max_pnl_pct or unrealized_pl_pct_ratio, unrealized_pl_pct_ratio)
-    momentum_snapshot = {
-        "contract_type": parsed_symbol.get("contract_type"),
-        "entry_underlying_price": (position_state or {}).get("entry_underlying_price"),
-        "underlying_stock_price": stock_quote.get("price"),
-        "strike": parsed_symbol.get("strike"),
-    }
-    underlying_momentum_details = evaluate_option_momentum_from_snapshot(momentum_snapshot)
+    underlying_momentum_details = _build_underlying_momentum_details(
+        position_state=position_state,
+        parsed_symbol=parsed_symbol,
+        stock_quote=stock_quote,
+    )
     option_price_momentum_details = evaluate_option_price_momentum(
         entry_option_price=entry_price,
         current_option_mid_price=current_mid_price,
@@ -126,7 +164,17 @@ def _build_option_position_snapshot(
     updated_state.setdefault("entry_underlying_symbol", parsed_symbol.get("underlying_symbol") or "")
     updated_state.setdefault("entry_price", entry_price)
     updated_state.setdefault("entry_qty", broker_quantity)
-    updated_state.setdefault("entry_underlying_price", stock_quote.get("price"))
+    existing_entry_underlying_price = safe_float((position_state or {}).get("entry_underlying_price"))
+    existing_entry_underlying_price_source = str(
+        (position_state or {}).get("entry_underlying_price_source") or ""
+    ).strip()
+    if existing_entry_underlying_price is not None:
+        updated_state.setdefault("entry_underlying_price", existing_entry_underlying_price)
+    if existing_entry_underlying_price_source:
+        updated_state.setdefault("entry_underlying_price_source", existing_entry_underlying_price_source)
+    first_observed_underlying_price = safe_float((position_state or {}).get("first_observed_underlying_price"))
+    if first_observed_underlying_price is None and stock_quote.get("price") is not None:
+        updated_state["first_observed_underlying_price"] = stock_quote.get("price")
     updated_state.setdefault("entry_dte", days_to_expiration)
     persisted_state = update_position_state(state_path, option_symbol, updated_state)
     return {
@@ -181,6 +229,7 @@ def _build_option_position_snapshot(
         "option_price_momentum_reasons": list(option_price_momentum_details.get("reasons") or []),
         "underlying_momentum_status": str(underlying_momentum_details.get("status") or ""),
         "underlying_momentum_reasons": list(underlying_momentum_details.get("reasons") or []),
+        "underlying_momentum_informational_only": str(underlying_momentum_details.get("status") or "") == "unknown",
         "momentum_tracking_active": bool(persisted_state.get("momentum_tracking_active")),
         "momentum_history_sample_count": int(persisted_state.get("momentum_history_sample_count") or 0),
         "momentum_bad_count": int(persisted_state.get("momentum_bad_count") or 0),

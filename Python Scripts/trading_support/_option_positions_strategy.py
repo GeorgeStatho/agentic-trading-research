@@ -98,18 +98,6 @@ def _structured_exit_action(
     if unrealized_pl_pct_ratio is not None:
         current_max_pnl_pct = max(previous_max_pnl_pct or unrealized_pl_pct_ratio, unrealized_pl_pct_ratio)
     updated_state["max_pnl_pct"] = current_max_pnl_pct
-    updated_state.update(
-        _build_momentum_history_updates(
-            existing_state=existing_state,
-            current_max_pnl_pct=current_max_pnl_pct,
-            unrealized_pl_pct_ratio=unrealized_pl_pct_ratio,
-            momentum_status=momentum_status,
-            option_momentum_status=option_momentum_status,
-            underlying_momentum_status=underlying_momentum_status,
-            momentum_negative_score=momentum_negative_score,
-            momentum_history_config=momentum_history_config,
-        )
-    )
     pending_order_id = str(existing_state.get("pending_order_id") or "").strip()
     protected_profit_floor_pct = safe_float(existing_state.get("protected_profit_floor_pct"))
     trailing_giveback_pct = safe_float(existing_state.get("trailing_giveback_pct"))
@@ -178,6 +166,18 @@ def _structured_exit_action(
             ),
             updated_state,
         )
+    updated_state.update(
+        _build_momentum_history_updates(
+            existing_state=existing_state,
+            current_max_pnl_pct=current_max_pnl_pct,
+            unrealized_pl_pct_ratio=unrealized_pl_pct_ratio,
+            momentum_status=momentum_status,
+            option_momentum_status=option_momentum_status,
+            underlying_momentum_status=underlying_momentum_status,
+            momentum_negative_score=momentum_negative_score,
+            momentum_history_config=momentum_history_config,
+        )
+    )
     if unrealized_pl_pct_ratio is not None and unrealized_pl_pct_ratio <= (exit_thresholds.stop_loss_pct / 100.0):
         updated_state["last_action"] = "sell_full"
         updated_state["last_decision_reason"] = "stop_loss"
