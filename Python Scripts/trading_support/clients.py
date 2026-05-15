@@ -12,7 +12,10 @@ def _get_alpaca_settings() -> AlpacaSettings:
     return AlpacaSettings.from_env()
 
 
-ALPACA_PAPER = _get_alpaca_settings().paper
+_ALPACA_SETTINGS = _get_alpaca_settings()
+ALPACA_PAPER = _ALPACA_SETTINGS.paper
+API_KEY = _ALPACA_SETTINGS.api_key
+API_SECRET_KEY = _ALPACA_SETTINGS.api_secret
 
 
 def InitializeTradingClient(api_key: str, secret: str, paper: bool) -> TradingClient:
