@@ -566,6 +566,56 @@ class OptionPositionTests(VerboseTestCase):
         self.assertEqual(updated_state["last_decision_reason"], "first_scale_out_trigger")
         self.log_pass("disabled momentum history exit preserved the trailing scale-out path instead of forcing a full exit")
 
+    def test_structured_exit_action_does_not_append_momentum_history_while_pending_order_exists(self) -> None:
+        exit_action, updated_state = self.option_positions._structured_exit_action(
+            option_symbol=OPTION_SYMBOL,
+            quantity=3,
+            unrealized_pl_pct_ratio=2.10,
+            days_to_expiration=10,
+            hours_to_expiration=120.0,
+            exit_thresholds=self.option_positions.ExitThresholds(
+                dte_rule_label="7-14 DTE",
+                take_profit_pct=40.0,
+                stop_loss_pct=-28.0,
+                force_exit_days_to_expiration=3,
+                exit_hours_to_expiration=72.0,
+                is_default_rule=False,
+            ),
+            position_state={
+                "pending_order_id": "order-123",
+                "max_pnl_pct": 2.20,
+                "momentum_tracking_active": True,
+                "momentum_history_sample_count": 4,
+                "momentum_bad_count": 2,
+                "momentum_mixed_count": 1,
+                "momentum_negative_score": 2.5,
+                "momentum_consecutive_bad_count": 1,
+                "momentum_history": [
+                    {"status": "bad", "checked_at": "2026-05-14T10:00:00", "pnl_pct": 2.10, "max_pnl_pct": 2.20, "negative_score": 1.0},
+                    {"status": "mixed", "checked_at": "2026-05-14T10:05:00", "pnl_pct": 2.08, "max_pnl_pct": 2.20, "negative_score": 0.5},
+                    {"status": "bad", "checked_at": "2026-05-14T10:10:00", "pnl_pct": 2.06, "max_pnl_pct": 2.20, "negative_score": 1.0},
+                ],
+            },
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=_make_trailing_profit_config(
+                self.option_positions,
+                enable_momentum_exit=True,
+            ),
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
+            momentum_status=self.option_positions.MOMENTUM_BAD,
+            momentum_reasons=["Momentum deteriorated while an exit order was already working."],
+            recently_filled_order=False,
+        )
+
+        self.assertEqual(exit_action["action"], "hold")
+        self.assertEqual(exit_action["reason"], "pending_exit_order")
+        self.assertEqual(updated_state["momentum_history_sample_count"], 4)
+        self.assertEqual(updated_state["momentum_negative_score"], 2.5)
+        self.assertEqual(len(updated_state["momentum_history"]), 3)
+        self.log_pass("momentum history stayed frozen while a pending exit order was already blocking new actions")
+
     def test_structured_exit_action_allows_stop_loss_with_noncritical_quote_note(self) -> None:
         exit_action, updated_state = self.option_positions._structured_exit_action(
             option_symbol=OPTION_SYMBOL,
@@ -786,6 +836,7 @@ class OptionPositionTests(VerboseTestCase):
                     state_path=state_path,
                     position_state_override={
                         "entry_underlying_price": 100.0,
+                        "entry_underlying_price_source": "manual",
                     },
                     pending_reconciliation=None,
                 )
@@ -806,6 +857,63 @@ class OptionPositionTests(VerboseTestCase):
             self.assertEqual(summary["momentum_history_sample_count"], 1)
             self.assertTrue(summary["momentum_tracking_active"])
             self.log_pass("momentum history sample was persisted once the position exceeded the configured activation threshold")
+
+    def test_build_option_position_snapshot_treats_untrusted_underlying_baseline_as_informational_only(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "option_state.json"
+            option_symbol = "AAPL260523C00150000"
+
+            position = SimpleNamespace(
+                symbol=option_symbol,
+                avg_entry_price="1.0",
+                qty="2",
+                unrealized_plpc=0.60,
+            )
+
+            original_get_latest_option_quote = self.option_positions._get_latest_option_quote
+            original_get_latest_stock_price = self.option_positions._get_latest_stock_price
+            try:
+                self.option_positions._get_latest_option_quote = lambda _symbol: {
+                    "bid_price": 1.58,
+                    "ask_price": 1.62,
+                    "mid_price": 1.60,
+                    "price": 1.60,
+                    "timestamp": "2026-05-14T15:30:00Z",
+                    "error": "",
+                }
+                self.option_positions._get_latest_stock_price = lambda _symbol: {
+                    "price": 120.0,
+                    "timestamp": "2026-05-14T15:30:00Z",
+                    "error": "",
+                }
+
+                summary = self.option_positions._build_option_position_snapshot(
+                    position,
+                    take_profit_pct=25.0,
+                    stop_loss_pct=-20.0,
+                    exit_hours_to_expiration=24.0,
+                    enable_trailing_profit=True,
+                    trailing_profit_dry_run=False,
+                    trailing_profit_config=_make_trailing_profit_config(self.option_positions),
+                    momentum_history_config=_make_momentum_history_config(self.option_positions),
+                    state_path=state_path,
+                    position_state_override={},
+                    pending_reconciliation=None,
+                )
+            finally:
+                self.option_positions._get_latest_option_quote = original_get_latest_option_quote
+                self.option_positions._get_latest_stock_price = original_get_latest_stock_price
+
+            persisted_state = self.option_positions.get_position_state(state_path, option_symbol)
+            assert persisted_state is not None
+
+            self.assertEqual(summary["underlying_momentum_status"], MOMENTUM_UNKNOWN)
+            self.assertTrue(summary["underlying_momentum_informational_only"])
+            self.assertEqual(summary["option_price_momentum_status"], MOMENTUM_GOOD)
+            self.assertEqual(summary["momentum_status"], MOMENTUM_GOOD)
+            self.assertNotIn("entry_underlying_price", persisted_state)
+            self.assertEqual(persisted_state["first_observed_underlying_price"], 120.0)
+            self.log_pass("missing or untrusted underlying baselines stayed informational-only while option-price momentum continued to drive the combined signal")
 
     def test_manage_current_option_positions_submits_partial_scale_out_for_trailing_profit(self) -> None:
         with TemporaryDirectory() as temp_dir:

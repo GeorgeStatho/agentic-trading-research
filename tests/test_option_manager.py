@@ -42,6 +42,7 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
             "position_count": 3,
             "sell_count": 1,
             "close_submitted_count": 1,
+            "momentum_history_config_notes": [],
             "positions": [{"symbol": "AAPL250117C00200000"}],
         }
         fake_manage_current_option_positions = MagicMock(return_value=management_result)
@@ -150,6 +151,81 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
         log_message = logger.info.call_args.args[0]
         self.assertIn("Managed %s option positions", log_message)
         self.log_pass("option manager service forwarded trailing-profit settings, callbacks, and persisted the cycle output")
+
+    @patch("services.position_manager.JsonFileWriter.write")
+    def test_run_cycle_normalizes_impossible_momentum_history_settings(self, mock_json_write):
+        fake_manage_current_option_positions = MagicMock(
+            return_value={
+                "position_count": 0,
+                "sell_count": 0,
+                "close_submitted_count": 0,
+                "momentum_history_config_notes": [
+                    "Momentum history min_samples was normalized from 12 to 10 to fit within the window size."
+                ],
+                "positions": [],
+            }
+        )
+        fake_trading_module = SimpleNamespace(
+            ManageCurrentOptionPositions=fake_manage_current_option_positions
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "option_manager_output.json"
+            state_path = Path(temp_dir) / "option_state.json"
+            settings = SimpleNamespace(
+                auto_close_option_positions=True,
+                option_position_take_profit_pct=25.0,
+                option_position_stop_loss_pct=-20.0,
+                option_position_exit_hours_to_expiration=24.0,
+                option_position_enable_trailing_profit=True,
+                option_position_trailing_profit_dry_run=False,
+                option_position_enable_momentum_exit=True,
+                option_momentum_history_enable_after_pnl_pct=2.00,
+                option_momentum_history_window_size=10,
+                option_momentum_history_min_samples=12,
+                option_momentum_history_bad_count_exit_threshold=11,
+                option_momentum_history_consecutive_bad_exit_threshold=15,
+                option_price_momentum_bad_giveback_threshold=0.40,
+                option_price_momentum_mixed_giveback_threshold=0.20,
+                option_price_momentum_good_profit_threshold=0.12,
+                option_trail_protection_trigger_pct=0.40,
+                option_trail_initial_floor_pct=0.10,
+                option_trail_first_scale_out_trigger_pct=0.55,
+                option_trail_first_scale_out_fraction=0.50,
+                option_trail_second_scale_out_trigger_pct=2.00,
+                option_trail_second_scale_out_fraction=0.25,
+                option_trail_giveback_pct_by_bucket_key={"7_14": 0.35, "14_30": 0.45, "30_45": 0.45, "45_60": 0.45},
+                option_trail_3_7_giveback_pct=0.25,
+                option_trail_7_14_giveback_pct=0.35,
+                option_trail_14_30_giveback_pct=0.45,
+                option_trail_30_45_giveback_pct=0.45,
+                option_trail_45_60_giveback_pct=0.45,
+                option_trail_100_floor_pct=0.60,
+                option_trail_150_floor_pct=1.00,
+                option_trail_200_floor_pct=1.40,
+                option_pending_exit_stale_minutes=10.0,
+                option_pending_exit_cancel_on_stale=True,
+            )
+            paths = SimpleNamespace(
+                option_position_management_output_path=output_path,
+                option_position_state_path=state_path,
+            )
+            service = OptionPositionManagerService(
+                settings=settings,
+                paths=paths,
+                trading_gateway=MagicMock(),
+                logger=MagicMock(spec=logging.Logger),
+            )
+
+            with patch.dict(sys.modules, {"Trading": fake_trading_module}):
+                service.run_cycle(trading_client=object())
+
+        call_kwargs = fake_manage_current_option_positions.call_args.kwargs
+        self.assertEqual(call_kwargs["momentum_history_window_size_override"], 10)
+        self.assertEqual(call_kwargs["momentum_history_min_samples_override"], 12)
+        self.assertEqual(call_kwargs["momentum_history_bad_count_exit_threshold_override"], 11)
+        self.assertEqual(call_kwargs["momentum_history_consecutive_bad_exit_threshold_override"], 15)
+        self.log_pass("service kept forwarding raw momentum-history settings so the trading layer can normalize impossible combinations centrally")
 
 
 class OptionManagerCompatibilityTests(VerboseTestCase):

@@ -51,6 +51,49 @@ from ._option_positions_state import (
 )
 
 
+def _build_momentum_history_config(
+    *,
+    enable_after_pnl_pct: float,
+    window_size: int,
+    min_samples: int,
+    bad_count_exit_threshold: int,
+    consecutive_bad_exit_threshold: int,
+) -> tuple[MomentumHistoryConfig, list[str]]:
+    normalized_window_size = max(1, int(window_size))
+    normalized_min_samples = max(1, min(int(min_samples), normalized_window_size))
+    normalized_bad_count_exit_threshold = max(
+        1,
+        min(int(bad_count_exit_threshold), normalized_window_size),
+    )
+    normalized_consecutive_bad_exit_threshold = max(
+        1,
+        min(int(consecutive_bad_exit_threshold), normalized_window_size),
+    )
+    notes: list[str] = []
+    if normalized_min_samples != int(min_samples):
+        notes.append(
+            f"Momentum history min_samples was normalized from {int(min_samples)} to {normalized_min_samples} to fit within the window size."
+        )
+    if normalized_bad_count_exit_threshold != int(bad_count_exit_threshold):
+        notes.append(
+            "Momentum history weighted exit threshold was normalized to stay within the configured window size."
+        )
+    if normalized_consecutive_bad_exit_threshold != int(consecutive_bad_exit_threshold):
+        notes.append(
+            "Momentum history consecutive-bad exit threshold was normalized to stay within the configured window size."
+        )
+    return (
+        MomentumHistoryConfig(
+            enable_after_pnl_pct=float(enable_after_pnl_pct),
+            window_size=normalized_window_size,
+            min_samples=normalized_min_samples,
+            bad_count_exit_threshold=normalized_bad_count_exit_threshold,
+            consecutive_bad_exit_threshold=normalized_consecutive_bad_exit_threshold,
+        ),
+        notes,
+    )
+
+
 def CloseOptionPositions(
     company: str | None = None,
     *,
@@ -182,12 +225,32 @@ def ManageCurrentOptionPositions(
             else bool(enable_momentum_exit_override)
         ),
     )
-    momentum_history_config = MomentumHistoryConfig(
-        enable_after_pnl_pct=float(DEFAULT_OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT if momentum_history_enable_after_pnl_pct_override is None else momentum_history_enable_after_pnl_pct_override),
-        window_size=max(1, int(DEFAULT_OPTION_MOMENTUM_HISTORY_WINDOW_SIZE if momentum_history_window_size_override is None else momentum_history_window_size_override)),
-        min_samples=max(1, int(DEFAULT_OPTION_MOMENTUM_HISTORY_MIN_SAMPLES if momentum_history_min_samples_override is None else momentum_history_min_samples_override)),
-        bad_count_exit_threshold=max(1, int(DEFAULT_OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD if momentum_history_bad_count_exit_threshold_override is None else momentum_history_bad_count_exit_threshold_override)),
-        consecutive_bad_exit_threshold=max(1, int(DEFAULT_OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD if momentum_history_consecutive_bad_exit_threshold_override is None else momentum_history_consecutive_bad_exit_threshold_override)),
+    momentum_history_config, momentum_history_config_notes = _build_momentum_history_config(
+        enable_after_pnl_pct=float(
+            DEFAULT_OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT
+            if momentum_history_enable_after_pnl_pct_override is None
+            else momentum_history_enable_after_pnl_pct_override
+        ),
+        window_size=int(
+            DEFAULT_OPTION_MOMENTUM_HISTORY_WINDOW_SIZE
+            if momentum_history_window_size_override is None
+            else momentum_history_window_size_override
+        ),
+        min_samples=int(
+            DEFAULT_OPTION_MOMENTUM_HISTORY_MIN_SAMPLES
+            if momentum_history_min_samples_override is None
+            else momentum_history_min_samples_override
+        ),
+        bad_count_exit_threshold=int(
+            DEFAULT_OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD
+            if momentum_history_bad_count_exit_threshold_override is None
+            else momentum_history_bad_count_exit_threshold_override
+        ),
+        consecutive_bad_exit_threshold=int(
+            DEFAULT_OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD
+            if momentum_history_consecutive_bad_exit_threshold_override is None
+            else momentum_history_consecutive_bad_exit_threshold_override
+        ),
     )
     option_price_momentum_config = OptionPriceMomentumConfig(
         bad_giveback_threshold=float(
@@ -323,5 +386,6 @@ def ManageCurrentOptionPositions(
         "full_sell_count": sum(1 for summary in position_summaries if summary.get("exit_action") == "sell_full"),
         "partial_sell_count": sum(1 for summary in position_summaries if summary.get("exit_action") == "sell_partial"),
         "close_submitted_count": sum(1 for summary in position_summaries if summary.get("close_submitted")),
+        "momentum_history_config_notes": momentum_history_config_notes,
         "positions": position_summaries,
     }
