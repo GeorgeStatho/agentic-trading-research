@@ -58,7 +58,7 @@ def _build_exit_action(
 
 
 def _compute_scaled_sell_qty(quantity: int, sell_fraction: float) -> int:
-    if quantity <= 0 or sell_fraction <= 0:
+    if quantity <= 1 or sell_fraction <= 0:
         return 0
     requested_qty = int(round(quantity * sell_fraction))
     return max(1, min(quantity, requested_qty))
@@ -307,46 +307,52 @@ def _structured_exit_action(
         and not took_first_scale_out
     ):
         qty_to_sell = _compute_scaled_sell_qty(quantity, trailing_profit_config.first_scale_out_fraction)
-        action = "sell_full" if qty_to_sell >= quantity else "sell_partial"
-        updated_state["last_action"] = action
-        updated_state["last_decision_reason"] = "first_scale_out_trigger"
-        return (
-            _build_exit_action(
-                action=action,
-                reason="first_scale_out_trigger",
-                pnl_pct=unrealized_pl_pct_ratio,
-                max_pnl_pct=current_max_pnl_pct,
-                protected_profit_floor_pct=protected_profit_floor_pct,
-                trailing_giveback_pct=trailing_giveback_pct,
-                sell_fraction=1.0 if action == "sell_full" else trailing_profit_config.first_scale_out_fraction,
-                qty_to_sell=qty_to_sell,
-                notes=notes,
-            ),
-            updated_state,
-        )
+        if qty_to_sell <= 0:
+            notes.append("First scale-out trigger was reached, but the remaining quantity was too small to sell a partial lot.")
+        else:
+            action = "sell_full" if qty_to_sell >= quantity else "sell_partial"
+            updated_state["last_action"] = action
+            updated_state["last_decision_reason"] = "first_scale_out_trigger"
+            return (
+                _build_exit_action(
+                    action=action,
+                    reason="first_scale_out_trigger",
+                    pnl_pct=unrealized_pl_pct_ratio,
+                    max_pnl_pct=current_max_pnl_pct,
+                    protected_profit_floor_pct=protected_profit_floor_pct,
+                    trailing_giveback_pct=trailing_giveback_pct,
+                    sell_fraction=1.0 if action == "sell_full" else trailing_profit_config.first_scale_out_fraction,
+                    qty_to_sell=qty_to_sell,
+                    notes=notes,
+                ),
+                updated_state,
+            )
     if (
         unrealized_pl_pct_ratio is not None
         and unrealized_pl_pct_ratio >= trailing_profit_config.second_scale_out_trigger_pct
         and not took_second_scale_out
     ):
         qty_to_sell = _compute_scaled_sell_qty(quantity, trailing_profit_config.second_scale_out_fraction)
-        action = "sell_full" if qty_to_sell >= quantity else "sell_partial"
-        updated_state["last_action"] = action
-        updated_state["last_decision_reason"] = "second_scale_out_trigger"
-        return (
-            _build_exit_action(
-                action=action,
-                reason="second_scale_out_trigger",
-                pnl_pct=unrealized_pl_pct_ratio,
-                max_pnl_pct=current_max_pnl_pct,
-                protected_profit_floor_pct=protected_profit_floor_pct,
-                trailing_giveback_pct=trailing_giveback_pct,
-                sell_fraction=1.0 if action == "sell_full" else trailing_profit_config.second_scale_out_fraction,
-                qty_to_sell=qty_to_sell,
-                notes=notes,
-            ),
-            updated_state,
-        )
+        if qty_to_sell <= 0:
+            notes.append("Second scale-out trigger was reached, but the remaining quantity was too small to sell a partial lot.")
+        else:
+            action = "sell_full" if qty_to_sell >= quantity else "sell_partial"
+            updated_state["last_action"] = action
+            updated_state["last_decision_reason"] = "second_scale_out_trigger"
+            return (
+                _build_exit_action(
+                    action=action,
+                    reason="second_scale_out_trigger",
+                    pnl_pct=unrealized_pl_pct_ratio,
+                    max_pnl_pct=current_max_pnl_pct,
+                    protected_profit_floor_pct=protected_profit_floor_pct,
+                    trailing_giveback_pct=trailing_giveback_pct,
+                    sell_fraction=1.0 if action == "sell_full" else trailing_profit_config.second_scale_out_fraction,
+                    qty_to_sell=qty_to_sell,
+                    notes=notes,
+                ),
+                updated_state,
+            )
     updated_state["last_action"] = "hold"
     updated_state["last_decision_reason"] = "hold"
     return (
