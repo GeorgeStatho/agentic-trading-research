@@ -36,6 +36,7 @@ def _build_option_position_snapshot(
     trailing_profit_dry_run: bool,
     trailing_profit_config: Any,
     momentum_history_config: Any,
+    option_price_momentum_config: Any,
     state_path: Path,
     get_latest_option_quote: Callable[[str], dict[str, Any]],
     get_latest_stock_price: Callable[[str], dict[str, Any]],
@@ -93,6 +94,7 @@ def _build_option_position_snapshot(
         current_option_mid_price=current_mid_price,
         unrealized_pl_ratio=unrealized_pl_pct_ratio,
         max_pnl_pct=current_max_pnl_pct,
+        config=option_price_momentum_config,
     )
     momentum_details = evaluate_combined_option_momentum(
         option_momentum=option_price_momentum_details,

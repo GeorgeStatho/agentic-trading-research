@@ -56,6 +56,13 @@ class MomentumHistoryConfig:
 
 
 @dataclass(frozen=True)
+class OptionPriceMomentumConfig:
+    bad_giveback_threshold: float
+    mixed_giveback_threshold: float
+    good_profit_threshold: float
+
+
+@dataclass(frozen=True)
 class PendingExitConfig:
     stale_minutes: float
     cancel_on_stale: bool
@@ -101,6 +108,18 @@ DEFAULT_OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD = env_positive_int(
 DEFAULT_OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD = env_positive_int(
     "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD",
     3,
+)
+DEFAULT_OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD = env_float(
+    "OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD",
+    0.35,
+)
+DEFAULT_OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD = env_float(
+    "OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD",
+    0.15,
+)
+DEFAULT_OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD = env_float(
+    "OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD",
+    0.10,
 )
 DEFAULT_OPTION_TRAIL_PROTECTION_TRIGGER_PCT = env_float("OPTION_TRAIL_PROTECTION_TRIGGER_PCT", 0.40)
 DEFAULT_OPTION_TRAIL_INITIAL_FLOOR_PCT = env_float("OPTION_TRAIL_INITIAL_FLOOR_PCT", 0.10)
