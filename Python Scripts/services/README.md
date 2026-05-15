@@ -14,26 +14,30 @@ If `agentCallers/` is the analysis and recommendation side of the system, `servi
 
 ## How The Pieces Fit Together
 
-The main runtime path is:
+The current trading runtime is layered rather than flat:
 
 1. `front_main_application.py`
-   Runs the top-level worker loop and coordinates a full trading cycle.
-2. `config.py`
-   Loads the settings and file paths the runtime uses.
-3. `cold_start.py`
-   Makes sure the databases are initialized before live work starts.
-4. `trading_gateway.py`
-   Wraps Alpaca broker operations.
-5. `order_candidates.py`
-   Turns agent output into executable option-order candidates.
-6. `trade_executor.py`
-   Sizes and submits new option entries.
-7. `position_manager.py`
-   Manages open option positions, including trailing-profit exits.
+   Owns the main worker cadence and decides when to run entry execution and when to run option-position maintenance.
+2. `config.py` and `runtime_paths.py`
+   Provide the typed settings and file paths used by every runtime service.
+3. `trade_executor.py`
+   Handles new entries after agent output has already been converted into executable order candidates.
+4. `position_manager.py`
+   Handles existing positions by calling the lower-level option-position workflow and wiring in broker callbacks.
+5. `trading_gateway.py`
+   Normalizes Alpaca account, position, order, and cancel operations for the service layer.
+6. `trading_support/option_positions.py`
+   Acts as the compatibility facade for option-position management.
+7. `trading_support/_option_positions_*.py`
+   Hold the split implementation details for market inspection, snapshot building, trailing-profit strategy, pending-order state, and manager orchestration.
 8. `trade_journal.py`
-   Records executed trades and managed exits to the database.
+   Records executed entries and managed exits to the database.
 
-Supporting modules like `common.py`, `runtime_paths.py`, `io_utils.py`, `option_dte_buckets.py`, `option_momentum.py`, and `option_position_state.py` provide shared utility logic used across that runtime.
+So the practical call flow for open positions is:
+
+`FrontMainApplication` -> `OptionPositionManagerService` -> `Trading.ManageCurrentOptionPositions(...)` -> `trading_support.option_positions` facade -> split `_option_positions_*` helpers
+
+Supporting modules like `common.py`, `io_utils.py`, `option_dte_buckets.py`, `option_momentum.py`, and `option_position_state.py` provide shared utility logic used across both the service layer and the lower-level trading helpers.
 
 ## Module Guide
 
@@ -290,6 +294,7 @@ Important responsibilities:
 
 - passes take-profit, stop-loss, expiry, trailing-profit, momentum-exit, and stale-order settings into the underlying trading helper
 - provides callbacks for full exits, partial exits, order-status lookups, and order cancellation
+- acts as the boundary between the service layer and the split `trading_support/_option_positions_*` implementation
 - records managed exits through `OptionTradeJournal`
 - writes the latest position-management output file for the dashboard/runtime
 
@@ -435,7 +440,17 @@ This is the main service-layer entrypoint behind the front worker.
 
 Not in this folder, but closely related.
 
-The actual exit engine lives in `Python Scripts/trading_support/option_positions.py`. `position_manager.py`, `option_dte_buckets.py`, `option_momentum.py`, `option_position_state.py`, and `config.py` all exist partly to support that workflow cleanly from the service layer.
+The actual option-position workflow now lives in `Python Scripts/trading_support/option_positions.py` plus its split internal helpers:
+
+- `_option_positions_market.py`
+- `_option_positions_snapshot.py`
+- `_option_positions_strategy.py`
+- `_option_positions_state.py`
+- `_option_positions_manager.py`
+- `_option_positions_momentum.py`
+- `_option_positions_defaults.py`
+
+`position_manager.py`, `option_dte_buckets.py`, `option_momentum.py`, `option_position_state.py`, and `config.py` all exist partly to support that workflow cleanly from the service layer.
 
 ## Which Modules Are Safe To Import Directly?
 
