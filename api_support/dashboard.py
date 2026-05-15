@@ -296,6 +296,26 @@ def compute_option_unrealized_pl_pct(
     return fallback_unrealized_pl_pct
 
 
+def resolve_option_mark_price(
+    *,
+    raw_position: dict,
+    current_bid: float | None,
+    current_ask: float | None,
+    snapshot: dict,
+) -> float | None:
+    broker_mark_price = safe_float(raw_position.get("current_price"))
+    if broker_mark_price is not None:
+        return broker_mark_price
+    if current_bid is not None:
+        return current_bid
+    if current_bid is not None and current_ask is not None:
+        return round((current_bid + current_ask) / 2.0, 4)
+    snapshot_mark_price = safe_float(snapshot.get("mark_price"))
+    if snapshot_mark_price is not None:
+        return snapshot_mark_price
+    return safe_float(snapshot.get("mid_price"))
+
+
 def format_exit_rule_status(position_summary: dict, management_payload: dict) -> str:
     reasons = position_summary.get("decision_reasons")
     normalized_reasons = reasons if isinstance(reasons, list) else []
@@ -389,6 +409,17 @@ def build_open_positions_payload() -> dict:
         if mid_price is None:
             mid_price = safe_float(raw_position.get("current_price"))
 
+        mark_price = (
+            resolve_option_mark_price(
+                raw_position=raw_position,
+                current_bid=current_bid,
+                current_ask=current_ask,
+                snapshot=snapshot,
+            )
+            if is_option
+            else mid_price
+        )
+
         unrealized_pl_pct = safe_float(snapshot.get("unrealized_pl_pct")) if is_option else None
         if unrealized_pl_pct is None:
             live_unrealized = safe_float(raw_position.get("unrealized_plpc"))
@@ -396,7 +427,7 @@ def build_open_positions_payload() -> dict:
         if is_option:
             unrealized_pl_pct = compute_option_unrealized_pl_pct(
                 entry_price,
-                mid_price,
+                mark_price,
                 unrealized_pl_pct,
             )
 
@@ -420,6 +451,7 @@ def build_open_positions_payload() -> dict:
                     "entry_price": entry_price,
                     "current_bid": current_bid,
                     "current_ask": current_ask,
+                    "mark_price": mark_price,
                     "mid_price": mid_price,
                     "unrealized_pl_pct": unrealized_pl_pct,
                     "days_to_expiration": days_to_expiration,
@@ -443,6 +475,7 @@ def build_open_positions_payload() -> dict:
                 "entry_price": entry_price,
                 "current_bid": None,
                 "current_ask": None,
+                "mark_price": mid_price,
                 "mid_price": mid_price,
                 "unrealized_pl_pct": unrealized_pl_pct,
                 "days_to_expiration": None,
