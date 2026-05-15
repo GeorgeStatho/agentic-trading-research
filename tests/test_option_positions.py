@@ -334,6 +334,63 @@ class OptionPositionTests(VerboseTestCase):
         self.assertEqual(updated_state["last_decision_reason"], "momentum_history_failed")
         self.log_pass("momentum history full-exit fired once the tracked bad-count threshold was reached")
 
+    def test_structured_exit_action_triggers_momentum_history_failed_from_weighted_mixed_score(self) -> None:
+        exit_action, updated_state = self.option_positions._structured_exit_action(
+            option_symbol=OPTION_SYMBOL,
+            quantity=3,
+            unrealized_pl_pct_ratio=2.08,
+            days_to_expiration=10,
+            hours_to_expiration=120.0,
+            exit_thresholds=self.option_positions.ExitThresholds(
+                dte_rule_label="7-14 DTE",
+                take_profit_pct=40.0,
+                stop_loss_pct=-28.0,
+                force_exit_days_to_expiration=3,
+                exit_hours_to_expiration=72.0,
+                is_default_rule=False,
+            ),
+            position_state={
+                "max_pnl_pct": 2.20,
+                "profit_protection_active": True,
+                "protected_profit_floor_pct": 1.40,
+                "momentum_tracking_active": True,
+                "momentum_history_sample_count": 8,
+                "momentum_bad_count": 4,
+                "momentum_mixed_count": 4,
+                "momentum_negative_score": 6.0,
+                "momentum_consecutive_bad_count": 1,
+                "momentum_history": [
+                    {"status": "bad", "checked_at": "2026-05-14T10:00:00", "pnl_pct": 2.18, "max_pnl_pct": 2.2, "negative_score": 1.0},
+                    {"status": "mixed", "checked_at": "2026-05-14T10:05:00", "pnl_pct": 2.17, "max_pnl_pct": 2.2, "negative_score": 0.5},
+                    {"status": "bad", "checked_at": "2026-05-14T10:10:00", "pnl_pct": 2.16, "max_pnl_pct": 2.2, "negative_score": 1.0},
+                    {"status": "mixed", "checked_at": "2026-05-14T10:15:00", "pnl_pct": 2.15, "max_pnl_pct": 2.2, "negative_score": 0.5},
+                    {"status": "bad", "checked_at": "2026-05-14T10:20:00", "pnl_pct": 2.14, "max_pnl_pct": 2.2, "negative_score": 1.0},
+                    {"status": "mixed", "checked_at": "2026-05-14T10:25:00", "pnl_pct": 2.13, "max_pnl_pct": 2.2, "negative_score": 0.5},
+                    {"status": "bad", "checked_at": "2026-05-14T10:30:00", "pnl_pct": 2.12, "max_pnl_pct": 2.2, "negative_score": 1.0},
+                ],
+            },
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=_make_trailing_profit_config(
+                self.option_positions,
+                enable_momentum_exit=True,
+            ),
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
+            momentum_status=self.option_positions.MOMENTUM_MIXED,
+            momentum_reasons=["Option premium started to roll over while the underlying still looked partially constructive."],
+            option_momentum_status=self.option_positions.MOMENTUM_BAD,
+            underlying_momentum_status=self.option_positions.MOMENTUM_GOOD,
+            momentum_negative_score=0.5,
+            recently_filled_order=False,
+        )
+
+        self.assertEqual(exit_action["action"], "sell_full")
+        self.assertEqual(exit_action["reason"], "momentum_history_failed")
+        self.assertEqual(updated_state["last_decision_reason"], "momentum_history_failed")
+        self.assertAlmostEqual(updated_state["momentum_negative_score"], 6.0, places=6)
+        self.log_pass("weighted momentum scoring treated mixed samples as half-bad and still triggered the full exit once the threshold was reached")
+
     def test_structured_exit_action_triggers_momentum_history_failed_on_consecutive_bad_streak(self) -> None:
         exit_action, updated_state = self.option_positions._structured_exit_action(
             option_symbol=OPTION_SYMBOL,

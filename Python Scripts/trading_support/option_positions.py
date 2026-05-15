@@ -10,6 +10,7 @@ from .clients import (
     get_option_history_client,
     get_stock_history_client,
 )
+from ._option_positions_momentum import MOMENTUM_MIXED
 from ._option_positions_defaults import *
 from ._option_positions_manager import (
     CloseOptionPositions as _close_option_positions_impl,
@@ -33,7 +34,12 @@ from ._option_positions_state import *
 from ._option_positions_state import _reconcile_pending_order_state
 from ._option_positions_strategy import *
 from ._option_positions_strategy import _structured_exit_action
-from services.option_momentum import MOMENTUM_BAD, evaluate_option_momentum_from_snapshot
+from services.option_momentum import (
+    MOMENTUM_BAD,
+    MOMENTUM_GOOD,
+    MOMENTUM_UNKNOWN,
+    evaluate_option_momentum_from_snapshot,
+)
 from services.option_position_state import delete_position_state, get_position_state, update_position_state
 
 

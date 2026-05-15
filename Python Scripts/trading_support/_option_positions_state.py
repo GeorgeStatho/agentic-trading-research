@@ -8,6 +8,7 @@ from typing import Any
 from .utils import safe_float
 from services.option_position_state import get_position_state, update_position_state
 
+from ._option_positions_momentum import _momentum_negative_score
 from ._option_positions_defaults import (
     DEFAULT_OPTION_POSITION_STATE_PATH,
     MomentumHistoryConfig,
@@ -67,14 +68,17 @@ def _normalize_momentum_history(history: Any) -> list[dict[str, Any]]:
         if not isinstance(entry, dict):
             continue
         status = str(entry.get("status") or "").strip().lower()
-        if status not in {"good", "bad", "unknown"}:
+        if status not in {"good", "bad", "mixed", "unknown"}:
             continue
         normalized_history.append(
             {
                 "status": status,
+                "option_status": str(entry.get("option_status") or "").strip().lower(),
+                "underlying_status": str(entry.get("underlying_status") or "").strip().lower(),
                 "checked_at": str(entry.get("checked_at") or "").strip(),
                 "pnl_pct": safe_float(entry.get("pnl_pct")),
                 "max_pnl_pct": safe_float(entry.get("max_pnl_pct")),
+                "negative_score": safe_float(entry.get("negative_score")),
             }
         )
     return normalized_history
@@ -102,17 +106,29 @@ def _evaluate_momentum_history_exit(
             f"Momentum history tracking is active but only {sample_count} sample(s) have been collected; waiting for {momentum_history_config.min_samples}.",
         ]
     bad_count = max(0, _safe_int(state.get("momentum_bad_count")) or 0)
+    mixed_count = max(0, _safe_int(state.get("momentum_mixed_count")) or 0)
     consecutive_bad_count = max(0, _safe_int(state.get("momentum_consecutive_bad_count")) or 0)
-    if bad_count >= momentum_history_config.bad_count_exit_threshold:
+    negative_score = safe_float(state.get("momentum_negative_score"))
+    if negative_score is None:
+        negative_score = float(bad_count) + (0.5 * float(mixed_count))
+    if negative_score >= momentum_history_config.bad_count_exit_threshold:
         return True, [
-            f"Momentum history exit triggered because {bad_count} of the last {sample_count} tracked sample(s) were bad."
+            (
+                f"Momentum history exit triggered because the weighted negative score "
+                f"reached {negative_score:.2f} across {sample_count} tracked sample(s) "
+                f"({bad_count} bad, {mixed_count} mixed)."
+            )
         ]
     if consecutive_bad_count >= momentum_history_config.consecutive_bad_exit_threshold:
         return True, [
             f"Momentum history exit triggered because {consecutive_bad_count} bad momentum samples occurred consecutively."
         ]
     return False, [
-        f"Momentum history tracked {bad_count} bad sample(s) and {consecutive_bad_count} consecutive bad sample(s); exit thresholds were not reached."
+        (
+            f"Momentum history tracked a weighted negative score of {negative_score:.2f} "
+            f"({bad_count} bad, {mixed_count} mixed) and {consecutive_bad_count} consecutive bad sample(s); "
+            "exit thresholds were not reached."
+        )
     ]
 
 
@@ -122,34 +138,61 @@ def _build_momentum_history_updates(
     current_max_pnl_pct: float | None,
     unrealized_pl_pct_ratio: float | None,
     momentum_status: str,
+    option_momentum_status: str,
+    underlying_momentum_status: str,
+    momentum_negative_score: float | None,
     momentum_history_config: MomentumHistoryConfig,
 ) -> dict[str, Any]:
     normalized_status = str(momentum_status or "").strip().lower()
+    normalized_option_status = str(option_momentum_status or "").strip().lower()
+    normalized_underlying_status = str(underlying_momentum_status or "").strip().lower()
     momentum_tracking_active = (
         current_max_pnl_pct is not None
         and current_max_pnl_pct >= momentum_history_config.enable_after_pnl_pct
     )
     history = _normalize_momentum_history(existing_state.get("momentum_history"))
     checked_at = datetime.now().isoformat()
-    if momentum_tracking_active and normalized_status in {"good", "bad"}:
+    entry_negative_score = (
+        float(momentum_negative_score)
+        if momentum_negative_score is not None
+        else _momentum_negative_score(normalized_status)
+    )
+    if momentum_tracking_active and normalized_status in {"good", "bad", "mixed"}:
         history.append(
             {
                 "status": normalized_status,
+                "option_status": normalized_option_status,
+                "underlying_status": normalized_underlying_status,
                 "checked_at": checked_at,
                 "pnl_pct": unrealized_pl_pct_ratio,
                 "max_pnl_pct": current_max_pnl_pct,
+                "negative_score": round(entry_negative_score, 6),
             }
         )
         history = history[-momentum_history_config.window_size :]
     bad_count = sum(1 for entry in history if entry.get("status") == "bad")
+    mixed_count = sum(1 for entry in history if entry.get("status") == "mixed")
+    negative_score = round(
+        sum(
+            safe_float(entry.get("negative_score"))
+            if safe_float(entry.get("negative_score")) is not None
+            else _momentum_negative_score(str(entry.get("status") or ""))
+            for entry in history
+        ),
+        6,
+    )
     consecutive_bad_count = _count_consecutive_bad_momentum(history)
     return {
         "momentum_tracking_active": momentum_tracking_active,
         "momentum_history": history,
         "momentum_history_sample_count": len(history),
         "momentum_bad_count": bad_count,
+        "momentum_mixed_count": mixed_count,
+        "momentum_negative_score": negative_score,
         "momentum_consecutive_bad_count": consecutive_bad_count,
         "last_momentum_status": normalized_status,
+        "last_option_momentum_status": normalized_option_status,
+        "last_underlying_momentum_status": normalized_underlying_status,
         "last_momentum_checked_at": checked_at,
     }
 

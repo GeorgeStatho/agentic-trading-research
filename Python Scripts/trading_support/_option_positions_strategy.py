@@ -81,6 +81,9 @@ def _structured_exit_action(
     momentum_status: str,
     momentum_reasons: list[str],
     recently_filled_order: bool,
+    option_momentum_status: str = "unknown",
+    underlying_momentum_status: str = "unknown",
+    momentum_negative_score: float | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     existing_state = dict(position_state or {})
     notes: list[str] = list(context_notes)
@@ -101,6 +104,9 @@ def _structured_exit_action(
             current_max_pnl_pct=current_max_pnl_pct,
             unrealized_pl_pct_ratio=unrealized_pl_pct_ratio,
             momentum_status=momentum_status,
+            option_momentum_status=option_momentum_status,
+            underlying_momentum_status=underlying_momentum_status,
+            momentum_negative_score=momentum_negative_score,
             momentum_history_config=momentum_history_config,
         )
     )
