@@ -6,6 +6,11 @@ from typing import Any, Callable
 from services.option_momentum import evaluate_option_momentum_from_snapshot
 from services.option_position_state import get_position_state, update_position_state
 
+from ._option_positions_momentum import (
+    MOMENTUM_MIXED,
+    evaluate_combined_option_momentum,
+    evaluate_option_price_momentum,
+)
 from ._option_positions_market import (
     _days_to_expiration,
     _get_latest_stock_price,
@@ -72,13 +77,27 @@ def _build_option_position_snapshot(
     if stock_quote_error:
         context_notes.append("Underlying stock quote was unavailable; momentum was left informational only.")
     position_state = position_state_override if position_state_override is not None else get_position_state(state_path, option_symbol)
+    previous_max_pnl_pct = safe_float((position_state or {}).get("max_pnl_pct"))
+    current_max_pnl_pct = previous_max_pnl_pct
+    if unrealized_pl_pct_ratio is not None:
+        current_max_pnl_pct = max(previous_max_pnl_pct or unrealized_pl_pct_ratio, unrealized_pl_pct_ratio)
     momentum_snapshot = {
         "contract_type": parsed_symbol.get("contract_type"),
         "entry_underlying_price": (position_state or {}).get("entry_underlying_price"),
         "underlying_stock_price": stock_quote.get("price"),
         "strike": parsed_symbol.get("strike"),
     }
-    momentum_details = evaluate_option_momentum_from_snapshot(momentum_snapshot)
+    underlying_momentum_details = evaluate_option_momentum_from_snapshot(momentum_snapshot)
+    option_price_momentum_details = evaluate_option_price_momentum(
+        entry_option_price=entry_price,
+        current_option_mid_price=current_mid_price,
+        unrealized_pl_ratio=unrealized_pl_pct_ratio,
+        max_pnl_pct=current_max_pnl_pct,
+    )
+    momentum_details = evaluate_combined_option_momentum(
+        option_momentum=option_price_momentum_details,
+        underlying_momentum=underlying_momentum_details,
+    )
     broker_quantity = _safe_int(quantity) or 0
     exit_action, updated_state = _structured_exit_action(
         option_symbol=option_symbol,
@@ -95,6 +114,9 @@ def _build_option_position_snapshot(
         momentum_history_config=momentum_history_config,
         momentum_status=str(momentum_details.get("status") or ""),
         momentum_reasons=list(momentum_details.get("reasons") or []),
+        option_momentum_status=str(momentum_details.get("option_status") or ""),
+        underlying_momentum_status=str(momentum_details.get("underlying_status") or ""),
+        momentum_negative_score=safe_float(momentum_details.get("negative_score")),
         recently_filled_order=(
             _normalize_order_status((pending_reconciliation or {}).get("pending_order_status")) == "filled"
         ),
@@ -153,9 +175,15 @@ def _build_option_position_snapshot(
         "last_action_at": str(persisted_state.get("updated_at") or ""),
         "momentum_status": str(momentum_details.get("status") or ""),
         "momentum_reasons": list(momentum_details.get("reasons") or []),
+        "option_price_momentum_status": str(option_price_momentum_details.get("status") or ""),
+        "option_price_momentum_reasons": list(option_price_momentum_details.get("reasons") or []),
+        "underlying_momentum_status": str(underlying_momentum_details.get("status") or ""),
+        "underlying_momentum_reasons": list(underlying_momentum_details.get("reasons") or []),
         "momentum_tracking_active": bool(persisted_state.get("momentum_tracking_active")),
         "momentum_history_sample_count": int(persisted_state.get("momentum_history_sample_count") or 0),
         "momentum_bad_count": int(persisted_state.get("momentum_bad_count") or 0),
+        "momentum_mixed_count": int(persisted_state.get("momentum_mixed_count") or 0),
+        "momentum_negative_score": safe_float(persisted_state.get("momentum_negative_score")) or 0.0,
         "momentum_consecutive_bad_count": int(persisted_state.get("momentum_consecutive_bad_count") or 0),
         "trailing_profit_enabled": enable_trailing_profit,
         "trailing_profit_dry_run": trailing_profit_dry_run,
