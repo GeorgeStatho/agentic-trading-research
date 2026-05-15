@@ -145,12 +145,12 @@ def _normalize_unrealized_pl_pct(
     entry_price: float | None,
     current_mid_price: float | None,
 ) -> float | None:
+    if entry_price is not None and entry_price > 0 and current_mid_price is not None:
+        return round(((current_mid_price - entry_price) / entry_price) * 100.0, 4)
     unrealized_plpc = safe_float(getattr(position, "unrealized_plpc", None))
     if unrealized_plpc is not None:
         return round(unrealized_plpc * 100.0, 4)
-    if entry_price is None or entry_price <= 0 or current_mid_price is None:
-        return None
-    return round(((current_mid_price - entry_price) / entry_price) * 100.0, 4)
+    return None
 
 
 def _days_to_expiration(expiration_date_text: str | None) -> int | None:

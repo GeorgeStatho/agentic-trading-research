@@ -915,6 +915,59 @@ class OptionPositionTests(VerboseTestCase):
             self.assertEqual(persisted_state["first_observed_underlying_price"], 120.0)
             self.log_pass("missing or untrusted underlying baselines stayed informational-only while option-price momentum continued to drive the combined signal")
 
+    def test_build_option_position_snapshot_prefers_quote_midpoint_over_broker_pl_for_options(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "option_state.json"
+            option_symbol = "XOM260612C00155000"
+
+            position = SimpleNamespace(
+                symbol=option_symbol,
+                avg_entry_price="3.25",
+                qty="1",
+                unrealized_plpc=0.7846,
+            )
+
+            original_get_latest_option_quote = self.option_positions._get_latest_option_quote
+            original_get_latest_stock_price = self.option_positions._get_latest_stock_price
+            try:
+                self.option_positions._get_latest_option_quote = lambda _symbol: {
+                    "bid_price": 3.67,
+                    "ask_price": 3.86,
+                    "mid_price": 3.765,
+                    "price": 3.765,
+                    "timestamp": "2026-05-15T15:30:00Z",
+                    "error": "",
+                }
+                self.option_positions._get_latest_stock_price = lambda _symbol: {
+                    "price": 156.215,
+                    "timestamp": "2026-05-15T15:30:00Z",
+                    "error": "",
+                }
+
+                summary = self.option_positions._build_option_position_snapshot(
+                    position,
+                    take_profit_pct=25.0,
+                    stop_loss_pct=-20.0,
+                    exit_hours_to_expiration=24.0,
+                    enable_trailing_profit=True,
+                    trailing_profit_dry_run=False,
+                    trailing_profit_config=_make_trailing_profit_config(self.option_positions),
+                    momentum_history_config=_make_momentum_history_config(self.option_positions),
+                    option_price_momentum_config=_make_option_price_momentum_config(self.option_positions),
+                    state_path=state_path,
+                    position_state_override={},
+                    pending_reconciliation=None,
+                )
+            finally:
+                self.option_positions._get_latest_option_quote = original_get_latest_option_quote
+                self.option_positions._get_latest_stock_price = original_get_latest_stock_price
+
+            expected_unrealized_pl_pct = round(((3.765 - 3.25) / 3.25) * 100.0, 4)
+            self.assertEqual(summary["mid_price"], 3.765)
+            self.assertEqual(summary["unrealized_pl_pct"], expected_unrealized_pl_pct)
+            self.assertNotEqual(summary["unrealized_pl_pct"], round(0.7846 * 100.0, 4))
+            self.log_pass("snapshot pricing preferred the live option midpoint over broker-reported option P/L when they disagreed")
+
     def test_manage_current_option_positions_submits_partial_scale_out_for_trailing_profit(self) -> None:
         with TemporaryDirectory() as temp_dir:
             state_path = Path(temp_dir) / "option_state.json"

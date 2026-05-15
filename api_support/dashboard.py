@@ -286,6 +286,16 @@ def get_latest_option_quote(symbol: str, quote_cache: dict[str, dict]) -> dict[s
     return extracted
 
 
+def compute_option_unrealized_pl_pct(
+    entry_price: float | None,
+    current_mark_price: float | None,
+    fallback_unrealized_pl_pct: float | None,
+) -> float | None:
+    if entry_price is not None and entry_price > 0 and current_mark_price is not None:
+        return round(((current_mark_price - entry_price) / entry_price) * 100.0, 4)
+    return fallback_unrealized_pl_pct
+
+
 def format_exit_rule_status(position_summary: dict, management_payload: dict) -> str:
     reasons = position_summary.get("decision_reasons")
     normalized_reasons = reasons if isinstance(reasons, list) else []
@@ -371,9 +381,11 @@ def build_open_positions_payload() -> dict:
                 current_bid = safe_float(latest_quote.get("bid_price"))
             if current_ask is None:
                 current_ask = safe_float(latest_quote.get("ask_price"))
-        mid_price = safe_float(snapshot.get("mid_price")) if is_option else None
-        if mid_price is None and current_bid is not None and current_ask is not None:
+        mid_price = None
+        if is_option and current_bid is not None and current_ask is not None:
             mid_price = round((current_bid + current_ask) / 2.0, 4)
+        elif is_option:
+            mid_price = safe_float(snapshot.get("mid_price"))
         if mid_price is None:
             mid_price = safe_float(raw_position.get("current_price"))
 
@@ -381,6 +393,12 @@ def build_open_positions_payload() -> dict:
         if unrealized_pl_pct is None:
             live_unrealized = safe_float(raw_position.get("unrealized_plpc"))
             unrealized_pl_pct = round(live_unrealized * 100.0, 4) if live_unrealized is not None else None
+        if is_option:
+            unrealized_pl_pct = compute_option_unrealized_pl_pct(
+                entry_price,
+                mid_price,
+                unrealized_pl_pct,
+            )
 
         expiration_text = str(snapshot.get("expiration_date") or parsed_option.get("expiration_date") or "")
         days_to_expiration = safe_float(snapshot.get("days_to_expiration"))
