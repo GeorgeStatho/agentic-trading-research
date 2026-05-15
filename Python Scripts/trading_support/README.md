@@ -18,14 +18,16 @@ The newer service layer usually calls into `trading_support/` instead of reimple
 
 The most important connection points are:
 
+- `services/front_main_application.py`
+  Schedules when option-position management should run.
 - `services/position_manager.py`
-  Calls `ManageCurrentOptionPositions(...)` from `option_positions.py`
+  Calls `ManageCurrentOptionPositions(...)` from `option_positions.py` and supplies the broker callbacks.
 - `services/trading_gateway.py`
-  Provides a newer broker wrapper, but `trading_support/` still contains direct Alpaca helpers used by older code paths
+  Provides the newer normalized Alpaca wrapper used by the service layer.
 - `Trading.py`
-  Historically used these helpers directly and still forwards into the option-position workflow
+  Preserves the older compatibility import path and still forwards into the option-position workflow.
 
-So if `services/` is the runtime control layer, `trading_support/` is the lower-level trading helper layer that actually knows how to inspect and manage broker-facing trading data.
+So if `services/` is the runtime control layer, `trading_support/` is the lower-level trading helper layer that knows how to inspect positions, compute exits, reconcile orders, and translate that into broker-facing actions.
 
 ## Module Guide
 
@@ -146,9 +148,9 @@ This file is mostly a simple convenience wrapper around stock order submission a
 
 ### `option_positions.py`
 
-This is the main option-position exit engine for the repo.
+This is now the public facade for the option-position engine.
 
-It is the most important file in `trading_support/`, and it is what the newer `services.position_manager.OptionPositionManagerService` ultimately calls.
+It is still the main import surface that the newer `services.position_manager.OptionPositionManagerService` ultimately calls, but the implementation has been split across several focused internal modules.
 
 Main responsibilities:
 
@@ -186,20 +188,22 @@ Main public functions:
 - `ManageCurrentOptionPositions(...)`
   Runs the full option-position management workflow and returns a normalized result payload describing every open option position, its diagnostics, and any submitted exit actions.
 
-Key internal helper groups:
+Current internal module split:
 
-- Quote and price helpers:
-  `_get_latest_option_quote(...)`, `_get_latest_stock_price(...)`
-- Expiration and symbol parsing:
-  `_parse_option_symbol(...)`, `_days_to_expiration(...)`, `_hours_to_expiration(...)`
-- Threshold resolution:
-  `_resolve_dte_exit_rule(...)`, `_resolve_option_exit_thresholds(...)`
-- Trailing-profit behavior:
-  `_resolve_trailing_giveback_pct(...)`, `_structured_exit_action(...)`
-- Pending-order reconciliation:
-  `_reconcile_pending_order_state(...)`, `_resolve_pending_fill_metrics(...)`, `_resolve_pending_order_age_seconds(...)`
-- Snapshot building:
-  `_build_option_position_snapshot(...)`
+- `_option_positions_defaults.py`
+  Shared dataclasses, default constants, and bundled config types for the option-position workflow.
+- `_option_positions_market.py`
+  Symbol parsing, DTE calculations, quote helpers, and exit-threshold resolution.
+- `_option_positions_snapshot.py`
+  Builds one normalized position snapshot, including quote context, momentum summaries, and persisted-state updates.
+- `_option_positions_strategy.py`
+  Applies stop-loss, expiry, trailing-profit, scale-out, and momentum-history exit rules.
+- `_option_positions_state.py`
+  Handles pending-order reconciliation and momentum/trailing state bookkeeping between cycles.
+- `_option_positions_momentum.py`
+  Combines option-price momentum with underlying-stock momentum into the weighted momentum signal used by the strategy layer.
+- `_option_positions_manager.py`
+  Orchestrates the full multi-position management pass and handles sell submission callbacks.
 
 Important current design details:
 
@@ -210,6 +214,11 @@ Important current design details:
 - Momentum exits reuse `services.option_momentum`
 
 If you need to understand why an option position was held, partially exited, or closed, this is the file to read first.
+
+If you need to change the actual logic, the best entrypoint is usually:
+
+- `option_positions.py` to understand the public surface
+- then the relevant `_option_positions_*` module that owns the behavior you want to change
 
 ## Which Imports Are Most Useful?
 
@@ -254,4 +263,5 @@ Both still matter, but for new runtime orchestration work, the service layer is 
 
 - Functions and helpers starting with `_` are internal even if they are technically importable.
 - Some names here intentionally preserve old spellings and old call shapes for backward compatibility.
-- `option_positions.py` is large because it combines inspection, decisioning, trailing state, and order reconciliation into one workflow. The newer service layer wraps it rather than replacing it outright.
+- `option_positions.py` is no longer a single large implementation file; it is the compatibility facade over the split `_option_positions_*` modules.
+- The newer service layer wraps this package rather than replacing it outright, so changes here still directly affect live option-position management.
