@@ -11,6 +11,7 @@ from .clients import (
     get_stock_history_client,
 )
 from ._option_positions_momentum import MOMENTUM_MIXED
+from ._option_positions_momentum import evaluate_option_price_momentum
 from ._option_positions_defaults import *
 from ._option_positions_manager import (
     CloseOptionPositions as _close_option_positions_impl,
@@ -61,6 +62,7 @@ def _build_option_position_snapshot(
     trailing_profit_dry_run: bool,
     trailing_profit_config: TrailingProfitConfig,
     momentum_history_config: MomentumHistoryConfig,
+    option_price_momentum_config: OptionPriceMomentumConfig | None = None,
     state_path: Path,
     position_state_override: dict[str, Any] | None = None,
     pending_reconciliation: dict[str, Any] | None = None,
@@ -74,6 +76,15 @@ def _build_option_position_snapshot(
         trailing_profit_dry_run=trailing_profit_dry_run,
         trailing_profit_config=trailing_profit_config,
         momentum_history_config=momentum_history_config,
+        option_price_momentum_config=(
+            option_price_momentum_config
+            if option_price_momentum_config is not None
+            else OptionPriceMomentumConfig(
+                bad_giveback_threshold=DEFAULT_OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD,
+                mixed_giveback_threshold=DEFAULT_OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD,
+                good_profit_threshold=DEFAULT_OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD,
+            )
+        ),
         state_path=state_path,
         get_latest_option_quote=_get_latest_option_quote,
         get_latest_stock_price=_get_latest_stock_price,
@@ -110,6 +121,9 @@ def ManageCurrentOptionPositions(
     momentum_history_min_samples_override: int | None = None,
     momentum_history_bad_count_exit_threshold_override: int | None = None,
     momentum_history_consecutive_bad_exit_threshold_override: int | None = None,
+    option_price_momentum_bad_giveback_threshold_override: float | None = None,
+    option_price_momentum_mixed_giveback_threshold_override: float | None = None,
+    option_price_momentum_good_profit_threshold_override: float | None = None,
     trail_protection_trigger_pct_override: float | None = None,
     trail_initial_floor_pct_override: float | None = None,
     trail_first_scale_out_trigger_pct_override: float | None = None,
@@ -148,6 +162,9 @@ def ManageCurrentOptionPositions(
         momentum_history_min_samples_override=momentum_history_min_samples_override,
         momentum_history_bad_count_exit_threshold_override=momentum_history_bad_count_exit_threshold_override,
         momentum_history_consecutive_bad_exit_threshold_override=momentum_history_consecutive_bad_exit_threshold_override,
+        option_price_momentum_bad_giveback_threshold_override=option_price_momentum_bad_giveback_threshold_override,
+        option_price_momentum_mixed_giveback_threshold_override=option_price_momentum_mixed_giveback_threshold_override,
+        option_price_momentum_good_profit_threshold_override=option_price_momentum_good_profit_threshold_override,
         trail_protection_trigger_pct_override=trail_protection_trigger_pct_override,
         trail_initial_floor_pct_override=trail_initial_floor_pct_override,
         trail_first_scale_out_trigger_pct_override=trail_first_scale_out_trigger_pct_override,

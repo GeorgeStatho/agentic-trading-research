@@ -123,6 +123,16 @@ def _make_momentum_history_config(module, **overrides):
     return module.MomentumHistoryConfig(**values)
 
 
+def _make_option_price_momentum_config(module, **overrides):
+    values = {
+        "bad_giveback_threshold": module.DEFAULT_OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD,
+        "mixed_giveback_threshold": module.DEFAULT_OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD,
+        "good_profit_threshold": module.DEFAULT_OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD,
+    }
+    values.update(overrides)
+    return module.OptionPriceMomentumConfig(**values)
+
+
 class VerboseTestCase(unittest.TestCase):
     def log_pass(self, message: str) -> None:
         print(f"[PASS] {self.__class__.__name__}.{self._testMethodName}: {message}")
@@ -390,6 +400,26 @@ class OptionPositionTests(VerboseTestCase):
         self.assertEqual(updated_state["last_decision_reason"], "momentum_history_failed")
         self.assertAlmostEqual(updated_state["momentum_negative_score"], 6.0, places=6)
         self.log_pass("weighted momentum scoring treated mixed samples as half-bad and still triggered the full exit once the threshold was reached")
+
+    def test_option_price_momentum_thresholds_are_configurable(self) -> None:
+        strict_config = _make_option_price_momentum_config(
+            self.option_positions,
+            bad_giveback_threshold=0.50,
+            mixed_giveback_threshold=0.30,
+            good_profit_threshold=0.25,
+        )
+
+        momentum = self.option_positions.evaluate_option_price_momentum(
+            entry_option_price=1.0,
+            current_option_mid_price=1.18,
+            unrealized_pl_ratio=0.18,
+            max_pnl_pct=0.50,
+            config=strict_config,
+        )
+
+        self.assertEqual(momentum["status"], self.option_positions.MOMENTUM_MIXED)
+        self.assertAlmostEqual(momentum["giveback_from_peak"], 0.32, places=6)
+        self.log_pass("option-price momentum classification respected the configured giveback and good-profit thresholds")
 
     def test_structured_exit_action_triggers_momentum_history_failed_on_consecutive_bad_streak(self) -> None:
         exit_action, updated_state = self.option_positions._structured_exit_action(

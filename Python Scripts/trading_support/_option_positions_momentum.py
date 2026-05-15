@@ -4,6 +4,7 @@ from typing import Any
 
 from services.option_momentum import MOMENTUM_BAD, MOMENTUM_GOOD, MOMENTUM_UNKNOWN
 
+from ._option_positions_defaults import OptionPriceMomentumConfig
 from .utils import safe_float
 
 MOMENTUM_MIXED = "mixed"
@@ -24,6 +25,7 @@ def evaluate_option_price_momentum(
     current_option_mid_price: Any,
     unrealized_pl_ratio: Any,
     max_pnl_pct: Any,
+    config: OptionPriceMomentumConfig,
 ) -> dict[str, Any]:
     entry_price = safe_float(entry_option_price)
     current_mid_price = safe_float(current_option_mid_price)
@@ -59,16 +61,16 @@ def evaluate_option_price_momentum(
     if primary_ratio is None:
         status = MOMENTUM_UNKNOWN
         reasons.append("Option momentum could not resolve a usable return ratio.")
-    elif giveback_from_peak is not None and giveback_from_peak >= 0.35:
+    elif giveback_from_peak is not None and giveback_from_peak >= config.bad_giveback_threshold:
         status = MOMENTUM_BAD
         reasons.append("Option premium gave back materially from its tracked peak.")
     elif primary_ratio < 0:
         status = MOMENTUM_BAD
         reasons.append("Option premium moved below its average entry price.")
-    elif giveback_from_peak is not None and giveback_from_peak >= 0.15:
+    elif giveback_from_peak is not None and giveback_from_peak >= config.mixed_giveback_threshold:
         status = MOMENTUM_MIXED
         reasons.append("Option premium stayed profitable but started to give back a noticeable share of gains.")
-    elif primary_ratio >= 0.10:
+    elif primary_ratio >= config.good_profit_threshold:
         status = MOMENTUM_GOOD
         reasons.append("Option premium stayed comfortably above entry and near the recent peak.")
     else:

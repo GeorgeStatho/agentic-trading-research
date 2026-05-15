@@ -65,6 +65,9 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
                 option_momentum_history_min_samples=5,
                 option_momentum_history_bad_count_exit_threshold=6,
                 option_momentum_history_consecutive_bad_exit_threshold=3,
+                option_price_momentum_bad_giveback_threshold=0.40,
+                option_price_momentum_mixed_giveback_threshold=0.20,
+                option_price_momentum_good_profit_threshold=0.12,
                 option_trail_protection_trigger_pct=0.40,
                 option_trail_initial_floor_pct=0.10,
                 option_trail_first_scale_out_trigger_pct=0.55,
@@ -121,6 +124,9 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
         self.assertEqual(call_kwargs["momentum_history_min_samples_override"], 5)
         self.assertEqual(call_kwargs["momentum_history_bad_count_exit_threshold_override"], 6)
         self.assertEqual(call_kwargs["momentum_history_consecutive_bad_exit_threshold_override"], 3)
+        self.assertEqual(call_kwargs["option_price_momentum_bad_giveback_threshold_override"], 0.40)
+        self.assertEqual(call_kwargs["option_price_momentum_mixed_giveback_threshold_override"], 0.20)
+        self.assertEqual(call_kwargs["option_price_momentum_good_profit_threshold_override"], 0.12)
         self.assertEqual(call_kwargs["trail_protection_trigger_pct_override"], 0.40)
         self.assertEqual(call_kwargs["trail_initial_floor_pct_override"], 0.10)
         self.assertEqual(
