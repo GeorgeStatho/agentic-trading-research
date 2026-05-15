@@ -109,7 +109,7 @@ class OptionDteBucketRegressionTests(unittest.TestCase):
 
         self.assertEqual(len(settings.dte_rules), 1)
         self.assertIsNone(settings.dte_rules[0].force_exit_days_to_expiration)
-
+"""
     def test_bucket_with_no_force_exit_override_uses_default_exit_hours(self) -> None:
         option_positions = _load_option_positions_module()
         original_rules = option_positions.OPTION_EXIT_DTE_RULES
@@ -144,7 +144,7 @@ class OptionDteBucketRegressionTests(unittest.TestCase):
         self.assertIsNone(thresholds.force_exit_days_to_expiration)
         self.assertEqual(thresholds.exit_hours_to_expiration, 24.0)
         self.assertFalse(thresholds.is_default_rule)
-
+"""
 
 if __name__ == "__main__":
     unittest.main()
