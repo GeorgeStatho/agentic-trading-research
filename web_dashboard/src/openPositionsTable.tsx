@@ -12,6 +12,7 @@ type OpenPosition = {
   entry_price: number | null;
   current_bid: number | null;
   current_ask: number | null;
+  mark_price: number | null;
   mid_price: number | null;
   unrealized_pl_pct: number | null;
   days_to_expiration: number | null;
@@ -177,6 +178,7 @@ function OpenPositionsTable() {
                 <th>Qty</th>
                 <th>Entry</th>
                 <th>Current Bid/Ask</th>
+                <th>Current Mark</th>
                 <th>Mid Price</th>
                 <th>P/L %</th>
                 <th>Days to Expiration</th>
@@ -200,6 +202,7 @@ function OpenPositionsTable() {
                   <td>{formatNumber(position.quantity)}</td>
                   <td>{formatCurrency(position.entry_price)}</td>
                   <td>{formatBidAsk(position)}</td>
+                  <td>{formatCurrency(position.mark_price)}</td>
                   <td>{formatCurrency(position.mid_price)}</td>
                   <td className={position.unrealized_pl_pct !== null && position.unrealized_pl_pct < 0 ? 'positions-table__negative' : position.unrealized_pl_pct !== null && position.unrealized_pl_pct > 0 ? 'positions-table__positive' : ''}>
                     {formatPercent(position.unrealized_pl_pct)}
