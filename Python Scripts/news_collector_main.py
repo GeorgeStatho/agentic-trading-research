@@ -40,6 +40,7 @@ from db_helpers import (
     initialize_market_database,
     initialize_news_database,
 )
+from services.startup_readiness import StartupReadinessChecker
 
 
 LOGGER = logging.getLogger("news_collector")
@@ -132,6 +133,18 @@ def _run_cold_start_sanity_check() -> dict[str, Any]:
     return result
 
 
+def _run_startup_readiness_check() -> dict[str, Any]:
+    checker = StartupReadinessChecker(LOGGER)
+    readiness_result = checker.run(
+        runtime_name="news_collector",
+        output_paths=(SETTINGS.output_path,),
+        require_llm=True,
+        require_alpaca=False,
+    )
+    LOGGER.info("Startup readiness check passed: %s", readiness_result)
+    return readiness_result
+
+
 def _build_log_path(prefix: str = "news_collector") -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return LOGS_DIR / f"{prefix}_{timestamp}.log"
@@ -168,6 +181,7 @@ def main_loop() -> None:
         SETTINGS.interval_seconds,
     )
 
+    _run_startup_readiness_check()
     if SETTINGS.cold_start_sanity_check_enabled:
         sanity_result = _run_cold_start_sanity_check()
         LOGGER.info("Cold-start sanity check passed: %s", sanity_result)
