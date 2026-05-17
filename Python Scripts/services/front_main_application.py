@@ -13,6 +13,7 @@ from services.config import FrontMainPaths, FrontMainSettings
 from services.io_utils import JsonFileWriter, StatusReporter
 from services.order_candidates import OrderCandidateBuilder
 from services.position_manager import OptionPositionManagerService
+from services.startup_readiness import StartupReadinessChecker
 from services.trade_executor import OptionExposureSnapshot, OptionTradeExecutor
 from services.trading_gateway import TradingClient
 
@@ -414,10 +415,6 @@ class FrontMainApplication:
         """Run the full scheduled loop that alternates trading and position management."""
         # Drive the all-in-one worker: wait for market-open windows, interleave
         # trading cycles with position management, and publish status on each pass.
-        trading_client = self._trading_gateway.create_client()
-        next_trading_cycle_at = datetime.now()
-        next_option_management_at = datetime.now()
-
         self._logger.info(
             "Starting front-facing main loop with interval=%s seconds, option management interval=%s seconds, market recheck=%s seconds, and immediate_option_execution=%s",
             self._settings.run_interval_seconds,
@@ -434,8 +431,13 @@ class FrontMainApplication:
             immediate_option_execution=self._settings.immediate_option_execution,
         )
 
+        self._run_startup_readiness_check()
         if self._settings.cold_start_sanity_check_enabled:
             self._run_cold_start_sanity_check()
+
+        trading_client = self._trading_gateway.create_client()
+        next_trading_cycle_at = datetime.now()
+        next_option_management_at = datetime.now()
 
         while True:
             loop_started_at = datetime.now()
@@ -568,6 +570,36 @@ class FrontMainApplication:
         except Exception as exc:
             self._status_reporter.write("error", f"Cold-start sanity check failed: {exc}")
             self._logger.exception("Cold-start sanity check failed: %s", exc)
+            raise
+
+    def _run_startup_readiness_check(self) -> None:
+        checker = StartupReadinessChecker(self._logger)
+        try:
+            readiness_result = checker.run(
+                runtime_name="worker",
+                output_paths=(
+                    self._paths.status_path,
+                    self._paths.trade_output_path,
+                    self._paths.option_position_management_output_path,
+                    self._paths.option_position_state_path,
+                    self._paths.agent_output_path,
+                    self._paths.selected_options_output_path,
+                    self._paths.combined_output_path,
+                ),
+                require_llm=True,
+                require_alpaca=True,
+                trading_gateway=self._trading_gateway,
+                alpaca_paper=self._settings.alpaca_paper,
+            )
+            self._logger.info("Startup readiness check passed: %s", readiness_result)
+            self._status_reporter.write(
+                "starting",
+                "Startup readiness check passed",
+                startup_readiness=readiness_result,
+            )
+        except Exception as exc:
+            self._status_reporter.write("error", f"Startup readiness check failed: {exc}")
+            self._logger.exception("Startup readiness check failed: %s", exc)
             raise
 
     def _compute_next_sleep_seconds(
