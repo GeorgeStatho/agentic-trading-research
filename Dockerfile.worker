@@ -30,10 +30,10 @@ RUN python -m pip install --upgrade pip setuptools wheel \
     && pip install /wheels/* \
     && rm -rf /wheels
 
+RUN playwright install --with-deps chromium
+
 COPY . .
 
 RUN python -m unittest discover -s tests -p "test_*.py" -v
-
-RUN playwright install --with-deps chromium
 
 CMD ["python", "Python Scripts/main.py"]
