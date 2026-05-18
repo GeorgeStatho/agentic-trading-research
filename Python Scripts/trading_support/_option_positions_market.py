@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from alpaca.data.requests import OptionLatestQuoteRequest, StockLatestQuoteRequest
 
-from services.option_dte_buckets import resolve_dte_bucket_for_days
+from services.option_dte_buckets import DteBucket, get_dte_bucket, resolve_dte_bucket_for_days
 
 from .utils import mid_price, safe_float
 from ._option_positions_defaults import (
@@ -196,6 +196,15 @@ def _resolve_dte_exit_rule(days_to_expiration: int | None) -> OptionExitRule | N
     return None
 
 
+def _resolve_management_dte_bucket(days_to_expiration: int | None) -> DteBucket | None:
+    resolved_bucket = resolve_dte_bucket_for_days(days_to_expiration, prefer_higher_boundary=True)
+    if resolved_bucket is not None:
+        return resolved_bucket
+    if days_to_expiration is not None and 15 <= days_to_expiration <= 19:
+        return get_dte_bucket("14_30")
+    return None
+
+
 def _resolve_option_exit_thresholds(
     *,
     days_to_expiration: int | None,
@@ -203,7 +212,7 @@ def _resolve_option_exit_thresholds(
     default_stop_loss_pct: float,
     default_exit_hours_to_expiration: float,
 ) -> ExitThresholds:
-    resolved_bucket = resolve_dte_bucket_for_days(days_to_expiration, prefer_higher_boundary=True)
+    resolved_bucket = _resolve_management_dte_bucket(days_to_expiration)
     if resolved_bucket is not None:
         rule = next((candidate for candidate in OPTION_EXIT_DTE_RULES if candidate.label == resolved_bucket.label), None)
         if rule is not None:
@@ -245,7 +254,7 @@ def _resolve_trailing_giveback_pct(
     days_to_expiration: int | None,
     trailing_profit_config: TrailingProfitConfig,
 ) -> float:
-    resolved_bucket = resolve_dte_bucket_for_days(days_to_expiration, prefer_higher_boundary=True)
+    resolved_bucket = _resolve_management_dte_bucket(days_to_expiration)
     fallback_bucket_key = OPTION_DTE_BUCKETS[0].key if OPTION_DTE_BUCKETS else ""
     bucket_key = resolved_bucket.key if resolved_bucket is not None else fallback_bucket_key
     resolved_value = trailing_profit_config.giveback_pct_by_bucket_key.get(bucket_key)
