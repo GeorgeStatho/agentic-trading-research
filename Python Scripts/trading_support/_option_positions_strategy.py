@@ -91,6 +91,11 @@ def _structured_exit_action(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     existing_state = dict(position_state or {})
     notes: list[str] = list(context_notes)
+    profit_unrealized_pl_pct_ratio = (
+        broker_unrealized_pl_pct_ratio
+        if broker_unrealized_pl_pct_ratio is not None
+        else unrealized_pl_pct_ratio
+    )
     updated_state: dict[str, Any] = {
         **existing_state,
         "entry_option_symbol": option_symbol,
@@ -99,8 +104,11 @@ def _structured_exit_action(
     }
     previous_max_pnl_pct = safe_float(existing_state.get("max_pnl_pct"))
     current_max_pnl_pct = previous_max_pnl_pct
-    if unrealized_pl_pct_ratio is not None:
-        current_max_pnl_pct = max(previous_max_pnl_pct or unrealized_pl_pct_ratio, unrealized_pl_pct_ratio)
+    if profit_unrealized_pl_pct_ratio is not None:
+        current_max_pnl_pct = max(
+            previous_max_pnl_pct or profit_unrealized_pl_pct_ratio,
+            profit_unrealized_pl_pct_ratio,
+        )
     updated_state["max_pnl_pct"] = current_max_pnl_pct
     pending_order_id = str(existing_state.get("pending_order_id") or "").strip()
     protected_profit_floor_pct = safe_float(existing_state.get("protected_profit_floor_pct"))
@@ -174,7 +182,7 @@ def _structured_exit_action(
         _build_momentum_history_updates(
             existing_state=existing_state,
             current_max_pnl_pct=current_max_pnl_pct,
-            unrealized_pl_pct_ratio=unrealized_pl_pct_ratio,
+            unrealized_pl_pct_ratio=profit_unrealized_pl_pct_ratio,
             momentum_status=momentum_status,
             option_momentum_status=option_momentum_status,
             underlying_momentum_status=underlying_momentum_status,
@@ -226,7 +234,11 @@ def _structured_exit_action(
         )
     if not enable_trailing_profit:
         decision, reasons = _deterministic_option_exit_decision(
-            unrealized_pl_pct=(unrealized_pl_pct_ratio * 100.0) if unrealized_pl_pct_ratio is not None else None,
+            unrealized_pl_pct=(
+                profit_unrealized_pl_pct_ratio * 100.0
+                if profit_unrealized_pl_pct_ratio is not None
+                else None
+            ),
             stop_loss_unrealized_pl_pct=(
                 broker_unrealized_pl_pct_ratio * 100.0
                 if broker_unrealized_pl_pct_ratio is not None
@@ -243,7 +255,7 @@ def _structured_exit_action(
             _build_exit_action(
                 action="sell_full" if decision == "sell" else "hold",
                 reason="static_take_profit" if decision == "sell" else "hold",
-                pnl_pct=unrealized_pl_pct_ratio,
+                pnl_pct=profit_unrealized_pl_pct_ratio,
                 max_pnl_pct=current_max_pnl_pct,
                 protected_profit_floor_pct=protected_profit_floor_pct,
                 trailing_giveback_pct=trailing_giveback_pct,
@@ -277,9 +289,9 @@ def _structured_exit_action(
     updated_state["took_second_scale_out"] = took_second_scale_out
     if (
         profit_protection_active
-        and unrealized_pl_pct_ratio is not None
+        and profit_unrealized_pl_pct_ratio is not None
         and protected_profit_floor_pct is not None
-        and unrealized_pl_pct_ratio <= protected_profit_floor_pct
+        and profit_unrealized_pl_pct_ratio <= protected_profit_floor_pct
     ):
         updated_state["last_action"] = "sell_full"
         updated_state["last_decision_reason"] = "trailing_profit_stop"
@@ -287,7 +299,7 @@ def _structured_exit_action(
             _build_exit_action(
                 action="sell_full",
                 reason="trailing_profit_stop",
-                pnl_pct=unrealized_pl_pct_ratio,
+                pnl_pct=profit_unrealized_pl_pct_ratio,
                 max_pnl_pct=current_max_pnl_pct,
                 protected_profit_floor_pct=protected_profit_floor_pct,
                 trailing_giveback_pct=trailing_giveback_pct,
@@ -308,7 +320,7 @@ def _structured_exit_action(
             _build_exit_action(
                 action="sell_full",
                 reason="momentum_history_failed",
-                pnl_pct=unrealized_pl_pct_ratio,
+                pnl_pct=profit_unrealized_pl_pct_ratio,
                 max_pnl_pct=current_max_pnl_pct,
                 protected_profit_floor_pct=protected_profit_floor_pct,
                 trailing_giveback_pct=trailing_giveback_pct,
@@ -319,8 +331,8 @@ def _structured_exit_action(
             updated_state,
         )
     if (
-        unrealized_pl_pct_ratio is not None
-        and unrealized_pl_pct_ratio >= trailing_profit_config.first_scale_out_trigger_pct
+        profit_unrealized_pl_pct_ratio is not None
+        and profit_unrealized_pl_pct_ratio >= trailing_profit_config.first_scale_out_trigger_pct
         and not took_first_scale_out
     ):
         qty_to_sell = _compute_scaled_sell_qty(quantity, trailing_profit_config.first_scale_out_fraction)
@@ -334,7 +346,7 @@ def _structured_exit_action(
                 _build_exit_action(
                     action=action,
                     reason="first_scale_out_trigger",
-                    pnl_pct=unrealized_pl_pct_ratio,
+                    pnl_pct=profit_unrealized_pl_pct_ratio,
                     max_pnl_pct=current_max_pnl_pct,
                     protected_profit_floor_pct=protected_profit_floor_pct,
                     trailing_giveback_pct=trailing_giveback_pct,
@@ -345,8 +357,8 @@ def _structured_exit_action(
                 updated_state,
             )
     if (
-        unrealized_pl_pct_ratio is not None
-        and unrealized_pl_pct_ratio >= trailing_profit_config.second_scale_out_trigger_pct
+        profit_unrealized_pl_pct_ratio is not None
+        and profit_unrealized_pl_pct_ratio >= trailing_profit_config.second_scale_out_trigger_pct
         and not took_second_scale_out
     ):
         qty_to_sell = _compute_scaled_sell_qty(quantity, trailing_profit_config.second_scale_out_fraction)
@@ -360,7 +372,7 @@ def _structured_exit_action(
                 _build_exit_action(
                     action=action,
                     reason="second_scale_out_trigger",
-                    pnl_pct=unrealized_pl_pct_ratio,
+                    pnl_pct=profit_unrealized_pl_pct_ratio,
                     max_pnl_pct=current_max_pnl_pct,
                     protected_profit_floor_pct=protected_profit_floor_pct,
                     trailing_giveback_pct=trailing_giveback_pct,
