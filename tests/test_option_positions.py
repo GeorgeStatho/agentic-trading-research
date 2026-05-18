@@ -846,6 +846,14 @@ class OptionPositionTests(VerboseTestCase):
             0.22,
         )
         self.assertEqual(
+            self.option_positions._resolve_trailing_giveback_pct(15, trailing_profit_config),
+            0.33,
+        )
+        self.assertEqual(
+            self.option_positions._resolve_trailing_giveback_pct(19, trailing_profit_config),
+            0.33,
+        )
+        self.assertEqual(
             self.option_positions._resolve_trailing_giveback_pct(30, trailing_profit_config),
             0.44,
         )
@@ -854,6 +862,21 @@ class OptionPositionTests(VerboseTestCase):
             0.55,
         )
         self.log_pass("trailing giveback buckets matched the shared DTE boundaries including the newer 30-45 and 45-60 ranges")
+
+    def test_exit_thresholds_bridge_15_to_19_dte_into_14_30_management_rule(self) -> None:
+        thresholds = self.option_positions._resolve_option_exit_thresholds(
+            days_to_expiration=19,
+            default_take_profit_pct=25.0,
+            default_stop_loss_pct=-20.0,
+            default_exit_hours_to_expiration=24.0,
+        )
+
+        self.assertEqual(thresholds.dte_rule_label, "14-30 DTE")
+        self.assertEqual(thresholds.take_profit_pct, 55.0)
+        self.assertEqual(thresholds.stop_loss_pct, -30.0)
+        self.assertEqual(thresholds.exit_hours_to_expiration, 288.0)
+        self.assertFalse(thresholds.is_default_rule)
+        self.log_pass("15-19 DTE positions kept using the 14-30 management thresholds instead of dropping to the generic default rule")
 
     def test_structured_exit_action_activates_profit_protection_after_trigger(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(
