@@ -640,12 +640,44 @@ class OptionPositionTests(VerboseTestCase):
             momentum_status=MOMENTUM_UNKNOWN,
             momentum_reasons=["Current underlying price was missing or invalid."],
             recently_filled_order=False,
+            broker_unrealized_pl_pct_ratio=-0.35,
         )
 
         self.assertEqual(exit_action["action"], "sell_full")
         self.assertEqual(exit_action["reason"], "stop_loss")
         self.assertIn("Underlying stock quote was unavailable", exit_action["notes"][0])
         self.log_pass("stop-loss still fired when only a noncritical underlying-quote note was present")
+
+    def test_structured_exit_action_ignores_midpoint_loss_for_stop_loss_when_broker_pl_is_above_floor(self) -> None:
+        exit_action, updated_state = self.option_positions._structured_exit_action(
+            option_symbol=OPTION_SYMBOL,
+            quantity=2,
+            unrealized_pl_pct_ratio=-0.35,
+            days_to_expiration=10,
+            hours_to_expiration=120.0,
+            exit_thresholds=self.option_positions.ExitThresholds(
+                dte_rule_label="7-14 DTE",
+                take_profit_pct=40.0,
+                stop_loss_pct=-28.0,
+                force_exit_days_to_expiration=3,
+                exit_hours_to_expiration=72.0,
+                is_default_rule=False,
+            ),
+            position_state={},
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=_make_trailing_profit_config(self.option_positions),
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
+            momentum_status=MOMENTUM_UNKNOWN,
+            momentum_reasons=[],
+            recently_filled_order=False,
+            broker_unrealized_pl_pct_ratio=-0.10,
+        )
+
+        self.assertEqual(exit_action["action"], "hold")
+        self.assertEqual(exit_action["reason"], "hold")
+        self.log_pass("stop-loss ignored a worse midpoint drawdown when broker P/L stayed above the stop floor")
 
     def test_structured_exit_action_allows_near_expiration_exit_without_option_pricing(self) -> None:
         exit_action, updated_state = self.option_positions._structured_exit_action(

@@ -15,6 +15,7 @@ from .utils import safe_float
 def _deterministic_option_exit_decision(
     *,
     unrealized_pl_pct: float | None,
+    stop_loss_unrealized_pl_pct: float | None,
     hours_to_expiration: float | None,
     take_profit_pct: float,
     stop_loss_pct: float,
@@ -23,8 +24,10 @@ def _deterministic_option_exit_decision(
     reasons: list[str] = []
     if unrealized_pl_pct is not None and unrealized_pl_pct >= take_profit_pct:
         reasons.append(f"Take-profit triggered at {unrealized_pl_pct:.2f}% versus target {take_profit_pct:.2f}%.")
-    if unrealized_pl_pct is not None and unrealized_pl_pct <= stop_loss_pct:
-        reasons.append(f"Stop-loss triggered at {unrealized_pl_pct:.2f}% versus floor {stop_loss_pct:.2f}%.")
+    if stop_loss_unrealized_pl_pct is not None and stop_loss_unrealized_pl_pct <= stop_loss_pct:
+        reasons.append(
+            f"Stop-loss triggered at {stop_loss_unrealized_pl_pct:.2f}% versus floor {stop_loss_pct:.2f}%."
+        )
     if hours_to_expiration is not None and hours_to_expiration <= exit_hours_to_expiration:
         reasons.append(
             f"Hours to expiration is {hours_to_expiration:.2f}, at or below exit threshold {exit_hours_to_expiration:.2f}."
@@ -84,6 +87,7 @@ def _structured_exit_action(
     option_momentum_status: str = "unknown",
     underlying_momentum_status: str = "unknown",
     momentum_negative_score: float | None = None,
+    broker_unrealized_pl_pct_ratio: float | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     existing_state = dict(position_state or {})
     notes: list[str] = list(context_notes)
@@ -178,20 +182,28 @@ def _structured_exit_action(
             momentum_history_config=momentum_history_config,
         )
     )
-    if unrealized_pl_pct_ratio is not None and unrealized_pl_pct_ratio <= (exit_thresholds.stop_loss_pct / 100.0):
+    if (
+        broker_unrealized_pl_pct_ratio is not None
+        and broker_unrealized_pl_pct_ratio <= (exit_thresholds.stop_loss_pct / 100.0)
+    ):
         updated_state["last_action"] = "sell_full"
         updated_state["last_decision_reason"] = "stop_loss"
         return (
             _build_exit_action(
                 action="sell_full",
                 reason="stop_loss",
-                pnl_pct=unrealized_pl_pct_ratio,
+                pnl_pct=broker_unrealized_pl_pct_ratio,
                 max_pnl_pct=current_max_pnl_pct,
                 protected_profit_floor_pct=protected_profit_floor_pct,
                 trailing_giveback_pct=trailing_giveback_pct,
                 sell_fraction=1.0,
                 qty_to_sell=quantity,
-                notes=notes + [f"Stop-loss triggered at {unrealized_pl_pct_ratio * 100.0:.2f}% versus floor {exit_thresholds.stop_loss_pct:.2f}%."],
+                notes=notes + [
+                    (
+                        f"Stop-loss triggered at {broker_unrealized_pl_pct_ratio * 100.0:.2f}% "
+                        f"versus floor {exit_thresholds.stop_loss_pct:.2f}% based on broker P/L."
+                    )
+                ],
             ),
             updated_state,
         )
@@ -215,6 +227,11 @@ def _structured_exit_action(
     if not enable_trailing_profit:
         decision, reasons = _deterministic_option_exit_decision(
             unrealized_pl_pct=(unrealized_pl_pct_ratio * 100.0) if unrealized_pl_pct_ratio is not None else None,
+            stop_loss_unrealized_pl_pct=(
+                broker_unrealized_pl_pct_ratio * 100.0
+                if broker_unrealized_pl_pct_ratio is not None
+                else None
+            ),
             hours_to_expiration=hours_to_expiration,
             take_profit_pct=exit_thresholds.take_profit_pct,
             stop_loss_pct=exit_thresholds.stop_loss_pct,

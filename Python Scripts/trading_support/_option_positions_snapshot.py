@@ -95,8 +95,12 @@ def _build_option_position_snapshot(
     expiration_date_text = parsed_symbol.get("expiration_date")
     days_to_expiration = _days_to_expiration(expiration_date_text)
     hours_to_expiration = _hours_to_expiration(expiration_date_text)
+    broker_unrealized_pl_pct = safe_float(getattr(position, "unrealized_plpc", None))
+    if broker_unrealized_pl_pct is not None:
+        broker_unrealized_pl_pct = round(broker_unrealized_pl_pct * 100.0, 4)
     unrealized_pl_pct = _normalize_unrealized_pl_pct(position, entry_price, current_mid_price)
     unrealized_pl_pct_ratio = _normalize_pct_ratio(unrealized_pl_pct)
+    broker_unrealized_pl_pct_ratio = _normalize_pct_ratio(broker_unrealized_pl_pct)
     exit_thresholds = _resolve_option_exit_thresholds(
         days_to_expiration=days_to_expiration,
         default_take_profit_pct=take_profit_pct,
@@ -143,6 +147,7 @@ def _build_option_position_snapshot(
         option_symbol=option_symbol,
         quantity=broker_quantity,
         unrealized_pl_pct_ratio=unrealized_pl_pct_ratio,
+        broker_unrealized_pl_pct_ratio=broker_unrealized_pl_pct_ratio,
         days_to_expiration=days_to_expiration,
         hours_to_expiration=hours_to_expiration,
         exit_thresholds=exit_thresholds,
@@ -190,6 +195,8 @@ def _build_option_position_snapshot(
         "quantity": quantity,
         "unrealized_pl_pct": unrealized_pl_pct,
         "unrealized_pl_ratio": unrealized_pl_pct_ratio,
+        "broker_unrealized_pl_pct": broker_unrealized_pl_pct,
+        "broker_unrealized_pl_ratio": broker_unrealized_pl_pct_ratio,
         "days_to_expiration": days_to_expiration,
         "hours_to_expiration": hours_to_expiration,
         "dte_exit_rule": exit_thresholds.dte_rule_label,
