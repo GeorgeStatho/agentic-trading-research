@@ -161,7 +161,7 @@ class FrontMainSettings:
             immediate_option_execution=env_flag("IMMEDIATE_OPTION_EXECUTION", False),
             execute_medium_confidence_trades=env_flag("EXECUTE_MEDIUM_CONFIDENCE_TRADES", True),
             option_position_management_interval_seconds=max(
-                60,
+                5,
                 int(os.getenv("OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS", str(market_recheck_seconds))),
             ),
             option_position_take_profit_pct=float(os.getenv("OPTION_POSITION_TAKE_PROFIT_PCT", "25")),

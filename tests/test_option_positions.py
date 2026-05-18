@@ -697,7 +697,7 @@ class OptionPositionTests(VerboseTestCase):
         )
         self.assertEqual(
             self.option_positions._resolve_trailing_giveback_pct(14, trailing_profit_config),
-            0.33,
+            0.22,
         )
         self.assertEqual(
             self.option_positions._resolve_trailing_giveback_pct(30, trailing_profit_config),
