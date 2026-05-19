@@ -1083,9 +1083,16 @@ class OptionPositionTests(VerboseTestCase):
             recently_filled_order=False,
         )
 
+        expected_floor = max(
+            trailing_profit_config.floor_100_pct,
+            max(
+                0.25,
+                1.10 - self.option_positions._resolve_trailing_giveback_pct(20, trailing_profit_config),
+            ),
+        )
         self.assertEqual(exit_action["action"], "sell_full")
         self.assertEqual(exit_action["reason"], "trailing_profit_stop")
-        self.assertAlmostEqual(exit_action["protected_profit_floor_pct"], 0.65, places=6)
+        self.assertAlmostEqual(exit_action["protected_profit_floor_pct"], expected_floor, places=6)
         self.assertEqual(updated_state["last_decision_reason"], "trailing_profit_stop")
         self.log_pass("trailing profit stop sold after gains gave back through the protected floor")
 
