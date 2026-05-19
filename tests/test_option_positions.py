@@ -1049,6 +1049,7 @@ class OptionPositionTests(VerboseTestCase):
     def test_structured_exit_action_triggers_trailing_profit_stop_after_giveback(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(
             self.option_positions,
+            dynamic_giveback_start_pct=0.75,
             floor_100_pct=0.60,
             first_scale_out_trigger_pct=0.80,
         )
