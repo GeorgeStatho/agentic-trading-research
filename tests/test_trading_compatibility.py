@@ -19,16 +19,13 @@ for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
 
 
 def _install_alpaca_stubs() -> None:
-    if "alpaca" in sys.modules:
-        return
-
-    alpaca_module = types.ModuleType("alpaca")
-    data_module = types.ModuleType("alpaca.data")
-    data_requests_module = types.ModuleType("alpaca.data.requests")
-    trading_module = types.ModuleType("alpaca.trading")
-    trading_client_module = types.ModuleType("alpaca.trading.client")
-    trading_enums_module = types.ModuleType("alpaca.trading.enums")
-    trading_requests_module = types.ModuleType("alpaca.trading.requests")
+    alpaca_module = sys.modules.get("alpaca") or types.ModuleType("alpaca")
+    data_module = sys.modules.get("alpaca.data") or types.ModuleType("alpaca.data")
+    data_requests_module = sys.modules.get("alpaca.data.requests") or types.ModuleType("alpaca.data.requests")
+    trading_module = sys.modules.get("alpaca.trading") or types.ModuleType("alpaca.trading")
+    trading_client_module = sys.modules.get("alpaca.trading.client") or types.ModuleType("alpaca.trading.client")
+    trading_enums_module = sys.modules.get("alpaca.trading.enums") or types.ModuleType("alpaca.trading.enums")
+    trading_requests_module = sys.modules.get("alpaca.trading.requests") or types.ModuleType("alpaca.trading.requests")
 
     class _OptionHistoricalDataClient:
         def __init__(self, *args, **kwargs) -> None:
