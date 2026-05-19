@@ -29,6 +29,7 @@ from ._option_positions_defaults import (
     DEFAULT_OPTION_TRAIL_100_FLOOR_PCT,
     DEFAULT_OPTION_TRAIL_150_FLOOR_PCT,
     DEFAULT_OPTION_TRAIL_200_FLOOR_PCT,
+    DEFAULT_OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT,
     DEFAULT_OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION,
     DEFAULT_OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT,
     DEFAULT_OPTION_TRAIL_PROTECTION_TRIGGER_PCT,
@@ -140,6 +141,7 @@ def ManageCurrentOptionPositions(
     option_price_momentum_good_profit_threshold_override: float | None = None,
     trail_protection_trigger_pct_override: float | None = None,
     trail_initial_floor_pct_override: float | None = None,
+    trail_dynamic_giveback_start_pct_override: float | None = None,
     trail_first_scale_out_trigger_pct_override: float | None = None,
     trail_first_scale_out_fraction_override: float | None = None,
     trail_second_scale_out_trigger_pct_override: float | None = None,
@@ -211,6 +213,11 @@ def ManageCurrentOptionPositions(
     trailing_profit_config = TrailingProfitConfig(
         protection_trigger_pct=float(DEFAULT_OPTION_TRAIL_PROTECTION_TRIGGER_PCT if trail_protection_trigger_pct_override is None else trail_protection_trigger_pct_override),
         initial_floor_pct=float(DEFAULT_OPTION_TRAIL_INITIAL_FLOOR_PCT if trail_initial_floor_pct_override is None else trail_initial_floor_pct_override),
+        dynamic_giveback_start_pct=float(
+            DEFAULT_OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT
+            if trail_dynamic_giveback_start_pct_override is None
+            else trail_dynamic_giveback_start_pct_override
+        ),
         first_scale_out_trigger_pct=float(DEFAULT_OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT if trail_first_scale_out_trigger_pct_override is None else trail_first_scale_out_trigger_pct_override),
         first_scale_out_fraction=float(DEFAULT_OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION if trail_first_scale_out_fraction_override is None else trail_first_scale_out_fraction_override),
         second_scale_out_trigger_pct=float(DEFAULT_OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT if trail_second_scale_out_trigger_pct_override is None else trail_second_scale_out_trigger_pct_override),
