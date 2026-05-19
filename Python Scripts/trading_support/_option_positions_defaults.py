@@ -35,6 +35,7 @@ class ExitThresholds:
 class TrailingProfitConfig:
     protection_trigger_pct: float
     initial_floor_pct: float
+    dynamic_giveback_start_pct: float
     first_scale_out_trigger_pct: float
     first_scale_out_fraction: float
     second_scale_out_trigger_pct: float
@@ -122,7 +123,11 @@ DEFAULT_OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD = env_float(
     0.10,
 )
 DEFAULT_OPTION_TRAIL_PROTECTION_TRIGGER_PCT = env_float("OPTION_TRAIL_PROTECTION_TRIGGER_PCT", 0.40)
-DEFAULT_OPTION_TRAIL_INITIAL_FLOOR_PCT = env_float("OPTION_TRAIL_INITIAL_FLOOR_PCT", 0.10)
+DEFAULT_OPTION_TRAIL_INITIAL_FLOOR_PCT = env_float("OPTION_TRAIL_INITIAL_FLOOR_PCT", 0.05)
+DEFAULT_OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT = env_float(
+    "OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT",
+    0.75,
+)
 DEFAULT_OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT = env_float(
     "OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT",
     0.55,

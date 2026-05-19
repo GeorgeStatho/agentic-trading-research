@@ -97,6 +97,7 @@ def _make_trailing_profit_config(module, **overrides):
     values = {
         "protection_trigger_pct": module.DEFAULT_OPTION_TRAIL_PROTECTION_TRIGGER_PCT,
         "initial_floor_pct": module.DEFAULT_OPTION_TRAIL_INITIAL_FLOOR_PCT,
+        "dynamic_giveback_start_pct": module.DEFAULT_OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT,
         "first_scale_out_trigger_pct": module.DEFAULT_OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT,
         "first_scale_out_fraction": module.DEFAULT_OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION,
         "second_scale_out_trigger_pct": module.DEFAULT_OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT,
@@ -882,7 +883,8 @@ class OptionPositionTests(VerboseTestCase):
         trailing_profit_config = _make_trailing_profit_config(
             self.option_positions,
             protection_trigger_pct=0.40,
-            initial_floor_pct=0.10,
+            initial_floor_pct=0.05,
+            dynamic_giveback_start_pct=0.75,
             first_scale_out_trigger_pct=0.80,
         )
 
@@ -913,10 +915,95 @@ class OptionPositionTests(VerboseTestCase):
 
         self.assertEqual(exit_action["action"], "hold")
         self.assertTrue(updated_state["profit_protection_active"])
-        self.assertEqual(updated_state["protected_profit_floor_pct"], 0.10)
+        self.assertEqual(updated_state["protected_profit_floor_pct"], 0.05)
         self.assertEqual(updated_state["trailing_giveback_pct"], trailing_profit_config.giveback_pct_by_bucket_key["7_14"])
         self.assertIn("Profit protection activated.", exit_action["notes"])
         self.log_pass("profit protection activated once gains crossed the configured trigger")
+
+    def test_structured_exit_action_scale_out_does_not_start_dynamic_giveback_before_threshold(self) -> None:
+        trailing_profit_config = _make_trailing_profit_config(
+            self.option_positions,
+            protection_trigger_pct=0.40,
+            initial_floor_pct=0.05,
+            dynamic_giveback_start_pct=0.75,
+            first_scale_out_trigger_pct=0.55,
+            first_scale_out_fraction=0.50,
+        )
+
+        exit_action, updated_state = self.option_positions._structured_exit_action(
+            option_symbol=OPTION_SYMBOL,
+            quantity=4,
+            unrealized_pl_pct_ratio=0.60,
+            days_to_expiration=10,
+            hours_to_expiration=120.0,
+            exit_thresholds=self.option_positions.ExitThresholds(
+                dte_rule_label="7-14 DTE",
+                take_profit_pct=40.0,
+                stop_loss_pct=-28.0,
+                force_exit_days_to_expiration=3,
+                exit_hours_to_expiration=72.0,
+                is_default_rule=False,
+            ),
+            position_state={},
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=trailing_profit_config,
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
+            momentum_status=MOMENTUM_UNKNOWN,
+            momentum_reasons=[],
+            recently_filled_order=False,
+        )
+
+        self.assertEqual(exit_action["action"], "sell_partial")
+        self.assertEqual(exit_action["reason"], "first_scale_out_trigger")
+        self.assertEqual(exit_action["qty_to_sell"], 2)
+        self.assertEqual(exit_action["protected_profit_floor_pct"], 0.05)
+        self.assertEqual(updated_state["protected_profit_floor_pct"], 0.05)
+        self.log_pass("first scale-out fired at the split trigger without prematurely tightening the protected floor")
+
+    def test_structured_exit_action_starts_dynamic_giveback_only_after_threshold(self) -> None:
+        trailing_profit_config = _make_trailing_profit_config(
+            self.option_positions,
+            protection_trigger_pct=0.40,
+            initial_floor_pct=0.05,
+            dynamic_giveback_start_pct=0.75,
+            first_scale_out_trigger_pct=0.55,
+        )
+
+        exit_action, updated_state = self.option_positions._structured_exit_action(
+            option_symbol=OPTION_SYMBOL,
+            quantity=1,
+            unrealized_pl_pct_ratio=0.80,
+            days_to_expiration=10,
+            hours_to_expiration=120.0,
+            exit_thresholds=self.option_positions.ExitThresholds(
+                dte_rule_label="7-14 DTE",
+                take_profit_pct=40.0,
+                stop_loss_pct=-28.0,
+                force_exit_days_to_expiration=3,
+                exit_hours_to_expiration=72.0,
+                is_default_rule=False,
+            ),
+            position_state={},
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=trailing_profit_config,
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
+            momentum_status=MOMENTUM_UNKNOWN,
+            momentum_reasons=[],
+            recently_filled_order=False,
+        )
+
+        expected_floor = max(
+            0.25,
+            0.80 - trailing_profit_config.giveback_pct_by_bucket_key["7_14"],
+        )
+        self.assertEqual(exit_action["action"], "hold")
+        self.assertAlmostEqual(exit_action["protected_profit_floor_pct"], expected_floor, places=6)
+        self.assertAlmostEqual(updated_state["protected_profit_floor_pct"], expected_floor, places=6)
+        self.log_pass("dynamic giveback trailing stayed dormant before the split threshold and tightened the floor only after 75 percent profit")
 
     def test_structured_exit_action_does_not_scale_out_single_contract_position(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(

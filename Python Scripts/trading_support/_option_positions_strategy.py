@@ -271,7 +271,10 @@ def _structured_exit_action(
         notes.append("Profit protection activated.")
     trailing_giveback_pct = _resolve_trailing_giveback_pct(days_to_expiration, trailing_profit_config)
     updated_state["trailing_giveback_pct"] = trailing_giveback_pct
-    if current_max_pnl_pct is not None and current_max_pnl_pct >= trailing_profit_config.first_scale_out_trigger_pct:
+    if (
+        current_max_pnl_pct is not None
+        and current_max_pnl_pct >= trailing_profit_config.dynamic_giveback_start_pct
+    ):
         profit_protection_active = True
         protected_profit_floor_pct = max(
             protected_profit_floor_pct or 0.0,
