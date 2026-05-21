@@ -19,7 +19,7 @@ import sys
 from typing import Any
 
 
-SELECTOR_VERSION = "deterministic-selector-v5-simple-hybrid-greeks"
+SELECTOR_VERSION = "deterministic-selector-v6-volatility-scoring"
 
 LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ if __package__ in {None, ""}:
         sys.path.append(str(AGENT_CALLERS_DIR))
 
 from _paths import bootstrap_agent_callers
+from agent_helpers.volatility import summarize_iv_vs_hv
 from services.option_dte_buckets import (
     DTE_BUCKET_TO_TARGET_OTM_PCT,
     get_bucket_target_otm_pct,
@@ -101,6 +102,9 @@ PREFERRED_OTM_DISTANCE = 0.3
 
 MIN_TARGET_OTM_DOLLARS = 0.50
 MAX_TARGET_OTM_DOLLARS = 5.00
+SHORT_TERM_EVENT_PRICING_DTE = 7
+NEAR_TERM_EVENT_PRICING_DTE = 14
+VOLATILITY_CONFIDENCE_LOWEST_ALLOWED = "medium"
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -156,6 +160,22 @@ def _normalize_confidence(value: Any) -> str:
     if confidence in {"high", "medium", "low"}:
         return confidence
     return ""
+
+
+def _confidence_rank(confidence: str) -> int:
+    return {
+        "low": 0,
+        "medium": 1,
+        "high": 2,
+    }.get(_normalize_confidence(confidence), -1)
+
+
+def _downgrade_confidence(confidence: str, steps: int) -> str:
+    normalized_confidence = _normalize_confidence(confidence)
+    if not normalized_confidence:
+        return confidence
+    rank = max(0, _confidence_rank(normalized_confidence) - max(0, int(steps)))
+    return ("low", "medium", "high")[rank]
 
 
 def _normalize_strategist_decision(value: Any) -> str:
@@ -306,6 +326,250 @@ def _get_dte(contract: dict[str, Any]) -> int | None:
     return (expiration - date.today()).days
 
 
+def _normalize_percentile(value: Any) -> float | None:
+    percentile = _coerce_float(value)
+    if percentile is None:
+        return None
+    if 0.0 <= percentile <= 1.0:
+        percentile *= 100.0
+    if percentile < 0.0 or percentile > 100.0:
+        return None
+    return round(percentile, 6)
+
+
+def _get_contract_implied_volatility(contract: dict[str, Any]) -> float | None:
+    implied_volatility = _coerce_float(contract.get("implied_volatility"))
+    if implied_volatility is None or implied_volatility < 0:
+        return None
+    return implied_volatility
+
+
+def _get_option_market_volatility_summary(market_context: dict[str, Any]) -> dict[str, Any]:
+    option_market = market_context.get("option_market", {})
+    if not isinstance(option_market, dict):
+        return {}
+    volatility_summary = option_market.get("volatility_summary", {})
+    return volatility_summary if isinstance(volatility_summary, dict) else {}
+
+
+def _get_underlying_historical_volatility(market_context: dict[str, Any]) -> float | None:
+    underlying_price_history = market_context.get("underlying_price_history", {})
+    if isinstance(underlying_price_history, dict):
+        for key in ("historical_volatility_20d", "historical_volatility_60d"):
+            historical_volatility = _coerce_float(underlying_price_history.get(key))
+            if historical_volatility is not None and historical_volatility > 0:
+                return historical_volatility
+
+    volatility_summary = _get_option_market_volatility_summary(market_context)
+    for key in ("historical_volatility_20d", "historical_volatility_60d"):
+        historical_volatility = _coerce_float(volatility_summary.get(key))
+        if historical_volatility is not None and historical_volatility > 0:
+            return historical_volatility
+    return None
+
+
+def _get_contract_iv_percentile(
+    contract: dict[str, Any],
+    market_context: dict[str, Any],
+) -> float | None:
+    for key in (
+        "iv_percentile",
+        "dte_bucket_iv_percentile",
+        "tenor_iv_percentile",
+        "implied_volatility_percentile",
+        "implied_vol_percentile",
+        "ivPercentile",
+    ):
+        percentile = _normalize_percentile(contract.get(key))
+        if percentile is not None:
+            return percentile
+
+    volatility_summary = _get_option_market_volatility_summary(market_context)
+    bucket_key = str(contract.get("dte_bucket") or "").strip()
+    bucket_percentiles = volatility_summary.get("dte_bucket_iv_percentiles", {})
+    if bucket_key and isinstance(bucket_percentiles, dict):
+        percentile = _normalize_percentile(bucket_percentiles.get(bucket_key))
+        if percentile is not None:
+            return percentile
+
+    term_structure = volatility_summary.get("term_structure", {})
+    if isinstance(term_structure, dict):
+        days_to_expiration = _get_dte(contract)
+        short_term_percentile = _normalize_percentile(term_structure.get("short_term_iv_percentile"))
+        longer_term_percentile = _normalize_percentile(term_structure.get("longer_term_iv_percentile"))
+        if days_to_expiration is not None:
+            if days_to_expiration <= 14 and short_term_percentile is not None:
+                return short_term_percentile
+            if days_to_expiration >= 15 and longer_term_percentile is not None:
+                return longer_term_percentile
+    return None
+
+
+def _score_iv_percentile(iv_percentile: float | None) -> dict[str, Any]:
+    if iv_percentile is None:
+        return {
+            "available": False,
+            "iv_percentile": None,
+            "band": "unknown",
+            "penalty_points": 0,
+            "guidance": "",
+        }
+
+    if iv_percentile <= 30.0:
+        return {
+            "available": True,
+            "iv_percentile": iv_percentile,
+            "band": "good_for_buying",
+            "penalty_points": 0,
+            "guidance": "IV percentile is low, which is favorable for buying options.",
+        }
+    if iv_percentile <= 60.0:
+        return {
+            "available": True,
+            "iv_percentile": iv_percentile,
+            "band": "normal",
+            "penalty_points": 0,
+            "guidance": "IV percentile is normal, so trade selection can proceed without a volatility penalty.",
+        }
+    if iv_percentile <= 80.0:
+        return {
+            "available": True,
+            "iv_percentile": iv_percentile,
+            "band": "elevated_requires_strong_confidence",
+            "penalty_points": 1,
+            "guidance": "IV percentile is elevated, so confidence should be reduced unless the setup is very strong.",
+        }
+    return {
+        "available": True,
+        "iv_percentile": iv_percentile,
+        "band": "very_high_avoid_buying",
+        "penalty_points": 2,
+        "guidance": "IV percentile is very high, which usually argues against buying premium.",
+    }
+
+
+def _score_iv_hv_ratio(
+    contract: dict[str, Any],
+    market_context: dict[str, Any],
+) -> dict[str, Any]:
+    contract_iv = _get_contract_implied_volatility(contract)
+    historical_volatility = _get_underlying_historical_volatility(market_context)
+    iv_vs_hv = summarize_iv_vs_hv(contract_iv, historical_volatility)
+    if not iv_vs_hv.get("available"):
+        market_level = _get_option_market_volatility_summary(market_context).get("atm_iv_vs_hv", {})
+        if isinstance(market_level, dict) and market_level.get("available"):
+            iv_vs_hv = dict(market_level)
+        else:
+            return {
+                "available": False,
+                "pricing_band": "unknown",
+                "penalty_points": 0,
+                "guidance": "",
+            }
+
+    penalty_points = 0
+    pricing_band = str(iv_vs_hv.get("pricing_band") or "unknown")
+    if pricing_band == "expensive":
+        penalty_points = 1
+    elif pricing_band == "very_expensive":
+        penalty_points = 2
+
+    return {
+        **iv_vs_hv,
+        "penalty_points": penalty_points,
+    }
+
+
+def _score_term_structure_warning(
+    contract: dict[str, Any],
+    market_context: dict[str, Any],
+    *,
+    target_dte_bucket: str,
+) -> dict[str, Any]:
+    term_structure = _get_option_market_volatility_summary(market_context).get("term_structure", {})
+    if not isinstance(term_structure, dict) or not term_structure.get("event_risk_flag"):
+        return {
+            "available": bool(isinstance(term_structure, dict) and term_structure),
+            "event_risk_flag": False,
+            "band": "normal",
+            "penalty_points": 0,
+            "guidance": "",
+        }
+
+    contract_dte = _get_dte(contract)
+    if contract_dte is None:
+        normalized_bucket = normalize_target_dte_bucket(target_dte_bucket) or ""
+        if normalized_bucket == "1_7":
+            contract_dte = SHORT_TERM_EVENT_PRICING_DTE
+        elif normalized_bucket == "7_14":
+            contract_dte = NEAR_TERM_EVENT_PRICING_DTE
+
+    if contract_dte is not None and contract_dte <= SHORT_TERM_EVENT_PRICING_DTE:
+        return {
+            "available": True,
+            "event_risk_flag": True,
+            "band": "avoid_very_short_dte",
+            "penalty_points": 2,
+            "guidance": "Short-term IV is much higher than longer-term IV, so very short DTE premium should be avoided.",
+            "term_structure": term_structure,
+        }
+    if contract_dte is not None and contract_dte <= NEAR_TERM_EVENT_PRICING_DTE:
+        return {
+            "available": True,
+            "event_risk_flag": True,
+            "band": "caution_near_term_dte",
+            "penalty_points": 1,
+            "guidance": "Event-priced short-term IV is elevated, so near-term premium deserves caution.",
+            "term_structure": term_structure,
+        }
+    return {
+        "available": True,
+        "event_risk_flag": True,
+        "band": "prefer_longer_dte",
+        "penalty_points": 0,
+        "guidance": "The term structure warning favors moving out in time rather than buying front expiration premium.",
+        "term_structure": term_structure,
+    }
+
+
+def _volatility_penalty_to_confidence_steps(total_penalty_points: int) -> int:
+    if total_penalty_points >= 3:
+        return 2
+    if total_penalty_points >= 1:
+        return 1
+    return 0
+
+
+def _assess_contract_volatility(
+    contract: dict[str, Any],
+    *,
+    market_context: dict[str, Any],
+    target_dte_bucket: str = "none",
+) -> dict[str, Any]:
+    iv_percentile = _score_iv_percentile(_get_contract_iv_percentile(contract, market_context))
+    iv_hv = _score_iv_hv_ratio(contract, market_context)
+    term_structure = _score_term_structure_warning(
+        contract,
+        market_context,
+        target_dte_bucket=target_dte_bucket,
+    )
+    total_penalty_points = int(
+        iv_percentile.get("penalty_points", 0)
+        + iv_hv.get("penalty_points", 0)
+        + term_structure.get("penalty_points", 0)
+    )
+    confidence_penalty_steps = _volatility_penalty_to_confidence_steps(total_penalty_points)
+    return {
+        "implied_volatility": _get_contract_implied_volatility(contract),
+        "historical_volatility": _get_underlying_historical_volatility(market_context),
+        "iv_percentile": iv_percentile,
+        "iv_hv": iv_hv,
+        "term_structure": term_structure,
+        "total_penalty_points": total_penalty_points,
+        "confidence_penalty_steps": confidence_penalty_steps,
+    }
+
+
 def _resolve_dte_range(
     *,
     target_dte_bucket: str,
@@ -452,13 +716,20 @@ def _basic_sort_key(
     *,
     normalized_decision: str,
     reference_stock_price: float | None,
+    market_context: dict[str, Any] | None = None,
     prefer_target_otm: bool,
     target_distance: float,
     target_abs_delta: float,
-) -> tuple[float, float, float, str, float, int]:
+    target_dte_bucket: str = "none",
+) -> tuple[float, float, float, float, str, float, int]:
     # Handle the basic sort key flow in one place so callers can rely on a single, well-defined result.
     contract_price = _get_contract_market_price(contract)
     has_contract_price = 0.0 if contract_price is not None else 1.0
+    volatility_assessment = _assess_contract_volatility(
+        contract,
+        market_context=market_context or {},
+        target_dte_bucket=target_dte_bucket,
+    )
 
     strike_price = _coerce_float(contract.get("strike_price"))
     if prefer_target_otm:
@@ -484,6 +755,7 @@ def _basic_sort_key(
 
     return (
         has_contract_price,
+        float(volatility_assessment["total_penalty_points"]),
         distance,
         abs_delta_distance,
         expiration_date,
@@ -496,11 +768,17 @@ def _contract_debug_snapshot(
     contract: dict[str, Any],
     *,
     reference_stock_price: float | None,
+    market_context: dict[str, Any] | None = None,
     target_otm_distance: float | None = None,
     target_dte_bucket: str = "",
 ) -> dict[str, Any]:
     # Handle the contract debug snapshot flow in one place so callers can rely on a single, well-defined result.
     strike_price = _coerce_float(contract.get("strike_price"))
+    volatility_assessment = _assess_contract_volatility(
+        contract,
+        market_context=market_context or {},
+        target_dte_bucket=target_dte_bucket,
+    )
     return {
         "option_id": _normalize_option_id(contract.get("option_id")),
         "symbol": str(contract.get("symbol") or "").strip(),
@@ -521,11 +799,13 @@ def _contract_debug_snapshot(
         "spread_pct": _get_spread_pct(contract),
         "open_interest": _coerce_float(contract.get("open_interest")),
         "dte": _get_dte(contract),
+        "implied_volatility": _get_contract_implied_volatility(contract),
         "delta": _get_greek(contract, "delta"),
         "gamma": _get_greek(contract, "gamma"),
         "theta": _get_greek(contract, "theta"),
         "vega": _get_greek(contract, "vega"),
         "theta_to_price": _get_theta_to_price(contract),
+        "volatility_assessment": volatility_assessment,
     }
 
 
@@ -533,6 +813,7 @@ def _debug_contract_with_reasons(
     contract: dict[str, Any],
     *,
     reference_stock_price: float | None,
+    market_context: dict[str, Any] | None = None,
     target_otm_distance: float | None = None,
     target_dte_bucket: str = "",
     rejection_reasons: list[str],
@@ -541,6 +822,7 @@ def _debug_contract_with_reasons(
         **_contract_debug_snapshot(
             contract,
             reference_stock_price=reference_stock_price,
+            market_context=market_context,
             target_otm_distance=target_otm_distance,
             target_dte_bucket=target_dte_bucket,
         ),
@@ -694,6 +976,7 @@ def _pick_matching_contract_simple(
         _debug_contract_with_reasons(
             contract,
             reference_stock_price=reference_stock_price,
+            market_context=market_context,
             target_otm_distance=target_otm_distance,
             target_dte_bucket=normalized_target_dte_bucket,
             rejection_reasons=_build_simple_rejection_reasons(
@@ -716,9 +999,11 @@ def _pick_matching_contract_simple(
                 contract,
                 normalized_decision=normalized_decision,
                 reference_stock_price=reference_stock_price,
+                market_context=market_context,
                 prefer_target_otm=True,
                 target_distance=target_otm_distance,
                 target_abs_delta=SIMPLE_TARGET_ABS_DELTA,
+                target_dte_bucket=normalized_target_dte_bucket,
             )
         )
     elif fallback_contracts:
@@ -733,9 +1018,11 @@ def _pick_matching_contract_simple(
                 contract,
                 normalized_decision=normalized_decision,
                 reference_stock_price=reference_stock_price,
+                market_context=market_context,
                 prefer_target_otm=False,
                 target_distance=target_otm_distance,
                 target_abs_delta=SIMPLE_TARGET_ABS_DELTA,
+                target_dte_bucket=normalized_target_dte_bucket,
             )
         )
     else:
@@ -781,6 +1068,7 @@ def _pick_matching_contract_simple(
         "selected_contract_snapshot": _contract_debug_snapshot(
             selected,
             reference_stock_price=reference_stock_price,
+            market_context=market_context,
             target_otm_distance=target_otm_distance,
             target_dte_bucket=normalized_target_dte_bucket,
         ),
@@ -880,8 +1168,9 @@ def _hybrid_fast_score(
     *,
     normalized_decision: str,
     reference_stock_price: float | None,
+    market_context: dict[str, Any] | None = None,
     target_dte_bucket: str = "none",
-) -> tuple[float, float, float, float, float, str, int]:
+) -> tuple[float, float, float, float, float, float, str, int]:
     # Handle the hybrid fast score flow in one place so callers can rely on a single, well-defined result.
     strike_price = _coerce_float(contract.get("strike_price"))
     spread_pct = _get_spread_pct(contract) or 999.0
@@ -895,6 +1184,11 @@ def _hybrid_fast_score(
         target_dte_bucket=target_dte_bucket,
         default_distance=HYBRID_PREFERRED_OTM_DISTANCE,
     )
+    volatility_assessment = _assess_contract_volatility(
+        contract,
+        market_context=market_context or {},
+        target_dte_bucket=target_dte_bucket,
+    )
 
     strike_distance_score = _distance_to_target_otm(
         normalized_decision,
@@ -904,6 +1198,7 @@ def _hybrid_fast_score(
     )
 
     return (
+        float(volatility_assessment["total_penalty_points"]),
         strike_distance_score,
         spread_pct,
         abs(abs_delta - HYBRID_TARGET_ABS_DELTA),
@@ -971,6 +1266,7 @@ def _pick_matching_contract_hybrid(
                 _debug_contract_with_reasons(
                     contract,
                     reference_stock_price=reference_stock_price,
+                    market_context=market_context,
                     target_dte_bucket=target_dte_bucket,
                     rejection_reasons=reasons,
                 )
@@ -1019,6 +1315,7 @@ def _pick_matching_contract_hybrid(
                 "selected_contract_snapshot": _contract_debug_snapshot(
                     fallback,
                     reference_stock_price=reference_stock_price,
+                    market_context=market_context,
                     target_otm_distance=target_otm_distance,
                     target_dte_bucket=target_dte_bucket,
                 ),
@@ -1048,6 +1345,7 @@ def _pick_matching_contract_hybrid(
             contract,
             normalized_decision=normalized_decision,
             reference_stock_price=reference_stock_price,
+            market_context=market_context,
             target_dte_bucket=target_dte_bucket,
         )
     )
@@ -1066,6 +1364,7 @@ def _pick_matching_contract_hybrid(
         "selected_contract_snapshot": _contract_debug_snapshot(
             selected,
             reference_stock_price=reference_stock_price,
+            market_context=market_context,
             target_otm_distance=target_otm_distance,
             target_dte_bucket=target_dte_bucket,
         ),
@@ -1163,8 +1462,9 @@ def _short_swing_score(
     *,
     normalized_decision: str,
     reference_stock_price: float | None,
+    market_context: dict[str, Any] | None = None,
     target_dte_bucket: str = "none",
-) -> tuple[float, float, float, float, float, float, str, int]:
+) -> tuple[float, float, float, float, float, float, float, str, int]:
     # Handle the short swing score flow in one place so callers can rely on a single, well-defined result.
     abs_delta = abs(_get_greek(contract, "delta") or 0.0)
     spread_pct = _get_spread_pct(contract) or 999.0
@@ -1177,6 +1477,11 @@ def _short_swing_score(
         target_dte_bucket=target_dte_bucket,
         default_distance=PREFERRED_OTM_DISTANCE,
     )
+    volatility_assessment = _assess_contract_volatility(
+        contract,
+        market_context=market_context or {},
+        target_dte_bucket=target_dte_bucket,
+    )
     otm_distance_pref = _distance_to_target_otm(
         normalized_decision,
         strike_price,
@@ -1187,6 +1492,7 @@ def _short_swing_score(
     option_id = _normalize_option_id(contract.get("option_id")) or 10**9
 
     return (
+        float(volatility_assessment["total_penalty_points"]),
         abs(abs_delta - TARGET_ABS_DELTA),
         spread_pct,
         theta_to_price,
@@ -1263,6 +1569,7 @@ def _pick_matching_contract_greeks(
                 _debug_contract_with_reasons(
                     contract,
                     reference_stock_price=reference_stock_price,
+                    market_context=market_context,
                     target_dte_bucket=target_dte_bucket,
                     rejection_reasons=reasons,
                 )
@@ -1276,6 +1583,7 @@ def _pick_matching_contract_greeks(
                 contract,
                 normalized_decision=normalized_decision,
                 reference_stock_price=reference_stock_price,
+                market_context=market_context,
                 target_dte_bucket=target_dte_bucket,
             )
         )
@@ -1320,6 +1628,7 @@ def _pick_matching_contract_greeks(
             "selected_contract_snapshot": _contract_debug_snapshot(
                 fallback,
                 reference_stock_price=reference_stock_price,
+                market_context=market_context,
                 target_otm_distance=target_otm_distance,
                 target_dte_bucket=target_dte_bucket,
             ),
@@ -1358,6 +1667,7 @@ def _pick_matching_contract_greeks(
         "selected_contract_snapshot": _contract_debug_snapshot(
             selected,
             reference_stock_price=reference_stock_price,
+            market_context=market_context,
             target_otm_distance=target_otm_distance,
             target_dte_bucket=target_dte_bucket,
         ),
@@ -1442,11 +1752,16 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
     selected_option_source = "not_applicable"
     selection_mode = ""
     selector_debug: dict[str, Any] = {}
+    selected_option_volatility_assessment: dict[str, Any] = {}
+    confidence_after_volatility = confidence
+    volatility_confidence_penalty_steps = 0
+    volatility_guardrail_reason = ""
     selection_allowed, selection_guardrail_reason = _is_selection_eligible_under_confidence_guardrails(
         decision=decision,
         confidence=confidence,
         strategist_recommendation=strategist_recommendation,
     )
+    selection_allowed_after_volatility = selection_allowed
 
     if selection_allowed:
         selected_option, selector_debug = _pick_matching_contract(
@@ -1475,6 +1790,34 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
     elif decision in {"call", "put"}:
         selected_option_source = selection_guardrail_reason or "confidence_below_medium"
 
+    if selected_option is not None:
+        selected_option_volatility_assessment = _assess_contract_volatility(
+            selected_option,
+            market_context=market_context,
+            target_dte_bucket=target_dte_bucket,
+        )
+        volatility_confidence_penalty_steps = int(
+            selected_option_volatility_assessment.get("confidence_penalty_steps") or 0
+        )
+        confidence_after_volatility = _downgrade_confidence(
+            confidence,
+            volatility_confidence_penalty_steps,
+        )
+        if _confidence_rank(confidence_after_volatility) < _confidence_rank(
+            VOLATILITY_CONFIDENCE_LOWEST_ALLOWED
+        ):
+            selection_allowed_after_volatility = False
+            volatility_guardrail_reason = "volatility_confidence_below_medium"
+            selected_option = None
+            selected_option_source = volatility_guardrail_reason
+            selection_mode = f"{selection_mode}_volatility_rejected" if selection_mode else "volatility_rejected"
+        else:
+            selection_allowed_after_volatility = True
+            if selection_mode:
+                selected_option_source = (
+                    f"deterministic_{confidence_after_volatility}_confidence_{selection_mode}"
+                )
+
     selected_option_id = _normalize_option_id(selected_option.get("option_id")) if selected_option else None
     selected_expiration_date = (
         str(selected_option.get("expiration_date") or "").strip() or None
@@ -1489,6 +1832,8 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
 
     updated_recommendation = {
         **recommendation,
+        "confidence": confidence or recommendation.get("confidence"),
+        "confidence_after_volatility": confidence_after_volatility or confidence or recommendation.get("confidence"),
         "selected_option_id": selected_option_id,
         "selected_expiration_date": selected_expiration_date,
         "selected_strike_price": selected_strike_price,
@@ -1499,8 +1844,12 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
             "allow_risky_simple_fallback": ALLOW_RISKY_SIMPLE_FALLBACK,
             "decision_seen": decision,
             "confidence_seen": confidence,
+            "confidence_after_volatility": confidence_after_volatility,
+            "volatility_confidence_penalty_steps": volatility_confidence_penalty_steps,
             "selection_allowed": selection_allowed,
+            "selection_allowed_after_volatility": selection_allowed_after_volatility,
             "selection_guardrail_reason": selection_guardrail_reason,
+            "volatility_guardrail_reason": volatility_guardrail_reason,
             "strategist_decision_seen": _normalize_strategist_decision(
                 strategist_recommendation.get("decision")
             ),
@@ -1574,6 +1923,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
                 "resolved_target_otm_distance": resolved_target_otm_distance,
             },
             "selection_mode": selection_mode,
+            "selected_option_volatility_assessment": selected_option_volatility_assessment,
             "selected_option_id": selected_option_id,
             "selected_option_symbol": (
                 str(selected_option.get("symbol") or "").strip()
@@ -1586,6 +1936,8 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
                 _contract_debug_snapshot(
                     selected_option,
                     reference_stock_price=reference_stock_price,
+                    market_context=market_context,
+                    target_dte_bucket=target_dte_bucket,
                 )
                 if selected_option
                 else {}
