@@ -45,6 +45,16 @@ CREATE TABLE IF NOT EXISTS industry_company_rankings (
     UNIQUE (industry_id, company_id, ranking_type)
 );
 
+CREATE TABLE IF NOT EXISTS market_data_refresh_state (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    resource_type TEXT NOT NULL,
+    resource_key TEXT NOT NULL,
+    last_hydrated_at TEXT NOT NULL,
+    raw_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (resource_type, resource_key)
+);
+
 CREATE TABLE IF NOT EXISTS company_price_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id INTEGER NOT NULL,
@@ -112,6 +122,9 @@ CREATE INDEX IF NOT EXISTS idx_industry_company_rankings_company_id
 
 CREATE INDEX IF NOT EXISTS idx_industry_company_rankings_type
     ON industry_company_rankings (ranking_type);
+
+CREATE INDEX IF NOT EXISTS idx_market_data_refresh_state_resource
+    ON market_data_refresh_state (resource_type, resource_key);
 
 CREATE INDEX IF NOT EXISTS idx_company_price_snapshots_company_id
     ON company_price_snapshots (company_id);

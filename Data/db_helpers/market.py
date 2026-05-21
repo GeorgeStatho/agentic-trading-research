@@ -1,11 +1,13 @@
 from pathlib import Path
 import logging
 import sys
+from datetime import datetime, timedelta, timezone
 
 from db_common import DB_PATH, get_connection
 from market_db import initialize_database as initialize_market_database
 from market_db import (
     add_company_price_snapshot,
+    get_market_data_refresh_state,
     list_companies_by_industry,
     list_company_price_snapshots,
     list_industry_company_rankings,
@@ -13,6 +15,7 @@ from market_db import (
     load_sector_definitions_from_json,
     load_sector_tree,
     load_sector_tree_from_json,
+    record_market_data_refresh_state,
     record_option_trade_execution,
 )
 
@@ -29,6 +32,8 @@ except ImportError:  # pragma: no cover - optional runtime integration
     load_sector_from_yfinance = None
 
 LOGGER = logging.getLogger("market_bootstrap")
+INDUSTRY_TOP_COMPANIES_REFRESH_RESOURCE = "industry_top_companies"
+INDUSTRY_TOP_COMPANIES_REFRESH_DAYS = 30
 
 
 def _ensure_sector_definitions_seeded() -> None:
@@ -92,6 +97,46 @@ def _find_industry_row(industry_identifier: str) -> dict | None:
         if str(row["name"] or "").strip().lower() == needle:
             return dict(row)
     return None
+
+
+def _parse_refresh_timestamp(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _industry_top_companies_refresh_is_due(industry_key: str) -> bool:
+    refresh_state = get_market_data_refresh_state(
+        INDUSTRY_TOP_COMPANIES_REFRESH_RESOURCE,
+        industry_key,
+        db_path=DB_PATH,
+    )
+    if refresh_state is None:
+        return True
+
+    last_hydrated_at = _parse_refresh_timestamp(refresh_state["last_hydrated_at"])
+    if last_hydrated_at is None:
+        return True
+
+    refresh_cutoff = datetime.now(timezone.utc) - timedelta(days=INDUSTRY_TOP_COMPANIES_REFRESH_DAYS)
+    return last_hydrated_at <= refresh_cutoff
+
+
+def _record_industry_top_companies_refresh(industry_key: str) -> None:
+    record_market_data_refresh_state(
+        INDUSTRY_TOP_COMPANIES_REFRESH_RESOURCE,
+        industry_key,
+        last_hydrated_at=datetime.now(timezone.utc).isoformat(),
+        raw_json={"refresh_days": INDUSTRY_TOP_COMPANIES_REFRESH_DAYS},
+        db_path=DB_PATH,
+    )
 
 
 def ensure_sector_market_data(sector_identifier: str) -> dict | None:
@@ -187,6 +232,7 @@ def ensure_all_sector_market_data() -> list[dict]:
 def ensure_industry_market_data(industry_identifier: str) -> dict | None:
     industry = _find_industry_row(industry_identifier)
     if industry is not None:
+        industry_key = str(industry["industry_key"])
         with get_connection(DB_PATH) as conn:
             company_row = conn.execute(
                 """
@@ -198,13 +244,14 @@ def ensure_industry_market_data(industry_identifier: str) -> dict | None:
                 (int(industry["id"]),),
             ).fetchone()
 
-        if company_row is not None:
+        if company_row is not None and not _industry_top_companies_refresh_is_due(industry_key):
             return industry
 
     if load_industry_from_yfinance is not None:
         load_industry_from_yfinance(str(industry_identifier))
         industry = _find_industry_row(industry_identifier)
         if industry is not None:
+            _record_industry_top_companies_refresh(str(industry["industry_key"]))
             return industry
 
     if industry is not None:
