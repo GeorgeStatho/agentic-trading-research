@@ -9,102 +9,51 @@ surface can stay stable while the internals remain easier to navigate.
 import argparse
 import json
 from datetime import datetime
-from pathlib import Path
-import sys
 from typing import Any
 
-if __package__ in {None, ""}:
-    AGENT_HELPERS_DIR = Path(__file__).resolve().parent
-    if str(AGENT_HELPERS_DIR) not in sys.path:
-        sys.path.append(str(AGENT_HELPERS_DIR))
-
-    import _market_context_iv_history as _iv_history
-    from _market_context_account import _build_account_state, _serialize_position
-    from _market_context_common import (
-        DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
-        IV_PERCENTILE_DTE_BUCKETS,
-        LOGGER,
-        OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES,
-        OPTION_IV_HISTORY_MAX_ENTRIES,
-        OPTION_IV_HISTORY_PATH,
-    )
-    from _market_context_equities import (
-        _build_current_stock_price_snapshot,
-        _build_market_indices_snapshot,
-        _build_sector_etf_snapshot,
-        _build_stock_fallback_snapshot,
-        _empty_market_index_snapshot,
-        _get_reference_stock_price_from_snapshot,
-        _load_sector_etf_map,
-        _resolve_company_sector_etf,
-    )
-    from _market_context_option_chain import (
-        _build_contract_request,
-        _build_contract_request_debug,
-        _build_option_market_snapshot,
-        _contract_preference_key,
-        _extract_contract_items,
-        _fetch_option_contracts,
-        _format_strike_filter,
-        _normalize_contract_type,
-        _normalize_option_snapshot_map,
-        _select_contract_subset_near_reference,
-        _serialize_greeks,
-        _serialize_option_contract,
-        _serialize_quote_snapshot,
-    )
-    from _market_context_underlying import (
-        _build_underlying_price_history_snapshot as _build_underlying_price_history_snapshot_impl,
-        _empty_underlying_price_history_snapshot,
-        _extract_bar_close,
-        _extract_bar_timestamp,
-        _normalize_stock_bars_response,
-        _summarize_underlying_price_history as _summarize_underlying_price_history_impl,
-    )
-else:
-    from . import _market_context_iv_history as _iv_history
-    from ._market_context_account import _build_account_state, _serialize_position
-    from ._market_context_common import (
-        DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
-        IV_PERCENTILE_DTE_BUCKETS,
-        LOGGER,
-        OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES,
-        OPTION_IV_HISTORY_MAX_ENTRIES,
-        OPTION_IV_HISTORY_PATH,
-    )
-    from ._market_context_equities import (
-        _build_current_stock_price_snapshot,
-        _build_market_indices_snapshot,
-        _build_sector_etf_snapshot,
-        _build_stock_fallback_snapshot,
-        _empty_market_index_snapshot,
-        _get_reference_stock_price_from_snapshot,
-        _load_sector_etf_map,
-        _resolve_company_sector_etf,
-    )
-    from ._market_context_option_chain import (
-        _build_contract_request,
-        _build_contract_request_debug,
-        _build_option_market_snapshot,
-        _contract_preference_key,
-        _extract_contract_items,
-        _fetch_option_contracts,
-        _format_strike_filter,
-        _normalize_contract_type,
-        _normalize_option_snapshot_map,
-        _select_contract_subset_near_reference,
-        _serialize_greeks,
-        _serialize_option_contract,
-        _serialize_quote_snapshot,
-    )
-    from ._market_context_underlying import (
-        _build_underlying_price_history_snapshot as _build_underlying_price_history_snapshot_impl,
-        _empty_underlying_price_history_snapshot,
-        _extract_bar_close,
-        _extract_bar_timestamp,
-        _normalize_stock_bars_response,
-        _summarize_underlying_price_history as _summarize_underlying_price_history_impl,
-    )
+from . import iv_history as _iv_history
+from .account import _build_account_state, _serialize_position
+from .common import (
+    DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
+    IV_PERCENTILE_DTE_BUCKETS,
+    LOGGER,
+    OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES,
+    OPTION_IV_HISTORY_MAX_ENTRIES,
+    OPTION_IV_HISTORY_PATH,
+)
+from .equities import (
+    _build_current_stock_price_snapshot,
+    _build_market_indices_snapshot,
+    _build_sector_etf_snapshot,
+    _build_stock_fallback_snapshot,
+    _empty_market_index_snapshot,
+    _get_reference_stock_price_from_snapshot,
+    _load_sector_etf_map,
+    _resolve_company_sector_etf,
+)
+from .option_chain import (
+    _build_contract_request,
+    _build_contract_request_debug,
+    _build_option_market_snapshot,
+    _contract_preference_key,
+    _extract_contract_items,
+    _fetch_option_contracts,
+    _format_strike_filter,
+    _normalize_contract_type,
+    _normalize_option_snapshot_map,
+    _select_contract_subset_near_reference,
+    _serialize_greeks,
+    _serialize_option_contract,
+    _serialize_quote_snapshot,
+)
+from .underlying import (
+    _build_underlying_price_history_snapshot as _build_underlying_price_history_snapshot_impl,
+    _empty_underlying_price_history_snapshot,
+    _extract_bar_close,
+    _extract_bar_timestamp,
+    _normalize_stock_bars_response,
+    _summarize_underlying_price_history as _summarize_underlying_price_history_impl,
+)
 
 
 __all__ = [
