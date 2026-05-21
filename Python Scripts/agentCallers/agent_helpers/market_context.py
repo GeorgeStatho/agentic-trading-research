@@ -9,7 +9,7 @@ stay focused on orchestration instead of vendor details.
 
 import json
 import argparse
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 import logging
 import os
 from pathlib import Path
@@ -22,7 +22,7 @@ if __package__ in {None, ""}:
     if str(AGENT_CALLERS_DIR) not in sys.path:
         sys.path.append(str(AGENT_CALLERS_DIR))
 
-from _paths import DATA_DIR, bootstrap_agent_callers, load_project_env
+from _paths import DATA_DIR, ROOT_DIR, bootstrap_agent_callers, load_project_env
 
 
 if __name__ == "__main__":
@@ -32,7 +32,13 @@ bootstrap_agent_callers(include_webscraping=True)
 
 try:
     from alpaca.data import OptionHistoricalDataClient, StockHistoricalDataClient
-    from alpaca.data.requests import OptionChainRequest, StockLatestQuoteRequest, StockLatestTradeRequest
+    from alpaca.data.requests import (
+        OptionChainRequest,
+        StockBarsRequest,
+        StockLatestQuoteRequest,
+        StockLatestTradeRequest,
+    )
+    from alpaca.data.timeframe import TimeFrame
     from alpaca.trading.client import TradingClient
     from alpaca.trading.enums import ContractType
     from alpaca.trading.requests import GetOptionContractsRequest
@@ -41,9 +47,11 @@ try:
 except ImportError as exc:  # pragma: no cover - optional dependency
     OptionHistoricalDataClient = None
     OptionChainRequest = None
+    StockBarsRequest = None
     StockHistoricalDataClient = None
     StockLatestQuoteRequest = None
     StockLatestTradeRequest = None
+    TimeFrame = None
     TradingClient = None
     ContractType = None
     GetOptionContractsRequest = None
@@ -58,6 +66,12 @@ try:
     from yfinance_client import REQUEST_HANDLER
 except ImportError:  # pragma: no cover - optional dependency
     REQUEST_HANDLER = None
+
+from agent_helpers.volatility import (
+    compute_percentile_rank,
+    compute_realized_volatility,
+    summarize_option_iv,
+)
 
 
 DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE = max(1, int(os.getenv("MANAGER_OPTION_CHAIN_LIMIT_PER_TYPE", "6")))
@@ -76,6 +90,40 @@ SECTOR_ETF_FILE = DATA_DIR / "sector_etfs.json"
 
 CLOSEST_EXPIRATION_GTE = 1
 FARTHEST_EXPIRATION_LTE = 8
+UNDERLYING_HISTORY_LOOKBACK_CALENDAR_DAYS = max(
+    90,
+    int(os.getenv("MANAGER_UNDERLYING_HISTORY_LOOKBACK_DAYS", "120")),
+)
+UNDERLYING_HV_SHORT_WINDOW_DAYS = max(
+    20,
+    int(os.getenv("MANAGER_UNDERLYING_HV_SHORT_WINDOW_DAYS", "20")),
+)
+UNDERLYING_HV_LONG_WINDOW_DAYS = max(
+    UNDERLYING_HV_SHORT_WINDOW_DAYS,
+    int(os.getenv("MANAGER_UNDERLYING_HV_LONG_WINDOW_DAYS", "60")),
+)
+OPTION_IV_HISTORY_PATH = Path(
+    os.getenv(
+        "OPTION_IV_HISTORY_PATH",
+        str(ROOT_DIR / "shared" / "option_iv_history.json"),
+    )
+)
+OPTION_IV_HISTORY_MAX_ENTRIES = max(
+    30,
+    int(os.getenv("OPTION_IV_HISTORY_MAX_ENTRIES", "252")),
+)
+OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES = max(
+    1,
+    int(os.getenv("OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES", "20")),
+)
+IV_PERCENTILE_DTE_BUCKETS: tuple[tuple[str, int, int], ...] = (
+    ("1_3", 1, 3),
+    ("4_7", 4, 7),
+    ("8_14", 8, 14),
+    ("15_30", 15, 30),
+    ("31_45", 31, 45),
+    ("46_60", 46, 60),
+)
 LOGGER = logging.getLogger("agent_helpers.market_context")
 
 
@@ -496,6 +544,492 @@ def _build_current_stock_price_snapshot(company: dict[str, Any]) -> dict[str, An
         return fallback
 
 
+def _empty_underlying_price_history_snapshot(*, symbol: str, error: str = "") -> dict[str, Any]:
+    return {
+        "available": False,
+        "symbol": symbol,
+        "source": "alpaca_stock_bars",
+        "timeframe": "1Day",
+        "lookback_calendar_days": UNDERLYING_HISTORY_LOOKBACK_CALENDAR_DAYS,
+        "close_count": 0,
+        "first_bar_timestamp": "",
+        "last_bar_timestamp": "",
+        "first_close": None,
+        "last_close": None,
+        "historical_volatility_20d": None,
+        "historical_volatility_60d": None,
+        "recent_closes": [],
+        "error": error,
+    }
+
+
+def _load_option_iv_history_store() -> dict[str, Any]:
+    if not OPTION_IV_HISTORY_PATH.exists():
+        return {"version": 1, "underlyings": {}}
+
+    try:
+        raw_payload = json.loads(OPTION_IV_HISTORY_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"version": 1, "underlyings": {}}
+
+    if not isinstance(raw_payload, dict):
+        return {"version": 1, "underlyings": {}}
+
+    underlyings = raw_payload.get("underlyings", {})
+    if not isinstance(underlyings, dict):
+        underlyings = {}
+    return {
+        "version": int(raw_payload.get("version") or 1),
+        "underlyings": underlyings,
+    }
+
+
+def _save_option_iv_history_store(store: dict[str, Any]) -> None:
+    try:
+        OPTION_IV_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        OPTION_IV_HISTORY_PATH.write_text(
+            json.dumps(store, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        LOGGER.warning("Failed to write option IV history to %s", OPTION_IV_HISTORY_PATH)
+
+
+def _normalize_iv_history_entries(entries: Any) -> list[dict[str, Any]]:
+    if not isinstance(entries, list):
+        return []
+
+    normalized_entries: list[dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        recorded_at = str(entry.get("recorded_at") or "").strip()
+        value = _safe_float(entry.get("value"))
+        if not recorded_at or value is None:
+            continue
+        normalized_entries.append(
+            {
+                "recorded_at": recorded_at,
+                "value": round(value, 6),
+            }
+        )
+    normalized_entries.sort(key=lambda item: str(item["recorded_at"]))
+    return normalized_entries[-OPTION_IV_HISTORY_MAX_ENTRIES:]
+
+
+def _upsert_iv_history_entry(
+    entries: list[dict[str, Any]],
+    *,
+    recorded_at: str,
+    value: float,
+) -> list[dict[str, Any]]:
+    normalized_entries = _normalize_iv_history_entries(entries)
+    updated = False
+    for entry in normalized_entries:
+        if str(entry.get("recorded_at") or "").strip() == str(recorded_at).strip():
+            entry["recorded_at"] = recorded_at
+            entry["value"] = round(value, 6)
+            updated = True
+            break
+    if not updated:
+        normalized_entries.append(
+            {
+                "recorded_at": recorded_at,
+                "value": round(value, 6),
+            }
+        )
+    normalized_entries.sort(key=lambda item: str(item["recorded_at"]))
+    return normalized_entries[-OPTION_IV_HISTORY_MAX_ENTRIES:]
+
+
+def _calculate_days_to_expiration(expiration_date: str | None) -> int | None:
+    expiration_text = str(expiration_date or "").strip()
+    if not expiration_text:
+        return None
+
+    try:
+        expiration = date.fromisoformat(expiration_text)
+    except ValueError:
+        return None
+    return (expiration - date.today()).days
+
+
+def _resolve_iv_percentile_dte_bucket(days_to_expiration: int | None) -> str | None:
+    if days_to_expiration is None or days_to_expiration < 1:
+        return None
+
+    for bucket_key, min_days, max_days in IV_PERCENTILE_DTE_BUCKETS:
+        if min_days <= days_to_expiration <= max_days:
+            return bucket_key
+    return None
+
+
+def _summarize_iv_by_dte_bucket(
+    contracts: list[dict[str, Any]],
+    *,
+    reference_stock_price: float | None,
+) -> dict[str, dict[str, Any]]:
+    grouped_contracts: dict[str, list[dict[str, Any]]] = {}
+    for contract in contracts:
+        bucket_key = str(contract.get("dte_bucket") or "").strip()
+        implied_volatility = _safe_float(contract.get("implied_volatility"))
+        if not bucket_key or implied_volatility is None or implied_volatility < 0:
+            continue
+        grouped_contracts.setdefault(bucket_key, []).append(contract)
+
+    bucket_summary: dict[str, dict[str, Any]] = {}
+    for bucket_key, bucket_contracts in grouped_contracts.items():
+        ranked_contracts = list(bucket_contracts)
+        ranked_contracts.sort(
+            key=lambda contract: (
+                abs(
+                    (_safe_float(contract.get("strike_price")) or reference_stock_price or 0.0)
+                    - (reference_stock_price or 0.0)
+                )
+                if reference_stock_price is not None
+                else 0.0,
+                str(contract.get("expiration_date") or "9999-12-31"),
+                str(contract.get("contract_type") or ""),
+                str(contract.get("symbol") or ""),
+            )
+        )
+        representative_contracts = ranked_contracts[: min(4, len(ranked_contracts))]
+        representative_ivs = [
+            implied_volatility
+            for implied_volatility in (
+                _safe_float(contract.get("implied_volatility"))
+                for contract in representative_contracts
+            )
+            if implied_volatility is not None
+        ]
+        if not representative_ivs:
+            continue
+        bucket_summary[bucket_key] = {
+            "atm_mean_iv": round(sum(representative_ivs) / len(representative_ivs), 6),
+            "contract_count": len(bucket_contracts),
+            "representative_contract_count": len(representative_ivs),
+        }
+    return bucket_summary
+
+
+def _annotate_contract_iv_percentiles(
+    contracts: list[dict[str, Any]],
+    *,
+    bucket_percentiles: dict[str, float | None],
+    bucket_history_counts: dict[str, int],
+) -> None:
+    for contract in contracts:
+        days_to_expiration = contract.get("days_to_expiration")
+        if days_to_expiration is None:
+            days_to_expiration = _calculate_days_to_expiration(
+                _serialize_scalar(contract.get("expiration_date")) or ""
+            )
+            contract["days_to_expiration"] = days_to_expiration
+
+        bucket_key = str(contract.get("dte_bucket") or "").strip()
+        if not bucket_key:
+            bucket_key = _resolve_iv_percentile_dte_bucket(_safe_float(days_to_expiration))
+            contract["dte_bucket"] = bucket_key
+
+        bucket_percentile = bucket_percentiles.get(bucket_key)
+        history_count = int(bucket_history_counts.get(bucket_key) or 0)
+        contract["iv_percentile"] = bucket_percentile
+        contract["dte_bucket_iv_percentile"] = bucket_percentile
+        if not bucket_key:
+            contract["iv_percentile_source"] = "no_dte_bucket"
+        elif bucket_percentile is not None:
+            contract["iv_percentile_source"] = f"dte_bucket:{bucket_key}"
+        elif history_count < OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES:
+            contract["iv_percentile_source"] = "insufficient_bucket_history"
+        else:
+            contract["iv_percentile_source"] = f"dte_bucket:{bucket_key}_unavailable"
+
+
+def _historical_values_from_iv_entries(entries: list[dict[str, Any]]) -> list[float]:
+    return [
+        float(entry["value"])
+        for entry in _normalize_iv_history_entries(entries)
+        if _safe_float(entry.get("value")) is not None
+    ]
+
+
+def _record_option_iv_history(
+    underlying_symbol: str,
+    *,
+    atm_mean_iv: float | None,
+    short_term_atm_iv: float | None,
+    longer_term_atm_iv: float | None,
+    bucket_atm_ivs: dict[str, float] | None,
+    recorded_at: str,
+) -> dict[str, Any]:
+    store = _load_option_iv_history_store()
+    underlyings = store.setdefault("underlyings", {})
+    symbol_key = str(underlying_symbol or "").strip().upper()
+    symbol_history = underlyings.get(symbol_key)
+    if not isinstance(symbol_history, dict):
+        symbol_history = {}
+
+    metric_map = {
+        "atm_mean_iv": atm_mean_iv,
+        "short_term_atm_iv": short_term_atm_iv,
+        "longer_term_atm_iv": longer_term_atm_iv,
+    }
+    for metric_name, metric_value in metric_map.items():
+        if metric_value is None:
+            continue
+        metric_history = symbol_history.get(metric_name, [])
+        symbol_history[metric_name] = _upsert_iv_history_entry(
+            metric_history,
+            recorded_at=recorded_at,
+            value=metric_value,
+        )
+
+    bucket_histories = symbol_history.get("atm_mean_iv_by_dte_bucket", {})
+    if not isinstance(bucket_histories, dict):
+        bucket_histories = {}
+    for bucket_key, bucket_value in (bucket_atm_ivs or {}).items():
+        normalized_bucket_key = str(bucket_key or "").strip()
+        if not normalized_bucket_key:
+            continue
+        bucket_history = bucket_histories.get(normalized_bucket_key, [])
+        bucket_histories[normalized_bucket_key] = _upsert_iv_history_entry(
+            bucket_history,
+            recorded_at=recorded_at,
+            value=bucket_value,
+        )
+    symbol_history["atm_mean_iv_by_dte_bucket"] = bucket_histories
+
+    symbol_history["updated_at"] = recorded_at
+    underlyings[symbol_key] = symbol_history
+    _save_option_iv_history_store(store)
+    return symbol_history
+
+
+def _enrich_with_alpaca_iv_percentiles(
+    underlying_symbol: str,
+    volatility_summary: dict[str, Any],
+    *,
+    contracts: list[dict[str, Any]] | None = None,
+    reference_stock_price: float | None = None,
+) -> dict[str, Any]:
+    if not isinstance(volatility_summary, dict):
+        return {}
+
+    recorded_at = datetime.now(timezone.utc).isoformat()
+    term_structure = volatility_summary.get("term_structure", {})
+    if not isinstance(term_structure, dict):
+        term_structure = {}
+
+    store = _load_option_iv_history_store()
+    underlyings = store.get("underlyings", {})
+    symbol_key = str(underlying_symbol or "").strip().upper()
+    existing_symbol_history = underlyings.get(symbol_key, {})
+    if not isinstance(existing_symbol_history, dict):
+        existing_symbol_history = {}
+
+    dte_bucket_iv_summary = _summarize_iv_by_dte_bucket(
+        list(contracts or []),
+        reference_stock_price=reference_stock_price,
+    )
+    atm_mean_iv_history = _historical_values_from_iv_entries(existing_symbol_history.get("atm_mean_iv", []))
+    short_term_iv_history = _historical_values_from_iv_entries(existing_symbol_history.get("short_term_atm_iv", []))
+    longer_term_iv_history = _historical_values_from_iv_entries(existing_symbol_history.get("longer_term_atm_iv", []))
+    existing_bucket_histories = existing_symbol_history.get("atm_mean_iv_by_dte_bucket", {})
+    if not isinstance(existing_bucket_histories, dict):
+        existing_bucket_histories = {}
+
+    bucket_percentiles: dict[str, float | None] = {}
+    bucket_history_counts: dict[str, int] = {}
+    for bucket_key, bucket_summary in dte_bucket_iv_summary.items():
+        bucket_history = _historical_values_from_iv_entries(existing_bucket_histories.get(bucket_key, []))
+        bucket_history_counts[bucket_key] = len(bucket_history)
+        bucket_percentiles[bucket_key] = (
+            compute_percentile_rank(bucket_summary.get("atm_mean_iv"), bucket_history)
+            if len(bucket_history) >= OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES
+            else None
+        )
+
+    enriched_term_structure = dict(term_structure)
+    enriched_term_structure["short_term_iv_percentile"] = compute_percentile_rank(
+        term_structure.get("short_term_atm_iv"),
+        short_term_iv_history,
+    )
+    enriched_term_structure["longer_term_iv_percentile"] = compute_percentile_rank(
+        term_structure.get("longer_term_atm_iv"),
+        longer_term_iv_history,
+    )
+    volatility_summary["term_structure"] = enriched_term_structure
+    volatility_summary["atm_iv_percentile"] = compute_percentile_rank(
+        volatility_summary.get("atm_mean_iv"),
+        atm_mean_iv_history,
+    )
+    volatility_summary["dte_bucket_iv_summary"] = dte_bucket_iv_summary
+    volatility_summary["dte_bucket_iv_percentiles"] = bucket_percentiles
+    volatility_summary["dte_bucket_iv_history_counts"] = bucket_history_counts
+    if contracts:
+        _annotate_contract_iv_percentiles(
+            contracts,
+            bucket_percentiles=bucket_percentiles,
+            bucket_history_counts=bucket_history_counts,
+        )
+
+    symbol_history = _record_option_iv_history(
+        underlying_symbol,
+        atm_mean_iv=_safe_float(volatility_summary.get("atm_mean_iv")),
+        short_term_atm_iv=_safe_float(term_structure.get("short_term_atm_iv")),
+        longer_term_atm_iv=_safe_float(term_structure.get("longer_term_atm_iv")),
+        bucket_atm_ivs={
+            bucket_key: bucket_atm_iv
+            for bucket_key, bucket_atm_iv in (
+                (bucket_key, _safe_float(bucket_summary.get("atm_mean_iv")))
+                for bucket_key, bucket_summary in dte_bucket_iv_summary.items()
+            )
+            if bucket_atm_iv is not None
+        },
+        recorded_at=recorded_at,
+    )
+
+    volatility_summary["iv_percentile_source"] = "alpaca_snapshot_history"
+    volatility_summary["iv_history_path"] = str(OPTION_IV_HISTORY_PATH)
+    volatility_summary["iv_history_sample_count"] = len(
+        _historical_values_from_iv_entries(symbol_history.get("atm_mean_iv", []))
+    )
+    volatility_summary["iv_history_updated_at"] = str(symbol_history.get("updated_at") or "")
+    return volatility_summary
+
+
+def _extract_bar_close(bar: Any) -> float | None:
+    return _first_float(bar, "close", "c")
+
+
+def _extract_bar_timestamp(bar: Any) -> str:
+    return (
+        _serialize_scalar(_get_field(bar, "timestamp"))
+        or _serialize_scalar(_get_field(bar, "t"))
+        or ""
+    )
+
+
+def _normalize_stock_bars_response(response: Any, symbol: str) -> list[Any]:
+    normalized_symbol = str(symbol or "").strip().upper()
+    candidate_collections = [response, getattr(response, "data", None)]
+    for collection in candidate_collections:
+        if collection is None:
+            continue
+        if isinstance(collection, dict):
+            bars = collection.get(normalized_symbol) or collection.get(normalized_symbol.lower())
+            if bars is None:
+                continue
+            if isinstance(bars, list):
+                return bars
+            try:
+                return list(bars)
+            except TypeError:
+                return []
+        getter = getattr(collection, "get", None)
+        if callable(getter):
+            bars = getter(normalized_symbol)
+            if bars is None:
+                continue
+            if isinstance(bars, list):
+                return bars
+            try:
+                return list(bars)
+            except TypeError:
+                return []
+    return []
+
+
+def _summarize_underlying_price_history(
+    symbol: str,
+    bars: list[Any],
+    *,
+    source: str = "alpaca_stock_bars",
+) -> dict[str, Any]:
+    snapshot = _empty_underlying_price_history_snapshot(symbol=symbol)
+    normalized_symbol = str(symbol or "").strip().upper()
+    close_values: list[float] = []
+    timestamp_values: list[str] = []
+    for bar in bars:
+        close_price = _extract_bar_close(bar)
+        timestamp = _extract_bar_timestamp(bar)
+        if close_price is None or close_price <= 0:
+            continue
+        close_values.append(close_price)
+        if timestamp:
+            timestamp_values.append(timestamp)
+
+    if not close_values:
+        snapshot["error"] = "No valid close prices were returned from Alpaca stock bars."
+        return snapshot
+
+    historical_volatility_short = compute_realized_volatility(
+        close_values,
+        UNDERLYING_HV_SHORT_WINDOW_DAYS,
+    )
+    historical_volatility_long = compute_realized_volatility(
+        close_values,
+        UNDERLYING_HV_LONG_WINDOW_DAYS,
+    )
+
+    snapshot.update(
+        {
+            "available": True,
+            "symbol": normalized_symbol,
+            "source": source,
+            "close_count": len(close_values),
+            "first_bar_timestamp": timestamp_values[0] if timestamp_values else "",
+            "last_bar_timestamp": timestamp_values[-1] if timestamp_values else "",
+            "first_close": round(close_values[0], 6),
+            "last_close": round(close_values[-1], 6),
+            "historical_volatility_20d": historical_volatility_short,
+            "historical_volatility_60d": historical_volatility_long,
+            "recent_closes": [round(value, 6) for value in close_values[-5:]],
+            "error": "",
+        }
+    )
+    return snapshot
+
+
+def _build_underlying_price_history_snapshot(symbol: str) -> dict[str, Any]:
+    normalized_symbol = str(symbol or "").strip().upper()
+    unavailable = _empty_underlying_price_history_snapshot(symbol=normalized_symbol)
+    if not normalized_symbol:
+        unavailable["error"] = "Company symbol was missing."
+        return unavailable
+
+    clients = _get_alpaca_clients()
+    if clients is None or StockBarsRequest is None or TimeFrame is None:
+        unavailable["error"] = (
+            f"alpaca-py is unavailable: {ALPACA_IMPORT_ERROR}"
+            if ALPACA_IMPORT_ERROR is not None
+            else "Alpaca credentials were not configured."
+        )
+        return unavailable
+
+    end_time = datetime.now(timezone.utc)
+    start_time = end_time - timedelta(days=UNDERLYING_HISTORY_LOOKBACK_CALENDAR_DAYS)
+
+    try:
+        bars_response = clients["stock"].get_stock_bars(
+            StockBarsRequest(
+                symbol_or_symbols=normalized_symbol,
+                timeframe=TimeFrame.Day,
+                start=start_time,
+                end=end_time,
+            )
+        )
+        bars = _normalize_stock_bars_response(bars_response, normalized_symbol)
+        return _summarize_underlying_price_history(
+            normalized_symbol,
+            bars,
+            source="alpaca_stock_bars",
+        )
+    except Exception as exc:
+        unavailable["error"] = str(exc)
+        return unavailable
+
+
 def _get_reference_stock_price_from_snapshot(stock_snapshot: dict[str, Any]) -> float | None:
     latest_trade = _safe_float(stock_snapshot.get("latest_trade_price"))
     bid = _safe_float(stock_snapshot.get("bid_price"))
@@ -564,12 +1098,16 @@ def _serialize_quote_snapshot(quote: Any) -> dict[str, Any]:
 
 
 def _serialize_option_contract(contract: Any) -> dict[str, Any]:
+    expiration_date = _serialize_scalar(_get_field(contract, "expiration_date")) or ""
+    days_to_expiration = _calculate_days_to_expiration(expiration_date)
     return {
         "contract_id": _serialize_scalar(_get_field(contract, "id")),
         "symbol": str(_get_field(contract, "symbol") or ""),
         "underlying_symbol": str(_get_field(contract, "underlying_symbol") or ""),
         "contract_type": _serialize_scalar(_get_field(contract, "type")) or "",
-        "expiration_date": _serialize_scalar(_get_field(contract, "expiration_date")) or "",
+        "expiration_date": expiration_date,
+        "days_to_expiration": days_to_expiration,
+        "dte_bucket": _resolve_iv_percentile_dte_bucket(days_to_expiration),
         "strike_price": _safe_float(_get_field(contract, "strike_price")),
         "style": _serialize_scalar(_get_field(contract, "style")) or "",
         "status": _serialize_scalar(_get_field(contract, "status")) or "",
@@ -796,6 +1334,7 @@ def _build_option_market_snapshot(
     company_symbol: str,
     *,
     reference_stock_price: float | None,
+    underlying_price_history: dict[str, Any] | None = None,
     expiration_date: str | None,
     expiration_date_gte: str | None,
     expiration_date_lte: str | None,
@@ -1020,11 +1559,40 @@ def _build_option_market_snapshot(
         "available_expirations": sorted(expiration_values),
         "available_strikes": sorted(strike_values),
         "contracts": selected_contracts,
+        "volatility_summary": summarize_option_iv(
+            serialized_contracts,
+            reference_stock_price,
+            historical_volatility=_safe_float(
+                (underlying_price_history or {}).get("historical_volatility_20d")
+            ),
+        ),
         "request_debug": {
             "call_request": call_request_debug,
             "put_request": put_request_debug,
         },
     }
+    payload["volatility_summary"] = _enrich_with_alpaca_iv_percentiles(
+        company_symbol,
+        payload["volatility_summary"],
+        contracts=serialized_contracts,
+        reference_stock_price=reference_stock_price,
+    )
+    payload["volatility_summary"].update(
+        {
+            "historical_volatility_20d": _safe_float(
+                (underlying_price_history or {}).get("historical_volatility_20d")
+            ),
+            "historical_volatility_60d": _safe_float(
+                (underlying_price_history or {}).get("historical_volatility_60d")
+            ),
+            "historical_volatility_source": str(
+                (underlying_price_history or {}).get("source") or ""
+            ),
+            "underlying_close_count": int(
+                _safe_float((underlying_price_history or {}).get("close_count")) or 0
+            ),
+        }
+    )
     if chain_error:
         payload["warning"] = f"Option chain snapshots were unavailable: {chain_error}"
     return payload
@@ -1142,14 +1710,17 @@ def build_market_context(
     company_symbol = str(company.get("symbol") or "").strip().upper()
     stock_snapshot = _build_current_stock_price_snapshot(company)
     reference_stock_price = _get_reference_stock_price_from_snapshot(stock_snapshot)
+    underlying_price_history = _build_underlying_price_history_snapshot(company_symbol)
 
     return {
         "current_stock_price": stock_snapshot,
+        "underlying_price_history": underlying_price_history,
         "market_indices": _build_market_indices_snapshot(),
         "sector_etf": _build_sector_etf_snapshot(company),
         "option_market": _build_option_market_snapshot(
             company_symbol,
             reference_stock_price=reference_stock_price,
+            underlying_price_history=underlying_price_history,
             expiration_date=option_expiration_date,
             expiration_date_gte=option_expiration_date_gte,
             expiration_date_lte=option_expiration_date_lte,

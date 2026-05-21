@@ -408,6 +408,7 @@ def _build_manager_visible_market_context(payload: dict[str, Any]) -> dict[str, 
 
     return {
         "current_stock_price": market_context.get("current_stock_price", {}),
+        "underlying_price_history": market_context.get("underlying_price_history", {}),
         "market_indices": market_context.get("market_indices", {}),
         "sector_etf": market_context.get("sector_etf", {}),
         "account_state": market_context.get("account_state", {}),
@@ -418,6 +419,7 @@ def _build_manager_visible_market_context(payload: dict[str, Any]) -> dict[str, 
             "contract_count": int(option_market.get("contract_count") or 0),
             "available_expirations": option_market.get("available_expirations", []),
             "available_strikes": option_market.get("available_strikes", []),
+            "volatility_summary": option_market.get("volatility_summary", {}),
             "error": str(option_market.get("error") or ""),
         },
     }
@@ -449,6 +451,12 @@ def build_manager_prompt(
     "Your primary job is execution permission: decide whether the setup should be acted on now, given live market context, account context, and timing. "
     "If the article and research evidence is strong, fresh, specific, and internally consistent, prefer that evidence over ordinary one-day market noise, intraday weakness, or broad volatility. "
     "Use the live market context primarily to judge timing, tradability, current risk, account constraints, and whether the setup is too volatile right now. "
+    "When volatility context is present, explicitly use it as a timing and tradeability signal. "
+    "Pay attention to implied volatility percentile, IV versus historical volatility, and the short-term versus longer-term IV term structure. "
+    "Low or normal IV percentile is favorable for buying options, while elevated or very high IV percentile should reduce enthusiasm and can justify lower confidence or no trade. "
+    "If IV is far above historical volatility, treat premium as expensive; if IV/HV is very stretched, be more cautious about approving an options entry even when the directional thesis is good. "
+    "If short-dated IV is much higher than longer-dated IV, treat that as event pricing or near-term risk; that should make you less comfortable with very short-dated exposure and can justify preferring a longer target_dte_bucket or choosing neither if timing looks poor. "
+    "Use these volatility signals to adjust timing confidence and risk tolerance, but do not infer a specific contract from them. "
     "Do not let a weak daily move by itself overturn a very convincing bullish or bearish evidence-based thesis unless the live context clearly signals a meaningful contradiction or an unacceptably risky setup. "
     "Be willing to take a reasonable amount of risk when the opportunity looks genuinely strong, especially when the evidence is clear and timing is still actionable. "
     "Your job is only to choose call, put, or neither for the underlying at this time. "
