@@ -82,7 +82,12 @@ class FrontMainPaths:
                     str(ROOT_DIR / "shared" / "option_position_state.json"),
                 )
             ),
-            agent_output_path=DATA_DIR / "agent_runner_output.json",
+            agent_output_path=Path(
+                os.getenv(
+                    "AGENT_OUTPUT_PATH",
+                    str(ROOT_DIR / "shared" / "agent_runner_output.json"),
+                )
+            ),
             selected_options_output_path=DATA_DIR / "selected_options_output.json",
             combined_output_path=DATA_DIR / "front_main_output.json",
         )
@@ -303,7 +308,12 @@ class ApiPaths:
                     str(DATA_DIR / "trade_execution_output.json"),
                 )
             ),
-            agent_output_path=DATA_DIR / "agent_runner_output.json",
+            agent_output_path=Path(
+                os.getenv(
+                    "AGENT_OUTPUT_PATH",
+                    str(ROOT_DIR / "shared" / "agent_runner_output.json"),
+                )
+            ),
             selected_options_output_path=DATA_DIR / "selected_options_output.json",
             option_position_management_output_path=Path(
                 os.getenv(
