@@ -195,6 +195,115 @@ Use:
 
 These exist so each opportunist helper can focus on stage-specific validation and persistence rules instead of repeating common article handling logic.
 
+### `deterministic_option_selector.py`
+
+Purpose: deterministic contract-selection façade used after the manager stage decides direction.
+
+Use:
+
+- `apply_deterministic_option_selection(manager_result)`
+  Use when the manager has already decided `call`, `put`, or `neither` and you want to attach a concrete option contract using rule-based filtering instead of an LLM.
+
+How it works currently:
+
+- `deterministic_option_selector.py` is now a thin façade plus final orchestration layer.
+- It keeps the stable public entrypoint and the patch surface used by tests.
+- The actual selector logic is split across focused helper modules in this folder.
+
+Current module split:
+
+- `_selector_config.py`
+  Selector env/config loading and all mode tunables.
+- `_selector_normalize.py`
+  Normalization helpers for decisions, confidence, booleans, option IDs, and selection guardrails.
+- `_selector_market.py`
+  Read-only helpers for contract quotes, greeks, DTE, market-context access, IV percentile lookup, and reference-stock-price resolution.
+- `_selector_volatility.py`
+  Volatility scoring logic: IV percentile, IV vs HV, term structure warning, and combined volatility assessment.
+- `_selector_filters.py`
+  Shared DTE/liquidity/OTM filters, spread/theta helpers, and common ranking helpers.
+- `_selector_debug.py`
+  Contract debug snapshot helpers and human-readable rejection/debug payload assembly.
+- `_selector_simple.py`
+  Simple selector mode implementation.
+- `_selector_hybrid.py`
+  Hybrid selector mode implementation.
+- `_selector_greeks.py`
+  Greeks/swing selector mode implementation.
+
+Top-level selector flow:
+
+1. `apply_deterministic_option_selection(...)` starts in `deterministic_option_selector.py`.
+2. The façade normalizes the manager recommendation and checks confidence/strategist guardrails.
+3. It dispatches into the requested selector mode:
+   - `simple`
+   - `hybrid`
+   - `greeks`
+4. The selected contract is then passed through volatility scoring.
+5. Volatility can downgrade `confidence_after_volatility` and, if needed, reject the contract.
+6. The final recommendation is enriched with:
+   - `selected_option_id`
+   - `selected_expiration_date`
+   - `selected_strike_price`
+   - `selected_option_source`
+   - `selection_debug`
+   - `confidence_after_volatility`
+
+Current selector responsibilities:
+
+- enforce contract-level viability after the manager has chosen direction
+- use DTE buckets and OTM-distance rules
+- enforce liquidity and spread checks
+- score contract quality deterministically
+- incorporate volatility penalties without asking the LLM to choose a contract
+- provide a rich `selection_debug` payload for diagnostics
+
+Current volatility behavior inside the selector:
+
+- reads contract-level `implied_volatility`
+- reads underlying historical volatility from `market_context`
+- reads DTE-bucket IV percentile and term-structure context from `option_market.volatility_summary`
+- builds a per-contract volatility assessment with:
+  - `iv_percentile`
+  - `iv_hv`
+  - `term_structure`
+  - `total_penalty_points`
+  - `confidence_penalty_steps`
+
+Mode overview:
+
+- `simple`
+  Cheapest path. Prefers target-OTM contracts and can fall back to side-correct contracts.
+- `hybrid`
+  Short-DTE / liquidity-aware mode with spread, OI, delta, theta, gamma, and OTM-distance filters.
+- `greeks`
+  Stricter swing-like mode with tighter DTE, delta, gamma, spread, theta, and OI requirements.
+
+Why `deterministic_option_selector.py` still keeps orchestration:
+
+- callers already import `apply_deterministic_option_selection(...)` from this file
+- tests currently patch `agent_helpers.deterministic_option_selector.OPTION_SELECTOR_MODE`
+- keeping the façade as the orchestration layer preserves that behavior while still allowing the internal logic to be modular
+
+Operational note:
+
+- `recommendation["confidence"]` now stays as the manager’s original confidence
+- `recommendation["confidence_after_volatility"]` carries the selector’s volatility-adjusted view
+- this makes it easier to tell what came from the manager versus what was changed by deterministic contract-level risk controls
+
+When to edit which file:
+
+- Change selector mode/env/tunables in `_selector_config.py`.
+- Change normalization or confidence semantics in `_selector_normalize.py`.
+- Change quote/DTE/contract market-context lookups in `_selector_market.py`.
+- Change IV percentile / IV-HV / term-structure scoring in `_selector_volatility.py`.
+- Change shared contract filters or ranking behavior in `_selector_filters.py`.
+- Change selector debug payloads in `_selector_debug.py`.
+- Change simple mode selection in `_selector_simple.py`.
+- Change hybrid mode selection in `_selector_hybrid.py`.
+- Change greeks mode selection in `_selector_greeks.py`.
+- Only edit `deterministic_option_selector.py` when you need to change the public façade, mode dispatch, or final recommendation orchestration.
+
 ## Quick Examples
 
 Build manager input:
