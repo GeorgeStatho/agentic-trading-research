@@ -27,6 +27,7 @@ ALPACA_SETTINGS = AlpacaSettings.from_env()
 
 SCRIPT_STATUS_PATH = API_PATHS.script_status_path
 TRADE_EXECUTION_OUTPUT_PATH = API_PATHS.trade_execution_output_path
+AGENT_OUTPUT_PATH = API_PATHS.agent_output_path
 SELECTED_OPTIONS_OUTPUT_PATH = API_PATHS.selected_options_output_path
 OPTION_POSITION_MANAGEMENT_OUTPUT_PATH = API_PATHS.option_position_management_output_path
 OPTION_MANAGER_STATUS_PATH = API_PATHS.option_manager_status_path

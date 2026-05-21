@@ -13,6 +13,7 @@ from api_support.common import (
     safe_float,
 )
 from api_support.context import (
+    AGENT_OUTPUT_PATH,
     BOT_DOWN_THRESHOLD_SECONDS,
     DEFAULT_OPTION_ORDER_QTY,
     MAX_DEPLOYABLE_BUYING_POWER_PCT,
@@ -24,6 +25,132 @@ from api_support.context import (
     SCRIPT_STATUS_PATH,
 )
 from api_support.trades import build_trade_explanation_payload
+
+
+def _build_empty_company_decisions_payload() -> dict:
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "last_updated_at": "",
+        "company_count": 0,
+        "companies": [],
+    }
+
+
+def _normalize_company_identity(entry: dict) -> tuple[str, str]:
+    company = entry.get("company")
+    if not isinstance(company, dict):
+        return "", ""
+    symbol = str(company.get("symbol") or "").strip().upper()
+    name = str(company.get("name") or "").strip()
+    return symbol, name
+
+
+def build_company_decisions_payload() -> dict:
+    payload = read_json_payload(AGENT_OUTPUT_PATH)
+    if not isinstance(payload, dict):
+        return _build_empty_company_decisions_payload()
+
+    strategist_results = payload.get("strategist")
+    manager_results = payload.get("manager")
+    if not isinstance(strategist_results, list):
+        strategist_results = []
+    if not isinstance(manager_results, list):
+        manager_results = []
+
+    last_updated_at = str(payload.get("ran_at") or "").strip()
+    companies_by_symbol: dict[str, dict] = {}
+
+    def get_or_create_company(symbol: str, name: str) -> dict:
+        entry = companies_by_symbol.get(symbol)
+        if entry is None:
+            entry = {
+                "symbol": symbol,
+                "name": name,
+                "last_updated_at": last_updated_at,
+                "strategist": {
+                    "decision": "",
+                    "confidence": "",
+                    "summary": "",
+                    "thesis": [],
+                    "risks": [],
+                },
+                "manager": {
+                    "decision": "",
+                    "confidence": "",
+                    "reason": "",
+                    "target_dte_bucket": "",
+                    "selected_option_id": "",
+                    "selected_expiration_date": "",
+                    "selected_strike_price": None,
+                    "selected_option_source": "",
+                },
+            }
+            companies_by_symbol[symbol] = entry
+        elif name and not entry.get("name"):
+            entry["name"] = name
+        return entry
+
+    for raw_entry in strategist_results:
+        if not isinstance(raw_entry, dict):
+            continue
+        symbol, name = _normalize_company_identity(raw_entry)
+        if not symbol:
+            continue
+        recommendation = raw_entry.get("recommendation")
+        if not isinstance(recommendation, dict):
+            recommendation = {}
+        company_entry = get_or_create_company(symbol, name)
+        company_entry["strategist"] = {
+            "decision": str(recommendation.get("decision") or "").strip(),
+            "confidence": str(recommendation.get("confidence") or "").strip(),
+            "summary": str(recommendation.get("summary") or "").strip(),
+            "thesis": [
+                str(item).strip()
+                for item in recommendation.get("thesis", [])
+                if str(item).strip()
+            ]
+            if isinstance(recommendation.get("thesis"), list)
+            else [],
+            "risks": [
+                str(item).strip()
+                for item in recommendation.get("risks", [])
+                if str(item).strip()
+            ]
+            if isinstance(recommendation.get("risks"), list)
+            else [],
+        }
+
+    for raw_entry in manager_results:
+        if not isinstance(raw_entry, dict):
+            continue
+        symbol, name = _normalize_company_identity(raw_entry)
+        if not symbol:
+            continue
+        recommendation = raw_entry.get("recommendation")
+        if not isinstance(recommendation, dict):
+            recommendation = {}
+        company_entry = get_or_create_company(symbol, name)
+        company_entry["manager"] = {
+            "decision": str(recommendation.get("decision") or "").strip(),
+            "confidence": str(recommendation.get("confidence") or "").strip(),
+            "reason": str(recommendation.get("reason") or "").strip(),
+            "target_dte_bucket": str(recommendation.get("target_dte_bucket") or "").strip(),
+            "selected_option_id": str(recommendation.get("selected_option_id") or "").strip(),
+            "selected_expiration_date": str(recommendation.get("selected_expiration_date") or "").strip(),
+            "selected_strike_price": safe_float(recommendation.get("selected_strike_price")),
+            "selected_option_source": str(recommendation.get("selected_option_source") or "").strip(),
+        }
+
+    companies = sorted(
+        companies_by_symbol.values(),
+        key=lambda entry: (str(entry.get("symbol") or ""), str(entry.get("name") or "")),
+    )
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "last_updated_at": last_updated_at,
+        "company_count": len(companies),
+        "companies": companies,
+    }
 
 
 def looks_like_option_symbol(symbol: str, asset_class: str = "") -> bool:

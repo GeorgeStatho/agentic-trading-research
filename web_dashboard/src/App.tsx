@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import './App.css'
 import AnalyzedCompanyNewsPage from './analyzedCompanyNews.tsx'
+import CompanyDecisionsPage from './companyDecisions.tsx'
 import DashboardKpis from './dashboardKpis.tsx'
 import Graph from './Graph.tsx'
 import OpenPositionsTable from './openPositionsTable.tsx'
@@ -9,11 +10,17 @@ import RiskControlsPanel from './riskControls.tsx'
 import ScriptStatusIndicator from './scriptStatus.tsx'
 import WhyBotTradedPanel from './whyBotTraded.tsx'
 
-type DashboardView = 'dashboard' | 'company-news'
+type DashboardView = 'dashboard' | 'company-news' | 'company-decisions'
 
 function getViewFromHash(): DashboardView {
   const normalizedHash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase()
-  return normalizedHash === 'company-news' ? 'company-news' : 'dashboard'
+  if (normalizedHash === 'company-news') {
+    return 'company-news'
+  }
+  if (normalizedHash === 'company-decisions') {
+    return 'company-decisions'
+  }
+  return 'dashboard'
 }
 
 function App() {
@@ -35,7 +42,13 @@ function App() {
       <header className="app-topbar">
         <div className="app-brand">
           <p className="app-brand__eyebrow">Stock Trading Experiment</p>
-          <h1>{view === 'dashboard' ? 'Operations Dashboard' : 'Analyzed Company News'}</h1>
+          <h1>
+            {view === 'dashboard'
+              ? 'Operations Dashboard'
+              : view === 'company-news'
+                ? 'Analyzed Company News'
+                : 'Company Decisions'}
+          </h1>
         </div>
         <nav className="app-nav" aria-label="Dashboard pages">
           <a
@@ -50,11 +63,19 @@ function App() {
           >
             Company News
           </a>
+          <a
+            href="#/company-decisions"
+            className={`app-nav__link${view === 'company-decisions' ? ' app-nav__link--active' : ''}`}
+          >
+            Decisions
+          </a>
         </nav>
       </header>
 
       {view === 'company-news' ? (
         <AnalyzedCompanyNewsPage />
+      ) : view === 'company-decisions' ? (
+        <CompanyDecisionsPage />
       ) : (
         <main className="mainbody">
           <DashboardKpis />
