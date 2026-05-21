@@ -83,6 +83,20 @@
   justify-content: space-between;
 }
 
+.company-news-lookup {
+  flex: 1 1 360px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+}
+
+.company-news-lookup__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .company-news-view-selector {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
