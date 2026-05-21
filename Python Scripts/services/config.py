@@ -122,11 +122,6 @@ class FrontMainSettings:
     option_trail_second_scale_out_trigger_pct: float
     option_trail_second_scale_out_fraction: float
     option_trail_giveback_pct_by_bucket_key: dict[str, float]
-    option_trail_3_7_giveback_pct: float
-    option_trail_7_14_giveback_pct: float
-    option_trail_14_30_giveback_pct: float
-    option_trail_30_45_giveback_pct: float
-    option_trail_45_60_giveback_pct: float
     option_trail_100_floor_pct: float
     option_trail_150_floor_pct: float
     option_trail_200_floor_pct: float
@@ -221,11 +216,6 @@ class FrontMainSettings:
                 0.25,
             ),
             option_trail_giveback_pct_by_bucket_key=giveback_pct_by_bucket_key,
-            option_trail_3_7_giveback_pct=giveback_pct_by_bucket_key.get("3_7", 0.25),
-            option_trail_7_14_giveback_pct=giveback_pct_by_bucket_key.get("7_14", 0.35),
-            option_trail_14_30_giveback_pct=giveback_pct_by_bucket_key.get("14_30", 0.45),
-            option_trail_30_45_giveback_pct=giveback_pct_by_bucket_key.get("30_45", 0.45),
-            option_trail_45_60_giveback_pct=giveback_pct_by_bucket_key.get("45_60", 0.45),
             option_trail_100_floor_pct=_env_float("OPTION_TRAIL_100_FLOOR_PCT", 0.60),
             option_trail_150_floor_pct=_env_float("OPTION_TRAIL_150_FLOOR_PCT", 1.00),
             option_trail_200_floor_pct=_env_float("OPTION_TRAIL_200_FLOOR_PCT", 1.40),

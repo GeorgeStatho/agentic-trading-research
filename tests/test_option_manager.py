@@ -18,6 +18,7 @@ for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
     if normalized not in sys.path:
         sys.path.insert(0, normalized)
 
+from services.option_dte_buckets import OPTION_DTE_BUCKETS  # noqa: E402
 from services.position_manager import OptionPositionManagerService  # noqa: E402
 
 
@@ -35,9 +36,19 @@ class VerboseTestCase(unittest.TestCase):
         print(f"[PASS] {self.__class__.__name__}.{self._testMethodName}: {message}")
 
 
+def _build_bucket_giveback_fixture() -> dict[str, float]:
+    base_value = 0.30
+    step = 0.05
+    return {
+        bucket.key: round(base_value + (index * step), 2)
+        for index, bucket in enumerate(OPTION_DTE_BUCKETS, start=1)
+    }
+
+
 class OptionPositionManagerServiceTests(VerboseTestCase):
     @patch("services.position_manager.JsonFileWriter.write")
     def test_run_cycle_executes_management_and_persists_output(self, mock_json_write):
+        bucket_giveback_fixture = _build_bucket_giveback_fixture()
         management_result = {
             "position_count": 3,
             "sell_count": 1,
@@ -75,17 +86,7 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
                 option_trail_first_scale_out_fraction=0.50,
                 option_trail_second_scale_out_trigger_pct=2.00,
                 option_trail_second_scale_out_fraction=0.25,
-                option_trail_giveback_pct_by_bucket_key={
-                    "7_14": 0.35,
-                    "14_30": 0.45,
-                    "30_45": 0.45,
-                    "45_60": 0.45,
-                },
-                option_trail_3_7_giveback_pct=0.25,
-                option_trail_7_14_giveback_pct=0.35,
-                option_trail_14_30_giveback_pct=0.45,
-                option_trail_30_45_giveback_pct=0.45,
-                option_trail_45_60_giveback_pct=0.45,
+                option_trail_giveback_pct_by_bucket_key=bucket_giveback_fixture,
                 option_trail_100_floor_pct=0.60,
                 option_trail_150_floor_pct=1.00,
                 option_trail_200_floor_pct=1.40,
@@ -132,12 +133,7 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
         self.assertEqual(call_kwargs["trail_initial_floor_pct_override"], 0.10)
         self.assertEqual(
             call_kwargs["trail_giveback_pct_by_bucket_key_override"],
-            {
-                "7_14": 0.35,
-                "14_30": 0.45,
-                "30_45": 0.45,
-                "45_60": 0.45,
-            },
+            bucket_giveback_fixture,
         )
         self.assertEqual(call_kwargs["pending_exit_stale_minutes_override"], 10.0)
         self.assertEqual(call_kwargs["pending_exit_cancel_on_stale_override"], True)
@@ -154,6 +150,7 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
 
     @patch("services.position_manager.JsonFileWriter.write")
     def test_run_cycle_normalizes_impossible_momentum_history_settings(self, mock_json_write):
+        bucket_giveback_fixture = _build_bucket_giveback_fixture()
         fake_manage_current_option_positions = MagicMock(
             return_value={
                 "position_count": 0,
@@ -194,12 +191,7 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
                 option_trail_first_scale_out_fraction=0.50,
                 option_trail_second_scale_out_trigger_pct=2.00,
                 option_trail_second_scale_out_fraction=0.25,
-                option_trail_giveback_pct_by_bucket_key={"7_14": 0.35, "14_30": 0.45, "30_45": 0.45, "45_60": 0.45},
-                option_trail_3_7_giveback_pct=0.25,
-                option_trail_7_14_giveback_pct=0.35,
-                option_trail_14_30_giveback_pct=0.45,
-                option_trail_30_45_giveback_pct=0.45,
-                option_trail_45_60_giveback_pct=0.45,
+                option_trail_giveback_pct_by_bucket_key=bucket_giveback_fixture,
                 option_trail_100_floor_pct=0.60,
                 option_trail_150_floor_pct=1.00,
                 option_trail_200_floor_pct=1.40,

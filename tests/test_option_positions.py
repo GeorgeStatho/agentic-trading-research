@@ -93,6 +93,18 @@ def _load_option_positions_module():
     return module
 
 
+def _make_future_option_symbol(
+    underlying: str,
+    *,
+    days_until_expiration: int,
+    contract_type: str = "C",
+    strike_price: float = 150.0,
+) -> str:
+    expiration = datetime.now() + timedelta(days=days_until_expiration)
+    strike_component = f"{int(round(strike_price * 1000)):08d}"
+    return f"{underlying.upper()}{expiration:%y%m%d}{contract_type.upper()}{strike_component}"
+
+
 def _make_trailing_profit_config(module, **overrides):
     values = {
         "protection_trigger_pct": module.DEFAULT_OPTION_TRAIL_PROTECTION_TRIGGER_PCT,
@@ -145,6 +157,18 @@ class OptionPositionTests(VerboseTestCase):
         cls.option_positions = _load_option_positions_module()
         cls.option_positions.DEFAULT_OPTION_PENDING_EXIT_STALE_MINUTES = 1.0
         cls.option_positions.DEFAULT_OPTION_PENDING_EXIT_CANCEL_ON_STALE = True
+
+    def _registry_bucket_for_days(self, days_to_expiration: int) -> object | None:
+        for bucket in reversed(self.option_positions.OPTION_DTE_BUCKETS):
+            if bucket.min_days <= days_to_expiration <= bucket.max_days:
+                return bucket
+        return None
+
+    def _trailing_giveback_bucket_key_for_days(self, days_to_expiration: int) -> str:
+        resolved_bucket = self._registry_bucket_for_days(days_to_expiration)
+        if resolved_bucket is not None:
+            return resolved_bucket.key
+        return self.option_positions.OPTION_DTE_BUCKETS[0].key
 
     def test_reconcile_stale_pending_order_submits_cancel(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -828,43 +852,42 @@ class OptionPositionTests(VerboseTestCase):
         self.log_pass("near-expiration rule still protected the position even without option pricing")
 
     def test_trailing_giveback_uses_same_bucket_boundaries_as_exit_thresholds(self) -> None:
+        bucket_values = {
+            bucket.key: round(0.11 * (index + 1), 2)
+            for index, bucket in enumerate(self.option_positions.OPTION_DTE_BUCKETS)
+        }
         trailing_profit_config = _make_trailing_profit_config(
             self.option_positions,
-            giveback_pct_by_bucket_key={
-                "7_14": 0.22,
-                "14_30": 0.33,
-                "30_45": 0.44,
-                "45_60": 0.55,
-            },
+            giveback_pct_by_bucket_key=bucket_values,
         )
 
-        self.assertEqual(
-            self.option_positions._resolve_trailing_giveback_pct(7, trailing_profit_config),
-            0.22,
-        )
-        self.assertEqual(
-            self.option_positions._resolve_trailing_giveback_pct(14, trailing_profit_config),
-            0.22,
-        )
-        self.assertEqual(
-            self.option_positions._resolve_trailing_giveback_pct(15, trailing_profit_config),
-            0.33,
-        )
-        self.assertEqual(
-            self.option_positions._resolve_trailing_giveback_pct(19, trailing_profit_config),
-            0.33,
-        )
-        self.assertEqual(
-            self.option_positions._resolve_trailing_giveback_pct(30, trailing_profit_config),
-            0.44,
-        )
-        self.assertEqual(
-            self.option_positions._resolve_trailing_giveback_pct(45, trailing_profit_config),
-            0.55,
-        )
-        self.log_pass("trailing giveback buckets matched the shared DTE boundaries including the newer 30-45 and 45-60 ranges")
+        buckets = self.option_positions.OPTION_DTE_BUCKETS
+        for index, bucket in enumerate(buckets):
+            next_bucket = buckets[index + 1] if index + 1 < len(buckets) else None
+            unique_upper_day = bucket.max_days
+            if next_bucket is not None and next_bucket.min_days <= bucket.max_days:
+                unique_upper_day = next_bucket.min_days - 1
 
-    def test_exit_thresholds_bridge_15_to_19_dte_into_14_30_management_rule(self) -> None:
+            self.assertEqual(
+                self.option_positions._resolve_trailing_giveback_pct(bucket.min_days, trailing_profit_config),
+                bucket_values[bucket.key],
+            )
+            if unique_upper_day >= bucket.min_days:
+                self.assertEqual(
+                    self.option_positions._resolve_trailing_giveback_pct(unique_upper_day, trailing_profit_config),
+                    bucket_values[bucket.key],
+                )
+
+        for index, bucket in enumerate(buckets[1:], start=1):
+            previous_bucket = buckets[index - 1]
+            if bucket.min_days <= previous_bucket.max_days:
+                self.assertEqual(
+                    self.option_positions._resolve_trailing_giveback_pct(bucket.min_days, trailing_profit_config),
+                    bucket_values[bucket.key],
+                )
+        self.log_pass("trailing giveback buckets matched the registry for unique ranges and favored the higher bucket on shared boundaries")
+
+    def test_exit_thresholds_use_registry_defined_15_to_19_dte_range(self) -> None:
         thresholds = self.option_positions._resolve_option_exit_thresholds(
             days_to_expiration=19,
             default_take_profit_pct=25.0,
@@ -872,12 +895,23 @@ class OptionPositionTests(VerboseTestCase):
             default_exit_hours_to_expiration=24.0,
         )
 
-        self.assertEqual(thresholds.dte_rule_label, "14-30 DTE")
-        self.assertEqual(thresholds.take_profit_pct, 55.0)
-        self.assertEqual(thresholds.stop_loss_pct, -30.0)
-        self.assertEqual(thresholds.exit_hours_to_expiration, 288.0)
+        resolved_rule = next(
+            rule
+            for rule in self.option_positions.OPTION_EXIT_DTE_RULES
+            if rule.min_days_to_expiration <= 19 <= rule.max_days_to_expiration
+        )
+        expected_exit_hours = (
+            float(resolved_rule.force_exit_days_to_expiration * 24)
+            if resolved_rule.force_exit_days_to_expiration is not None
+            else 24.0
+        )
+
+        self.assertEqual(thresholds.dte_rule_label, resolved_rule.label)
+        self.assertEqual(thresholds.take_profit_pct, resolved_rule.take_profit_pct)
+        self.assertEqual(thresholds.stop_loss_pct, resolved_rule.stop_loss_pct)
+        self.assertEqual(thresholds.exit_hours_to_expiration, expected_exit_hours)
         self.assertFalse(thresholds.is_default_rule)
-        self.log_pass("15-19 DTE positions kept using the 14-30 management thresholds instead of dropping to the generic default rule")
+        self.log_pass("19 DTE positions resolved through the current bucket registry without any special-case bridge logic")
 
     def test_structured_exit_action_activates_profit_protection_after_trigger(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(
@@ -916,7 +950,11 @@ class OptionPositionTests(VerboseTestCase):
         self.assertEqual(exit_action["action"], "hold")
         self.assertTrue(updated_state["profit_protection_active"])
         self.assertEqual(updated_state["protected_profit_floor_pct"], 0.05)
-        self.assertEqual(updated_state["trailing_giveback_pct"], trailing_profit_config.giveback_pct_by_bucket_key["7_14"])
+        expected_bucket_key = self._trailing_giveback_bucket_key_for_days(10)
+        self.assertEqual(
+            updated_state["trailing_giveback_pct"],
+            trailing_profit_config.giveback_pct_by_bucket_key[expected_bucket_key],
+        )
         self.assertIn("Profit protection activated.", exit_action["notes"])
         self.log_pass("profit protection activated once gains crossed the configured trigger")
 
@@ -998,7 +1036,10 @@ class OptionPositionTests(VerboseTestCase):
 
         expected_floor = max(
             0.25,
-            0.80 - trailing_profit_config.giveback_pct_by_bucket_key["7_14"],
+            0.80
+            - trailing_profit_config.giveback_pct_by_bucket_key[
+                self._trailing_giveback_bucket_key_for_days(10)
+            ],
         )
         self.assertEqual(exit_action["action"], "hold")
         self.assertAlmostEqual(exit_action["protected_profit_floor_pct"], expected_floor, places=6)
@@ -1099,7 +1140,7 @@ class OptionPositionTests(VerboseTestCase):
     def test_build_option_position_snapshot_persists_momentum_history_after_threshold(self) -> None:
         with TemporaryDirectory() as temp_dir:
             state_path = Path(temp_dir) / "option_state.json"
-            option_symbol = "AAPL260523C00150000"
+            option_symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
 
             position = SimpleNamespace(
                 symbol=option_symbol,
@@ -1166,7 +1207,7 @@ class OptionPositionTests(VerboseTestCase):
     def test_build_option_position_snapshot_treats_untrusted_underlying_baseline_as_informational_only(self) -> None:
         with TemporaryDirectory() as temp_dir:
             state_path = Path(temp_dir) / "option_state.json"
-            option_symbol = "AAPL260523C00150000"
+            option_symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
 
             position = SimpleNamespace(
                 symbol=option_symbol,
@@ -1223,7 +1264,11 @@ class OptionPositionTests(VerboseTestCase):
     def test_build_option_position_snapshot_prefers_quote_midpoint_over_broker_pl_for_options(self) -> None:
         with TemporaryDirectory() as temp_dir:
             state_path = Path(temp_dir) / "option_state.json"
-            option_symbol = "XOM260612C00155000"
+            option_symbol = _make_future_option_symbol(
+                "XOM",
+                days_until_expiration=42,
+                strike_price=155.0,
+            )
 
             position = SimpleNamespace(
                 symbol=option_symbol,
@@ -1277,7 +1322,7 @@ class OptionPositionTests(VerboseTestCase):
         with TemporaryDirectory() as temp_dir:
             state_path = Path(temp_dir) / "option_state.json"
             partial_orders: list[tuple[str, int]] = []
-            future_option_symbol = "AAPL260523C00150000"
+            future_option_symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
 
             position = SimpleNamespace(
                 symbol=future_option_symbol,
@@ -1318,6 +1363,8 @@ class OptionPositionTests(VerboseTestCase):
                     execute_sales=True,
                     state_path_override=state_path,
                     enable_trailing_profit_override=True,
+                    trail_first_scale_out_trigger_pct_override=0.55,
+                    trail_first_scale_out_fraction_override=0.50,
                     trading_client_override=_FakeTradingClient(),
                     submit_partial_exit_order=lambda symbol, qty: partial_orders.append((symbol, qty))
                     or {

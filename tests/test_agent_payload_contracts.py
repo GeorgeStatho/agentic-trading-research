@@ -17,6 +17,7 @@ for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
 
 from agent_helpers.manager import build_manager_input  # noqa: E402
 from agent_stages.strategist_prompt import build_strategist_prompt  # noqa: E402
+from services.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET, get_dte_bucket  # noqa: E402
 
 
 class VerboseTestCase(unittest.TestCase):
@@ -55,6 +56,33 @@ class StrategistPromptContractTests(VerboseTestCase):
         self.assertEqual(recommendation["expected_stock_direction"], "up|down|neutral")
         self.assertIn("supporting_articles", user_payload)
         self.log_pass("strategist prompt preserved the expected contract shape and recommendation schema")
+
+    def test_build_strategist_prompt_includes_live_time_horizon_bucket_mapping(self):
+        payload = {
+            "company": {
+                "company_id": 3644,
+                "symbol": "AAPL",
+                "name": "Apple Inc.",
+                "historical_price_data": {},
+            },
+            "peer_groups": {"industry": {}, "top_companies": []},
+            "filters": {"max_age_days": 5},
+            "opportunist_rollup": {"company": {"count": 2}},
+            "views": {"company": {"count": 2}},
+            "supporting_articles": {
+                "article_summaries": [{"title": "Example summary"}],
+                "full_articles": [{"title": "Example full article"}],
+            },
+        }
+
+        _, user_prompt = build_strategist_prompt(payload)
+        task_text = json.loads(user_prompt)["task"]
+
+        for time_horizon, bucket_key in TIME_HORIZON_TO_DTE_BUCKET.items():
+            bucket = get_dte_bucket(bucket_key)
+            assert bucket is not None
+            self.assertIn(f"{time_horizon} for setups that fit {bucket.label}", task_text)
+        self.log_pass("strategist prompt time-horizon guidance stayed aligned with the live DTE bucket registry")
 
 
 class ManagerPayloadContractTests(VerboseTestCase):

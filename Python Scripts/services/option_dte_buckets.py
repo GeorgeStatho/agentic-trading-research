@@ -21,20 +21,20 @@ class DteBucket:
 
 OPTION_DTE_BUCKETS = (
     DteBucket(
-    "7_14",
-    "7-14 DTE",
-    7,
-    14,
+    "12_20",
+    "12-20 DTE",
+    12,
+    20,
     target_otm_pct=0.0075,
-    force_exit_days_to_expiration=4,
+    force_exit_days_to_expiration=8,
     default_take_profit_pct=35.0,
     default_stop_loss_pct=-25.0,
     default_trailing_giveback_pct=0.35,
     mapped_time_horizon="very_short_term",
     ),
     DteBucket(
-        "14_30",
-        "14-30 DTE",
+        "20_30",
+        "20-30 DTE",
         20,
         30,
         target_otm_pct=0.0125,
