@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import re
 
+from agent_pipeline.ranking import get_current_rankings
 from portfolio_history_service import fetch_portfolio_history
 
 from api_support.alpaca import alpaca_data_get_json, alpaca_get_json
@@ -150,6 +151,70 @@ def build_company_decisions_payload() -> dict:
         "last_updated_at": last_updated_at,
         "company_count": len(companies),
         "companies": companies,
+    }
+
+
+def _titleize_ranking_key(value: str) -> str:
+    normalized = str(value or "").strip().replace("_", " ").replace("-", " ")
+    return " ".join(part.capitalize() for part in normalized.split())
+
+
+def _build_top_rankings_payload() -> dict:
+    try:
+        rankings = get_current_rankings(top_sector_count=3, top_industry_count=3)
+    except Exception:
+        return {
+            "top_sectors": [],
+            "top_industries": [],
+        }
+
+    top_sectors = []
+    for entry in rankings.get("top_sectors", []):
+        if not isinstance(entry, dict):
+            continue
+        sector_key = str(entry.get("sector_key") or "").strip()
+        if not sector_key:
+            continue
+        top_sectors.append(
+            {
+                "sector_key": sector_key,
+                "label": _titleize_ranking_key(sector_key),
+                "score": safe_float(entry.get("score")),
+            }
+        )
+
+    flattened_industries: list[dict] = []
+    top_industries_by_sector = rankings.get("top_industries_by_sector", {})
+    if isinstance(top_industries_by_sector, dict):
+        for sector_key, entries in top_industries_by_sector.items():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                industry_key = str(entry.get("industry_key") or "").strip()
+                if not industry_key:
+                    continue
+                flattened_industries.append(
+                    {
+                        "industry_key": industry_key,
+                        "label": _titleize_ranking_key(industry_key),
+                        "sector_key": str(sector_key or "").strip(),
+                        "sector_label": _titleize_ranking_key(str(sector_key or "").strip()),
+                        "score": safe_float(entry.get("score")),
+                    }
+                )
+
+    flattened_industries.sort(
+        key=lambda entry: (
+            -(entry.get("score") if isinstance(entry.get("score"), (int, float)) else float("-inf")),
+            str(entry.get("industry_key") or ""),
+        )
+    )
+
+    return {
+        "top_sectors": top_sectors[:3],
+        "top_industries": flattened_industries[:3],
     }
 
 
@@ -766,6 +831,7 @@ def build_dashboard_kpis() -> dict:
     win_rate = compute_win_rate_from_fills(fills)
     worker_status = read_json_payload(SCRIPT_STATUS_PATH)
     option_manager_status = read_json_payload(OPTION_MANAGER_STATUS_PATH)
+    top_rankings = _build_top_rankings_payload()
 
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
@@ -795,4 +861,5 @@ def build_dashboard_kpis() -> dict:
         "max_drawdown_pct": compute_max_drawdown_pct(portfolio_history),
         "bot_status": summarize_bot_status(worker_status, option_manager_status),
         "market_status": summarize_market_status(clock),
+        "top_rankings": top_rankings,
     }

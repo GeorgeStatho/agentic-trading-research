@@ -34,6 +34,20 @@ type DashboardKpiPayload = {
     label: string;
     detail: string;
   };
+  top_rankings: {
+    top_sectors: Array<{
+      sector_key: string;
+      label: string;
+      score: number | null;
+    }>;
+    top_industries: Array<{
+      industry_key: string;
+      label: string;
+      sector_key: string;
+      sector_label: string;
+      score: number | null;
+    }>;
+  };
 };
 
 type KpiCardConfig = {
@@ -97,6 +111,13 @@ function formatInteger(value: number | null): string {
   }
 
   return new Intl.NumberFormat().format(value);
+}
+
+function formatRankingScore(value: number | null): string {
+  if (value === null || Number.isNaN(value)) {
+    return 'N/A';
+  }
+  return value.toFixed(2);
 }
 
 function getDayPlTone(dayPl: number | null): KpiCardConfig['tone'] {
@@ -271,18 +292,64 @@ function DashboardKpis() {
   const cards = buildCards(payload);
 
   return (
-    <section className="kpi-grid" aria-label="Top KPI cards">
-      {cards.map((card) => (
-        <article
-          key={card.title}
-          className={`kpi-card kpi-card--${card.tone ?? 'neutral'}${card.state ? ` kpi-card--state-${card.state}` : ''}${card.compactValue ? ' kpi-card--compact' : ''}`}
-        >
-          <p className="kpi-card__label">{card.title}</p>
-          <p className="kpi-card__value">{card.value}</p>
-          <p className="kpi-card__detail">{card.detail}</p>
+    <>
+      <section className="kpi-grid" aria-label="Top KPI cards">
+        {cards.map((card) => (
+          <article
+            key={card.title}
+            className={`kpi-card kpi-card--${card.tone ?? 'neutral'}${card.state ? ` kpi-card--state-${card.state}` : ''}${card.compactValue ? ' kpi-card--compact' : ''}`}
+          >
+            <p className="kpi-card__label">{card.title}</p>
+            <p className="kpi-card__value">{card.value}</p>
+            <p className="kpi-card__detail">{card.detail}</p>
+          </article>
+        ))}
+      </section>
+
+      <section className="kpi-grid kpi-grid--rankings" aria-label="Current top ranked sectors and industries">
+        <article className="kpi-card kpi-card--compact">
+          <p className="kpi-card__label">Top 3 Sectors</p>
+          <div className="kpi-ranking-list">
+            {payload.top_rankings.top_sectors.length > 0 ? (
+              payload.top_rankings.top_sectors.map((sector, index) => (
+                <div key={sector.sector_key} className="kpi-ranking-item">
+                  <div>
+                    <p className="kpi-ranking-item__title">
+                      {index + 1}. {sector.label}
+                    </p>
+                    <p className="kpi-ranking-item__meta">{sector.sector_key}</p>
+                  </div>
+                  <span className="kpi-ranking-item__score">{formatRankingScore(sector.score)}</span>
+                </div>
+              ))
+            ) : (
+              <p className="kpi-card__detail">Sector rankings are unavailable right now.</p>
+            )}
+          </div>
         </article>
-      ))}
-    </section>
+
+        <article className="kpi-card kpi-card--compact">
+          <p className="kpi-card__label">Top 3 Industries</p>
+          <div className="kpi-ranking-list">
+            {payload.top_rankings.top_industries.length > 0 ? (
+              payload.top_rankings.top_industries.map((industry, index) => (
+                <div key={`${industry.sector_key}-${industry.industry_key}`} className="kpi-ranking-item">
+                  <div>
+                    <p className="kpi-ranking-item__title">
+                      {index + 1}. {industry.label}
+                    </p>
+                    <p className="kpi-ranking-item__meta">{industry.sector_label || industry.sector_key}</p>
+                  </div>
+                  <span className="kpi-ranking-item__score">{formatRankingScore(industry.score)}</span>
+                </div>
+              ))
+            ) : (
+              <p className="kpi-card__detail">Industry rankings are unavailable right now.</p>
+            )}
+          </div>
+        </article>
+      </section>
+    </>
   );
 }
 
