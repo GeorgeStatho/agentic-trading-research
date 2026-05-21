@@ -285,6 +285,7 @@ class ApiPaths:
 
     script_status_path: Path
     trade_execution_output_path: Path
+    agent_output_path: Path
     selected_options_output_path: Path
     option_position_management_output_path: Path
     option_manager_status_path: Path
@@ -302,6 +303,7 @@ class ApiPaths:
                     str(DATA_DIR / "trade_execution_output.json"),
                 )
             ),
+            agent_output_path=DATA_DIR / "agent_runner_output.json",
             selected_options_output_path=DATA_DIR / "selected_options_output.json",
             option_position_management_output_path=Path(
                 os.getenv(
