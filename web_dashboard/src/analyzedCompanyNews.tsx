@@ -61,6 +61,9 @@ type CompanyNewsEntry = {
 type CompanyNewsPayload = {
   as_of: string;
   active_view: ScopeView;
+  lookup_query: string;
+  lookup_active: boolean;
+  lookup_match_count: number;
   page: number;
   page_size: number;
   total_pages: number;
@@ -124,13 +127,22 @@ const VIEW_OPTIONS: Array<{ key: ScopeView; label: string; title: string; descri
   },
 ];
 
-async function getAnalyzedCompanyNews(page: number, pageSize: number, view: ScopeView): Promise<CompanyNewsPayload> {
+async function getAnalyzedCompanyNews(
+  page: number,
+  pageSize: number,
+  view: ScopeView,
+  companyLookup: string,
+): Promise<CompanyNewsPayload> {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
     view,
     ts: String(Date.now()),
   });
+  const normalizedLookup = companyLookup.trim();
+  if (normalizedLookup) {
+    params.set('company', normalizedLookup);
+  }
   const response = await fetch(`/api/opportunist-company-news?${params.toString()}`);
 
   if (!response.ok) {
@@ -450,6 +462,8 @@ function AnalyzedCompanyNewsPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchValue, setSearchValue] = useState('');
+  const [companyLookupInput, setCompanyLookupInput] = useState('');
+  const [activeCompanyLookup, setActiveCompanyLookup] = useState('');
   const [activeConfidence, setActiveConfidence] = useState<ConfidenceLevel>('all');
   const [activeView, setActiveView] = useState<ScopeView>('company');
   const [currentPage, setCurrentPage] = useState(1);
@@ -460,7 +474,7 @@ function AnalyzedCompanyNewsPage() {
 
     const loadCompanyNews = () => {
       setIsLoading(true);
-      getAnalyzedCompanyNews(currentPage, pageSize, activeView)
+      getAnalyzedCompanyNews(currentPage, pageSize, activeView, activeCompanyLookup)
         .then((nextPayload) => {
           if (!isMounted) {
             return;
@@ -468,6 +482,7 @@ function AnalyzedCompanyNewsPage() {
 
           setPayload(nextPayload);
           setError(null);
+          setCompanyLookupInput(nextPayload.lookup_query ?? activeCompanyLookup);
           if (nextPayload.page !== currentPage) {
             setCurrentPage(nextPayload.page);
           }
@@ -494,7 +509,7 @@ function AnalyzedCompanyNewsPage() {
       isMounted = false;
       window.clearInterval(intervalId);
     };
-  }, [activeView, currentPage, pageSize]);
+  }, [activeView, currentPage, pageSize, activeCompanyLookup]);
 
   const activeViewMeta = VIEW_OPTIONS.find((view) => view.key === activeView) ?? VIEW_OPTIONS[0];
   const viewCards = buildCardsForView(payload?.companies ?? [], activeView);
@@ -509,14 +524,17 @@ function AnalyzedCompanyNewsPage() {
           <p className="company-news-hero__eyebrow">Opportunist Coverage</p>
           <h1>Analyzed News Context</h1>
           <p className="company-news-hero__text">
-            Review company analysis separately from sector, industry, and macro coverage. The selector below changes
-            which news layer is displayed for the currently loaded page.
+            {payload?.lookup_active
+              ? `Review the connected ${activeViewMeta.label.toLowerCase()} coverage for ${payload.lookup_query}.`
+              : 'Review company analysis separately from sector, industry, and macro coverage. The selector below changes which news layer is displayed for the currently loaded page.'}
           </p>
         </div>
         <div className="company-news-hero__stats" aria-label="Company news summary">
           <article className="company-news-stat">
-            <p className="company-news-stat__label">Companies</p>
-            <p className="company-news-stat__value">{formatCount(payload?.company_count ?? 0)}</p>
+            <p className="company-news-stat__label">{payload?.lookup_active ? 'Matches' : 'Companies'}</p>
+            <p className="company-news-stat__value">
+              {formatCount(payload?.lookup_active ? payload?.lookup_match_count ?? 0 : payload?.company_count ?? 0)}
+            </p>
           </article>
           <article className="company-news-stat">
             <p className="company-news-stat__label">Loaded This Page</p>
@@ -563,8 +581,44 @@ function AnalyzedCompanyNewsPage() {
       </section>
 
       <section className="company-news-controls">
+        <form
+          className="company-news-lookup"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const nextLookup = companyLookupInput.trim();
+            setCurrentPage(1);
+            setActiveCompanyLookup(nextLookup);
+          }}
+        >
+          <label className="company-news-search">
+            <span>Company lookup</span>
+            <input
+              type="search"
+              value={companyLookupInput}
+              onChange={(event) => setCompanyLookupInput(event.target.value)}
+              placeholder="Find by symbol or company name"
+            />
+          </label>
+          <div className="company-news-lookup__actions">
+            <button type="submit" className="company-news-pagination__button" disabled={isLoading}>
+              Lookup
+            </button>
+            <button
+              type="button"
+              className="company-news-pagination__button"
+              disabled={isLoading || !activeCompanyLookup}
+              onClick={() => {
+                setCompanyLookupInput('');
+                setActiveCompanyLookup('');
+                setCurrentPage(1);
+              }}
+            >
+              Clear
+            </button>
+          </div>
+        </form>
         <label className="company-news-search">
-          <span>Search loaded {activeViewMeta.label.toLowerCase()} view</span>
+          <span>Filter loaded {activeViewMeta.label.toLowerCase()} view</span>
           <input
             type="search"
             value={searchValue}
@@ -590,9 +644,18 @@ function AnalyzedCompanyNewsPage() {
         <div className="company-news-pagination__summary">
           {payload ? (
             <>
-              Showing {formatCount(payload.page_start)}-{formatCount(payload.page_end)} of{' '}
-              {formatCount(payload.company_count)} companies. Sector, industry, and macro views are aggregated from the
-              companies loaded on this page.
+              {payload.lookup_active ? (
+                <>
+                  Showing {formatCount(payload.page_start)}-{formatCount(payload.page_end)} of{' '}
+                  {formatCount(payload.lookup_match_count)} company matches for "{payload.lookup_query}".
+                </>
+              ) : (
+                <>
+                  Showing {formatCount(payload.page_start)}-{formatCount(payload.page_end)} of{' '}
+                  {formatCount(payload.company_count)} companies. Sector, industry, and macro views are aggregated from
+                  the companies loaded on this page.
+                </>
+              )}
             </>
           ) : (
             'Preparing the first page of analyzed news.'
@@ -651,8 +714,16 @@ function AnalyzedCompanyNewsPage() {
         </section>
       ) : filteredCards.length === 0 ? (
         <section className="company-news-feedback">
-          <h2>No matching {activeViewMeta.label.toLowerCase()} entries on this page</h2>
-          <p>Try clearing the search, switching the confidence filter, or moving to another page.</p>
+          <h2>
+            {payload.lookup_active
+              ? `No matching ${activeViewMeta.label.toLowerCase()} entries for ${payload.lookup_query}`
+              : `No matching ${activeViewMeta.label.toLowerCase()} entries on this page`}
+          </h2>
+          <p>
+            {payload.lookup_active
+              ? 'Try a different company symbol or name, clear the lookup, or switch the confidence filter.'
+              : 'Try clearing the search, switching the confidence filter, or moving to another page.'}
+          </p>
         </section>
       ) : (
         <section className="company-news-list">

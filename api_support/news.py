@@ -69,6 +69,9 @@ def _build_analyzed_company_news_pagination_payload(
 def _empty_analyzed_company_news_payload(*, page: int, page_size: int, total_company_count: int = 0) -> dict:
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
+        "lookup_query": "",
+        "lookup_active": False,
+        "lookup_match_count": total_company_count,
         **_build_analyzed_company_news_pagination_payload(
             page=page,
             page_size=page_size,
@@ -89,6 +92,77 @@ def _empty_analyzed_company_news_payload(*, page: int, page_size: int, total_com
 def normalize_analyzed_company_news_view(value: Any) -> str:
     normalized = str(value or "").strip().lower()
     return normalized if normalized in VALID_ANALYZED_COMPANY_NEWS_VIEWS else "company"
+
+
+def normalize_company_lookup_query(value: Any) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
+def _score_company_lookup_match(company: dict[str, Any], needle: str) -> tuple[int, str, str]:
+    symbol = str(company.get("symbol") or "").strip()
+    name = str(company.get("name") or "").strip()
+    symbol_lower = symbol.lower()
+    name_lower = name.lower()
+
+    if symbol_lower == needle:
+        return (0, symbol_lower, name_lower)
+    if name_lower == needle:
+        return (1, symbol_lower, name_lower)
+    if symbol_lower.startswith(needle):
+        return (2, symbol_lower, name_lower)
+    if name_lower.startswith(needle):
+        return (3, symbol_lower, name_lower)
+    if needle in symbol_lower:
+        return (4, symbol_lower, name_lower)
+    return (5, symbol_lower, name_lower)
+
+
+def _lookup_companies_for_news(conn, company_lookup_query: str) -> list[dict[str, Any]]:
+    normalized_query = normalize_company_lookup_query(company_lookup_query).lower()
+    if not normalized_query:
+        return []
+
+    rows = conn.execute(
+        """
+        SELECT
+            c.id AS company_id,
+            c.symbol,
+            c.name,
+            i.id AS industry_id,
+            i.industry_key,
+            i.name AS industry_name,
+            s.id AS sector_id,
+            s.sector_key,
+            s.name AS sector_name
+        FROM companies AS c
+        JOIN industries AS i ON i.id = c.industry_id
+        JOIN sectors AS s ON s.id = i.sector_id
+        ORDER BY c.symbol ASC, c.name ASC
+        """
+    ).fetchall()
+
+    exact_matches: list[dict[str, Any]] = []
+    partial_matches: list[dict[str, Any]] = []
+    for row in rows:
+        company = dict(row)
+        symbol_lower = str(company.get("symbol") or "").strip().lower()
+        name_lower = str(company.get("name") or "").strip().lower()
+        if not symbol_lower and not name_lower:
+            continue
+        if symbol_lower == normalized_query or name_lower == normalized_query:
+            exact_matches.append(company)
+            continue
+        if (
+            symbol_lower.startswith(normalized_query)
+            or name_lower.startswith(normalized_query)
+            or normalized_query in symbol_lower
+            or normalized_query in name_lower
+        ):
+            partial_matches.append(company)
+
+    matches = exact_matches if exact_matches else partial_matches
+    matches.sort(key=lambda company: _score_company_lookup_match(company, normalized_query))
+    return matches
 
 
 def _build_company_news_entry(base_company: dict) -> dict:
@@ -213,55 +287,81 @@ def build_analyzed_company_news_payload(
     page: int = 1,
     page_size: int = ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE,
     view: str = "company",
+    company_lookup: str = "",
 ) -> dict:
     active_view = normalize_analyzed_company_news_view(view)
-    targets = get_current_pipeline_targets()
-    selected_companies = targets.get("selected_companies", [])
-    if not isinstance(selected_companies, list) or not selected_companies:
-        return _empty_analyzed_company_news_payload(page=page, page_size=page_size)
-
-    company_lookup: dict[int, dict] = {}
-    all_company_ids: list[int] = []
-    seen_company_ids: set[int] = set()
-    for company in selected_companies:
-        try:
-            company_id = int(company.get("company_id"))
-        except (TypeError, ValueError):
-            continue
-        if company_id in seen_company_ids:
-            continue
-        seen_company_ids.add(company_id)
-        all_company_ids.append(company_id)
-        company_lookup[company_id] = {
-            "company_id": company_id,
-            "symbol": str(company.get("symbol") or "").strip().upper(),
-            "name": str(company.get("name") or "").strip(),
-            "industry_id": None,
-            "industry_key": str(company.get("industry_key") or "").strip(),
-            "industry_name": "",
-            "sector_id": None,
-            "sector_key": str(company.get("sector_key") or "").strip(),
-            "sector_name": "",
-        }
-
-    if not all_company_ids:
-        return _empty_analyzed_company_news_payload(page=page, page_size=page_size)
-
-    total_company_count = len(all_company_ids)
-    total_pages = (total_company_count + page_size - 1) // page_size
-    normalized_page = max(1, min(page, total_pages))
-    page_start_index = (normalized_page - 1) * page_size
-    company_ids = all_company_ids[page_start_index : page_start_index + page_size]
-
-    if not company_ids:
-        return _empty_analyzed_company_news_payload(
-            page=normalized_page,
-            page_size=page_size,
-            total_company_count=total_company_count,
-        )
-
-    placeholders = ",".join("?" for _ in company_ids)
     with get_connection(DB_PATH) as conn:
+        normalized_company_lookup = normalize_company_lookup_query(company_lookup)
+        company_lookup_by_id: dict[int, dict] = {}
+        all_company_ids: list[int] = []
+
+        if normalized_company_lookup:
+            matched_companies = _lookup_companies_for_news(conn, normalized_company_lookup)
+            for company in matched_companies:
+                company_id = int(company["company_id"])
+                all_company_ids.append(company_id)
+                company_lookup_by_id[company_id] = company
+        else:
+            targets = get_current_pipeline_targets()
+            selected_companies = targets.get("selected_companies", [])
+            if not isinstance(selected_companies, list) or not selected_companies:
+                payload = _empty_analyzed_company_news_payload(page=page, page_size=page_size)
+                payload["lookup_query"] = normalized_company_lookup
+                payload["lookup_active"] = False
+                payload["lookup_match_count"] = 0
+                return payload
+
+            seen_company_ids: set[int] = set()
+            for company in selected_companies:
+                try:
+                    company_id = int(company.get("company_id"))
+                except (TypeError, ValueError):
+                    continue
+                if company_id in seen_company_ids:
+                    continue
+                seen_company_ids.add(company_id)
+                all_company_ids.append(company_id)
+                company_lookup_by_id[company_id] = {
+                    "company_id": company_id,
+                    "symbol": str(company.get("symbol") or "").strip().upper(),
+                    "name": str(company.get("name") or "").strip(),
+                    "industry_id": None,
+                    "industry_key": str(company.get("industry_key") or "").strip(),
+                    "industry_name": "",
+                    "sector_id": None,
+                    "sector_key": str(company.get("sector_key") or "").strip(),
+                    "sector_name": "",
+                }
+
+        total_company_count = len(all_company_ids)
+        if not all_company_ids:
+            payload = _empty_analyzed_company_news_payload(
+                page=page,
+                page_size=page_size,
+                total_company_count=0,
+            )
+            payload["lookup_query"] = normalized_company_lookup
+            payload["lookup_active"] = bool(normalized_company_lookup)
+            payload["lookup_match_count"] = 0
+            return payload
+
+        total_pages = (total_company_count + page_size - 1) // page_size
+        normalized_page = max(1, min(page, total_pages))
+        page_start_index = (normalized_page - 1) * page_size
+        company_ids = all_company_ids[page_start_index : page_start_index + page_size]
+
+        if not company_ids:
+            payload = _empty_analyzed_company_news_payload(
+                page=normalized_page,
+                page_size=page_size,
+                total_company_count=total_company_count,
+            )
+            payload["lookup_query"] = normalized_company_lookup
+            payload["lookup_active"] = bool(normalized_company_lookup)
+            payload["lookup_match_count"] = total_company_count
+            return payload
+
+        placeholders = ",".join("?" for _ in company_ids)
         metadata_rows = conn.execute(
             f"""
             SELECT
@@ -478,7 +578,7 @@ def build_analyzed_company_news_payload(
 
     companies_by_id: dict[int, dict] = {}
     for company_id in company_ids:
-        company_info = dict(company_lookup.get(company_id, {}))
+        company_info = dict(company_lookup_by_id.get(company_id, {}))
         metadata = metadata_by_company_id.get(company_id) or {}
         company_info.update(
             {
@@ -585,6 +685,9 @@ def build_analyzed_company_news_payload(
 
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
+        "lookup_query": normalized_company_lookup,
+        "lookup_active": bool(normalized_company_lookup),
+        "lookup_match_count": total_company_count,
         **_build_analyzed_company_news_pagination_payload(
             page=normalized_page,
             page_size=page_size,
