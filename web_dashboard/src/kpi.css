@@ -10,6 +10,11 @@
   grid-template-columns: 1fr;
 }
 
+.kpi-grid--rankings {
+  margin-top: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
 .kpi-card {
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -43,6 +48,44 @@
   font-size: 0.94rem;
   line-height: 1.35;
   opacity: 0.85;
+}
+
+.kpi-ranking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.kpi-ranking-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+}
+
+.kpi-ranking-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.kpi-ranking-item__title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.kpi-ranking-item__meta {
+  margin-top: 4px;
+  font-size: 0.85rem;
+  opacity: 0.72;
+}
+
+.kpi-ranking-item__score {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--accent);
 }
 
 .kpi-card--positive {
