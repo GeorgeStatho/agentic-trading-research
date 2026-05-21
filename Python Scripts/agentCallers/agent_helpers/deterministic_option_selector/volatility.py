@@ -7,9 +7,11 @@ from .config import (
     SHORT_TERM_EVENT_PRICING_DTE,
 )
 from .market import (
+    _get_contract_market_price,
     _get_contract_implied_volatility,
     _get_contract_iv_percentile,
     _get_dte,
+    _get_greek,
     _get_option_market_volatility_summary,
     _get_underlying_historical_volatility,
 )
@@ -132,6 +134,115 @@ def _score_term_structure_warning(
     }
 
 
+def _score_vega_per_premium(contract: dict[str, Any], market_context: dict[str, Any]) -> dict[str, Any]:
+    contract_price = _get_contract_market_price(contract)
+    vega = _get_greek(contract, "vega")
+    iv_percentile = _get_contract_iv_percentile(contract, market_context)
+    if contract_price is None or contract_price <= 0 or vega is None or vega < 0:
+        return {
+            "available": False,
+            "vega": vega,
+            "contract_price": contract_price,
+            "vega_per_premium": None,
+            "band": "unknown",
+            "selection_preference_score": 0.0,
+            "confidence_penalty_points": 0,
+            "guidance": "",
+        }
+
+    vega_per_premium = vega / contract_price
+    if iv_percentile is None:
+        return {
+            "available": True,
+            "vega": vega,
+            "contract_price": contract_price,
+            "vega_per_premium": round(vega_per_premium, 6),
+            "band": "unclassified_without_iv_percentile",
+            "selection_preference_score": 0.0,
+            "confidence_penalty_points": 0,
+            "guidance": "Vega is available, but no IV percentile was present to judge whether this sensitivity is attractive or expensive.",
+        }
+
+    if iv_percentile <= 30.0:
+        if 0.02 <= vega_per_premium <= 0.05:
+            return {
+                "available": True,
+                "vega": vega,
+                "contract_price": contract_price,
+                "vega_per_premium": round(vega_per_premium, 6),
+                "band": "preferred_low_iv_vega",
+                "selection_preference_score": -1.0,
+                "confidence_penalty_points": 0,
+                "guidance": "Low IV plus moderate-to-high vega per premium is attractive for long premium exposure.",
+            }
+        return {
+            "available": True,
+            "vega": vega,
+            "contract_price": contract_price,
+            "vega_per_premium": round(vega_per_premium, 6),
+            "band": "acceptable_low_iv_vega",
+            "selection_preference_score": 0.0,
+            "confidence_penalty_points": 0,
+            "guidance": "Low IV makes added vega sensitivity acceptable, but this contract is not in the preferred vega-per-premium pocket.",
+        }
+
+    if iv_percentile <= 60.0:
+        if 0.01 <= vega_per_premium <= 0.03:
+            return {
+                "available": True,
+                "vega": vega,
+                "contract_price": contract_price,
+                "vega_per_premium": round(vega_per_premium, 6),
+                "band": "preferred_normal_iv_vega",
+                "selection_preference_score": -0.5,
+                "confidence_penalty_points": 0,
+                "guidance": "Normal IV with moderate vega per premium is a solid fit.",
+            }
+        return {
+            "available": True,
+            "vega": vega,
+            "contract_price": contract_price,
+            "vega_per_premium": round(vega_per_premium, 6),
+            "band": "acceptable_normal_iv_vega",
+            "selection_preference_score": 0.0,
+            "confidence_penalty_points": 0,
+            "guidance": "Normal IV leaves this vega exposure acceptable, but not especially preferred.",
+        }
+
+    if iv_percentile > 70.0 and vega_per_premium > 0.05:
+        return {
+            "available": True,
+            "vega": vega,
+            "contract_price": contract_price,
+            "vega_per_premium": round(vega_per_premium, 6),
+            "band": "very_high_vega_in_high_iv",
+            "selection_preference_score": 2.0,
+            "confidence_penalty_points": 1,
+            "guidance": "High IV plus very high vega per premium is unusually expensive and deserves strong caution.",
+        }
+    if iv_percentile > 70.0 and vega_per_premium > 0.03:
+        return {
+            "available": True,
+            "vega": vega,
+            "contract_price": contract_price,
+            "vega_per_premium": round(vega_per_premium, 6),
+            "band": "high_vega_in_high_iv",
+            "selection_preference_score": 1.0,
+            "confidence_penalty_points": 0,
+            "guidance": "High IV plus elevated vega per premium is a reason to prefer a less vega-heavy contract when possible.",
+        }
+    return {
+        "available": True,
+        "vega": vega,
+        "contract_price": contract_price,
+        "vega_per_premium": round(vega_per_premium, 6),
+        "band": "acceptable_elevated_iv_vega",
+        "selection_preference_score": 0.0,
+        "confidence_penalty_points": 0,
+        "guidance": "This vega exposure is acceptable for the current IV regime.",
+    }
+
+
 def _volatility_penalty_to_confidence_steps(total_penalty_points: int) -> int:
     if total_penalty_points >= 3:
         return 2
@@ -148,22 +259,29 @@ def _assess_contract_volatility(
 ) -> dict[str, Any]:
     iv_percentile = _score_iv_percentile(_get_contract_iv_percentile(contract, market_context))
     iv_hv = _score_iv_hv_ratio(contract, market_context)
+    vega_profile = _score_vega_per_premium(contract, market_context)
     term_structure = _score_term_structure_warning(
         contract,
         market_context,
         target_dte_bucket=target_dte_bucket,
     )
-    total_penalty_points = int(
+    core_penalty_points = int(
         iv_percentile.get("penalty_points", 0)
         + iv_hv.get("penalty_points", 0)
         + term_structure.get("penalty_points", 0)
     )
+    vega_confidence_penalty_points = int(vega_profile.get("confidence_penalty_points", 0))
+    total_penalty_points = core_penalty_points + vega_confidence_penalty_points
     return {
         "implied_volatility": _get_contract_implied_volatility(contract),
         "historical_volatility": _get_underlying_historical_volatility(market_context),
         "iv_percentile": iv_percentile,
         "iv_hv": iv_hv,
+        "vega_profile": vega_profile,
         "term_structure": term_structure,
+        "core_penalty_points": core_penalty_points,
+        "vega_confidence_penalty_points": vega_confidence_penalty_points,
         "total_penalty_points": total_penalty_points,
+        "selection_preference_score": float(vega_profile.get("selection_preference_score", 0.0)),
         "confidence_penalty_steps": _volatility_penalty_to_confidence_steps(total_penalty_points),
     }
