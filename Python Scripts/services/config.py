@@ -7,6 +7,7 @@ from pathlib import Path
 from services.common import (
     env_flag,
     env_float,
+    env_non_negative_int,
     env_optional_positive_int,
     env_percentage,
     env_positive_int,
@@ -389,9 +390,14 @@ class AgentPipelineSettings:
     """Shared pipeline ranking settings for agent callers."""
 
     ranking_max_age_days: int | None
+    minimum_high_confidence_company_articles: int
 
     @classmethod
     def from_env(cls) -> AgentPipelineSettings:
         return cls(
             ranking_max_age_days=env_optional_positive_int("PIPELINE_RANKING_MAX_AGE_DAYS"),
+            minimum_high_confidence_company_articles=env_non_negative_int(
+                "PIPELINE_MIN_HIGH_CONFIDENCE_COMPANY_ARTICLES",
+                1,
+            ),
         )

@@ -21,9 +21,12 @@ if __name__ == "__main__":
 bootstrap_agent_callers()
 
 from agent_helpers.deterministic_option_selector import apply_deterministic_option_selection
+from agent_helpers.company_opportunist import get_company_opportunist_summary
+from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 from agent_pipeline.main import run_agent_pipeline, run_agent_pipeline_from_existing_data
 from agent_stages.manager import decide_company_option_position
 from agent_stages.strategist import decide_company_purchase
+from services.config import AgentPipelineSettings
 
 
 LOGGER = logging.getLogger("agent_runner")
@@ -75,6 +78,76 @@ def _normalize_company_symbols(symbols: list[str]) -> list[str]:
         normalized_symbols.append(normalized)
 
     return normalized_symbols
+
+
+def _filter_company_symbols_by_high_confidence_support(
+    company_symbols: list[str],
+    *,
+    minimum_high_confidence_articles: int,
+    max_age_days: int | None,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    normalized_symbols = _normalize_company_symbols(company_symbols)
+    if minimum_high_confidence_articles <= 0:
+        return normalized_symbols, []
+
+    allowed_symbols: list[str] = []
+    skipped_companies: list[dict[str, Any]] = []
+
+    for symbol in normalized_symbols:
+        try:
+            summary = get_company_opportunist_summary(symbol, max_age_days=max_age_days)
+        except Exception:
+            LOGGER.exception(
+                "Failed to load company opportunist summary for %s while enforcing the strategist/manager article gate",
+                symbol,
+            )
+            skipped_companies.append(
+                {
+                    "symbol": symbol,
+                    "high_confidence_article_count": 0,
+                    "minimum_required_high_confidence_articles": minimum_high_confidence_articles,
+                    "window_max_age_days": max_age_days,
+                    "skip_reason": "summary_lookup_failed",
+                }
+            )
+            continue
+
+        confidence_counts = summary.get("confidence_counts", {})
+        high_confidence_article_count = 0
+        if isinstance(confidence_counts, dict):
+            try:
+                high_confidence_article_count = int(confidence_counts.get("high", 0) or 0)
+            except (TypeError, ValueError):
+                high_confidence_article_count = 0
+
+        if high_confidence_article_count >= minimum_high_confidence_articles:
+            allowed_symbols.append(symbol)
+            continue
+
+        company = summary.get("company", {})
+        skipped_companies.append(
+            {
+                "symbol": symbol,
+                "company_id": company.get("company_id"),
+                "name": company.get("name"),
+                "high_confidence_article_count": high_confidence_article_count,
+                "minimum_required_high_confidence_articles": minimum_high_confidence_articles,
+                "window_max_age_days": max_age_days,
+                "skip_reason": "insufficient_high_confidence_articles",
+            }
+        )
+
+    if skipped_companies:
+        LOGGER.info(
+            "Skipped %s companies before strategist/manager due to insufficient recent high-confidence company articles: %s",
+            len(skipped_companies),
+            ", ".join(
+                f"{item.get('symbol')}({item.get('high_confidence_article_count')}/{item.get('minimum_required_high_confidence_articles')})"
+                for item in skipped_companies
+            ),
+        )
+
+    return allowed_symbols, skipped_companies
 
 
 def _build_selected_option_output(
@@ -227,7 +300,12 @@ def run_full_agent_stack(
     pipeline_result = run_agent_pipeline()
     LOGGER.info("Finished agent pipeline stage")
 
-    company_symbols = _dedupe_company_symbols(pipeline_result)
+    pipeline_settings = AgentPipelineSettings.from_env()
+    company_symbols, skipped_companies = _filter_company_symbols_by_high_confidence_support(
+        _dedupe_company_symbols(pipeline_result),
+        minimum_high_confidence_articles=pipeline_settings.minimum_high_confidence_company_articles,
+        max_age_days=DEFAULT_MAX_ARTICLE_AGE_DAYS,
+    )
     strategist_results, manager_results = _run_strategist_and_manager(
         company_symbols,
         on_manager_result=on_manager_result,
@@ -237,6 +315,7 @@ def run_full_agent_stack(
     return {
         "ran_at": ran_at,
         "company_symbols": company_symbols,
+        "skipped_companies_before_strategist_manager": skipped_companies,
         "pipeline": pipeline_result,
         "strategist": strategist_results,
         "manager": manager_results,
@@ -253,7 +332,12 @@ def run_full_agent_stack_from_existing_data(
     pipeline_result = run_agent_pipeline_from_existing_data()
     LOGGER.info("Finished agent pipeline stage using existing DB data")
 
-    company_symbols = _dedupe_company_symbols(pipeline_result)
+    pipeline_settings = AgentPipelineSettings.from_env()
+    company_symbols, skipped_companies = _filter_company_symbols_by_high_confidence_support(
+        _dedupe_company_symbols(pipeline_result),
+        minimum_high_confidence_articles=pipeline_settings.minimum_high_confidence_company_articles,
+        max_age_days=DEFAULT_MAX_ARTICLE_AGE_DAYS,
+    )
     strategist_results, manager_results = _run_strategist_and_manager(
         company_symbols,
         on_manager_result=on_manager_result,
@@ -263,6 +347,7 @@ def run_full_agent_stack_from_existing_data(
     return {
         "ran_at": ran_at,
         "company_symbols": company_symbols,
+        "skipped_companies_before_strategist_manager": skipped_companies,
         "pipeline": pipeline_result,
         "strategist": strategist_results,
         "manager": manager_results,
