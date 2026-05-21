@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from alpaca.data.requests import OptionLatestQuoteRequest, StockLatestQuoteRequest
 
-from services.option_dte_buckets import DteBucket, get_dte_bucket, resolve_dte_bucket_for_days
+from services.option_dte_buckets import DteBucket, resolve_dte_bucket_for_days
 
 from .utils import mid_price, safe_float
 from ._option_positions_defaults import (
@@ -197,12 +197,7 @@ def _resolve_dte_exit_rule(days_to_expiration: int | None) -> OptionExitRule | N
 
 
 def _resolve_management_dte_bucket(days_to_expiration: int | None) -> DteBucket | None:
-    resolved_bucket = resolve_dte_bucket_for_days(days_to_expiration, prefer_higher_boundary=True)
-    if resolved_bucket is not None:
-        return resolved_bucket
-    if days_to_expiration is not None and 15 <= days_to_expiration <= 19:
-        return get_dte_bucket("14_30")
-    return None
+    return resolve_dte_bucket_for_days(days_to_expiration, prefer_higher_boundary=True)
 
 
 def _resolve_option_exit_thresholds(

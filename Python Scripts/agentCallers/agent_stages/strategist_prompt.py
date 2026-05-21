@@ -3,6 +3,22 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from services.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET, get_dte_bucket
+
+
+def _build_time_horizon_bucket_guidance_text() -> str:
+    guidance_parts: list[str] = []
+    for time_horizon, bucket_key in TIME_HORIZON_TO_DTE_BUCKET.items():
+        bucket = get_dte_bucket(bucket_key)
+        bucket_label = bucket.label if bucket is not None else bucket_key
+        guidance_parts.append(f"{time_horizon} for setups that fit {bucket_label}")
+
+    if not guidance_parts:
+        return "use unclear when timing conflicts or the evidence is mostly indirect"
+    if len(guidance_parts) == 1:
+        return guidance_parts[0]
+    return ", ".join(guidance_parts[:-1]) + f", and {guidance_parts[-1]}"
+
 
 def payload_has_evidence(payload: dict[str, Any]) -> bool:
     view_total = 0
@@ -43,6 +59,7 @@ def build_strategist_prompt(
     task_override: str | None = None,
 ) -> tuple[str, str]:
     # Build the strategist prompt by weaving together company context, evidence summaries, and decision instructions.
+    time_horizon_bucket_guidance = _build_time_horizon_bucket_guidance_text()
     default_system_prompt = (
         "You are an investment strategist deciding whether a company currently supports opening an options trade candidate on the underlying equity. "
         "Use only the supplied structured context. Do not invent facts, catalysts, prices, or risks that are not supported by the input. "
@@ -73,7 +90,7 @@ def build_strategist_prompt(
         "Use opportunist_rollup as the primary summarized evidence layer, and use the article-level views and supporting_articles as the grounding detail behind it.\n"
         "High-materiality direct company impacts should dominate the directional prior. Industry evidence can support or weaken that thesis, and sector evidence should mostly act as backdrop rather than lead the trade decision.\n"
         "Use impact_direction to set the directional prior, impact_magnitude as evidence strength rather than trade permission, materiality to judge whether the article really matters for this entity, effect_type to weight direct above indirect, and company relative_positioning to strengthen or weaken company-specific conviction versus peers.\n"
-        "Build time_horizon from the dominant weighted opportunist horizons rather than copying a single article. Map immediate to very_short_term, short_term to short_term, medium_term to medium_term, and use unclear when timing conflicts or the evidence is mostly indirect.\n"
+        "Build time_horizon from the dominant weighted opportunist horizons rather than copying a single article. Use the configured strategist horizon labels, align them with the live DTE bucket mapping, and use unclear when timing conflicts or the evidence is mostly indirect.\n"
         "Set contradictions_present to true when meaningful bullish and bearish signals materially conflict, especially if direct high-materiality company evidence disagrees with itself or with the industry and sector rollups.\n"
         "Use top reasons and the most material direct evidence to write why_now, summary, thesis, catalyst, risks, and watchlist_reason. Prefer watchlist or do_not_trade when evidence is low-materiality, indirect-only, contradictory, weakly timed, or lacks peer differentiation.\n"
         "\n"
@@ -85,7 +102,7 @@ def build_strategist_prompt(
         "- timing_clarity: whether the expected move appears actionable now; use unclear when the opportunist horizons conflict or the timing signal is mostly indirect\n"
         "- preferred_option_direction: call, put, or neither\n"
         "- expected_stock_direction: up, down, or neutral\n"
-        "- time_horizon: expected time frame for the thesis to matter; use very_short_term for setups that fit 3_7 DTE, short_term for 7_14 DTE, and medium_term for 14_30 DTE\n"
+        f"- time_horizon: expected time frame for the thesis to matter; use {time_horizon_bucket_guidance}\n"
         "- why_now: one short explanation of why the setup is actionable now, or why it is not\n"
         "- summary: short paragraph\n"
         "- catalyst: concrete possible drivers or near-term triggers from the input\n"
