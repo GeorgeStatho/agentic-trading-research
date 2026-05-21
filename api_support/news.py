@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from agent_pipeline.main import get_current_pipeline_targets
-
 from api_support.common import parse_datetime, trim_text
 from api_support.context import (
     ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE,
@@ -98,6 +96,24 @@ def normalize_company_lookup_query(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
 
 
+def _table_exists(conn, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+        (str(table_name or "").strip(),),
+    ).fetchone()
+    return row is not None
+
+
+def _resolve_company_news_source_mode(conn) -> str:
+    has_company_news_articles = _table_exists(conn, "company_news_articles")
+    has_company_opportunist_impacts = _table_exists(conn, "company_opportunist_impacts")
+    if has_company_news_articles:
+        return "linked_articles"
+    if has_company_opportunist_impacts:
+        return "opportunist_impacts"
+    return "none"
+
+
 def _score_company_lookup_match(company: dict[str, Any], needle: str) -> tuple[int, str, str]:
     symbol = str(company.get("symbol") or "").strip()
     name = str(company.get("name") or "").strip()
@@ -122,8 +138,16 @@ def _lookup_companies_for_news(conn, company_lookup_query: str) -> list[dict[str
     if not normalized_query:
         return []
 
+    company_news_source_mode = _resolve_company_news_source_mode(conn)
+    if company_news_source_mode == "linked_articles":
+        company_exists_clause = "EXISTS (SELECT 1 FROM company_news_articles AS cna WHERE cna.company_id = c.id)"
+    elif company_news_source_mode == "opportunist_impacts":
+        company_exists_clause = "EXISTS (SELECT 1 FROM company_opportunist_impacts AS coi WHERE coi.company_id = c.id)"
+    else:
+        return []
+
     rows = conn.execute(
-        """
+        f"""
         SELECT
             c.id AS company_id,
             c.symbol,
@@ -137,8 +161,7 @@ def _lookup_companies_for_news(conn, company_lookup_query: str) -> list[dict[str
         FROM companies AS c
         JOIN industries AS i ON i.id = c.industry_id
         JOIN sectors AS s ON s.id = i.sector_id
-        WHERE EXISTS (SELECT 1 FROM company_news_articles AS cna WHERE cna.company_id = c.id)
-           OR EXISTS (SELECT 1 FROM company_opportunist_impacts AS coi WHERE coi.company_id = c.id)
+        WHERE {company_exists_clause}
         ORDER BY c.symbol ASC, c.name ASC
         """
     ).fetchall()
@@ -168,37 +191,73 @@ def _lookup_companies_for_news(conn, company_lookup_query: str) -> list[dict[str
 
 
 def _load_default_companies_for_news(conn) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        """
-        SELECT
-            c.id AS company_id,
-            c.symbol,
-            c.name,
-            i.id AS industry_id,
-            i.industry_key,
-            i.name AS industry_name,
-            s.id AS sector_id,
-            s.sector_key,
-            s.name AS sector_name,
-            MAX(na.published_at) AS latest_company_news_published_at
-        FROM companies AS c
-        JOIN industries AS i ON i.id = c.industry_id
-        JOIN sectors AS s ON s.id = i.sector_id
-        JOIN company_news_articles AS cna ON cna.company_id = c.id
-        JOIN news_articles AS na ON na.id = cna.article_id
-        GROUP BY
-            c.id,
-            c.symbol,
-            c.name,
-            i.id,
-            i.industry_key,
-            i.name,
-            s.id,
-            s.sector_key,
-            s.name
-        ORDER BY MAX(na.published_at) DESC, c.symbol ASC
-        """
-    ).fetchall()
+    company_news_source_mode = _resolve_company_news_source_mode(conn)
+    if company_news_source_mode == "linked_articles":
+        rows = conn.execute(
+            """
+            SELECT
+                c.id AS company_id,
+                c.symbol,
+                c.name,
+                i.id AS industry_id,
+                i.industry_key,
+                i.name AS industry_name,
+                s.id AS sector_id,
+                s.sector_key,
+                s.name AS sector_name,
+                MAX(na.published_at) AS latest_company_news_published_at
+            FROM companies AS c
+            JOIN industries AS i ON i.id = c.industry_id
+            JOIN sectors AS s ON s.id = i.sector_id
+            JOIN company_news_articles AS cna ON cna.company_id = c.id
+            JOIN news_articles AS na ON na.id = cna.article_id
+            GROUP BY
+                c.id,
+                c.symbol,
+                c.name,
+                i.id,
+                i.industry_key,
+                i.name,
+                s.id,
+                s.sector_key,
+                s.name
+            ORDER BY MAX(na.published_at) DESC, c.symbol ASC
+            """
+        ).fetchall()
+    elif company_news_source_mode == "opportunist_impacts":
+        rows = conn.execute(
+            """
+            SELECT
+                c.id AS company_id,
+                c.symbol,
+                c.name,
+                i.id AS industry_id,
+                i.industry_key,
+                i.name AS industry_name,
+                s.id AS sector_id,
+                s.sector_key,
+                s.name AS sector_name,
+                MAX(na.published_at) AS latest_company_news_published_at
+            FROM companies AS c
+            JOIN industries AS i ON i.id = c.industry_id
+            JOIN sectors AS s ON s.id = i.sector_id
+            JOIN company_opportunist_impacts AS coi ON coi.company_id = c.id
+            JOIN news_articles AS na ON na.id = coi.article_id
+            GROUP BY
+                c.id,
+                c.symbol,
+                c.name,
+                i.id,
+                i.industry_key,
+                i.name,
+                s.id,
+                s.sector_key,
+                s.name
+            ORDER BY MAX(na.published_at) DESC, c.symbol ASC
+            """
+        ).fetchall()
+    else:
+        rows = []
     return [dict(row) for row in rows]
 
 
@@ -330,6 +389,7 @@ def build_analyzed_company_news_payload(
 ) -> dict:
     active_view = normalize_analyzed_company_news_view(view)
     with get_connection(DB_PATH) as conn:
+        company_news_source_mode = _resolve_company_news_source_mode(conn)
         normalized_company_lookup = normalize_company_lookup_query(company_lookup)
         company_lookup_by_id: dict[int, dict] = {}
         all_company_ids: list[int] = []
@@ -414,7 +474,7 @@ def build_analyzed_company_news_payload(
         ).fetchall()
 
         company_rows = []
-        if active_view == "company":
+        if active_view == "company" and company_news_source_mode == "linked_articles":
             company_rows = conn.execute(
                 f"""
                 SELECT
@@ -445,6 +505,37 @@ def build_analyzed_company_news_payload(
                    AND coi.company_id = cna.company_id
                 WHERE cna.company_id IN ({placeholders})
                 ORDER BY c.symbol ASC, na.published_at DESC, cna.article_id DESC, coi.created_at DESC
+                """,
+                tuple(company_ids),
+            ).fetchall()
+        elif active_view == "company" and company_news_source_mode == "opportunist_impacts":
+            company_rows = conn.execute(
+                f"""
+                SELECT
+                    coi.article_id,
+                    coi.company_id,
+                    c.symbol,
+                    c.name AS company_name,
+                    i.industry_key,
+                    s.sector_key,
+                    coi.confidence,
+                    coi.impact_direction,
+                    coi.impact_magnitude,
+                    coi.reason,
+                    coi.created_at AS impact_created_at,
+                    na.title,
+                    na.summary,
+                    substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
+                    na.source,
+                    na.source_url,
+                    na.published_at
+                FROM company_opportunist_impacts AS coi
+                JOIN companies AS c ON c.id = coi.company_id
+                JOIN industries AS i ON i.id = c.industry_id
+                JOIN sectors AS s ON s.id = i.sector_id
+                JOIN news_articles AS na ON na.id = coi.article_id
+                WHERE coi.company_id IN ({placeholders})
+                ORDER BY c.symbol ASC, na.published_at DESC, coi.article_id DESC, coi.created_at DESC
                 """,
                 tuple(company_ids),
             ).fetchall()
