@@ -73,7 +73,7 @@ Use these functions:
 Internal SOLID split:
 
 - `manager.py` now owns orchestration only
-- `market_context.py` owns Alpaca client wiring, stock snapshots, option snapshots, and account-state assembly
+- `market_context/` owns Alpaca client wiring, stock snapshots, option snapshots, and account-state assembly
 
 This includes:
 
@@ -82,7 +82,7 @@ This includes:
 - account buying power
 - matching position state
 
-### `market_context.py`
+### `market_context/`
 
 Purpose: isolated market/account service layer for the manager stage.
 
@@ -90,31 +90,32 @@ Use:
 
 - `build_market_context(company, ...)`
   Accepts the company block from a strategist payload and returns a JSON-safe market context payload.
+- See `market_context/README.md` for the package-level map.
 
 How it works currently:
 
-- `market_context.py` is now a thin façade.
+- `market_context/__init__.py` is now a thin façade.
 - It keeps the stable public entrypoint and re-exports a few internal wrappers used by tests.
-- The real implementation is split across focused helper modules in this folder.
+- The real implementation is split across focused helper modules in `market_context/`.
 
 Current module split:
 
-- `_market_context_common.py`
+- `market_context/common.py`
   Shared constants, Alpaca/yfinance imports, client bootstrapping, and low-level helpers like `_safe_float(...)`, `_get_field(...)`, and `_serialize_scalar(...)`.
-- `_market_context_equities.py`
+- `market_context/equities.py`
   Current stock price snapshot, market-index snapshots, sector ETF lookup, and reference-stock-price resolution.
-- `_market_context_underlying.py`
+- `market_context/underlying.py`
   Alpaca stock-bar history loading plus realized/historical volatility for the underlying.
-- `_market_context_option_chain.py`
+- `market_context/option_chain.py`
   Option contract lookup, chain snapshot normalization, subset selection near spot, and option-market payload assembly.
-- `_market_context_iv_history.py`
+- `market_context/iv_history.py`
   Persisted IV history, DTE-bucket IV percentile logic, and contract-level IV percentile annotation.
-- `_market_context_account.py`
+- `market_context/account.py`
   Account buying power, matching stock/option positions, and position serialization.
 
 Top-level data flow:
 
-1. `build_market_context(company, ...)` starts in `market_context.py`.
+1. `build_market_context(company, ...)` starts in `market_context/__init__.py`.
 2. `_build_current_stock_price_snapshot(...)` loads the live stock quote/trade snapshot.
 3. `_get_reference_stock_price_from_snapshot(...)` chooses the price anchor used for option filtering and ranking.
 4. `_build_underlying_price_history_snapshot(...)` loads Alpaca daily bars and computes `historical_volatility_20d` and `historical_volatility_60d`.
@@ -158,7 +159,7 @@ Current IV-percentile behavior:
   - `iv_percentile_source`
 - Bucket percentiles are only used when enough history exists for that bucket.
 
-Why `market_context.py` still has some wrappers:
+Why `market_context/__init__.py` still has some wrappers:
 
 - Tests currently patch `agent_helpers.market_context` directly.
 - To preserve that patch surface, the façade still exposes wrapper functions around the IV-history helpers, especially for:
@@ -172,16 +173,16 @@ Operational notes:
 
 - Alpaca is the primary provider for live stock, option, and account data.
 - `yfinance` is still used for market indices and sector ETF snapshots.
-- `market_context.py` can still be run directly as a stock-price smoke test.
+- `python -m agent_helpers.market_context` can still be used as a stock-price smoke test.
 
 When to edit which file:
 
-- Change quote/trade or sector/index behavior in `_market_context_equities.py`.
-- Change underlying close-history or HV behavior in `_market_context_underlying.py`.
-- Change contract filtering, snapshot assembly, or option subset selection in `_market_context_option_chain.py`.
-- Change persisted IV history, DTE-bucket percentile rules, or contract IV-percentile annotation in `_market_context_iv_history.py`.
-- Change buying power / position-state behavior in `_market_context_account.py`.
-- Only edit `market_context.py` when you need to change the public façade, orchestration, or compatibility wrappers.
+- Change quote/trade or sector/index behavior in `market_context/equities.py`.
+- Change underlying close-history or HV behavior in `market_context/underlying.py`.
+- Change contract filtering, snapshot assembly, or option subset selection in `market_context/option_chain.py`.
+- Change persisted IV history, DTE-bucket percentile rules, or contract IV-percentile annotation in `market_context/iv_history.py`.
+- Change buying power / position-state behavior in `market_context/account.py`.
+- Only edit `market_context/__init__.py` when you need to change the public façade, orchestration, or compatibility wrappers.
 
 ### `opportunist_support.py`
 
@@ -195,7 +196,7 @@ Use:
 
 These exist so each opportunist helper can focus on stage-specific validation and persistence rules instead of repeating common article handling logic.
 
-### `deterministic_option_selector.py`
+### `deterministic_option_selector/`
 
 Purpose: deterministic contract-selection façade used after the manager stage decides direction.
 
@@ -203,37 +204,38 @@ Use:
 
 - `apply_deterministic_option_selection(manager_result)`
   Use when the manager has already decided `call`, `put`, or `neither` and you want to attach a concrete option contract using rule-based filtering instead of an LLM.
+- See `deterministic_option_selector/README.md` for the package-level map.
 
 How it works currently:
 
-- `deterministic_option_selector.py` is now a thin façade plus final orchestration layer.
+- `deterministic_option_selector/__init__.py` is now a thin façade plus final orchestration layer.
 - It keeps the stable public entrypoint and the patch surface used by tests.
-- The actual selector logic is split across focused helper modules in this folder.
+- The actual selector logic is split across focused helper modules in `deterministic_option_selector/`.
 
 Current module split:
 
-- `_selector_config.py`
+- `deterministic_option_selector/config.py`
   Selector env/config loading and all mode tunables.
-- `_selector_normalize.py`
+- `deterministic_option_selector/normalize.py`
   Normalization helpers for decisions, confidence, booleans, option IDs, and selection guardrails.
-- `_selector_market.py`
+- `deterministic_option_selector/market.py`
   Read-only helpers for contract quotes, greeks, DTE, market-context access, IV percentile lookup, and reference-stock-price resolution.
-- `_selector_volatility.py`
+- `deterministic_option_selector/volatility.py`
   Volatility scoring logic: IV percentile, IV vs HV, term structure warning, and combined volatility assessment.
-- `_selector_filters.py`
+- `deterministic_option_selector/filters.py`
   Shared DTE/liquidity/OTM filters, spread/theta helpers, and common ranking helpers.
-- `_selector_debug.py`
+- `deterministic_option_selector/debug.py`
   Contract debug snapshot helpers and human-readable rejection/debug payload assembly.
-- `_selector_simple.py`
+- `deterministic_option_selector/simple.py`
   Simple selector mode implementation.
-- `_selector_hybrid.py`
+- `deterministic_option_selector/hybrid.py`
   Hybrid selector mode implementation.
-- `_selector_greeks.py`
+- `deterministic_option_selector/greeks.py`
   Greeks/swing selector mode implementation.
 
 Top-level selector flow:
 
-1. `apply_deterministic_option_selection(...)` starts in `deterministic_option_selector.py`.
+1. `apply_deterministic_option_selection(...)` starts in `deterministic_option_selector/__init__.py`.
 2. The façade normalizes the manager recommendation and checks confidence/strategist guardrails.
 3. It dispatches into the requested selector mode:
    - `simple`
@@ -279,7 +281,7 @@ Mode overview:
 - `greeks`
   Stricter swing-like mode with tighter DTE, delta, gamma, spread, theta, and OI requirements.
 
-Why `deterministic_option_selector.py` still keeps orchestration:
+Why `deterministic_option_selector/__init__.py` still keeps orchestration:
 
 - callers already import `apply_deterministic_option_selection(...)` from this file
 - tests currently patch `agent_helpers.deterministic_option_selector.OPTION_SELECTOR_MODE`
@@ -293,16 +295,16 @@ Operational note:
 
 When to edit which file:
 
-- Change selector mode/env/tunables in `_selector_config.py`.
-- Change normalization or confidence semantics in `_selector_normalize.py`.
-- Change quote/DTE/contract market-context lookups in `_selector_market.py`.
-- Change IV percentile / IV-HV / term-structure scoring in `_selector_volatility.py`.
-- Change shared contract filters or ranking behavior in `_selector_filters.py`.
-- Change selector debug payloads in `_selector_debug.py`.
-- Change simple mode selection in `_selector_simple.py`.
-- Change hybrid mode selection in `_selector_hybrid.py`.
-- Change greeks mode selection in `_selector_greeks.py`.
-- Only edit `deterministic_option_selector.py` when you need to change the public façade, mode dispatch, or final recommendation orchestration.
+- Change selector mode/env/tunables in `deterministic_option_selector/config.py`.
+- Change normalization or confidence semantics in `deterministic_option_selector/normalize.py`.
+- Change quote/DTE/contract market-context lookups in `deterministic_option_selector/market.py`.
+- Change IV percentile / IV-HV / term-structure scoring in `deterministic_option_selector/volatility.py`.
+- Change shared contract filters or ranking behavior in `deterministic_option_selector/filters.py`.
+- Change selector debug payloads in `deterministic_option_selector/debug.py`.
+- Change simple mode selection in `deterministic_option_selector/simple.py`.
+- Change hybrid mode selection in `deterministic_option_selector/hybrid.py`.
+- Change greeks mode selection in `deterministic_option_selector/greeks.py`.
+- Only edit `deterministic_option_selector/__init__.py` when you need to change the public façade, mode dispatch, or final recommendation orchestration.
 
 ## Quick Examples
 

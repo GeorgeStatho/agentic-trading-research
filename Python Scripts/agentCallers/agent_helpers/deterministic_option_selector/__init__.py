@@ -25,7 +25,7 @@ from _paths import bootstrap_agent_callers
 bootstrap_agent_callers()
 
 
-from agent_helpers._selector_config import (  # noqa: E402
+from .config import (  # noqa: E402
     ALLOW_RISKY_SIMPLE_FALLBACK,
     DTE_BUCKET_TO_TARGET_OTM_PCT,
     HYBRID_MAX_DTE,
@@ -57,19 +57,19 @@ from agent_helpers._selector_config import (  # noqa: E402
     MIN_TARGET_OTM_DOLLARS,
     MAX_TARGET_OTM_DOLLARS,
 )
-from agent_helpers._selector_debug import _contract_debug_snapshot  # noqa: E402
-from agent_helpers._selector_filters import (  # noqa: E402
+from .debug import _contract_debug_snapshot  # noqa: E402
+from .filters import (  # noqa: E402
     _is_one_dollar_otm_contract,
     _is_valid_fallback_side_contract,
 )
-from agent_helpers._selector_greeks import _pick_matching_contract_greeks  # noqa: E402
-from agent_helpers._selector_hybrid import _pick_matching_contract_hybrid  # noqa: E402
-from agent_helpers._selector_market import (  # noqa: E402
+from .greeks import _pick_matching_contract_greeks  # noqa: E402
+from .hybrid import _pick_matching_contract_hybrid  # noqa: E402
+from .market import (  # noqa: E402
     _get_reference_stock_price,
     _normalize_contract_type,
     _resolve_target_otm_distance,
 )
-from agent_helpers._selector_normalize import (  # noqa: E402
+from .normalize import (  # noqa: E402
     _coerce_bool,
     _coerce_float,
     _confidence_rank,
@@ -80,8 +80,8 @@ from agent_helpers._selector_normalize import (  # noqa: E402
     _normalize_option_id,
     _normalize_strategist_decision,
 )
-from agent_helpers._selector_simple import _pick_matching_contract_simple  # noqa: E402
-from agent_helpers._selector_volatility import _assess_contract_volatility  # noqa: E402
+from .simple import _pick_matching_contract_simple  # noqa: E402
+from .volatility import _assess_contract_volatility  # noqa: E402
 from services.option_dte_buckets import normalize_target_dte_bucket  # noqa: E402
 
 
