@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from agent_pipeline.main import get_current_pipeline_targets  # compatibility import for existing tests
+
 from api_support.common import parse_datetime, trim_text
 from api_support.context import (
     ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE,
