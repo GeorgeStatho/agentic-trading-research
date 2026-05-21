@@ -165,6 +165,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
     selected_option_volatility_assessment: dict[str, Any] = {}
     confidence_after_volatility = confidence
     volatility_confidence_penalty_steps = 0
+    vega_confidence_penalty_points = 0
     volatility_guardrail_reason = ""
     selection_allowed, selection_guardrail_reason = _is_selection_eligible_under_confidence_guardrails(
         decision=decision,
@@ -208,13 +209,16 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
         volatility_confidence_penalty_steps = int(
             selected_option_volatility_assessment.get("confidence_penalty_steps") or 0
         )
+        vega_confidence_penalty_points = int(
+            selected_option_volatility_assessment.get("vega_confidence_penalty_points") or 0
+        )
         confidence_after_volatility = _downgrade_confidence(
             confidence,
             volatility_confidence_penalty_steps,
         )
         if _confidence_rank(confidence_after_volatility) < _confidence_rank(
             VOLATILITY_CONFIDENCE_LOWEST_ALLOWED
-        ):
+        ) and vega_confidence_penalty_points > 0:
             selection_allowed_after_volatility = False
             volatility_guardrail_reason = "volatility_confidence_below_medium"
             selected_option = None
@@ -251,6 +255,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
             "confidence_seen": confidence,
             "confidence_after_volatility": confidence_after_volatility,
             "volatility_confidence_penalty_steps": volatility_confidence_penalty_steps,
+            "vega_confidence_penalty_points": vega_confidence_penalty_points,
             "selection_allowed": selection_allowed,
             "selection_allowed_after_volatility": selection_allowed_after_volatility,
             "selection_guardrail_reason": selection_guardrail_reason,

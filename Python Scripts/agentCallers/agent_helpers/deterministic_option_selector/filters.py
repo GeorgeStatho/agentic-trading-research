@@ -137,7 +137,7 @@ def _basic_sort_key(
     target_distance: float,
     target_abs_delta: float,
     target_dte_bucket: str = "none",
-) -> tuple[float, float, float, float, str, float, int]:
+) -> tuple[float, float, float, float, float, str, float, int]:
     contract_price = _get_contract_market_price(contract)
     volatility_assessment = _assess_contract_volatility(
         contract,
@@ -159,9 +159,10 @@ def _basic_sort_key(
     open_interest = _coerce_float(contract.get("open_interest"))
     return (
         0.0 if contract_price is not None else 1.0,
-        float(volatility_assessment["total_penalty_points"]),
+        float(volatility_assessment.get("core_penalty_points", volatility_assessment["total_penalty_points"])),
         distance,
         abs(abs(delta) - target_abs_delta) if delta is not None else 999.0,
+        float(volatility_assessment.get("selection_preference_score", 0.0)),
         str(contract.get("expiration_date") or "9999-12-31"),
         -(open_interest if open_interest is not None else -1.0),
         _normalize_option_id(contract.get("option_id")) or 10**9,
