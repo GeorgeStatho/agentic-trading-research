@@ -241,6 +241,35 @@ def _summarize_selector_rejection_reasons(manager_result: dict[str, Any]) -> str
     return ", ".join(f"{reason}({count})" for reason, count in top_reasons)
 
 
+def _extract_manager_article_references(manager_result: dict[str, Any]) -> list[dict[str, Any]]:
+    supporting_articles = manager_result.get("supporting_articles", {})
+    if not isinstance(supporting_articles, dict):
+        return []
+    article_summaries = supporting_articles.get("article_summaries", [])
+    if not isinstance(article_summaries, list):
+        return []
+
+    references: list[dict[str, Any]] = []
+    for article in article_summaries[:5]:
+        if not isinstance(article, dict):
+            continue
+        references.append(
+            {
+                "article_id": int(article.get("article_id") or 0),
+                "title": str(article.get("title") or ""),
+                "source": str(article.get("source") or ""),
+                "published_at": str(article.get("published_at") or ""),
+                "article_scope": str(article.get("article_scope") or ""),
+                "evidence_layers": [
+                    str(layer or "").strip()
+                    for layer in article.get("evidence_layers", [])
+                    if str(layer or "").strip()
+                ],
+            }
+        )
+    return references
+
+
 def _record_manager_decision_history_for_result(manager_result: dict[str, Any]) -> int | None:
     if not isinstance(manager_result, dict):
         return None
@@ -273,6 +302,8 @@ def _record_manager_decision_history_for_result(manager_result: dict[str, Any]) 
             "context_snapshot": manager_result.get("context_snapshot", {}),
             "market_context": manager_result.get("market_context", {}),
             "strategist_recommendation": strategist_recommendation,
+            "article_references": _extract_manager_article_references(manager_result),
+            "recent_manager_decision_history": manager_result.get("recent_manager_decision_history", []),
         },
         "manager_output_json": {
             "recommendation": recommendation,

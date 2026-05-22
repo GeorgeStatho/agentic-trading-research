@@ -17,6 +17,7 @@ for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
 
 from agent_builders import strategist_payload as strategist_payload_builder  # noqa: E402
 from agent_helpers.manager import build_manager_input  # noqa: E402
+from agent_stages.manager import build_manager_prompt  # noqa: E402
 from agent_stages.strategist_prompt import build_strategist_prompt  # noqa: E402
 from services.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET, get_dte_bucket  # noqa: E402
 
@@ -151,16 +152,18 @@ class StrategistPromptContractTests(VerboseTestCase):
 
 
 class ManagerPayloadContractTests(VerboseTestCase):
+    @patch("agent_helpers.manager.list_recent_manager_decision_history")
     @patch("agent_helpers.manager.build_market_context")
     @patch("agent_helpers.manager.build_strategist_input")
-    def test_build_manager_input_attaches_market_context_and_preserves_core_payload(
+    def test_build_manager_input_keeps_expired_pnl_hidden_from_recent_history(
         self,
         mock_build_strategist_input,
         mock_build_market_context,
+        mock_list_recent_manager_decision_history,
     ):
         mock_build_strategist_input.return_value = {
-            "company": {"symbol": "AAPL", "sector_key": "technology"},
-            "views": {"company": {"count": 3}},
+            "company": {"company_id": 1, "symbol": "AAPL", "sector_key": "technology"},
+            "views": {"company": {"count": 2}},
             "supporting_articles": {"article_summaries": [], "full_articles": []},
             "filters": {"max_age_days": 5},
         }
@@ -168,6 +171,183 @@ class ManagerPayloadContractTests(VerboseTestCase):
             "current_stock_price": {"available": True},
             "option_market": {"available": True, "contract_count": 8},
         }
+        mock_list_recent_manager_decision_history.return_value = [
+            {
+                "decision_run_at": "2026-05-01T14:00:00+00:00",
+                "manager_decision": "call",
+                "manager_confidence": "medium",
+                "target_dte_bucket": "20_30",
+                "trade_executed": 1,
+                "latest_trade_pnl_pct": None,
+                "resolved_outcome_label": None,
+                "manager_input_json": json.dumps(
+                    {
+                        "article_references": [
+                            {
+                                "article_id": 22,
+                                "title": "Older Apple article",
+                                "source": "Newswire",
+                                "published_at": "2026-04-29T14:00:00+00:00",
+                                "article_scope": "company",
+                                "evidence_layers": ["company_view"],
+                            }
+                        ]
+                    }
+                ),
+            }
+        ]
+
+        payload = build_manager_input(
+            "AAPL",
+            start_time=None,
+            end_time=None,
+            max_age_days=5,
+            summary_article_limit=20,
+            full_article_limit=5,
+            option_expiration_date=None,
+            option_expiration_date_gte="2026-05-14",
+            option_expiration_date_lte="2026-05-21",
+            option_strike_price_gte=None,
+            option_strike_price_lte=None,
+            option_contract_limit_per_type=6,
+        )
+
+        self.assertEqual(len(payload["recent_manager_decision_history"]), 1)
+        history_entry = payload["recent_manager_decision_history"][0]
+        self.assertIsNone(history_entry["latest_trade_pnl_pct"])
+        self.assertEqual(history_entry["resolved_outcome_label"], "")
+        self.assertEqual(history_entry["article_references"][0]["title"], "Older Apple article")
+        self.log_pass("manager payload preserved expired P/L masking while still carrying prior article references")
+
+    def test_build_manager_prompt_mentions_recent_decision_history_guidance(self):
+        payload = {
+            "company": {"company_id": 1, "symbol": "AAPL", "name": "Apple Inc."},
+            "peer_groups": {"industry": {}, "top_companies": []},
+            "filters": {"max_age_days": 5},
+            "views": {"company": {"count": 2}},
+            "supporting_articles": {
+                "article_summaries": [
+                    {
+                        "article_id": 10,
+                        "title": "Fresh Apple article",
+                        "summary": "AAPL summary",
+                        "source": "Newswire",
+                        "source_url": "https://example.com/aapl",
+                        "published_at": "2026-05-20T14:00:00+00:00",
+                        "article_scope": "company",
+                        "evidence_layers": ["company_view"],
+                        "agent_signals": [],
+                    }
+                ],
+                "full_articles": [],
+            },
+            "recent_manager_decision_history": [
+                {
+                    "decision_run_at": "2026-05-21T14:00:00+00:00",
+                    "manager_decision": "call",
+                    "manager_confidence": "high",
+                    "target_dte_bucket": "20_30",
+                    "trade_executed": True,
+                    "latest_trade_pnl_pct": 12.5,
+                    "resolved_outcome_label": "open_profit",
+                    "article_references": [
+                        {
+                            "article_id": 10,
+                            "title": "Fresh Apple article",
+                            "source": "Newswire",
+                            "published_at": "2026-05-20T14:00:00+00:00",
+                            "article_scope": "company",
+                            "evidence_layers": ["company_view"],
+                        }
+                    ],
+                }
+            ],
+            "strategist_recommendation": {
+                "decision": "trade_candidate",
+                "confidence": "high",
+                "preferred_option_direction": "call",
+                "expected_stock_direction": "up",
+            },
+            "market_context": {
+                "current_stock_price": {"available": True, "price": 200.0},
+                "market_indices": {},
+                "sector_etf": {"available": True},
+                "account_state": {"available": True, "company_position_state": {"matching_position_count": 0}},
+                "option_market": {"available": True, "contract_count": 8, "volatility_summary": {}},
+            },
+        }
+
+        system_prompt, user_prompt = build_manager_prompt(payload)
+        user_payload = json.loads(user_prompt)
+
+        self.assertIn("recent same-company manager decision history", system_prompt)
+        self.assertIn("recent_manager_decision_history", user_payload)
+        self.assertEqual(len(user_payload["recent_manager_decision_history"]), 1)
+        self.assertEqual(
+            user_payload["recent_manager_decision_history"][0]["article_references"][0]["title"],
+            "Fresh Apple article",
+        )
+        self.log_pass("manager prompt kept the recent-decision-history guidance and exposed the recent history block")
+
+    @patch("agent_helpers.manager.list_recent_manager_decision_history")
+    @patch("agent_helpers.manager.build_market_context")
+    @patch("agent_helpers.manager.build_strategist_input")
+    def test_build_manager_input_attaches_market_context_and_preserves_core_payload(
+        self,
+        mock_build_strategist_input,
+        mock_build_market_context,
+        mock_list_recent_manager_decision_history,
+    ):
+        mock_build_strategist_input.return_value = {
+            "company": {"company_id": 1, "symbol": "AAPL", "sector_key": "technology"},
+            "views": {"company": {"count": 3}},
+            "supporting_articles": {
+                "article_summaries": [
+                    {
+                        "article_id": 10,
+                        "title": "Fresh Apple article",
+                        "summary": "AAPL summary",
+                        "source": "Newswire",
+                        "source_url": "https://example.com/aapl",
+                        "published_at": "2026-05-20T14:00:00+00:00",
+                        "article_scope": "company",
+                        "evidence_layers": ["company_view"],
+                        "agent_signals": [],
+                    }
+                ],
+                "full_articles": [],
+            },
+            "filters": {"max_age_days": 5},
+        }
+        mock_build_market_context.return_value = {
+            "current_stock_price": {"available": True},
+            "option_market": {"available": True, "contract_count": 8},
+        }
+        mock_list_recent_manager_decision_history.return_value = [
+            {
+                "decision_run_at": "2026-05-21T14:00:00+00:00",
+                "manager_decision": "call",
+                "manager_confidence": "high",
+                "target_dte_bucket": "20_30",
+                "trade_executed": 1,
+                "latest_trade_pnl_pct": 12.5,
+                "resolved_outcome_label": "open_profit",
+                "manager_input_json": json.dumps(
+                    {
+                        "article_references": [
+                            {
+                                "article_id": 10,
+                                "title": "Fresh Apple article",
+                                "source": "Newswire",
+                                "published_at": "2026-05-20T14:00:00+00:00",
+                                "article_scope": "company",
+                                "evidence_layers": ["company_view"],
+                            }
+                        ]
+                    }
+                ),
+            }
+        ]
 
         payload = build_manager_input(
             "AAPL",
@@ -186,11 +366,19 @@ class ManagerPayloadContractTests(VerboseTestCase):
 
         mock_build_strategist_input.assert_called_once()
         mock_build_market_context.assert_called_once()
+        mock_list_recent_manager_decision_history.assert_called_once()
         self.assertEqual(payload["company"]["symbol"], "AAPL")
         self.assertIn("market_context", payload)
+        self.assertIn("recent_manager_decision_history", payload)
         self.assertTrue(payload["market_context"]["current_stock_price"]["available"])
         self.assertEqual(payload["market_context"]["option_market"]["contract_count"], 8)
         self.assertEqual(payload["filters"]["max_age_days"], 5)
+        self.assertEqual(len(payload["recent_manager_decision_history"]), 1)
+        history_entry = payload["recent_manager_decision_history"][0]
+        self.assertEqual(history_entry["manager_decision"], "call")
+        self.assertEqual(history_entry["latest_trade_pnl_pct"], 12.5)
+        self.assertEqual(history_entry["resolved_outcome_label"], "open_profit")
+        self.assertEqual(history_entry["article_references"][0]["title"], "Fresh Apple article")
         self.log_pass("manager payload kept the strategist core payload and attached the built market context")
 
 

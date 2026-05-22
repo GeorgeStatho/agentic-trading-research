@@ -444,6 +444,7 @@ def build_manager_prompt(
     "1) the structured research package, including article evidence and 1d, 5d, 1mo, and 3mo price history; "
     "2) live market and account context, including current stock price, relevant sector ETF performance, broad market indexes, option market summary, buying power, and current position state; "
     "and 3) the strategist recommendation as an upstream signal. "
+    "When recent same-company manager decision history is present, use it as reflective feedback about what was tried before, what evidence was used, and how those decisions performed, but do not let one recent outcome override stronger fresh evidence. "
     "Treat the strategist recommendation as useful but not authoritative. "
     "The strategist may include decision, confidence, evidence_quality, setup_quality, timing_clarity, "
     "preferred_option_direction, expected_stock_direction, time_horizon, why_now, thesis, risks, and contradictions_present. "
@@ -494,6 +495,7 @@ def build_manager_prompt(
         "filters": payload.get("filters", {}),
         "views": payload.get("views", {}),
         "supporting_articles": payload.get("supporting_articles", {}),
+        "recent_manager_decision_history": payload.get("recent_manager_decision_history", []),
         "strategist_recommendation": _build_manager_visible_strategist_context(payload),
         "market_context": _build_manager_visible_market_context(payload),
         "required_output": {
@@ -1152,6 +1154,8 @@ def decide_company_option_position(
         "company": company,
         "context_snapshot": context_snapshot,
         "market_context": market_context,
+        "supporting_articles": payload.get("supporting_articles", {}),
+        "recent_manager_decision_history": payload.get("recent_manager_decision_history", []),
         "strategist_recommendation": payload.get("strategist_recommendation", {}),
         "recommendation": recommendation,
         "selected_option": selected_option,
