@@ -24,6 +24,13 @@ type DashboardKpiPayload = {
     win_rate_pct: number | null;
   };
   max_drawdown_pct: number | null;
+  performance_summary: {
+    total_return_pct: number | null;
+    annualized_sharpe: number | null;
+    annualized_sortino: number | null;
+    profit_factor: number | null;
+    average_trade_return_pct: number | null;
+  };
   bot_status: {
     state: string;
     label: string;
@@ -118,6 +125,13 @@ function formatRankingScore(value: number | null): string {
   return value.toFixed(2);
 }
 
+function formatRatio(value: number | null, digits = 2): string {
+  if (value === null || Number.isNaN(value)) {
+    return 'N/A';
+  }
+  return value.toFixed(digits);
+}
+
 function getDayPlTone(dayPl: number | null): KpiCardConfig['tone'] {
   if (dayPl === null || Number.isNaN(dayPl)) {
     return 'neutral';
@@ -210,6 +224,12 @@ function buildCards(payload: DashboardKpiPayload): KpiCardConfig[] {
         payload.max_drawdown_pct !== null && payload.max_drawdown_pct > 10
           ? 'negative'
           : 'neutral',
+    },
+    {
+      title: 'Performance Metrics',
+      value: `Sharpe ${formatRatio(payload.performance_summary.annualized_sharpe)} / Sortino ${formatRatio(payload.performance_summary.annualized_sortino)}`,
+      detail: `Total return ${formatPercent(payload.performance_summary.total_return_pct)} / Avg trade ${formatPercent(payload.performance_summary.average_trade_return_pct)} / Profit factor ${formatRatio(payload.performance_summary.profit_factor)}`,
+      compactValue: true,
     },
     {
       title: 'Bot Status',
