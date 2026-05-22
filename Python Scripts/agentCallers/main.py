@@ -89,7 +89,7 @@ def _build_company_context_by_symbol(
             ).strip()
             for company in industry.get("selected_companies", []):
                 symbol = str(company.get("symbol") or "").strip().upper()
-                if not symbol:
+                if not symbol or symbol in contexts:
                     continue
                 contexts[symbol] = {
                     "company_id": company.get("company_id"),
