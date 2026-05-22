@@ -15,6 +15,7 @@ for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
     if normalized not in sys.path:
         sys.path.insert(0, normalized)
 
+from agent_builders import strategist_payload as strategist_payload_builder  # noqa: E402
 from agent_helpers.manager import build_manager_input  # noqa: E402
 from agent_stages.strategist_prompt import build_strategist_prompt  # noqa: E402
 from services.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET, get_dte_bucket  # noqa: E402
@@ -33,6 +34,11 @@ class StrategistPromptContractTests(VerboseTestCase):
                 "symbol": "AAPL",
                 "name": "Apple Inc.",
                 "historical_price_data": {},
+                "trend_quality": {
+                    "1m_sharpe": 1.4,
+                    "5d_sharpe": 2.1,
+                    "3m_sharpe": 1.8,
+                },
             },
             "peer_groups": {"industry": {}, "top_companies": []},
             "filters": {"max_age_days": 5},
@@ -49,7 +55,10 @@ class StrategistPromptContractTests(VerboseTestCase):
 
         self.assertIn("investment strategist", system_prompt.lower())
         self.assertEqual(user_payload["company"]["symbol"], "AAPL")
+        self.assertEqual(user_payload["company"]["trend_quality"]["1m_sharpe"], 1.4)
         self.assertIn("recommendation", user_payload["required_output"])
+        self.assertIn("5d_sharpe", user_payload["task"])
+        self.assertIn("supporting context for return smoothness", user_payload["task"])
         recommendation = user_payload["required_output"]["recommendation"]
         self.assertEqual(recommendation["decision"], "trade_candidate|watchlist|do_not_trade")
         self.assertEqual(recommendation["preferred_option_direction"], "call|put|neither")
@@ -64,6 +73,7 @@ class StrategistPromptContractTests(VerboseTestCase):
                 "symbol": "AAPL",
                 "name": "Apple Inc.",
                 "historical_price_data": {},
+                "trend_quality": {},
             },
             "peer_groups": {"industry": {}, "top_companies": []},
             "filters": {"max_age_days": 5},
@@ -83,6 +93,61 @@ class StrategistPromptContractTests(VerboseTestCase):
             assert bucket is not None
             self.assertIn(f"{time_horizon} for setups that fit {bucket.label}", task_text)
         self.log_pass("strategist prompt time-horizon guidance stayed aligned with the live DTE bucket registry")
+
+    @patch.object(strategist_payload_builder, "_get_company_market_record")
+    @patch.object(strategist_payload_builder, "_build_company_price_context")
+    def test_serialize_company_scope_attaches_trend_quality_next_to_historical_price_data(
+        self,
+        mock_build_company_price_context,
+        mock_get_company_market_record,
+    ):
+        mock_get_company_market_record.return_value = {"rating": "A", "market_weight": 3.5, "raw_json": "{}"}
+        mock_build_company_price_context.return_value = (
+            {"1mo": {"available": True}},
+            {
+                "source": "yfinance_history",
+                "annualized": True,
+                "risk_free_rate": 0.0,
+                "trading_periods_per_year": 252,
+                "5d_sharpe": 2.1,
+                "1m_sharpe": 1.4,
+                "3m_sharpe": 1.8,
+                "5d_return_pct": 8.4,
+                "1m_return_pct": 14.6,
+                "3m_return_pct": 31.2,
+            },
+        )
+
+        result = strategist_payload_builder._serialize_company_scope(
+            {
+                "company_id": 3644,
+                "symbol": "AAPL",
+                "name": "Apple Inc.",
+                "industry_id": 10,
+                "industry_key": "consumer_electronics",
+                "industry_name": "Consumer Electronics",
+                "sector_id": 5,
+                "sector_key": "technology",
+                "sector_name": "Technology",
+            }
+        )
+
+        self.assertEqual(result["historical_price_data"]["1mo"]["available"], True)
+        self.assertEqual(result["trend_quality"]["5d_sharpe"], 2.1)
+        self.assertEqual(result["trend_quality"]["5d_return_pct"], 8.4)
+        self.log_pass("company scope now includes strategist-side trend quality alongside historical price data")
+
+    def test_summarize_trend_quality_from_closes_returns_annualized_sharpe(self):
+        sharpe_value, return_pct = strategist_payload_builder._summarize_trend_quality_from_closes(
+            [100.0, 102.0, 103.0, 105.0, 108.0, 110.0],
+            history_period="1mo",
+            interval="1d",
+        )
+
+        self.assertIsInstance(sharpe_value, float)
+        self.assertGreater(sharpe_value, 0.0)
+        self.assertAlmostEqual(return_pct, 10.0)
+        self.log_pass("trend quality summary computed a positive annualized sharpe from close returns")
 
 
 class ManagerPayloadContractTests(VerboseTestCase):
