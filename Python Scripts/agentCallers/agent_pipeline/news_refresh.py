@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-from typing import Any
+from typing import Any, Callable
 
 from agent_pipeline.ranking import (
     DEFAULT_TOP_COMPANY_COUNT,
@@ -31,6 +31,16 @@ SUBPROCESS_IMPORT_PATHS = [
     str(PROJECT_ROOT / "Python Scripts" / "agentCallers"),
 ]
 SCRAPE_RESULT_MARKER = "__SCRAPE_RESULT__="
+ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _emit_progress(
+    on_progress: ProgressCallback | None,
+    payload: dict[str, Any],
+) -> None:
+    if on_progress is None:
+        return
+    on_progress(payload)
 
 
 def _run_scrape_subprocess(
@@ -140,6 +150,7 @@ def run_news_collection_pipeline(
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
     ranking_max_age_days: int | None | object = RANKING_MAX_AGE_DAYS_UNSET,
+    on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     """Run the scrape plus sector/industry/company pipeline end to end."""
     ranking_max_age_days = resolve_ranking_max_age_days(ranking_max_age_days)
@@ -184,6 +195,14 @@ def run_news_collection_pipeline(
 
     top_sector_keys = [sector["sector_key"] for sector in rankings_before_sector_stage["top_sectors"]]
     for sector_key in top_sector_keys:
+        _emit_progress(
+            on_progress,
+            {
+                "stage": "pipeline_sector",
+                "message": f"Refreshing sector pipeline for {sector_key}",
+                "current_sector": sector_key,
+            },
+        )
         sector_scrape_saved = _scrape_sector_news(sector_key)
         scrape_results["sectors"][sector_key] = sector_scrape_saved
 
@@ -199,6 +218,15 @@ def run_news_collection_pipeline(
         )
         top_industry_keys = [industry["industry_key"] for industry in top_industry_rankings]
         for industry_key in top_industry_keys:
+            _emit_progress(
+                on_progress,
+                {
+                    "stage": "pipeline_industry",
+                    "message": f"Refreshing industry pipeline for {industry_key}",
+                    "current_sector": sector_key,
+                    "current_industry": industry_key,
+                },
+            )
             industry_scrape_saved = _scrape_industry_news(industry_key)
             scrape_results["industries"][industry_key] = industry_scrape_saved
 
@@ -210,6 +238,21 @@ def run_news_collection_pipeline(
 
             company_results: list[dict[str, Any]] = []
             for company in company_selection["selected_companies"]:
+                _emit_progress(
+                    on_progress,
+                    {
+                        "stage": "pipeline_company",
+                        "message": f"Refreshing company pipeline for {company['symbol']}",
+                        "current_symbol": company["symbol"],
+                        "current_company_name": company.get("name"),
+                        "current_sector": sector_key,
+                        "current_industry": (
+                            company_selection["industry"].get("name")
+                            or company_selection["industry"].get("industry_key")
+                            or industry_key
+                        ),
+                    },
+                )
                 company_scrape_saved = _scrape_company_news(company["symbol"])
                 scrape_results["companies"][company["symbol"]] = company_scrape_saved
 
@@ -274,6 +317,7 @@ def run_agent_pipeline(
     top_industry_count: int = DEFAULT_TOP_INDUSTRY_COUNT,
     top_company_count: int = DEFAULT_TOP_COMPANY_COUNT,
     ranking_max_age_days: int | None | object = RANKING_MAX_AGE_DAYS_UNSET,
+    on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     """Backward-compatible combined pipeline entrypoint."""
     ranking_max_age_days = resolve_ranking_max_age_days(ranking_max_age_days)
@@ -282,4 +326,5 @@ def run_agent_pipeline(
         top_industry_count=top_industry_count,
         top_company_count=top_company_count,
         ranking_max_age_days=ranking_max_age_days,
+        on_progress=on_progress,
     )

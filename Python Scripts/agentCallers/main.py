@@ -31,6 +31,7 @@ from services.config import AgentPipelineSettings
 
 
 LOGGER = logging.getLogger("agent_runner")
+ProgressCallback = Callable[[dict[str, Any]], None]
 
 
 def _build_log_path() -> Path:
@@ -67,6 +68,40 @@ def _dedupe_company_symbols(pipeline_result: dict[str, Any]) -> list[str]:
     return symbols
 
 
+def _build_company_context_by_symbol(
+    pipeline_result: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    contexts: dict[str, dict[str, Any]] = {}
+
+    for sector in pipeline_result.get("sectors", []):
+        sector_key = str(sector.get("sector_key") or "").strip()
+        for industry in sector.get("industries", []):
+            industry_payload = industry.get("industry", {})
+            industry_key = str(
+                industry_payload.get("industry_key")
+                or industry_payload.get("key")
+                or ""
+            ).strip()
+            industry_name = str(
+                industry_payload.get("name")
+                or industry_payload.get("industry_name")
+                or industry_key
+            ).strip()
+            for company in industry.get("selected_companies", []):
+                symbol = str(company.get("symbol") or "").strip().upper()
+                if not symbol:
+                    continue
+                contexts[symbol] = {
+                    "company_id": company.get("company_id"),
+                    "company_name": company.get("name"),
+                    "sector_key": sector_key,
+                    "industry_key": industry_key,
+                    "industry_name": industry_name,
+                }
+
+    return contexts
+
+
 def _normalize_company_symbols(symbols: list[str]) -> list[str]:
     seen: set[str] = set()
     normalized_symbols: list[str] = []
@@ -79,6 +114,15 @@ def _normalize_company_symbols(symbols: list[str]) -> list[str]:
         normalized_symbols.append(normalized)
 
     return normalized_symbols
+
+
+def _emit_progress(
+    on_progress: ProgressCallback | None,
+    payload: dict[str, Any],
+) -> None:
+    if on_progress is None:
+        return
+    on_progress(payload)
 
 
 def _filter_company_symbols_by_high_confidence_support(
@@ -316,6 +360,8 @@ def _record_manager_decision_history_for_result(manager_result: dict[str, Any]) 
 def _run_strategist_and_manager(
     company_symbols: list[str],
     *,
+    company_context_by_symbol: dict[str, dict[str, Any]] | None = None,
+    on_progress: ProgressCallback | None = None,
     on_manager_result: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     # Run the strategist and manager stages for one company and keep their outputs aligned for the final payload.
@@ -325,6 +371,24 @@ def _run_strategist_and_manager(
     LOGGER.info("Running strategist and manager for %s selected companies", len(company_symbols))
 
     for symbol in company_symbols:
+        company_context = dict((company_context_by_symbol or {}).get(symbol) or {})
+        progress_base = {
+            "current_symbol": symbol,
+            "current_company_name": company_context.get("company_name"),
+            "current_sector": company_context.get("sector_key"),
+            "current_industry": (
+                company_context.get("industry_name")
+                or company_context.get("industry_key")
+            ),
+        }
+        _emit_progress(
+            on_progress,
+            {
+                "stage": "strategist",
+                "message": f"Running strategist for {symbol}",
+                **progress_base,
+            },
+        )
         LOGGER.info("Running strategist for %s", symbol)
         strategist_result = decide_company_purchase(symbol)
         strategist_results.append(strategist_result)
@@ -335,6 +399,14 @@ def _run_strategist_and_manager(
             strategist_result.get("recommendation", {}).get("confidence"),
         )
 
+        _emit_progress(
+            on_progress,
+            {
+                "stage": "manager",
+                "message": f"Running manager for {symbol}",
+                **progress_base,
+            },
+        )
         LOGGER.info("Running manager for %s", symbol)
         manager_result = decide_company_option_position(
             symbol,
@@ -372,14 +444,23 @@ def _run_strategist_and_manager(
 
 def run_full_agent_stack(
     *,
+    on_progress: ProgressCallback | None = None,
     on_manager_result: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run the full agent pipeline plus strategist and manager follow-up stages."""
+    _emit_progress(
+        on_progress,
+        {
+            "stage": "pipeline",
+            "message": "Running pipeline refresh",
+        },
+    )
     LOGGER.info("Starting agent pipeline stage")
-    pipeline_result = run_agent_pipeline()
+    pipeline_result = run_agent_pipeline(on_progress=on_progress)
     LOGGER.info("Finished agent pipeline stage")
 
     pipeline_settings = AgentPipelineSettings.from_env()
+    company_context_by_symbol = _build_company_context_by_symbol(pipeline_result)
     company_symbols, skipped_companies = _filter_company_symbols_by_high_confidence_support(
         _dedupe_company_symbols(pipeline_result),
         minimum_high_confidence_articles=pipeline_settings.minimum_high_confidence_company_articles,
@@ -387,6 +468,8 @@ def run_full_agent_stack(
     )
     strategist_results, manager_results = _run_strategist_and_manager(
         company_symbols,
+        company_context_by_symbol=company_context_by_symbol,
+        on_progress=on_progress,
         on_manager_result=on_manager_result,
     )
     ran_at = datetime.now().isoformat()
@@ -404,14 +487,23 @@ def run_full_agent_stack(
 
 def run_full_agent_stack_from_existing_data(
     *,
+    on_progress: ProgressCallback | None = None,
     on_manager_result: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run strategist and manager stages using the current persisted DB pipeline state."""
+    _emit_progress(
+        on_progress,
+        {
+            "stage": "pipeline",
+            "message": "Loading pipeline targets from existing data",
+        },
+    )
     LOGGER.info("Starting agent pipeline stage using existing DB data")
-    pipeline_result = run_agent_pipeline_from_existing_data()
+    pipeline_result = run_agent_pipeline_from_existing_data(on_progress=on_progress)
     LOGGER.info("Finished agent pipeline stage using existing DB data")
 
     pipeline_settings = AgentPipelineSettings.from_env()
+    company_context_by_symbol = _build_company_context_by_symbol(pipeline_result)
     company_symbols, skipped_companies = _filter_company_symbols_by_high_confidence_support(
         _dedupe_company_symbols(pipeline_result),
         minimum_high_confidence_articles=pipeline_settings.minimum_high_confidence_company_articles,
@@ -419,6 +511,8 @@ def run_full_agent_stack_from_existing_data(
     )
     strategist_results, manager_results = _run_strategist_and_manager(
         company_symbols,
+        company_context_by_symbol=company_context_by_symbol,
+        on_progress=on_progress,
         on_manager_result=on_manager_result,
     )
     ran_at = datetime.now().isoformat()
@@ -437,12 +531,14 @@ def run_full_agent_stack_from_existing_data(
 def run_strategist_manager_only(
     company_symbols: list[str],
     *,
+    on_progress: ProgressCallback | None = None,
     on_manager_result: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run only the strategist and manager stages for explicit company symbols."""
     normalized_symbols = _normalize_company_symbols(company_symbols)
     strategist_results, manager_results = _run_strategist_and_manager(
         normalized_symbols,
+        on_progress=on_progress,
         on_manager_result=on_manager_result,
     )
     ran_at = datetime.now().isoformat()

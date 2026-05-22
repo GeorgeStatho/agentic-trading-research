@@ -50,6 +50,29 @@ class FrontMainApplication:
         self._position_manager = position_manager
         self._logger = logger
 
+    def _write_running_status(
+        self,
+        message: str,
+        **extra: Any,
+    ) -> None:
+        self._status_reporter.write("running", message, **extra)
+
+    def _handle_agent_progress(self, progress: dict[str, Any]) -> None:
+        if not isinstance(progress, dict):
+            return
+        message = str(progress.get("message") or "Executing trading workflow").strip()
+        status_payload = {
+            "stage": str(progress.get("stage") or "").strip(),
+            "current_symbol": str(progress.get("current_symbol") or "").strip(),
+            "current_company_name": str(progress.get("current_company_name") or "").strip(),
+            "current_sector": str(progress.get("current_sector") or "").strip(),
+            "current_industry": str(progress.get("current_industry") or "").strip(),
+        }
+        self._write_running_status(
+            message,
+            **{key: value for key, value in status_payload.items() if value},
+        )
+
     def _get_option_exposure_snapshot(self, trading_client: TradingClient) -> OptionExposureSnapshot:
         available_buying_power = self._trading_gateway.get_available_buying_power(trading_client)
         current_option_exposure, option_position_count = self._trading_gateway.get_open_option_exposure(
@@ -238,12 +261,26 @@ class FrontMainApplication:
             return self._skip_trading_cycle_for_option_exposure(exposure_snapshot=exposure_snapshot)
 
         self._logger.info("Starting full agent stack run")
-        agent_result = run_full_agent_stack_from_existing_data()
+        self._write_running_status(
+            "Running strategist and manager pipeline",
+            stage="pipeline",
+        )
+        agent_result = run_full_agent_stack_from_existing_data(
+            on_progress=self._handle_agent_progress,
+        )
         self._logger.info("Finished full agent stack run")
 
+        self._write_running_status(
+            "Preparing option order candidates",
+            stage="trade_preparation",
+        )
         order_candidates = self._order_candidate_builder.build(agent_result)
         self._logger.info("Prepared %s selected option candidates for trading", len(order_candidates))
 
+        self._write_running_status(
+            "Executing option orders",
+            stage="trade_execution",
+        )
         trade_result = self._trade_executor.execute(
             trading_client=trading_client,
             order_candidates=order_candidates,
@@ -285,6 +322,11 @@ class FrontMainApplication:
             if candidate is None:
                 return
 
+            self._write_running_status(
+                f"Executing immediate option order for {candidate.get('symbol')}",
+                stage="trade_execution",
+                current_symbol=str(candidate.get("symbol") or "").strip(),
+            )
             execution = self._trade_executor.execute_candidate(
                 trading_client=trading_client,
                 candidate=candidate,
@@ -299,7 +341,14 @@ class FrontMainApplication:
             JsonFileWriter.write(self._paths.trade_output_path, self._trade_executor.finalize_session(trade_session))
 
         self._logger.info("Starting full agent stack run with immediate option execution")
-        agent_result = run_full_agent_stack_from_existing_data(on_manager_result=handle_manager_result)
+        self._write_running_status(
+            "Running strategist and manager pipeline with immediate execution",
+            stage="pipeline",
+        )
+        agent_result = run_full_agent_stack_from_existing_data(
+            on_progress=self._handle_agent_progress,
+            on_manager_result=handle_manager_result,
+        )
         self._logger.info("Finished full agent stack run with immediate option execution")
 
         trade_result = self._trade_executor.finalize_session(trade_session)
@@ -359,7 +408,11 @@ class FrontMainApplication:
             return next_option_management_at
 
         try:
-            self._status_reporter.write("running", "Managing current option positions")
+            self._status_reporter.write(
+                "running",
+                "Managing current option positions",
+                stage="option_manager",
+            )
             option_management_result = self.run_option_position_management_cycle(
                 trading_client=trading_client
             )

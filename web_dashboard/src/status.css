@@ -30,6 +30,18 @@
   opacity: 0.9;
 }
 
+.script-status__detail,
+.script-status__meta {
+  font-size: 0.88rem;
+  opacity: 0.78;
+}
+
+.script-status__detail + .script-status__detail,
+.script-status__detail + .script-status__meta,
+.script-status__message + .script-status__detail {
+  margin-top: 0.18rem;
+}
+
 .script-status--running {
   color: #16a34a;
 }
