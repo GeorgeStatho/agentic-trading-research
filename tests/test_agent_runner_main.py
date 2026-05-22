@@ -146,6 +146,47 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
             ],
         )
 
+    def test_build_company_context_by_symbol_preserves_first_occurrence_context(self) -> None:
+        result = agent_runner_main._build_company_context_by_symbol(
+            {
+                "sectors": [
+                    {
+                        "sector_key": "technology",
+                        "industries": [
+                            {
+                                "industry": {"industry_key": "software", "name": "Software"},
+                                "selected_companies": [
+                                    {"company_id": 1, "symbol": "AAPL", "name": "Apple"},
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "sector_key": "consumer",
+                        "industries": [
+                            {
+                                "industry": {"industry_key": "devices", "name": "Devices"},
+                                "selected_companies": [
+                                    {"company_id": 1, "symbol": "AAPL", "name": "Apple"},
+                                ],
+                            }
+                        ],
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(
+            result["AAPL"],
+            {
+                "company_id": 1,
+                "company_name": "Apple",
+                "sector_key": "technology",
+                "industry_key": "software",
+                "industry_name": "Software",
+            },
+        )
+
     @patch.object(agent_runner_main, "get_company_opportunist_summary")
     def test_filter_company_symbols_by_high_confidence_support_skips_under_supported_names(
         self,
