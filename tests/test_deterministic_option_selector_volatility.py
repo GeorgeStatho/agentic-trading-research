@@ -30,21 +30,21 @@ class DeterministicSelectorVolatilityTests(unittest.TestCase):
         symbol: str,
         expiration_days: int,
         strike_price: float,
-        implied_volatility: float,
+        implied_volatility: float | None,
         iv_percentile: float | None,
         midpoint_price: float = 2.0,
         delta: float = 0.28,
         open_interest: float = 250.0,
         vega: float = 0.11,
+        contract_type: str = "call",
     ) -> dict[str, object]:
         contract = {
             "option_id": option_id,
             "symbol": symbol,
-            "contract_type": "call",
+            "contract_type": contract_type,
             "expiration_date": self._future_date(expiration_days),
             "strike_price": strike_price,
             "open_interest": open_interest,
-            "implied_volatility": implied_volatility,
             "latest_quote": {
                 "bid_price": round(midpoint_price - 0.05, 2),
                 "ask_price": round(midpoint_price + 0.05, 2),
@@ -57,6 +57,8 @@ class DeterministicSelectorVolatilityTests(unittest.TestCase):
                 "vega": vega,
             },
         }
+        if implied_volatility is not None:
+            contract["implied_volatility"] = implied_volatility
         if iv_percentile is not None:
             contract["iv_percentile"] = iv_percentile
         return contract
@@ -239,7 +241,7 @@ class DeterministicSelectorVolatilityTests(unittest.TestCase):
             "preferred_low_iv_vega",
         )
         self.assertEqual(
-            result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]["selection_preference_score"],
+            result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]["vega_selection_preference_score"],
             -1.0,
         )
 
@@ -461,6 +463,232 @@ class DeterministicSelectorVolatilityTests(unittest.TestCase):
         self.assertFalse(
             result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]["iv_percentile"]["available"]
         )
+
+    @patch.object(selector, "OPTION_SELECTOR_MODE", "simple")
+    def test_simple_selector_prefers_better_profit_path_when_contract_shape_is_similar(self):
+        better_profit_path = self._build_contract(
+            option_id=601,
+            symbol="AAPL_BETTER_PROFIT_PATH_SIMPLE",
+            expiration_days=30,
+            strike_price=103.0,
+            implied_volatility=0.35,
+            iv_percentile=45.0,
+            midpoint_price=2.0,
+            vega=0.04,
+        )
+        worse_profit_path = self._build_contract(
+            option_id=602,
+            symbol="AAPL_WORSE_PROFIT_PATH_SIMPLE",
+            expiration_days=30,
+            strike_price=103.0,
+            implied_volatility=0.35,
+            iv_percentile=45.0,
+            midpoint_price=8.0,
+            vega=0.04,
+        )
+        manager_result = self._build_manager_result(
+            confidence="high",
+            contracts=[worse_profit_path, better_profit_path],
+            term_structure_event=False,
+            hv_20d=0.35,
+        )
+
+        result = selector.apply_deterministic_option_selection(manager_result)
+
+        self.assertEqual(result["recommendation"]["selected_option_id"], 601)
+        assessment = result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]
+        self.assertEqual(assessment["profit_path"]["band"], "strong_path_to_profit")
+        self.assertEqual(assessment["profit_path_selection_preference_score"], -1.0)
+
+    @patch.object(selector, "OPTION_SELECTOR_MODE", "hybrid")
+    def test_hybrid_selector_prefers_better_profit_path_when_contract_shape_is_similar(self):
+        better_profit_path = self._build_contract(
+            option_id=603,
+            symbol="AAPL_BETTER_PROFIT_PATH_HYBRID",
+            expiration_days=30,
+            strike_price=103.0,
+            implied_volatility=0.35,
+            iv_percentile=45.0,
+            midpoint_price=2.0,
+            vega=0.04,
+            delta=0.38,
+        )
+        worse_profit_path = self._build_contract(
+            option_id=604,
+            symbol="AAPL_WORSE_PROFIT_PATH_HYBRID",
+            expiration_days=30,
+            strike_price=103.0,
+            implied_volatility=0.35,
+            iv_percentile=45.0,
+            midpoint_price=8.0,
+            vega=0.04,
+            delta=0.38,
+        )
+        manager_result = self._build_manager_result(
+            confidence="high",
+            contracts=[worse_profit_path, better_profit_path],
+            term_structure_event=False,
+            hv_20d=0.35,
+        )
+
+        result = selector.apply_deterministic_option_selection(manager_result)
+
+        self.assertEqual(result["recommendation"]["selected_option_id"], 603)
+        assessment = result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]
+        self.assertEqual(assessment["profit_path"]["band"], "strong_path_to_profit")
+
+    @patch.object(selector, "OPTION_SELECTOR_MODE", "greeks")
+    def test_greeks_selector_prefers_better_profit_path_when_contract_shape_is_similar(self):
+        better_profit_path = self._build_contract(
+            option_id=605,
+            symbol="AAPL_BETTER_PROFIT_PATH_GREEKS",
+            expiration_days=30,
+            strike_price=103.0,
+            implied_volatility=0.35,
+            iv_percentile=45.0,
+            midpoint_price=2.0,
+            vega=0.04,
+            delta=0.42,
+        )
+        worse_profit_path = self._build_contract(
+            option_id=606,
+            symbol="AAPL_WORSE_PROFIT_PATH_GREEKS",
+            expiration_days=30,
+            strike_price=103.0,
+            implied_volatility=0.35,
+            iv_percentile=45.0,
+            midpoint_price=8.0,
+            vega=0.04,
+            delta=0.42,
+        )
+        manager_result = self._build_manager_result(
+            confidence="high",
+            contracts=[worse_profit_path, better_profit_path],
+            term_structure_event=False,
+            hv_20d=0.35,
+        )
+
+        result = selector.apply_deterministic_option_selection(manager_result)
+
+        self.assertEqual(result["recommendation"]["selected_option_id"], 605)
+        assessment = result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]
+        self.assertEqual(assessment["profit_path"]["band"], "strong_path_to_profit")
+
+    @patch.object(selector, "OPTION_SELECTOR_MODE", "simple")
+    def test_profit_path_assessment_is_neutral_when_contract_iv_is_missing(self):
+        contract = self._build_contract(
+            option_id=607,
+            symbol="AAPL_MISSING_IV_PROFIT_PATH",
+            expiration_days=30,
+            strike_price=101.0,
+            implied_volatility=None,
+            iv_percentile=45.0,
+            midpoint_price=2.0,
+            vega=0.04,
+        )
+        manager_result = self._build_manager_result(
+            confidence="high",
+            contracts=[contract],
+            term_structure_event=False,
+            hv_20d=0.35,
+        )
+
+        result = selector.apply_deterministic_option_selection(manager_result)
+
+        self.assertIsNotNone(result["selected_option"])
+        self.assertEqual(result["recommendation"]["confidence"], "high")
+        self.assertEqual(result["recommendation"]["confidence_after_volatility"], "high")
+        assessment = result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]
+        self.assertFalse(assessment["profit_path"]["available"])
+        self.assertEqual(assessment["profit_path"]["band"], "unknown")
+        self.assertEqual(assessment["profit_path_selection_preference_score"], 0.0)
+
+    @patch.object(selector, "OPTION_SELECTOR_MODE", "simple")
+    def test_profit_path_uses_straddle_expected_move_when_near_term_event_pricing_is_present(self):
+        call_contract = self._build_contract(
+            option_id=608,
+            symbol="AAPL_EVENT_CALL",
+            expiration_days=7,
+            strike_price=101.0,
+            implied_volatility=0.20,
+            iv_percentile=75.0,
+            midpoint_price=5.0,
+            vega=0.04,
+            contract_type="call",
+        )
+        companion_put = self._build_contract(
+            option_id=609,
+            symbol="AAPL_EVENT_PUT",
+            expiration_days=7,
+            strike_price=101.0,
+            implied_volatility=0.20,
+            iv_percentile=75.0,
+            midpoint_price=5.0,
+            vega=0.04,
+            contract_type="put",
+        )
+        manager_result = self._build_manager_result(
+            confidence="high",
+            contracts=[call_contract, companion_put],
+            target_dte_bucket="1_7",
+            term_structure_event=True,
+            hv_20d=0.20,
+        )
+
+        result = selector.apply_deterministic_option_selection(manager_result)
+
+        assessment = result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]
+        self.assertEqual(result["recommendation"]["selected_option_id"], 608)
+        self.assertEqual(assessment["profit_path"]["expected_move_source"], "straddle_event")
+        self.assertEqual(
+            assessment["profit_path"]["straddle_implied_expected_move"]["expected_move_dollars"],
+            10.0,
+        )
+        self.assertEqual(assessment["profit_path"]["expected_move_dollars"], 10.0)
+        self.assertEqual(assessment["profit_path"]["band"], "strong_path_to_profit")
+
+    @patch.object(selector, "OPTION_SELECTOR_MODE", "simple")
+    def test_profit_path_falls_back_to_iv_model_when_event_pricing_is_not_present(self):
+        call_contract = self._build_contract(
+            option_id=610,
+            symbol="AAPL_NON_EVENT_CALL",
+            expiration_days=7,
+            strike_price=101.0,
+            implied_volatility=0.20,
+            iv_percentile=45.0,
+            midpoint_price=5.0,
+            vega=0.04,
+            contract_type="call",
+        )
+        companion_put = self._build_contract(
+            option_id=611,
+            symbol="AAPL_NON_EVENT_PUT",
+            expiration_days=7,
+            strike_price=101.0,
+            implied_volatility=0.20,
+            iv_percentile=45.0,
+            midpoint_price=5.0,
+            vega=0.04,
+            contract_type="put",
+        )
+        manager_result = self._build_manager_result(
+            confidence="high",
+            contracts=[call_contract, companion_put],
+            target_dte_bucket="1_7",
+            term_structure_event=False,
+            hv_20d=0.20,
+        )
+
+        result = selector.apply_deterministic_option_selection(manager_result)
+
+        assessment = result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]
+        self.assertEqual(result["recommendation"]["selected_option_id"], 610)
+        self.assertEqual(assessment["profit_path"]["expected_move_source"], "contract_iv_dte")
+        self.assertEqual(
+            assessment["profit_path"]["straddle_implied_expected_move"]["expected_move_dollars"],
+            10.0,
+        )
+        self.assertLess(assessment["profit_path"]["expected_move_dollars"], 3.0)
 
 
 if __name__ == "__main__":

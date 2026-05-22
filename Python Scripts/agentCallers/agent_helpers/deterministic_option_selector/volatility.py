@@ -7,15 +7,24 @@ from .config import (
     SHORT_TERM_EVENT_PRICING_DTE,
 )
 from .market import (
+    _get_break_even_distance_dollars,
+    _get_break_even_distance_pct,
+    _get_break_even_price,
     _get_contract_market_price,
     _get_contract_implied_volatility,
     _get_contract_iv_percentile,
     _get_dte,
+    _get_expected_move_dollars,
+    _get_expected_move_pct,
     _get_greek,
     _get_option_market_volatility_summary,
+    _get_premium_pct_of_spot,
+    _get_reference_stock_price,
+    _get_straddle_implied_expected_move,
     _get_underlying_historical_volatility,
 )
 from agent_helpers.volatility import summarize_iv_vs_hv
+from .normalize import _coerce_float
 from services.option_dte_buckets import normalize_target_dte_bucket
 
 
@@ -243,6 +252,197 @@ def _score_vega_per_premium(contract: dict[str, Any], market_context: dict[str, 
     }
 
 
+def _score_profit_path(contract: dict[str, Any], market_context: dict[str, Any]) -> dict[str, Any]:
+    reference_stock_price = _get_reference_stock_price(market_context)
+    contract_price = _get_contract_market_price(contract)
+    contract_dte = _get_dte(contract)
+    break_even_price = _get_break_even_price(contract)
+    break_even_distance_dollars = _get_break_even_distance_dollars(contract, reference_stock_price)
+    break_even_distance_pct = _get_break_even_distance_pct(contract, reference_stock_price)
+    premium_pct_of_spot = _get_premium_pct_of_spot(contract, reference_stock_price)
+    iv_model_expected_move_dollars = _get_expected_move_dollars(contract, reference_stock_price)
+    iv_model_expected_move_pct = _get_expected_move_pct(contract, reference_stock_price)
+    straddle_expected_move = _get_straddle_implied_expected_move(contract, market_context, reference_stock_price)
+    volatility_summary = _get_option_market_volatility_summary(market_context)
+    term_structure = volatility_summary.get("term_structure", {})
+    event_risk_flag = bool(isinstance(term_structure, dict) and term_structure.get("event_risk_flag"))
+    use_straddle_expected_move = (
+        event_risk_flag
+        and contract_dte is not None
+        and contract_dte <= NEAR_TERM_EVENT_PRICING_DTE
+        and bool(straddle_expected_move.get("available"))
+    )
+    if use_straddle_expected_move:
+        expected_move_dollars = _coerce_float(straddle_expected_move.get("expected_move_dollars"))
+        expected_move_pct = _coerce_float(straddle_expected_move.get("expected_move_pct"))
+        expected_move_source = "straddle_event"
+    else:
+        expected_move_dollars = iv_model_expected_move_dollars
+        expected_move_pct = iv_model_expected_move_pct
+        expected_move_source = "contract_iv_dte"
+
+    if (
+        reference_stock_price is None
+        or contract_price is None
+        or break_even_price is None
+        or break_even_distance_dollars is None
+        or break_even_distance_pct is None
+        or premium_pct_of_spot is None
+        or expected_move_dollars is None
+        or expected_move_pct is None
+        or expected_move_dollars <= 0
+        or expected_move_pct <= 0
+    ):
+        return {
+            "available": False,
+            "reference_stock_price": reference_stock_price,
+            "break_even_price": break_even_price,
+            "break_even_distance_dollars": break_even_distance_dollars,
+            "break_even_distance_pct": break_even_distance_pct,
+            "premium_pct_of_spot": premium_pct_of_spot,
+            "iv_model_expected_move_dollars": iv_model_expected_move_dollars,
+            "iv_model_expected_move_pct": iv_model_expected_move_pct,
+            "straddle_implied_expected_move": straddle_expected_move,
+            "expected_move_dollars": expected_move_dollars,
+            "expected_move_pct": expected_move_pct,
+            "break_even_vs_expected_move_ratio": None,
+            "premium_vs_expected_move_ratio": None,
+            "band": "unknown",
+            "selection_preference_score": 0.0,
+            "confidence_penalty_points": 0,
+            "guidance": "",
+            "expected_move_source": expected_move_source,
+        }
+
+    break_even_vs_expected_move_ratio = break_even_distance_dollars / expected_move_dollars
+    premium_vs_expected_move_ratio = contract_price / expected_move_dollars
+
+    if break_even_vs_expected_move_ratio <= 0.85:
+        return {
+            "available": True,
+            "reference_stock_price": reference_stock_price,
+            "break_even_price": round(break_even_price, 6),
+            "break_even_distance_dollars": round(break_even_distance_dollars, 6),
+            "break_even_distance_pct": round(break_even_distance_pct, 6),
+            "premium_pct_of_spot": round(premium_pct_of_spot, 6),
+            "iv_model_expected_move_dollars": round(iv_model_expected_move_dollars, 6)
+            if iv_model_expected_move_dollars is not None
+            else None,
+            "iv_model_expected_move_pct": round(iv_model_expected_move_pct, 6)
+            if iv_model_expected_move_pct is not None
+            else None,
+            "straddle_implied_expected_move": straddle_expected_move,
+            "expected_move_dollars": round(expected_move_dollars, 6),
+            "expected_move_pct": round(expected_move_pct, 6),
+            "break_even_vs_expected_move_ratio": round(break_even_vs_expected_move_ratio, 6),
+            "premium_vs_expected_move_ratio": round(premium_vs_expected_move_ratio, 6),
+            "band": "strong_path_to_profit",
+            "selection_preference_score": -1.0,
+            "confidence_penalty_points": 0,
+            "guidance": "Break-even sits comfortably inside the modeled expected move, which gives this contract a realistic path to profit.",
+            "expected_move_source": expected_move_source,
+        }
+    if break_even_vs_expected_move_ratio <= 1.10:
+        return {
+            "available": True,
+            "reference_stock_price": reference_stock_price,
+            "break_even_price": round(break_even_price, 6),
+            "break_even_distance_dollars": round(break_even_distance_dollars, 6),
+            "break_even_distance_pct": round(break_even_distance_pct, 6),
+            "premium_pct_of_spot": round(premium_pct_of_spot, 6),
+            "iv_model_expected_move_dollars": round(iv_model_expected_move_dollars, 6)
+            if iv_model_expected_move_dollars is not None
+            else None,
+            "iv_model_expected_move_pct": round(iv_model_expected_move_pct, 6)
+            if iv_model_expected_move_pct is not None
+            else None,
+            "straddle_implied_expected_move": straddle_expected_move,
+            "expected_move_dollars": round(expected_move_dollars, 6),
+            "expected_move_pct": round(expected_move_pct, 6),
+            "break_even_vs_expected_move_ratio": round(break_even_vs_expected_move_ratio, 6),
+            "premium_vs_expected_move_ratio": round(premium_vs_expected_move_ratio, 6),
+            "band": "reasonable_path_to_profit",
+            "selection_preference_score": 0.0,
+            "confidence_penalty_points": 0,
+            "guidance": "Break-even is near the modeled expected move, which is acceptable for a large-cap directional option trade.",
+            "expected_move_source": expected_move_source,
+        }
+    if break_even_vs_expected_move_ratio <= 1.30:
+        return {
+            "available": True,
+            "reference_stock_price": reference_stock_price,
+            "break_even_price": round(break_even_price, 6),
+            "break_even_distance_dollars": round(break_even_distance_dollars, 6),
+            "break_even_distance_pct": round(break_even_distance_pct, 6),
+            "premium_pct_of_spot": round(premium_pct_of_spot, 6),
+            "iv_model_expected_move_dollars": round(iv_model_expected_move_dollars, 6)
+            if iv_model_expected_move_dollars is not None
+            else None,
+            "iv_model_expected_move_pct": round(iv_model_expected_move_pct, 6)
+            if iv_model_expected_move_pct is not None
+            else None,
+            "straddle_implied_expected_move": straddle_expected_move,
+            "expected_move_dollars": round(expected_move_dollars, 6),
+            "expected_move_pct": round(expected_move_pct, 6),
+            "break_even_vs_expected_move_ratio": round(break_even_vs_expected_move_ratio, 6),
+            "premium_vs_expected_move_ratio": round(premium_vs_expected_move_ratio, 6),
+            "band": "expensive_path_to_profit",
+            "selection_preference_score": 0.75,
+            "confidence_penalty_points": 0,
+            "guidance": "Break-even is modestly outside the modeled expected move, so this premium looks a bit rich relative to the window.",
+            "expected_move_source": expected_move_source,
+        }
+    if break_even_vs_expected_move_ratio <= 1.55:
+        return {
+            "available": True,
+            "reference_stock_price": reference_stock_price,
+            "break_even_price": round(break_even_price, 6),
+            "break_even_distance_dollars": round(break_even_distance_dollars, 6),
+            "break_even_distance_pct": round(break_even_distance_pct, 6),
+            "premium_pct_of_spot": round(premium_pct_of_spot, 6),
+            "iv_model_expected_move_dollars": round(iv_model_expected_move_dollars, 6)
+            if iv_model_expected_move_dollars is not None
+            else None,
+            "iv_model_expected_move_pct": round(iv_model_expected_move_pct, 6)
+            if iv_model_expected_move_pct is not None
+            else None,
+            "straddle_implied_expected_move": straddle_expected_move,
+            "expected_move_dollars": round(expected_move_dollars, 6),
+            "expected_move_pct": round(expected_move_pct, 6),
+            "break_even_vs_expected_move_ratio": round(break_even_vs_expected_move_ratio, 6),
+            "premium_vs_expected_move_ratio": round(premium_vs_expected_move_ratio, 6),
+            "band": "weak_path_to_profit",
+            "selection_preference_score": 1.5,
+            "confidence_penalty_points": 1,
+            "guidance": "Break-even sits well outside the modeled expected move, so the contract likely needs an unusually strong move to work.",
+            "expected_move_source": expected_move_source,
+        }
+    return {
+        "available": True,
+        "reference_stock_price": reference_stock_price,
+        "break_even_price": round(break_even_price, 6),
+        "break_even_distance_dollars": round(break_even_distance_dollars, 6),
+        "break_even_distance_pct": round(break_even_distance_pct, 6),
+        "premium_pct_of_spot": round(premium_pct_of_spot, 6),
+        "iv_model_expected_move_dollars": round(iv_model_expected_move_dollars, 6)
+        if iv_model_expected_move_dollars is not None
+        else None,
+        "iv_model_expected_move_pct": round(iv_model_expected_move_pct, 6)
+        if iv_model_expected_move_pct is not None
+        else None,
+        "straddle_implied_expected_move": straddle_expected_move,
+        "expected_move_dollars": round(expected_move_dollars, 6),
+        "expected_move_pct": round(expected_move_pct, 6),
+        "break_even_vs_expected_move_ratio": round(break_even_vs_expected_move_ratio, 6),
+        "premium_vs_expected_move_ratio": round(premium_vs_expected_move_ratio, 6),
+        "band": "very_weak_path_to_profit",
+        "selection_preference_score": 2.5,
+        "confidence_penalty_points": 1,
+        "guidance": "Break-even is far beyond the modeled expected move, which makes this contract a poor fit for a clean long-premium entry.",
+        "expected_move_source": expected_move_source,
+    }
+
+
 def _volatility_penalty_to_confidence_steps(total_penalty_points: int) -> int:
     if total_penalty_points >= 3:
         return 2
@@ -259,6 +459,7 @@ def _assess_contract_volatility(
 ) -> dict[str, Any]:
     iv_percentile = _score_iv_percentile(_get_contract_iv_percentile(contract, market_context))
     iv_hv = _score_iv_hv_ratio(contract, market_context)
+    profit_path = _score_profit_path(contract, market_context)
     vega_profile = _score_vega_per_premium(contract, market_context)
     term_structure = _score_term_structure_warning(
         contract,
@@ -270,18 +471,28 @@ def _assess_contract_volatility(
         + iv_hv.get("penalty_points", 0)
         + term_structure.get("penalty_points", 0)
     )
+    profit_path_confidence_penalty_points = int(profit_path.get("confidence_penalty_points", 0))
     vega_confidence_penalty_points = int(vega_profile.get("confidence_penalty_points", 0))
-    total_penalty_points = core_penalty_points + vega_confidence_penalty_points
+    total_penalty_points = (
+        core_penalty_points + profit_path_confidence_penalty_points + vega_confidence_penalty_points
+    )
     return {
         "implied_volatility": _get_contract_implied_volatility(contract),
         "historical_volatility": _get_underlying_historical_volatility(market_context),
         "iv_percentile": iv_percentile,
         "iv_hv": iv_hv,
+        "profit_path": profit_path,
         "vega_profile": vega_profile,
         "term_structure": term_structure,
         "core_penalty_points": core_penalty_points,
+        "profit_path_confidence_penalty_points": profit_path_confidence_penalty_points,
         "vega_confidence_penalty_points": vega_confidence_penalty_points,
         "total_penalty_points": total_penalty_points,
-        "selection_preference_score": float(vega_profile.get("selection_preference_score", 0.0)),
+        "profit_path_selection_preference_score": float(
+            profit_path.get("selection_preference_score", 0.0)
+        ),
+        "vega_selection_preference_score": float(vega_profile.get("selection_preference_score", 0.0)),
+        "selection_preference_score": float(profit_path.get("selection_preference_score", 0.0))
+        + float(vega_profile.get("selection_preference_score", 0.0)),
         "confidence_penalty_steps": _volatility_penalty_to_confidence_steps(total_penalty_points),
     }
