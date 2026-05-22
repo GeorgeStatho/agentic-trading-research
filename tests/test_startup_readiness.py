@@ -124,23 +124,24 @@ class StartupReadinessIntegrationTests(unittest.TestCase):
         mock_startup_check.assert_called_once_with()
         trading_gateway.create_client.assert_called_once()
 
-    def test_front_main_loop_skips_new_trading_cycles_after_configured_post_open_window(self):
+    def test_front_main_loop_skips_new_trading_cycles_during_market_open_cooldown(self):
         trading_client = object()
         trading_gateway = MagicMock()
         trading_gateway.create_client.return_value = trading_client
         trading_gateway.get_market_clock.return_value = SimpleNamespace(
             is_open=True,
-            timestamp="2026-05-16T15:30:00Z",
+            timestamp="2026-05-16T13:31:00Z",
         )
         trading_gateway.market_is_open.return_value = True
         status_reporter = MagicMock()
+
         app = FrontMainApplication(
             paths=SimpleNamespace(),
             settings=SimpleNamespace(
                 run_interval_seconds=60,
                 option_position_management_interval_seconds=60,
                 market_recheck_seconds=300,
-                main_loop_entry_cooldown_seconds_after_market_open =300,
+                main_loop_entry_cooldown_seconds_after_market_open=300,
                 immediate_option_execution=False,
                 cold_start_sanity_check_enabled=False,
                 auto_manage_option_positions=False,
@@ -167,12 +168,51 @@ class StartupReadinessIntegrationTests(unittest.TestCase):
                 call.args[:2]
                 == (
                     "paused",
-                    "Skipping trading cycle because configured post-open trading window has elapsed",
+                    "Skipping trading cycle because market-open entry cooldown is active",
                 )
-                and call.kwargs.get("stage") == "trading_window_closed"
+                and call.kwargs.get("stage") == "market_open_entry_cooldown"
                 for call in status_reporter.write.call_args_list
             )
         )
+
+    def test_front_main_loop_runs_new_trading_cycles_after_market_open_cooldown(self):
+        trading_client = object()
+        trading_gateway = MagicMock()
+        trading_gateway.create_client.return_value = trading_client
+        trading_gateway.get_market_clock.return_value = SimpleNamespace(
+            is_open=True,
+            timestamp="2026-05-16T13:36:00Z",
+        )
+        trading_gateway.market_is_open.return_value = True
+
+        app = FrontMainApplication(
+            paths=SimpleNamespace(),
+            settings=SimpleNamespace(
+                run_interval_seconds=60,
+                option_position_management_interval_seconds=60,
+                market_recheck_seconds=300,
+                main_loop_entry_cooldown_seconds_after_market_open=300,
+                immediate_option_execution=False,
+                cold_start_sanity_check_enabled=False,
+                auto_manage_option_positions=False,
+            ),
+            status_reporter=MagicMock(),
+            cold_start_checker=MagicMock(),
+            trading_gateway=trading_gateway,
+            order_candidate_builder=MagicMock(),
+            trade_executor=MagicMock(),
+            position_manager=MagicMock(),
+            logger=MagicMock(spec=logging.Logger),
+        )
+
+    with patch.object(app, "_run_startup_readiness_check"):
+        with patch.object(app, "_run_scheduled_trading_cycle", return_value={"ok": True}) as mock_run:
+            with patch.object(app, "_compute_next_sleep_seconds", return_value=1.0):
+                with patch("services.front_main_application.time.sleep", side_effect=RuntimeError("stop-loop")):
+                    with self.assertRaisesRegex(RuntimeError, "stop-loop"):
+                        app.run_main_loop()
+
+    mock_run.assert_called_once()
 
     def test_news_collector_loop_runs_startup_readiness_once_before_sleeping(self):
         fake_settings = SimpleNamespace(
