@@ -275,6 +275,7 @@ class StrategistInputPayload(TypedDict):
 
 class ManagerInputPayload(StrategistInputPayload):
     market_context: dict[str, Any]
+    recent_manager_decision_history: list[dict[str, Any]]
 
 
 class CompanyLinkedArticlesPayload(TypedDict):

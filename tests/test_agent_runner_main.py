@@ -38,6 +38,26 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
             "company": {"company_id": 1, "symbol": "AAPL", "name": "Apple"},
             "context_snapshot": {"article_summary_count": 2},
             "market_context": {"option_market": {"contract_count": 1}},
+            "supporting_articles": {
+                "article_summaries": [
+                    {
+                        "article_id": 101,
+                        "title": "Apple catalyst",
+                        "source": "Newswire",
+                        "published_at": "2026-05-22T10:00:00+00:00",
+                        "article_scope": "company",
+                        "evidence_layers": ["company_view"],
+                    }
+                ],
+                "full_articles": [],
+            },
+            "recent_manager_decision_history": [
+                {
+                    "decision_run_at": "2026-05-20T10:00:00+00:00",
+                    "manager_decision": "call",
+                    "manager_confidence": "medium",
+                }
+            ],
             "strategist_recommendation": {"decision": "trade_candidate", "confidence": "high"},
             "recommendation": {
                 "decision": "call",
@@ -66,6 +86,8 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
         self.assertEqual(recorded_payload["manager_decision"], "call")
         self.assertEqual(recorded_payload["manager_confidence"], "high")
         self.assertEqual(recorded_payload["selected_option_symbol"], "AAPL260619C00190000")
+        self.assertEqual(recorded_payload["manager_input_json"]["article_references"][0]["article_id"], 101)
+        self.assertEqual(len(recorded_payload["manager_input_json"]["recent_manager_decision_history"]), 1)
 
     @patch.object(agent_runner_main, "get_company_opportunist_summary")
     def test_filter_company_symbols_by_high_confidence_support_skips_under_supported_names(
