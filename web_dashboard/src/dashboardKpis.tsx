@@ -39,13 +39,11 @@ type DashboardKpiPayload = {
       sector_key: string;
       label: string;
       score: number | null;
-    }>;
-    top_industries: Array<{
-      industry_key: string;
-      label: string;
-      sector_key: string;
-      sector_label: string;
-      score: number | null;
+      top_industries: Array<{
+        industry_key: string;
+        label: string;
+        score: number | null;
+      }>;
     }>;
   };
 };
@@ -329,18 +327,28 @@ function DashboardKpis() {
         </article>
 
         <article className="kpi-card kpi-card--compact">
-          <p className="kpi-card__label">Top 3 Industries</p>
+          <p className="kpi-card__label">Top 3 Industries Per Sector</p>
           <div className="kpi-ranking-list">
-            {payload.top_rankings.top_industries.length > 0 ? (
-              payload.top_rankings.top_industries.map((industry, index) => (
-                <div key={`${industry.sector_key}-${industry.industry_key}`} className="kpi-ranking-item">
+            {payload.top_rankings.top_sectors.length > 0 ? (
+              payload.top_rankings.top_sectors.map((sector) => (
+                <div key={`industries-${sector.sector_key}`} className="kpi-ranking-item kpi-ranking-item--stacked">
                   <div>
-                    <p className="kpi-ranking-item__title">
-                      {index + 1}. {industry.label}
-                    </p>
-                    <p className="kpi-ranking-item__meta">{industry.sector_label || industry.sector_key}</p>
+                    <p className="kpi-ranking-item__title">{sector.label}</p>
+                    <div className="kpi-ranking-sublist">
+                      {sector.top_industries.length > 0 ? (
+                        sector.top_industries.map((industry, index) => (
+                          <div key={`${sector.sector_key}-${industry.industry_key}`} className="kpi-ranking-subitem">
+                            <span className="kpi-ranking-subitem__label">
+                              {index + 1}. {industry.label}
+                            </span>
+                            <span className="kpi-ranking-subitem__score">{formatRankingScore(industry.score)}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="kpi-ranking-item__meta">No ranked industries available.</p>
+                      )}
+                    </div>
                   </div>
-                  <span className="kpi-ranking-item__score">{formatRankingScore(industry.score)}</span>
                 </div>
               ))
             ) : (

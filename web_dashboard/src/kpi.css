@@ -70,6 +70,10 @@
   padding-top: 0;
 }
 
+.kpi-ranking-item--stacked {
+  display: block;
+}
+
 .kpi-ranking-item__title {
   font-size: 1rem;
   font-weight: 700;
@@ -84,6 +88,31 @@
 
 .kpi-ranking-item__score {
   font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.kpi-ranking-sublist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.kpi-ranking-subitem {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.kpi-ranking-subitem__label {
+  font-size: 0.92rem;
+  color: var(--text-h);
+}
+
+.kpi-ranking-subitem__score {
+  font-size: 0.85rem;
   font-weight: 700;
   color: var(--accent);
 }
