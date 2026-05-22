@@ -1,13 +1,20 @@
 from db_helpers.common import DB_PATH, DATA_DIR, get_connection, validate_sql_identifier
 from db_helpers.market import (
+    expire_manager_decision_pnl,
     ensure_all_sector_market_data,
     ensure_industry_market_data,
     ensure_sector_market_data,
+    get_latest_linked_manager_decision_for_option_symbol,
+    get_latest_open_manager_decision_for_trade_link,
     initialize_market_database,
+    link_manager_decision_to_trade_execution,
     list_companies_by_industry,
+    list_recent_manager_decision_history,
     list_option_trade_executions,
     load_sector_tree,
     load_sector_tree_from_json,
+    record_manager_decision_history,
+    update_manager_decision_latest_pnl,
 )
 from db_helpers.news import (
     add_company_news_article,

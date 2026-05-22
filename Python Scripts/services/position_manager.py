@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from db_helpers.market import (
+    expire_manager_decision_pnl,
+    get_latest_linked_manager_decision_for_option_symbol,
+    update_manager_decision_latest_pnl,
+)
 from services.config import FrontMainPaths, FrontMainSettings
 from services.io_utils import JsonFileWriter
 from services.trading_gateway import TradingClient
@@ -25,6 +31,78 @@ class OptionPositionManagerService:
         self._trading_gateway = trading_gateway
         self._trade_journal = trade_journal
         self._logger = logger
+
+    @staticmethod
+    def _resolve_position_pnl_pct(position_summary: dict[str, Any]) -> float | None:
+        for key in ("broker_unrealized_pl_pct", "unrealized_pl_pct"):
+            value = position_summary.get(key)
+            try:
+                if value in (None, ""):
+                    continue
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    @staticmethod
+    def _resolve_outcome_label(position_summary: dict[str, Any], pnl_pct: float | None) -> str:
+        if position_summary.get("close_submitted"):
+            if pnl_pct is None:
+                return "managed_exit_submitted_unknown"
+            if pnl_pct > 0:
+                return "managed_exit_submitted_profit"
+            if pnl_pct < 0:
+                return "managed_exit_submitted_loss"
+            return "managed_exit_submitted_flat"
+        if pnl_pct is None:
+            return "open_unknown"
+        if pnl_pct > 0:
+            return "open_profit"
+        if pnl_pct < 0:
+            return "open_loss"
+        return "open_flat"
+
+    def _refresh_manager_decision_history_pnl(self, positions: list[dict[str, Any]]) -> None:
+        expired_count = expire_manager_decision_pnl()
+        if expired_count > 0:
+            self._logger.info("Expired P/L context for %s manager decision history records.", expired_count)
+
+        retention_days = max(1, int(getattr(self._settings, "manager_decision_pnl_retention_days", 14)))
+        now = datetime.now(timezone.utc)
+        pnl_expires_at = now + timedelta(days=retention_days)
+
+        for position_summary in positions:
+            if not isinstance(position_summary, dict):
+                continue
+            option_symbol = str(position_summary.get("symbol") or "").strip().upper()
+            if not option_symbol:
+                continue
+            linked_decision = get_latest_linked_manager_decision_for_option_symbol(
+                selected_option_symbol=option_symbol,
+            )
+            if linked_decision is None:
+                continue
+
+            pnl_pct = self._resolve_position_pnl_pct(position_summary)
+            outcome_label = self._resolve_outcome_label(position_summary, pnl_pct)
+            updated = update_manager_decision_latest_pnl(
+                decision_history_id=int(linked_decision["id"]),
+                latest_trade_pnl_pct=pnl_pct,
+                latest_trade_pnl_updated_at=(
+                    position_summary.get("last_action_at")
+                    or position_summary.get("option_quote_timestamp")
+                    or position_summary.get("underlying_quote_timestamp")
+                    or now.isoformat()
+                ),
+                pnl_expires_at=pnl_expires_at.isoformat(),
+                resolved_outcome_label=outcome_label,
+            )
+            if updated:
+                self._logger.info(
+                    "Updated manager decision history P/L for %s to %s%%.",
+                    option_symbol,
+                    pnl_pct,
+                )
 
     def run_cycle(self, *, trading_client: TradingClient) -> dict[str, Any]:
         from Trading import ManageCurrentOptionPositions
@@ -95,6 +173,12 @@ class OptionPositionManagerService:
                 )
                 position_summary["db_recorded"] = False
                 position_summary["db_record_error"] = str(exc)
+
+        self._refresh_manager_decision_history_pnl(
+            management_result.get("positions", [])
+            if isinstance(management_result.get("positions", []), list)
+            else []
+        )
 
         JsonFileWriter.write(self._paths.option_position_management_output_path, management_result)
         self._logger.info(

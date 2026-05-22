@@ -60,6 +60,34 @@ def _coerce_int(value: Any) -> int | None:
         return None
 
 
+def _normalize_bool_to_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return 1 if value else 0
+    text = clean_text(value)
+    if text is None:
+        return 0
+    return 1 if text.lower() in {"true", "yes", "1"} else 0
+
+
+def _find_company_row_by_symbol(
+    symbol: str | None,
+    *,
+    conn: sqlite3.Connection,
+) -> sqlite3.Row | None:
+    normalized_symbol = clean_text(symbol)
+    if normalized_symbol is None:
+        return None
+    return conn.execute(
+        """
+        SELECT id, symbol, name
+        FROM companies
+        WHERE symbol = ?
+        LIMIT 1
+        """,
+        (normalized_symbol,),
+    ).fetchone()
+
+
 def _is_legacy_schema(conn: sqlite3.Connection) -> bool:
     if not table_exists(conn, "industries"):
         return False
@@ -503,6 +531,346 @@ def record_option_trade_execution(
     return int(cursor.fetchone()["id"])
 
 
+def record_manager_decision_history(
+    history: dict[str, Any],
+    *,
+    db_path: Path | str = DB_PATH,
+    conn: sqlite3.Connection | None = None,
+) -> int | None:
+    if not isinstance(history, dict):
+        return None
+
+    if conn is None:
+        initialize_database(db_path=db_path)
+        with get_connection(db_path) as local_conn:
+            return record_manager_decision_history(history, conn=local_conn)
+
+    company_id = _coerce_int(history.get("company_id"))
+    symbol = clean_text(history.get("symbol"))
+    company_name = clean_text(history.get("company_name"))
+    if company_id is None and symbol is not None:
+        company_row = _find_company_row_by_symbol(symbol, conn=conn)
+        if company_row is not None:
+            company_id = _coerce_int(company_row["id"])
+            symbol = symbol or clean_text(company_row["symbol"])
+            company_name = company_name or clean_text(company_row["name"])
+
+    decision_run_at = _normalize_timestamp(
+        history.get("decision_run_at")
+        or history.get("ran_at")
+        or history.get("created_at")
+    )
+    values = (
+        company_id,
+        symbol,
+        company_name,
+        decision_run_at,
+        clean_text(history.get("manager_stage_version")),
+        clean_text(history.get("strategist_decision")),
+        clean_text(history.get("manager_decision")),
+        clean_text(history.get("manager_confidence")),
+        clean_text(history.get("manager_reason")),
+        clean_text(history.get("target_dte_bucket")),
+        clean_text(history.get("selected_option_id")),
+        clean_text(history.get("selected_option_symbol")),
+        clean_text(history.get("selected_expiration_date")),
+        coerce_float(history.get("selected_strike_price")),
+        clean_text(history.get("selected_option_source")),
+        json_text(history.get("manager_input_json")),
+        json_text(history.get("manager_output_json")),
+        _normalize_bool_to_int(history.get("trade_executed")),
+        clean_text(history.get("trade_execution_order_id")),
+        _coerce_int(history.get("trade_execution_record_id")),
+        coerce_float(history.get("latest_trade_pnl_pct")),
+        (
+            _normalize_timestamp(history.get("latest_trade_pnl_updated_at"))
+            if history.get("latest_trade_pnl_updated_at") not in (None, "")
+            else None
+        ),
+        (
+            _normalize_timestamp(history.get("pnl_expires_at"))
+            if history.get("pnl_expires_at") not in (None, "")
+            else None
+        ),
+        clean_text(history.get("resolved_outcome_label")),
+        decision_run_at,
+        decision_run_at,
+    )
+    cursor = conn.execute(
+        """
+        INSERT INTO manager_decision_history (
+            company_id,
+            symbol,
+            company_name,
+            decision_run_at,
+            manager_stage_version,
+            strategist_decision,
+            manager_decision,
+            manager_confidence,
+            manager_reason,
+            target_dte_bucket,
+            selected_option_id,
+            selected_option_symbol,
+            selected_expiration_date,
+            selected_strike_price,
+            selected_option_source,
+            manager_input_json,
+            manager_output_json,
+            trade_executed,
+            trade_execution_order_id,
+            trade_execution_record_id,
+            latest_trade_pnl_pct,
+            latest_trade_pnl_updated_at,
+            pnl_expires_at,
+            resolved_outcome_label,
+            created_at,
+            updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        values,
+    )
+    return int(cursor.lastrowid)
+
+
+def get_latest_open_manager_decision_for_trade_link(
+    *,
+    company_id: int | None = None,
+    symbol: str | None = None,
+    selected_option_symbol: str | None = None,
+    submitted_at: Any = None,
+    db_path: Path | str = DB_PATH,
+    conn: sqlite3.Connection | None = None,
+) -> sqlite3.Row | None:
+    normalized_option_symbol = clean_text(selected_option_symbol)
+    if normalized_option_symbol is None:
+        return None
+
+    if conn is None:
+        initialize_database(db_path=db_path)
+        with get_connection(db_path) as local_conn:
+            return get_latest_open_manager_decision_for_trade_link(
+                company_id=company_id,
+                symbol=symbol,
+                selected_option_symbol=selected_option_symbol,
+                submitted_at=submitted_at,
+                conn=local_conn,
+            )
+
+    normalized_company_id = _coerce_int(company_id)
+    normalized_symbol = clean_text(symbol)
+    submitted_at_text = _normalize_timestamp(submitted_at)
+    query = """
+        SELECT
+            id,
+            company_id,
+            symbol,
+            selected_option_symbol,
+            decision_run_at,
+            trade_executed
+        FROM manager_decision_history
+        WHERE selected_option_symbol = ?
+          AND decision_run_at <= ?
+          AND COALESCE(trade_executed, 0) = 0
+    """
+    parameters: list[Any] = [normalized_option_symbol, submitted_at_text]
+    if normalized_company_id is not None:
+        query += " AND company_id = ?"
+        parameters.append(normalized_company_id)
+    elif normalized_symbol is not None:
+        query += " AND symbol = ?"
+        parameters.append(normalized_symbol)
+    query += " ORDER BY decision_run_at DESC, id DESC LIMIT 2"
+
+    rows = conn.execute(query, tuple(parameters)).fetchall()
+    if not rows:
+        return None
+    if len(rows) == 1:
+        return rows[0]
+    if str(rows[0]["decision_run_at"] or "") == str(rows[1]["decision_run_at"] or ""):
+        return None
+    return rows[0]
+
+
+def link_manager_decision_to_trade_execution(
+    *,
+    trade_execution_order_id: str,
+    trade_execution_record_id: int | None = None,
+    company_id: int | None = None,
+    symbol: str | None = None,
+    selected_option_symbol: str | None = None,
+    submitted_at: Any = None,
+    db_path: Path | str = DB_PATH,
+    conn: sqlite3.Connection | None = None,
+) -> int | None:
+    normalized_order_id = clean_text(trade_execution_order_id)
+    if normalized_order_id is None:
+        return None
+
+    if conn is None:
+        initialize_database(db_path=db_path)
+        with get_connection(db_path) as local_conn:
+            return link_manager_decision_to_trade_execution(
+                trade_execution_order_id=trade_execution_order_id,
+                trade_execution_record_id=trade_execution_record_id,
+                company_id=company_id,
+                symbol=symbol,
+                selected_option_symbol=selected_option_symbol,
+                submitted_at=submitted_at,
+                conn=local_conn,
+            )
+
+    matched_row = get_latest_open_manager_decision_for_trade_link(
+        company_id=company_id,
+        symbol=symbol,
+        selected_option_symbol=selected_option_symbol,
+        submitted_at=submitted_at,
+        conn=conn,
+    )
+    if matched_row is None:
+        return None
+
+    updated_at = _normalize_timestamp(submitted_at)
+    conn.execute(
+        """
+        UPDATE manager_decision_history
+        SET
+            trade_executed = 1,
+            trade_execution_order_id = ?,
+            trade_execution_record_id = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            normalized_order_id,
+            _coerce_int(trade_execution_record_id),
+            updated_at,
+            int(matched_row["id"]),
+        ),
+    )
+    return int(matched_row["id"])
+
+
+def get_latest_linked_manager_decision_for_option_symbol(
+    *,
+    selected_option_symbol: str,
+    db_path: Path | str = DB_PATH,
+    conn: sqlite3.Connection | None = None,
+) -> sqlite3.Row | None:
+    normalized_option_symbol = clean_text(selected_option_symbol)
+    if normalized_option_symbol is None:
+        return None
+
+    if conn is None:
+        initialize_database(db_path=db_path)
+        with get_connection(db_path) as local_conn:
+            return get_latest_linked_manager_decision_for_option_symbol(
+                selected_option_symbol=selected_option_symbol,
+                conn=local_conn,
+            )
+
+    return conn.execute(
+        """
+        SELECT
+            id,
+            company_id,
+            symbol,
+            selected_option_symbol,
+            decision_run_at,
+            trade_executed,
+            trade_execution_order_id,
+            trade_execution_record_id,
+            latest_trade_pnl_pct,
+            pnl_expires_at
+        FROM manager_decision_history
+        WHERE selected_option_symbol = ?
+          AND COALESCE(trade_executed, 0) = 1
+        ORDER BY decision_run_at DESC, id DESC
+        LIMIT 1
+        """,
+        (normalized_option_symbol,),
+    ).fetchone()
+
+
+def update_manager_decision_latest_pnl(
+    *,
+    decision_history_id: int,
+    latest_trade_pnl_pct: float | None,
+    latest_trade_pnl_updated_at: Any = None,
+    pnl_expires_at: Any = None,
+    resolved_outcome_label: str | None = None,
+    db_path: Path | str = DB_PATH,
+    conn: sqlite3.Connection | None = None,
+) -> bool:
+    normalized_id = _coerce_int(decision_history_id)
+    if normalized_id is None:
+        return False
+
+    if conn is None:
+        initialize_database(db_path=db_path)
+        with get_connection(db_path) as local_conn:
+            return update_manager_decision_latest_pnl(
+                decision_history_id=decision_history_id,
+                latest_trade_pnl_pct=latest_trade_pnl_pct,
+                latest_trade_pnl_updated_at=latest_trade_pnl_updated_at,
+                pnl_expires_at=pnl_expires_at,
+                resolved_outcome_label=resolved_outcome_label,
+                conn=local_conn,
+            )
+
+    updated_at = _normalize_timestamp(latest_trade_pnl_updated_at)
+    cursor = conn.execute(
+        """
+        UPDATE manager_decision_history
+        SET
+            latest_trade_pnl_pct = ?,
+            latest_trade_pnl_updated_at = ?,
+            pnl_expires_at = ?,
+            resolved_outcome_label = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            coerce_float(latest_trade_pnl_pct),
+            updated_at,
+            _normalize_timestamp(pnl_expires_at) if pnl_expires_at not in (None, "") else None,
+            clean_text(resolved_outcome_label),
+            updated_at,
+            normalized_id,
+        ),
+    )
+    return int(cursor.rowcount or 0) > 0
+
+
+def expire_manager_decision_pnl(
+    *,
+    now: Any = None,
+    db_path: Path | str = DB_PATH,
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    expiration_cutoff = _normalize_timestamp(now)
+    if conn is None:
+        initialize_database(db_path=db_path)
+        with get_connection(db_path) as local_conn:
+            return expire_manager_decision_pnl(now=now, conn=local_conn)
+
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM manager_decision_history
+        WHERE pnl_expires_at IS NOT NULL
+          AND pnl_expires_at <= ?
+          AND (
+              latest_trade_pnl_pct IS NOT NULL
+              OR latest_trade_pnl_updated_at IS NOT NULL
+              OR resolved_outcome_label IS NOT NULL
+          )
+        """,
+        (expiration_cutoff,),
+    ).fetchone()
+    return int((row["count"] if row is not None else 0) or 0)
+
+
 def _migrate_legacy_schema(conn: sqlite3.Connection) -> None:
     legacy_industries = []
     legacy_companies = []
@@ -784,6 +1152,93 @@ def list_company_price_snapshots(
             """,
             (normalized_symbol, max(1, int(limit))),
         ).fetchall()
+    return rows
+
+
+def list_recent_manager_decision_history(
+    *,
+    underlying_symbol: str | None = None,
+    company_id: int | None = None,
+    limit: int = 20,
+    within_days: int | None = None,
+    include_expired_pnl: bool = False,
+    db_path: Path | str = DB_PATH,
+) -> list[sqlite3.Row]:
+    normalized_symbol = clean_text(underlying_symbol)
+    normalized_company_id = _coerce_int(company_id)
+    now_text = _normalize_timestamp(None)
+    query = """
+        SELECT
+            id,
+            company_id,
+            symbol,
+            company_name,
+            decision_run_at,
+            manager_stage_version,
+            strategist_decision,
+            manager_decision,
+            manager_confidence,
+            manager_reason,
+            target_dte_bucket,
+            selected_option_id,
+            selected_option_symbol,
+            selected_expiration_date,
+            selected_strike_price,
+            selected_option_source,
+            manager_input_json,
+            manager_output_json,
+            trade_executed,
+            trade_execution_order_id,
+            trade_execution_record_id,
+            CASE
+                WHEN ? = 1 THEN latest_trade_pnl_pct
+                WHEN pnl_expires_at IS NULL OR pnl_expires_at > ? THEN latest_trade_pnl_pct
+                ELSE NULL
+            END AS latest_trade_pnl_pct,
+            CASE
+                WHEN ? = 1 THEN latest_trade_pnl_updated_at
+                WHEN pnl_expires_at IS NULL OR pnl_expires_at > ? THEN latest_trade_pnl_updated_at
+                ELSE NULL
+            END AS latest_trade_pnl_updated_at,
+            pnl_expires_at,
+            CASE
+                WHEN ? = 1 THEN resolved_outcome_label
+                WHEN pnl_expires_at IS NULL OR pnl_expires_at > ? THEN resolved_outcome_label
+                ELSE NULL
+            END AS resolved_outcome_label,
+            created_at,
+            updated_at
+        FROM manager_decision_history
+        WHERE 1 = 1
+    """
+    parameters: list[Any] = [
+        1 if include_expired_pnl else 0,
+        now_text,
+        1 if include_expired_pnl else 0,
+        now_text,
+        1 if include_expired_pnl else 0,
+        now_text,
+    ]
+    if normalized_company_id is not None:
+        query += " AND company_id = ?"
+        parameters.append(normalized_company_id)
+    elif normalized_symbol is not None:
+        query += " AND symbol = ?"
+        parameters.append(normalized_symbol)
+
+    if within_days is not None and int(within_days) > 0:
+        query += " AND decision_run_at >= ?"
+        parameters.append(
+            _normalize_timestamp(
+                datetime.now(timezone.utc) - timedelta(days=max(1, int(within_days)))
+            )
+        )
+
+    query += " ORDER BY decision_run_at DESC, id DESC LIMIT ?"
+    parameters.append(max(1, int(limit)))
+
+    with get_connection(db_path) as conn:
+        rows = conn.execute(query, tuple(parameters)).fetchall()
     return rows
 
 

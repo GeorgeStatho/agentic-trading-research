@@ -24,8 +24,9 @@ from agent_helpers.deterministic_option_selector import apply_deterministic_opti
 from agent_helpers.company_opportunist import get_company_opportunist_summary
 from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 from agent_pipeline.main import run_agent_pipeline, run_agent_pipeline_from_existing_data
-from agent_stages.manager import decide_company_option_position
+from agent_stages.manager import MANAGER_STAGE_VERSION, decide_company_option_position
 from agent_stages.strategist import decide_company_purchase
+from db_helpers.market import record_manager_decision_history
 from services.config import AgentPipelineSettings
 
 
@@ -240,6 +241,47 @@ def _summarize_selector_rejection_reasons(manager_result: dict[str, Any]) -> str
     return ", ".join(f"{reason}({count})" for reason, count in top_reasons)
 
 
+def _record_manager_decision_history_for_result(manager_result: dict[str, Any]) -> int | None:
+    if not isinstance(manager_result, dict):
+        return None
+
+    company = dict(manager_result.get("company") or {})
+    recommendation = dict(manager_result.get("recommendation") or {})
+    strategist_recommendation = dict(manager_result.get("strategist_recommendation") or {})
+    selected_option = dict(manager_result.get("selected_option") or {})
+    selected_option_symbol = str(selected_option.get("symbol") or "").strip().upper() or None
+    decision_run_at = str(manager_result.get("ran_at") or datetime.now().isoformat())
+
+    history_payload = {
+        "company_id": company.get("company_id"),
+        "symbol": company.get("symbol"),
+        "company_name": company.get("name"),
+        "decision_run_at": decision_run_at,
+        "manager_stage_version": MANAGER_STAGE_VERSION,
+        "strategist_decision": strategist_recommendation.get("decision"),
+        "manager_decision": recommendation.get("decision"),
+        "manager_confidence": recommendation.get("confidence"),
+        "manager_reason": recommendation.get("reason"),
+        "target_dte_bucket": recommendation.get("target_dte_bucket"),
+        "selected_option_id": recommendation.get("selected_option_id"),
+        "selected_option_symbol": selected_option_symbol,
+        "selected_expiration_date": recommendation.get("selected_expiration_date"),
+        "selected_strike_price": recommendation.get("selected_strike_price"),
+        "selected_option_source": recommendation.get("selected_option_source"),
+        "manager_input_json": {
+            "company": company,
+            "context_snapshot": manager_result.get("context_snapshot", {}),
+            "market_context": manager_result.get("market_context", {}),
+            "strategist_recommendation": strategist_recommendation,
+        },
+        "manager_output_json": {
+            "recommendation": recommendation,
+            "selected_option": selected_option,
+        },
+    }
+    return record_manager_decision_history(history_payload)
+
+
 def _run_strategist_and_manager(
     company_symbols: list[str],
     *,
@@ -285,6 +327,12 @@ def _run_strategist_and_manager(
                 manager_result.get("recommendation", {}).get("selected_option_source"),
                 _summarize_selector_rejection_reasons(manager_result),
             )
+        try:
+            decision_history_id = _record_manager_decision_history_for_result(manager_result)
+            if decision_history_id is not None:
+                manager_result["manager_decision_history_id"] = decision_history_id
+        except Exception:
+            LOGGER.exception("Failed to record manager decision history for %s", symbol)
         if on_manager_result is not None:
             on_manager_result(manager_result)
 

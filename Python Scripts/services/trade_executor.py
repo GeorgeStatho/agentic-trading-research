@@ -8,6 +8,7 @@ from typing import Any
 
 from services.common import safe_float
 from services.config import FrontMainSettings
+from db_helpers.market import link_manager_decision_to_trade_execution
 from services.trading_gateway import TradingClient
 
 
@@ -281,6 +282,25 @@ class OptionTradeExecutor:
                     )
                     execution["db_recorded"] = False
                     execution["db_record_error"] = str(exc)
+            try:
+                manager_decision_history_id = link_manager_decision_to_trade_execution(
+                    trade_execution_order_id=str(order_summary.get("id") or ""),
+                    trade_execution_record_id=execution.get("db_record_id"),
+                    company_id=candidate.get("company_id"),
+                    symbol=candidate.get("symbol"),
+                    selected_option_symbol=option_symbol,
+                    submitted_at=order_summary.get("submitted_at"),
+                )
+                execution["manager_decision_history_linked"] = manager_decision_history_id is not None
+                execution["manager_decision_history_id"] = manager_decision_history_id
+            except Exception as exc:
+                self._logger.exception(
+                    "Failed to link option execution back to manager decision history for %s: %s",
+                    option_symbol,
+                    exc,
+                )
+                execution["manager_decision_history_linked"] = False
+                execution["manager_decision_history_link_error"] = str(exc)
         except Exception as exc:
             self._logger.exception("Failed to submit option order for %s: %s", option_symbol, exc)
             execution = self._build_execution(
