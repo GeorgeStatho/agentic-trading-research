@@ -173,6 +173,23 @@ class HistoricalPriceSnapshot(TypedDict):
     error: str
 
 
+TrendQualityPayload = TypedDict(
+    "TrendQualityPayload",
+    {
+        "source": str,
+        "annualized": bool,
+        "risk_free_rate": float,
+        "trading_periods_per_year": int,
+        "5d_sharpe": float | None,
+        "1m_sharpe": float | None,
+        "3m_sharpe": float | None,
+        "5d_return_pct": float | None,
+        "1m_return_pct": float | None,
+        "3m_return_pct": float | None,
+    },
+)
+
+
 class CompanyScopePayload(TypedDict):
     company_id: int
     symbol: str
@@ -187,6 +204,7 @@ class CompanyScopePayload(TypedDict):
     market_weight: Any
     market_data: dict[str, Any]
     historical_price_data: dict[str, HistoricalPriceSnapshot]
+    trend_quality: TrendQualityPayload
 
 
 class AgentSignalPayload(TypedDict):
