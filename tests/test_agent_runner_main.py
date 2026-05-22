@@ -19,6 +19,54 @@ import main as agent_runner_main  # noqa: E402
 
 
 class AgentRunnerCompanyFilterTests(unittest.TestCase):
+    @patch.object(agent_runner_main, "record_manager_decision_history")
+    @patch.object(agent_runner_main, "apply_deterministic_option_selection")
+    @patch.object(agent_runner_main, "decide_company_option_position")
+    @patch.object(agent_runner_main, "decide_company_purchase")
+    def test_run_strategist_and_manager_records_manager_decision_history(
+        self,
+        mock_decide_company_purchase,
+        mock_decide_company_option_position,
+        mock_apply_deterministic_option_selection,
+        mock_record_manager_decision_history,
+    ) -> None:
+        mock_decide_company_purchase.return_value = {
+            "company": {"company_id": 1, "symbol": "AAPL", "name": "Apple"},
+            "recommendation": {"decision": "trade_candidate", "confidence": "high"},
+        }
+        mock_decide_company_option_position.return_value = {
+            "company": {"company_id": 1, "symbol": "AAPL", "name": "Apple"},
+            "context_snapshot": {"article_summary_count": 2},
+            "market_context": {"option_market": {"contract_count": 1}},
+            "strategist_recommendation": {"decision": "trade_candidate", "confidence": "high"},
+            "recommendation": {
+                "decision": "call",
+                "confidence": "high",
+                "reason": "Strong setup",
+                "target_dte_bucket": "20_30",
+                "selected_option_id": "AAPL260619C00190000",
+                "selected_expiration_date": "2026-06-19",
+                "selected_strike_price": 190.0,
+                "selected_option_source": "deterministic_high_confidence_hybrid_filtered_short_swing",
+            },
+            "selected_option": {"symbol": "AAPL260619C00190000"},
+        }
+        mock_apply_deterministic_option_selection.side_effect = lambda result: result
+        mock_record_manager_decision_history.return_value = 77
+
+        strategist_results, manager_results = agent_runner_main._run_strategist_and_manager(["AAPL"])
+
+        self.assertEqual(len(strategist_results), 1)
+        self.assertEqual(len(manager_results), 1)
+        self.assertEqual(manager_results[0]["manager_decision_history_id"], 77)
+        mock_record_manager_decision_history.assert_called_once()
+        recorded_payload = mock_record_manager_decision_history.call_args.args[0]
+        self.assertEqual(recorded_payload["company_id"], 1)
+        self.assertEqual(recorded_payload["symbol"], "AAPL")
+        self.assertEqual(recorded_payload["manager_decision"], "call")
+        self.assertEqual(recorded_payload["manager_confidence"], "high")
+        self.assertEqual(recorded_payload["selected_option_symbol"], "AAPL260619C00190000")
+
     @patch.object(agent_runner_main, "get_company_opportunist_summary")
     def test_filter_company_symbols_by_high_confidence_support_skips_under_supported_names(
         self,

@@ -6,17 +6,24 @@ from datetime import datetime, timedelta, timezone
 from db_common import DB_PATH, get_connection
 from market_db import initialize_database as initialize_market_database
 from market_db import (
+    expire_manager_decision_pnl,
     add_company_price_snapshot,
+    get_latest_linked_manager_decision_for_option_symbol,
+    get_latest_open_manager_decision_for_trade_link,
     get_market_data_refresh_state,
+    link_manager_decision_to_trade_execution,
     list_companies_by_industry,
     list_company_price_snapshots,
     list_industry_company_rankings,
+    list_recent_manager_decision_history,
     list_option_trade_executions,
     load_sector_definitions_from_json,
     load_sector_tree,
     load_sector_tree_from_json,
     record_market_data_refresh_state,
+    record_manager_decision_history,
     record_option_trade_execution,
+    update_manager_decision_latest_pnl,
 )
 
 

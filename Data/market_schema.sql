@@ -99,6 +99,37 @@ CREATE TABLE IF NOT EXISTS option_trade_executions (
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS manager_decision_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER,
+    symbol TEXT,
+    company_name TEXT,
+    decision_run_at TEXT NOT NULL,
+    manager_stage_version TEXT,
+    strategist_decision TEXT,
+    manager_decision TEXT,
+    manager_confidence TEXT,
+    manager_reason TEXT,
+    target_dte_bucket TEXT,
+    selected_option_id TEXT,
+    selected_option_symbol TEXT,
+    selected_expiration_date TEXT,
+    selected_strike_price REAL,
+    selected_option_source TEXT,
+    manager_input_json TEXT,
+    manager_output_json TEXT,
+    trade_executed INTEGER NOT NULL DEFAULT 0,
+    trade_execution_order_id TEXT,
+    trade_execution_record_id INTEGER,
+    latest_trade_pnl_pct REAL,
+    latest_trade_pnl_updated_at TEXT,
+    pnl_expires_at TEXT,
+    resolved_outcome_label TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_sectors_sector_key
     ON sectors (sector_key);
 
@@ -146,3 +177,18 @@ CREATE INDEX IF NOT EXISTS idx_option_trade_executions_option_symbol
 
 CREATE INDEX IF NOT EXISTS idx_option_trade_executions_submitted_at
     ON option_trade_executions (submitted_at);
+
+CREATE INDEX IF NOT EXISTS idx_manager_decision_history_company_id
+    ON manager_decision_history (company_id);
+
+CREATE INDEX IF NOT EXISTS idx_manager_decision_history_symbol
+    ON manager_decision_history (symbol);
+
+CREATE INDEX IF NOT EXISTS idx_manager_decision_history_decision_run_at
+    ON manager_decision_history (decision_run_at);
+
+CREATE INDEX IF NOT EXISTS idx_manager_decision_history_trade_execution_order_id
+    ON manager_decision_history (trade_execution_order_id);
+
+CREATE INDEX IF NOT EXISTS idx_manager_decision_history_selected_option_symbol
+    ON manager_decision_history (selected_option_symbol);

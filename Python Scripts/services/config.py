@@ -133,6 +133,7 @@ class FrontMainSettings:
     option_trail_200_floor_pct: float
     option_pending_exit_stale_minutes: float
     option_pending_exit_cancel_on_stale: bool
+    manager_decision_pnl_retention_days: int
     max_deployable_buying_power_pct: float
     per_order_sizing_buying_power_pct: float
     max_option_order_qty_multiplier: int
@@ -227,6 +228,10 @@ class FrontMainSettings:
             option_trail_200_floor_pct=_env_float("OPTION_TRAIL_200_FLOOR_PCT", 1.40),
             option_pending_exit_stale_minutes=_env_float("OPTION_PENDING_EXIT_STALE_MINUTES", 10.0),
             option_pending_exit_cancel_on_stale=env_flag("OPTION_PENDING_EXIT_CANCEL_ON_STALE", True),
+            manager_decision_pnl_retention_days=env_positive_int(
+                "MANAGER_DECISION_PNL_RETENTION_DAYS",
+                14,
+            ),
             max_deployable_buying_power_pct=env_percentage("MAX_DEPLOYABLE_BUYING_POWER_PCT", 30.0),
             per_order_sizing_buying_power_pct=env_percentage("PER_ORDER_SIZING_BUYING_POWER_PCT", 30.0),
             max_option_order_qty_multiplier=env_positive_int("MAX_OPTION_ORDER_QTY_MULTIPLIER", 50),
