@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import re
 
 from agent_pipeline.ranking import get_current_rankings
+from db_helpers.market import list_recent_manager_decision_history
 from performance_metrics import (
     DEFAULT_ANNUAL_RISK_FREE_RATE,
     compute_daily_returns,
@@ -55,6 +57,87 @@ def _normalize_company_identity(entry: dict) -> tuple[str, str]:
     return symbol, name
 
 
+def _extract_article_references_from_manager_input(
+    manager_input_json: object,
+    *,
+    limit: int = 3,
+) -> list[dict]:
+    if isinstance(manager_input_json, str):
+        try:
+            manager_input_json = json.loads(manager_input_json)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(manager_input_json, dict):
+        return []
+
+    article_references = manager_input_json.get("article_references")
+    if not isinstance(article_references, list):
+        return []
+
+    compact: list[dict] = []
+    for item in article_references[: max(1, int(limit))]:
+        if not isinstance(item, dict):
+            continue
+        compact.append(
+            {
+                "article_id": int(item.get("article_id") or 0),
+                "title": str(item.get("title") or "").strip(),
+                "source": str(item.get("source") or "").strip(),
+                "published_at": str(item.get("published_at") or "").strip(),
+                "article_scope": str(item.get("article_scope") or "").strip(),
+                "evidence_layers": [
+                    str(layer or "").strip()
+                    for layer in item.get("evidence_layers", [])
+                    if str(layer or "").strip()
+                ],
+            }
+        )
+    return compact
+
+
+def _build_recent_manager_history(company_id: object, symbol: str) -> list[dict]:
+    try:
+        rows = list_recent_manager_decision_history(
+            company_id=int(company_id) if company_id not in (None, "") else None,
+            underlying_symbol=symbol,
+            limit=3,
+            within_days=30,
+        )
+    except Exception:
+        return []
+
+    history: list[dict] = []
+    for row in rows:
+        item = dict(row or {})
+        history.append(
+            {
+                "id": int(item.get("id") or 0),
+                "decision_run_at": str(item.get("decision_run_at") or "").strip(),
+                "manager_decision": str(item.get("manager_decision") or "").strip(),
+                "manager_confidence": str(item.get("manager_confidence") or "").strip(),
+                "manager_reason": str(item.get("manager_reason") or "").strip(),
+                "target_dte_bucket": str(item.get("target_dte_bucket") or "").strip(),
+                "selected_option_id": str(item.get("selected_option_id") or "").strip(),
+                "selected_option_symbol": str(item.get("selected_option_symbol") or "").strip(),
+                "selected_expiration_date": str(item.get("selected_expiration_date") or "").strip(),
+                "selected_strike_price": safe_float(item.get("selected_strike_price")),
+                "selected_option_source": str(item.get("selected_option_source") or "").strip(),
+                "trade_executed": bool(item.get("trade_executed")),
+                "trade_execution_order_id": str(item.get("trade_execution_order_id") or "").strip(),
+                "trade_execution_record_id": item.get("trade_execution_record_id"),
+                "latest_trade_pnl_pct": safe_float(item.get("latest_trade_pnl_pct")),
+                "latest_trade_pnl_updated_at": str(item.get("latest_trade_pnl_updated_at") or "").strip(),
+                "pnl_expires_at": str(item.get("pnl_expires_at") or "").strip(),
+                "resolved_outcome_label": str(item.get("resolved_outcome_label") or "").strip(),
+                "article_references": _extract_article_references_from_manager_input(
+                    item.get("manager_input_json"),
+                    limit=3,
+                ),
+            }
+        )
+    return history
+
+
 def build_company_decisions_payload() -> dict:
     payload = read_json_payload(AGENT_OUTPUT_PATH)
     if not isinstance(payload, dict):
@@ -89,11 +172,13 @@ def build_company_decisions_payload() -> dict:
                     "confidence": "",
                     "reason": "",
                     "target_dte_bucket": "",
+                    "manager_decision_history_id": None,
                     "selected_option_id": "",
                     "selected_expiration_date": "",
                     "selected_strike_price": None,
                     "selected_option_source": "",
                 },
+                "manager_history": [],
             }
             companies_by_symbol[symbol] = entry
         elif name and not entry.get("name"):
@@ -145,11 +230,16 @@ def build_company_decisions_payload() -> dict:
             "confidence": str(recommendation.get("confidence") or "").strip(),
             "reason": str(recommendation.get("reason") or "").strip(),
             "target_dte_bucket": str(recommendation.get("target_dte_bucket") or "").strip(),
+            "manager_decision_history_id": raw_entry.get("manager_decision_history_id"),
             "selected_option_id": str(recommendation.get("selected_option_id") or "").strip(),
             "selected_expiration_date": str(recommendation.get("selected_expiration_date") or "").strip(),
             "selected_strike_price": safe_float(recommendation.get("selected_strike_price")),
             "selected_option_source": str(recommendation.get("selected_option_source") or "").strip(),
         }
+        company_entry["manager_history"] = _build_recent_manager_history(
+            raw_entry.get("company", {}).get("company_id"),
+            symbol,
+        )
 
     companies = sorted(
         companies_by_symbol.values(),
