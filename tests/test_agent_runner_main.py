@@ -89,6 +89,63 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
         self.assertEqual(recorded_payload["manager_input_json"]["article_references"][0]["article_id"], 101)
         self.assertEqual(len(recorded_payload["manager_input_json"]["recent_manager_decision_history"]), 1)
 
+    @patch.object(agent_runner_main, "record_manager_decision_history")
+    @patch.object(agent_runner_main, "apply_deterministic_option_selection")
+    @patch.object(agent_runner_main, "decide_company_option_position")
+    @patch.object(agent_runner_main, "decide_company_purchase")
+    def test_run_strategist_and_manager_emits_progress_with_company_context(
+        self,
+        mock_decide_company_purchase,
+        mock_decide_company_option_position,
+        mock_apply_deterministic_option_selection,
+        mock_record_manager_decision_history,
+    ) -> None:
+        mock_decide_company_purchase.return_value = {
+            "company": {"company_id": 1, "symbol": "AAPL", "name": "Apple"},
+            "recommendation": {"decision": "trade_candidate", "confidence": "high"},
+        }
+        mock_decide_company_option_position.return_value = {
+            "company": {"company_id": 1, "symbol": "AAPL", "name": "Apple"},
+            "recommendation": {"decision": "call", "confidence": "high"},
+        }
+        mock_apply_deterministic_option_selection.side_effect = lambda result: result
+        mock_record_manager_decision_history.return_value = 77
+        progress_events: list[dict[str, object]] = []
+
+        agent_runner_main._run_strategist_and_manager(
+            ["AAPL"],
+            company_context_by_symbol={
+                "AAPL": {
+                    "company_name": "Apple",
+                    "sector_key": "technology",
+                    "industry_name": "consumer-electronics",
+                }
+            },
+            on_progress=progress_events.append,
+        )
+
+        self.assertEqual(
+            progress_events,
+            [
+                {
+                    "stage": "strategist",
+                    "message": "Running strategist for AAPL",
+                    "current_symbol": "AAPL",
+                    "current_company_name": "Apple",
+                    "current_sector": "technology",
+                    "current_industry": "consumer-electronics",
+                },
+                {
+                    "stage": "manager",
+                    "message": "Running manager for AAPL",
+                    "current_symbol": "AAPL",
+                    "current_company_name": "Apple",
+                    "current_sector": "technology",
+                    "current_industry": "consumer-electronics",
+                },
+            ],
+        )
+
     @patch.object(agent_runner_main, "get_company_opportunist_summary")
     def test_filter_company_symbols_by_high_confidence_support_skips_under_supported_names(
         self,
