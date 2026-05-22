@@ -20,7 +20,7 @@ from services.trading_gateway import TradingClient
 
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
 FRIDAY_WEEKDAY = 4
-MARKET_OPEN_HOUR = 10
+MARKET_OPEN_HOUR = 9
 MARKET_OPEN_MINUTE = 30
 
 
@@ -127,11 +127,11 @@ class FrontMainApplication:
             return parsed.replace(tzinfo=MARKET_TIMEZONE)
         return parsed.astimezone(MARKET_TIMEZONE)
 
-    def _is_within_post_open_trading_window(
+    def _is_after_market_open_entry_cooldown(
         self,
         market_clock: Any | None,
     ) -> tuple[bool, dict[str, Any]]:
-        limit_seconds = self._settings.main_loop_max_seconds_after_market_open
+        limit_seconds = self._settings.main_loop_entry_cooldown_seconds_after_market_open 
         if limit_seconds is None:
             return True, {}
         if market_clock is None:
@@ -152,9 +152,9 @@ class FrontMainApplication:
             "market_clock_timestamp": market_timestamp.isoformat(),
             "market_open_at": market_open_at.isoformat(),
             "seconds_since_market_open": seconds_since_market_open,
-            "max_seconds_after_market_open": limit_seconds,
+            "entry_cooldown_seconds_after_market_open": limit_seconds,
         }
-        return seconds_since_market_open <= limit_seconds, payload
+        return seconds_since_market_open >= limit_seconds, payload
 
     def _persist_trading_cycle_outputs(
         self,
@@ -528,8 +528,8 @@ class FrontMainApplication:
             run_interval_seconds=self._settings.run_interval_seconds,
             option_position_management_interval_seconds=self._settings.option_position_management_interval_seconds,
             market_recheck_seconds=self._settings.market_recheck_seconds,
-            main_loop_max_seconds_after_market_open=(
-                self._settings.main_loop_max_seconds_after_market_open or 0
+            main_loop_entry_cooldown_seconds_after_market_open=(
+                self._settings.main_loop_entry_cooldown_seconds_after_market_open  or 0
             ),
             immediate_option_execution=self._settings.immediate_option_execution,
         )
@@ -559,16 +559,16 @@ class FrontMainApplication:
 
             current_time = datetime.now()
             if current_time >= next_trading_cycle_at:
-                within_window, trading_window_payload = self._is_within_post_open_trading_window(
+                after_cooldown, cooldown_payload = self._is_after_market_open_entry_cooldown(
                     market_clock
                 )
-                if not within_window:
+                if not after_cooldown:
                     self._status_reporter.write(
                         "paused",
-                        "Skipping trading cycle because configured post-open trading window has elapsed",
-                        stage="trading_window_closed",
+                        "Skipping trading cycle because market-open entry cooldown is active",
+                        stage="market_open_entry_cooldown",
                         sleep_seconds=self._settings.market_recheck_seconds,
-                        **trading_window_payload,
+                        **cooldown_payload,
                     )
                     next_trading_cycle_at = datetime.now() + timedelta(
                         seconds=self._settings.market_recheck_seconds

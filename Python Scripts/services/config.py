@@ -102,7 +102,7 @@ class FrontMainSettings:
     option_contract_multiplier: int
     run_interval_seconds: int
     market_recheck_seconds: int
-    main_loop_max_seconds_after_market_open: int | None
+    main_loop_entry_cooldown_seconds_after_market_open: int | None
     auto_manage_option_positions: bool
     auto_close_option_positions: bool
     immediate_option_execution: bool
@@ -159,8 +159,8 @@ class FrontMainSettings:
             option_contract_multiplier=100,
             run_interval_seconds=max(60, int(os.getenv("RUN_INTERVAL_SECONDS", str(3 * 60 * 60)))),
             market_recheck_seconds=market_recheck_seconds,
-            main_loop_max_seconds_after_market_open=env_optional_positive_int(
-                "MAIN_LOOP_MAX_SECONDS_AFTER_MARKET_OPEN"
+            main_loop_entry_cooldown_seconds_after_market_open=env_optional_positive_int(
+                "MAIN_LOOP_ENTRY_COOLDOWN_SECONDS_AFTER_MARKET_OPEN"
             ),
             auto_manage_option_positions=env_flag("AUTO_MANAGE_OPTION_POSITIONS", True),
             auto_close_option_positions=env_flag("AUTO_CLOSE_OPTION_POSITIONS", True),
