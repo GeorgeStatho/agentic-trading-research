@@ -165,9 +165,9 @@ def _build_top_rankings_payload() -> dict:
     except Exception:
         return {
             "top_sectors": [],
-            "top_industries": [],
         }
 
+    top_industries_by_sector = rankings.get("top_industries_by_sector", {})
     top_sectors = []
     for entry in rankings.get("top_sectors", []):
         if not isinstance(entry, dict):
@@ -175,46 +175,32 @@ def _build_top_rankings_payload() -> dict:
         sector_key = str(entry.get("sector_key") or "").strip()
         if not sector_key:
             continue
+        ranked_industries = []
+        if isinstance(top_industries_by_sector, dict):
+            for industry_entry in top_industries_by_sector.get(sector_key, []):
+                if not isinstance(industry_entry, dict):
+                    continue
+                industry_key = str(industry_entry.get("industry_key") or "").strip()
+                if not industry_key:
+                    continue
+                ranked_industries.append(
+                    {
+                        "industry_key": industry_key,
+                        "label": _titleize_ranking_key(industry_key),
+                        "score": safe_float(industry_entry.get("score")),
+                    }
+                )
         top_sectors.append(
             {
                 "sector_key": sector_key,
                 "label": _titleize_ranking_key(sector_key),
                 "score": safe_float(entry.get("score")),
+                "top_industries": ranked_industries[:3],
             }
         )
 
-    flattened_industries: list[dict] = []
-    top_industries_by_sector = rankings.get("top_industries_by_sector", {})
-    if isinstance(top_industries_by_sector, dict):
-        for sector_key, entries in top_industries_by_sector.items():
-            if not isinstance(entries, list):
-                continue
-            for entry in entries:
-                if not isinstance(entry, dict):
-                    continue
-                industry_key = str(entry.get("industry_key") or "").strip()
-                if not industry_key:
-                    continue
-                flattened_industries.append(
-                    {
-                        "industry_key": industry_key,
-                        "label": _titleize_ranking_key(industry_key),
-                        "sector_key": str(sector_key or "").strip(),
-                        "sector_label": _titleize_ranking_key(str(sector_key or "").strip()),
-                        "score": safe_float(entry.get("score")),
-                    }
-                )
-
-    flattened_industries.sort(
-        key=lambda entry: (
-            -(entry.get("score") if isinstance(entry.get("score"), (int, float)) else float("-inf")),
-            str(entry.get("industry_key") or ""),
-        )
-    )
-
     return {
         "top_sectors": top_sectors[:3],
-        "top_industries": flattened_industries[:3],
     }
 
 
