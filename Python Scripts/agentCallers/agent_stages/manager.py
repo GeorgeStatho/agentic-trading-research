@@ -425,6 +425,75 @@ def _build_manager_visible_market_context(payload: dict[str, Any]) -> dict[str, 
     }
 
 
+def _build_manager_visible_views_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    confidence_rank = {"high": 3, "medium": 2, "low": 1}
+    summarized: dict[str, Any] = {}
+    for key, value in payload.get("views", {}).items():
+        if not isinstance(value, dict):
+            continue
+        raw_signals = value.get("agent_conclusions", [])
+        compact_signals: list[dict[str, Any]] = []
+        if isinstance(raw_signals, list):
+            sorted_signals = sorted(
+                (signal for signal in raw_signals if isinstance(signal, dict)),
+                key=lambda signal: (
+                    confidence_rank.get(str(signal.get("confidence") or "").strip().lower(), 0),
+                    str(signal.get("published_at") or ""),
+                    int(signal.get("article_id") or 0),
+                ),
+                reverse=True,
+            )
+            for signal in sorted_signals[:3]:
+                compact_signals.append(
+                    {
+                        "article_id": int(signal.get("article_id") or 0),
+                        "confidence": str(signal.get("confidence") or ""),
+                        "reason": str(signal.get("reason") or ""),
+                        "impact_direction": str(signal.get("impact_direction") or ""),
+                        "impact_magnitude": str(signal.get("impact_magnitude") or ""),
+                        "published_at": str(signal.get("published_at") or ""),
+                        "title": str(signal.get("title") or ""),
+                    }
+                )
+        summarized[key] = {
+            "label": str(value.get("label") or ""),
+            "count": int(value.get("count") or 0),
+            "top_signals": compact_signals,
+        }
+    return summarized
+
+
+def _build_manager_visible_supporting_articles(payload: dict[str, Any]) -> dict[str, Any]:
+    supporting_articles = payload.get("supporting_articles", {})
+    if not isinstance(supporting_articles, dict):
+        return {"article_summaries": []}
+
+    article_summaries = supporting_articles.get("article_summaries", [])
+    if not isinstance(article_summaries, list):
+        return {"article_summaries": []}
+
+    compact_summaries: list[dict[str, Any]] = []
+    for article in article_summaries[:5]:
+        if not isinstance(article, dict):
+            continue
+        compact_summaries.append(
+            {
+                "article_id": int(article.get("article_id") or 0),
+                "title": str(article.get("title") or ""),
+                "summary": str(article.get("summary") or ""),
+                "source": str(article.get("source") or ""),
+                "published_at": str(article.get("published_at") or ""),
+                "article_scope": str(article.get("article_scope") or ""),
+                "evidence_layers": [
+                    str(layer or "").strip()
+                    for layer in article.get("evidence_layers", [])
+                    if str(layer or "").strip()
+                ],
+            }
+        )
+    return {"article_summaries": compact_summaries}
+
+
 def build_manager_prompt(
     payload: dict[str, Any],
     *,
@@ -441,7 +510,7 @@ def build_manager_prompt(
     "a bearish options put, or neither. "
     "Use only the supplied structured context. "
     "You are reviewing: "
-    "1) the structured research package, including article evidence and 1d, 5d, 1mo, and 3mo price history; "
+    "1) the structured research package, including summarized opportunist evidence, compact supporting article summaries, and 1d, 5d, 1mo, and 3mo price history; "
     "2) live market and account context, including current stock price, relevant sector ETF performance, broad market indexes, option market summary, buying power, and current position state; "
     "and 3) the strategist recommendation as an upstream signal. "
     "When recent same-company manager decision history is present, use it as reflective feedback about what was tried before, what evidence was used, and how those decisions performed, but do not let one recent outcome override stronger fresh evidence. "
@@ -451,6 +520,7 @@ def build_manager_prompt(
     "Use that information as the upstream thesis input, then decide whether that thesis is tradable now under current conditions and constraints. "
     "Your primary job is execution permission: decide whether the setup should be acted on now, given live market context, account context, and timing. "
     "If the article and research evidence is strong, fresh, specific, and internally consistent, prefer that evidence over ordinary one-day market noise, intraday weakness, or broad volatility. "
+    "Use opportunist_rollup as the primary summarized evidence layer, and use the compact views summary and supporting article summaries only as grounding detail. "
     "Use the live market context primarily to judge timing, tradability, current risk, account constraints, and whether the setup is too volatile right now. "
     "When volatility context is present, explicitly use it as a timing and tradeability signal. "
     "Pay attention to implied volatility percentile, IV versus historical volatility, and the short-term versus longer-term IV term structure. "
@@ -491,10 +561,11 @@ def build_manager_prompt(
             or "Decide whether the supplied strategist thesis is tradable now as a call, put, or neither under current market and account constraints."
         ),
         "company": payload["company"],
-        "peer_groups": payload.get("peer_groups", {}),
         "filters": payload.get("filters", {}),
-        "views": payload.get("views", {}),
-        "supporting_articles": payload.get("supporting_articles", {}),
+        "context_snapshot": _build_context_snapshot(payload),
+        "opportunist_rollup": payload.get("opportunist_rollup", {}),
+        "views_summary": _build_manager_visible_views_summary(payload),
+        "supporting_articles": _build_manager_visible_supporting_articles(payload),
         "recent_manager_decision_history": payload.get("recent_manager_decision_history", []),
         "strategist_recommendation": _build_manager_visible_strategist_context(payload),
         "market_context": _build_manager_visible_market_context(payload),

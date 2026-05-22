@@ -223,8 +223,52 @@ class ManagerPayloadContractTests(VerboseTestCase):
         payload = {
             "company": {"company_id": 1, "symbol": "AAPL", "name": "Apple Inc."},
             "peer_groups": {"industry": {}, "top_companies": []},
+            "opportunist_rollup": {"company": {"count": 2, "top_reasons": ["Fresh demand signal"]}},
             "filters": {"max_age_days": 5},
-            "views": {"company": {"count": 2}},
+            "views": {
+                "company": {
+                    "count": 4,
+                    "label": "Company impacts",
+                    "agent_conclusions": [
+                        {
+                            "article_id": 1,
+                            "confidence": "medium",
+                            "reason": "Medium detail",
+                            "impact_direction": "positive",
+                            "impact_magnitude": "moderate",
+                            "published_at": "2026-05-18T14:00:00+00:00",
+                            "title": "Medium signal",
+                        },
+                        {
+                            "article_id": 2,
+                            "confidence": "high",
+                            "reason": "Highest detail",
+                            "impact_direction": "positive",
+                            "impact_magnitude": "high",
+                            "published_at": "2026-05-20T14:00:00+00:00",
+                            "title": "High signal",
+                        },
+                        {
+                            "article_id": 3,
+                            "confidence": "low",
+                            "reason": "Low detail",
+                            "impact_direction": "negative",
+                            "impact_magnitude": "low",
+                            "published_at": "2026-05-17T14:00:00+00:00",
+                            "title": "Low signal",
+                        },
+                        {
+                            "article_id": 4,
+                            "confidence": "high",
+                            "reason": "Second high detail",
+                            "impact_direction": "positive",
+                            "impact_magnitude": "moderate",
+                            "published_at": "2026-05-19T14:00:00+00:00",
+                            "title": "Second high signal",
+                        },
+                    ],
+                }
+            },
             "supporting_articles": {
                 "article_summaries": [
                     {
@@ -237,9 +281,23 @@ class ManagerPayloadContractTests(VerboseTestCase):
                         "article_scope": "company",
                         "evidence_layers": ["company_view"],
                         "agent_signals": [],
+                        "body": "Long body that should not be forwarded to the manager prompt payload.",
                     }
                 ],
-                "full_articles": [],
+                "full_articles": [
+                    {
+                        "article_id": 10,
+                        "title": "Fresh Apple article",
+                        "summary": "AAPL summary",
+                        "body": "Long body that should not be forwarded to the manager prompt payload.",
+                        "source": "Newswire",
+                        "source_url": "https://example.com/aapl",
+                        "published_at": "2026-05-20T14:00:00+00:00",
+                        "article_scope": "company",
+                        "evidence_layers": ["company_view"],
+                        "agent_signals": [],
+                    }
+                ],
             },
             "recent_manager_decision_history": [
                 {
@@ -281,12 +339,24 @@ class ManagerPayloadContractTests(VerboseTestCase):
         user_payload = json.loads(user_prompt)
 
         self.assertIn("recent same-company manager decision history", system_prompt)
+        self.assertIn("Use opportunist_rollup as the primary summarized evidence layer", system_prompt)
+        self.assertIn("opportunist_rollup", user_payload)
+        self.assertIn("views_summary", user_payload)
+        self.assertIn("context_snapshot", user_payload)
         self.assertIn("recent_manager_decision_history", user_payload)
+        self.assertNotIn("peer_groups", user_payload)
         self.assertEqual(len(user_payload["recent_manager_decision_history"]), 1)
         self.assertEqual(
             user_payload["recent_manager_decision_history"][0]["article_references"][0]["title"],
             "Fresh Apple article",
         )
+        self.assertNotIn("full_articles", user_payload["supporting_articles"])
+        self.assertEqual(user_payload["views_summary"]["company"]["count"], 4)
+        self.assertEqual(len(user_payload["views_summary"]["company"]["top_signals"]), 3)
+        self.assertEqual(user_payload["views_summary"]["company"]["top_signals"][0]["title"], "High signal")
+        self.assertNotIn("agent_conclusions", user_payload["views_summary"]["company"])
+        self.assertNotIn("source_url", user_payload["supporting_articles"]["article_summaries"][0])
+        self.assertEqual(user_payload["supporting_articles"]["article_summaries"][0]["title"], "Fresh Apple article")
         self.log_pass("manager prompt kept the recent-decision-history guidance and exposed the recent history block")
 
     @patch("agent_helpers.manager.list_recent_manager_decision_history")
