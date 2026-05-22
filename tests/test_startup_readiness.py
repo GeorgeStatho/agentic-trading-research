@@ -205,14 +205,14 @@ class StartupReadinessIntegrationTests(unittest.TestCase):
             logger=MagicMock(spec=logging.Logger),
         )
 
-    with patch.object(app, "_run_startup_readiness_check"):
-        with patch.object(app, "_run_scheduled_trading_cycle", return_value={"ok": True}) as mock_run:
-            with patch.object(app, "_compute_next_sleep_seconds", return_value=1.0):
-                with patch("services.front_main_application.time.sleep", side_effect=RuntimeError("stop-loop")):
-                    with self.assertRaisesRegex(RuntimeError, "stop-loop"):
-                        app.run_main_loop()
+        with patch.object(app, "_run_startup_readiness_check"):
+            with patch.object(app, "_run_scheduled_trading_cycle", return_value={"ok": True}) as mock_run:
+                with patch.object(app, "_compute_next_sleep_seconds", return_value=1.0):
+                    with patch("services.front_main_application.time.sleep", side_effect=RuntimeError("stop-loop")):
+                        with self.assertRaisesRegex(RuntimeError, "stop-loop"):
+                            app.run_main_loop()
 
-    mock_run.assert_called_once()
+        mock_run.assert_called_once()
 
     def test_news_collector_loop_runs_startup_readiness_once_before_sleeping(self):
         fake_settings = SimpleNamespace(
