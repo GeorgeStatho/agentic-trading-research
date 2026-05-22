@@ -10,7 +10,7 @@ import sys
 from typing import Any
 
 
-SELECTOR_VERSION = "deterministic-selector-v6-volatility-scoring"
+SELECTOR_VERSION = "deterministic-selector-v7-profit-path-scoring"
 
 LOGGER = logging.getLogger(__name__)
 

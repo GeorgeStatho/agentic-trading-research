@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import date, datetime
 from typing import Any
 
@@ -118,12 +119,76 @@ def _get_contract_implied_volatility(contract: dict[str, Any]) -> float | None:
     return implied_volatility
 
 
+def _get_break_even_price(contract: dict[str, Any]) -> float | None:
+    contract_type = _normalize_contract_type(contract.get("contract_type"))
+    strike_price = _coerce_float(contract.get("strike_price"))
+    contract_price = _get_contract_market_price(contract)
+    if strike_price is None or contract_price is None or contract_price <= 0:
+        return None
+    if contract_type == "call":
+        return strike_price + contract_price
+    if contract_type == "put":
+        return strike_price - contract_price
+    return None
+
+
+def _get_break_even_distance_dollars(contract: dict[str, Any], reference_stock_price: float | None) -> float | None:
+    break_even_price = _get_break_even_price(contract)
+    if break_even_price is None or reference_stock_price is None or reference_stock_price <= 0:
+        return None
+    return abs(break_even_price - reference_stock_price)
+
+
+def _get_break_even_distance_pct(contract: dict[str, Any], reference_stock_price: float | None) -> float | None:
+    break_even_distance_dollars = _get_break_even_distance_dollars(contract, reference_stock_price)
+    if break_even_distance_dollars is None or reference_stock_price is None or reference_stock_price <= 0:
+        return None
+    return break_even_distance_dollars / reference_stock_price
+
+
+def _get_premium_pct_of_spot(contract: dict[str, Any], reference_stock_price: float | None) -> float | None:
+    contract_price = _get_contract_market_price(contract)
+    if contract_price is None or contract_price <= 0 or reference_stock_price is None or reference_stock_price <= 0:
+        return None
+    return contract_price / reference_stock_price
+
+
+def _get_expected_move_dollars(contract: dict[str, Any], reference_stock_price: float | None) -> float | None:
+    implied_volatility = _get_contract_implied_volatility(contract)
+    days_to_expiration = _get_dte(contract)
+    if (
+        implied_volatility is None
+        or implied_volatility <= 0
+        or days_to_expiration is None
+        or days_to_expiration <= 0
+        or reference_stock_price is None
+        or reference_stock_price <= 0
+    ):
+        return None
+    return reference_stock_price * implied_volatility * math.sqrt(days_to_expiration / 365.0)
+
+
+def _get_expected_move_pct(contract: dict[str, Any], reference_stock_price: float | None) -> float | None:
+    expected_move_dollars = _get_expected_move_dollars(contract, reference_stock_price)
+    if expected_move_dollars is None or reference_stock_price is None or reference_stock_price <= 0:
+        return None
+    return expected_move_dollars / reference_stock_price
+
+
 def _get_option_market_volatility_summary(market_context: dict[str, Any]) -> dict[str, Any]:
     option_market = market_context.get("option_market", {})
     if not isinstance(option_market, dict):
         return {}
     volatility_summary = option_market.get("volatility_summary", {})
     return volatility_summary if isinstance(volatility_summary, dict) else {}
+
+
+def _get_option_market_contracts(market_context: dict[str, Any]) -> list[dict[str, Any]]:
+    option_market = market_context.get("option_market", {})
+    if not isinstance(option_market, dict):
+        return []
+    contracts = option_market.get("contracts", [])
+    return [contract for contract in contracts if isinstance(contract, dict)]
 
 
 def _get_underlying_historical_volatility(market_context: dict[str, Any]) -> float | None:
@@ -140,6 +205,112 @@ def _get_underlying_historical_volatility(market_context: dict[str, Any]) -> flo
         if historical_volatility is not None and historical_volatility > 0:
             return historical_volatility
     return None
+
+
+def _get_straddle_implied_expected_move(
+    contract: dict[str, Any],
+    market_context: dict[str, Any],
+    reference_stock_price: float | None,
+) -> dict[str, Any]:
+    if reference_stock_price is None or reference_stock_price <= 0:
+        return {
+            "available": False,
+            "expiration_date": None,
+            "strike_price": None,
+            "call_midpoint_price": None,
+            "put_midpoint_price": None,
+            "expected_move_dollars": None,
+            "expected_move_pct": None,
+            "days_to_expiration": None,
+        }
+
+    target_dte = _get_dte(contract)
+    contracts = _get_option_market_contracts(market_context)
+    if not contracts:
+        return {
+            "available": False,
+            "expiration_date": None,
+            "strike_price": None,
+            "call_midpoint_price": None,
+            "put_midpoint_price": None,
+            "expected_move_dollars": None,
+            "expected_move_pct": None,
+            "days_to_expiration": None,
+        }
+
+    by_expiration: dict[str, list[dict[str, Any]]] = {}
+    for candidate in contracts:
+        expiration_date = str(candidate.get("expiration_date") or "").strip()
+        if expiration_date:
+            by_expiration.setdefault(expiration_date, []).append(candidate)
+
+    ranked_expirations = sorted(
+        by_expiration.items(),
+        key=lambda item: (
+            abs((_get_dte(item[1][0]) or 10**9) - (target_dte or 10**9)),
+            _get_dte(item[1][0]) if _get_dte(item[1][0]) is not None else 10**9,
+            item[0],
+        ),
+    )
+
+    for expiration_date, expiration_contracts in ranked_expirations:
+        contracts_by_strike: dict[float, dict[str, dict[str, Any]]] = {}
+        for candidate in expiration_contracts:
+            strike_price = _coerce_float(candidate.get("strike_price"))
+            contract_type = _normalize_contract_type(candidate.get("contract_type"))
+            midpoint_price = _get_contract_market_price(candidate)
+            if (
+                strike_price is None
+                or contract_type not in {"call", "put"}
+                or midpoint_price is None
+                or midpoint_price <= 0
+            ):
+                continue
+            contracts_by_strike.setdefault(strike_price, {})[contract_type] = candidate
+
+        ranked_strikes = sorted(
+            (
+                (strike_price, pair)
+                for strike_price, pair in contracts_by_strike.items()
+                if "call" in pair and "put" in pair
+            ),
+            key=lambda item: (abs(item[0] - reference_stock_price), item[0]),
+        )
+        if not ranked_strikes:
+            continue
+
+        strike_price, pair = ranked_strikes[0]
+        call_midpoint_price = _get_contract_market_price(pair["call"])
+        put_midpoint_price = _get_contract_market_price(pair["put"])
+        if (
+            call_midpoint_price is None
+            or call_midpoint_price <= 0
+            or put_midpoint_price is None
+            or put_midpoint_price <= 0
+        ):
+            continue
+        expected_move_dollars = call_midpoint_price + put_midpoint_price
+        return {
+            "available": True,
+            "expiration_date": expiration_date,
+            "strike_price": strike_price,
+            "call_midpoint_price": round(call_midpoint_price, 6),
+            "put_midpoint_price": round(put_midpoint_price, 6),
+            "expected_move_dollars": round(expected_move_dollars, 6),
+            "expected_move_pct": round(expected_move_dollars / reference_stock_price, 6),
+            "days_to_expiration": _get_dte(pair["call"]),
+        }
+
+    return {
+        "available": False,
+        "expiration_date": None,
+        "strike_price": None,
+        "call_midpoint_price": None,
+        "put_midpoint_price": None,
+        "expected_move_dollars": None,
+        "expected_move_pct": None,
+        "days_to_expiration": None,
+    }
 
 
 def _get_contract_iv_percentile(contract: dict[str, Any], market_context: dict[str, Any]) -> float | None:

@@ -121,7 +121,7 @@ def _short_swing_score(
     reference_stock_price: float | None,
     market_context: dict[str, Any] | None = None,
     target_dte_bucket: str = "none",
-) -> tuple[float, float, float, float, float, float, float, float, str, int]:
+) -> tuple[float, float, float, float, float, float, float, float, float, str, int]:
     target_otm_distance = _resolve_target_otm_distance(
         reference_stock_price=reference_stock_price,
         target_dte_bucket=target_dte_bucket,
@@ -145,7 +145,8 @@ def _short_swing_score(
             target_distance=target_otm_distance,
         ),
         -(_coerce_float(contract.get("open_interest")) or 0.0),
-        float(volatility_assessment.get("selection_preference_score", 0.0)),
+        float(volatility_assessment.get("profit_path_selection_preference_score", 0.0)),
+        float(volatility_assessment.get("vega_selection_preference_score", 0.0)),
         str(contract.get("expiration_date") or "9999-12-31"),
         _normalize_option_id(contract.get("option_id")) or 10**9,
     )
