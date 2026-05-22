@@ -28,19 +28,32 @@ Functions:
 
 ### `strategist_payload.py`
 
-Purpose: build the final strategist input payload by merging macro, sector, industry, company, and raw article evidence for one company.
+Purpose: public facade for strategist payload building. Keeps the stable import surface while delegating to smaller helper modules.
 
 Functions:
 - `_serialize_filters(...)`: records the active time window and article limits used for a strategist run.
-- `_serialize_company_scope(company)`: serializes the selected company plus market metadata.
-- `_deserialize_company_raw_json(raw_json)`: safely parses stored market-data JSON.
-- `_get_company_market_record(company)`: looks up the saved company market-data row for the target company.
-- `_serialize_signal(item, layer=...)`: converts one saved impact row into a strategist signal record.
-- `_build_view(...)`: builds one strategist view section such as `macro_view` or `company_view`.
-- `_upsert_supporting_article(...)`: merges article evidence from multiple layers into one article-centered record.
-- `_build_supporting_articles(...)`: ranks evidence articles and produces the strategist `article_summaries` and `full_articles` sections.
 - `build_strategist_input(company_identifier, ...)`: builds the full structured strategist payload used at inference time.
 - `build_strategist_prompt_payload(company_identifier, ...)`: returns the strategist payload as pretty-printed JSON for inspection/debugging.
+
+### `strategist_payload_company.py`
+
+Purpose: company-scope serialization plus strategist-side market-data, price-history, and trend-quality shaping.
+
+### `strategist_payload_price.py`
+
+Purpose: strategist price-history and trend-quality collection from yfinance-backed history frames.
+
+### `strategist_payload_rollup.py`
+
+Purpose: weighted rollup math for sector, industry, and company evidence summaries.
+
+### `strategist_payload_rollup_common.py`
+
+Purpose: shared scoring constants and helper functions used by the rollup assembly module.
+
+### `strategist_payload_articles.py`
+
+Purpose: signal serialization, strategist views, and ranked supporting-article assembly.
 
 ### `__init__.py`
 

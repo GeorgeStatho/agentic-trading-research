@@ -94,8 +94,8 @@ class StrategistPromptContractTests(VerboseTestCase):
             self.assertIn(f"{time_horizon} for setups that fit {bucket.label}", task_text)
         self.log_pass("strategist prompt time-horizon guidance stayed aligned with the live DTE bucket registry")
 
-    @patch.object(strategist_payload_builder, "_get_company_market_record")
-    @patch.object(strategist_payload_builder, "_build_company_price_context")
+    @patch.object(strategist_payload_builder._company_helpers, "_get_company_market_record")
+    @patch.object(strategist_payload_builder._company_helpers, "_build_company_price_context")
     def test_serialize_company_scope_attaches_trend_quality_next_to_historical_price_data(
         self,
         mock_build_company_price_context,
@@ -118,7 +118,7 @@ class StrategistPromptContractTests(VerboseTestCase):
             },
         )
 
-        result = strategist_payload_builder._serialize_company_scope(
+        result = strategist_payload_builder._company_helpers._serialize_company_scope(
             {
                 "company_id": 3644,
                 "symbol": "AAPL",
