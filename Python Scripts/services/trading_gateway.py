@@ -43,9 +43,16 @@ class AlpacaTradingGateway:
         os.environ.pop("ALPACA_OAUTH_TOKEN", None)
         return TradingClient(api_key=api_key, secret_key=api_secret, oauth_token=None, paper=self._paper)
 
-    def market_is_open(self, trading_client: TradingClient) -> bool:
+    def get_market_clock(self, trading_client: TradingClient) -> Any | None:
         try:
-            clock = trading_client.get_clock()
+            return trading_client.get_clock()
+        except Exception as exc:
+            self._logger.exception("Failed to fetch Alpaca market clock: %s", exc)
+            return None
+
+    def market_is_open(self, trading_client: TradingClient, *, clock: Any | None = None) -> bool:
+        try:
+            clock = clock if clock is not None else self.get_market_clock(trading_client)
             return bool(getattr(clock, "is_open", False))
         except Exception as exc:
             self._logger.exception("Failed to check Alpaca market clock: %s", exc)

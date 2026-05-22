@@ -20,6 +20,8 @@ from services.trading_gateway import TradingClient
 
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
 FRIDAY_WEEKDAY = 4
+MARKET_OPEN_HOUR = 10
+MARKET_OPEN_MINUTE = 30
 
 
 class FrontMainApplication:
@@ -108,6 +110,51 @@ class FrontMainApplication:
             "Skipping trading cycle because new option entries are disabled on Fridays "
             f"({market_now.date().isoformat()} America/New_York)."
         )
+
+    @staticmethod
+    def _parse_market_clock_timestamp(value: Any) -> datetime | None:
+        raw_value = str(value or "").strip()
+        if not raw_value:
+            return None
+
+        normalized_value = raw_value.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized_value)
+        except ValueError:
+            return None
+
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=MARKET_TIMEZONE)
+        return parsed.astimezone(MARKET_TIMEZONE)
+
+    def _is_within_post_open_trading_window(
+        self,
+        market_clock: Any | None,
+    ) -> tuple[bool, dict[str, Any]]:
+        limit_seconds = self._settings.main_loop_max_seconds_after_market_open
+        if limit_seconds is None:
+            return True, {}
+        if market_clock is None:
+            return True, {}
+
+        market_timestamp = self._parse_market_clock_timestamp(getattr(market_clock, "timestamp", None))
+        if market_timestamp is None:
+            return True, {}
+
+        market_open_at = market_timestamp.replace(
+            hour=MARKET_OPEN_HOUR,
+            minute=MARKET_OPEN_MINUTE,
+            second=0,
+            microsecond=0,
+        )
+        seconds_since_market_open = max(0, int((market_timestamp - market_open_at).total_seconds()))
+        payload = {
+            "market_clock_timestamp": market_timestamp.isoformat(),
+            "market_open_at": market_open_at.isoformat(),
+            "seconds_since_market_open": seconds_since_market_open,
+            "max_seconds_after_market_open": limit_seconds,
+        }
+        return seconds_since_market_open <= limit_seconds, payload
 
     def _persist_trading_cycle_outputs(
         self,
@@ -481,6 +528,9 @@ class FrontMainApplication:
             run_interval_seconds=self._settings.run_interval_seconds,
             option_position_management_interval_seconds=self._settings.option_position_management_interval_seconds,
             market_recheck_seconds=self._settings.market_recheck_seconds,
+            main_loop_max_seconds_after_market_open=(
+                self._settings.main_loop_max_seconds_after_market_open or 0
+            ),
             immediate_option_execution=self._settings.immediate_option_execution,
         )
 
@@ -494,8 +544,9 @@ class FrontMainApplication:
 
         while True:
             loop_started_at = datetime.now()
+            market_clock = self._trading_gateway.get_market_clock(trading_client)
 
-            if not self._trading_gateway.market_is_open(trading_client):
+            if not self._trading_gateway.market_is_open(trading_client, clock=market_clock):
                 self._sleep_for_market_close(loop_label="front main")
                 continue
 
@@ -508,14 +559,29 @@ class FrontMainApplication:
 
             current_time = datetime.now()
             if current_time >= next_trading_cycle_at:
-                try:
-                    result = self._run_scheduled_trading_cycle(trading_client=trading_client)
-                    print(json.dumps(result, ensure_ascii=True, indent=2))
-                except Exception as exc:
-                    self._status_reporter.write("error", f"Front-facing main cycle failed: {exc}")
-                    self._logger.exception("Front-facing main cycle failed: %s", exc)
-                finally:
-                    next_trading_cycle_at = datetime.now() + timedelta(seconds=self._settings.run_interval_seconds)
+                within_window, trading_window_payload = self._is_within_post_open_trading_window(
+                    market_clock
+                )
+                if not within_window:
+                    self._status_reporter.write(
+                        "paused",
+                        "Skipping trading cycle because configured post-open trading window has elapsed",
+                        stage="trading_window_closed",
+                        sleep_seconds=self._settings.market_recheck_seconds,
+                        **trading_window_payload,
+                    )
+                    next_trading_cycle_at = datetime.now() + timedelta(
+                        seconds=self._settings.market_recheck_seconds
+                    )
+                else:
+                    try:
+                        result = self._run_scheduled_trading_cycle(trading_client=trading_client)
+                        print(json.dumps(result, ensure_ascii=True, indent=2))
+                    except Exception as exc:
+                        self._status_reporter.write("error", f"Front-facing main cycle failed: {exc}")
+                        self._logger.exception("Front-facing main cycle failed: %s", exc)
+                    finally:
+                        next_trading_cycle_at = datetime.now() + timedelta(seconds=self._settings.run_interval_seconds)
 
             sleep_seconds = self._compute_next_sleep_seconds(
                 next_trading_cycle_at=next_trading_cycle_at,
