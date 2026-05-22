@@ -4,6 +4,15 @@ from datetime import datetime, timezone
 import re
 
 from agent_pipeline.ranking import get_current_rankings
+from performance_metrics import (
+    DEFAULT_ANNUAL_RISK_FREE_RATE,
+    compute_daily_returns,
+    compute_sharpe_metrics,
+    compute_sortino_metrics,
+    compute_total_return_pct,
+    compute_trade_metrics,
+    normalize_equity_curve,
+)
 from portfolio_history_service import fetch_portfolio_history
 
 from api_support.alpaca import alpaca_data_get_json, alpaca_get_json
@@ -815,6 +824,18 @@ def build_dashboard_kpis() -> dict:
     option_exposure_pct = round((option_exposure / equity) * 100.0, 2) if equity not in (None, 0) else None
     dte_rule_configs = load_dte_exit_rule_configs()
     win_rate = compute_win_rate_from_fills(fills)
+    equity_curve = normalize_equity_curve(portfolio_history)
+    daily_returns = compute_daily_returns(equity_curve)
+    total_return_pct = compute_total_return_pct(equity_curve)
+    sharpe_metrics = compute_sharpe_metrics(
+        daily_returns,
+        annual_risk_free_rate=DEFAULT_ANNUAL_RISK_FREE_RATE,
+    )
+    sortino_metrics = compute_sortino_metrics(
+        daily_returns,
+        annual_risk_free_rate=DEFAULT_ANNUAL_RISK_FREE_RATE,
+    )
+    trade_performance = compute_trade_metrics(fills)
     worker_status = read_json_payload(SCRIPT_STATUS_PATH)
     option_manager_status = read_json_payload(OPTION_MANAGER_STATUS_PATH)
     top_rankings = _build_top_rankings_payload()
@@ -845,6 +866,17 @@ def build_dashboard_kpis() -> dict:
         },
         "win_rate": win_rate,
         "max_drawdown_pct": compute_max_drawdown_pct(portfolio_history),
+        "performance_summary": {
+            "total_return_pct": round(total_return_pct, 2) if total_return_pct is not None else None,
+            "annualized_sharpe": round(sharpe_metrics["annualized_sharpe"], 4)
+            if sharpe_metrics["annualized_sharpe"] is not None
+            else None,
+            "annualized_sortino": round(sortino_metrics["annualized_sortino"], 4)
+            if sortino_metrics["annualized_sortino"] is not None
+            else None,
+            "profit_factor": trade_performance.get("profit_factor"),
+            "average_trade_return_pct": trade_performance.get("average_trade_return_pct"),
+        },
         "bot_status": summarize_bot_status(worker_status, option_manager_status),
         "market_status": summarize_market_status(clock),
         "top_rankings": top_rankings,
