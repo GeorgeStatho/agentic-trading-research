@@ -9,10 +9,42 @@ type StageDecision = {
   risks?: string[];
   reason?: string;
   target_dte_bucket?: string;
+  manager_decision_history_id?: number | null;
   selected_option_id?: string;
   selected_expiration_date?: string;
   selected_strike_price?: number | null;
   selected_option_source?: string;
+};
+
+type HistoryArticleReference = {
+  article_id: number;
+  title: string;
+  source: string;
+  published_at: string;
+  article_scope: string;
+  evidence_layers: string[];
+};
+
+type ManagerHistoryEntry = {
+  id: number;
+  decision_run_at: string;
+  manager_decision: string;
+  manager_confidence: string;
+  manager_reason: string;
+  target_dte_bucket: string;
+  selected_option_id: string;
+  selected_option_symbol: string;
+  selected_expiration_date: string;
+  selected_strike_price?: number | null;
+  selected_option_source: string;
+  trade_executed: boolean;
+  trade_execution_order_id: string;
+  trade_execution_record_id?: number | null;
+  latest_trade_pnl_pct?: number | null;
+  latest_trade_pnl_updated_at: string;
+  pnl_expires_at: string;
+  resolved_outcome_label: string;
+  article_references: HistoryArticleReference[];
 };
 
 type CompanyDecision = {
@@ -21,6 +53,7 @@ type CompanyDecision = {
   last_updated_at: string;
   strategist: StageDecision;
   manager: StageDecision;
+  manager_history: ManagerHistoryEntry[];
 };
 
 type CompanyDecisionsPayload = {
@@ -51,6 +84,13 @@ function formatValue(value: string | number | null | undefined): string {
   return normalized || 'N/A';
 }
 
+function formatPct(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return 'N/A';
+  }
+  return `${value.toFixed(2)}%`;
+}
+
 function formatDateTime(value: string): string {
   const normalized = value.trim();
   if (!normalized) {
@@ -77,6 +117,23 @@ function renderList(items: string[] | undefined, emptyLabel: string) {
     <ul className="company-decisions__list">
       {items.map((item) => (
         <li key={item}>{item}</li>
+      ))}
+    </ul>
+  );
+}
+
+function renderArticleReferenceList(items: HistoryArticleReference[] | undefined) {
+  if (!items || items.length === 0) {
+    return <p className="company-decisions__text">No article references saved.</p>;
+  }
+
+  return (
+    <ul className="company-decisions__list">
+      {items.map((item) => (
+        <li key={`${item.article_id}-${item.title}`}>
+          <strong>{item.title || `Article ${item.article_id}`}</strong>
+          {item.source ? ` (${item.source})` : ''}
+        </li>
       ))}
     </ul>
   );
@@ -214,6 +271,10 @@ function CompanyDecisionsPage() {
                       <p className="company-decisions__subheading">Contract selection</p>
                       <dl className="company-decisions__facts">
                         <div>
+                          <dt>History record</dt>
+                          <dd>{formatValue(company.manager.manager_decision_history_id)}</dd>
+                        </div>
+                        <div>
                           <dt>Target DTE bucket</dt>
                           <dd>{formatValue(company.manager.target_dte_bucket)}</dd>
                         </div>
@@ -234,6 +295,56 @@ function CompanyDecisionsPage() {
                           <dd>{formatValue(company.manager.selected_option_source)}</dd>
                         </div>
                       </dl>
+                    </div>
+                    <div className="company-decisions__subsection">
+                      <p className="company-decisions__subheading">Recent history</p>
+                      {company.manager_history.length === 0 ? (
+                        <p className="company-decisions__text">No linked manager history saved yet.</p>
+                      ) : (
+                        <div className="company-decisions__history-list">
+                          {company.manager_history.map((entry) => (
+                            <article key={`${company.symbol}-${entry.id}`} className="company-decisions__history-item">
+                              <div className="company-decisions__history-header">
+                                <p className="company-decisions__history-main">
+                                  {formatValue(entry.manager_decision)} / {formatValue(entry.manager_confidence)}
+                                </p>
+                                <p className="company-decisions__history-time">
+                                  {formatDateTime(entry.decision_run_at)}
+                                </p>
+                              </div>
+                              <dl className="company-decisions__facts">
+                                <div>
+                                  <dt>DTE bucket</dt>
+                                  <dd>{formatValue(entry.target_dte_bucket)}</dd>
+                                </div>
+                                <div>
+                                  <dt>Trade executed</dt>
+                                  <dd>{entry.trade_executed ? 'Yes' : 'No'}</dd>
+                                </div>
+                                <div>
+                                  <dt>Latest P/L</dt>
+                                  <dd>{formatPct(entry.latest_trade_pnl_pct)}</dd>
+                                </div>
+                                <div>
+                                  <dt>Outcome</dt>
+                                  <dd>{formatValue(entry.resolved_outcome_label)}</dd>
+                                </div>
+                                <div>
+                                  <dt>Order id</dt>
+                                  <dd>{formatValue(entry.trade_execution_order_id)}</dd>
+                                </div>
+                              </dl>
+                              <p className="company-decisions__text">
+                                {formatValue(entry.manager_reason)}
+                              </p>
+                              <div className="company-decisions__subsection">
+                                <p className="company-decisions__subheading">Articles used</p>
+                                {renderArticleReferenceList(entry.article_references)}
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </section>
                 </div>

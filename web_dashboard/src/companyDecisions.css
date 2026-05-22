@@ -154,9 +154,40 @@
   padding: 14px 0 4px;
 }
 
+.company-decisions__history-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.company-decisions__history-item {
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+  border-radius: 16px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--bg) 99%, white);
+}
+
+.company-decisions__history-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.company-decisions__history-main {
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.company-decisions__history-time {
+  font-size: 0.9rem;
+  opacity: 0.78;
+}
+
 @media (max-width: 860px) {
   .company-decisions__header,
-  .company-decisions__company {
+  .company-decisions__company,
+  .company-decisions__history-header {
     flex-direction: column;
     align-items: start;
   }
