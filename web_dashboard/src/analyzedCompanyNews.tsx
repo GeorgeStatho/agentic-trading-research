@@ -21,6 +21,7 @@ type NewsArticle = {
   source: string;
   source_url: string;
   published_at: string;
+  analysis_status: 'analyzed' | 'processed_no_assessment' | 'pending';
   assessments: ArticleAssessment[];
 };
 
@@ -204,6 +205,15 @@ function dedupeArticles(articles: NewsArticle[]): NewsArticle[] {
         _assessmentKeys: new Set<string>(),
       } satisfies NewsArticle & { _assessmentKeys: Set<string> });
 
+    const nextStatus = article.analysis_status ?? 'pending';
+    if (
+      normalizedArticle.analysis_status !== 'analyzed' &&
+      (nextStatus === 'analyzed' ||
+        (nextStatus === 'processed_no_assessment' && normalizedArticle.analysis_status === 'pending'))
+    ) {
+      normalizedArticle.analysis_status = nextStatus;
+    }
+
     for (const assessment of article.assessments) {
       const assessmentKey = [
         assessment.confidence,
@@ -228,6 +238,26 @@ function dedupeArticles(articles: NewsArticle[]): NewsArticle[] {
   return Array.from(articleMap.values())
     .map(({ _assessmentKeys: _ignored, ...article }) => article)
     .sort(comparePublishedAtDescending);
+}
+
+function formatAnalysisStatusLabel(status: NewsArticle['analysis_status']): string {
+  if (status === 'analyzed') {
+    return 'analyzed';
+  }
+  if (status === 'processed_no_assessment') {
+    return 'no material impact';
+  }
+  return 'pending analysis';
+}
+
+function formatAnalysisStatusMessage(status: NewsArticle['analysis_status']): string {
+  if (status === 'processed_no_assessment') {
+    return 'The company opportunist processed this article but did not save a material company-impact assessment.';
+  }
+  if (status === 'pending') {
+    return 'This article is linked to the company feed, but there is no saved company opportunist processing record for it yet.';
+  }
+  return 'Company opportunist assessments are available below.';
 }
 
 function summarizeConfidenceCounts(articles: NewsArticle[]): { high: number; medium: number; low: number } {
@@ -759,14 +789,22 @@ function AnalyzedCompanyNewsPage() {
                             {formatLabel(article.source, 'Unknown source')} / {formatDateTime(article.published_at)}
                           </p>
                           <div className="company-news-article__chips">
-                            {visibleAssessments.map((assessment, index) => (
+                            {visibleAssessments.length > 0 ? (
+                              visibleAssessments.map((assessment, index) => (
+                                <span
+                                  key={`${article.article_id}-${assessment.created_at}-${assessment.news_scope}-${index}`}
+                                  className={`company-news-chip company-news-chip--${assessment.confidence || 'neutral'}`}
+                                >
+                                  {assessment.confidence || 'unknown'}
+                                </span>
+                              ))
+                            ) : (
                               <span
-                                key={`${article.article_id}-${assessment.created_at}-${assessment.news_scope}-${index}`}
-                                className={`company-news-chip company-news-chip--${assessment.confidence || 'neutral'}`}
+                                className={`company-news-chip company-news-chip--status company-news-chip--status-${article.analysis_status}`}
                               >
-                                {assessment.confidence || 'unknown'}
+                                {formatAnalysisStatusLabel(article.analysis_status)}
                               </span>
-                            ))}
+                            )}
                           </div>
                         </div>
 
@@ -785,44 +823,61 @@ function AnalyzedCompanyNewsPage() {
                         </p>
 
                         <div className="company-news-assessment-list">
-                          {visibleAssessments.map((assessment, index) => {
-                            const hasDirectionalData = Boolean(
-                              assessment.impact_direction.trim() || assessment.impact_magnitude.trim(),
-                            );
+                          {visibleAssessments.length > 0 ? (
+                            visibleAssessments.map((assessment, index) => {
+                              const hasDirectionalData = Boolean(
+                                assessment.impact_direction.trim() || assessment.impact_magnitude.trim(),
+                              );
 
-                            return (
-                              <article
-                                key={`${article.article_id}-${assessment.reason}-${assessment.news_scope}-${index}`}
-                                className="company-news-assessment"
-                              >
-                                <div className="company-news-assessment__badges">
-                                  <span
-                                    className={`company-news-chip company-news-chip--${assessment.confidence || 'neutral'}`}
-                                  >
-                                    {assessment.confidence || 'unknown'}
-                                  </span>
-                                  {assessment.news_scope ? (
-                                    <span className="company-news-chip company-news-chip--neutral">
-                                      {assessment.news_scope} macro
+                              return (
+                                <article
+                                  key={`${article.article_id}-${assessment.reason}-${assessment.news_scope}-${index}`}
+                                  className="company-news-assessment"
+                                >
+                                  <div className="company-news-assessment__badges">
+                                    <span
+                                      className={`company-news-chip company-news-chip--${assessment.confidence || 'neutral'}`}
+                                    >
+                                      {assessment.confidence || 'unknown'}
                                     </span>
-                                  ) : null}
-                                  {hasDirectionalData ? (
-                                    <>
-                                      <span className="company-news-chip company-news-chip--direction">
-                                        {assessment.impact_direction || 'direction n/a'}
+                                    {assessment.news_scope ? (
+                                      <span className="company-news-chip company-news-chip--neutral">
+                                        {assessment.news_scope} macro
                                       </span>
-                                      <span className="company-news-chip company-news-chip--magnitude">
-                                        {assessment.impact_magnitude || 'magnitude n/a'}
-                                      </span>
-                                    </>
-                                  ) : null}
-                                </div>
-                                <p className="company-news-assessment__reason">
-                                  {assessment.reason || 'No opportunist reason recorded.'}
-                                </p>
-                              </article>
-                            );
-                          })}
+                                    ) : null}
+                                    {hasDirectionalData ? (
+                                      <>
+                                        <span className="company-news-chip company-news-chip--direction">
+                                          {assessment.impact_direction || 'direction n/a'}
+                                        </span>
+                                        <span className="company-news-chip company-news-chip--magnitude">
+                                          {assessment.impact_magnitude || 'magnitude n/a'}
+                                        </span>
+                                      </>
+                                    ) : null}
+                                  </div>
+                                  <p className="company-news-assessment__reason">
+                                    {assessment.reason || 'No opportunist reason recorded.'}
+                                  </p>
+                                </article>
+                              );
+                            })
+                          ) : (
+                            <article
+                              className={`company-news-assessment company-news-assessment--status company-news-assessment--status-${article.analysis_status}`}
+                            >
+                              <div className="company-news-assessment__badges">
+                                <span
+                                  className={`company-news-chip company-news-chip--status company-news-chip--status-${article.analysis_status}`}
+                                >
+                                  {formatAnalysisStatusLabel(article.analysis_status)}
+                                </span>
+                              </div>
+                              <p className="company-news-assessment__reason">
+                                {formatAnalysisStatusMessage(article.analysis_status)}
+                              </p>
+                            </article>
+                          )}
                         </div>
                       </article>
                     );
