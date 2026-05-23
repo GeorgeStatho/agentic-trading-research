@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-DOMAIN="${1:-dashboard.huvle.org}"
+DOMAIN="${1:-dashboard.example.com}"
 EMAIL="${2:-}"
 
 echo "Setting up HTTPS for: $DOMAIN"

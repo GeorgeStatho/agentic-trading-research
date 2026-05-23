@@ -11,6 +11,8 @@ Includes:
 
 It is still an experiment, not production trading software.
 
+This public repository intentionally keeps demo-safe defaults. Production-tuned prompts, private source lists, live runtime artifacts, and real credentials are excluded or simplified here.
+
 Preferred import paths and compatibility-wrapper guidance live in
 [INTERFACE_GUIDE.md](INTERFACE_GUIDE.md).
 
@@ -106,17 +108,9 @@ The repo now supports two model backends behind a shared helper:
 
 The provider abstraction lives in [Python Scripts/agentCallers/agent_helpers/shared.py](Python%20Scripts/agentCallers/agent_helpers/shared.py).
 
-### Recommended Vertex split
+### Public Demo Defaults
 
-The current recommended stage/model split is captured in [.env.example](.env.example):
-
-- `WORLD_NEWS_MODEL=gemini-2.5-flash-lite`
-- `MACRO_NEWS_MODEL=gemini-2.5-flash-lite`
-- `SECTOR_OPPURUNTIST_MODEL=gemini-2.5-flash-lite`
-- `INDUSTRY_OPPURUNTINST_MODEL=gemini-2.5-flash-lite`
-- `COMPANY_OPPURUNTIST_MODEL=gemini-2.5-flash-lite`
-- `STRATEGIST_MODEL=gemini-2.5-flash`
-- `MANAGER_MODEL=gemini-2.5-pro`
+[.env.example](.env.example) is intentionally minimal in this public repo. It includes only demo-safe defaults and leaves production tuning to private configuration.
 
 ## Quick Start
 
@@ -135,6 +129,8 @@ Then fill in at minimum:
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_CLOUD_LOCATION`
 
+If you prefer a local model instead of Vertex, set `LLM_PROVIDER=ollama` and configure `OLLAMA_HOST` instead of the Google Cloud values.
+
 ### 2. Run with Docker
 
 Default cloud-friendly startup:
@@ -151,11 +147,11 @@ docker compose --profile ollama up --build
 
 ### 3. First-time HTTPS setup for a public server
 
-If you are deploying the dashboard publicly at `dashboard.huvle.org`, do the one-time certificate bootstrap first.
+If you are deploying the dashboard publicly at `dashboard.example.com`, do the one-time certificate bootstrap first.
 
 Prerequisites:
 
-- create an A record for `dashboard.huvle.org` pointing at your server IP
+- create an A record for `dashboard.example.com` pointing at your server IP
 - make sure ports `80` and `443` are open on the server
 - make sure Docker and Docker Compose are available on the host
 
@@ -163,26 +159,26 @@ The repo already includes:
 
 - [docker-compose.bootstrap.yml](docker-compose.bootstrap.yml): temporary bootstrap override that mounts the HTTP-only ACME Nginx config
 - [web_dashboard/nginx.bootstrap.conf](web_dashboard/nginx.bootstrap.conf): HTTP-only config used before the certificate exists
-- [web_dashboard/nginx.conf](web_dashboard/nginx.conf): final HTTPS config for `dashboard.huvle.org`
+- [web_dashboard/nginx.conf](web_dashboard/nginx.conf): final HTTPS config for your chosen domain
 - [scripts/setup-https.sh](scripts/setup-https.sh): helper script that runs the bootstrap flow
 
 Run:
 
 ```bash
-./scripts/setup-https.sh dashboard.huvle.org your-email@example.com
+./scripts/setup-https.sh dashboard.example.com your-email@example.com
 ```
 
 Or without email:
 
 ```bash
-./scripts/setup-https.sh dashboard.huvle.org
+./scripts/setup-https.sh dashboard.example.com
 ```
 
 What the script does:
 
 1. creates `certbot/conf` and `certbot/www`
 2. starts the temporary web container with the bootstrap Nginx config
-3. requests the Let's Encrypt certificate for `dashboard.huvle.org`
+3. requests the Let's Encrypt certificate for `dashboard.example.com`
 4. restarts the web container with the production HTTPS Nginx config
 5. starts the full stack, including automatic certificate renewal via the `certbot` service
 
@@ -197,7 +193,7 @@ http://localhost
 Public HTTPS deployment target:
 
 ```text
-https://dashboard.huvle.org/#/dashboard
+https://dashboard.example.com/#/dashboard
 ```
 
 ## Vertex AI Authentication
@@ -273,7 +269,7 @@ During Docker runs, the main shared runtime paths are:
 - [Data/market_schema.sql](Data/market_schema.sql): market-side SQLite schema, including the executed-trade journal table
 - [Data/market_db.py](Data/market_db.py): market-side DB writes and executed-trade query helpers
 - [docker-compose.bootstrap.yml](docker-compose.bootstrap.yml): temporary Compose override used for first-time Let's Encrypt bootstrap
-- [scripts/setup-https.sh](scripts/setup-https.sh): one-command first-time HTTPS setup helper for `dashboard.huvle.org`
+- [scripts/setup-https.sh](scripts/setup-https.sh): one-command first-time HTTPS setup helper for `dashboard.example.com`
 - [Python Scripts/news_collector_main.py](Python%20Scripts/news_collector_main.py): scrape/classification refresh loop
 - [Python Scripts/agentCallers/main.py](Python%20Scripts/agentCallers/main.py): agent-stack orchestration
 - [Python Scripts/agentCallers/agent_stages/strategist.py](Python%20Scripts/agentCallers/agent_stages/strategist.py): buy/do-not-buy stage
