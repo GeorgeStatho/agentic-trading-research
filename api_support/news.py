@@ -29,6 +29,30 @@ def _build_news_section_payload() -> dict:
     }
 
 
+def _normalize_analysis_status(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"analyzed", "processed_no_assessment", "pending"}:
+        return normalized
+    return "pending"
+
+
+def _pick_analysis_status(*values: Any) -> str:
+    priorities = {
+        "pending": 0,
+        "processed_no_assessment": 1,
+        "analyzed": 2,
+    }
+    best_status = "pending"
+    best_priority = priorities[best_status]
+    for value in values:
+        normalized = _normalize_analysis_status(value)
+        priority = priorities[normalized]
+        if priority > best_priority:
+            best_status = normalized
+            best_priority = priority
+    return best_status
+
+
 def _build_analyzed_company_news_pagination_payload(
     *,
     page: int,
@@ -301,11 +325,17 @@ def _append_scoped_news_row(section: dict, row_data: dict) -> None:
             "source": str(row_data.get("source") or "").strip(),
             "source_url": str(row_data.get("source_url") or "").strip(),
             "published_at": str(row_data.get("published_at") or "").strip(),
+            "analysis_status": _normalize_analysis_status(row_data.get("analysis_status")),
             "assessments": [],
             "_assessment_keys": set(),
         }
         articles_by_id[article_id] = article_entry
         section["articles"].append(article_entry)
+    else:
+        article_entry["analysis_status"] = _pick_analysis_status(
+            article_entry.get("analysis_status"),
+            row_data.get("analysis_status"),
+        )
 
     confidence = str(row_data.get("confidence") or "").strip().lower()
     impact_direction = str(row_data.get("impact_direction") or "").strip().lower()
@@ -496,7 +526,12 @@ def build_analyzed_company_news_payload(
                     substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
                     na.source,
                     na.source_url,
-                    na.published_at
+                    na.published_at,
+                    CASE
+                        WHEN coi.article_id IS NOT NULL THEN 'analyzed'
+                        WHEN cop.article_id IS NOT NULL THEN 'processed_no_assessment'
+                        ELSE 'pending'
+                    END AS analysis_status
                 FROM company_news_articles AS cna
                 JOIN companies AS c ON c.id = cna.company_id
                 JOIN industries AS i ON i.id = c.industry_id
@@ -505,6 +540,9 @@ def build_analyzed_company_news_payload(
                 LEFT JOIN company_opportunist_impacts AS coi
                     ON coi.article_id = cna.article_id
                    AND coi.company_id = cna.company_id
+                LEFT JOIN company_opportunist_article_processing AS cop
+                    ON cop.article_id = cna.article_id
+                   AND cop.company_id = cna.company_id
                 WHERE cna.company_id IN ({placeholders})
                 ORDER BY c.symbol ASC, na.published_at DESC, cna.article_id DESC, coi.created_at DESC
                 """,
@@ -530,7 +568,8 @@ def build_analyzed_company_news_payload(
                     substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
                     na.source,
                     na.source_url,
-                    na.published_at
+                    na.published_at,
+                    'analyzed' AS analysis_status
                 FROM company_opportunist_impacts AS coi
                 JOIN companies AS c ON c.id = coi.company_id
                 JOIN industries AS i ON i.id = c.industry_id

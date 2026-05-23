@@ -29,6 +29,115 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific te
 
 @unittest.skipUnless(FLASK_AVAILABLE, "Flask is not installed in this environment.")
 class ApiNewsTests(unittest.TestCase):
+    def test_analyzed_company_news_exposes_company_article_analysis_status(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "company_status_test.sqlite3"
+            published_at = datetime.now(timezone.utc).isoformat()
+
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.executescript(
+                    """
+                    CREATE TABLE sectors (
+                        id INTEGER PRIMARY KEY,
+                        sector_key TEXT,
+                        name TEXT
+                    );
+                    CREATE TABLE industries (
+                        id INTEGER PRIMARY KEY,
+                        sector_id INTEGER,
+                        industry_key TEXT,
+                        name TEXT
+                    );
+                    CREATE TABLE companies (
+                        id INTEGER PRIMARY KEY,
+                        industry_id INTEGER,
+                        symbol TEXT,
+                        name TEXT
+                    );
+                    CREATE TABLE news_articles (
+                        id INTEGER PRIMARY KEY,
+                        title TEXT,
+                        summary TEXT,
+                        body TEXT,
+                        source TEXT,
+                        source_url TEXT,
+                        published_at TEXT
+                    );
+                    CREATE TABLE company_news_articles (
+                        company_id INTEGER,
+                        article_id INTEGER
+                    );
+                    CREATE TABLE company_opportunist_impacts (
+                        article_id INTEGER,
+                        company_id INTEGER,
+                        confidence TEXT,
+                        impact_direction TEXT,
+                        impact_magnitude TEXT,
+                        reason TEXT,
+                        created_at TEXT
+                    );
+                    CREATE TABLE company_opportunist_article_processing (
+                        article_id INTEGER,
+                        company_id INTEGER,
+                        processed_at TEXT,
+                        model TEXT
+                    );
+                    """
+                )
+                conn.execute(
+                    "INSERT INTO sectors (id, sector_key, name) VALUES (1, 'technology', 'Technology')"
+                )
+                conn.execute(
+                    "INSERT INTO industries (id, sector_id, industry_key, name) VALUES (10, 1, 'semiconductors', 'Semiconductors')"
+                )
+                conn.execute(
+                    "INSERT INTO companies (id, industry_id, symbol, name) VALUES (100, 10, 'MU', 'Micron Technology, Inc.')"
+                )
+                conn.executemany(
+                    """
+                    INSERT INTO news_articles (id, title, summary, body, source, source_url, published_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (1, "Analyzed article", "Analyzed summary", "Analyzed body", "Test Wire", "https://example.com/1", published_at),
+                        (2, "Processed no impact", "Processed summary", "Processed body", "Test Wire", "https://example.com/2", published_at),
+                        (3, "Pending article", "Pending summary", "Pending body", "Test Wire", "https://example.com/3", published_at),
+                    ],
+                )
+                conn.executemany(
+                    "INSERT INTO company_news_articles (company_id, article_id) VALUES (?, ?)",
+                    [(100, 1), (100, 2), (100, 3)],
+                )
+                conn.execute(
+                    """
+                    INSERT INTO company_opportunist_impacts
+                    (article_id, company_id, confidence, impact_direction, impact_magnitude, reason, created_at)
+                    VALUES (1, 100, 'high', 'positive', 'major', 'Clear upside catalyst', ?)
+                    """,
+                    (published_at,),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO company_opportunist_article_processing
+                    (article_id, company_id, processed_at, model)
+                    VALUES (2, 100, ?, 'test-model')
+                    """,
+                    (published_at,),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with patch("api_support.news.DB_PATH", db_path):
+                payload = build_analyzed_company_news_payload(page=1, page_size=10)
+
+        company_articles = payload["companies"][0]["company_news"]["articles"]
+        article_statuses = {article["title"]: article["analysis_status"] for article in company_articles}
+        self.assertEqual(article_statuses["Analyzed article"], "analyzed")
+        self.assertEqual(article_statuses["Processed no impact"], "processed_no_assessment")
+        self.assertEqual(article_statuses["Pending article"], "pending")
+
     def test_analyzed_company_news_returns_full_company_article_history(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "news_test.sqlite3"
