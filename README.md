@@ -13,6 +13,10 @@ It is still an experiment, not production trading software.
 
 This public repository intentionally keeps demo-safe defaults. Production-tuned prompts, private source lists, live runtime artifacts, and real credentials are excluded or simplified here.
 
+> [!IMPORTANT]
+> This public repository is a demo-safe version of the project.  
+> If you are interested in the full/private version, production architecture, collaboration, or have questions about the real bot, please contact me using the links in the **Contact** section below.
+
 Preferred import paths and compatibility-wrapper guidance live in
 [INTERFACE_GUIDE.md](INTERFACE_GUIDE.md).
 
