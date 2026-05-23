@@ -1,0 +1,20 @@
+"""Compatibility wrapper for ``agent_analysis.industry_interest``.
+
+Prefer importing from ``agent_analysis.industry_interest`` in new code.
+Keep this file as a backward-compatible shim only.
+"""
+
+from __future__ import annotations
+
+import runpy
+
+from _paths import add_agent_caller_paths
+
+
+add_agent_caller_paths()
+
+from agent_analysis.industry_interest import *  # noqa: F401,F403
+
+
+if __name__ == "__main__":
+    runpy.run_module("agent_analysis.industry_interest", run_name="__main__")

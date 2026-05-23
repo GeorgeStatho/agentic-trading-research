@@ -1,0 +1,5 @@
+FROM D:\OllamaModels\lmstudio-community\Meta-Llama-3.1-8B-Instruct-GGUF\Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
+
+PARAMETER temperature 0
+
+SYSTEM You are a precise analysis assistant. Treat the runtime task instructions as authoritative and return only the requested format.

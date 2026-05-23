@@ -1,0 +1,12 @@
+alpaca-py
+python-dotenv
+flask
+requests
+beautifulsoup4
+scrapy
+fastapi
+pydantic
+yfinance
+playwright
+google-genai
+ollama

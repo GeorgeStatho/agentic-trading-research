@@ -1,0 +1,26 @@
+{
+  "https://example.com/demo/rss/technology.xml": {
+    "feed_name": "Demo Technology Feed",
+    "sector_name": "Information Technology",
+    "sector_key": "technology",
+    "category": "sector_rss_feed",
+    "mapping_type": "direct",
+    "topic_tag": "technology"
+  },
+  "https://example.com/demo/rss/healthcare.xml": {
+    "feed_name": "Demo Healthcare Feed",
+    "sector_name": "Health Care",
+    "sector_key": "healthcare",
+    "category": "sector_rss_feed",
+    "mapping_type": "direct",
+    "topic_tag": "healthcare"
+  },
+  "https://example.org/demo/rss/industrials.xml": {
+    "feed_name": "Demo Industrials Feed",
+    "sector_name": "Industrials",
+    "sector_key": "industrials",
+    "category": "sector_rss_feed",
+    "mapping_type": "direct",
+    "topic_tag": "industrials"
+  }
+}

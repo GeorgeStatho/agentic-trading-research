@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "description": "Public demo source config. Real source rankings, allowlists, and URL patterns live only in the private repository.",
+  "defaults": {
+    "allowed": false,
+    "reputation_score": 0.5,
+    "source_type": "unknown",
+    "paywalled": false,
+    "listing_supported": false,
+    "search_supported": false,
+    "article_patterns": [],
+    "max_article_age_days": 14
+  },
+  "domains": {
+    "example.com": {
+      "allowed": true,
+      "reputation_score": 0.6,
+      "source_type": "demo_search",
+      "paywalled": false,
+      "listing_supported": true,
+      "search_supported": true,
+      "article_patterns": [
+        "/demo/articles/",
+        "/demo/posts/"
+      ],
+      "max_article_age_days": 14
+    },
+    "example.org": {
+      "allowed": true,
+      "reputation_score": 0.55,
+      "source_type": "demo_listing",
+      "paywalled": false,
+      "listing_supported": true,
+      "search_supported": false,
+      "article_patterns": [
+        "/demo/articles/"
+      ],
+      "max_article_age_days": 14
+    }
+  }
+}

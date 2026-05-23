@@ -1,0 +1,14 @@
+{
+  "url": "https://example.com/demo/articles/sample-company-update",
+  "title": "Sample Company Update",
+  "text": "Example Corp announced a demo product launch and guided toward stable demand in the next quarter.",
+  "published_at": "2026-05-20T12:00:00+00:00",
+  "source": "demo",
+  "company_mentions": [
+    {
+      "symbol": "DEMO",
+      "name": "Example Corp"
+    }
+  ],
+  "analysis_status": "ready_for_llm"
+}

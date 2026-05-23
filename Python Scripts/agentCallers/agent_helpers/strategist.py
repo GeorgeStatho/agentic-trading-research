@@ -1,0 +1,392 @@
+from __future__ import annotations
+
+from datetime import datetime
+import json
+from pathlib import Path
+import sys
+from typing import Any
+
+
+AGENT_CALLERS_DIR = Path(__file__).resolve().parent
+if str(AGENT_CALLERS_DIR) not in sys.path:
+    sys.path.append(str(AGENT_CALLERS_DIR))
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+DATA_DIR = ROOT_DIR / "Data"
+if str(DATA_DIR) not in sys.path:
+    sys.path.append(str(DATA_DIR))
+
+from agent_helpers.company_opportunist import get_company_reference
+from agent_helpers.opportunist_payload import (
+    DEFAULT_MAX_ARTICLE_AGE_DAYS,
+    ACCEPTED_CONFIDENCE_LEVELS,
+    HIGH_CONFIDENCE,
+    get_high_confidence_macro_news_for_sector,
+    get_sector_rss_news,
+)
+from agent_helpers.shared import normalize_time_window, published_at_in_window
+from db_helpers import DB_PATH, get_connection, initialize_news_database
+
+
+__all__ = [
+    "DEFAULT_MAX_ARTICLE_AGE_DAYS",
+    "HIGH_CONFIDENCE",
+    "build_strategist_evidence_sections",
+    "get_company_context",
+    "get_high_confidence_company_news",
+    "get_high_confidence_industry_news",
+    "get_macro_news_for_company_sector",
+    "get_high_confidence_sector_news",
+    "get_sector_news_for_company_sector",
+]
+
+
+def get_company_context(company_identifier: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    company, peer_groups, _articles = get_company_reference(company_identifier)
+    return company, peer_groups
+
+
+def _deserialize_impact_raw_json(raw_json: Any) -> dict[str, Any]:
+    if isinstance(raw_json, dict):
+        return raw_json
+    if isinstance(raw_json, str):
+        try:
+            parsed = json.loads(raw_json)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _build_processed_article_record(
+    row: dict[str, Any],
+    *,
+    article_scope: str,
+    subject_id_key: str,
+    subject_key_key: str,
+    subject_name_key: str,
+) -> dict[str, Any]:
+    # Assemble the processed article record so callers can work from one normalized shape.
+    impact_payload = _deserialize_impact_raw_json(row.get("impact_raw_json"))
+    return {
+        "article_id": row["article_id"],
+        subject_id_key: row[subject_id_key],
+        subject_key_key: row[subject_key_key],
+        subject_name_key: row[subject_name_key],
+        "confidence": impact_payload.get("confidence") or row["confidence"] or "",
+        "impact_direction": impact_payload.get("impact_direction") or row["impact_direction"] or "",
+        "impact_magnitude": impact_payload.get("impact_magnitude") or row["impact_magnitude"] or "",
+        "materiality": impact_payload.get("materiality") or "",
+        "time_horizon": impact_payload.get("time_horizon") or "",
+        "effect_type": impact_payload.get("effect_type") or "",
+        "relative_positioning": impact_payload.get("relative_positioning") or "",
+        "reason": impact_payload.get("reason") or row["reason"] or "",
+        "impact_created_at": row["impact_created_at"] or "",
+        "processed_at": row["processed_at"] or "",
+        "model": row["model"] or "",
+        "title": row["title"] or "",
+        "summary": row["summary"] or "",
+        "body": row["body"] or "",
+        "source": row["source"] or "",
+        "source_url": row["source_url"] or "",
+        "published_at": row["published_at"] or "",
+        "article_scope": article_scope,
+    }
+
+
+def _filter_rows_to_window(
+    rows: list[dict[str, Any]],
+    *,
+    start_time: datetime | None,
+    end_time: datetime | None,
+    max_age_days: int | None,
+) -> list[dict[str, Any]]:
+    # Filter the rows to window down to the rows this stage should keep processing.
+    normalized_start, normalized_end = normalize_time_window(
+        start_time=start_time,
+        end_time=end_time,
+        max_age_days=max_age_days,
+    )
+    return [
+        row
+        for row in rows
+        if published_at_in_window(
+            row.get("published_at"),
+            start_time=normalized_start,
+            end_time=normalized_end,
+        )
+    ]
+
+
+def get_macro_news_for_company_sector(
+    company: dict[str, Any],
+    *,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
+) -> list[dict[str, Any]]:
+    return get_high_confidence_macro_news_for_sector(
+        company["sector_key"],
+        start_time=start_time,
+        end_time=end_time,
+        max_age_days=max_age_days,
+    )
+
+
+def get_sector_news_for_company_sector(
+    company: dict[str, Any],
+    *,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
+) -> list[dict[str, Any]]:
+    return get_sector_rss_news(
+        company["sector_key"],
+        start_time=start_time,
+        end_time=end_time,
+        max_age_days=max_age_days,
+    )
+
+
+def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
+    # Load the high confidence sector rows once so the downstream logic can stay focused on orchestration.
+    with get_connection(DB_PATH) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                soi.article_id,
+                soi.sector_id,
+                s.sector_key,
+                s.name AS sector_name,
+                soi.confidence,
+                soi.impact_direction,
+                soi.impact_magnitude,
+                soi.reason,
+                soi.raw_json AS impact_raw_json,
+                soi.created_at AS impact_created_at,
+                sop.processed_at,
+                sop.model,
+                na.title,
+                na.summary,
+                na.body,
+                na.source,
+                na.source_url,
+                na.published_at
+            FROM sector_opportunist_impacts AS soi
+            JOIN sectors AS s ON s.id = soi.sector_id
+            JOIN news_articles AS na ON na.id = soi.article_id
+            LEFT JOIN sector_opportunist_article_processing AS sop ON sop.article_id = soi.article_id
+            WHERE soi.sector_id = ?
+              AND lower(coalesce(soi.confidence, '')) IN (?, ?)
+            ORDER BY na.published_at DESC, soi.article_id DESC
+            """,
+            (sector_id, *ACCEPTED_CONFIDENCE_LEVELS),
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_high_confidence_sector_news(
+    company: dict[str, Any],
+    *,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
+) -> list[dict[str, Any]]:
+    # Load the high confidence sector news and normalize it for downstream callers.
+    rows = _load_high_confidence_sector_rows(int(company["sector_id"]))
+    rows = _filter_rows_to_window(
+        rows,
+        start_time=start_time,
+        end_time=end_time,
+        max_age_days=max_age_days,
+    )
+    return [
+        _build_processed_article_record(
+            row,
+            article_scope="sector_news",
+            subject_id_key="sector_id",
+            subject_key_key="sector_key",
+            subject_name_key="sector_name",
+        )
+        for row in rows
+    ]
+
+
+def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]]:
+    # Load the high confidence industry rows once so the downstream logic can stay focused on orchestration.
+    with get_connection(DB_PATH) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                ioi.article_id,
+                ioi.industry_id,
+                i.industry_key,
+                i.name AS industry_name,
+                ioi.confidence,
+                ioi.impact_direction,
+                ioi.impact_magnitude,
+                ioi.reason,
+                ioi.raw_json AS impact_raw_json,
+                ioi.created_at AS impact_created_at,
+                iop.processed_at,
+                iop.model,
+                na.title,
+                na.summary,
+                na.body,
+                na.source,
+                na.source_url,
+                na.published_at
+            FROM industry_opportunist_impacts AS ioi
+            JOIN industries AS i ON i.id = ioi.industry_id
+            JOIN news_articles AS na ON na.id = ioi.article_id
+            LEFT JOIN industry_opportunist_article_processing AS iop ON iop.article_id = ioi.article_id
+            WHERE ioi.industry_id = ?
+              AND lower(coalesce(ioi.confidence, '')) IN (?, ?)
+            ORDER BY na.published_at DESC, ioi.article_id DESC
+            """,
+            (industry_id, *ACCEPTED_CONFIDENCE_LEVELS),
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_high_confidence_industry_news(
+    company: dict[str, Any],
+    *,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
+) -> list[dict[str, Any]]:
+    # Load the high confidence industry news and normalize it for downstream callers.
+    rows = _load_high_confidence_industry_rows(int(company["industry_id"]))
+    rows = _filter_rows_to_window(
+        rows,
+        start_time=start_time,
+        end_time=end_time,
+        max_age_days=max_age_days,
+    )
+    return [
+        _build_processed_article_record(
+            row,
+            article_scope="industry_news",
+            subject_id_key="industry_id",
+            subject_key_key="industry_key",
+            subject_name_key="industry_name",
+        )
+        for row in rows
+    ]
+
+
+def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
+    # Load the high confidence company rows once so the downstream logic can stay focused on orchestration.
+    with get_connection(DB_PATH) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                coi.article_id,
+                coi.company_id,
+                c.symbol,
+                c.name AS company_name,
+                coi.confidence,
+                coi.impact_direction,
+                coi.impact_magnitude,
+                coi.reason,
+                coi.raw_json AS impact_raw_json,
+                coi.created_at AS impact_created_at,
+                cop.processed_at,
+                cop.model,
+                na.title,
+                na.summary,
+                na.body,
+                na.source,
+                na.source_url,
+                na.published_at
+            FROM company_opportunist_impacts AS coi
+            JOIN companies AS c ON c.id = coi.company_id
+            JOIN news_articles AS na ON na.id = coi.article_id
+            LEFT JOIN company_opportunist_article_processing AS cop
+                ON cop.article_id = coi.article_id
+               AND cop.company_id = coi.company_id
+            WHERE coi.company_id = ?
+              AND lower(coalesce(coi.confidence, '')) IN (?, ?)
+            ORDER BY na.published_at DESC, coi.article_id DESC
+            """,
+            (company_id, *ACCEPTED_CONFIDENCE_LEVELS),
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_high_confidence_company_news(
+    company: dict[str, Any],
+    *,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
+) -> list[dict[str, Any]]:
+    # Load the high confidence company news and normalize it for downstream callers.
+    rows = _load_high_confidence_company_rows(int(company["company_id"]))
+    rows = _filter_rows_to_window(
+        rows,
+        start_time=start_time,
+        end_time=end_time,
+        max_age_days=max_age_days,
+    )
+    return [
+        _build_processed_article_record(
+            row,
+            article_scope="company_news",
+            subject_id_key="company_id",
+            subject_key_key="symbol",
+            subject_name_key="company_name",
+        )
+        for row in rows
+    ]
+
+
+def build_strategist_evidence_sections(
+    company_identifier: str,
+    *,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
+) -> dict[str, Any]:
+    # Assemble the sector, industry, and company evidence blocks so the strategist prompt stays consistent.
+    initialize_news_database()
+    company, peer_groups = get_company_context(company_identifier)
+
+    return {
+        "company": company,
+        "peer_groups": peer_groups,
+        "macro_impacts": get_macro_news_for_company_sector(
+            company,
+            start_time=start_time,
+            end_time=end_time,
+            max_age_days=max_age_days,
+        ),
+        "sector_impacts": get_high_confidence_sector_news(
+            company,
+            start_time=start_time,
+            end_time=end_time,
+            max_age_days=max_age_days,
+        ),
+        "sector_rss_articles": get_sector_news_for_company_sector(
+            company,
+            start_time=start_time,
+            end_time=end_time,
+            max_age_days=max_age_days,
+        ),
+        "industry_impacts": get_high_confidence_industry_news(
+            company,
+            start_time=start_time,
+            end_time=end_time,
+            max_age_days=max_age_days,
+        ),
+        "company_impacts": get_high_confidence_company_news(
+            company,
+            start_time=start_time,
+            end_time=end_time,
+            max_age_days=max_age_days,
+        ),
+    }

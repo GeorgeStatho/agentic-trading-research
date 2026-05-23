@@ -1,0 +1,31 @@
+.order-card-list {
+  display: grid;
+  gap: 20px;
+  width: min(1100px, 92vw);
+  margin: 0 auto;
+}
+
+
+.order-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--bg) 94%, white);
+  box-shadow: var(--shadow);
+}
+
+.order-card__title {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.order-card__text {
+  margin-top: 0;
+}
+
+.order-card__error {
+  margin-bottom: 0;
+  color: #b91c1c;
+}
