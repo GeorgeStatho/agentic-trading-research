@@ -4,12 +4,7 @@ import re
 from urllib.parse import urlsplit
 
 
-CNBC_BLACKLISTED_PATH_FRAGMENTS = (
-    "/investingclub/video/",
-    "/pro/news/",
-    "/pro/options-investing/",
-    "/application/pro/",
-)
+DEMO_BLACKLISTED_PATH_FRAGMENTS = ("/account/", "/login/", "/subscribe/")
 
 
 def normalize_match_text(value: str | None) -> str:
@@ -17,10 +12,10 @@ def normalize_match_text(value: str | None) -> str:
     return " ".join(cleaned.split())
 
 
-def is_blacklisted_cnbc_link(href: str) -> bool:
+def is_blacklisted_source_link(href: str) -> bool:
     normalized_href = href.lower()
-    return "cnbc.com" in normalized_href and any(
-        fragment in normalized_href for fragment in CNBC_BLACKLISTED_PATH_FRAGMENTS
+    return any(
+        fragment in normalized_href for fragment in DEMO_BLACKLISTED_PATH_FRAGMENTS
     )
 
 

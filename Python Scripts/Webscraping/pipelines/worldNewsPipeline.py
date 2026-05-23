@@ -14,7 +14,7 @@ from pipelines._shared import get_log_file_path
 from db_helpers import add_world_news_article, initialize_news_database
 
 
-WORLD_RSS_FEED_URL = "https://www.cnbc.com/id/100727362/device/rss/rss.html"
+WORLD_RSS_FEED_URL = "https://example.com/demo/rss/world.xml"
 _PIPELINE = make_region_pipeline(
     logger_name="world_pipeline",
     region_slug="world",

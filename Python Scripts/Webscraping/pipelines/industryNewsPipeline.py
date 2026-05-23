@@ -25,7 +25,7 @@ from pipelines._entity_adapters import (
     make_request_saver,
     make_search_request_builder,
 )
-from pipelines._internal import is_blacklisted_cnbc_link, link_matches_variants, normalize_match_text
+from pipelines._internal import is_blacklisted_source_link, link_matches_variants, normalize_match_text
 from pipelines._orchestration import (
     run_mixed_job_orchestration,
 )
@@ -121,8 +121,8 @@ def _filter_industry_candidate_links(page_url: str, links: list[dict], industry:
         href = str(link.get("href") or "")
         if not href:
             continue
-        if is_blacklisted_cnbc_link(href):
-            LOGGER.info("Skipping blacklisted CNBC URL %s for industry %s", href, industry["name"])
+        if is_blacklisted_source_link(href):
+            LOGGER.info("Skipping blocked source URL %s for industry %s", href, industry["name"])
             continue
 
         if link_matches_variants(link, variants):

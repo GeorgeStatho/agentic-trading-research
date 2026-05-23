@@ -32,7 +32,7 @@ from pipelines._entity_adapters import (
     make_request_saver,
     make_search_request_builder,
 )
-from pipelines._internal import is_blacklisted_cnbc_link, link_matches_variants, normalize_match_text
+from pipelines._internal import is_blacklisted_source_link, link_matches_variants, normalize_match_text
 from pipelines._orchestration import (
     run_mixed_job_orchestration,
 )
@@ -159,9 +159,8 @@ def _build_api_jobs(company: dict) -> list[CompanySourceJob]:
 
 
 def _filter_company_candidate_links(page_url: str, links: list[dict], company: dict) -> list[dict]:
-    # Start from the shared source/article-pattern filter. We still keep
-    # explicit CNBC blacklist protection, but we no longer drop links just
-    # because the visible text is a weak company-name match.
+    # Start from the shared source/article-pattern filter, then apply a small
+    # public-safe blocked-path list without exposing private source logic.
     base_candidates = filter_article_links(page_url, links)
     if not base_candidates:
         return []
@@ -171,8 +170,8 @@ def _filter_company_candidate_links(page_url: str, links: list[dict], company: d
         href = str(link.get("href") or "")
         if not href:
             continue
-        if is_blacklisted_cnbc_link(href):
-            LOGGER.info("Skipping blacklisted CNBC URL %s for company %s", href, company["symbol"])
+        if is_blacklisted_source_link(href):
+            LOGGER.info("Skipping blocked source URL %s for company %s", href, company["symbol"])
             continue
         filtered.append(link)
 
@@ -301,7 +300,7 @@ def _build_company_jobs(company: dict) -> list[CompanySourceJob]:
     try:
         yahoo_news_items = get_company_news_items(symbol)
     except Exception as exc:
-        LOGGER.warning("Yahoo Finance news fetch failed for %s: %s", symbol, exc)
+        LOGGER.warning("Supplemental discovery feed failed for %s: %s", symbol, exc)
         return jobs
 
     yahoo_news_pairs = extract_title_and_url(yahoo_news_items)

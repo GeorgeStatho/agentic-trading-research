@@ -11,8 +11,9 @@ from pipelines._sector_rss import DEFAULT_RSS_MAX_AGE_DAYS, extract_recent_rss_u
 LOGGER = get_scrape_logger("region_pipeline")
 
 
-def _is_cnbc_url(url: str) -> bool:
-    return "cnbc.com" in (url or "").lower()
+def _is_demo_feed_url(url: str) -> bool:
+    lowered = (url or "").lower()
+    return "example.com" in lowered or "example.org" in lowered
 
 
 def _classify_article_urls(urls: list[str]) -> tuple[list[str], list[str]]:
@@ -110,7 +111,7 @@ def make_region_pipeline(
             {
                 "url": url,
                 "region": region_context,
-                "source_name": "cnbc_rss",
+                "source_name": "demo_rss",
                 "source_type": "article",
             }
             for url in deduped_urls
@@ -122,7 +123,7 @@ def make_region_pipeline(
         return run_article_save_requests(
             save_requests=save_requests,
             save_request=save_request,
-            should_include_link=lambda href, link: _is_cnbc_url(href),
+            should_include_link=lambda href, link: _is_demo_feed_url(href),
         )
 
     def get_news(urls: list[str]) -> int:
@@ -156,4 +157,3 @@ def make_region_pipeline(
         "get_news_from_rss": get_news_from_rss,
         "context": region_context,
     }
-

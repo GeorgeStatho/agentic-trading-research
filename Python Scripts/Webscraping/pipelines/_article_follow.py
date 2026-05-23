@@ -1,11 +1,6 @@
 from __future__ import annotations
 
-import re
-from datetime import datetime, timezone
-from typing import Any, Callable
-from urllib.parse import urlsplit
-from pathlib import Path
-import sys
+from typing import Callable
 
 from pipelines._shared import (
     ArticleExtractionResult,
@@ -18,59 +13,17 @@ from pipelines._shared import (
     get_max_article_age_days,
     get_source_metadata,
     is_allowed_source,
-    is_recent_article,
     normalize_title,
     normalize_url,
     record_failed_url,
     cast,
 )
 
-API_DIR = Path(__file__).resolve().parents[1] / "APIs"
-if str(API_DIR) not in sys.path:
-    sys.path.append(str(API_DIR))
-
-from foolAPI import get_article_content as get_fool_article_content
-from gurufocusAPI import get_article_content as get_gurufocus_article_content
-from InvestingAPI import get_article_content as get_investing_article_content
-from morningStarAPI import get_article_content as get_morningstar_article_content
-
-CNBc_URL_DATE_RE = re.compile(r"/(?P<year>\d{4})/(?P<month>\d{2})/(?P<day>\d{2})/")
-
-ARTICLE_CONTENT_FETCHERS: tuple[tuple[str, Callable[[str], dict[str, Any]]], ...] = (
-    ("fool.com", get_fool_article_content),
-    ("investing.com", get_investing_article_content),
-    ("morningstar.com", get_morningstar_article_content),
-    ("gurufocus.com", get_gurufocus_article_content),
-)
-
-
-def _extract_cnbc_url_published_at(url: str) -> str | None:
-    lowered = str(url or "").strip().lower()
-    if "cnbc.com" not in lowered:
-        return None
-
-    match = CNBc_URL_DATE_RE.search(urlsplit(lowered).path)
-    if match is None:
-        return None
-
-    try:
-        published_at = datetime(
-            int(match.group("year")),
-            int(match.group("month")),
-            int(match.group("day")),
-            tzinfo=timezone.utc,
-        )
-    except ValueError:
-        return None
-
-    return published_at.isoformat()
-
 
 def _should_skip_article_fetch_for_age(url: str, *, max_age_days: int) -> bool:
-    inferred_published_at = _extract_cnbc_url_published_at(url)
-    if not inferred_published_at:
-        return False
-    return not is_recent_article(inferred_published_at, max_age_days=max_age_days)
+    del url
+    del max_age_days
+    return False
 
 
 def collect_article_urls_to_fetch(
@@ -109,77 +62,14 @@ def collect_article_urls_to_fetch(
     return urls_to_fetch
 
 
-def _get_article_content_fetcher(url: str) -> Callable[[str], dict[str, Any]] | None:
-    hostname = (urlsplit(str(url or "")).hostname or "").lower()
-    for domain, fetcher in ARTICLE_CONTENT_FETCHERS:
-        if hostname == domain or hostname.endswith(f".{domain}"):
-            return fetcher
-    return None
-
-
-def _extract_article_result_from_api_payload(payload: dict[str, Any], fallback_url: str) -> ArticleExtractionResult:
-    # Extract the article result from api payload from the raw response and return a stable value.
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(data, dict):
-        return ArticleExtractionResult(
-            url=fallback_url,
-            success=False,
-            error="API article extractor returned an unexpected payload shape.",
-        )
-
-    title = str(data.get("title") or "").strip()
-    body = str(data.get("body") or "").strip()
-    published_at = str(data.get("published_at") or "").strip()
-    url = str(data.get("url") or fallback_url).strip() or fallback_url
-
-    if not title or not body:
-        return ArticleExtractionResult(
-            url=url,
-            title=title,
-            text=body,
-            published_at=published_at,
-            success=False,
-            error="API article extractor returned empty title or body.",
-        )
-
-    return ArticleExtractionResult(
-        url=url,
-        title=title,
-        text=body,
-        published_at=published_at,
-        success=True,
-    )
-
-
 def fetch_articles_with_preferred_extractors(
     urls: list[str],
     *,
     logger=None,
 ) -> dict[str, ArticleExtractionResult]:
-    # Fetch the articles with preferred extractors and normalize the result for the next stage.
-    fetched_articles: dict[str, ArticleExtractionResult] = {}
-    fallback_urls: list[str] = []
-
-    for url in urls:
-        fetcher = _get_article_content_fetcher(url)
-        if fetcher is None:
-            fallback_urls.append(url)
-            continue
-
-        try:
-            payload = fetcher(url)
-            fetched_articles[url] = _extract_article_result_from_api_payload(payload, url)
-            if logger is not None and fetched_articles[url].success:
-                logger.info("Fetched article via API extractor for %s", url)
-        except Exception as exc:
-            if logger is not None:
-                logger.warning("API article extractor failed for %s: %s", url, exc)
-            fallback_urls.append(url)
-
-    if fallback_urls:
-        fetched_articles.update(crawl_article_pages(fallback_urls))
-
-    return fetched_articles
+    # The public repository uses the generic article crawler only.
+    del logger
+    return crawl_article_pages(urls)
 
 
 def save_followed_article_links(

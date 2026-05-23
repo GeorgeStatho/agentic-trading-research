@@ -23,7 +23,7 @@ DEFAULT_MAX_ARTICLE_AGE_DAYS = 5
 HIGH_CONFIDENCE = "high"
 MEDIUM_CONFIDENCE = "medium"
 ACCEPTED_CONFIDENCE_LEVELS = (HIGH_CONFIDENCE, MEDIUM_CONFIDENCE)
-CNBC_SOURCE = "cnbc.com"
+RSS_SOURCE = "demo_rss"
 
 __all__ = [
     "ACCEPTED_CONFIDENCE_LEVELS",
@@ -76,9 +76,9 @@ def _load_sector_rss_rows(sector_id: int) -> list[dict[str, Any]]:
             """,
             (
                 sector_id,
-                CNBC_SOURCE,
-                "%cnbc.com%",
-                "%cnbc.com%",
+                RSS_SOURCE,
+                "%example.com%",
+                "%example.com%",
             ),
         ).fetchall()
     return [dict(row) for row in rows]

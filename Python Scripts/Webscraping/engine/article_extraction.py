@@ -116,61 +116,11 @@ def _extract_published_at(response: Response) -> str:
 
 def extract_from_response(response: Response) -> ArticleExtractionResult:
     # Extract the from response from the raw response and return a stable value.
-    lowered_url = response.url.lower()
-
-    if "marketwatch.com" in lowered_url:
-        from extractors.marketwatch import extract_marketwatch_article
-
-        marketwatch_result = extract_marketwatch_article(response)
-        if marketwatch_result.success:
-            return marketwatch_result
-
-    if "morningstar.com" in lowered_url:
-        from extractors.morningstar import extract_morningstar_article
-
-        morningstar_result = extract_morningstar_article(response)
-        if morningstar_result.success:
-            return morningstar_result
-
-    if "barrons.com" in lowered_url:
-        from extractors.barrons import extract_barrons_article
-
-        barrons_result = extract_barrons_article(response)
-        if barrons_result.success:
-            return barrons_result
-
-    if "cnbc.com" in lowered_url:
-        from extractors.cnbc import extract_cnbc_article
-
-        cnbc_result = extract_cnbc_article(response)
-        if cnbc_result.success:
-            return cnbc_result
-
-    if "investing.com" in lowered_url:
-        from extractors.investing import extract_investing_article
-
-        investing_result = extract_investing_article(response)
-        if investing_result.success:
-            return investing_result
-
-    if "fool.com" in lowered_url:
-        from extractors.fool import extract_fool_article
-
-        fool_result = extract_fool_article(response)
-        if fool_result.success:
-            return fool_result
-
-    if "finance.yahoo.com" in lowered_url:
-        from extractors.yahoo import extract_yahoo_article
-
-        yahoo_result = extract_yahoo_article(response)
-        if yahoo_result.success:
-            return yahoo_result
-
-    title = response.css("title::text").get(default="").strip()
+    title = response.css("article h1::text, main h1::text, h1::text, title::text").get(default="").strip()
     published_at = _extract_published_at(response)
 
     paragraph_candidates = [
+        "[data-article-body] p::text",
         "article p::text",
         "main p::text",
         "[role='main'] p::text",
@@ -178,6 +128,7 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
         ".post-content p::text",
         ".entry-content p::text",
         ".story-body p::text",
+        ".content p::text",
         "body p::text",
     ]
 
@@ -199,7 +150,7 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
         text="",
         published_at=published_at,
         success=False,
-        error="No article text found with the current selectors.",
+        error="No article text found with the public demo selectors.",
     )
 
 
@@ -265,7 +216,7 @@ def extract_article(url: str, timeout: int = 20) -> ArticleExtractionResult:
         "User-Agent": DEFAULT_USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.google.com/",
+        "Referer": "https://example.com/",
     }
     LOGGER.info("Fetching article URL %s", url)
     try:

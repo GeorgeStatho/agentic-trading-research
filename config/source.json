@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Public sample source validation config. Production source lists and tuned scoring live in the private repository.",
+  "description": "Public demo source config. Real source rankings, allowlists, and URL patterns live only in the private repository.",
   "defaults": {
     "allowed": false,
     "reputation_score": 0.5,
@@ -12,56 +12,30 @@
     "max_article_age_days": 14
   },
   "domains": {
-    "reuters.com": {
+    "example.com": {
       "allowed": true,
-      "reputation_score": 0.9,
-      "source_type": "wire",
+      "reputation_score": 0.6,
+      "source_type": "demo_search",
       "paywalled": false,
-      "listing_supported": false,
+      "listing_supported": true,
+      "search_supported": true,
+      "article_patterns": [
+        "/demo/articles/",
+        "/demo/posts/"
+      ],
+      "max_article_age_days": 14
+    },
+    "example.org": {
+      "allowed": true,
+      "reputation_score": 0.55,
+      "source_type": "demo_listing",
+      "paywalled": false,
+      "listing_supported": true,
       "search_supported": false,
       "article_patterns": [
-        "/markets/",
-        "/business/"
+        "/demo/articles/"
       ],
       "max_article_age_days": 14
-    },
-    "cnbc.com": {
-      "allowed": true,
-      "reputation_score": 0.8,
-      "source_type": "financial_news",
-      "paywalled": false,
-      "listing_supported": false,
-      "search_supported": true,
-      "article_patterns": [
-        "/202",
-        "/video/"
-      ],
-      "max_article_age_days": 14
-    },
-    "fool.com": {
-      "allowed": true,
-      "reputation_score": 0.6,
-      "source_type": "analysis_opinion",
-      "paywalled": false,
-      "listing_supported": false,
-      "search_supported": true,
-      "article_patterns": [
-        "/investing/",
-        "/news/"
-      ],
-      "max_article_age_days": 14
-    },
-    "finance.yahoo.com": {
-      "allowed": false,
-      "reputation_score": 0.6,
-      "source_type": "market_portal",
-      "paywalled": false,
-      "listing_supported": false,
-      "search_supported": true,
-      "article_patterns": [
-        "/news/"
-      ],
-      "max_article_age_days": 10
     }
   }
 }

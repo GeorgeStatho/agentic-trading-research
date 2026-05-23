@@ -11,25 +11,7 @@ LOGGER = get_scrape_logger("playwright_runner")
 DEFAULT_PLAYWRIGHT_TIMEOUT_MS = 30_000
 DEFAULT_PLAYWRIGHT_CONCURRENCY = 5
 PLAYWRIGHT_BACKEND_NAME = "playwright"
-PLAYWRIGHT_ARTICLE_DOMAINS = (
-    "www.barrons.com",
-    "barrons.com",
-    "www.marketwatch.com",
-    "marketwatch.com",
-    "www.morningstar.com",
-    "morningstar.com",
-)
-PLAYWRIGHT_SOURCE_DOMAINS = (
-    "www.cnbc.com",
-    "cnbc.com",
-)
-CNBC_SEARCH_WAIT_SELECTORS = (
-    "a.resultlink",
-    ".SearchResult-searchResult",
-    ".Card-title",
-    "[class*='LatestNews'] a[href*='/20']",
-    "[class*='LatestNews'] [class*='headline']",
-)
+DEFAULT_PLAYWRIGHT_URL_HINTS = ("render=true", "/interactive/", "/dynamic/")
 
 
 def _use_headed_browser(urls: list[str]) -> bool:
@@ -57,84 +39,20 @@ def should_use_playwright_for_url(url: str) -> bool:
     lowered = (url or "").strip().lower()
     if not lowered:
         return False
-    return any(domain in lowered for domain in PLAYWRIGHT_ARTICLE_DOMAINS)
+    return any(hint in lowered for hint in DEFAULT_PLAYWRIGHT_URL_HINTS)
 
 
 def should_use_playwright_for_source_url(url: str) -> bool:
-    lowered = (url or "").strip().lower()
-    if not lowered:
-        return False
-    if not any(domain in lowered for domain in PLAYWRIGHT_SOURCE_DOMAINS):
-        return False
-    return "/search" in lowered or "/quotes/" in lowered
-
-
-def _is_cnbc_search_url(url: str) -> bool:
-    lowered = (url or "").strip().lower()
-    return "cnbc.com" in lowered and ("/search" in lowered or "/quotes/" in lowered)
+    return should_use_playwright_for_url(url)
 
 
 async def _prepare_page_for_capture(page, url: str, timeout_ms: int) -> None:
-    if _is_cnbc_search_url(url):
-        # CNBC search results often arrive after the initial DOMContentLoaded event.
-        # Wait for likely result selectors, then do a small scroll to trigger any
-        # lazy-rendered cards before capturing page HTML.
-        for selector in CNBC_SEARCH_WAIT_SELECTORS:
-            try:
-                await page.wait_for_selector(selector, timeout=min(timeout_ms, 8_000))
-                break
-            except Exception:
-                continue
-
-        try:
-            await page.evaluate("window.scrollTo(0, Math.min(document.body.scrollHeight, 1200));")
-        except Exception:
-            pass
-
-
-async def _log_cnbc_search_debug(page, url: str) -> None:
-    # Handle the log cnbc search debug flow in one place so callers can rely on a single, well-defined result.
-    if not _is_cnbc_search_url(url):
-        return
-
-    selector_counts: dict[str, int | str] = {}
-    for selector in ("a.resultlink", ".SearchResult-searchResult", ".Card-title", "iframe"):
-        try:
-            selector_counts[selector] = await page.locator(selector).count()
-        except Exception as exc:
-            selector_counts[selector] = f"error: {exc}"
-
-    sample_resultlinks: list[str] = []
+    del url
+    del timeout_ms
     try:
-        hrefs = await page.locator("a.resultlink").evaluate_all(
-            """elements => elements
-                .map(el => el.getAttribute('href') || '')
-                .filter(Boolean)
-                .slice(0, 5)"""
-        )
-        sample_resultlinks = [str(href).strip() for href in hrefs if str(href).strip()]
-    except Exception as exc:
-        sample_resultlinks = [f"error: {exc}"]
-
-    frame_summaries: list[dict[str, str]] = []
-    try:
-        for frame in page.frames[:5]:
-            frame_summaries.append(
-                {
-                    "url": str(frame.url or ""),
-                    "name": str(frame.name or ""),
-                }
-            )
-    except Exception as exc:
-        frame_summaries = [{"error": str(exc)}]
-
-    LOGGER.info(
-        "CNBC Playwright live DOM debug for %s: selector_counts=%s sample_resultlinks=%s frames=%s",
-        url,
-        selector_counts,
-        sample_resultlinks,
-        frame_summaries,
-    )
+        await page.evaluate("window.scrollTo(0, Math.min(document.body.scrollHeight, 1200));")
+    except Exception:
+        pass
 
 
 def _get_sync_playwright():
@@ -172,8 +90,6 @@ async def _fetch_single_rendered_page(context, url: str, timeout_ms: int) -> dic
             pass
 
         await _prepare_page_for_capture(page, url, timeout_ms)
-        await _log_cnbc_search_debug(page, url)
-
         return {
             "request_url": url,
             "url": page.url,

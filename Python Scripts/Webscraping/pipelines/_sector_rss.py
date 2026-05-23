@@ -40,7 +40,7 @@ def fetch_rss_feed_xml(rss_url: str, timeout_seconds: int = 20) -> str:
     request = Request(
         rss_url,
         headers={
-            "User-Agent": "Mozilla/5.0 (compatible; StockTradingExperiment/1.0; +https://www.cnbc.com/)",
+            "User-Agent": "Mozilla/5.0 (compatible; AgenticTradingResearchDemo/1.0; +https://example.com/)",
             "Accept": "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
         },
     )

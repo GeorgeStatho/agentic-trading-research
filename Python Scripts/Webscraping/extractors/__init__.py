@@ -13,12 +13,12 @@ from .cnbc import (
     is_cnbc_url,
     response_looks_like_cnbc_search,
 )
-from .investing import (
-    extract_investing_article,
-    extract_investing_search_links,
-    is_investing_article_url,
-    is_investing_url,
-    response_looks_like_investing_search,
+from .demo import (
+    extract_demo_article,
+    extract_demo_search_links,
+    is_demo_article_url,
+    is_demo_url,
+    response_looks_like_demo_search,
 )
 from .fool import (
     extract_fool_article,
@@ -27,6 +27,13 @@ from .fool import (
     is_fool_quote_url,
     is_fool_url,
     response_looks_like_fool_quote,
+)
+from .investing import (
+    extract_investing_article,
+    extract_investing_search_links,
+    is_investing_article_url,
+    is_investing_url,
+    response_looks_like_investing_search,
 )
 from .marketwatch import (
     extract_marketwatch_article,

@@ -18,13 +18,7 @@ from engine.article_extraction import (
     extract_from_response,
     extract_rendered_pages_parallel,
 )
-from extractors.barrons import extract_barrons_search_links, response_looks_like_barrons_search
-from extractors.cnbc import extract_cnbc_search_links, response_looks_like_cnbc_search
 from core.scrape_logging import get_log_file_path, get_scrape_logger, get_scrapy_log_settings
-from extractors.fool import extract_fool_quote_links, response_looks_like_fool_quote
-from extractors.investing import extract_investing_search_links, response_looks_like_investing_search
-from extractors.marketwatch import extract_marketwatch_search_links, response_looks_like_marketwatch_search
-from extractors.morningstar import extract_morningstar_search_links, response_looks_like_morningstar_search
 try:
     from engine.playwright_runner import (
         fetch_rendered_pages,
@@ -47,7 +41,8 @@ DEFAULT_RENDERED_EXTRACTION_WORKERS = 6
 
 
 def _is_yahoo_finance_url(url: str) -> bool:
-    return "finance.yahoo.com" in (url or "").lower()
+    del url
+    return False
 
 
 def _get_rendered_extraction_workers() -> int:
@@ -137,18 +132,8 @@ class _KeyboardStopMonitor:
 
 
 def extract_search_links(response: Response) -> list[dict[str, str]]:
-    if response_looks_like_barrons_search(response):
-        return extract_barrons_search_links(response)
-    if response_looks_like_marketwatch_search(response):
-        return extract_marketwatch_search_links(response)
-    if response_looks_like_morningstar_search(response):
-        return extract_morningstar_search_links(response)
-    if response_looks_like_cnbc_search(response):
-        return extract_cnbc_search_links(response)
-    if response_looks_like_investing_search(response):
-        return extract_investing_search_links(response)
-    if response_looks_like_fool_quote(response):
-        return extract_fool_quote_links(response)
+    # Public branch intentionally uses only generic link extraction. The
+    # production repo contains source-specific discovery logic.
     return extract_links(response)
 
 
@@ -317,15 +302,14 @@ class ArticleSpider(scrapy.Spider):
             headers = {
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
-                "Referer": "https://www.google.com/",
+                "Referer": "https://example.com/",
                 "Upgrade-Insecure-Requests": "1",
             }
             request_meta = {}
             if _is_yahoo_finance_url(url):
-                # Yahoo Finance sometimes returns response headers/cookies that
-                # trip Scrapy/Twisted during cookie processing on Windows.
-                # Skip cookie merging for these article requests so we can get
-                # the page body through to the extractor.
+                # Public demo branch does not currently use any source-specific
+                # cookie handling, but this branch stays in place so the
+                # request flow remains structurally easy to extend.
                 request_meta["dont_merge_cookies"] = True
             self.logger.info("Requesting %s", url)
             yield Request(
