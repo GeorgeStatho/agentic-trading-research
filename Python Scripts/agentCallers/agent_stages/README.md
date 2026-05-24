@@ -90,6 +90,15 @@ Recommended model tier:
 
 - `gemini-2.5-pro`
 
+Implementation notes:
+
+- `manager.py` is now the public facade for the stage.
+- Prompt-building lives in `manager_prompt.py`.
+- Payload shaping lives in `manager_payload_context.py` and `manager_strategist_context.py`.
+- Response parsing/normalization lives in `manager_normalization.py`.
+- End-to-end execution lives in `manager_runner.py`.
+- `manager_context.py` remains as a thin compatibility shim for older imports.
+
 ## Notes
 
 - Some stage files still carry older variable names like `OLLAMA_HOST` while the provider layer is being migrated.

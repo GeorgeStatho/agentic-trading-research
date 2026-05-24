@@ -31,6 +31,7 @@ from agent_stages.manager_shared import MANAGER_STAGE_VERSION
 
 __all__ = [
     "MANAGER_STAGE_VERSION",
+    "_build_manager_visible_market_context",
     "build_manager_prompt",
     "decide_company_option_position",
 ]
