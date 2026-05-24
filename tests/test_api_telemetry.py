@@ -55,7 +55,15 @@ class ApiTelemetryTests(unittest.TestCase):
                 "started_at": "2026-05-24T12:05:00+00:00",
             }
 
-            with patch("api_support.telemetry.DB_PATH", db_path):
+            with patch.dict(
+                os.environ,
+                {
+                    "TELEMETRY_RECEIVER_READ_AUTH_TOKEN": "",
+                    "TELEMETRY_RECEIVER_WRITE_AUTH_TOKEN": "",
+                    "TELEMETRY_RECEIVER_AUTH_TOKEN": "",
+                },
+                clear=False,
+            ), patch("api_support.telemetry.DB_PATH", db_path):
                 first_response = client.post("/api/telemetry/startup", json=first_payload)
                 second_response = client.post("/api/telemetry/startup", json=second_payload)
                 summary_response = client.get("/api/telemetry/summary")
