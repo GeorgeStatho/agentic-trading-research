@@ -37,6 +37,7 @@ from market_db_modules.refresh_state import (
 )
 from market_db_modules.shared import SCHEMA_PATH, SECTOR_DEFINITIONS_PATH
 from market_db_modules.snapshots import add_company_price_snapshot
+from market_db_modules.telemetry import get_telemetry_summary, record_telemetry_installation
 from market_db_modules.trade_executions import record_option_trade_execution
 
 __all__ = [
@@ -52,6 +53,7 @@ __all__ = [
     "get_latest_linked_manager_decision_for_option_symbol",
     "get_latest_open_manager_decision_for_trade_link",
     "get_market_data_refresh_state",
+    "get_telemetry_summary",
     "initialize_database",
     "link_manager_decision_to_trade_execution",
     "list_companies_by_industry",
@@ -66,6 +68,7 @@ __all__ = [
     "record_manager_decision_history",
     "record_market_data_refresh_state",
     "record_option_trade_execution",
+    "record_telemetry_installation",
     "replace_industry_company_rankings",
     "update_manager_decision_latest_pnl",
 ]

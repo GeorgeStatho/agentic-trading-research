@@ -5,7 +5,7 @@ import json
 import re
 
 from agent_pipeline.ranking import get_current_rankings
-from db_helpers.market import list_recent_manager_decision_history
+from db_helpers.market import get_telemetry_summary, list_recent_manager_decision_history
 from performance_metrics import (
     DEFAULT_ANNUAL_RISK_FREE_RATE,
     compute_daily_returns,
@@ -300,6 +300,23 @@ def _build_top_rankings_payload() -> dict:
 
     return {
         "top_sectors": top_sectors[:3],
+    }
+
+
+def _build_usage_summary() -> dict:
+    try:
+        summary = get_telemetry_summary(project="Stock-trading-experiment")
+    except Exception:
+        return {
+            "unique_install_count": 0,
+            "startup_ping_count": 0,
+            "last_seen_at": "",
+        }
+
+    return {
+        "unique_install_count": int(summary.get("unique_install_count") or 0),
+        "startup_ping_count": int(summary.get("startup_ping_count") or 0),
+        "last_seen_at": str(summary.get("last_seen_at") or "").strip(),
     }
 
 
@@ -929,6 +946,7 @@ def build_dashboard_kpis() -> dict:
     worker_status = read_json_payload(SCRIPT_STATUS_PATH)
     option_manager_status = read_json_payload(OPTION_MANAGER_STATUS_PATH)
     top_rankings = _build_top_rankings_payload()
+    usage_summary = _build_usage_summary()
 
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
@@ -967,6 +985,7 @@ def build_dashboard_kpis() -> dict:
             "profit_factor": trade_performance.get("profit_factor"),
             "average_trade_return_pct": trade_performance.get("average_trade_return_pct"),
         },
+        "usage_summary": usage_summary,
         "bot_status": summarize_bot_status(worker_status, option_manager_status),
         "market_status": summarize_market_status(clock),
         "top_rankings": top_rankings,

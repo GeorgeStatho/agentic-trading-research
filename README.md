@@ -238,6 +238,8 @@ The Flask service in [api.py](api.py) exposes:
 - `GET /api/script-status`
 - `GET /api/trade-execution-output`
 - `GET /api/executed-trades`
+- `POST /api/telemetry/startup`
+- `GET /api/telemetry/summary`
 
 These are intended for the dashboard and internal monitoring.
 
@@ -262,6 +264,47 @@ During Docker runs, the main shared runtime paths are:
 - `/shared/option_manager_status.json`
 - `/shared/trade_execution_output.json`
 - `/shared/option_position_management_output.json`
+
+## Optional Startup Telemetry
+
+The project now includes an optional, privacy-respecting startup ping system for counting unique installs that actually ran.
+
+- telemetry is enabled by default
+- when enabled, each install generates a random local `install_id` and stores it in `TELEMETRY_INSTALLATION_ID_PATH`
+- on startup, the `worker`, `option_manager`, `news_collector`, and `api` processes send a small JSON POST to `TELEMETRY_ENDPOINT`
+- this repo now includes a tiny receiver endpoint at `POST /api/telemetry/startup` and a summary endpoint at `GET /api/telemetry/summary`
+- the receiver stores one SQLite row per unique `install_id` and increments `startup_ping_count` on repeat startups
+- startup pings can be left public, while the summary endpoint can be protected with a separate read token
+- the payload only includes:
+  - `event`
+  - `telemetry_version`
+  - `project`
+  - `runtime`
+  - `install_id`
+  - `install_created_at`
+  - `started_at`
+  - optional `release`
+
+Suggested env vars:
+
+- `TELEMETRY_ENABLED=true`
+- `TELEMETRY_ENDPOINT=https://your-telemetry-endpoint.example.com/api/telemetry/startup`
+- `TELEMETRY_AUTH_TOKEN=...`
+- `TELEMETRY_INSTALLATION_ID_PATH=/shared/telemetry_installation.json`
+- `TELEMETRY_TIMEOUT_SECONDS=2.0`
+- `TELEMETRY_RELEASE=2026-05-24`
+- `TELEMETRY_RECEIVER_WRITE_AUTH_TOKEN=...`
+- `TELEMETRY_RECEIVER_READ_AUTH_TOKEN=...`
+- `TELEMETRY_RECEIVER_AUTH_TOKEN=...`
+
+Recommended public-clone setup:
+
+- leave `TELEMETRY_RECEIVER_WRITE_AUTH_TOKEN` unset so public startup pings can be recorded
+- set `TELEMETRY_RECEIVER_READ_AUTH_TOKEN` on your VM so `GET /api/telemetry/summary` stays private
+- set `TELEMETRY_ENDPOINT` in the shared `.env.example` to your VM's `POST /api/telemetry/startup` URL
+- leave `TELEMETRY_AUTH_TOKEN` unset in public clones unless you explicitly choose to protect write access too
+
+Count unique installs by unique `install_id` values on your telemetry receiver. Multiple services from the same deployment may ping separately, so dedupe by `install_id` when estimating how many people actually ran the project.
 
 ## Important Files
 

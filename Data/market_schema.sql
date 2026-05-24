@@ -130,6 +130,23 @@ CREATE TABLE IF NOT EXISTS manager_decision_history (
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS telemetry_installations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    install_id TEXT NOT NULL UNIQUE,
+    project TEXT,
+    telemetry_version INTEGER,
+    install_created_at TEXT,
+    first_runtime TEXT,
+    last_runtime TEXT,
+    first_release TEXT,
+    last_release TEXT,
+    first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_started_at TEXT,
+    startup_ping_count INTEGER NOT NULL DEFAULT 1,
+    raw_json TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_sectors_sector_key
     ON sectors (sector_key);
 
@@ -192,3 +209,9 @@ CREATE INDEX IF NOT EXISTS idx_manager_decision_history_trade_execution_order_id
 
 CREATE INDEX IF NOT EXISTS idx_manager_decision_history_selected_option_symbol
     ON manager_decision_history (selected_option_symbol);
+
+CREATE INDEX IF NOT EXISTS idx_telemetry_installations_project
+    ON telemetry_installations (project);
+
+CREATE INDEX IF NOT EXISTS idx_telemetry_installations_last_seen_at
+    ON telemetry_installations (last_seen_at);

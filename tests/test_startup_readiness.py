@@ -214,6 +214,87 @@ class StartupReadinessIntegrationTests(unittest.TestCase):
 
         mock_run.assert_called_once()
 
+    def test_front_main_loop_sends_only_one_ping_when_starting_during_market_hours(self):
+        trading_client = object()
+        trading_gateway = MagicMock()
+        trading_gateway.create_client.return_value = trading_client
+        trading_gateway.get_market_clock.return_value = SimpleNamespace(
+            is_open=True,
+            timestamp="2026-05-16T14:00:00Z",
+        )
+        trading_gateway.market_is_open.return_value = True
+
+        app = FrontMainApplication(
+            paths=SimpleNamespace(),
+            settings=SimpleNamespace(
+                run_interval_seconds=60,
+                option_position_management_interval_seconds=60,
+                market_recheck_seconds=300,
+                main_loop_entry_cooldown_seconds_after_market_open=None,
+                immediate_option_execution=False,
+                cold_start_sanity_check_enabled=False,
+                auto_manage_option_positions=False,
+            ),
+            status_reporter=MagicMock(),
+            cold_start_checker=MagicMock(),
+            trading_gateway=trading_gateway,
+            order_candidate_builder=MagicMock(),
+            trade_executor=MagicMock(),
+            position_manager=MagicMock(),
+            logger=MagicMock(spec=logging.Logger),
+        )
+
+        with patch.object(app, "_run_startup_readiness_check"):
+            with patch.object(app, "_run_scheduled_trading_cycle", return_value={"ok": True}):
+                with patch.object(app, "_compute_next_sleep_seconds", return_value=1.0):
+                    with patch("services.front_main_application.send_startup_ping_async", return_value=True) as mock_ping:
+                        with patch("services.front_main_application.time.sleep", side_effect=RuntimeError("stop-loop")):
+                            with self.assertRaisesRegex(RuntimeError, "stop-loop"):
+                                app.run_main_loop()
+
+        mock_ping.assert_called_once_with("worker", logger=app._logger)
+
+    def test_front_main_loop_sends_market_open_ping_after_starting_closed(self):
+        trading_client = object()
+        trading_gateway = MagicMock()
+        trading_gateway.create_client.return_value = trading_client
+        trading_gateway.get_market_clock.side_effect = [
+            SimpleNamespace(is_open=False, timestamp="2026-05-16T13:00:00Z"),
+            SimpleNamespace(is_open=True, timestamp="2026-05-16T13:30:00Z"),
+        ]
+        trading_gateway.market_is_open.side_effect = [False, True]
+
+        app = FrontMainApplication(
+            paths=SimpleNamespace(),
+            settings=SimpleNamespace(
+                run_interval_seconds=60,
+                option_position_management_interval_seconds=60,
+                market_recheck_seconds=300,
+                main_loop_entry_cooldown_seconds_after_market_open=None,
+                immediate_option_execution=False,
+                cold_start_sanity_check_enabled=False,
+                auto_manage_option_positions=False,
+            ),
+            status_reporter=MagicMock(),
+            cold_start_checker=MagicMock(),
+            trading_gateway=trading_gateway,
+            order_candidate_builder=MagicMock(),
+            trade_executor=MagicMock(),
+            position_manager=MagicMock(),
+            logger=MagicMock(spec=logging.Logger),
+        )
+
+        with patch.object(app, "_run_startup_readiness_check"):
+            with patch.object(app, "_sleep_for_market_close", return_value=None):
+                with patch.object(app, "_run_scheduled_trading_cycle", return_value={"ok": True}):
+                    with patch.object(app, "_compute_next_sleep_seconds", return_value=1.0):
+                        with patch("services.front_main_application.send_startup_ping_async", return_value=True) as mock_ping:
+                            with patch("services.front_main_application.time.sleep", side_effect=RuntimeError("stop-loop")):
+                                with self.assertRaisesRegex(RuntimeError, "stop-loop"):
+                                    app.run_main_loop()
+
+        self.assertEqual(mock_ping.call_count, 2)
+
     def test_news_collector_loop_runs_startup_readiness_once_before_sleeping(self):
         fake_settings = SimpleNamespace(
             interval_seconds=3600,

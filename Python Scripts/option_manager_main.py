@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from main import LOGGER, _build_log_path, _configure_logging, option_manager_loop
+from services.telemetry import send_startup_ping_async
 
 
 if __name__ == "__main__":
@@ -8,5 +9,6 @@ if __name__ == "__main__":
     _configure_logging(log_path)
 
     LOGGER.info("Dedicated option manager log started at %s", log_path)
+    send_startup_ping_async("option_manager", logger=LOGGER)
     option_manager_loop()
     print(f"Dedicated option manager log written to {log_path}")
