@@ -269,6 +269,8 @@ During Docker runs, the main shared runtime paths are:
 
 The project now includes an optional, privacy-respecting startup ping system for counting unique installs that actually ran.
 
+Privacy details for the current telemetry behavior live in [PRIVACY.md](PRIVACY.md).
+
 - telemetry is enabled by default
 - when enabled, each install generates a random local `install_id` and stores it in `TELEMETRY_INSTALLATION_ID_PATH`
 - on startup, the `worker`, `option_manager`, `news_collector`, and `api` processes send a small JSON POST to `TELEMETRY_ENDPOINT`
