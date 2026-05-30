@@ -28,42 +28,15 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific te
 
 @unittest.skipUnless(FLASK_AVAILABLE, "Flask is not installed in this environment.")
 class DashboardCompanyDecisionsTests(unittest.TestCase):
-    def test_company_decisions_merge_strategist_and_manager_results_by_symbol(self):
-        agent_output = {
-            "ran_at": "2026-05-21T14:30:00+00:00",
-            "strategist": [
-                {
-                    "company": {"symbol": "AAPL", "name": "Apple Inc."},
-                    "recommendation": {
-                        "decision": "buy",
-                        "confidence": "high",
-                        "summary": "Momentum and sentiment support upside.",
-                        "thesis": ["Revenue quality remains strong."],
-                        "risks": ["Valuation is elevated."],
-                    },
-                }
-            ],
-            "manager": [
-                {
-                    "company": {"company_id": 1, "symbol": "AAPL", "name": "Apple Inc."},
-                    "manager_decision_history_id": 77,
-                    "recommendation": {
-                        "decision": "call",
-                        "confidence": "medium",
-                        "reason": "Bullish setup with defined risk.",
-                        "target_dte_bucket": "30_45",
-                        "selected_option_id": "AAPL260619C00190000",
-                        "selected_expiration_date": "2026-06-19",
-                        "selected_strike_price": "190",
-                        "selected_option_source": "deterministic_selector",
-                    },
-                }
-            ],
-        }
+    def test_company_decisions_use_db_history_as_primary_source(self):
         recent_history_rows = [
             {
                 "id": 77,
+                "company_id": 1,
+                "symbol": "AAPL",
+                "company_name": "Apple Inc.",
                 "decision_run_at": "2026-05-21T14:30:00+00:00",
+                "strategist_decision": "buy",
                 "manager_decision": "call",
                 "manager_confidence": "medium",
                 "manager_reason": "Bullish setup with defined risk.",
@@ -80,14 +53,27 @@ class DashboardCompanyDecisionsTests(unittest.TestCase):
                 "latest_trade_pnl_updated_at": "2026-05-22T15:00:00+00:00",
                 "pnl_expires_at": "2026-06-05T15:00:00+00:00",
                 "resolved_outcome_label": "open_profit",
-                "manager_input_json": '{"article_references":[{"article_id":101,"title":"Apple catalyst","source":"Newswire","published_at":"2026-05-21T09:00:00+00:00","article_scope":"company","evidence_layers":["company_view"]}]}',
+                "manager_input_json": (
+                    '{"company":{"company_id":1,"symbol":"AAPL","name":"Apple Inc."},'
+                    '"strategist_recommendation":{"decision":"buy","confidence":"high",'
+                    '"summary":"Momentum and sentiment support upside.",'
+                    '"thesis":["Revenue quality remains strong."],'
+                    '"risks":["Valuation is elevated."]},'
+                    '"article_references":[{"article_id":101,"title":"Apple catalyst","source":"Newswire",'
+                    '"published_at":"2026-05-21T09:00:00+00:00","article_scope":"company",'
+                    '"evidence_layers":["company_view"]}]}'
+                ),
+                "manager_output_json": (
+                    '{"recommendation":{"decision":"call","confidence":"medium",'
+                    '"reason":"Bullish setup with defined risk.","target_dte_bucket":"30_45",'
+                    '"selected_option_id":"AAPL260619C00190000",'
+                    '"selected_expiration_date":"2026-06-19","selected_strike_price":"190",'
+                    '"selected_option_source":"deterministic_selector"}}'
+                ),
             }
         ]
 
-        with (
-            patch("api_support.dashboard.read_json_payload", return_value=agent_output),
-            patch("api_support.dashboard.list_recent_manager_decision_history", return_value=recent_history_rows),
-        ):
+        with patch("api_support.dashboard.list_recent_manager_decision_history", return_value=recent_history_rows):
             payload = build_company_decisions_payload()
 
         self.assertEqual(payload["company_count"], 1)
@@ -107,8 +93,8 @@ class DashboardCompanyDecisionsTests(unittest.TestCase):
         self.assertEqual(company["manager_history"][0]["latest_trade_pnl_pct"], 12.5)
         self.assertEqual(company["manager_history"][0]["article_references"][0]["title"], "Apple catalyst")
 
-    def test_company_decisions_returns_empty_payload_when_output_is_missing(self):
-        with patch("api_support.dashboard.read_json_payload", return_value=None):
+    def test_company_decisions_returns_empty_payload_when_db_history_is_missing(self):
+        with patch("api_support.dashboard.list_recent_manager_decision_history", return_value=[]):
             payload = build_company_decisions_payload()
 
         self.assertEqual(payload["company_count"], 0)

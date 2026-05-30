@@ -22,10 +22,10 @@ from api_support.common import (
     load_dte_exit_rule_configs,
     parse_datetime,
     read_json_payload,
+    safe_json_loads,
     safe_float,
 )
 from api_support.context import (
-    AGENT_OUTPUT_PATH,
     BOT_DOWN_THRESHOLD_SECONDS,
     DEFAULT_OPTION_ORDER_QTY,
     MAX_DEPLOYABLE_BUYING_POWER_PCT,
@@ -48,13 +48,31 @@ def _build_empty_company_decisions_payload() -> dict:
     }
 
 
-def _normalize_company_identity(entry: dict) -> tuple[str, str]:
-    company = entry.get("company")
-    if not isinstance(company, dict):
-        return "", ""
-    symbol = str(company.get("symbol") or "").strip().upper()
-    name = str(company.get("name") or "").strip()
-    return symbol, name
+def _empty_company_decision_entry(*, symbol: str, name: str, last_updated_at: str) -> dict:
+    return {
+        "symbol": symbol,
+        "name": name,
+        "last_updated_at": last_updated_at,
+        "strategist": {
+            "decision": "",
+            "confidence": "",
+            "summary": "",
+            "thesis": [],
+            "risks": [],
+        },
+        "manager": {
+            "decision": "",
+            "confidence": "",
+            "reason": "",
+            "target_dte_bucket": "",
+            "manager_decision_history_id": None,
+            "selected_option_id": "",
+            "selected_expiration_date": "",
+            "selected_strike_price": None,
+            "selected_option_source": "",
+        },
+        "manager_history": [],
+    }
 
 
 def _extract_article_references_from_manager_input(
@@ -95,162 +113,171 @@ def _extract_article_references_from_manager_input(
     return compact
 
 
-def _build_recent_manager_history(company_id: object, symbol: str) -> list[dict]:
-    try:
-        rows = list_recent_manager_decision_history(
-            company_id=int(company_id) if company_id not in (None, "") else None,
-            underlying_symbol=symbol,
+def _normalize_history_company_identity(item: dict, manager_input_json: object) -> tuple[str, str]:
+    manager_input = manager_input_json if isinstance(manager_input_json, dict) else {}
+    company = manager_input.get("company")
+    if not isinstance(company, dict):
+        company = {}
+
+    symbol = str(item.get("symbol") or company.get("symbol") or "").strip().upper()
+    name = str(item.get("company_name") or company.get("name") or "").strip()
+    return symbol, name
+
+
+def _extract_strategist_snapshot_from_manager_input(
+    manager_input_json: object,
+    *,
+    fallback_decision: object = None,
+) -> dict:
+    manager_input = manager_input_json if isinstance(manager_input_json, dict) else {}
+    strategist = manager_input.get("strategist_recommendation")
+    if not isinstance(strategist, dict):
+        strategist = {}
+
+    return {
+        "decision": str(strategist.get("decision") or fallback_decision or "").strip(),
+        "confidence": str(strategist.get("confidence") or "").strip(),
+        "summary": str(strategist.get("summary") or "").strip(),
+        "thesis": [
+            str(item).strip()
+            for item in strategist.get("thesis", [])
+            if str(item).strip()
+        ]
+        if isinstance(strategist.get("thesis"), list)
+        else [],
+        "risks": [
+            str(item).strip()
+            for item in strategist.get("risks", [])
+            if str(item).strip()
+        ]
+        if isinstance(strategist.get("risks"), list)
+        else [],
+    }
+
+
+def _extract_manager_snapshot_from_history_row(
+    item: dict,
+    manager_output_json: object,
+) -> dict:
+    manager_output = manager_output_json if isinstance(manager_output_json, dict) else {}
+    recommendation = manager_output.get("recommendation")
+    if not isinstance(recommendation, dict):
+        recommendation = {}
+
+    return {
+        "decision": str(item.get("manager_decision") or recommendation.get("decision") or "").strip(),
+        "confidence": str(item.get("manager_confidence") or recommendation.get("confidence") or "").strip(),
+        "reason": str(item.get("manager_reason") or recommendation.get("reason") or "").strip(),
+        "target_dte_bucket": str(item.get("target_dte_bucket") or recommendation.get("target_dte_bucket") or "").strip(),
+        "manager_decision_history_id": item.get("id"),
+        "selected_option_id": str(item.get("selected_option_id") or recommendation.get("selected_option_id") or "").strip(),
+        "selected_expiration_date": str(
+            item.get("selected_expiration_date") or recommendation.get("selected_expiration_date") or ""
+        ).strip(),
+        "selected_strike_price": safe_float(
+            item.get("selected_strike_price")
+            if item.get("selected_strike_price") not in (None, "")
+            else recommendation.get("selected_strike_price")
+        ),
+        "selected_option_source": str(
+            item.get("selected_option_source") or recommendation.get("selected_option_source") or ""
+        ).strip(),
+    }
+
+
+def _serialize_manager_history_row(item: dict) -> dict:
+    return {
+        "id": int(item.get("id") or 0),
+        "decision_run_at": str(item.get("decision_run_at") or "").strip(),
+        "manager_decision": str(item.get("manager_decision") or "").strip(),
+        "manager_confidence": str(item.get("manager_confidence") or "").strip(),
+        "manager_reason": str(item.get("manager_reason") or "").strip(),
+        "target_dte_bucket": str(item.get("target_dte_bucket") or "").strip(),
+        "selected_option_id": str(item.get("selected_option_id") or "").strip(),
+        "selected_option_symbol": str(item.get("selected_option_symbol") or "").strip(),
+        "selected_expiration_date": str(item.get("selected_expiration_date") or "").strip(),
+        "selected_strike_price": safe_float(item.get("selected_strike_price")),
+        "selected_option_source": str(item.get("selected_option_source") or "").strip(),
+        "trade_executed": bool(item.get("trade_executed")),
+        "trade_execution_order_id": str(item.get("trade_execution_order_id") or "").strip(),
+        "trade_execution_record_id": item.get("trade_execution_record_id"),
+        "latest_trade_pnl_pct": safe_float(item.get("latest_trade_pnl_pct")),
+        "latest_trade_pnl_updated_at": str(item.get("latest_trade_pnl_updated_at") or "").strip(),
+        "pnl_expires_at": str(item.get("pnl_expires_at") or "").strip(),
+        "resolved_outcome_label": str(item.get("resolved_outcome_label") or "").strip(),
+        "article_references": _extract_article_references_from_manager_input(
+            item.get("manager_input_json"),
             limit=3,
-            within_days=30,
-        )
+        ),
+    }
+
+
+def _build_company_decisions_payload_from_history() -> dict:
+    try:
+        rows = list_recent_manager_decision_history(limit=250, within_days=30)
     except Exception:
-        return []
-
-    history: list[dict] = []
-    for row in rows:
-        item = dict(row or {})
-        history.append(
-            {
-                "id": int(item.get("id") or 0),
-                "decision_run_at": str(item.get("decision_run_at") or "").strip(),
-                "manager_decision": str(item.get("manager_decision") or "").strip(),
-                "manager_confidence": str(item.get("manager_confidence") or "").strip(),
-                "manager_reason": str(item.get("manager_reason") or "").strip(),
-                "target_dte_bucket": str(item.get("target_dte_bucket") or "").strip(),
-                "selected_option_id": str(item.get("selected_option_id") or "").strip(),
-                "selected_option_symbol": str(item.get("selected_option_symbol") or "").strip(),
-                "selected_expiration_date": str(item.get("selected_expiration_date") or "").strip(),
-                "selected_strike_price": safe_float(item.get("selected_strike_price")),
-                "selected_option_source": str(item.get("selected_option_source") or "").strip(),
-                "trade_executed": bool(item.get("trade_executed")),
-                "trade_execution_order_id": str(item.get("trade_execution_order_id") or "").strip(),
-                "trade_execution_record_id": item.get("trade_execution_record_id"),
-                "latest_trade_pnl_pct": safe_float(item.get("latest_trade_pnl_pct")),
-                "latest_trade_pnl_updated_at": str(item.get("latest_trade_pnl_updated_at") or "").strip(),
-                "pnl_expires_at": str(item.get("pnl_expires_at") or "").strip(),
-                "resolved_outcome_label": str(item.get("resolved_outcome_label") or "").strip(),
-                "article_references": _extract_article_references_from_manager_input(
-                    item.get("manager_input_json"),
-                    limit=3,
-                ),
-            }
-        )
-    return history
-
-
-def build_company_decisions_payload() -> dict:
-    payload = read_json_payload(AGENT_OUTPUT_PATH)
-    if not isinstance(payload, dict):
         return _build_empty_company_decisions_payload()
 
-    strategist_results = payload.get("strategist")
-    manager_results = payload.get("manager")
-    if not isinstance(strategist_results, list):
-        strategist_results = []
-    if not isinstance(manager_results, list):
-        manager_results = []
+    if not rows:
+        return _build_empty_company_decisions_payload()
 
-    last_updated_at = str(payload.get("ran_at") or "").strip()
     companies_by_symbol: dict[str, dict] = {}
+    history_by_symbol: dict[str, list[dict]] = {}
 
-    def get_or_create_company(symbol: str, name: str) -> dict:
-        entry = companies_by_symbol.get(symbol)
-        if entry is None:
-            entry = {
-                "symbol": symbol,
-                "name": name,
-                "last_updated_at": last_updated_at,
-                "strategist": {
-                    "decision": "",
-                    "confidence": "",
-                    "summary": "",
-                    "thesis": [],
-                    "risks": [],
-                },
-                "manager": {
-                    "decision": "",
-                    "confidence": "",
-                    "reason": "",
-                    "target_dte_bucket": "",
-                    "manager_decision_history_id": None,
-                    "selected_option_id": "",
-                    "selected_expiration_date": "",
-                    "selected_strike_price": None,
-                    "selected_option_source": "",
-                },
-                "manager_history": [],
-            }
-            companies_by_symbol[symbol] = entry
-        elif name and not entry.get("name"):
-            entry["name"] = name
-        return entry
-
-    for raw_entry in strategist_results:
-        if not isinstance(raw_entry, dict):
-            continue
-        symbol, name = _normalize_company_identity(raw_entry)
+    for row in rows:
+        item = dict(row or {})
+        item["manager_input_json"] = safe_json_loads(item.get("manager_input_json"))
+        item["manager_output_json"] = safe_json_loads(item.get("manager_output_json"))
+        symbol, name = _normalize_history_company_identity(item, item.get("manager_input_json"))
         if not symbol:
             continue
-        recommendation = raw_entry.get("recommendation")
-        if not isinstance(recommendation, dict):
-            recommendation = {}
-        company_entry = get_or_create_company(symbol, name)
-        company_entry["strategist"] = {
-            "decision": str(recommendation.get("decision") or "").strip(),
-            "confidence": str(recommendation.get("confidence") or "").strip(),
-            "summary": str(recommendation.get("summary") or "").strip(),
-            "thesis": [
-                str(item).strip()
-                for item in recommendation.get("thesis", [])
-                if str(item).strip()
-            ]
-            if isinstance(recommendation.get("thesis"), list)
-            else [],
-            "risks": [
-                str(item).strip()
-                for item in recommendation.get("risks", [])
-                if str(item).strip()
-            ]
-            if isinstance(recommendation.get("risks"), list)
-            else [],
-        }
 
-    for raw_entry in manager_results:
-        if not isinstance(raw_entry, dict):
+        history_by_symbol.setdefault(symbol, []).append(item)
+
+        if symbol in companies_by_symbol:
+            if name and not companies_by_symbol[symbol].get("name"):
+                companies_by_symbol[symbol]["name"] = name
             continue
-        symbol, name = _normalize_company_identity(raw_entry)
-        if not symbol:
-            continue
-        recommendation = raw_entry.get("recommendation")
-        if not isinstance(recommendation, dict):
-            recommendation = {}
-        company_entry = get_or_create_company(symbol, name)
-        company_entry["manager"] = {
-            "decision": str(recommendation.get("decision") or "").strip(),
-            "confidence": str(recommendation.get("confidence") or "").strip(),
-            "reason": str(recommendation.get("reason") or "").strip(),
-            "target_dte_bucket": str(recommendation.get("target_dte_bucket") or "").strip(),
-            "manager_decision_history_id": raw_entry.get("manager_decision_history_id"),
-            "selected_option_id": str(recommendation.get("selected_option_id") or "").strip(),
-            "selected_expiration_date": str(recommendation.get("selected_expiration_date") or "").strip(),
-            "selected_strike_price": safe_float(recommendation.get("selected_strike_price")),
-            "selected_option_source": str(recommendation.get("selected_option_source") or "").strip(),
-        }
-        company_entry["manager_history"] = _build_recent_manager_history(
-            raw_entry.get("company", {}).get("company_id"),
-            symbol,
+
+        companies_by_symbol[symbol] = _empty_company_decision_entry(
+            symbol=symbol,
+            name=name,
+            last_updated_at=str(item.get("decision_run_at") or "").strip(),
         )
+        companies_by_symbol[symbol]["strategist"] = _extract_strategist_snapshot_from_manager_input(
+            item.get("manager_input_json"),
+            fallback_decision=item.get("strategist_decision"),
+        )
+        companies_by_symbol[symbol]["manager"] = _extract_manager_snapshot_from_history_row(
+            item,
+            item.get("manager_output_json"),
+        )
+
+    for symbol, company_entry in companies_by_symbol.items():
+        company_entry["manager_history"] = [
+            _serialize_manager_history_row(item)
+            for item in history_by_symbol.get(symbol, [])[:3]
+        ]
 
     companies = sorted(
         companies_by_symbol.values(),
-        key=lambda entry: (str(entry.get("symbol") or ""), str(entry.get("name") or "")),
+        key=lambda entry: (
+            str(entry.get("last_updated_at") or ""),
+            str(entry.get("symbol") or ""),
+        ),
+        reverse=True,
     )
+    last_updated_at = str(companies[0].get("last_updated_at") or "").strip() if companies else ""
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
         "last_updated_at": last_updated_at,
         "company_count": len(companies),
         "companies": companies,
     }
+
+
+def build_company_decisions_payload() -> dict:
+    return _build_company_decisions_payload_from_history()
 
 
 def _titleize_ranking_key(value: str) -> str:
