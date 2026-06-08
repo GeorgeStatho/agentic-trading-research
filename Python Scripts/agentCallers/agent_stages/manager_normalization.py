@@ -16,6 +16,23 @@ from .manager_shared import (
     normalize_time_horizon,
 )
 
+VALID_TECHNICAL_CONFIRMATION = {"strong", "moderate", "mixed", "weak", "overextended"}
+VALID_ENTRY_QUALITY = {"excellent", "good", "acceptable", "poor", "chase"}
+VALID_RECOMMENDED_ACTION_ADJUSTMENT = {
+    "approve",
+    "approve_with_normal_size",
+    "reduce_confidence",
+    "reduce_size",
+    "wait",
+    "skip",
+}
+VALID_RISK_LEVELS = {"low", "medium", "high"}
+
+
+def _normalize_choice(value: Any, allowed: set[str]) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in allowed else ""
+
 
 def extract_recommendation(payload: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
@@ -84,7 +101,7 @@ def normalize_recommendation(
     if not reason:
         return None
 
-    return {
+    normalized_recommendation = {
         "decision": decision,
         "confidence": confidence,
         "target_dte_bucket": target_dte_bucket,
@@ -94,6 +111,41 @@ def normalize_recommendation(
         "selected_option_source": "manager_decision_only",
         "reason": reason,
     }
+    technical_confirmation = _normalize_choice(
+        recommendation.get("technical_confirmation"),
+        VALID_TECHNICAL_CONFIRMATION,
+    )
+    entry_quality = _normalize_choice(
+        recommendation.get("entry_quality"),
+        VALID_ENTRY_QUALITY,
+    )
+    recommended_action_adjustment = _normalize_choice(
+        recommendation.get("recommended_action_adjustment"),
+        VALID_RECOMMENDED_ACTION_ADJUSTMENT,
+    )
+    overextension_risk = _normalize_choice(
+        recommendation.get("overextension_risk"),
+        VALID_RISK_LEVELS,
+    )
+    options_pricing_risk = _normalize_choice(
+        recommendation.get("options_pricing_risk"),
+        VALID_RISK_LEVELS,
+    )
+    if technical_confirmation:
+        normalized_recommendation["technical_confirmation"] = technical_confirmation
+    if entry_quality:
+        normalized_recommendation["entry_quality"] = entry_quality
+    if recommended_action_adjustment:
+        normalized_recommendation["recommended_action_adjustment"] = recommended_action_adjustment
+    if overextension_risk:
+        normalized_recommendation["overextension_risk"] = overextension_risk
+    if options_pricing_risk:
+        normalized_recommendation["options_pricing_risk"] = options_pricing_risk
+    for optional_text_key in ("technical_summary", "risk_summary"):
+        optional_text = str(recommendation.get(optional_text_key) or "").strip()
+        if optional_text:
+            normalized_recommendation[optional_text_key] = optional_text
+    return normalized_recommendation
 
 
 def _extract_labeled_section(text: str, label: str, next_labels: list[str]) -> str:

@@ -105,7 +105,11 @@ Current module split:
 - `market_context/equities.py`
   Current stock price snapshot, market-index snapshots, sector ETF lookup, and reference-stock-price resolution.
 - `market_context/underlying.py`
-  Alpaca stock-bar history loading plus realized/historical volatility for the underlying.
+  Compatibility facade for underlying history assembly and the stable test patch surface.
+- `market_context/underlying_bars.py`
+  Daily stock-bar fetching, field extraction, and response normalization.
+- `market_context/underlying_indicators.py`
+  Technical-indicator and relative-strength calculations used by underlying history assembly.
 - `market_context/option_chain.py`
   Option contract lookup, chain snapshot normalization, subset selection near spot, and option-market payload assembly.
 - `market_context/iv_history.py`
@@ -128,7 +132,7 @@ Returned payload shape:
 - `current_stock_price`
   Live stock quote/trade snapshot.
 - `underlying_price_history`
-  Daily-bar history summary with realized volatility.
+  Daily-bar history summary with realized volatility plus `technical_indicators`.
 - `market_indices`
   Broad market context such as S&P 500, Dow, and VIX.
 - `sector_etf`
@@ -142,6 +146,15 @@ How volatility enters the payload:
 
 - Contract-level `implied_volatility` comes from Alpaca option chain snapshots.
 - Underlying `historical_volatility_20d` and `historical_volatility_60d` are computed from Alpaca stock bars.
+- `underlying_price_history.technical_indicators` now adds:
+  - daily-bar VWAP and price-vs-VWAP
+  - 20-day relative volume
+  - price vs 20 EMA
+  - price vs 50 SMA
+  - RSI 14
+  - MACD histogram
+  - ATR-based overextension vs the 20 EMA
+  - relative strength vs SPY and the resolved sector ETF
 - `summarize_option_iv(...)` from `volatility.py` builds the base `option_market.volatility_summary`.
 - `_enrich_with_alpaca_iv_percentiles(...)` adds persisted percentile context and writes IV history to `OPTION_IV_HISTORY_PATH`.
 
