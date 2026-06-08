@@ -333,30 +333,39 @@ class MarketContextLiveIntegrationTests(unittest.TestCase):
             raise unittest.SkipTest(
                 f"alpaca-py is unavailable: {market_context_common.ALPACA_IMPORT_ERROR}"
             )
-        try:
-            from agent_helpers.manager import test_market_context as live_test_market_context
-        except ImportError as exc:
-            raise unittest.SkipTest(f"Manager market-context helper is unavailable in this environment: {exc}")
-        cls._live_test_market_context = staticmethod(live_test_market_context)
         market_context_common._ALPACA_CLIENTS = None
 
     def test_live_market_context_builds_when_alpaca_credentials_are_available(self):
-        result = self._live_test_market_context("AAPL", option_contract_limit_per_type=2)
+        market_payload = market_context.build_market_context(
+            {
+                "symbol": "AAPL",
+                "sector_key": "technology",
+                "sector_name": "Technology",
+            },
+            option_expiration_date=None,
+            option_expiration_date_gte=None,
+            option_expiration_date_lte=None,
+            option_strike_price_gte=None,
+            option_strike_price_lte=None,
+            option_contract_limit_per_type=2,
+        )
 
-        self.assertIn("market_context", result)
-        market_payload = result["market_context"]
         self.assertIn("current_stock_price", market_payload)
         self.assertIn("underlying_price_history", market_payload)
+        self.assertIn("market_indices", market_payload)
+        self.assertIn("sector_etf", market_payload)
         self.assertIn("option_market", market_payload)
         self.assertIn("account_state", market_payload)
 
         stock_snapshot = market_payload["current_stock_price"]
         underlying_snapshot = market_payload["underlying_price_history"]
         technical_summary = underlying_snapshot.get("technical_summary", {})
+        sector_etf = market_payload["sector_etf"]
         option_market = market_payload["option_market"]
 
         self.assertIsInstance(stock_snapshot, dict)
         self.assertIsInstance(underlying_snapshot, dict)
+        self.assertIsInstance(sector_etf, dict)
         self.assertIsInstance(option_market, dict)
         self.assertEqual(str(stock_snapshot.get("symbol") or "").upper(), "AAPL")
         self.assertEqual(str(underlying_snapshot.get("symbol") or "").upper(), "AAPL")
@@ -388,6 +397,11 @@ class MarketContextLiveIntegrationTests(unittest.TestCase):
                 )
         else:
             self.assertTrue(str(underlying_snapshot.get("error") or "").strip())
+
+        if sector_etf.get("available"):
+            self.assertTrue(str(sector_etf.get("ticker") or "").strip())
+        else:
+            self.assertTrue(str(sector_etf.get("error") or "").strip())
 
         if option_market.get("available"):
             self.assertIn("volatility_summary", option_market)
