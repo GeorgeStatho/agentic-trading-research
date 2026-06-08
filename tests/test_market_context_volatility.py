@@ -337,7 +337,7 @@ class MarketContextLiveIntegrationTests(unittest.TestCase):
             from agent_helpers.manager import test_market_context as live_test_market_context
         except ImportError as exc:
             raise unittest.SkipTest(f"Manager market-context helper is unavailable in this environment: {exc}")
-        cls._live_test_market_context = live_test_market_context
+        cls._live_test_market_context = staticmethod(live_test_market_context)
         market_context_common._ALPACA_CLIENTS = None
 
     def test_live_market_context_builds_when_alpaca_credentials_are_available(self):
