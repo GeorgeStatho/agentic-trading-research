@@ -105,49 +105,139 @@ def _make_future_option_symbol(
     return f"{underlying.upper()}{expiration:%y%m%d}{contract_type.upper()}{strike_component}"
 
 
-def _make_trailing_profit_config(module, **overrides):
-    giveback_defaults = {
-        bucket.key: float(bucket.default_trailing_giveback_pct if bucket.default_trailing_giveback_pct is not None else 0.25)
-        for bucket in module.OPTION_DTE_BUCKETS
-    }
+def _default_option_env_values(module) -> dict[str, str]:
     values = {
-        "protection_trigger_pct": 0.40,
-        "initial_floor_pct": 0.05,
-        "dynamic_giveback_start_pct": 0.75,
-        "first_scale_out_trigger_pct": 0.55,
-        "first_scale_out_fraction": 0.50,
-        "second_scale_out_trigger_pct": 2.00,
-        "second_scale_out_fraction": 0.25,
-        "giveback_pct_by_bucket_key": giveback_defaults,
-        "floor_100_pct": 0.60,
-        "floor_150_pct": 1.00,
-        "floor_200_pct": 1.40,
-        "enable_momentum_exit": False,
+        "OPTION_POSITION_ENABLE_MOMENTUM_EXIT": "false",
+        "OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT": "2.00",
+        "OPTION_MOMENTUM_HISTORY_WINDOW_SIZE": "10",
+        "OPTION_MOMENTUM_HISTORY_MIN_SAMPLES": "5",
+        "OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD": "6",
+        "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD": "3",
+        "OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD": "0.35",
+        "OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD": "0.15",
+        "OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD": "0.10",
+        "OPTION_TRAIL_PROTECTION_TRIGGER_PCT": "0.40",
+        "OPTION_TRAIL_INITIAL_FLOOR_PCT": "0.05",
+        "OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT": "0.75",
+        "OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT": "0.55",
+        "OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION": "0.50",
+        "OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT": "2.00",
+        "OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION": "0.25",
+        "OPTION_TRAIL_100_FLOOR_PCT": "0.60",
+        "OPTION_TRAIL_150_FLOOR_PCT": "1.00",
+        "OPTION_TRAIL_200_FLOOR_PCT": "1.40",
     }
-    values.update(overrides)
-    return module.TrailingProfitConfig(**values)
+    for bucket in module.OPTION_DTE_BUCKETS:
+        giveback_value = float(bucket.default_trailing_giveback_pct if bucket.default_trailing_giveback_pct is not None else 0.25)
+        values[f"OPTION_TRAIL_{bucket.key.upper()}_GIVEBACK_PCT"] = f"{giveback_value:.2f}"
+    return values
+
+
+def _make_trailing_profit_config(module, **overrides):
+    env_values = _default_option_env_values(module)
+    for key, value in overrides.items():
+        if key == "giveback_pct_by_bucket_key":
+            for bucket_key, bucket_value in dict(value).items():
+                env_values[f"OPTION_TRAIL_{str(bucket_key).upper()}_GIVEBACK_PCT"] = str(bucket_value)
+            continue
+        env_name = {
+            "protection_trigger_pct": "OPTION_TRAIL_PROTECTION_TRIGGER_PCT",
+            "initial_floor_pct": "OPTION_TRAIL_INITIAL_FLOOR_PCT",
+            "dynamic_giveback_start_pct": "OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT",
+            "first_scale_out_trigger_pct": "OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT",
+            "first_scale_out_fraction": "OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION",
+            "second_scale_out_trigger_pct": "OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT",
+            "second_scale_out_fraction": "OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION",
+            "floor_100_pct": "OPTION_TRAIL_100_FLOOR_PCT",
+            "floor_150_pct": "OPTION_TRAIL_150_FLOOR_PCT",
+            "floor_200_pct": "OPTION_TRAIL_200_FLOOR_PCT",
+            "enable_momentum_exit": "OPTION_POSITION_ENABLE_MOMENTUM_EXIT",
+        }.get(key)
+        if env_name is not None:
+            env_values[env_name] = str(value).lower() if isinstance(value, bool) else str(value)
+    return _make_trailing_profit_config_from_env_values(module, env_values)
 
 
 def _make_momentum_history_config(module, **overrides):
-    values = {
-        "enable_after_pnl_pct": 2.00,
-        "window_size": 10,
-        "min_samples": 5,
-        "bad_count_exit_threshold": 6,
-        "consecutive_bad_exit_threshold": 3,
-    }
-    values.update(overrides)
-    return module.MomentumHistoryConfig(**values)
+    env_values = _default_option_env_values(module)
+    for key, value in overrides.items():
+        env_name = {
+            "enable_after_pnl_pct": "OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT",
+            "window_size": "OPTION_MOMENTUM_HISTORY_WINDOW_SIZE",
+            "min_samples": "OPTION_MOMENTUM_HISTORY_MIN_SAMPLES",
+            "bad_count_exit_threshold": "OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD",
+            "consecutive_bad_exit_threshold": "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD",
+        }.get(key)
+        if env_name is not None:
+            env_values[env_name] = str(value)
+    return _make_momentum_history_config_from_env_values(module, env_values)
 
 
 def _make_option_price_momentum_config(module, **overrides):
-    values = {
-        "bad_giveback_threshold": 0.35,
-        "mixed_giveback_threshold": 0.15,
-        "good_profit_threshold": 0.10,
-    }
-    values.update(overrides)
-    return module.OptionPriceMomentumConfig(**values)
+    env_values = _default_option_env_values(module)
+    for key, value in overrides.items():
+        env_name = {
+            "bad_giveback_threshold": "OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD",
+            "mixed_giveback_threshold": "OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD",
+            "good_profit_threshold": "OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD",
+        }.get(key)
+        if env_name is not None:
+            env_values[env_name] = str(value)
+    return module.OptionPriceMomentumConfig(
+        bad_giveback_threshold=_env_float_value(env_values, "OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD", 0.35),
+        mixed_giveback_threshold=_env_float_value(env_values, "OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD", 0.15),
+        good_profit_threshold=_env_float_value(env_values, "OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD", 0.10),
+    )
+
+
+def _env_float_value(env_values: dict[str, str], name: str, default: float) -> float:
+    raw_value = str(env_values.get(name, default)).strip()
+    try:
+        return float(raw_value)
+    except ValueError:
+        return float(default)
+
+
+def _env_flag_value(env_values: dict[str, str], name: str, default: bool) -> bool:
+    raw_value = str(env_values.get(name, str(default))).strip().lower()
+    return raw_value not in {"0", "false", "no", "off", ""}
+
+
+def _make_trailing_profit_config_from_env_values(module, env_values: dict[str, str]):
+    giveback_pct_by_bucket_key = {}
+    for bucket in module.OPTION_DTE_BUCKETS:
+        fallback = float(bucket.default_trailing_giveback_pct if bucket.default_trailing_giveback_pct is not None else 0.25)
+        giveback_pct_by_bucket_key[bucket.key] = _env_float_value(
+            env_values,
+            f"OPTION_TRAIL_{bucket.key.upper()}_GIVEBACK_PCT",
+            fallback,
+        )
+    return module.TrailingProfitConfig(
+        protection_trigger_pct=_env_float_value(env_values, "OPTION_TRAIL_PROTECTION_TRIGGER_PCT", 0.40),
+        initial_floor_pct=_env_float_value(env_values, "OPTION_TRAIL_INITIAL_FLOOR_PCT", 0.05),
+        dynamic_giveback_start_pct=_env_float_value(env_values, "OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT", 0.75),
+        first_scale_out_trigger_pct=_env_float_value(env_values, "OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT", 0.55),
+        first_scale_out_fraction=_env_float_value(env_values, "OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION", 0.50),
+        second_scale_out_trigger_pct=_env_float_value(env_values, "OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT", 2.00),
+        second_scale_out_fraction=_env_float_value(env_values, "OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION", 0.25),
+        giveback_pct_by_bucket_key=giveback_pct_by_bucket_key,
+        floor_100_pct=_env_float_value(env_values, "OPTION_TRAIL_100_FLOOR_PCT", 0.60),
+        floor_150_pct=_env_float_value(env_values, "OPTION_TRAIL_150_FLOOR_PCT", 1.00),
+        floor_200_pct=_env_float_value(env_values, "OPTION_TRAIL_200_FLOOR_PCT", 1.40),
+        enable_momentum_exit=_env_flag_value(env_values, "OPTION_POSITION_ENABLE_MOMENTUM_EXIT", False),
+    )
+
+
+def _make_momentum_history_config_from_env_values(module, env_values: dict[str, str]):
+    return module.MomentumHistoryConfig(
+        enable_after_pnl_pct=_env_float_value(env_values, "OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT", 2.00),
+        window_size=int(_env_float_value(env_values, "OPTION_MOMENTUM_HISTORY_WINDOW_SIZE", 10)),
+        min_samples=int(_env_float_value(env_values, "OPTION_MOMENTUM_HISTORY_MIN_SAMPLES", 5)),
+        bad_count_exit_threshold=int(_env_float_value(env_values, "OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD", 6)),
+        consecutive_bad_exit_threshold=int(
+            _env_float_value(env_values, "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD", 3)
+        ),
+    )
 
 
 class VerboseTestCase(unittest.TestCase):
@@ -173,6 +263,24 @@ class OptionPositionTests(VerboseTestCase):
         if resolved_bucket is not None:
             return resolved_bucket.key
         return self.option_positions.OPTION_DTE_BUCKETS[0].key
+
+    def _build_env_exit_thresholds(self, env_values: dict[str, str], *, bucket_key: str, label: str) -> object:
+        return self.option_positions.ExitThresholds(
+            dte_rule_label=label,
+            take_profit_pct=_env_float_value(
+                env_values,
+                f"OPTION_POSITION_{bucket_key.upper()}_DTE_TAKE_PROFIT_PCT",
+                35.0,
+            ),
+            stop_loss_pct=_env_float_value(
+                env_values,
+                f"OPTION_POSITION_{bucket_key.upper()}_DTE_STOP_LOSS_PCT",
+                -25.0,
+            ),
+            force_exit_days_to_expiration=8,
+            exit_hours_to_expiration=192.0,
+            is_default_rule=False,
+        )
 
     def test_reconcile_stale_pending_order_submits_cancel(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -791,6 +899,222 @@ class OptionPositionTests(VerboseTestCase):
         self.assertFalse(updated_state["took_first_scale_out"])
         self.assertEqual(updated_state["max_pnl_pct"], 0.40)
         self.log_pass("profit protection activated at the take-profit threshold without forcing a midpoint-only full exit")
+
+    def test_env_style_trailing_profit_configs_do_not_force_full_exit_above_protected_floor(self) -> None:
+        scenarios = (
+            {
+                "label": "protection arms before first scale-out",
+                "env_values": {
+                    "OPTION_POSITION_ENABLE_MOMENTUM_EXIT": "true",
+                    "OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT": "2.00",
+                    "OPTION_MOMENTUM_HISTORY_WINDOW_SIZE": "10",
+                    "OPTION_MOMENTUM_HISTORY_MIN_SAMPLES": "5",
+                    "OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD": "6",
+                    "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD": "3",
+                    "OPTION_TRAIL_PROTECTION_TRIGGER_PCT": "0.54",
+                    "OPTION_TRAIL_INITIAL_FLOOR_PCT": "0.40",
+                    "OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT": "0.70",
+                    "OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT": "0.70",
+                    "OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION": "0.50",
+                    "OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT": "2.00",
+                    "OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION": "0.25",
+                    "OPTION_TRAIL_12_20_GIVEBACK_PCT": "0.20",
+                    "OPTION_TRAIL_20_30_GIVEBACK_PCT": "0.30",
+                    "OPTION_TRAIL_30_45_GIVEBACK_PCT": "0.35",
+                    "OPTION_TRAIL_45_60_GIVEBACK_PCT": "0.35",
+                    "OPTION_TRAIL_100_FLOOR_PCT": "0.75",
+                    "OPTION_TRAIL_150_FLOOR_PCT": "1.30",
+                    "OPTION_TRAIL_200_FLOOR_PCT": "1.70",
+                    "OPTION_POSITION_12_20_DTE_TAKE_PROFIT_PCT": "35",
+                    "OPTION_POSITION_12_20_DTE_STOP_LOSS_PCT": "-28",
+                },
+                "quantity": 4,
+                "trigger_pl": 0.54,
+                "expected_trigger_action": "hold",
+                "trigger_state_updates": {},
+                "follow_up_quantity": 4,
+                "follow_up_state_updates": {},
+            },
+            {
+                "label": "first scale-out shares the protection trigger",
+                "env_values": {
+                    "OPTION_POSITION_ENABLE_MOMENTUM_EXIT": "true",
+                    "OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT": "2.00",
+                    "OPTION_MOMENTUM_HISTORY_WINDOW_SIZE": "10",
+                    "OPTION_MOMENTUM_HISTORY_MIN_SAMPLES": "5",
+                    "OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD": "6",
+                    "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD": "3",
+                    "OPTION_TRAIL_PROTECTION_TRIGGER_PCT": "0.55",
+                    "OPTION_TRAIL_INITIAL_FLOOR_PCT": "0.40",
+                    "OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT": "0.70",
+                    "OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT": "0.55",
+                    "OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION": "0.50",
+                    "OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT": "2.00",
+                    "OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION": "0.25",
+                    "OPTION_TRAIL_12_20_GIVEBACK_PCT": "0.20",
+                    "OPTION_TRAIL_20_30_GIVEBACK_PCT": "0.30",
+                    "OPTION_TRAIL_30_45_GIVEBACK_PCT": "0.35",
+                    "OPTION_TRAIL_45_60_GIVEBACK_PCT": "0.35",
+                    "OPTION_TRAIL_100_FLOOR_PCT": "0.75",
+                    "OPTION_TRAIL_150_FLOOR_PCT": "1.30",
+                    "OPTION_TRAIL_200_FLOOR_PCT": "1.70",
+                    "OPTION_POSITION_12_20_DTE_TAKE_PROFIT_PCT": "35",
+                    "OPTION_POSITION_12_20_DTE_STOP_LOSS_PCT": "-28",
+                },
+                "quantity": 4,
+                "trigger_pl": 0.55,
+                "expected_trigger_action": "sell_partial",
+                "trigger_state_updates": {"took_first_scale_out": True},
+                "follow_up_quantity": 2,
+                "follow_up_state_updates": {"took_first_scale_out": True},
+            },
+        )
+
+        for scenario in scenarios:
+            with self.subTest(scenario=scenario["label"]):
+                env_values = scenario["env_values"]
+                trailing_profit_config = _make_trailing_profit_config_from_env_values(self.option_positions, env_values)
+                momentum_history_config = _make_momentum_history_config_from_env_values(self.option_positions, env_values)
+                exit_thresholds = self._build_env_exit_thresholds(env_values, bucket_key="12_20", label="12-20 DTE")
+                protected_floor = trailing_profit_config.initial_floor_pct
+
+                trigger_action, trigger_state = self.option_positions._structured_exit_action(
+                    option_symbol=OPTION_SYMBOL,
+                    quantity=scenario["quantity"],
+                    unrealized_pl_pct_ratio=0.80,
+                    days_to_expiration=15,
+                    hours_to_expiration=300.0,
+                    exit_thresholds=exit_thresholds,
+                    position_state={},
+                    critical_errors=[],
+                    context_notes=[],
+                    enable_trailing_profit=True,
+                    trailing_profit_config=trailing_profit_config,
+                    momentum_history_config=momentum_history_config,
+                    momentum_status=MOMENTUM_UNKNOWN,
+                    momentum_reasons=[],
+                    recently_filled_order=False,
+                    broker_unrealized_pl_pct_ratio=scenario["trigger_pl"],
+                )
+                self.assertEqual(trigger_action["action"], scenario["expected_trigger_action"])
+                self.assertNotEqual(trigger_action["action"], "sell_full")
+                self.assertTrue(trigger_state["profit_protection_active"])
+                self.assertEqual(trigger_action["protected_profit_floor_pct"], protected_floor)
+                self.assertEqual(trigger_state["protected_profit_floor_pct"], protected_floor)
+
+                hold_action, hold_state = self.option_positions._structured_exit_action(
+                    option_symbol=OPTION_SYMBOL,
+                    quantity=scenario["follow_up_quantity"],
+                    unrealized_pl_pct_ratio=0.60,
+                    days_to_expiration=15,
+                    hours_to_expiration=300.0,
+                    exit_thresholds=exit_thresholds,
+                    position_state={
+                        "profit_protection_active": True,
+                        "protected_profit_floor_pct": protected_floor,
+                        "max_pnl_pct": scenario["trigger_pl"],
+                        **scenario["follow_up_state_updates"],
+                    },
+                    critical_errors=[],
+                    context_notes=[],
+                    enable_trailing_profit=True,
+                    trailing_profit_config=trailing_profit_config,
+                    momentum_history_config=momentum_history_config,
+                    momentum_status=MOMENTUM_UNKNOWN,
+                    momentum_reasons=[],
+                    recently_filled_order=False,
+                    broker_unrealized_pl_pct_ratio=0.45,
+                )
+                self.assertEqual(hold_action["action"], "hold")
+                self.assertEqual(hold_state["protected_profit_floor_pct"], protected_floor)
+
+                stop_action, _ = self.option_positions._structured_exit_action(
+                    option_symbol=OPTION_SYMBOL,
+                    quantity=scenario["follow_up_quantity"],
+                    unrealized_pl_pct_ratio=0.39,
+                    days_to_expiration=15,
+                    hours_to_expiration=300.0,
+                    exit_thresholds=exit_thresholds,
+                    position_state={
+                        "profit_protection_active": True,
+                        "protected_profit_floor_pct": protected_floor,
+                        "max_pnl_pct": scenario["trigger_pl"],
+                        **scenario["follow_up_state_updates"],
+                    },
+                    critical_errors=[],
+                    context_notes=[],
+                    enable_trailing_profit=True,
+                    trailing_profit_config=trailing_profit_config,
+                    momentum_history_config=momentum_history_config,
+                    momentum_status=MOMENTUM_UNKNOWN,
+                    momentum_reasons=[],
+                    recently_filled_order=False,
+                    broker_unrealized_pl_pct_ratio=0.39,
+                )
+                self.assertEqual(stop_action["action"], "sell_full")
+                self.assertEqual(stop_action["reason"], "trailing_profit_stop")
+
+        self.log_pass("env-style trailing-profit configurations can arm protection and scale out, but they never force a full exit above the protected floor")
+
+    def test_env_style_momentum_exit_requires_minimum_samples_before_full_exit(self) -> None:
+        env_values = {
+            "OPTION_POSITION_ENABLE_MOMENTUM_EXIT": "true",
+            "OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT": "2.00",
+            "OPTION_MOMENTUM_HISTORY_WINDOW_SIZE": "10",
+            "OPTION_MOMENTUM_HISTORY_MIN_SAMPLES": "5",
+            "OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD": "3",
+            "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD": "2",
+            "OPTION_TRAIL_PROTECTION_TRIGGER_PCT": "0.55",
+            "OPTION_TRAIL_INITIAL_FLOOR_PCT": "0.40",
+            "OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT": "0.70",
+            "OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT": "0.80",
+            "OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION": "0.50",
+            "OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT": "2.00",
+            "OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION": "0.25",
+            "OPTION_TRAIL_12_20_GIVEBACK_PCT": "0.20",
+            "OPTION_TRAIL_20_30_GIVEBACK_PCT": "0.30",
+            "OPTION_TRAIL_30_45_GIVEBACK_PCT": "0.35",
+            "OPTION_TRAIL_45_60_GIVEBACK_PCT": "0.35",
+            "OPTION_TRAIL_100_FLOOR_PCT": "0.75",
+            "OPTION_TRAIL_150_FLOOR_PCT": "1.30",
+            "OPTION_TRAIL_200_FLOOR_PCT": "1.70",
+            "OPTION_POSITION_12_20_DTE_TAKE_PROFIT_PCT": "35",
+            "OPTION_POSITION_12_20_DTE_STOP_LOSS_PCT": "-28",
+        }
+        trailing_profit_config = _make_trailing_profit_config_from_env_values(self.option_positions, env_values)
+        momentum_history_config = _make_momentum_history_config_from_env_values(self.option_positions, env_values)
+        exit_thresholds = self._build_env_exit_thresholds(env_values, bucket_key="12_20", label="12-20 DTE")
+
+        exit_action, updated_state = self.option_positions._structured_exit_action(
+            option_symbol=OPTION_SYMBOL,
+            quantity=2,
+            unrealized_pl_pct_ratio=0.62,
+            days_to_expiration=15,
+            hours_to_expiration=300.0,
+            exit_thresholds=exit_thresholds,
+            position_state={
+                "profit_protection_active": True,
+                "protected_profit_floor_pct": 0.40,
+                "max_pnl_pct": 0.62,
+                "momentum_history": [
+                    {"status": "bad", "max_pnl_pct": 0.62},
+                    {"status": "bad", "max_pnl_pct": 0.62},
+                ],
+            },
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=trailing_profit_config,
+            momentum_history_config=momentum_history_config,
+            momentum_status="bad",
+            momentum_reasons=["Momentum slipped, but the configured minimum sample count has not been met yet."],
+            recently_filled_order=False,
+            broker_unrealized_pl_pct_ratio=0.45,
+        )
+        self.assertEqual(exit_action["action"], "hold")
+        self.assertEqual(updated_state["last_decision_reason"], "hold")
+        self.assertEqual(updated_state["protected_profit_floor_pct"], 0.40)
+        self.log_pass("env-style momentum settings cannot force a full exit before the configured minimum sample count is reached")
 
     def test_structured_exit_action_uses_broker_pl_for_trailing_profit_stop(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(
