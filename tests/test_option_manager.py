@@ -11,9 +11,10 @@ from unittest.mock import MagicMock, patch
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
+DATA_DIR = ROOT_DIR / "Data"
 PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
 AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
+for path in (ROOT_DIR, DATA_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
     normalized = str(path)
     if normalized not in sys.path:
         sys.path.insert(0, normalized)
@@ -36,6 +37,42 @@ class VerboseTestCase(unittest.TestCase):
         print(f"[PASS] {self.__class__.__name__}.{self._testMethodName}: {message}")
 
 
+def _build_option_manager_env_values(bucket_giveback_fixture: dict[str, float], **overrides) -> dict[str, object]:
+    values: dict[str, object] = {
+        "AUTO_CLOSE_OPTION_POSITIONS": True,
+        "OPTION_POSITION_TAKE_PROFIT_PCT": 25.0,
+        "OPTION_POSITION_STOP_LOSS_PCT": -20.0,
+        "OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION": 24.0,
+        "OPTION_POSITION_ENABLE_TRAILING_PROFIT": True,
+        "OPTION_POSITION_TRAILING_PROFIT_DRY_RUN": False,
+        "OPTION_POSITION_ENABLE_MOMENTUM_EXIT": True,
+        "OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT": 2.00,
+        "OPTION_MOMENTUM_HISTORY_WINDOW_SIZE": 10,
+        "OPTION_MOMENTUM_HISTORY_MIN_SAMPLES": 5,
+        "OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD": 6,
+        "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD": 3,
+        "OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD": 0.40,
+        "OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD": 0.20,
+        "OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD": 0.12,
+        "OPTION_TRAIL_PROTECTION_TRIGGER_PCT": 0.40,
+        "OPTION_TRAIL_INITIAL_FLOOR_PCT": 0.10,
+        "OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT": 0.55,
+        "OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION": 0.50,
+        "OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT": 2.00,
+        "OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION": 0.25,
+        "OPTION_TRAIL_100_FLOOR_PCT": 0.60,
+        "OPTION_TRAIL_150_FLOOR_PCT": 1.00,
+        "OPTION_TRAIL_200_FLOOR_PCT": 1.40,
+        "OPTION_PENDING_EXIT_STALE_MINUTES": 10.0,
+        "OPTION_PENDING_EXIT_CANCEL_ON_STALE": True,
+        "MANAGER_DECISION_PNL_RETENTION_DAYS": 14,
+    }
+    for bucket_key, value in bucket_giveback_fixture.items():
+        values[f"OPTION_TRAIL_{str(bucket_key).upper()}_GIVEBACK_PCT"] = value
+    values.update(overrides)
+    return values
+
+
 def _build_bucket_giveback_fixture() -> dict[str, float]:
     base_value = 0.30
     step = 0.05
@@ -46,38 +83,73 @@ def _build_bucket_giveback_fixture() -> dict[str, float]:
 
 
 def _build_position_manager_settings(bucket_giveback_fixture: dict[str, float], **overrides) -> SimpleNamespace:
-    base = {
-        "auto_close_option_positions": True,
-        "option_position_take_profit_pct": 25.0,
-        "option_position_stop_loss_pct": -20.0,
-        "option_position_exit_hours_to_expiration": 24.0,
-        "option_position_enable_trailing_profit": True,
-        "option_position_trailing_profit_dry_run": False,
-        "option_position_enable_momentum_exit": True,
-        "option_momentum_history_enable_after_pnl_pct": 2.00,
-        "option_momentum_history_window_size": 10,
-        "option_momentum_history_min_samples": 5,
-        "option_momentum_history_bad_count_exit_threshold": 6,
-        "option_momentum_history_consecutive_bad_exit_threshold": 3,
-        "option_price_momentum_bad_giveback_threshold": 0.40,
-        "option_price_momentum_mixed_giveback_threshold": 0.20,
-        "option_price_momentum_good_profit_threshold": 0.12,
-        "option_trail_protection_trigger_pct": 0.40,
-        "option_trail_initial_floor_pct": 0.10,
-        "option_trail_first_scale_out_trigger_pct": 0.55,
-        "option_trail_first_scale_out_fraction": 0.50,
-        "option_trail_second_scale_out_trigger_pct": 2.00,
-        "option_trail_second_scale_out_fraction": 0.25,
-        "option_trail_giveback_pct_by_bucket_key": bucket_giveback_fixture,
-        "option_trail_100_floor_pct": 0.60,
-        "option_trail_150_floor_pct": 1.00,
-        "option_trail_200_floor_pct": 1.40,
-        "option_pending_exit_stale_minutes": 10.0,
-        "option_pending_exit_cancel_on_stale": True,
-        "manager_decision_pnl_retention_days": 14,
+    env_values = _build_option_manager_env_values(bucket_giveback_fixture)
+    env_name_by_setting = {
+        "auto_close_option_positions": "AUTO_CLOSE_OPTION_POSITIONS",
+        "option_position_take_profit_pct": "OPTION_POSITION_TAKE_PROFIT_PCT",
+        "option_position_stop_loss_pct": "OPTION_POSITION_STOP_LOSS_PCT",
+        "option_position_exit_hours_to_expiration": "OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION",
+        "option_position_enable_trailing_profit": "OPTION_POSITION_ENABLE_TRAILING_PROFIT",
+        "option_position_trailing_profit_dry_run": "OPTION_POSITION_TRAILING_PROFIT_DRY_RUN",
+        "option_position_enable_momentum_exit": "OPTION_POSITION_ENABLE_MOMENTUM_EXIT",
+        "option_momentum_history_enable_after_pnl_pct": "OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT",
+        "option_momentum_history_window_size": "OPTION_MOMENTUM_HISTORY_WINDOW_SIZE",
+        "option_momentum_history_min_samples": "OPTION_MOMENTUM_HISTORY_MIN_SAMPLES",
+        "option_momentum_history_bad_count_exit_threshold": "OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD",
+        "option_momentum_history_consecutive_bad_exit_threshold": "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD",
+        "option_price_momentum_bad_giveback_threshold": "OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD",
+        "option_price_momentum_mixed_giveback_threshold": "OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD",
+        "option_price_momentum_good_profit_threshold": "OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD",
+        "option_trail_protection_trigger_pct": "OPTION_TRAIL_PROTECTION_TRIGGER_PCT",
+        "option_trail_initial_floor_pct": "OPTION_TRAIL_INITIAL_FLOOR_PCT",
+        "option_trail_first_scale_out_trigger_pct": "OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT",
+        "option_trail_first_scale_out_fraction": "OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION",
+        "option_trail_second_scale_out_trigger_pct": "OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT",
+        "option_trail_second_scale_out_fraction": "OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION",
+        "option_trail_100_floor_pct": "OPTION_TRAIL_100_FLOOR_PCT",
+        "option_trail_150_floor_pct": "OPTION_TRAIL_150_FLOOR_PCT",
+        "option_trail_200_floor_pct": "OPTION_TRAIL_200_FLOOR_PCT",
+        "option_pending_exit_stale_minutes": "OPTION_PENDING_EXIT_STALE_MINUTES",
+        "option_pending_exit_cancel_on_stale": "OPTION_PENDING_EXIT_CANCEL_ON_STALE",
+        "manager_decision_pnl_retention_days": "MANAGER_DECISION_PNL_RETENTION_DAYS",
     }
-    base.update(overrides)
-    return SimpleNamespace(**base)
+    for setting_name, value in overrides.items():
+        env_name = env_name_by_setting.get(setting_name)
+        if env_name is not None:
+            env_values[env_name] = value
+    return SimpleNamespace(
+        auto_close_option_positions=env_values["AUTO_CLOSE_OPTION_POSITIONS"],
+        option_position_take_profit_pct=env_values["OPTION_POSITION_TAKE_PROFIT_PCT"],
+        option_position_stop_loss_pct=env_values["OPTION_POSITION_STOP_LOSS_PCT"],
+        option_position_exit_hours_to_expiration=env_values["OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION"],
+        option_position_enable_trailing_profit=env_values["OPTION_POSITION_ENABLE_TRAILING_PROFIT"],
+        option_position_trailing_profit_dry_run=env_values["OPTION_POSITION_TRAILING_PROFIT_DRY_RUN"],
+        option_position_enable_momentum_exit=env_values["OPTION_POSITION_ENABLE_MOMENTUM_EXIT"],
+        option_momentum_history_enable_after_pnl_pct=env_values["OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT"],
+        option_momentum_history_window_size=env_values["OPTION_MOMENTUM_HISTORY_WINDOW_SIZE"],
+        option_momentum_history_min_samples=env_values["OPTION_MOMENTUM_HISTORY_MIN_SAMPLES"],
+        option_momentum_history_bad_count_exit_threshold=env_values["OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD"],
+        option_momentum_history_consecutive_bad_exit_threshold=env_values["OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD"],
+        option_price_momentum_bad_giveback_threshold=env_values["OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD"],
+        option_price_momentum_mixed_giveback_threshold=env_values["OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD"],
+        option_price_momentum_good_profit_threshold=env_values["OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD"],
+        option_trail_protection_trigger_pct=env_values["OPTION_TRAIL_PROTECTION_TRIGGER_PCT"],
+        option_trail_initial_floor_pct=env_values["OPTION_TRAIL_INITIAL_FLOOR_PCT"],
+        option_trail_first_scale_out_trigger_pct=env_values["OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT"],
+        option_trail_first_scale_out_fraction=env_values["OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION"],
+        option_trail_second_scale_out_trigger_pct=env_values["OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT"],
+        option_trail_second_scale_out_fraction=env_values["OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION"],
+        option_trail_giveback_pct_by_bucket_key={
+            bucket.key: env_values[f"OPTION_TRAIL_{bucket.key.upper()}_GIVEBACK_PCT"]
+            for bucket in OPTION_DTE_BUCKETS
+        },
+        option_trail_100_floor_pct=env_values["OPTION_TRAIL_100_FLOOR_PCT"],
+        option_trail_150_floor_pct=env_values["OPTION_TRAIL_150_FLOOR_PCT"],
+        option_trail_200_floor_pct=env_values["OPTION_TRAIL_200_FLOOR_PCT"],
+        option_pending_exit_stale_minutes=env_values["OPTION_PENDING_EXIT_STALE_MINUTES"],
+        option_pending_exit_cancel_on_stale=env_values["OPTION_PENDING_EXIT_CANCEL_ON_STALE"],
+        manager_decision_pnl_retention_days=env_values["MANAGER_DECISION_PNL_RETENTION_DAYS"],
+    )
 
 
 class OptionPositionManagerServiceTests(VerboseTestCase):
@@ -136,30 +208,30 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
         mock_update_manager_decision_latest_pnl.assert_not_called()
         fake_manage_current_option_positions.assert_called_once()
         call_kwargs = fake_manage_current_option_positions.call_args.kwargs
-        self.assertEqual(call_kwargs["execute_sales"], True)
-        self.assertEqual(call_kwargs["take_profit_pct"], 25.0)
-        self.assertEqual(call_kwargs["stop_loss_pct"], -20.0)
-        self.assertEqual(call_kwargs["exit_hours_to_expiration"], 24.0)
+        self.assertEqual(call_kwargs["execute_sales"], settings.auto_close_option_positions)
+        self.assertEqual(call_kwargs["take_profit_pct"], settings.option_position_take_profit_pct)
+        self.assertEqual(call_kwargs["stop_loss_pct"], settings.option_position_stop_loss_pct)
+        self.assertEqual(call_kwargs["exit_hours_to_expiration"], settings.option_position_exit_hours_to_expiration)
         self.assertEqual(call_kwargs["state_path_override"], state_path)
-        self.assertEqual(call_kwargs["enable_trailing_profit_override"], True)
-        self.assertEqual(call_kwargs["trailing_profit_dry_run_override"], False)
-        self.assertEqual(call_kwargs["enable_momentum_exit_override"], True)
-        self.assertEqual(call_kwargs["momentum_history_enable_after_pnl_pct_override"], 2.00)
-        self.assertEqual(call_kwargs["momentum_history_window_size_override"], 10)
-        self.assertEqual(call_kwargs["momentum_history_min_samples_override"], 5)
-        self.assertEqual(call_kwargs["momentum_history_bad_count_exit_threshold_override"], 6)
-        self.assertEqual(call_kwargs["momentum_history_consecutive_bad_exit_threshold_override"], 3)
-        self.assertEqual(call_kwargs["option_price_momentum_bad_giveback_threshold_override"], 0.40)
-        self.assertEqual(call_kwargs["option_price_momentum_mixed_giveback_threshold_override"], 0.20)
-        self.assertEqual(call_kwargs["option_price_momentum_good_profit_threshold_override"], 0.12)
-        self.assertEqual(call_kwargs["trail_protection_trigger_pct_override"], 0.40)
-        self.assertEqual(call_kwargs["trail_initial_floor_pct_override"], 0.10)
+        self.assertEqual(call_kwargs["enable_trailing_profit_override"], settings.option_position_enable_trailing_profit)
+        self.assertEqual(call_kwargs["trailing_profit_dry_run_override"], settings.option_position_trailing_profit_dry_run)
+        self.assertEqual(call_kwargs["enable_momentum_exit_override"], settings.option_position_enable_momentum_exit)
+        self.assertEqual(call_kwargs["momentum_history_enable_after_pnl_pct_override"], settings.option_momentum_history_enable_after_pnl_pct)
+        self.assertEqual(call_kwargs["momentum_history_window_size_override"], settings.option_momentum_history_window_size)
+        self.assertEqual(call_kwargs["momentum_history_min_samples_override"], settings.option_momentum_history_min_samples)
+        self.assertEqual(call_kwargs["momentum_history_bad_count_exit_threshold_override"], settings.option_momentum_history_bad_count_exit_threshold)
+        self.assertEqual(call_kwargs["momentum_history_consecutive_bad_exit_threshold_override"], settings.option_momentum_history_consecutive_bad_exit_threshold)
+        self.assertEqual(call_kwargs["option_price_momentum_bad_giveback_threshold_override"], settings.option_price_momentum_bad_giveback_threshold)
+        self.assertEqual(call_kwargs["option_price_momentum_mixed_giveback_threshold_override"], settings.option_price_momentum_mixed_giveback_threshold)
+        self.assertEqual(call_kwargs["option_price_momentum_good_profit_threshold_override"], settings.option_price_momentum_good_profit_threshold)
+        self.assertEqual(call_kwargs["trail_protection_trigger_pct_override"], settings.option_trail_protection_trigger_pct)
+        self.assertEqual(call_kwargs["trail_initial_floor_pct_override"], settings.option_trail_initial_floor_pct)
         self.assertEqual(
             call_kwargs["trail_giveback_pct_by_bucket_key_override"],
-            bucket_giveback_fixture,
+            settings.option_trail_giveback_pct_by_bucket_key,
         )
-        self.assertEqual(call_kwargs["pending_exit_stale_minutes_override"], 10.0)
-        self.assertEqual(call_kwargs["pending_exit_cancel_on_stale_override"], True)
+        self.assertEqual(call_kwargs["pending_exit_stale_minutes_override"], settings.option_pending_exit_stale_minutes)
+        self.assertEqual(call_kwargs["pending_exit_cancel_on_stale_override"], settings.option_pending_exit_cancel_on_stale)
         self.assertIs(call_kwargs["trading_client_override"], trading_client)
         self.assertTrue(callable(call_kwargs["submit_full_exit_order"]))
         self.assertTrue(callable(call_kwargs["submit_partial_exit_order"]))

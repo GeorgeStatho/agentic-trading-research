@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Public demo source config. Real source rankings, allowlists, and URL patterns live only in the private repository.",
+  "description": "Public demo source config: demo hosts with flattened reputation scores. The real source list and rankings live only in the private repository.",
   "defaults": {
     "allowed": false,
     "reputation_score": 0.5,
@@ -12,30 +12,161 @@
     "max_article_age_days": 14
   },
   "domains": {
-    "example.com": {
+    "reuters.com": {
+      "allowed": false,
+      "reputation_score": 0.5,
+      "source_type": "wire",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": false,
+      "article_patterns": [
+        "/world/",
+        "/markets/",
+        "/business/"
+      ],
+      "max_article_age_days": 14
+    },
+    "newswire.example.com": {
       "allowed": true,
-      "reputation_score": 0.6,
-      "source_type": "demo_search",
+      "reputation_score": 0.5,
+      "source_type": "financial_news",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": true,
+      "article_patterns": [
+        "/202",
+        "/video/",
+        "/pro/"
+      ],
+      "max_article_age_days": 14
+    },
+    "research.example.com": {
+      "allowed": false,
+      "reputation_score": 0.5,
+      "source_type": "research_financial_news",
       "paywalled": false,
       "listing_supported": true,
       "search_supported": true,
       "article_patterns": [
-        "/demo/articles/",
-        "/demo/posts/"
+        "/news/",
+        "/markets/",
+        "/stocks/"
+      ],
+      "max_article_age_days": 21
+    },
+    "weekly.example.com": {
+      "allowed": false,
+      "reputation_score": 0.5,
+      "source_type": "financial_news",
+      "paywalled": true,
+      "listing_supported": false,
+      "search_supported": true,
+      "article_patterns": [
+        "/articles/"
+      ],
+      "max_article_age_days": 21
+    },
+    "markets.example.com": {
+      "allowed": false,
+      "reputation_score": 0.5,
+      "source_type": "financial_news",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": true,
+      "article_patterns": [
+        "/story/"
       ],
       "max_article_age_days": 14
     },
-    "example.org": {
+    "investor.example.com": {
       "allowed": true,
-      "reputation_score": 0.55,
-      "source_type": "demo_listing",
+      "reputation_score": 0.5,
+      "source_type": "analysis_opinion",
       "paywalled": false,
-      "listing_supported": true,
-      "search_supported": false,
+      "listing_supported": false,
+      "search_supported": true,
       "article_patterns": [
-        "/demo/articles/"
+        "/investing/",
+        "/earnings/",
+        "/research/",
+        "/news/"
       ],
       "max_article_age_days": 14
+    },
+    "calendar.example.com": {
+      "allowed": false,
+      "reputation_score": 0.5,
+      "source_type": "financial_news_aggregator",
+      "paywalled": false,
+      "listing_supported": true,
+      "search_supported": true,
+      "article_patterns": [
+        "/news/"
+      ],
+      "max_article_age_days": 10
+    },
+    "value.example.com": {
+      "allowed": false,
+      "reputation_score": 0.5,
+      "source_type": "research_financial_news",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": false,
+      "article_patterns": [
+        "/news/",
+        "/stock/"
+      ],
+      "max_article_age_days": 14
+    },
+    "businessinsider.com": {
+      "allowed": false,
+      "reputation_score": 0.5,
+      "source_type": "business_news",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": false,
+      "article_patterns": [
+        "/news/",
+        "/stock-market/",
+        "/economy/"
+      ],
+      "max_article_age_days": 14
+    },
+    "markets.businessinsider.com": {
+      "allowed": false,
+      "reputation_score": 0.5,
+      "source_type": "market_news_portal",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": true,
+      "article_patterns": [
+        "/news/"
+      ],
+      "max_article_age_days": 10
+    },
+    "finance.yahoo.com": {
+      "allowed": false,
+      "reputation_score": 0.5,
+      "source_type": "market_portal",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": true,
+      "article_patterns": [
+        "/news/"
+      ],
+      "max_article_age_days": 10
+    },
+    "news.yahoo.com": {
+      "allowed": false,
+      "reputation_score": 0.5,
+      "source_type": "news_portal",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": false,
+      "article_patterns": [
+        "/"
+      ],
+      "max_article_age_days": 10
     }
   }
 }

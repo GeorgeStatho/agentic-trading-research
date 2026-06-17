@@ -1,23 +1,26 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .common import (
-    ALPACA_IMPORT_ERROR,
-    LOGGER,
-    StockBarsRequest,
-    TimeFrame,
     UNDERLYING_HISTORY_LOOKBACK_CALENDAR_DAYS,
     UNDERLYING_HV_LONG_WINDOW_DAYS,
     UNDERLYING_HV_SHORT_WINDOW_DAYS,
-    _first_float,
-    _get_alpaca_clients,
-    _get_field,
-    _safe_float,
-    _serialize_scalar,
     compute_realized_volatility,
 )
+from .underlying_bars import (
+    _extract_bar_close as _extract_bar_close_impl,
+    _extract_bar_high as _extract_bar_high_impl,
+    _extract_bar_low as _extract_bar_low_impl,
+    _extract_bar_open as _extract_bar_open_impl,
+    _extract_bar_timestamp as _extract_bar_timestamp_impl,
+    _extract_bar_volume as _extract_bar_volume_impl,
+    _extract_bar_vwap as _extract_bar_vwap_impl,
+    _fetch_daily_stock_bars as _fetch_daily_stock_bars_impl,
+    _normalize_stock_bars_response,
+)
+from .underlying_indicators import _build_technical_indicators_snapshot, _empty_technical_indicators_snapshot
+from .underlying_technical_summary import build_technical_summary
 
 
 def _empty_underlying_price_history_snapshot(*, symbol: str, error: str = "") -> dict[str, Any]:
@@ -35,42 +38,42 @@ def _empty_underlying_price_history_snapshot(*, symbol: str, error: str = "") ->
         "historical_volatility_20d": None,
         "historical_volatility_60d": None,
         "recent_closes": [],
+        "technical_indicators": _empty_technical_indicators_snapshot(),
+        "technical_summary": build_technical_summary(None),
         "error": error,
     }
 
 
 def _extract_bar_close(bar: Any) -> float | None:
-    return _first_float(bar, "close", "c")
+    return _extract_bar_close_impl(bar)
+
+
+def _extract_bar_open(bar: Any) -> float | None:
+    return _extract_bar_open_impl(bar)
+
+
+def _extract_bar_high(bar: Any) -> float | None:
+    return _extract_bar_high_impl(bar)
+
+
+def _extract_bar_low(bar: Any) -> float | None:
+    return _extract_bar_low_impl(bar)
+
+
+def _extract_bar_volume(bar: Any) -> float | None:
+    return _extract_bar_volume_impl(bar)
+
+
+def _extract_bar_vwap(bar: Any) -> float | None:
+    return _extract_bar_vwap_impl(bar)
 
 
 def _extract_bar_timestamp(bar: Any) -> str:
-    return (
-        _serialize_scalar(_get_field(bar, "timestamp"))
-        or _serialize_scalar(_get_field(bar, "t"))
-        or ""
-    )
+    return _extract_bar_timestamp_impl(bar)
 
 
-def _normalize_stock_bars_response(response: Any, symbol: str) -> list[Any]:
-    normalized_symbol = str(symbol or "").strip().upper()
-    candidate_collections = [response, getattr(response, "data", None)]
-    for collection in candidate_collections:
-        if collection is None:
-            continue
-        if isinstance(collection, dict):
-            bars = collection.get(normalized_symbol) or collection.get(normalized_symbol.lower())
-        else:
-            getter = getattr(collection, "get", None)
-            bars = getter(normalized_symbol) if callable(getter) else None
-        if bars is None:
-            continue
-        if isinstance(bars, list):
-            return bars
-        try:
-            return list(bars)
-        except TypeError:
-            return []
-    return []
+def _fetch_daily_stock_bars(symbol: str) -> tuple[list[Any], str]:
+    return _fetch_daily_stock_bars_impl(symbol)
 
 
 def _summarize_underlying_price_history(
@@ -78,17 +81,45 @@ def _summarize_underlying_price_history(
     bars: list[Any],
     *,
     source: str = "alpaca_stock_bars",
+    reference_price: float | None = None,
+    sector_benchmark_symbol: str = "",
+    enable_relative_strength_fetch: bool = False,
 ) -> dict[str, Any]:
     snapshot = _empty_underlying_price_history_snapshot(symbol=symbol)
+    snapshot["technical_indicators"] = _empty_technical_indicators_snapshot(
+        sector_benchmark_symbol=sector_benchmark_symbol,
+        sector_label=sector_benchmark_symbol,
+    )
+    snapshot["technical_summary"] = build_technical_summary(None)
     normalized_symbol = str(symbol or "").strip().upper()
     close_values: list[float] = []
+    volume_values: list[float] = []
     timestamp_values: list[str] = []
+    ohlc_bars: list[dict[str, float | None]] = []
+    latest_vwap: float | None = None
     for bar in bars:
         close_price = _extract_bar_close(bar)
         timestamp = _extract_bar_timestamp(bar)
         if close_price is None or close_price <= 0:
             continue
         close_values.append(close_price)
+        open_price = _extract_bar_open(bar)
+        high_price = _extract_bar_high(bar)
+        low_price = _extract_bar_low(bar)
+        volume = _extract_bar_volume(bar)
+        if volume is not None and volume >= 0:
+            volume_values.append(volume)
+        vwap = _extract_bar_vwap(bar)
+        if vwap is not None and vwap > 0:
+            latest_vwap = vwap
+        ohlc_bars.append(
+            {
+                "open": open_price,
+                "high": high_price,
+                "low": low_price,
+                "close": close_price,
+            }
+        )
         if timestamp:
             timestamp_values.append(timestamp)
 
@@ -96,6 +127,17 @@ def _summarize_underlying_price_history(
         snapshot["error"] = "No valid close prices were returned from Alpaca stock bars."
         return snapshot
 
+    technical_indicators = _build_technical_indicators_snapshot(
+        close_values=close_values,
+        volume_values=volume_values,
+        ohlc_bars=ohlc_bars,
+        latest_vwap=latest_vwap,
+        reference_price=reference_price,
+        enable_relative_strength_fetch=enable_relative_strength_fetch,
+        sector_benchmark_symbol=sector_benchmark_symbol,
+        fetch_daily_stock_bars=_fetch_daily_stock_bars,
+        extract_bar_close=_extract_bar_close,
+    )
     snapshot.update(
         {
             "available": True,
@@ -115,42 +157,39 @@ def _summarize_underlying_price_history(
                 UNDERLYING_HV_LONG_WINDOW_DAYS,
             ),
             "recent_closes": [round(value, 6) for value in close_values[-5:]],
+            "technical_indicators": technical_indicators,
+            "technical_summary": build_technical_summary(technical_indicators),
             "error": "",
         }
     )
     return snapshot
 
 
-def _build_underlying_price_history_snapshot(symbol: str) -> dict[str, Any]:
+def _build_underlying_price_history_snapshot(
+    symbol: str,
+    *,
+    reference_price: float | None = None,
+    sector_benchmark_symbol: str = "",
+) -> dict[str, Any]:
     normalized_symbol = str(symbol or "").strip().upper()
     unavailable = _empty_underlying_price_history_snapshot(symbol=normalized_symbol)
+    unavailable["technical_indicators"] = _empty_technical_indicators_snapshot(
+        sector_benchmark_symbol=sector_benchmark_symbol,
+        sector_label=sector_benchmark_symbol,
+    )
     if not normalized_symbol:
         unavailable["error"] = "Company symbol was missing."
         return unavailable
 
-    clients = _get_alpaca_clients()
-    if clients is None or StockBarsRequest is None or TimeFrame is None:
-        unavailable["error"] = (
-            f"alpaca-py is unavailable: {ALPACA_IMPORT_ERROR}"
-            if ALPACA_IMPORT_ERROR is not None
-            else "Alpaca credentials were not configured."
-        )
+    bars, error = _fetch_daily_stock_bars(normalized_symbol)
+    if error:
+        unavailable["error"] = error
         return unavailable
-
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(days=UNDERLYING_HISTORY_LOOKBACK_CALENDAR_DAYS)
-    try:
-        bars_response = clients["stock"].get_stock_bars(
-            StockBarsRequest(
-                symbol_or_symbols=normalized_symbol,
-                timeframe=TimeFrame.Day,
-                start=start_time,
-                end=end_time,
-            )
-        )
-        bars = _normalize_stock_bars_response(bars_response, normalized_symbol)
-        return _summarize_underlying_price_history(normalized_symbol, bars, source="alpaca_stock_bars")
-    except Exception as exc:
-        unavailable["error"] = str(exc)
-        LOGGER.debug("Failed to build underlying price history for %s: %s", normalized_symbol, exc)
-        return unavailable
+    return _summarize_underlying_price_history(
+        normalized_symbol,
+        bars,
+        source="alpaca_stock_bars",
+        reference_price=reference_price,
+        sector_benchmark_symbol=sector_benchmark_symbol,
+        enable_relative_strength_fetch=True,
+    )

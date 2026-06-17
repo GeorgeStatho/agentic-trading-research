@@ -23,7 +23,9 @@ for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
 from api_routes.dashboard import register_dashboard_routes
 from api_routes.health import register_health_routes
 from api_routes.news import register_news_routes
+from api_routes.telemetry import register_telemetry_routes
 from api_routes.trades import register_trade_routes
+from services.telemetry import send_startup_ping_async
 
 
 app = Flask(__name__)
@@ -42,7 +44,9 @@ register_health_routes(app)
 register_dashboard_routes(app)
 register_trade_routes(app)
 register_news_routes(app)
+register_telemetry_routes(app)
 
 
 if __name__ == "__main__":
+    send_startup_ping_async("api", logger=logger)
     app.run(host="0.0.0.0", port=5000, debug=False)

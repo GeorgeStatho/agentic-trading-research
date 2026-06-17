@@ -14,6 +14,7 @@ from services.io_utils import JsonFileWriter, StatusReporter
 from services.order_candidates import OrderCandidateBuilder
 from services.position_manager import OptionPositionManagerService
 from services.startup_readiness import StartupReadinessChecker
+from services.telemetry import send_startup_ping_async
 from services.trade_executor import OptionExposureSnapshot, OptionTradeExecutor
 from services.trading_gateway import TradingClient
 
@@ -58,6 +59,12 @@ class FrontMainApplication:
         **extra: Any,
     ) -> None:
         self._status_reporter.write("running", message, **extra)
+
+    def _send_worker_telemetry_ping(self, *, reason: str) -> bool:
+        sent = send_startup_ping_async("worker", logger=self._logger)
+        if sent:
+            self._logger.info("Queued worker telemetry ping (%s).", reason)
+        return sent
 
     def _handle_agent_progress(self, progress: dict[str, Any]) -> None:
         if not isinstance(progress, dict):
@@ -541,14 +548,25 @@ class FrontMainApplication:
         trading_client = self._trading_gateway.create_client()
         next_trading_cycle_at = datetime.now()
         next_option_management_at = datetime.now()
+        loop_start_ping_sent = self._send_worker_telemetry_ping(reason="main_loop_start")
+        market_open_ping_sent = False
+        first_iteration = True
 
         while True:
             loop_started_at = datetime.now()
             market_clock = self._trading_gateway.get_market_clock(trading_client)
 
             if not self._trading_gateway.market_is_open(trading_client, clock=market_clock):
+                market_open_ping_sent = False
+                first_iteration = False
                 self._sleep_for_market_close(loop_label="front main")
                 continue
+
+            if first_iteration and loop_start_ping_sent:
+                market_open_ping_sent = True
+            elif not market_open_ping_sent:
+                market_open_ping_sent = self._send_worker_telemetry_ping(reason="market_open")
+            first_iteration = False
 
             next_option_management_at = self._run_due_option_position_management(
                 trading_client=trading_client,

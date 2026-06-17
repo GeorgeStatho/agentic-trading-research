@@ -41,6 +41,7 @@ from db_helpers import (
     initialize_news_database,
 )
 from services.startup_readiness import StartupReadinessChecker
+from services.telemetry import send_startup_ping_async
 
 
 LOGGER = logging.getLogger("news_collector")
@@ -213,5 +214,6 @@ if __name__ == "__main__":
     _configure_logging(log_path)
 
     LOGGER.info("News collector log started at %s", log_path)
+    send_startup_ping_async("news_collector", logger=LOGGER)
     main_loop()
     print(f"News collector log written to {log_path}")
