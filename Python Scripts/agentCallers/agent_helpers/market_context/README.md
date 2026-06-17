@@ -15,7 +15,15 @@ Current structure:
 - `equities.py`
   Current stock price, sector ETF, and market index snapshots.
 - `underlying.py`
-  Alpaca stock-bar history and underlying historical volatility.
+  Compatibility facade for underlying-history assembly and test patch points.
+- `underlying_bars.py`
+  Daily stock-bar fetching, response normalization, and bar field extraction.
+- `underlying_indicators.py`
+  Technical-indicator math and relative-strength snapshot helpers.
+- `underlying_technical_summary.py`
+  Deterministic label builder that converts raw indicators into stable technical summary fields.
+- `TECHNICAL_INDICATORS_IMPLEMENTATION.md`
+  Detailed implementation notes for the underlying technical-indicator payload.
 - `option_chain.py`
   Option contract lookup, snapshot normalization, and option-market assembly.
 - `iv_history.py`
@@ -29,7 +37,7 @@ High-level flow:
 
 1. Build the current stock-price snapshot.
 2. Resolve the reference stock price used for option filtering.
-3. Load underlying stock bars and compute historical volatility.
+3. Load underlying stock bars and compute historical volatility plus technical indicators.
 4. Load option contracts and option chain snapshots.
 5. Build volatility summary and enrich it with persisted IV percentile context.
 6. Load account buying power and matching stock/option positions.

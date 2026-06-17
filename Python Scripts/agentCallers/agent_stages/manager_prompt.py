@@ -40,12 +40,25 @@ def build_manager_prompt(
         "If the article and research evidence is strong, fresh, specific, and internally consistent, prefer that evidence over ordinary one-day market noise, intraday weakness, or broad volatility. "
         "Use opportunist_rollup as the primary summarized evidence layer, and use the compact views summary and supporting article summaries only as grounding detail. "
         "Use the live market context primarily to judge timing, tradability, current risk, account constraints, and whether the setup is too volatile right now. "
+        "Never allow technical indicators to override poor option pricing. A bullish or bearish stock setup can still be a bad options trade if implied volatility, spread, liquidity, or break-even distance are unfavorable. "
         "When volatility context is present, explicitly use it as a timing and tradeability signal. "
         "Pay attention to implied volatility percentile, IV versus historical volatility, and the short-term versus longer-term IV term structure. "
         "Low or normal IV percentile is favorable for buying options, while elevated or very high IV percentile should reduce enthusiasm and can justify lower confidence or no trade. "
         "If IV is far above historical volatility, treat premium as expensive; if IV/HV is very stretched, be more cautious about approving an options entry even when the directional thesis is good. "
         "If short-dated IV is much higher than longer-dated IV, treat that as event pricing or near-term risk; that should make you less comfortable with very short-dated exposure and can justify preferring a longer target_dte_bucket or choosing neither if timing looks poor. "
         "Use these volatility signals to adjust timing confidence and risk tolerance, but do not infer a specific contract from them. "
+        "Technical indicators are not standalone trade triggers. Use them only as confirmation, timing, and risk-adjustment context after forming the primary thesis from news, fundamentals, market context, catalyst strength, and expected stock direction. "
+        "If underlying_price_history.technical_summary is available, use it as the primary technical interpretation layer. Use raw technical_indicators only for supporting detail and debugging context. "
+        "Do not recommend a trade based only on VWAP, relative volume, moving averages, RSI, MACD, ATR, or relative strength. "
+        "Do not say buy or sell because RSI is bullish or because MACD crossed. Instead, explain whether the technical context confirms or weakens the catalyst-driven thesis. "
+        "Before approving a trade, evaluate the technical context as a risk filter. Approve or increase confidence only when the thesis direction agrees with technical direction, price action confirms through VWAP, trend, volume, and relative strength, the setup is not excessively overextended, and option pricing is still reasonable. "
+        "Reduce confidence when the technical context is mixed, price is above VWAP but momentum is fading, volume does not confirm the news, the stock is moving mostly with the market rather than outperforming, or RSI or ATR suggests the move may already be stretched. "
+        "Reject or delay the trade when price is below VWAP and VWAP is falling, the stock is underperforming SPY, QQQ, or the sector ETF, relative volume is weak, the move is already far above VWAP or ATR, IV percentile is very high and the option premium appears inflated, or bid/ask spread or liquidity is poor. "
+        "For bullish call trades, strong confirmation usually means bullish news or catalyst, price above rising or stable VWAP, strong relative volume, bullish daily trend, positive relative strength, momentum positive but not overheated, and acceptable IV and spread. "
+        "For bullish call trades, overextended chase risk means price far above VWAP, RSI very high, the stock already moved more than a normal ATR range, IV percentile very high, or premium appears inflated. "
+        "If the thesis is bullish but the technical setup is overextended, do not immediately recommend buying calls. Prefer waiting for a pullback, reducing confidence, reducing size, preferring longer DTE, or effectively skipping the trade by choosing neither when timing or pricing is poor. "
+        "If the thesis is bullish but the stock is below VWAP, volume is weak, or relative strength is poor, reduce confidence or choose neither unless the catalyst is unusually strong and current option risk remains acceptable. "
+        "Technical indicators should modify confidence, entry timing, position sizing posture, DTE preference, exit aggressiveness, and whether the trade should be skipped. They should not create the thesis by themselves. "
         "Do not let a weak daily move by itself overturn a very convincing bullish or bearish evidence-based thesis unless the live context clearly signals a meaningful contradiction or an unacceptably risky setup. "
         "Be willing to take a reasonable amount of risk when the opportunity looks genuinely strong, especially when the evidence is clear and timing is still actionable. "
         "Your job is only to choose call, put, or neither for the underlying at this time. "
@@ -64,12 +77,16 @@ def build_manager_prompt(
         f"Prefer the default bucket {DEFAULT_MANAGER_TARGET_DTE_BUCKET} when the setup looks actionable but there is no strong reason to force a shorter bucket. "
         "If no trade should be opened, or no clear horizon applies, use none. "
         "Return only valid JSON with a top-level key named 'recommendation'. "
-        "The recommendation object must contain: decision, confidence, target_dte_bucket, reason. "
+        "The recommendation object must contain: decision, confidence, target_dte_bucket, technical_confirmation, entry_quality, recommended_action_adjustment, and reason. "
         "decision must be one of: call, put, neither. "
         "confidence must be one of: high, medium, low. "
         f"target_dte_bucket must be one of: {TARGET_DTE_BUCKET_CHOICES_TEXT}. "
+        "technical_confirmation must be one of: strong, moderate, mixed, weak, overextended. "
+        "entry_quality must be one of: excellent, good, acceptable, poor, chase. "
+        "recommended_action_adjustment must be one of: approve, approve_with_normal_size, reduce_confidence, reduce_size, wait, skip. "
         "Use 'none' when no options trade should be opened or when no DTE preference should be expressed. "
-        "reason must be a short paragraph explaining the main drivers of the decision."
+        "reason must be a short paragraph explaining the main drivers of the decision. "
+        "Also include these optional but preferred fields when supported by the context: overextension_risk, options_pricing_risk, technical_summary, and risk_summary."
     )
     system_prompt = str(system_prompt_override or default_system_prompt)
 
@@ -92,6 +109,13 @@ def build_manager_prompt(
                 "decision": "call|put|neither",
                 "confidence": "high|medium|low",
                 "target_dte_bucket": TARGET_DTE_BUCKET_CHOICES_TEXT,
+                "technical_confirmation": "strong|moderate|mixed|weak|overextended",
+                "entry_quality": "excellent|good|acceptable|poor|chase",
+                "recommended_action_adjustment": "approve|approve_with_normal_size|reduce_confidence|reduce_size|wait|skip",
+                "overextension_risk": "low|medium|high",
+                "options_pricing_risk": "low|medium|high",
+                "technical_summary": "short paragraph",
+                "risk_summary": "short paragraph",
                 "reason": "short paragraph",
             }
         },

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -38,6 +39,10 @@ class ApiTelemetryTests(unittest.TestCase):
             app = Flask(__name__)
             register_telemetry_routes(app)
             client = app.test_client()
+            now = datetime.now(timezone.utc)
+            install_created_at = (now - timedelta(days=1)).isoformat()
+            first_started_at = now.isoformat()
+            second_started_at = (now + timedelta(minutes=5)).isoformat()
 
             first_payload = {
                 "event": "startup",
@@ -45,14 +50,14 @@ class ApiTelemetryTests(unittest.TestCase):
                 "project": "Stock-trading-experiment",
                 "runtime": "worker",
                 "install_id": "install-123",
-                "install_created_at": "2026-05-24T00:00:00+00:00",
-                "started_at": "2026-05-24T12:00:00+00:00",
+                "install_created_at": install_created_at,
+                "started_at": first_started_at,
                 "release": "2026.05.24",
             }
             second_payload = {
                 **first_payload,
                 "runtime": "api",
-                "started_at": "2026-05-24T12:05:00+00:00",
+                "started_at": second_started_at,
             }
 
             with patch.dict(

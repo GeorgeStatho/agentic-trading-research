@@ -176,12 +176,29 @@ def _summarize_underlying_price_history(
     bars: list[Any],
     *,
     source: str = "alpaca_stock_bars",
+    reference_price: float | None = None,
+    sector_benchmark_symbol: str = "",
 ) -> dict[str, Any]:
-    return _summarize_underlying_price_history_impl(symbol, bars, source=source)
+    return _summarize_underlying_price_history_impl(
+        symbol,
+        bars,
+        source=source,
+        reference_price=reference_price,
+        sector_benchmark_symbol=sector_benchmark_symbol,
+    )
 
 
-def _build_underlying_price_history_snapshot(symbol: str) -> dict[str, Any]:
-    return _build_underlying_price_history_snapshot_impl(symbol)
+def _build_underlying_price_history_snapshot(
+    symbol: str,
+    *,
+    reference_price: float | None = None,
+    sector_benchmark_symbol: str = "",
+) -> dict[str, Any]:
+    return _build_underlying_price_history_snapshot_impl(
+        symbol,
+        reference_price=reference_price,
+        sector_benchmark_symbol=sector_benchmark_symbol,
+    )
 
 
 def build_market_context(
@@ -197,12 +214,17 @@ def build_market_context(
     company_symbol = str(company.get("symbol") or "").strip().upper()
     stock_snapshot = _build_current_stock_price_snapshot(company)
     reference_stock_price = _get_reference_stock_price_from_snapshot(stock_snapshot)
-    underlying_price_history = _build_underlying_price_history_snapshot(company_symbol)
+    sector_etf_snapshot = _build_sector_etf_snapshot(company)
+    underlying_price_history = _build_underlying_price_history_snapshot(
+        company_symbol,
+        reference_price=reference_stock_price,
+        sector_benchmark_symbol=str(sector_etf_snapshot.get("ticker") or "").strip().upper(),
+    )
     return {
         "current_stock_price": stock_snapshot,
         "underlying_price_history": underlying_price_history,
         "market_indices": _build_market_indices_snapshot(),
-        "sector_etf": _build_sector_etf_snapshot(company),
+        "sector_etf": sector_etf_snapshot,
         "option_market": _build_option_market_snapshot(
             company_symbol,
             reference_stock_price=reference_stock_price,
