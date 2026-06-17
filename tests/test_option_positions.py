@@ -744,6 +744,50 @@ class OptionPositionTests(VerboseTestCase):
         self.assertEqual(updated_state["max_pnl_pct"], 0.30)
         self.log_pass("first scale-out ignored a midpoint-only profit spike when broker P/L stayed below the trigger")
 
+    def test_structured_exit_action_holds_when_profit_protection_starts_at_take_profit_level(self) -> None:
+        trailing_profit_config = _make_trailing_profit_config(
+            self.option_positions,
+            protection_trigger_pct=0.40,
+            initial_floor_pct=0.05,
+            dynamic_giveback_start_pct=0.75,
+            first_scale_out_trigger_pct=0.55,
+            first_scale_out_fraction=0.50,
+        )
+
+        exit_action, updated_state = self.option_positions._structured_exit_action(
+            option_symbol=OPTION_SYMBOL,
+            quantity=4,
+            unrealized_pl_pct_ratio=0.80,
+            days_to_expiration=10,
+            hours_to_expiration=120.0,
+            exit_thresholds=self.option_positions.ExitThresholds(
+                dte_rule_label="7-14 DTE",
+                take_profit_pct=40.0,
+                stop_loss_pct=-28.0,
+                force_exit_days_to_expiration=3,
+                exit_hours_to_expiration=72.0,
+                is_default_rule=False,
+            ),
+            position_state={},
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=trailing_profit_config,
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
+            momentum_status=MOMENTUM_UNKNOWN,
+            momentum_reasons=[],
+            recently_filled_order=False,
+            broker_unrealized_pl_pct_ratio=0.40,
+        )
+
+        self.assertEqual(exit_action["action"], "hold")
+        self.assertEqual(exit_action["reason"], "hold")
+        self.assertTrue(updated_state["profit_protection_active"])
+        self.assertEqual(updated_state["protected_profit_floor_pct"], 0.05)
+        self.assertFalse(updated_state["took_first_scale_out"])
+        self.assertEqual(updated_state["max_pnl_pct"], 0.40)
+        self.log_pass("profit protection activated at the take-profit threshold without forcing a midpoint-only full exit")
+
     def test_structured_exit_action_uses_broker_pl_for_trailing_profit_stop(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(
             self.option_positions,
