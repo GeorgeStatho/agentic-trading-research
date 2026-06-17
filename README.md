@@ -1,5 +1,7 @@
 # Agentic Trading Experiment
 
+This public repository intentionally keeps demo-safe defaults. Production-tuned prompts, private source lists, live runtime artifacts, planning notes and real credentials are excluded or simplified here.
+
 LLM-driven agentic options trading system with deterministic execution and real-time market integration.
 Includes:
 
@@ -10,12 +12,6 @@ Includes:
 - a model layer that can use either Vertex AI or Ollama
 
 It is still an experiment, not production trading software.
-
-This public repository intentionally keeps demo-safe defaults. Production-tuned prompts, private source lists, live runtime artifacts, and real credentials are excluded or simplified here.
-
-> [!IMPORTANT]
-> This public repository is a demo-safe version of the project.  
-> If you are interested in the full/private version, production architecture, collaboration, or have questions about the real bot, please contact me using the links in the **Contact** section below.
 
 Preferred import paths and compatibility-wrapper guidance live in
 [INTERFACE_GUIDE.md](INTERFACE_GUIDE.md).
@@ -112,9 +108,17 @@ The repo now supports two model backends behind a shared helper:
 
 The provider abstraction lives in [Python Scripts/agentCallers/agent_helpers/shared.py](Python%20Scripts/agentCallers/agent_helpers/shared.py).
 
-### Public Demo Defaults
+### Recommended Vertex split
 
-[.env.example](.env.example) is intentionally minimal in this public repo. It includes only demo-safe defaults and leaves production tuning to private configuration.
+The current recommended stage/model split is captured in [.env.example](.env.example):
+
+- `WORLD_NEWS_MODEL=gemini-2.5-flash-lite`
+- `MACRO_NEWS_MODEL=gemini-2.5-flash-lite`
+- `SECTOR_OPPURUNTIST_MODEL=gemini-2.5-flash-lite`
+- `INDUSTRY_OPPURUNTINST_MODEL=gemini-2.5-flash-lite`
+- `COMPANY_OPPURUNTIST_MODEL=gemini-2.5-flash-lite`
+- `STRATEGIST_MODEL=gemini-2.5-flash`
+- `MANAGER_MODEL=gemini-2.5-pro`
 
 ## Quick Start
 
@@ -132,8 +136,6 @@ Then fill in at minimum:
 - `PRIVATE_KEY`
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_CLOUD_LOCATION`
-
-If you prefer a local model instead of Vertex, set `LLM_PROVIDER=ollama` and configure `OLLAMA_HOST` instead of the Google Cloud values.
 
 ### 2. Run with Docker
 
@@ -163,7 +165,7 @@ The repo already includes:
 
 - [docker-compose.bootstrap.yml](docker-compose.bootstrap.yml): temporary bootstrap override that mounts the HTTP-only ACME Nginx config
 - [web_dashboard/nginx.bootstrap.conf](web_dashboard/nginx.bootstrap.conf): HTTP-only config used before the certificate exists
-- [web_dashboard/nginx.conf](web_dashboard/nginx.conf): final HTTPS config for your chosen domain
+- [web_dashboard/nginx.conf](web_dashboard/nginx.conf): final HTTPS config for `dashboard.example.com`
 - [scripts/setup-https.sh](scripts/setup-https.sh): helper script that runs the bootstrap flow
 
 Run:
@@ -238,6 +240,8 @@ The Flask service in [api.py](api.py) exposes:
 - `GET /api/script-status`
 - `GET /api/trade-execution-output`
 - `GET /api/executed-trades`
+- `POST /api/telemetry/startup`
+- `GET /api/telemetry/summary`
 
 These are intended for the dashboard and internal monitoring.
 
@@ -262,6 +266,49 @@ During Docker runs, the main shared runtime paths are:
 - `/shared/option_manager_status.json`
 - `/shared/trade_execution_output.json`
 - `/shared/option_position_management_output.json`
+
+## Optional Startup Telemetry
+
+The project now includes an optional, privacy-respecting startup ping system for counting unique installs that actually ran.
+
+Privacy details for the current telemetry behavior live in [PRIVACY.md](PRIVACY.md).
+
+- telemetry is enabled by default
+- when enabled, each install generates a random local `install_id` and stores it in `TELEMETRY_INSTALLATION_ID_PATH`
+- on startup, the `worker`, `option_manager`, `news_collector`, and `api` processes send a small JSON POST to `TELEMETRY_ENDPOINT`
+- this repo now includes a tiny receiver endpoint at `POST /api/telemetry/startup` and a summary endpoint at `GET /api/telemetry/summary`
+- the receiver stores one SQLite row per unique `install_id` and increments `startup_ping_count` on repeat startups
+- startup pings can be left public, while the summary endpoint can be protected with a separate read token
+- the payload only includes:
+  - `event`
+  - `telemetry_version`
+  - `project`
+  - `runtime`
+  - `install_id`
+  - `install_created_at`
+  - `started_at`
+  - optional `release`
+
+Suggested env vars:
+
+- `TELEMETRY_ENABLED=true`
+- `TELEMETRY_ENDPOINT=https://your-telemetry-endpoint.example.com/api/telemetry/startup`
+- `TELEMETRY_AUTH_TOKEN=...`
+- `TELEMETRY_INSTALLATION_ID_PATH=/shared/telemetry_installation.json`
+- `TELEMETRY_TIMEOUT_SECONDS=2.0`
+- `TELEMETRY_RELEASE=2026-05-24`
+- `TELEMETRY_RECEIVER_WRITE_AUTH_TOKEN=...`
+- `TELEMETRY_RECEIVER_READ_AUTH_TOKEN=...`
+- `TELEMETRY_RECEIVER_AUTH_TOKEN=...`
+
+Recommended public-clone setup:
+
+- leave `TELEMETRY_RECEIVER_WRITE_AUTH_TOKEN` unset so public startup pings can be recorded
+- set `TELEMETRY_RECEIVER_READ_AUTH_TOKEN` on your VM so `GET /api/telemetry/summary` stays private
+- set `TELEMETRY_ENDPOINT` in the shared `.env.example` to your VM's `POST /api/telemetry/startup` URL
+- leave `TELEMETRY_AUTH_TOKEN` unset in public clones unless you explicitly choose to protect write access too
+
+Count unique installs by unique `install_id` values on your telemetry receiver. Multiple services from the same deployment may ping separately, so dedupe by `install_id` when estimating how many people actually ran the project.
 
 ## Important Files
 

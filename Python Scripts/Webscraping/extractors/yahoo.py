@@ -1,3 +1,4 @@
+# ruff: noqa: F401  (public demo: compatibility aliases of extractors/demo.py)
 from .demo import (
     extract_demo_article as extract_yahoo_article,
     is_demo_article_url as is_yahoo_article_url,

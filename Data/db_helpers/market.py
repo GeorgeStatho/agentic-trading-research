@@ -8,6 +8,7 @@ from market_db import initialize_database as initialize_market_database
 from market_db import (
     expire_manager_decision_pnl,
     add_company_price_snapshot,
+    get_telemetry_summary,
     get_latest_linked_manager_decision_for_option_symbol,
     get_latest_open_manager_decision_for_trade_link,
     get_market_data_refresh_state,
@@ -23,6 +24,7 @@ from market_db import (
     record_market_data_refresh_state,
     record_manager_decision_history,
     record_option_trade_execution,
+    record_telemetry_installation,
     update_manager_decision_latest_pnl,
 )
 

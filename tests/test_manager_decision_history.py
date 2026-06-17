@@ -126,7 +126,7 @@ class ManagerDecisionHistoryTests(unittest.TestCase):
             decision_history_id=decision_id,
             latest_trade_pnl_pct=12.5,
             latest_trade_pnl_updated_at="2026-05-23T14:00:00+00:00",
-            pnl_expires_at="2026-06-06T14:00:00+00:00",
+            pnl_expires_at="2026-12-31T14:00:00+00:00",
             resolved_outcome_label="open_profit",
             db_path=self.db_path,
         )

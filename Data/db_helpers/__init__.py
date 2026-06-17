@@ -4,6 +4,7 @@ from db_helpers.market import (
     ensure_all_sector_market_data,
     ensure_industry_market_data,
     ensure_sector_market_data,
+    get_telemetry_summary,
     get_latest_linked_manager_decision_for_option_symbol,
     get_latest_open_manager_decision_for_trade_link,
     initialize_market_database,
@@ -14,6 +15,7 @@ from db_helpers.market import (
     load_sector_tree,
     load_sector_tree_from_json,
     record_manager_decision_history,
+    record_telemetry_installation,
     update_manager_decision_latest_pnl,
 )
 from db_helpers.news import (

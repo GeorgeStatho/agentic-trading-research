@@ -1,3 +1,4 @@
+# ruff: noqa: F401  (public demo: compatibility aliases of extractors/demo.py)
 from .demo import (
     extract_demo_article as extract_marketwatch_article,
     extract_demo_search_links as extract_marketwatch_search_links,

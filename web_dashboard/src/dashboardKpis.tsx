@@ -31,6 +31,11 @@ type DashboardKpiPayload = {
     profit_factor: number | null;
     average_trade_return_pct: number | null;
   };
+  usage_summary: {
+    unique_install_count: number;
+    startup_ping_count: number;
+    last_seen_at: string;
+  };
   bot_status: {
     state: string;
     label: string;
@@ -230,6 +235,14 @@ function buildCards(payload: DashboardKpiPayload): KpiCardConfig[] {
       value: `Sharpe ${formatRatio(payload.performance_summary.annualized_sharpe)} / Sortino ${formatRatio(payload.performance_summary.annualized_sortino)}`,
       detail: `Total return ${formatPercent(payload.performance_summary.total_return_pct)} / Avg trade ${formatPercent(payload.performance_summary.average_trade_return_pct)} / Profit factor ${formatRatio(payload.performance_summary.profit_factor)}`,
       compactValue: true,
+    },
+    {
+      title: 'People Using It',
+      value: formatInteger(payload.usage_summary.unique_install_count),
+      detail:
+        payload.usage_summary.startup_ping_count > 0
+          ? `${formatInteger(payload.usage_summary.startup_ping_count)} startup pings across unique install IDs`
+          : 'Unique install IDs recorded by startup telemetry',
     },
     {
       title: 'Bot Status',
