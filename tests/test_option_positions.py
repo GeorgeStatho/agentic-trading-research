@@ -106,19 +106,23 @@ def _make_future_option_symbol(
 
 
 def _make_trailing_profit_config(module, **overrides):
+    giveback_defaults = {
+        bucket.key: float(bucket.default_trailing_giveback_pct if bucket.default_trailing_giveback_pct is not None else 0.25)
+        for bucket in module.OPTION_DTE_BUCKETS
+    }
     values = {
-        "protection_trigger_pct": module.DEFAULT_OPTION_TRAIL_PROTECTION_TRIGGER_PCT,
-        "initial_floor_pct": module.DEFAULT_OPTION_TRAIL_INITIAL_FLOOR_PCT,
-        "dynamic_giveback_start_pct": module.DEFAULT_OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT,
-        "first_scale_out_trigger_pct": module.DEFAULT_OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT,
-        "first_scale_out_fraction": module.DEFAULT_OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION,
-        "second_scale_out_trigger_pct": module.DEFAULT_OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT,
-        "second_scale_out_fraction": module.DEFAULT_OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION,
-        "giveback_pct_by_bucket_key": dict(module.DEFAULT_OPTION_TRAILING_GIVEBACK_PCT_BY_BUCKET_KEY),
-        "floor_100_pct": module.DEFAULT_OPTION_TRAIL_100_FLOOR_PCT,
-        "floor_150_pct": module.DEFAULT_OPTION_TRAIL_150_FLOOR_PCT,
-        "floor_200_pct": module.DEFAULT_OPTION_TRAIL_200_FLOOR_PCT,
-        "enable_momentum_exit": module.DEFAULT_OPTION_POSITION_ENABLE_MOMENTUM_EXIT,
+        "protection_trigger_pct": 0.40,
+        "initial_floor_pct": 0.05,
+        "dynamic_giveback_start_pct": 0.75,
+        "first_scale_out_trigger_pct": 0.55,
+        "first_scale_out_fraction": 0.50,
+        "second_scale_out_trigger_pct": 2.00,
+        "second_scale_out_fraction": 0.25,
+        "giveback_pct_by_bucket_key": giveback_defaults,
+        "floor_100_pct": 0.60,
+        "floor_150_pct": 1.00,
+        "floor_200_pct": 1.40,
+        "enable_momentum_exit": False,
     }
     values.update(overrides)
     return module.TrailingProfitConfig(**values)
@@ -126,11 +130,11 @@ def _make_trailing_profit_config(module, **overrides):
 
 def _make_momentum_history_config(module, **overrides):
     values = {
-        "enable_after_pnl_pct": module.DEFAULT_OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT,
-        "window_size": module.DEFAULT_OPTION_MOMENTUM_HISTORY_WINDOW_SIZE,
-        "min_samples": module.DEFAULT_OPTION_MOMENTUM_HISTORY_MIN_SAMPLES,
-        "bad_count_exit_threshold": module.DEFAULT_OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD,
-        "consecutive_bad_exit_threshold": module.DEFAULT_OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD,
+        "enable_after_pnl_pct": 2.00,
+        "window_size": 10,
+        "min_samples": 5,
+        "bad_count_exit_threshold": 6,
+        "consecutive_bad_exit_threshold": 3,
     }
     values.update(overrides)
     return module.MomentumHistoryConfig(**values)
@@ -138,9 +142,9 @@ def _make_momentum_history_config(module, **overrides):
 
 def _make_option_price_momentum_config(module, **overrides):
     values = {
-        "bad_giveback_threshold": module.DEFAULT_OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD,
-        "mixed_giveback_threshold": module.DEFAULT_OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD,
-        "good_profit_threshold": module.DEFAULT_OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD,
+        "bad_giveback_threshold": 0.35,
+        "mixed_giveback_threshold": 0.15,
+        "good_profit_threshold": 0.10,
     }
     values.update(overrides)
     return module.OptionPriceMomentumConfig(**values)
