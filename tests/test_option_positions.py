@@ -816,6 +816,181 @@ class OptionPositionTests(VerboseTestCase):
         self.assertEqual(exit_action["reason"], "hold")
         self.log_pass("stop-loss ignored a worse midpoint drawdown when broker P/L stayed above the stop floor")
 
+    def _run_stop_loss_exit_action(
+        self,
+        *,
+        broker_unrealized_pl_pct_ratio: float,
+        position_state: dict,
+        stop_loss_confirm_checks: int | None = None,
+        underlying_adverse_move_pct: float | None = None,
+        stop_loss_underlying_move_pct: float | None = None,
+    ) -> tuple[dict, dict]:
+        kwargs = dict(
+            option_symbol=OPTION_SYMBOL,
+            quantity=2,
+            unrealized_pl_pct_ratio=broker_unrealized_pl_pct_ratio,
+            days_to_expiration=10,
+            hours_to_expiration=120.0,
+            exit_thresholds=self.option_positions.ExitThresholds(
+                dte_rule_label="7-14 DTE",
+                take_profit_pct=40.0,
+                stop_loss_pct=-28.0,
+                force_exit_days_to_expiration=3,
+                exit_hours_to_expiration=72.0,
+                is_default_rule=False,
+            ),
+            position_state=position_state,
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=_make_trailing_profit_config(self.option_positions),
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
+            momentum_status=MOMENTUM_UNKNOWN,
+            momentum_reasons=[],
+            recently_filled_order=False,
+            broker_unrealized_pl_pct_ratio=broker_unrealized_pl_pct_ratio,
+        )
+        if stop_loss_confirm_checks is not None:
+            kwargs["stop_loss_confirm_checks"] = stop_loss_confirm_checks
+        if underlying_adverse_move_pct is not None:
+            kwargs["underlying_adverse_move_pct"] = underlying_adverse_move_pct
+        if stop_loss_underlying_move_pct is not None:
+            kwargs["stop_loss_underlying_move_pct"] = stop_loss_underlying_move_pct
+        return self.option_positions._structured_exit_action(**kwargs)
+
+    def test_stop_loss_sells_on_first_breach_by_default(self) -> None:
+        exit_action, updated_state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state={},
+        )
+        self.assertEqual(exit_action["action"], "sell_full")
+        self.assertEqual(exit_action["reason"], "stop_loss")
+        self.assertEqual(updated_state["stop_loss_breach_count"], 1)
+        self.log_pass("stop-loss defaults to selling on the first breach when no confirmation window is configured")
+
+    def test_stop_loss_confirmation_gate_holds_until_required_checks_then_fires(self) -> None:
+        state: dict = {}
+
+        first_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=3,
+        )
+        self.assertEqual(first_action["action"], "hold")
+        self.assertEqual(first_action["reason"], "stop_loss_pending_confirmation")
+        self.assertEqual(state["stop_loss_breach_count"], 1)
+
+        second_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=3,
+        )
+        self.assertEqual(second_action["action"], "hold")
+        self.assertEqual(state["stop_loss_breach_count"], 2)
+
+        third_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=3,
+        )
+        self.assertEqual(third_action["action"], "sell_full")
+        self.assertEqual(third_action["reason"], "stop_loss")
+        self.assertEqual(state["stop_loss_breach_count"], 3)
+        self.log_pass("stop-loss held for two cycles and only forced a full exit once the third consecutive breach confirmed it")
+
+    def test_stop_loss_confirmation_counter_resets_when_broker_pl_recovers(self) -> None:
+        state: dict = {}
+
+        breach_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=3,
+        )
+        self.assertEqual(breach_action["action"], "hold")
+        self.assertEqual(state["stop_loss_breach_count"], 1)
+
+        recovered_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.10,
+            position_state=state,
+            stop_loss_confirm_checks=3,
+        )
+        self.assertEqual(recovered_action["action"], "hold")
+        self.assertEqual(state["stop_loss_breach_count"], 0)
+
+        re_breach_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=3,
+        )
+        self.assertEqual(re_breach_action["action"], "hold")
+        self.assertEqual(re_breach_action["reason"], "stop_loss_pending_confirmation")
+        self.assertEqual(state["stop_loss_breach_count"], 1)
+        self.log_pass("a dip that bounced back above the stop floor reset the confirmation streak so the next dip re-confirms from scratch")
+
+    def test_stop_loss_holds_when_underlying_has_not_moved_against_position(self) -> None:
+        exit_action, updated_state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state={"stop_loss_breach_count": 2},
+            stop_loss_confirm_checks=1,
+            underlying_adverse_move_pct=0.004,
+            stop_loss_underlying_move_pct=0.015,
+        )
+        self.assertEqual(exit_action["action"], "hold")
+        self.assertEqual(exit_action["reason"], "stop_loss_underlying_hold")
+        # The gate outranks any premium-breach streak: the stock is still fine, so
+        # the streak is cleared rather than advanced toward a forced exit.
+        self.assertEqual(updated_state["stop_loss_breach_count"], 0)
+        self.log_pass("premium stop-loss held because the underlying had barely moved against the position")
+
+    def test_stop_loss_fires_when_underlying_confirms_adverse_move(self) -> None:
+        exit_action, updated_state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state={},
+            stop_loss_confirm_checks=1,
+            underlying_adverse_move_pct=0.025,
+            stop_loss_underlying_move_pct=0.015,
+        )
+        self.assertEqual(exit_action["action"], "sell_full")
+        self.assertEqual(exit_action["reason"], "stop_loss")
+        self.log_pass("premium stop-loss fired once the underlying itself moved past the adverse-move threshold")
+
+    def test_stop_loss_falls_back_to_premium_stop_when_underlying_move_unknown(self) -> None:
+        exit_action, _ = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state={},
+            stop_loss_confirm_checks=1,
+            underlying_adverse_move_pct=None,
+            stop_loss_underlying_move_pct=0.015,
+        )
+        self.assertEqual(exit_action["action"], "sell_full")
+        self.assertEqual(exit_action["reason"], "stop_loss")
+        self.log_pass("premium stop-loss still protected the position when the underlying baseline was unavailable")
+
+    def test_stop_loss_underlying_gate_composes_with_confirmation_checks(self) -> None:
+        state: dict = {}
+
+        pending_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=2,
+            underlying_adverse_move_pct=0.030,
+            stop_loss_underlying_move_pct=0.015,
+        )
+        self.assertEqual(pending_action["action"], "hold")
+        self.assertEqual(pending_action["reason"], "stop_loss_pending_confirmation")
+        self.assertEqual(state["stop_loss_breach_count"], 1)
+
+        confirmed_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=2,
+            underlying_adverse_move_pct=0.030,
+            stop_loss_underlying_move_pct=0.015,
+        )
+        self.assertEqual(confirmed_action["action"], "sell_full")
+        self.assertEqual(confirmed_action["reason"], "stop_loss")
+        self.log_pass("an underlying-confirmed breach still had to clear the consecutive-check debounce before the full exit fired")
+
     def test_structured_exit_action_ignores_midpoint_profit_for_scale_out_when_broker_pl_is_below_trigger(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(
             self.option_positions,

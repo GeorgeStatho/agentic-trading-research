@@ -24,7 +24,9 @@ from ._option_positions_defaults import (
     DEFAULT_OPTION_POSITION_ENABLE_MOMENTUM_EXIT,
     DEFAULT_OPTION_POSITION_ENABLE_TRAILING_PROFIT,
     DEFAULT_OPTION_POSITION_TRAILING_PROFIT_DRY_RUN,
+    DEFAULT_OPTION_STOP_LOSS_CONFIRM_CHECKS,
     DEFAULT_OPTION_STOP_LOSS_PCT,
+    DEFAULT_OPTION_STOP_LOSS_UNDERLYING_MOVE_PCT,
     DEFAULT_OPTION_TAKE_PROFIT_PCT,
     DEFAULT_OPTION_TRAIL_100_FLOOR_PCT,
     DEFAULT_OPTION_TRAIL_150_FLOOR_PCT,
@@ -127,6 +129,8 @@ def ManageCurrentOptionPositions(
     take_profit_pct: float = DEFAULT_OPTION_TAKE_PROFIT_PCT,
     stop_loss_pct: float = DEFAULT_OPTION_STOP_LOSS_PCT,
     exit_hours_to_expiration: float = DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION,
+    stop_loss_confirm_checks_override: int | None = None,
+    stop_loss_underlying_move_pct_override: float | None = None,
     state_path_override: Path | None = None,
     enable_trailing_profit_override: bool | None = None,
     trailing_profit_dry_run_override: bool | None = None,
@@ -280,6 +284,22 @@ def ManageCurrentOptionPositions(
         stale_minutes=float(DEFAULT_OPTION_PENDING_EXIT_STALE_MINUTES if pending_exit_stale_minutes_override is None else pending_exit_stale_minutes_override),
         cancel_on_stale=(DEFAULT_OPTION_PENDING_EXIT_CANCEL_ON_STALE if pending_exit_cancel_on_stale_override is None else bool(pending_exit_cancel_on_stale_override)),
     )
+    stop_loss_confirm_checks = max(
+        1,
+        int(
+            DEFAULT_OPTION_STOP_LOSS_CONFIRM_CHECKS
+            if stop_loss_confirm_checks_override is None
+            else stop_loss_confirm_checks_override
+        ),
+    )
+    stop_loss_underlying_move_pct = max(
+        0.0,
+        float(
+            DEFAULT_OPTION_STOP_LOSS_UNDERLYING_MOVE_PCT
+            if stop_loss_underlying_move_pct_override is None
+            else stop_loss_underlying_move_pct_override
+        ),
+    )
     open_option_symbols: set[str] = set()
     for position in positions or []:
         symbol = str(getattr(position, "symbol", "") or "").strip().upper()
@@ -308,6 +328,8 @@ def ManageCurrentOptionPositions(
             momentum_history_config=momentum_history_config,
             option_price_momentum_config=option_price_momentum_config,
             state_path=state_path,
+            stop_loss_confirm_checks=stop_loss_confirm_checks,
+            stop_loss_underlying_move_pct=stop_loss_underlying_move_pct,
             position_state_override=reconciled_state,
             pending_reconciliation=pending_reconciliation,
         )
@@ -387,6 +409,8 @@ def ManageCurrentOptionPositions(
         "uses_dte_based_exit_thresholds": True,
         "take_profit_pct": take_profit_pct,
         "stop_loss_pct": stop_loss_pct,
+        "stop_loss_confirm_checks": stop_loss_confirm_checks,
+        "stop_loss_underlying_move_pct": stop_loss_underlying_move_pct,
         "exit_hours_to_expiration": exit_hours_to_expiration,
         "position_count": len(position_summaries),
         "sell_count": sum(1 for summary in position_summaries if summary.get("exit_action") in {"sell_full", "sell_partial"}),

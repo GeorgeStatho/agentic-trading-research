@@ -78,6 +78,26 @@ _OPTION_POSITION_SETTINGS = OptionPositionSettings.from_env()
 DEFAULT_OPTION_TAKE_PROFIT_PCT = _OPTION_POSITION_SETTINGS.take_profit_pct
 DEFAULT_OPTION_STOP_LOSS_PCT = _OPTION_POSITION_SETTINGS.stop_loss_pct
 DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION = _OPTION_POSITION_SETTINGS.exit_hours_to_expiration
+# Number of consecutive manager cycles the broker P/L must stay at or below the
+# stop-loss floor before a full exit fires. 1 preserves the legacy behavior of
+# selling on the first breach; higher values ride out momentary dips that bounce
+# back (option premium is leveraged and spread-noisy, so a small underlying wobble
+# can briefly cross the floor and recover).
+DEFAULT_OPTION_STOP_LOSS_CONFIRM_CHECKS = env_positive_int(
+    "OPTION_POSITION_STOP_LOSS_CONFIRM_CHECKS",
+    1,
+)
+# Minimum adverse move in the UNDERLYING (as a fraction of the entry underlying
+# price) required before a broker-P/L stop-loss breach is treated as real. 0.0
+# disables the check and keeps the legacy premium-only stop. A value like 0.015
+# means "only stop a call once the stock is down >=1.5% from entry (or a put's
+# underlying is up >=1.5%)", so IV crush / spread noise on the option premium can
+# no longer force an exit while the underlying itself is still fine. When the
+# underlying baseline is unavailable or untrusted the premium stop still applies.
+DEFAULT_OPTION_STOP_LOSS_UNDERLYING_MOVE_PCT = env_float(
+    "OPTION_POSITION_STOP_LOSS_UNDERLYING_MOVE_PCT",
+    0.0,
+)
 DEFAULT_OPTION_POSITION_STATE_PATH = Path(
     os.getenv("OPTION_POSITION_STATE_PATH", "/shared/option_position_state.json")
 )

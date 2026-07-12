@@ -80,6 +80,8 @@ def _build_option_position_snapshot(
     state_path: Path,
     get_latest_option_quote: Callable[[str], dict[str, Any]],
     get_latest_stock_price: Callable[[str], dict[str, Any]],
+    stop_loss_confirm_checks: int = 1,
+    stop_loss_underlying_move_pct: float = 0.0,
     position_state_override: dict[str, Any] | None = None,
     pending_reconciliation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -142,6 +144,19 @@ def _build_option_position_snapshot(
         option_momentum=option_price_momentum_details,
         underlying_momentum=underlying_momentum_details,
     )
+    # The underlying assessment reports price_change_from_entry_pct as a signed
+    # percentage where positive = moved in the position's favor (it already
+    # negates for puts). Convert it to an adverse move fraction (positive = moved
+    # against the position) for the underlying-confirmed stop-loss gate. It is
+    # None whenever the entry underlying baseline is missing or untrusted.
+    favorable_underlying_move_pct = safe_float(
+        underlying_momentum_details.get("price_change_from_entry_pct")
+    )
+    underlying_adverse_move_pct = (
+        -favorable_underlying_move_pct / 100.0
+        if favorable_underlying_move_pct is not None
+        else None
+    )
     broker_quantity = _safe_int(quantity) or 0
     exit_action, updated_state = _structured_exit_action(
         option_symbol=option_symbol,
@@ -165,6 +180,9 @@ def _build_option_position_snapshot(
         recently_filled_order=(
             _normalize_order_status((pending_reconciliation or {}).get("pending_order_status")) == "filled"
         ),
+        stop_loss_confirm_checks=stop_loss_confirm_checks,
+        underlying_adverse_move_pct=underlying_adverse_move_pct,
+        stop_loss_underlying_move_pct=stop_loss_underlying_move_pct,
     )
     updated_state.setdefault("entry_underlying_symbol", parsed_symbol.get("underlying_symbol") or "")
     updated_state.setdefault("entry_price", entry_price)
@@ -237,6 +255,7 @@ def _build_option_position_snapshot(
         "underlying_momentum_status": str(underlying_momentum_details.get("status") or ""),
         "underlying_momentum_reasons": list(underlying_momentum_details.get("reasons") or []),
         "underlying_momentum_informational_only": str(underlying_momentum_details.get("status") or "") == "unknown",
+        "underlying_adverse_move_pct": underlying_adverse_move_pct,
         "momentum_tracking_active": bool(persisted_state.get("momentum_tracking_active")),
         "momentum_history_sample_count": int(persisted_state.get("momentum_history_sample_count") or 0),
         "momentum_bad_count": int(persisted_state.get("momentum_bad_count") or 0),
