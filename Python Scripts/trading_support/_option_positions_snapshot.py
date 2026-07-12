@@ -21,8 +21,19 @@ from ._option_positions_market import (
     _parse_option_symbol,
     _resolve_option_exit_thresholds,
 )
+from ._option_positions_defaults import (
+    DEFAULT_OPTION_EXIT_TICK_PRICE_THRESHOLD,
+    DEFAULT_OPTION_EXIT_TICK_SIZE_LARGE,
+    DEFAULT_OPTION_EXIT_TICK_SIZE_SMALL,
+)
 from ._option_positions_state import _normalize_order_status, _safe_int
-from ._option_positions_strategy import _structured_exit_action
+from ._option_positions_strategy import (
+    _URGENT_EXIT_REASONS,
+    _exit_should_hold_for_wide_spread,
+    _resolve_option_exit_limit_price,
+    _round_option_sell_price_to_tick,
+    _structured_exit_action,
+)
 from .utils import safe_float
 
 _TRUSTED_ENTRY_UNDERLYING_PRICE_SOURCES = {
@@ -82,6 +93,11 @@ def _build_option_position_snapshot(
     get_latest_stock_price: Callable[[str], dict[str, Any]],
     stop_loss_confirm_checks: int = 1,
     stop_loss_underlying_move_pct: float = 0.0,
+    exit_use_limit_orders: bool = False,
+    exit_max_spread_pct: float = 0.0,
+    exit_tick_size_small: float = DEFAULT_OPTION_EXIT_TICK_SIZE_SMALL,
+    exit_tick_size_large: float = DEFAULT_OPTION_EXIT_TICK_SIZE_LARGE,
+    exit_tick_price_threshold: float = DEFAULT_OPTION_EXIT_TICK_PRICE_THRESHOLD,
     position_state_override: dict[str, Any] | None = None,
     pending_reconciliation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -184,6 +200,64 @@ def _build_option_position_snapshot(
         underlying_adverse_move_pct=underlying_adverse_move_pct,
         stop_loss_underlying_move_pct=stop_loss_underlying_move_pct,
     )
+    # Bid/ask spread as a fraction of the midpoint, used by the liquidity guard
+    # and to price limit exits. None when the quote is one-sided/unusable.
+    option_spread_pct: float | None = None
+    if (
+        current_bid is not None
+        and current_ask is not None
+        and current_mid_price is not None
+        and current_mid_price > 0
+        and current_ask >= current_bid
+    ):
+        option_spread_pct = round((current_ask - current_bid) / current_mid_price, 6)
+    exit_reason = str(exit_action.get("reason") or "")
+    # Liquidity guard: hold a non-urgent exit for another cycle rather than
+    # crossing a blown-out spread. Safe to downgrade here because sell-commitment
+    # state (e.g. took_first_scale_out) is only persisted at submission time, so
+    # the position stays eligible to retry next cycle.
+    if exit_action.get("action") in {"sell_full", "sell_partial"} and _exit_should_hold_for_wide_spread(
+        exit_reason=exit_reason,
+        option_spread_pct=option_spread_pct,
+        max_spread_pct=exit_max_spread_pct,
+    ):
+        updated_state["last_action"] = "hold"
+        updated_state["last_decision_reason"] = "liquidity_guard_wide_spread"
+        exit_action = {
+            **exit_action,
+            "action": "hold",
+            "reason": "liquidity_guard_wide_spread",
+            "sell_fraction": 0.0,
+            "qty_to_sell": 0,
+            "notes": list(exit_action.get("notes") or [])
+            + [
+                (
+                    f"Exit held: option spread {option_spread_pct * 100.0:.2f}% of mid exceeds the "
+                    f"{exit_max_spread_pct * 100.0:.2f}% liquidity ceiling; will retry next cycle."
+                )
+            ],
+        }
+        exit_reason = "liquidity_guard_wide_spread"
+    # Spread-aware limit price for the exit order (None => manager submits a
+    # market order, preserving legacy behavior when limit exits are disabled).
+    exit_limit_price: float | None = None
+    if exit_use_limit_orders and exit_action.get("action") in {"sell_full", "sell_partial"}:
+        last_retryable_exit_reason = str((position_state or {}).get("last_retryable_exit_reason") or "").strip()
+        cross_spread = exit_reason in _URGENT_EXIT_REASONS or (
+            bool(last_retryable_exit_reason) and last_retryable_exit_reason == exit_reason
+        )
+        exit_limit_price = _resolve_option_exit_limit_price(
+            bid=current_bid,
+            ask=current_ask,
+            mid=current_mid_price,
+            cross_spread=cross_spread,
+        )
+        exit_limit_price = _round_option_sell_price_to_tick(
+            exit_limit_price,
+            small_tick=exit_tick_size_small,
+            large_tick=exit_tick_size_large,
+            tick_price_threshold=exit_tick_price_threshold,
+        )
     updated_state.setdefault("entry_underlying_symbol", parsed_symbol.get("underlying_symbol") or "")
     updated_state.setdefault("entry_price", entry_price)
     updated_state.setdefault("entry_qty", broker_quantity)
@@ -230,6 +304,8 @@ def _build_option_position_snapshot(
         "exit_reason": exit_action.get("reason"),
         "qty_to_sell": exit_action.get("qty_to_sell"),
         "sell_fraction": exit_action.get("sell_fraction"),
+        "option_spread_pct": option_spread_pct,
+        "exit_limit_price": exit_limit_price,
         "max_pnl_pct": exit_action.get("max_pnl_pct"),
         "profit_protection_active": bool(persisted_state.get("profit_protection_active")),
         "protected_profit_floor_pct": exit_action.get("protected_profit_floor_pct"),

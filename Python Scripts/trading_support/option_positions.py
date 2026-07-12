@@ -34,7 +34,12 @@ from ._option_positions_snapshot import _build_option_position_snapshot as _buil
 from ._option_positions_state import *
 from ._option_positions_state import _reconcile_pending_order_state
 from ._option_positions_strategy import *
-from ._option_positions_strategy import _structured_exit_action
+from ._option_positions_strategy import (
+    _exit_should_hold_for_wide_spread,
+    _resolve_option_exit_limit_price,
+    _round_option_sell_price_to_tick,
+    _structured_exit_action,
+)
 from services.option_momentum import (
     MOMENTUM_BAD,
     MOMENTUM_GOOD,
@@ -66,6 +71,8 @@ def _build_option_position_snapshot(
     state_path: Path,
     stop_loss_confirm_checks: int = DEFAULT_OPTION_STOP_LOSS_CONFIRM_CHECKS,
     stop_loss_underlying_move_pct: float = DEFAULT_OPTION_STOP_LOSS_UNDERLYING_MOVE_PCT,
+    exit_use_limit_orders: bool = DEFAULT_OPTION_EXIT_USE_LIMIT_ORDERS,
+    exit_max_spread_pct: float = DEFAULT_OPTION_EXIT_MAX_SPREAD_PCT,
     position_state_override: dict[str, Any] | None = None,
     pending_reconciliation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -92,6 +99,8 @@ def _build_option_position_snapshot(
         get_latest_stock_price=_get_latest_stock_price,
         stop_loss_confirm_checks=stop_loss_confirm_checks,
         stop_loss_underlying_move_pct=stop_loss_underlying_move_pct,
+        exit_use_limit_orders=exit_use_limit_orders,
+        exit_max_spread_pct=exit_max_spread_pct,
         position_state_override=position_state_override,
         pending_reconciliation=pending_reconciliation,
     )
@@ -118,6 +127,8 @@ def ManageCurrentOptionPositions(
     exit_hours_to_expiration: float = DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION,
     stop_loss_confirm_checks_override: int | None = None,
     stop_loss_underlying_move_pct_override: float | None = None,
+    exit_use_limit_orders_override: bool | None = None,
+    exit_max_spread_pct_override: float | None = None,
     state_path_override: Path | None = None,
     enable_trailing_profit_override: bool | None = None,
     trailing_profit_dry_run_override: bool | None = None,
@@ -162,6 +173,8 @@ def ManageCurrentOptionPositions(
         exit_hours_to_expiration=exit_hours_to_expiration,
         stop_loss_confirm_checks_override=stop_loss_confirm_checks_override,
         stop_loss_underlying_move_pct_override=stop_loss_underlying_move_pct_override,
+        exit_use_limit_orders_override=exit_use_limit_orders_override,
+        exit_max_spread_pct_override=exit_max_spread_pct_override,
         state_path_override=state_path_override,
         enable_trailing_profit_override=enable_trailing_profit_override,
         trailing_profit_dry_run_override=trailing_profit_dry_run_override,

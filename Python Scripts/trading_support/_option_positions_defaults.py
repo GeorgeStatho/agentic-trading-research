@@ -98,6 +98,25 @@ DEFAULT_OPTION_STOP_LOSS_UNDERLYING_MOVE_PCT = env_float(
     "OPTION_POSITION_STOP_LOSS_UNDERLYING_MOVE_PCT",
     0.0,
 )
+# When enabled, exits are submitted as limit orders priced off the live option
+# quote (passive at the midpoint to capture spread; marketable at the bid for
+# urgent or already-retried exits) instead of crossing the whole spread with a
+# market order. Disabled by default so behavior is unchanged until opted in.
+DEFAULT_OPTION_EXIT_USE_LIMIT_ORDERS = str(
+    os.getenv("OPTION_POSITION_EXIT_USE_LIMIT_ORDERS", "false")
+).strip().lower() not in {"0", "false", "no", "off"}
+# Liquidity guard: when > 0, a non-urgent exit (scale-out, momentum, trailing
+# stop) is held for another cycle if the option's bid/ask spread exceeds this
+# fraction of the midpoint, rather than paying up into a blown-out book. Hard
+# risk exits (stop-loss, near-expiration) always bypass the guard. 0 disables it.
+DEFAULT_OPTION_EXIT_MAX_SPREAD_PCT = env_float("OPTION_POSITION_EXIT_MAX_SPREAD_PCT", 0.0)
+# Tick sizes for rounding limit-exit prices to a broker-valid increment. Defaults
+# to the OCC standard (a nickel below $3, a dime at/above), which is valid for any
+# option class; set both to 0.01 for penny-quoted names to keep full precision.
+# Sell limits round DOWN to the tick, so they stay valid and marketable.
+DEFAULT_OPTION_EXIT_TICK_SIZE_SMALL = env_float("OPTION_POSITION_EXIT_TICK_SIZE_SMALL", 0.05)
+DEFAULT_OPTION_EXIT_TICK_SIZE_LARGE = env_float("OPTION_POSITION_EXIT_TICK_SIZE_LARGE", 0.10)
+DEFAULT_OPTION_EXIT_TICK_PRICE_THRESHOLD = env_float("OPTION_POSITION_EXIT_TICK_PRICE_THRESHOLD", 3.00)
 DEFAULT_OPTION_POSITION_STATE_PATH = Path(
     os.getenv("OPTION_POSITION_STATE_PATH", "/shared/option_position_state.json")
 )

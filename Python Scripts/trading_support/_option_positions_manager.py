@@ -11,6 +11,8 @@ from services.option_position_state import delete_position_state, get_position_s
 
 from ._option_positions_defaults import (
     DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION,
+    DEFAULT_OPTION_EXIT_MAX_SPREAD_PCT,
+    DEFAULT_OPTION_EXIT_USE_LIMIT_ORDERS,
     DEFAULT_OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD,
     DEFAULT_OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD,
     DEFAULT_OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT,
@@ -131,6 +133,8 @@ def ManageCurrentOptionPositions(
     exit_hours_to_expiration: float = DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION,
     stop_loss_confirm_checks_override: int | None = None,
     stop_loss_underlying_move_pct_override: float | None = None,
+    exit_use_limit_orders_override: bool | None = None,
+    exit_max_spread_pct_override: float | None = None,
     state_path_override: Path | None = None,
     enable_trailing_profit_override: bool | None = None,
     trailing_profit_dry_run_override: bool | None = None,
@@ -300,6 +304,19 @@ def ManageCurrentOptionPositions(
             else stop_loss_underlying_move_pct_override
         ),
     )
+    exit_use_limit_orders = (
+        DEFAULT_OPTION_EXIT_USE_LIMIT_ORDERS
+        if exit_use_limit_orders_override is None
+        else bool(exit_use_limit_orders_override)
+    )
+    exit_max_spread_pct = max(
+        0.0,
+        float(
+            DEFAULT_OPTION_EXIT_MAX_SPREAD_PCT
+            if exit_max_spread_pct_override is None
+            else exit_max_spread_pct_override
+        ),
+    )
     open_option_symbols: set[str] = set()
     for position in positions or []:
         symbol = str(getattr(position, "symbol", "") or "").strip().upper()
@@ -330,6 +347,8 @@ def ManageCurrentOptionPositions(
             state_path=state_path,
             stop_loss_confirm_checks=stop_loss_confirm_checks,
             stop_loss_underlying_move_pct=stop_loss_underlying_move_pct,
+            exit_use_limit_orders=exit_use_limit_orders,
+            exit_max_spread_pct=exit_max_spread_pct,
             position_state_override=reconciled_state,
             pending_reconciliation=pending_reconciliation,
         )
@@ -339,7 +358,9 @@ def ManageCurrentOptionPositions(
             else:
                 try:
                     if submit_full_exit_order is not None:
-                        close_order = submit_full_exit_order(symbol)
+                        close_order = submit_full_exit_order(
+                            symbol, limit_price=summary.get("exit_limit_price")
+                        )
                     else:
                         legacy_close_order = active_trading_client.close_position(symbol)
                         close_order = {
@@ -373,7 +394,11 @@ def ManageCurrentOptionPositions(
                 summary["close_error"] = "Partial sell action computed by structured engine, but no partial option sell callback was provided."
             else:
                 try:
-                    close_order = submit_partial_exit_order(symbol, int(summary.get("qty_to_sell") or 0))
+                    close_order = submit_partial_exit_order(
+                        symbol,
+                        int(summary.get("qty_to_sell") or 0),
+                        limit_price=summary.get("exit_limit_price"),
+                    )
                     summary["close_submitted"] = True
                     summary["close_order_id"] = str(close_order.get("id") or "")
                     summary["close_order_status"] = str(close_order.get("status") or "")
@@ -411,6 +436,8 @@ def ManageCurrentOptionPositions(
         "stop_loss_pct": stop_loss_pct,
         "stop_loss_confirm_checks": stop_loss_confirm_checks,
         "stop_loss_underlying_move_pct": stop_loss_underlying_move_pct,
+        "exit_use_limit_orders": exit_use_limit_orders,
+        "exit_max_spread_pct": exit_max_spread_pct,
         "exit_hours_to_expiration": exit_hours_to_expiration,
         "position_count": len(position_summaries),
         "sell_count": sum(1 for summary in position_summaries if summary.get("exit_action") in {"sell_full", "sell_partial"}),

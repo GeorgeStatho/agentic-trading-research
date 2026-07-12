@@ -67,6 +67,87 @@ def _compute_scaled_sell_qty(quantity: int, sell_fraction: float) -> int:
     return max(1, min(quantity, requested_qty))
 
 
+# Hard risk exits that must get out this cycle: they bypass the wide-spread
+# liquidity guard and cross straight to the bid when priced as a limit order.
+_URGENT_EXIT_REASONS = frozenset({"stop_loss", "near_expiration"})
+
+
+def _exit_should_hold_for_wide_spread(
+    *,
+    exit_reason: str,
+    option_spread_pct: float | None,
+    max_spread_pct: float,
+) -> bool:
+    """Return True when a non-urgent exit should be held because the option's
+    bid/ask spread is wider than the configured ceiling. Urgent exits and an
+    unmeasurable/disabled spread never block."""
+    if max_spread_pct <= 0.0:
+        return False
+    if exit_reason in _URGENT_EXIT_REASONS:
+        return False
+    if option_spread_pct is None:
+        return False
+    return option_spread_pct > max_spread_pct
+
+
+def _resolve_option_exit_limit_price(
+    *,
+    bid: float | None,
+    ask: float | None,
+    mid: float | None,
+    cross_spread: bool,
+) -> float | None:
+    """Compute a spread-aware limit price for a sell exit. Returns None when the
+    quote is unusable so the caller can fall back to a market order.
+
+    - cross_spread True  -> marketable limit at the bid (near-certain fill, but
+      never sells *through* the bid the way a bare market order can on an
+      illiquid book).
+    - cross_spread False -> passive limit at the midpoint to try to capture the
+      spread, clamped so it is never posted below the bid.
+    """
+    bid_value = safe_float(bid)
+    if bid_value is None or bid_value <= 0:
+        return None
+    if cross_spread:
+        return round(bid_value, 2)
+    mid_value = safe_float(mid)
+    ask_value = safe_float(ask)
+    if mid_value is not None and mid_value > 0:
+        target = mid_value
+    elif ask_value is not None and ask_value > 0:
+        target = (bid_value + ask_value) / 2.0
+    else:
+        return None
+    return round(max(bid_value, target), 2)
+
+
+def _round_option_sell_price_to_tick(
+    price: float | None,
+    *,
+    small_tick: float = 0.05,
+    large_tick: float = 0.10,
+    tick_price_threshold: float = 3.0,
+) -> float | None:
+    """Round a sell-limit price DOWN to a broker-valid tick. Rounding down keeps
+    the order valid and marketable (a sell limit still fills at the NBBO bid), so
+    crossing exits are unaffected and passive exits just get slightly more
+    fillable. Prices below one tick fall back to a penny to avoid rounding to 0."""
+    price_value = safe_float(price)
+    if price_value is None or price_value <= 0:
+        return price
+    tick = large_tick if price_value >= tick_price_threshold else small_tick
+    tick_value = safe_float(tick)
+    if tick_value is None or tick_value <= 0:
+        return round(price_value, 2)
+    tick_cents = max(1, int(round(tick_value * 100)))
+    price_cents = int(round(price_value * 100))
+    floored_cents = (price_cents // tick_cents) * tick_cents
+    if floored_cents <= 0:
+        return round(price_value, 2)
+    return round(floored_cents / 100.0, 2)
+
+
 def _structured_exit_action(
     *,
     option_symbol: str,
