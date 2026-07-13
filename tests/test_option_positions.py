@@ -1989,6 +1989,7 @@ class OptionPositionTests(VerboseTestCase):
                     enable_trailing_profit_override=True,
                     trail_first_scale_out_trigger_pct_override=0.55,
                     trail_first_scale_out_fraction_override=0.50,
+                    exit_use_limit_orders_override=False,
                     trading_client_override=_FakeTradingClient(),
                     submit_partial_exit_order=lambda symbol, qty, limit_price=None: partial_orders.append((symbol, qty, limit_price))
                     or {
@@ -2081,6 +2082,17 @@ class OptionPositionTests(VerboseTestCase):
         self.option_positions.get_stock_history_client = lambda: stock_history_client
         if underlying_atr_pct is not None:
             self.option_positions._get_underlying_atr_pct = lambda _symbol: underlying_atr_pct
+        # Pin every env-driven exit knob to a neutral baseline so these tests are
+        # deterministic regardless of the ambient .env (which may enable limit
+        # exits, stop-loss confirmation, the liquidity guard, etc.). Individual
+        # tests re-enable exactly the feature they exercise via manage_kwargs.
+        hermetic_overrides = dict(
+            exit_use_limit_orders_override=False,
+            exit_max_spread_pct_override=0.0,
+            stop_loss_confirm_checks_override=1,
+            stop_loss_underlying_move_pct_override=0.0,
+            volatility_scaled_thresholds_override=False,
+        )
         try:
             return self.option_positions.ManageCurrentOptionPositions(
                 execute_sales=True,
@@ -2088,7 +2100,7 @@ class OptionPositionTests(VerboseTestCase):
                 trading_client_override=_FakeTradingClient(),
                 submit_full_exit_order=_fake_full_exit,
                 submit_partial_exit_order=_fake_partial_exit,
-                **manage_kwargs,
+                **{**hermetic_overrides, **manage_kwargs},
             )
         finally:
             self.option_positions.get_option_history_client = original_option_client
@@ -2156,7 +2168,9 @@ class OptionPositionTests(VerboseTestCase):
             full_orders: list = []
             partial_orders: list = []
             symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
-            position = SimpleNamespace(symbol=symbol, avg_entry_price="1.0", qty="4", unrealized_plpc="-0.50")
+            # A deep loss (entry 3.0, mid 1.60) breaches any per-bucket stop, so the
+            # test does not depend on the ambient stop-loss threshold.
+            position = SimpleNamespace(symbol=symbol, avg_entry_price="3.0", qty="4", unrealized_plpc="-0.60")
 
             result = self._run_manager_exit(
                 position=position,
@@ -2214,45 +2228,43 @@ class OptionPositionTests(VerboseTestCase):
 
     def test_manager_widens_stop_loss_for_high_volatility_underlying(self) -> None:
         with TemporaryDirectory() as temp_dir:
-            full_orders: list = []
-            partial_orders: list = []
             symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
-            # A -50% broker loss that would breach the base ~-35% stop for this bucket.
-            position = SimpleNamespace(symbol=symbol, avg_entry_price="1.0", qty="4", unrealized_plpc="-0.50")
+            # A small loss that fires no exit, so both runs just report the resolved
+            # thresholds; the test asserts the scaling math rather than a decision
+            # that would depend on the ambient per-bucket stop value.
+            position = SimpleNamespace(symbol=symbol, avg_entry_price="1.0", qty="4", unrealized_plpc="-0.05")
 
-            # Baseline (no scaling): the loss breaches the stop and forces a full exit.
-            base_result = self._run_manager_exit(
+            base = self._run_manager_exit(
                 position=position,
-                option_bid=0.45,
-                option_ask=0.55,
+                option_bid=0.90,
+                option_ask=0.95,
                 state_path=Path(temp_dir) / "base_state.json",
-                full_orders=full_orders,
-                partial_orders=partial_orders,
-            )
-            base_summary = base_result["positions"][0]
-            self.assertEqual(base_summary["exit_action"], "sell_full")
-            self.assertEqual(base_summary["exit_reason"], "stop_loss")
+                full_orders=[],
+                partial_orders=[],
+            )["positions"][0]
 
-            # High ATR (3x baseline, clamped to 2x) widens the stop past -50%, so the
-            # same loss is treated as normal noise for this volatile name and held.
-            scaled_result = self._run_manager_exit(
+            # ATR 3x the baseline -> raw scale 3.0, clamped to the 2.0 maximum.
+            scaled = self._run_manager_exit(
                 position=position,
-                option_bid=0.45,
-                option_ask=0.55,
+                option_bid=0.90,
+                option_ask=0.95,
                 state_path=Path(temp_dir) / "scaled_state.json",
-                full_orders=full_orders,
-                partial_orders=partial_orders,
+                full_orders=[],
+                partial_orders=[],
                 underlying_atr_pct=0.06,
                 volatility_scaled_thresholds_override=True,
                 volatility_baseline_atr_pct_override=0.02,
-            )
-            scaled_summary = scaled_result["positions"][0]
-            self.assertEqual(scaled_summary["exit_action"], "hold")
-            self.assertEqual(scaled_summary["volatility_scale"], 2.0)
-            self.assertEqual(scaled_summary["underlying_atr_pct"], 0.06)
-            # The persisted stop-loss threshold was scaled from ~-35% to ~-70%.
-            self.assertEqual(scaled_summary["stop_loss_pct"], round(base_summary["stop_loss_pct"] * 2.0, 4))
-            self.log_pass("a high-ATR underlying doubled (clamped) the stop-loss threshold so a -50% loss was held instead of stopped out")
+                volatility_min_scale_override=0.5,
+                volatility_max_scale_override=2.0,
+            )["positions"][0]
+
+            self.assertEqual(base["volatility_scale"], 1.0)
+            self.assertEqual(scaled["volatility_scale"], 2.0)
+            self.assertEqual(scaled["underlying_atr_pct"], 0.06)
+            # Both the stop-loss and take-profit thresholds scaled 2x off the base.
+            self.assertEqual(scaled["stop_loss_pct"], round(base["stop_loss_pct"] * 2.0, 4))
+            self.assertEqual(scaled["take_profit_pct"], round(base["take_profit_pct"] * 2.0, 4))
+            self.log_pass("a high-ATR underlying doubled (clamped) the stop-loss and take-profit thresholds through the manager")
 
     def test_momentum_marks_itm_call_getting_deeper_itm_as_good(self) -> None:
         assessment = evaluate_option_momentum(
