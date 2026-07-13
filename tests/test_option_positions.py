@@ -1039,6 +1039,35 @@ class OptionPositionTests(VerboseTestCase):
         self.assertIsNone(round_tick(None))
         self.log_pass("sell-limit tick rounding floored to valid increments and fell back to pennies for sub-tick prices")
 
+    def test_compute_atr_pct_averages_true_range_over_the_window(self) -> None:
+        compute = self.option_positions._compute_atr_pct
+        bars = [
+            {"high": 10, "low": 9, "close": 10},
+            {"high": 12, "low": 10, "close": 11},   # TR = 2
+            {"high": 16, "low": 11, "close": 15},   # TR = 5
+        ]
+        # Full window averages both true ranges: (2 + 5) / 2 = 3.5, over close 15.
+        self.assertAlmostEqual(compute(bars, period=14), 3.5 / 15.0, places=6)
+        # A period of 1 keeps only the most recent true range: 5 / 15.
+        self.assertAlmostEqual(compute(bars, period=1), 5.0 / 15.0, places=6)
+        # Too few bars yields None.
+        self.assertIsNone(compute([{"high": 10, "low": 9, "close": 10}], period=14))
+        self.assertIsNone(compute([], period=14))
+        self.log_pass("ATR% averaged the true range over the requested window and needed at least two bars")
+
+    def test_resolve_volatility_scale_clamps_ratio_and_falls_back_to_one(self) -> None:
+        resolve = self.option_positions._resolve_volatility_scale
+        # ATR twice the baseline doubles the thresholds.
+        self.assertEqual(resolve(current_atr_pct=0.04, baseline_atr_pct=0.02, min_scale=0.5, max_scale=2.0), 2.0)
+        # Very high vol is clamped to the max.
+        self.assertEqual(resolve(current_atr_pct=0.10, baseline_atr_pct=0.02, min_scale=0.5, max_scale=2.0), 2.0)
+        # Very low vol is clamped to the min.
+        self.assertEqual(resolve(current_atr_pct=0.005, baseline_atr_pct=0.02, min_scale=0.5, max_scale=2.0), 0.5)
+        # Missing or invalid inputs fall back to no scaling.
+        self.assertEqual(resolve(current_atr_pct=None, baseline_atr_pct=0.02, min_scale=0.5, max_scale=2.0), 1.0)
+        self.assertEqual(resolve(current_atr_pct=0.04, baseline_atr_pct=0.0, min_scale=0.5, max_scale=2.0), 1.0)
+        self.log_pass("volatility scale clamped the ATR ratio and fell back to 1.0 when the inputs were unusable")
+
     def test_structured_exit_action_ignores_midpoint_profit_for_scale_out_when_broker_pl_is_below_trigger(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(
             self.option_positions,
@@ -1997,6 +2026,7 @@ class OptionPositionTests(VerboseTestCase):
         state_path: Path,
         full_orders: list,
         partial_orders: list,
+        underlying_atr_pct: float | None = None,
         **manage_kwargs,
     ) -> dict:
         class _FakeTradingClient:
@@ -2046,8 +2076,11 @@ class OptionPositionTests(VerboseTestCase):
 
         original_option_client = self.option_positions.get_option_history_client
         original_stock_client = self.option_positions.get_stock_history_client
+        original_get_atr = self.option_positions._get_underlying_atr_pct
         self.option_positions.get_option_history_client = lambda: option_history_client
         self.option_positions.get_stock_history_client = lambda: stock_history_client
+        if underlying_atr_pct is not None:
+            self.option_positions._get_underlying_atr_pct = lambda _symbol: underlying_atr_pct
         try:
             return self.option_positions.ManageCurrentOptionPositions(
                 execute_sales=True,
@@ -2060,6 +2093,7 @@ class OptionPositionTests(VerboseTestCase):
         finally:
             self.option_positions.get_option_history_client = original_option_client
             self.option_positions.get_stock_history_client = original_stock_client
+            self.option_positions._get_underlying_atr_pct = original_get_atr
 
     def test_manager_prices_passive_partial_scale_out_as_limit_at_mid(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -2177,6 +2211,48 @@ class OptionPositionTests(VerboseTestCase):
             self.assertEqual(summary["exit_limit_price"], 1.55)
             self.assertEqual(partial_orders, [(symbol, 2, 1.55)])
             self.log_pass("a scale-out that had already been cancelled once repriced from the midpoint down to the bid")
+
+    def test_manager_widens_stop_loss_for_high_volatility_underlying(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            full_orders: list = []
+            partial_orders: list = []
+            symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
+            # A -50% broker loss that would breach the base ~-35% stop for this bucket.
+            position = SimpleNamespace(symbol=symbol, avg_entry_price="1.0", qty="4", unrealized_plpc="-0.50")
+
+            # Baseline (no scaling): the loss breaches the stop and forces a full exit.
+            base_result = self._run_manager_exit(
+                position=position,
+                option_bid=0.45,
+                option_ask=0.55,
+                state_path=Path(temp_dir) / "base_state.json",
+                full_orders=full_orders,
+                partial_orders=partial_orders,
+            )
+            base_summary = base_result["positions"][0]
+            self.assertEqual(base_summary["exit_action"], "sell_full")
+            self.assertEqual(base_summary["exit_reason"], "stop_loss")
+
+            # High ATR (3x baseline, clamped to 2x) widens the stop past -50%, so the
+            # same loss is treated as normal noise for this volatile name and held.
+            scaled_result = self._run_manager_exit(
+                position=position,
+                option_bid=0.45,
+                option_ask=0.55,
+                state_path=Path(temp_dir) / "scaled_state.json",
+                full_orders=full_orders,
+                partial_orders=partial_orders,
+                underlying_atr_pct=0.06,
+                volatility_scaled_thresholds_override=True,
+                volatility_baseline_atr_pct_override=0.02,
+            )
+            scaled_summary = scaled_result["positions"][0]
+            self.assertEqual(scaled_summary["exit_action"], "hold")
+            self.assertEqual(scaled_summary["volatility_scale"], 2.0)
+            self.assertEqual(scaled_summary["underlying_atr_pct"], 0.06)
+            # The persisted stop-loss threshold was scaled from ~-35% to ~-70%.
+            self.assertEqual(scaled_summary["stop_loss_pct"], round(base_summary["stop_loss_pct"] * 2.0, 4))
+            self.log_pass("a high-ATR underlying doubled (clamped) the stop-loss threshold so a -50% loss was held instead of stopped out")
 
     def test_momentum_marks_itm_call_getting_deeper_itm_as_good(self) -> None:
         assessment = evaluate_option_momentum(

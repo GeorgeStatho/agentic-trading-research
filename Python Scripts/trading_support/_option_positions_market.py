@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
 
 from alpaca.data.requests import OptionLatestQuoteRequest, StockLatestQuoteRequest
@@ -138,6 +138,102 @@ def _get_latest_stock_price(
     except Exception as exc:
         fallback["error"] = str(exc)
         return fallback
+
+
+def _extract_bar_ohlc(bar: Any) -> tuple[float, float, float] | None:
+    if isinstance(bar, dict):
+        high = safe_float(bar.get("high"))
+        low = safe_float(bar.get("low"))
+        close = safe_float(bar.get("close"))
+    else:
+        high = safe_float(getattr(bar, "high", None))
+        low = safe_float(getattr(bar, "low", None))
+        close = safe_float(getattr(bar, "close", None))
+    if high is None or low is None or close is None:
+        return None
+    return high, low, close
+
+
+def _compute_atr_pct(bars: Any, *, period: int = 14) -> float | None:
+    """Average True Range over the last `period` bars, expressed as a fraction of
+    the most recent close. Returns None when there are too few usable bars."""
+    rows = [ohlc for ohlc in (_extract_bar_ohlc(bar) for bar in (bars or [])) if ohlc is not None]
+    if len(rows) < 2:
+        return None
+    true_ranges: list[float] = []
+    for index in range(1, len(rows)):
+        high, low, _ = rows[index]
+        prev_close = rows[index - 1][2]
+        true_ranges.append(max(high - low, abs(high - prev_close), abs(low - prev_close)))
+    window = true_ranges[-max(1, int(period)):]
+    if not window:
+        return None
+    current_close = rows[-1][2]
+    if current_close is None or current_close <= 0:
+        return None
+    return (sum(window) / len(window)) / current_close
+
+
+def _resolve_volatility_scale(
+    *,
+    current_atr_pct: float | None,
+    baseline_atr_pct: float | None,
+    min_scale: float | None,
+    max_scale: float | None,
+) -> float:
+    """Multiplier for exit thresholds given the underlying's ATR relative to a
+    baseline, clamped to [min_scale, max_scale]. Returns 1.0 (no scaling) whenever
+    the inputs are unusable, so callers transparently fall back to fixed values."""
+    current = safe_float(current_atr_pct)
+    baseline = safe_float(baseline_atr_pct)
+    if current is None or current <= 0 or baseline is None or baseline <= 0:
+        return 1.0
+    scale = current / baseline
+    lower = safe_float(min_scale)
+    upper = safe_float(max_scale)
+    if lower is not None and lower > 0:
+        scale = max(lower, scale)
+    if upper is not None and upper > 0:
+        scale = min(upper, scale)
+    return round(scale, 4)
+
+
+def _get_underlying_atr_pct(
+    symbol: str,
+    get_stock_history_client: Callable[[], Any],
+    *,
+    period: int = 14,
+    lookback_days: int = 40,
+) -> float | None:
+    normalized_symbol = str(symbol or "").strip().upper()
+    if not normalized_symbol:
+        return None
+    try:
+        # Imported lazily: some alpaca-py builds do not expose these at import
+        # time, and the ATR signal is optional (missing -> no scaling).
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame
+
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=max(1, int(lookback_days)))
+        bars_response = get_stock_history_client().get_stock_bars(
+            StockBarsRequest(
+                symbol_or_symbols=normalized_symbol,
+                timeframe=TimeFrame.Day,
+                start=start_time,
+                end=end_time,
+            )
+        )
+        data = getattr(bars_response, "data", None)
+        if isinstance(data, dict):
+            bars = data.get(normalized_symbol) or data.get(normalized_symbol.lower()) or []
+        elif hasattr(bars_response, "get"):
+            bars = bars_response.get(normalized_symbol) or []
+        else:
+            bars = bars_response or []
+        return _compute_atr_pct(bars, period=period)
+    except Exception:
+        return None
 
 
 def _normalize_unrealized_pl_pct(

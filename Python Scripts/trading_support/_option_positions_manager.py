@@ -30,6 +30,10 @@ from ._option_positions_defaults import (
     DEFAULT_OPTION_STOP_LOSS_PCT,
     DEFAULT_OPTION_STOP_LOSS_UNDERLYING_MOVE_PCT,
     DEFAULT_OPTION_TAKE_PROFIT_PCT,
+    DEFAULT_OPTION_VOLATILITY_BASELINE_ATR_PCT,
+    DEFAULT_OPTION_VOLATILITY_MAX_SCALE,
+    DEFAULT_OPTION_VOLATILITY_MIN_SCALE,
+    DEFAULT_OPTION_VOLATILITY_SCALED_THRESHOLDS,
     DEFAULT_OPTION_TRAIL_100_FLOOR_PCT,
     DEFAULT_OPTION_TRAIL_150_FLOOR_PCT,
     DEFAULT_OPTION_TRAIL_200_FLOOR_PCT,
@@ -135,6 +139,10 @@ def ManageCurrentOptionPositions(
     stop_loss_underlying_move_pct_override: float | None = None,
     exit_use_limit_orders_override: bool | None = None,
     exit_max_spread_pct_override: float | None = None,
+    volatility_scaled_thresholds_override: bool | None = None,
+    volatility_baseline_atr_pct_override: float | None = None,
+    volatility_min_scale_override: float | None = None,
+    volatility_max_scale_override: float | None = None,
     state_path_override: Path | None = None,
     enable_trailing_profit_override: bool | None = None,
     trailing_profit_dry_run_override: bool | None = None,
@@ -317,6 +325,26 @@ def ManageCurrentOptionPositions(
             else exit_max_spread_pct_override
         ),
     )
+    volatility_scaled_thresholds = (
+        DEFAULT_OPTION_VOLATILITY_SCALED_THRESHOLDS
+        if volatility_scaled_thresholds_override is None
+        else bool(volatility_scaled_thresholds_override)
+    )
+    volatility_baseline_atr_pct = float(
+        DEFAULT_OPTION_VOLATILITY_BASELINE_ATR_PCT
+        if volatility_baseline_atr_pct_override is None
+        else volatility_baseline_atr_pct_override
+    )
+    volatility_min_scale = float(
+        DEFAULT_OPTION_VOLATILITY_MIN_SCALE
+        if volatility_min_scale_override is None
+        else volatility_min_scale_override
+    )
+    volatility_max_scale = float(
+        DEFAULT_OPTION_VOLATILITY_MAX_SCALE
+        if volatility_max_scale_override is None
+        else volatility_max_scale_override
+    )
     open_option_symbols: set[str] = set()
     for position in positions or []:
         symbol = str(getattr(position, "symbol", "") or "").strip().upper()
@@ -349,6 +377,10 @@ def ManageCurrentOptionPositions(
             stop_loss_underlying_move_pct=stop_loss_underlying_move_pct,
             exit_use_limit_orders=exit_use_limit_orders,
             exit_max_spread_pct=exit_max_spread_pct,
+            volatility_scaled_thresholds=volatility_scaled_thresholds,
+            volatility_baseline_atr_pct=volatility_baseline_atr_pct,
+            volatility_min_scale=volatility_min_scale,
+            volatility_max_scale=volatility_max_scale,
             position_state_override=reconciled_state,
             pending_reconciliation=pending_reconciliation,
         )
@@ -438,6 +470,8 @@ def ManageCurrentOptionPositions(
         "stop_loss_underlying_move_pct": stop_loss_underlying_move_pct,
         "exit_use_limit_orders": exit_use_limit_orders,
         "exit_max_spread_pct": exit_max_spread_pct,
+        "volatility_scaled_thresholds": volatility_scaled_thresholds,
+        "volatility_baseline_atr_pct": volatility_baseline_atr_pct,
         "exit_hours_to_expiration": exit_hours_to_expiration,
         "position_count": len(position_summaries),
         "sell_count": sum(1 for summary in position_summaries if summary.get("exit_action") in {"sell_full", "sell_partial"}),

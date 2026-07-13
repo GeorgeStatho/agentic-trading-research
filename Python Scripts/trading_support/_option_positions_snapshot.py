@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -20,6 +21,7 @@ from ._option_positions_market import (
     _normalize_unrealized_pl_pct,
     _parse_option_symbol,
     _resolve_option_exit_thresholds,
+    _resolve_volatility_scale,
 )
 from ._option_positions_defaults import (
     DEFAULT_OPTION_EXIT_TICK_PRICE_THRESHOLD,
@@ -98,6 +100,11 @@ def _build_option_position_snapshot(
     exit_tick_size_small: float = DEFAULT_OPTION_EXIT_TICK_SIZE_SMALL,
     exit_tick_size_large: float = DEFAULT_OPTION_EXIT_TICK_SIZE_LARGE,
     exit_tick_price_threshold: float = DEFAULT_OPTION_EXIT_TICK_PRICE_THRESHOLD,
+    volatility_scaled_thresholds: bool = False,
+    volatility_baseline_atr_pct: float = 0.02,
+    volatility_min_scale: float = 0.5,
+    volatility_max_scale: float = 2.0,
+    get_underlying_atr_pct: Callable[[str], float | None] | None = None,
     position_state_override: dict[str, Any] | None = None,
     pending_reconciliation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -174,6 +181,30 @@ def _build_option_position_snapshot(
         else None
     )
     broker_quantity = _safe_int(quantity) or 0
+    # Volatility-scaled thresholds: widen/tighten the stop-loss, take-profit, and
+    # underlying-move gate by the underlying's ATR relative to a baseline. Scale is
+    # 1.0 (no change) when disabled or the ATR is unavailable, so the fixed
+    # thresholds always remain the safe fallback.
+    volatility_scale = 1.0
+    underlying_atr_pct: float | None = None
+    if volatility_scaled_thresholds and get_underlying_atr_pct is not None:
+        try:
+            underlying_atr_pct = get_underlying_atr_pct(parsed_symbol.get("underlying_symbol"))
+        except Exception:
+            underlying_atr_pct = None
+        volatility_scale = _resolve_volatility_scale(
+            current_atr_pct=underlying_atr_pct,
+            baseline_atr_pct=volatility_baseline_atr_pct,
+            min_scale=volatility_min_scale,
+            max_scale=volatility_max_scale,
+        )
+    if volatility_scale != 1.0:
+        exit_thresholds = replace(
+            exit_thresholds,
+            stop_loss_pct=round(exit_thresholds.stop_loss_pct * volatility_scale, 4),
+            take_profit_pct=round(exit_thresholds.take_profit_pct * volatility_scale, 4),
+        )
+    effective_stop_loss_underlying_move_pct = round(stop_loss_underlying_move_pct * volatility_scale, 6)
     exit_action, updated_state = _structured_exit_action(
         option_symbol=option_symbol,
         quantity=broker_quantity,
@@ -198,7 +229,7 @@ def _build_option_position_snapshot(
         ),
         stop_loss_confirm_checks=stop_loss_confirm_checks,
         underlying_adverse_move_pct=underlying_adverse_move_pct,
-        stop_loss_underlying_move_pct=stop_loss_underlying_move_pct,
+        stop_loss_underlying_move_pct=effective_stop_loss_underlying_move_pct,
     )
     # Bid/ask spread as a fraction of the midpoint, used by the liquidity guard
     # and to price limit exits. None when the quote is one-sided/unusable.
@@ -306,6 +337,8 @@ def _build_option_position_snapshot(
         "sell_fraction": exit_action.get("sell_fraction"),
         "option_spread_pct": option_spread_pct,
         "exit_limit_price": exit_limit_price,
+        "volatility_scale": volatility_scale,
+        "underlying_atr_pct": underlying_atr_pct,
         "max_pnl_pct": exit_action.get("max_pnl_pct"),
         "profit_protection_active": bool(persisted_state.get("profit_protection_active")),
         "protected_profit_floor_pct": exit_action.get("protected_profit_floor_pct"),

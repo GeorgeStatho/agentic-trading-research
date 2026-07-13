@@ -117,6 +117,22 @@ DEFAULT_OPTION_EXIT_MAX_SPREAD_PCT = env_float("OPTION_POSITION_EXIT_MAX_SPREAD_
 DEFAULT_OPTION_EXIT_TICK_SIZE_SMALL = env_float("OPTION_POSITION_EXIT_TICK_SIZE_SMALL", 0.05)
 DEFAULT_OPTION_EXIT_TICK_SIZE_LARGE = env_float("OPTION_POSITION_EXIT_TICK_SIZE_LARGE", 0.10)
 DEFAULT_OPTION_EXIT_TICK_PRICE_THRESHOLD = env_float("OPTION_POSITION_EXIT_TICK_PRICE_THRESHOLD", 3.00)
+# Volatility-scaled exit thresholds: when enabled, the stop-loss, take-profit, and
+# underlying-move gate are multiplied by the underlying's ATR relative to a
+# baseline, so a fixed -25% stop widens on a high-vol name and tightens on a calm
+# one. Disabled by default; falls back to fixed thresholds (scale 1.0) whenever the
+# ATR cannot be measured.
+DEFAULT_OPTION_VOLATILITY_SCALED_THRESHOLDS = str(
+    os.getenv("OPTION_POSITION_VOLATILITY_SCALED_THRESHOLDS", "false")
+).strip().lower() not in {"0", "false", "no", "off"}
+# The underlying daily-ATR-as-fraction-of-price that maps to a 1.0x scale. A name
+# whose ATR is this fraction of its price gets its thresholds unchanged; twice as
+# volatile -> ~2x (subject to the min/max clamp).
+DEFAULT_OPTION_VOLATILITY_BASELINE_ATR_PCT = env_float("OPTION_POSITION_VOLATILITY_BASELINE_ATR_PCT", 0.02)
+DEFAULT_OPTION_VOLATILITY_MIN_SCALE = env_float("OPTION_POSITION_VOLATILITY_MIN_SCALE", 0.5)
+DEFAULT_OPTION_VOLATILITY_MAX_SCALE = env_float("OPTION_POSITION_VOLATILITY_MAX_SCALE", 2.0)
+DEFAULT_OPTION_VOLATILITY_ATR_PERIOD = env_positive_int("OPTION_POSITION_VOLATILITY_ATR_PERIOD", 14)
+DEFAULT_OPTION_VOLATILITY_ATR_LOOKBACK_DAYS = env_positive_int("OPTION_POSITION_VOLATILITY_ATR_LOOKBACK_DAYS", 40)
 DEFAULT_OPTION_POSITION_STATE_PATH = Path(
     os.getenv("OPTION_POSITION_STATE_PATH", "/shared/option_position_state.json")
 )
