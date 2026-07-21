@@ -23,6 +23,7 @@ from market_db_modules.backtesting import (
     run_backtest,
 )
 from market_db_modules.backtest_imports import import_alpaca_option_quote_csv
+from market_db_modules.backtest_alpaca import fetch_alpaca_historical_option_quotes
 from market_db_modules.manager_replay import (
     complete_manager_replay_evaluation,
     create_manager_replay_evaluation,
@@ -71,6 +72,7 @@ __all__ = [
     "complete_manager_replay_evaluation",
     "create_manager_replay_evaluation",
     "expire_manager_decision_pnl",
+    "fetch_alpaca_historical_option_quotes",
     "record_manager_decision_closed_outcome",
     "get_latest_linked_manager_decision_for_option_symbol",
     "get_latest_open_manager_decision_for_trade_link",

@@ -13,6 +13,7 @@ from market_db import (
     create_manager_replay_evaluation,
     get_telemetry_summary,
     get_backtest_run,
+    fetch_alpaca_historical_option_quotes,
     import_alpaca_option_quote_csv,
     get_latest_linked_manager_decision_for_option_symbol,
     get_latest_open_manager_decision_for_trade_link,

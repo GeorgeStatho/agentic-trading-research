@@ -235,6 +235,36 @@ CREATE TABLE IF NOT EXISTS historical_option_quotes (
     UNIQUE (option_symbol, quote_at, provider)
 );
 
+CREATE TABLE IF NOT EXISTS historical_option_quote_fetch_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    feed TEXT NOT NULL,
+    config_json TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    status TEXT NOT NULL,
+    summary_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS historical_option_quote_coverage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fetch_run_id INTEGER NOT NULL,
+    manager_decision_history_id INTEGER,
+    option_symbol TEXT NOT NULL,
+    decision_at TEXT,
+    requested_start_at TEXT NOT NULL,
+    requested_end_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    quote_count INTEGER NOT NULL DEFAULT 0,
+    page_count INTEGER NOT NULL DEFAULT 0,
+    error_text TEXT,
+    response_metadata_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (fetch_run_id) REFERENCES historical_option_quote_fetch_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS backtest_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     strategy_version TEXT NOT NULL,
@@ -380,6 +410,12 @@ CREATE INDEX IF NOT EXISTS idx_historical_underlying_bars_symbol_at
 
 CREATE INDEX IF NOT EXISTS idx_historical_option_quotes_symbol_at
     ON historical_option_quotes (option_symbol, quote_at);
+
+CREATE INDEX IF NOT EXISTS idx_historical_option_quote_coverage_run
+    ON historical_option_quote_coverage (fetch_run_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_historical_option_quote_coverage_decision
+    ON historical_option_quote_coverage (manager_decision_history_id);
 
 CREATE INDEX IF NOT EXISTS idx_backtest_runs_created_at
     ON backtest_runs (created_at DESC);
