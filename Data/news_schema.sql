@@ -351,6 +351,9 @@ CREATE INDEX IF NOT EXISTS idx_world_news_sector_impacts_article_id
 CREATE INDEX IF NOT EXISTS idx_world_news_sector_impacts_sector_id
     ON world_news_sector_impacts (sector_id);
 
+CREATE INDEX IF NOT EXISTS idx_world_news_sector_impacts_sector_article
+    ON world_news_sector_impacts (sector_id, article_id);
+
 CREATE INDEX IF NOT EXISTS idx_world_news_article_processing_article_id
     ON world_news_article_processing (article_id);
 
@@ -359,6 +362,9 @@ CREATE INDEX IF NOT EXISTS idx_us_news_sector_impacts_article_id
 
 CREATE INDEX IF NOT EXISTS idx_us_news_sector_impacts_sector_id
     ON us_news_sector_impacts (sector_id);
+
+CREATE INDEX IF NOT EXISTS idx_us_news_sector_impacts_sector_article
+    ON us_news_sector_impacts (sector_id, article_id);
 
 CREATE INDEX IF NOT EXISTS idx_us_news_article_processing_article_id
     ON us_news_article_processing (article_id);
@@ -369,6 +375,9 @@ CREATE INDEX IF NOT EXISTS idx_industry_opportunist_impacts_article_id
 CREATE INDEX IF NOT EXISTS idx_industry_opportunist_impacts_industry_id
     ON industry_opportunist_impacts (industry_id);
 
+CREATE INDEX IF NOT EXISTS idx_industry_opportunist_impacts_industry_article
+    ON industry_opportunist_impacts (industry_id, article_id);
+
 CREATE INDEX IF NOT EXISTS idx_industry_opportunist_article_processing_article_id
     ON industry_opportunist_article_processing (article_id);
 
@@ -377,6 +386,9 @@ CREATE INDEX IF NOT EXISTS idx_company_opportunist_impacts_article_id
 
 CREATE INDEX IF NOT EXISTS idx_company_opportunist_impacts_company_id
     ON company_opportunist_impacts (company_id);
+
+CREATE INDEX IF NOT EXISTS idx_company_opportunist_impacts_company_article
+    ON company_opportunist_impacts (company_id, article_id);
 
 CREATE INDEX IF NOT EXISTS idx_company_opportunist_article_processing_article_id
     ON company_opportunist_article_processing (article_id);
@@ -389,6 +401,9 @@ CREATE INDEX IF NOT EXISTS idx_sector_opportunist_impacts_article_id
 
 CREATE INDEX IF NOT EXISTS idx_sector_opportunist_impacts_sector_id
     ON sector_opportunist_impacts (sector_id);
+
+CREATE INDEX IF NOT EXISTS idx_sector_opportunist_impacts_sector_article
+    ON sector_opportunist_impacts (sector_id, article_id);
 
 CREATE INDEX IF NOT EXISTS idx_sector_opportunist_article_processing_article_id
     ON sector_opportunist_article_processing (article_id);

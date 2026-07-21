@@ -138,11 +138,12 @@ class ApiNewsTests(unittest.TestCase):
         self.assertEqual(article_statuses["Processed no impact"], "processed_no_assessment")
         self.assertEqual(article_statuses["Pending article"], "pending")
 
-    def test_analyzed_company_news_returns_full_company_article_history(self):
+    def test_analyzed_company_news_excludes_articles_outside_the_dashboard_age_window(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "news_test.sqlite3"
             recent_published_at = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
             stale_published_at = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+            expired_published_at = (datetime.now(timezone.utc) - timedelta(days=11)).isoformat()
 
             conn = sqlite3.connect(db_path)
             try:
@@ -276,6 +277,15 @@ class ApiNewsTests(unittest.TestCase):
                             "https://example.com/stale",
                             stale_published_at,
                         ),
+                        (
+                            3,
+                            "Expired article",
+                            "Expired catalyst",
+                            "Expired body",
+                            "Test Wire",
+                            "https://example.com/expired",
+                            expired_published_at,
+                        ),
                     ],
                 )
                 conn.executemany(
@@ -287,6 +297,7 @@ class ApiNewsTests(unittest.TestCase):
                     [
                         (1, 100, "high", "positive", "major", "Fresh reason", recent_published_at),
                         (2, 100, "high", "positive", "major", "Stale reason", stale_published_at),
+                        (3, 100, "high", "positive", "major", "Expired reason", expired_published_at),
                     ],
                 )
                 conn.commit()
@@ -321,6 +332,7 @@ class ApiNewsTests(unittest.TestCase):
         self.assertEqual(company_articles[0]["assessments"][0]["reason"], "Fresh reason")
         self.assertEqual(company_articles[1]["title"], "Stale article")
         self.assertEqual(company_articles[1]["assessments"][0]["reason"], "Stale reason")
+        self.assertNotIn("Expired article", {article["title"] for article in company_articles})
 
     def test_analyzed_company_news_company_lookup_returns_specific_company_outside_pipeline_page(self):
         with tempfile.TemporaryDirectory() as temp_dir:
