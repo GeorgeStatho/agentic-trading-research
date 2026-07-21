@@ -296,7 +296,11 @@ function ExposureMapPage({ demoMode = false }: { demoMode?: boolean }) {
         setSelectedArticleId(nextArticles[0]?.id ?? null)
         if (nextPayload) {
           setPayload(nextPayload)
-          setSelectedNode(nextPayload.nodes.find((node) => node.type === 'article') ?? null)
+          setSelectedNode(
+            nextPayload.nodes.find((node) => node.type === 'position' && node.risk_level === 'high')
+              ?? nextPayload.nodes.find((node) => node.type === 'article')
+              ?? null,
+          )
         }
         setError(null)
       })
@@ -314,7 +318,10 @@ function ExposureMapPage({ demoMode = false }: { demoMode?: boolean }) {
   }, [demoMode])
 
   useEffect(() => {
-    if (demoMode || selectedArticleId === null) {
+    if (demoMode) {
+      return
+    }
+    if (selectedArticleId === null) {
       setPayload(null)
       return
     }
