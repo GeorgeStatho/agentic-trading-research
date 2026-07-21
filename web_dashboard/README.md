@@ -11,6 +11,9 @@ It currently shows:
 - script/worker status
 - portfolio-history graph
 - trade execution output cards
+- analyzed company news and strategist/manager decisions
+- Evidence Exposure Map and Decision Autopsy Ledger
+- static Demo Mode for a seeded, read-only walkthrough
 
 ## Main Files
 
@@ -18,6 +21,8 @@ It currently shows:
 - [src/scriptStatus.tsx](src/scriptStatus.tsx): status indicator
 - [src/Graph.tsx](src/Graph.tsx): portfolio-history chart
 - [src/orderCard.tsx](src/orderCard.tsx): trade execution cards
+- [src/exposureMap.tsx](src/exposureMap.tsx): grounded article-to-position graph
+- [src/decisionAutopsy.tsx](src/decisionAutopsy.tsx): immutable decision review
 - [src/displayPreviousorder.ts](src/displayPreviousorder.ts): portfolio-history fetch + transform helper
 - [nginx.conf](nginx.conf): nginx config used in the Docker image
 - [Dockerfile](Dockerfile): frontend build + nginx image
@@ -30,6 +35,10 @@ The frontend expects these routes:
 - `/api/script-status`
 - `/api/portfolio-history`
 - `/api/trade-execution-output`
+- `/api/exposure-map/articles`
+- `/api/exposure-map/<article_id>`
+- `/api/decision-autopsies`
+- `/api/demo-mode`
 
 In Docker, nginx proxies `/api/*` to the internal Flask service.
 
@@ -51,6 +60,12 @@ By default, the app is available at:
 
 ```text
 http://localhost:5173
+```
+
+The demo walkthrough is available at:
+
+```text
+http://localhost:5173/#/exposure-map?demo=1
 ```
 
 ## Docker

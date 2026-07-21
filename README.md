@@ -14,6 +14,10 @@ It is still an experiment, not production trading software.
 Preferred import paths and compatibility-wrapper guidance live in
 [INTERFACE_GUIDE.md](INTERFACE_GUIDE.md).
 
+For maintainers adding features, start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
+[docs/FEATURE_PLAYBOOK.md](docs/FEATURE_PLAYBOOK.md), and
+[scripts/README.md](scripts/README.md).
+
 ## Current Architecture
 
 The current runtime stack is:
@@ -89,6 +93,8 @@ The dashboard lives in [web_dashboard](web_dashboard) and currently shows:
 - portfolio-history graph from `/api/portfolio-history`
 - executed trade cards from the SQLite-backed `/api/executed-trades` endpoint
 - option position management output from the dedicated option manager
+- analyzed company news, company decisions, the Evidence Exposure Map, and the Decision Autopsy Ledger
+- a static, read-only Demo Mode at `#/exposure-map?demo=1`
 
 The main frontend files are:
 
@@ -99,10 +105,11 @@ The main frontend files are:
 
 ## Model Providers
 
-The repo now supports two model backends behind a shared helper:
+The repo supports model backends behind a shared helper:
 
 - `vertex`: recommended for cloud deployment
 - `ollama`: optional local fallback
+- `openai`: OpenAI Responses API, including the configured Exposure Map model path
 
 The provider abstraction lives in [Python Scripts/agentCallers/agent_helpers/shared.py](Python%20Scripts/agentCallers/agent_helpers/shared.py).
 
@@ -200,6 +207,14 @@ Public HTTPS deployment target:
 https://dashboard.example.com/#/dashboard
 ```
 
+### 5. Common development commands
+
+```bash
+python3 scripts/project.py test tests.test_exposure_map tests.test_demo_mode
+python3 scripts/project.py dashboard build
+python3 scripts/project.py demo-url
+```
+
 ## Vertex AI Authentication
 
 The current Docker configuration is set up for Google Application Default Credentials rather than a checked-in key file.
@@ -238,6 +253,11 @@ The Flask service in [api.py](api.py) exposes:
 - `GET /api/script-status`
 - `GET /api/trade-execution-output`
 - `GET /api/executed-trades`
+- `GET /api/exposure-map/articles`
+- `GET /api/exposure-map/<article_id>`
+- `POST /api/exposure-map/runs`
+- `GET /api/decision-autopsies`
+- `GET /api/demo-mode`
 - `POST /api/telemetry/startup`
 - `GET /api/telemetry/summary`
 
