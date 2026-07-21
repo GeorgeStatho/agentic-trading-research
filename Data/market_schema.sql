@@ -125,6 +125,9 @@ CREATE TABLE IF NOT EXISTS manager_decision_history (
     latest_trade_pnl_updated_at TEXT,
     pnl_expires_at TEXT,
     resolved_outcome_label TEXT,
+    outcome_status TEXT,
+    realized_pnl_pct REAL,
+    closed_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL

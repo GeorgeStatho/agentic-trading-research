@@ -9,6 +9,7 @@ from market_db_modules.history_links import (
 )
 from market_db_modules.history_records import (
     expire_manager_decision_pnl,
+    record_manager_decision_closed_outcome,
     record_manager_decision_history,
     update_manager_decision_latest_pnl,
 )
@@ -33,6 +34,7 @@ from market_db_modules.loaders import (
 )
 from market_db_modules.queries import (
     list_companies_by_industry,
+    list_decision_expectancy_rows,
     list_company_price_snapshots,
     list_industry_company_rankings,
     list_option_trade_executions,
@@ -60,6 +62,7 @@ __all__ = [
     "complete_manager_replay_evaluation",
     "create_manager_replay_evaluation",
     "expire_manager_decision_pnl",
+    "record_manager_decision_closed_outcome",
     "get_latest_linked_manager_decision_for_option_symbol",
     "get_latest_open_manager_decision_for_trade_link",
     "get_market_data_refresh_state",
@@ -67,6 +70,7 @@ __all__ = [
     "initialize_database",
     "link_manager_decision_to_trade_execution",
     "list_decision_autopsy_ledger",
+    "list_decision_expectancy_rows",
     "list_replayable_manager_decisions",
     "list_companies_by_industry",
     "list_company_price_snapshots",
