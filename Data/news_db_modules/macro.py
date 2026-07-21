@@ -13,6 +13,9 @@ def add_macro_event(
     event_name: str,
     event_date: str | None = None,
     event_time: str | None = None,
+    scheduled_at_utc: str | None = None,
+    calendar_timezone: str | None = None,
+    calendar_refreshed_at: str | None = None,
     country: str | None = None,
     currency: str | None = None,
     category: str | None = None,
@@ -31,6 +34,9 @@ def add_macro_event(
         event_name,
         event_date,
         event_time,
+        scheduled_at_utc,
+        calendar_timezone,
+        calendar_refreshed_at,
         country,
         currency,
         category,
@@ -49,6 +55,9 @@ def add_macro_event(
                 event_name,
                 event_date=event_date,
                 event_time=event_time,
+                scheduled_at_utc=scheduled_at_utc,
+                calendar_timezone=calendar_timezone,
+                calendar_refreshed_at=calendar_refreshed_at,
                 country=country,
                 currency=currency,
                 category=category,
@@ -64,16 +73,19 @@ def add_macro_event(
     cursor = conn.execute(
         """
         INSERT INTO macro_events (
-            source, event_key, event_name, event_date, event_time,
+            source, event_key, event_name, event_date, event_time, scheduled_at_utc, calendar_timezone, calendar_refreshed_at,
             country, currency, category, importance, actual, forecast, previous,
             source_url, raw_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(event_key) DO UPDATE SET
             source = excluded.source,
             event_name = excluded.event_name,
             event_date = excluded.event_date,
             event_time = excluded.event_time,
+            scheduled_at_utc = excluded.scheduled_at_utc,
+            calendar_timezone = excluded.calendar_timezone,
+            calendar_refreshed_at = excluded.calendar_refreshed_at,
             country = excluded.country,
             currency = excluded.currency,
             category = excluded.category,
@@ -108,6 +120,9 @@ def load_macro_events(
                 event_name=event_name,
                 event_date=clean_text(event.get("event_date")),
                 event_time=clean_text(event.get("event_time")),
+                scheduled_at_utc=clean_text(event.get("scheduled_at_utc")),
+                calendar_timezone=clean_text(event.get("calendar_timezone")),
+                calendar_refreshed_at=clean_text(event.get("calendar_refreshed_at")),
                 country=clean_text(event.get("country")),
                 currency=clean_text(event.get("currency")),
                 category=clean_text(event.get("category")),

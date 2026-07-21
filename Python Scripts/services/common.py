@@ -80,6 +80,12 @@ def looks_like_option_symbol(symbol: str, asset_class: str = "") -> bool:
     return bool(re.fullmatch(r"[A-Z]+\d{6}[CP]\d{8}", str(symbol or "").strip().upper()))
 
 
+def option_underlying_symbol(symbol: str) -> str:
+    """Extract the underlying ticker from a standard OCC option symbol."""
+    match = re.fullmatch(r"([A-Z]+)\d{6}[CP]\d{8}", str(symbol or "").strip().upper())
+    return match.group(1) if match is not None else ""
+
+
 def load_exit_hours_to_expiration() -> float:
     """Preserve the existing env fallback from hours to days."""
     raw_value = str(

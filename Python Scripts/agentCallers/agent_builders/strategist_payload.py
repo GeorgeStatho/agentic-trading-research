@@ -28,6 +28,7 @@ from strategist_payload_articles import (
     _build_view,
     _serialize_signal,
 )
+from agent_stages.strategist_grounding import build_strategist_grounding
 import strategist_payload_company as _company_helpers
 from strategist_payload_company import (
     _build_company_price_context,
@@ -153,8 +154,9 @@ def build_strategist_input(
         ),
     }
 
-    return {
-        "company": _serialize_company_scope(company),
+    serialized_company = _serialize_company_scope(company)
+    payload = {
+        "company": serialized_company,
         "peer_groups": evidence["peer_groups"],
         "filters": _serialize_filters(
             start_time=start_time,
@@ -171,6 +173,8 @@ def build_strategist_input(
             full_article_limit=full_article_limit,
         ),
     }
+    payload["grounding"] = build_strategist_grounding(payload)
+    return payload
 
 
 def build_strategist_prompt_payload(

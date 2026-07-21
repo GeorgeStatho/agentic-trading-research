@@ -6,7 +6,7 @@
   box-sizing: border-box;
   background:
     radial-gradient(circle at top right, color-mix(in srgb, #dc2626 12%, transparent), transparent 38%),
-    color-mix(in srgb, var(--bg) 94%, white);
+    color-mix(in srgb, var(--bg) 95%, #172033);
   box-shadow: var(--shadow);
 }
 
@@ -22,7 +22,7 @@
   font-size: 0.8rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #dc2626;
+  color: #fca5a5;
   margin-bottom: 6px;
   font-weight: 700;
 }
@@ -33,7 +33,7 @@
   font-size: 0.84rem;
   font-weight: 700;
   border: 1px solid color-mix(in srgb, #dc2626 35%, var(--border));
-  color: #b91c1c;
+  color: #fca5a5;
   background: color-mix(in srgb, #dc2626 10%, transparent);
 }
 
@@ -51,7 +51,7 @@
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 16px;
-  background: color-mix(in srgb, var(--bg) 96%, white);
+  background: color-mix(in srgb, var(--bg) 94%, #202838);
   display: flex;
   flex-direction: column;
   gap: 8px;

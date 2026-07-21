@@ -21,6 +21,10 @@ for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
         sys.path.append(normalized)
 
 from api_routes.dashboard import register_dashboard_routes
+from api_routes.backtest import register_backtest_routes
+from api_routes.demo_mode import register_demo_mode_routes
+from api_routes.decision_autopsy import register_decision_autopsy_routes
+from api_routes.exposure_map import register_exposure_map_routes
 from api_routes.health import register_health_routes
 from api_routes.news import register_news_routes
 from api_routes.telemetry import register_telemetry_routes
@@ -36,14 +40,18 @@ logger = logging.getLogger(__name__)
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
 
 
 register_health_routes(app)
 register_dashboard_routes(app)
+register_backtest_routes(app)
+register_demo_mode_routes(app)
+register_decision_autopsy_routes(app)
 register_trade_routes(app)
 register_news_routes(app)
+register_exposure_map_routes(app)
 register_telemetry_routes(app)
 
 

@@ -10,3 +10,4 @@ yfinance
 playwright
 google-genai
 ollama
+openai

@@ -5,7 +5,7 @@
 .company-decisions__panel {
   border: 1px solid var(--border);
   border-radius: 28px;
-  padding: 28px;
+  padding: 26px;
   background:
     linear-gradient(145deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent 34%),
     color-mix(in srgb, var(--bg) 97%, white);
@@ -17,7 +17,7 @@
   justify-content: space-between;
   gap: 20px;
   align-items: end;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
 }
 
 .company-decisions__eyebrow {
@@ -45,6 +45,138 @@
   padding: 8px 12px;
 }
 
+.company-decisions__metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(110px, 1fr)) minmax(210px, 1.6fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.company-decisions__metrics article,
+.company-decisions__metrics p {
+  min-height: 68px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 92%, #202838);
+}
+
+.company-decisions__metrics article {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.company-decisions__metrics article span {
+  color: var(--text-dim);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.company-decisions__metrics article strong {
+  color: var(--text-h);
+  font-size: 1.3rem;
+}
+
+.company-decisions__metric--positive strong { color: #86efac; }
+.company-decisions__metric--negative strong { color: #fca5a5; }
+
+.company-decisions__metrics p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.company-decisions__metrics i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #6ed29e;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #6ed29e 14%, transparent);
+}
+
+.company-decisions__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px 18px;
+  margin-bottom: 18px;
+  padding: 15px 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg) 95%, #172033);
+}
+
+.company-decisions__search {
+  min-width: min(100%, 360px);
+  flex: 1 1 360px;
+  display: grid;
+  gap: 7px;
+}
+
+.company-decisions__search span {
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.company-decisions__search input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 11px 13px;
+  color: var(--text-h);
+  font: inherit;
+  background: color-mix(in srgb, var(--bg) 96%, #202838);
+}
+
+.company-decisions__search input:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+  border-color: var(--accent);
+}
+
+.company-decisions__filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.company-decisions__filter {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 11px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+  background: transparent;
+  cursor: pointer;
+}
+
+.company-decisions__filter:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.company-decisions__filter--active {
+  border-color: var(--accent);
+  color: var(--text-h);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.company-decisions__filter--reset { border-style: dashed; }
+.company-decisions__filter:disabled { cursor: not-allowed; opacity: 0.5; }
+
 .company-decisions__grid {
   display: grid;
   gap: 18px;
@@ -53,8 +185,9 @@
 .company-decisions__card {
   border: 1px solid var(--border);
   border-radius: 22px;
-  padding: 22px;
-  background: color-mix(in srgb, var(--bg) 98%, white);
+  padding: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg) 98%, #172033);
 }
 
 .company-decisions__company {
@@ -62,7 +195,10 @@
   justify-content: space-between;
   gap: 16px;
   align-items: start;
-  margin-bottom: 18px;
+  margin-bottom: 0;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(100deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 58%);
 }
 
 .company-decisions__symbol {
@@ -75,18 +211,51 @@
   margin-top: 4px;
 }
 
+.company-decisions__decision-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 11px;
+}
+
+.company-decisions__decision-badge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: var(--text-h);
+  font-size: 0.74rem;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--bg) 88%, #202838);
+}
+
+.company-decisions__decision-badge--positive {
+  border-color: color-mix(in srgb, #46a37a 52%, var(--border));
+  color: #86efac;
+  background: color-mix(in srgb, #46a37a 12%, transparent);
+}
+
+.company-decisions__decision-badge--negative {
+  border-color: color-mix(in srgb, #dd5a63 52%, var(--border));
+  color: #fca5a5;
+  background: color-mix(in srgb, #dd5a63 12%, transparent);
+}
+
 .company-decisions__stage-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+  padding: 18px 22px 22px;
 }
 
 .company-decisions__stage {
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 16px;
   padding: 18px;
-  background: color-mix(in srgb, var(--bg) 99%, white);
+  background: color-mix(in srgb, var(--bg) 96%, #202838);
 }
+
+.company-decisions__stage:first-child { border-top: 3px solid #a58cf4; }
+.company-decisions__stage:last-child { border-top: 3px solid #6ed29e; }
 
 .company-decisions__stage-label,
 .company-decisions__subheading {
@@ -128,13 +297,18 @@
 
 .company-decisions__facts {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   margin-top: 10px;
 }
 
 .company-decisions__facts div {
   display: grid;
   gap: 4px;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 90%, #172033);
 }
 
 .company-decisions__facts dt {
@@ -160,11 +334,40 @@
   margin-top: 10px;
 }
 
+.company-decisions__history-details {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.company-decisions__history-details summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-h);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.company-decisions__history-details summary span {
+  min-width: 22px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 0.72rem;
+  text-align: center;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 .company-decisions__history-item {
   border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
   border-radius: 16px;
   padding: 14px;
-  background: color-mix(in srgb, var(--bg) 99%, white);
+  background: color-mix(in srgb, var(--bg) 94%, #202838);
 }
 
 .company-decisions__history-header {
@@ -184,6 +387,13 @@
   opacity: 0.78;
 }
 
+.company-decisions__article-reference-meta {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
 @media (max-width: 860px) {
   .company-decisions__header,
   .company-decisions__company,
@@ -198,5 +408,34 @@
 
   .company-decisions__stage-grid {
     grid-template-columns: 1fr;
+  }
+
+  .company-decisions__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .company-decisions__metrics p {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 600px) {
+  .company-decisions__panel,
+  .company-decisions__company,
+  .company-decisions__stage-grid {
+    padding: 18px;
+  }
+
+  .company-decisions__header {
+    flex-direction: column;
+    align-items: start;
+  }
+
+  .company-decisions__facts {
+    grid-template-columns: 1fr;
+  }
+
+  .company-decisions__controls {
+    padding: 14px;
   }
 }

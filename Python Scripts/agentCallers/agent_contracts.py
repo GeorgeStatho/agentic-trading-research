@@ -271,11 +271,13 @@ class StrategistInputPayload(TypedDict):
     opportunist_rollup: dict[str, Any]
     views: StrategistViewsPayload
     supporting_articles: SupportingArticlesPayload
+    grounding: dict[str, Any]
 
 
 class ManagerInputPayload(StrategistInputPayload):
     market_context: dict[str, Any]
     recent_manager_decision_history: list[dict[str, Any]]
+    resolved_autopsy_insights: list[dict[str, Any]]
 
 
 class CompanyLinkedArticlesPayload(TypedDict):

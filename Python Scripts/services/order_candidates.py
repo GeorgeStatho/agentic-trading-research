@@ -33,6 +33,8 @@ class OrderCandidateBuilder:
         strategist_decision = self._normalize_strategist_decision(
             strategist_recommendation.get("decision")
         )
+        entry_gate = company_result.get("entry_gate") or {}
+        market_regime_gate = company_result.get("market_regime_gate") or {}
 
         if decision not in {"call", "put"}:
             return False
@@ -41,6 +43,10 @@ class OrderCandidateBuilder:
         if confidence == "medium" and not self._execute_medium_confidence_trades:
             return False
         if strategist_decision == "do_not_trade":
+            return False
+        if not isinstance(entry_gate, dict) or entry_gate.get("allowed") is not True:
+            return False
+        if not isinstance(market_regime_gate, dict) or market_regime_gate.get("allowed") is not True:
             return False
         return True
 
@@ -60,6 +66,7 @@ class OrderCandidateBuilder:
             "company_id": company_result.get("company_id"),
             "symbol": company_result.get("symbol"),
             "name": company_result.get("name"),
+            "sector_key": company_result.get("sector_key") or company_result.get("sector"),
             "decision": decision,
             "confidence": confidence,
             "selected_option_id": company_result.get("selected_option_id"),
@@ -69,6 +76,8 @@ class OrderCandidateBuilder:
             "selected_option_symbol": option_symbol,
             "selected_option": selected_option,
             "strategist_recommendation": company_result.get("strategist_recommendation", {}),
+            "entry_gate": company_result.get("entry_gate", {}),
+            "market_regime_gate": company_result.get("market_regime_gate", {}),
             "reason": company_result.get("reason"),
         }
 
@@ -102,6 +111,7 @@ class OrderCandidateBuilder:
             "company_id": company.get("company_id"),
             "symbol": company.get("symbol"),
             "name": company.get("name"),
+            "sector_key": company.get("sector_key") or company.get("sector"),
             "decision": recommendation.get("decision"),
             "confidence": recommendation.get("confidence"),
             "selected_option_id": recommendation.get("selected_option_id"),
@@ -109,6 +119,8 @@ class OrderCandidateBuilder:
             "selected_strike_price": recommendation.get("selected_strike_price"),
             "selected_option_source": recommendation.get("selected_option_source"),
             "strategist_recommendation": manager_result.get("strategist_recommendation", {}),
+            "entry_gate": manager_result.get("entry_gate", {}),
+            "market_regime_gate": manager_result.get("market_regime_gate", {}),
             "selected_option": manager_result.get("selected_option"),
             "reason": recommendation.get("reason"),
         }

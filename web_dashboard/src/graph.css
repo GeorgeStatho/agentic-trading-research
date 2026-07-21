@@ -1,13 +1,42 @@
-.graph {
+.graph-panel {
   width: min(1100px, 92vw);
-  height: 360px;
-  margin: 0 auto;
   border: 1px solid var(--border);
   border-radius: 18px;
-  padding: 12px 10px 6px;
+  padding: 18px;
   box-sizing: border-box;
-  background: color-mix(in srgb, var(--bg) 94%, white);
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 10%, transparent), transparent 42%),
+    color-mix(in srgb, var(--bg) 95%, #172033);
   box-shadow: var(--shadow);
+}
+
+.graph-panel__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.graph-panel__header p {
+  margin-bottom: 5px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.graph-panel__header h2 { margin: 0; }
+.graph-panel__header span { color: var(--text-dim); font-size: 0.82rem; }
+.graph-panel__empty { min-height: 230px; display: grid; place-items: center; color: var(--text-dim); }
+
+.graph { height: 330px; }
+
+@media (max-width: 720px) {
+  .graph-panel { padding: 16px; }
+  .graph-panel__header { align-items: start; flex-direction: column; }
+  .graph { height: 280px; }
 }
 
 

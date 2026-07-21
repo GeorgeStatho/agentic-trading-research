@@ -19,6 +19,22 @@ import main as agent_runner_main  # noqa: E402
 
 
 class AgentRunnerCompanyFilterTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._market_regime_patcher = patch.object(
+            agent_runner_main,
+            "build_market_regime_snapshot",
+            return_value={
+                "as_of": "2026-07-21T15:00:00+00:00",
+                "state": "trend_up",
+                "macro_event_window": {"active": False},
+                "policy_version": "market-regime-v1",
+            },
+        )
+        self._market_regime_patcher.start()
+
+    def tearDown(self) -> None:
+        self._market_regime_patcher.stop()
+
     @patch.object(agent_runner_main, "record_manager_decision_history")
     @patch.object(agent_runner_main, "apply_deterministic_option_selection")
     @patch.object(agent_runner_main, "decide_company_option_position")
@@ -33,6 +49,13 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
         mock_decide_company_purchase.return_value = {
             "company": {"company_id": 1, "symbol": "AAPL", "name": "Apple"},
             "recommendation": {"decision": "trade_candidate", "confidence": "high"},
+            "strategist_run_reference": {
+                "id": 42,
+                "model": "test-model",
+                "prompt_version": "grounded-strategist-v1",
+                "input_article_ids": [101],
+                "created_at": "2026-05-22T12:00:00+00:00",
+            },
         }
         mock_decide_company_option_position.return_value = {
             "company": {"company_id": 1, "symbol": "AAPL", "name": "Apple"},
@@ -88,6 +111,8 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
         self.assertEqual(recorded_payload["selected_option_symbol"], "AAPL260619C00190000")
         self.assertEqual(recorded_payload["manager_input_json"]["article_references"][0]["article_id"], 101)
         self.assertEqual(len(recorded_payload["manager_input_json"]["recent_manager_decision_history"]), 1)
+        manager_input = mock_decide_company_option_position.call_args.kwargs["strategist_recommendation"]
+        self.assertEqual(manager_input["strategist_run_reference"]["id"], 42)
 
     @patch.object(agent_runner_main, "record_manager_decision_history")
     @patch.object(agent_runner_main, "apply_deterministic_option_selection")
@@ -308,7 +333,9 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
                 }
             ],
         )
-        mock_decide_company_purchase.assert_called_once_with("AAPL")
+        mock_decide_company_purchase.assert_called_once()
+        self.assertEqual(mock_decide_company_purchase.call_args.args, ("AAPL",))
+        self.assertEqual(mock_decide_company_purchase.call_args.kwargs["market_regime"]["state"], "trend_up")
         mock_decide_company_option_position.assert_called_once()
         option_position_call = mock_decide_company_option_position.call_args
         self.assertEqual(option_position_call.args[0], "AAPL")
@@ -316,6 +343,7 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
             option_position_call.kwargs["strategist_recommendation"],
             {"decision": "buy", "confidence": "high"},
         )
+        self.assertEqual(option_position_call.kwargs["market_regime"]["state"], "trend_up")
 
 
 if __name__ == "__main__":

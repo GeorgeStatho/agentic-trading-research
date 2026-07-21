@@ -47,9 +47,13 @@ function executedTradeToText(trade: ExecutedTrade): string {
 function OrderCard({ trade }: { trade: ExecutedTrade }) {
   return (
     <article className="order-card">
-      <h3 className="order-card__title">
-        {trade.underlying_symbol} {trade.decision.toUpperCase()}
-      </h3>
+      <div className="order-card__header">
+        <div>
+          <p className="order-card__eyebrow">{trade.company_name || 'Executed option order'}</p>
+          <h3 className="order-card__title">{trade.underlying_symbol} {trade.decision.toUpperCase()}</h3>
+        </div>
+        <span className="order-card__status">{trade.order_status || 'Unknown status'}</span>
+      </div>
       <p className="order-card__text">{executedTradeToText(trade)}</p>
       {trade.error ? (
         <p className="order-card__error">{trade.error}</p>
@@ -94,19 +98,28 @@ function OrderCardList() {
   }, []);
 
   if (isLoading) {
-    return <p>Loading executed trades...</p>;
+    return <section className="order-card-list order-card-list--empty"><p>Loading executed trades…</p></section>;
   }
 
   if (error) {
-    return <p>{error}</p>;
+    return <section className="order-card-list order-card-list--empty"><p>{error}</p></section>;
   }
 
   if (trades.length === 0) {
-    return <p>No executed trades have been recorded yet.</p>;
+    return (
+      <section className="order-card-list order-card-list--empty">
+        <div className="order-card-list__header"><div><p>Executed Orders</p><h2>Recent execution history</h2></div></div>
+        <p>No executed trades have been recorded yet.</p>
+      </section>
+    );
   }
 
   return (
     <section className="order-card-list">
+      <div className="order-card-list__header">
+        <div><p>Executed Orders</p><h2>Recent execution history</h2></div>
+        <span>{trades.length} recorded</span>
+      </div>
       {trades.map((trade) => (
         <OrderCard
           key={`${trade.id}-${trade.order_id}`}

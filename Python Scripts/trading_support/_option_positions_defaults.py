@@ -78,6 +78,61 @@ _OPTION_POSITION_SETTINGS = OptionPositionSettings.from_env()
 DEFAULT_OPTION_TAKE_PROFIT_PCT = _OPTION_POSITION_SETTINGS.take_profit_pct
 DEFAULT_OPTION_STOP_LOSS_PCT = _OPTION_POSITION_SETTINGS.stop_loss_pct
 DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION = _OPTION_POSITION_SETTINGS.exit_hours_to_expiration
+# Number of consecutive manager cycles the broker P/L must stay at or below the
+# stop-loss floor before a full exit fires. 1 preserves the legacy behavior of
+# selling on the first breach; higher values ride out momentary dips that bounce
+# back (option premium is leveraged and spread-noisy, so a small underlying wobble
+# can briefly cross the floor and recover).
+DEFAULT_OPTION_STOP_LOSS_CONFIRM_CHECKS = env_positive_int(
+    "OPTION_POSITION_STOP_LOSS_CONFIRM_CHECKS",
+    1,
+)
+# Minimum adverse move in the UNDERLYING (as a fraction of the entry underlying
+# price) required before a broker-P/L stop-loss breach is treated as real. 0.0
+# disables the check and keeps the legacy premium-only stop. A value like 0.015
+# means "only stop a call once the stock is down >=1.5% from entry (or a put's
+# underlying is up >=1.5%)", so IV crush / spread noise on the option premium can
+# no longer force an exit while the underlying itself is still fine. When the
+# underlying baseline is unavailable or untrusted the premium stop still applies.
+DEFAULT_OPTION_STOP_LOSS_UNDERLYING_MOVE_PCT = env_float(
+    "OPTION_POSITION_STOP_LOSS_UNDERLYING_MOVE_PCT",
+    0.0,
+)
+# When enabled, exits are submitted as limit orders priced off the live option
+# quote (passive at the midpoint to capture spread; marketable at the bid for
+# urgent or already-retried exits) instead of crossing the whole spread with a
+# market order. Disabled by default so behavior is unchanged until opted in.
+DEFAULT_OPTION_EXIT_USE_LIMIT_ORDERS = str(
+    os.getenv("OPTION_POSITION_EXIT_USE_LIMIT_ORDERS", "false")
+).strip().lower() not in {"0", "false", "no", "off"}
+# Liquidity guard: when > 0, a non-urgent exit (scale-out, momentum, trailing
+# stop) is held for another cycle if the option's bid/ask spread exceeds this
+# fraction of the midpoint, rather than paying up into a blown-out book. Hard
+# risk exits (stop-loss, near-expiration) always bypass the guard. 0 disables it.
+DEFAULT_OPTION_EXIT_MAX_SPREAD_PCT = env_float("OPTION_POSITION_EXIT_MAX_SPREAD_PCT", 0.0)
+# Tick sizes for rounding limit-exit prices to a broker-valid increment. Defaults
+# to the OCC standard (a nickel below $3, a dime at/above), which is valid for any
+# option class; set both to 0.01 for penny-quoted names to keep full precision.
+# Sell limits round DOWN to the tick, so they stay valid and marketable.
+DEFAULT_OPTION_EXIT_TICK_SIZE_SMALL = env_float("OPTION_POSITION_EXIT_TICK_SIZE_SMALL", 0.05)
+DEFAULT_OPTION_EXIT_TICK_SIZE_LARGE = env_float("OPTION_POSITION_EXIT_TICK_SIZE_LARGE", 0.10)
+DEFAULT_OPTION_EXIT_TICK_PRICE_THRESHOLD = env_float("OPTION_POSITION_EXIT_TICK_PRICE_THRESHOLD", 3.00)
+# Volatility-scaled exit thresholds: when enabled, the stop-loss, take-profit, and
+# underlying-move gate are multiplied by the underlying's ATR relative to a
+# baseline, so a fixed -25% stop widens on a high-vol name and tightens on a calm
+# one. Disabled by default; falls back to fixed thresholds (scale 1.0) whenever the
+# ATR cannot be measured.
+DEFAULT_OPTION_VOLATILITY_SCALED_THRESHOLDS = str(
+    os.getenv("OPTION_POSITION_VOLATILITY_SCALED_THRESHOLDS", "false")
+).strip().lower() not in {"0", "false", "no", "off"}
+# The underlying daily-ATR-as-fraction-of-price that maps to a 1.0x scale. A name
+# whose ATR is this fraction of its price gets its thresholds unchanged; twice as
+# volatile -> ~2x (subject to the min/max clamp).
+DEFAULT_OPTION_VOLATILITY_BASELINE_ATR_PCT = env_float("OPTION_POSITION_VOLATILITY_BASELINE_ATR_PCT", 0.02)
+DEFAULT_OPTION_VOLATILITY_MIN_SCALE = env_float("OPTION_POSITION_VOLATILITY_MIN_SCALE", 0.5)
+DEFAULT_OPTION_VOLATILITY_MAX_SCALE = env_float("OPTION_POSITION_VOLATILITY_MAX_SCALE", 2.0)
+DEFAULT_OPTION_VOLATILITY_ATR_PERIOD = env_positive_int("OPTION_POSITION_VOLATILITY_ATR_PERIOD", 14)
+DEFAULT_OPTION_VOLATILITY_ATR_LOOKBACK_DAYS = env_positive_int("OPTION_POSITION_VOLATILITY_ATR_LOOKBACK_DAYS", 40)
 DEFAULT_OPTION_POSITION_STATE_PATH = Path(
     os.getenv("OPTION_POSITION_STATE_PATH", "/shared/option_position_state.json")
 )

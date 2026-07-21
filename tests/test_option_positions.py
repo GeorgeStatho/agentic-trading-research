@@ -816,6 +816,258 @@ class OptionPositionTests(VerboseTestCase):
         self.assertEqual(exit_action["reason"], "hold")
         self.log_pass("stop-loss ignored a worse midpoint drawdown when broker P/L stayed above the stop floor")
 
+    def _run_stop_loss_exit_action(
+        self,
+        *,
+        broker_unrealized_pl_pct_ratio: float,
+        position_state: dict,
+        stop_loss_confirm_checks: int | None = None,
+        underlying_adverse_move_pct: float | None = None,
+        stop_loss_underlying_move_pct: float | None = None,
+    ) -> tuple[dict, dict]:
+        kwargs = dict(
+            option_symbol=OPTION_SYMBOL,
+            quantity=2,
+            unrealized_pl_pct_ratio=broker_unrealized_pl_pct_ratio,
+            days_to_expiration=10,
+            hours_to_expiration=120.0,
+            exit_thresholds=self.option_positions.ExitThresholds(
+                dte_rule_label="7-14 DTE",
+                take_profit_pct=40.0,
+                stop_loss_pct=-28.0,
+                force_exit_days_to_expiration=3,
+                exit_hours_to_expiration=72.0,
+                is_default_rule=False,
+            ),
+            position_state=position_state,
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=_make_trailing_profit_config(self.option_positions),
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
+            momentum_status=MOMENTUM_UNKNOWN,
+            momentum_reasons=[],
+            recently_filled_order=False,
+            broker_unrealized_pl_pct_ratio=broker_unrealized_pl_pct_ratio,
+        )
+        if stop_loss_confirm_checks is not None:
+            kwargs["stop_loss_confirm_checks"] = stop_loss_confirm_checks
+        if underlying_adverse_move_pct is not None:
+            kwargs["underlying_adverse_move_pct"] = underlying_adverse_move_pct
+        if stop_loss_underlying_move_pct is not None:
+            kwargs["stop_loss_underlying_move_pct"] = stop_loss_underlying_move_pct
+        return self.option_positions._structured_exit_action(**kwargs)
+
+    def test_stop_loss_sells_on_first_breach_by_default(self) -> None:
+        exit_action, updated_state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state={},
+        )
+        self.assertEqual(exit_action["action"], "sell_full")
+        self.assertEqual(exit_action["reason"], "stop_loss")
+        self.assertEqual(updated_state["stop_loss_breach_count"], 1)
+        self.log_pass("stop-loss defaults to selling on the first breach when no confirmation window is configured")
+
+    def test_stop_loss_confirmation_gate_holds_until_required_checks_then_fires(self) -> None:
+        state: dict = {}
+
+        first_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=3,
+        )
+        self.assertEqual(first_action["action"], "hold")
+        self.assertEqual(first_action["reason"], "stop_loss_pending_confirmation")
+        self.assertEqual(state["stop_loss_breach_count"], 1)
+
+        second_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=3,
+        )
+        self.assertEqual(second_action["action"], "hold")
+        self.assertEqual(state["stop_loss_breach_count"], 2)
+
+        third_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=3,
+        )
+        self.assertEqual(third_action["action"], "sell_full")
+        self.assertEqual(third_action["reason"], "stop_loss")
+        self.assertEqual(state["stop_loss_breach_count"], 3)
+        self.log_pass("stop-loss held for two cycles and only forced a full exit once the third consecutive breach confirmed it")
+
+    def test_stop_loss_confirmation_counter_resets_when_broker_pl_recovers(self) -> None:
+        state: dict = {}
+
+        breach_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=3,
+        )
+        self.assertEqual(breach_action["action"], "hold")
+        self.assertEqual(state["stop_loss_breach_count"], 1)
+
+        recovered_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.10,
+            position_state=state,
+            stop_loss_confirm_checks=3,
+        )
+        self.assertEqual(recovered_action["action"], "hold")
+        self.assertEqual(state["stop_loss_breach_count"], 0)
+
+        re_breach_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=3,
+        )
+        self.assertEqual(re_breach_action["action"], "hold")
+        self.assertEqual(re_breach_action["reason"], "stop_loss_pending_confirmation")
+        self.assertEqual(state["stop_loss_breach_count"], 1)
+        self.log_pass("a dip that bounced back above the stop floor reset the confirmation streak so the next dip re-confirms from scratch")
+
+    def test_stop_loss_holds_when_underlying_has_not_moved_against_position(self) -> None:
+        exit_action, updated_state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state={"stop_loss_breach_count": 2},
+            stop_loss_confirm_checks=1,
+            underlying_adverse_move_pct=0.004,
+            stop_loss_underlying_move_pct=0.015,
+        )
+        self.assertEqual(exit_action["action"], "hold")
+        self.assertEqual(exit_action["reason"], "stop_loss_underlying_hold")
+        # The gate outranks any premium-breach streak: the stock is still fine, so
+        # the streak is cleared rather than advanced toward a forced exit.
+        self.assertEqual(updated_state["stop_loss_breach_count"], 0)
+        self.log_pass("premium stop-loss held because the underlying had barely moved against the position")
+
+    def test_stop_loss_fires_when_underlying_confirms_adverse_move(self) -> None:
+        exit_action, updated_state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state={},
+            stop_loss_confirm_checks=1,
+            underlying_adverse_move_pct=0.025,
+            stop_loss_underlying_move_pct=0.015,
+        )
+        self.assertEqual(exit_action["action"], "sell_full")
+        self.assertEqual(exit_action["reason"], "stop_loss")
+        self.log_pass("premium stop-loss fired once the underlying itself moved past the adverse-move threshold")
+
+    def test_stop_loss_falls_back_to_premium_stop_when_underlying_move_unknown(self) -> None:
+        exit_action, _ = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state={},
+            stop_loss_confirm_checks=1,
+            underlying_adverse_move_pct=None,
+            stop_loss_underlying_move_pct=0.015,
+        )
+        self.assertEqual(exit_action["action"], "sell_full")
+        self.assertEqual(exit_action["reason"], "stop_loss")
+        self.log_pass("premium stop-loss still protected the position when the underlying baseline was unavailable")
+
+    def test_stop_loss_underlying_gate_composes_with_confirmation_checks(self) -> None:
+        state: dict = {}
+
+        pending_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=2,
+            underlying_adverse_move_pct=0.030,
+            stop_loss_underlying_move_pct=0.015,
+        )
+        self.assertEqual(pending_action["action"], "hold")
+        self.assertEqual(pending_action["reason"], "stop_loss_pending_confirmation")
+        self.assertEqual(state["stop_loss_breach_count"], 1)
+
+        confirmed_action, state = self._run_stop_loss_exit_action(
+            broker_unrealized_pl_pct_ratio=-0.35,
+            position_state=state,
+            stop_loss_confirm_checks=2,
+            underlying_adverse_move_pct=0.030,
+            stop_loss_underlying_move_pct=0.015,
+        )
+        self.assertEqual(confirmed_action["action"], "sell_full")
+        self.assertEqual(confirmed_action["reason"], "stop_loss")
+        self.log_pass("an underlying-confirmed breach still had to clear the consecutive-check debounce before the full exit fired")
+
+    def test_resolve_option_exit_limit_price_prices_passive_and_marketable_exits(self) -> None:
+        resolve = self.option_positions._resolve_option_exit_limit_price
+        # Passive exit posts at the midpoint to try to capture the spread.
+        self.assertEqual(resolve(bid=1.58, ask=1.62, mid=1.60, cross_spread=False), 1.60)
+        # Missing mid falls back to the bid/ask average.
+        self.assertEqual(resolve(bid=1.58, ask=1.62, mid=None, cross_spread=False), 1.60)
+        # A passive price is never posted below the bid.
+        self.assertEqual(resolve(bid=1.58, ask=1.62, mid=1.40, cross_spread=False), 1.58)
+        # Urgent / already-retried exits cross to the bid for a near-certain fill.
+        self.assertEqual(resolve(bid=1.58, ask=1.62, mid=1.60, cross_spread=True), 1.58)
+        # An unusable quote yields None so the caller falls back to a market order.
+        self.assertIsNone(resolve(bid=None, ask=1.62, mid=1.60, cross_spread=False))
+        self.assertIsNone(resolve(bid=0.0, ask=1.62, mid=1.60, cross_spread=True))
+        self.log_pass("exit limit pricing posted passively at mid, clamped to the bid, and crossed to the bid when urgent")
+
+    def test_exit_should_hold_for_wide_spread_guards_only_non_urgent_exits(self) -> None:
+        should_hold = self.option_positions._exit_should_hold_for_wide_spread
+        # Disabled guard never holds.
+        self.assertFalse(should_hold(exit_reason="first_scale_out_trigger", option_spread_pct=0.50, max_spread_pct=0.0))
+        # Non-urgent exit into a spread wider than the ceiling is held.
+        self.assertTrue(should_hold(exit_reason="first_scale_out_trigger", option_spread_pct=0.20, max_spread_pct=0.10))
+        # A tight spread is fine.
+        self.assertFalse(should_hold(exit_reason="first_scale_out_trigger", option_spread_pct=0.05, max_spread_pct=0.10))
+        # Hard risk exits bypass the guard even on a blown-out spread.
+        self.assertFalse(should_hold(exit_reason="stop_loss", option_spread_pct=0.50, max_spread_pct=0.10))
+        self.assertFalse(should_hold(exit_reason="near_expiration", option_spread_pct=0.50, max_spread_pct=0.10))
+        # An unmeasurable spread does not block.
+        self.assertFalse(should_hold(exit_reason="first_scale_out_trigger", option_spread_pct=None, max_spread_pct=0.10))
+        self.log_pass("liquidity guard held only non-urgent exits on wide spreads and let hard risk exits through")
+
+    def test_round_option_sell_price_to_tick_rounds_down_to_valid_increments(self) -> None:
+        round_tick = self.option_positions._round_option_sell_price_to_tick
+        # Below the threshold uses the small (nickel) tick, rounding down.
+        self.assertEqual(round_tick(1.62), 1.60)
+        self.assertEqual(round_tick(1.58), 1.55)
+        self.assertEqual(round_tick(1.60), 1.60)
+        # At/above the threshold uses the large (dime) tick.
+        self.assertEqual(round_tick(3.05), 3.00)
+        self.assertEqual(round_tick(3.00), 3.00)
+        self.assertEqual(round_tick(2.99), 2.95)
+        # A price below one tick falls back to a penny instead of rounding to 0.
+        self.assertEqual(round_tick(0.03), 0.03)
+        # Penny-name override keeps full precision.
+        self.assertEqual(round_tick(1.58, small_tick=0.01, large_tick=0.01), 1.58)
+        # Invalid/empty prices pass through untouched.
+        self.assertIsNone(round_tick(None))
+        self.log_pass("sell-limit tick rounding floored to valid increments and fell back to pennies for sub-tick prices")
+
+    def test_compute_atr_pct_averages_true_range_over_the_window(self) -> None:
+        compute = self.option_positions._compute_atr_pct
+        bars = [
+            {"high": 10, "low": 9, "close": 10},
+            {"high": 12, "low": 10, "close": 11},   # TR = 2
+            {"high": 16, "low": 11, "close": 15},   # TR = 5
+        ]
+        # Full window averages both true ranges: (2 + 5) / 2 = 3.5, over close 15.
+        self.assertAlmostEqual(compute(bars, period=14), 3.5 / 15.0, places=6)
+        # A period of 1 keeps only the most recent true range: 5 / 15.
+        self.assertAlmostEqual(compute(bars, period=1), 5.0 / 15.0, places=6)
+        # Too few bars yields None.
+        self.assertIsNone(compute([{"high": 10, "low": 9, "close": 10}], period=14))
+        self.assertIsNone(compute([], period=14))
+        self.log_pass("ATR% averaged the true range over the requested window and needed at least two bars")
+
+    def test_resolve_volatility_scale_clamps_ratio_and_falls_back_to_one(self) -> None:
+        resolve = self.option_positions._resolve_volatility_scale
+        # ATR twice the baseline doubles the thresholds.
+        self.assertEqual(resolve(current_atr_pct=0.04, baseline_atr_pct=0.02, min_scale=0.5, max_scale=2.0), 2.0)
+        # Very high vol is clamped to the max.
+        self.assertEqual(resolve(current_atr_pct=0.10, baseline_atr_pct=0.02, min_scale=0.5, max_scale=2.0), 2.0)
+        # Very low vol is clamped to the min.
+        self.assertEqual(resolve(current_atr_pct=0.005, baseline_atr_pct=0.02, min_scale=0.5, max_scale=2.0), 0.5)
+        # Missing or invalid inputs fall back to no scaling.
+        self.assertEqual(resolve(current_atr_pct=None, baseline_atr_pct=0.02, min_scale=0.5, max_scale=2.0), 1.0)
+        self.assertEqual(resolve(current_atr_pct=0.04, baseline_atr_pct=0.0, min_scale=0.5, max_scale=2.0), 1.0)
+        self.log_pass("volatility scale clamped the ATR ratio and fell back to 1.0 when the inputs were unusable")
+
     def test_structured_exit_action_ignores_midpoint_profit_for_scale_out_when_broker_pl_is_below_trigger(self) -> None:
         trailing_profit_config = _make_trailing_profit_config(
             self.option_positions,
@@ -1737,8 +1989,9 @@ class OptionPositionTests(VerboseTestCase):
                     enable_trailing_profit_override=True,
                     trail_first_scale_out_trigger_pct_override=0.55,
                     trail_first_scale_out_fraction_override=0.50,
+                    exit_use_limit_orders_override=False,
                     trading_client_override=_FakeTradingClient(),
-                    submit_partial_exit_order=lambda symbol, qty: partial_orders.append((symbol, qty))
+                    submit_partial_exit_order=lambda symbol, qty, limit_price=None: partial_orders.append((symbol, qty, limit_price))
                     or {
                         "id": "partial-order-1",
                         "status": "new",
@@ -1755,7 +2008,7 @@ class OptionPositionTests(VerboseTestCase):
             self.assertEqual(result["position_count"], 1)
             self.assertEqual(result["partial_sell_count"], 1)
             self.assertEqual(result["close_submitted_count"], 1)
-            self.assertEqual(partial_orders, [(future_option_symbol, 2)])
+            self.assertEqual(partial_orders, [(future_option_symbol, 2, None)])
 
             summary = result["positions"][0]
             self.assertEqual(summary["exit_action"], "sell_partial")
@@ -1764,6 +2017,254 @@ class OptionPositionTests(VerboseTestCase):
             self.assertTrue(summary["close_submitted"])
             self.assertTrue(summary["took_first_scale_out"])
             self.log_pass("position manager submitted the first partial scale-out order for a trailing-profit trigger")
+
+    def _run_manager_exit(
+        self,
+        *,
+        position: object,
+        option_bid: float,
+        option_ask: float,
+        state_path: Path,
+        full_orders: list,
+        partial_orders: list,
+        underlying_atr_pct: float | None = None,
+        **manage_kwargs,
+    ) -> dict:
+        class _FakeTradingClient:
+            def get_all_positions(self):
+                return [position]
+
+        option_history_client = SimpleNamespace(
+            get_option_latest_quote=lambda _request: {
+                position.symbol: SimpleNamespace(
+                    bid_price=option_bid,
+                    ask_price=option_ask,
+                    timestamp="2026-05-13T15:30:00Z",
+                )
+            }
+        )
+        stock_history_client = SimpleNamespace(
+            get_stock_latest_quote=lambda _request: {
+                "AAPL": SimpleNamespace(
+                    bid_price=199.5,
+                    ask_price=200.5,
+                    timestamp="2026-05-13T15:30:00Z",
+                )
+            }
+        )
+
+        def _fake_full_exit(symbol, limit_price=None):
+            full_orders.append((symbol, limit_price))
+            return {
+                "id": "full-order-1",
+                "status": "new",
+                "side": "sell",
+                "qty": str(getattr(position, "qty", "")),
+                "requested_qty": _safe_int(getattr(position, "qty", 0)),
+                "submitted_at": datetime.now().isoformat(),
+            }
+
+        def _fake_partial_exit(symbol, qty, limit_price=None):
+            partial_orders.append((symbol, qty, limit_price))
+            return {
+                "id": "partial-order-1",
+                "status": "new",
+                "side": "sell",
+                "qty": str(qty),
+                "requested_qty": qty,
+                "submitted_at": datetime.now().isoformat(),
+            }
+
+        original_option_client = self.option_positions.get_option_history_client
+        original_stock_client = self.option_positions.get_stock_history_client
+        original_get_atr = self.option_positions._get_underlying_atr_pct
+        self.option_positions.get_option_history_client = lambda: option_history_client
+        self.option_positions.get_stock_history_client = lambda: stock_history_client
+        if underlying_atr_pct is not None:
+            self.option_positions._get_underlying_atr_pct = lambda _symbol: underlying_atr_pct
+        # Pin every env-driven exit knob to a neutral baseline so these tests are
+        # deterministic regardless of the ambient .env (which may enable limit
+        # exits, stop-loss confirmation, the liquidity guard, etc.). Individual
+        # tests re-enable exactly the feature they exercise via manage_kwargs.
+        hermetic_overrides = dict(
+            exit_use_limit_orders_override=False,
+            exit_max_spread_pct_override=0.0,
+            stop_loss_confirm_checks_override=1,
+            stop_loss_underlying_move_pct_override=0.0,
+            volatility_scaled_thresholds_override=False,
+        )
+        try:
+            return self.option_positions.ManageCurrentOptionPositions(
+                execute_sales=True,
+                state_path_override=state_path,
+                trading_client_override=_FakeTradingClient(),
+                submit_full_exit_order=_fake_full_exit,
+                submit_partial_exit_order=_fake_partial_exit,
+                **{**hermetic_overrides, **manage_kwargs},
+            )
+        finally:
+            self.option_positions.get_option_history_client = original_option_client
+            self.option_positions.get_stock_history_client = original_stock_client
+            self.option_positions._get_underlying_atr_pct = original_get_atr
+
+    def test_manager_prices_passive_partial_scale_out_as_limit_at_mid(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            full_orders: list = []
+            partial_orders: list = []
+            symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
+            position = SimpleNamespace(symbol=symbol, avg_entry_price="1.0", qty="4", unrealized_plpc=None)
+
+            result = self._run_manager_exit(
+                position=position,
+                option_bid=1.58,
+                option_ask=1.62,
+                state_path=Path(temp_dir) / "option_state.json",
+                full_orders=full_orders,
+                partial_orders=partial_orders,
+                enable_trailing_profit_override=True,
+                trail_first_scale_out_trigger_pct_override=0.55,
+                trail_first_scale_out_fraction_override=0.50,
+                exit_use_limit_orders_override=True,
+            )
+
+            summary = result["positions"][0]
+            self.assertEqual(summary["exit_action"], "sell_partial")
+            self.assertEqual(summary["exit_reason"], "first_scale_out_trigger")
+            self.assertEqual(summary["exit_limit_price"], 1.60)
+            self.assertEqual(partial_orders, [(symbol, 2, 1.60)])
+            self.log_pass("a non-urgent scale-out was submitted as a passive limit order posted at the option midpoint")
+
+    def test_manager_holds_non_urgent_exit_when_spread_is_too_wide(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            full_orders: list = []
+            partial_orders: list = []
+            symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
+            position = SimpleNamespace(symbol=symbol, avg_entry_price="1.0", qty="4", unrealized_plpc=None)
+
+            result = self._run_manager_exit(
+                position=position,
+                option_bid=1.20,
+                option_ask=2.00,
+                state_path=Path(temp_dir) / "option_state.json",
+                full_orders=full_orders,
+                partial_orders=partial_orders,
+                enable_trailing_profit_override=True,
+                trail_first_scale_out_trigger_pct_override=0.55,
+                trail_first_scale_out_fraction_override=0.50,
+                exit_use_limit_orders_override=True,
+                exit_max_spread_pct_override=0.10,
+            )
+
+            summary = result["positions"][0]
+            self.assertEqual(summary["exit_action"], "hold")
+            self.assertEqual(summary["exit_reason"], "liquidity_guard_wide_spread")
+            self.assertEqual(result["partial_sell_count"], 0)
+            self.assertEqual(result["close_submitted_count"], 0)
+            self.assertEqual(partial_orders, [])
+            self.log_pass("a scale-out into a 50%-wide spread was held for the next cycle instead of paying up")
+
+    def test_manager_crosses_to_bid_for_urgent_stop_loss_despite_wide_spread(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            full_orders: list = []
+            partial_orders: list = []
+            symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
+            # A deep loss (entry 3.0, mid 1.60) breaches any per-bucket stop, so the
+            # test does not depend on the ambient stop-loss threshold.
+            position = SimpleNamespace(symbol=symbol, avg_entry_price="3.0", qty="4", unrealized_plpc="-0.60")
+
+            result = self._run_manager_exit(
+                position=position,
+                option_bid=1.20,
+                option_ask=2.00,
+                state_path=Path(temp_dir) / "option_state.json",
+                full_orders=full_orders,
+                partial_orders=partial_orders,
+                exit_use_limit_orders_override=True,
+                exit_max_spread_pct_override=0.10,
+            )
+
+            summary = result["positions"][0]
+            self.assertEqual(summary["exit_action"], "sell_full")
+            self.assertEqual(summary["exit_reason"], "stop_loss")
+            self.assertEqual(summary["exit_limit_price"], 1.20)
+            self.assertEqual(full_orders, [(symbol, 1.20)])
+            self.log_pass("an urgent stop-loss bypassed the liquidity guard and crossed to the bid as a marketable limit")
+
+    def test_manager_reprices_previously_cancelled_exit_to_the_bid(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "option_state.json"
+            full_orders: list = []
+            partial_orders: list = []
+            symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
+            position = SimpleNamespace(symbol=symbol, avg_entry_price="1.0", qty="4", unrealized_plpc=None)
+            # Simulate a prior passive scale-out limit that was cancelled after
+            # going stale; the reconciliation records it as a retryable exit.
+            self.option_positions.update_position_state(
+                state_path,
+                symbol,
+                {"last_retryable_exit_reason": "first_scale_out_trigger"},
+            )
+
+            result = self._run_manager_exit(
+                position=position,
+                option_bid=1.55,
+                option_ask=1.65,
+                state_path=state_path,
+                full_orders=full_orders,
+                partial_orders=partial_orders,
+                enable_trailing_profit_override=True,
+                trail_first_scale_out_trigger_pct_override=0.55,
+                trail_first_scale_out_fraction_override=0.50,
+                exit_use_limit_orders_override=True,
+            )
+
+            summary = result["positions"][0]
+            self.assertEqual(summary["exit_action"], "sell_partial")
+            # Second attempt at the same exit crosses to the bid instead of
+            # re-posting passively at the 1.60 midpoint.
+            self.assertEqual(summary["exit_limit_price"], 1.55)
+            self.assertEqual(partial_orders, [(symbol, 2, 1.55)])
+            self.log_pass("a scale-out that had already been cancelled once repriced from the midpoint down to the bid")
+
+    def test_manager_widens_stop_loss_for_high_volatility_underlying(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
+            # A small loss that fires no exit, so both runs just report the resolved
+            # thresholds; the test asserts the scaling math rather than a decision
+            # that would depend on the ambient per-bucket stop value.
+            position = SimpleNamespace(symbol=symbol, avg_entry_price="1.0", qty="4", unrealized_plpc="-0.05")
+
+            base = self._run_manager_exit(
+                position=position,
+                option_bid=0.90,
+                option_ask=0.95,
+                state_path=Path(temp_dir) / "base_state.json",
+                full_orders=[],
+                partial_orders=[],
+            )["positions"][0]
+
+            # ATR 3x the baseline -> raw scale 3.0, clamped to the 2.0 maximum.
+            scaled = self._run_manager_exit(
+                position=position,
+                option_bid=0.90,
+                option_ask=0.95,
+                state_path=Path(temp_dir) / "scaled_state.json",
+                full_orders=[],
+                partial_orders=[],
+                underlying_atr_pct=0.06,
+                volatility_scaled_thresholds_override=True,
+                volatility_baseline_atr_pct_override=0.02,
+                volatility_min_scale_override=0.5,
+                volatility_max_scale_override=2.0,
+            )["positions"][0]
+
+            self.assertEqual(base["volatility_scale"], 1.0)
+            self.assertEqual(scaled["volatility_scale"], 2.0)
+            self.assertEqual(scaled["underlying_atr_pct"], 0.06)
+            # Both the stop-loss and take-profit thresholds scaled 2x off the base.
+            self.assertEqual(scaled["stop_loss_pct"], round(base["stop_loss_pct"] * 2.0, 4))
+            self.assertEqual(scaled["take_profit_pct"], round(base["take_profit_pct"] * 2.0, 4))
+            self.log_pass("a high-ATR underlying doubled (clamped) the stop-loss and take-profit thresholds through the manager")
 
     def test_momentum_marks_itm_call_getting_deeper_itm_as_good(self) -> None:
         assessment = evaluate_option_momentum(

@@ -11,6 +11,8 @@ from services.option_position_state import delete_position_state, get_position_s
 
 from ._option_positions_defaults import (
     DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION,
+    DEFAULT_OPTION_EXIT_MAX_SPREAD_PCT,
+    DEFAULT_OPTION_EXIT_USE_LIMIT_ORDERS,
     DEFAULT_OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD,
     DEFAULT_OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD,
     DEFAULT_OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT,
@@ -24,8 +26,14 @@ from ._option_positions_defaults import (
     DEFAULT_OPTION_POSITION_ENABLE_MOMENTUM_EXIT,
     DEFAULT_OPTION_POSITION_ENABLE_TRAILING_PROFIT,
     DEFAULT_OPTION_POSITION_TRAILING_PROFIT_DRY_RUN,
+    DEFAULT_OPTION_STOP_LOSS_CONFIRM_CHECKS,
     DEFAULT_OPTION_STOP_LOSS_PCT,
+    DEFAULT_OPTION_STOP_LOSS_UNDERLYING_MOVE_PCT,
     DEFAULT_OPTION_TAKE_PROFIT_PCT,
+    DEFAULT_OPTION_VOLATILITY_BASELINE_ATR_PCT,
+    DEFAULT_OPTION_VOLATILITY_MAX_SCALE,
+    DEFAULT_OPTION_VOLATILITY_MIN_SCALE,
+    DEFAULT_OPTION_VOLATILITY_SCALED_THRESHOLDS,
     DEFAULT_OPTION_TRAIL_100_FLOOR_PCT,
     DEFAULT_OPTION_TRAIL_150_FLOOR_PCT,
     DEFAULT_OPTION_TRAIL_200_FLOOR_PCT,
@@ -127,6 +135,14 @@ def ManageCurrentOptionPositions(
     take_profit_pct: float = DEFAULT_OPTION_TAKE_PROFIT_PCT,
     stop_loss_pct: float = DEFAULT_OPTION_STOP_LOSS_PCT,
     exit_hours_to_expiration: float = DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION,
+    stop_loss_confirm_checks_override: int | None = None,
+    stop_loss_underlying_move_pct_override: float | None = None,
+    exit_use_limit_orders_override: bool | None = None,
+    exit_max_spread_pct_override: float | None = None,
+    volatility_scaled_thresholds_override: bool | None = None,
+    volatility_baseline_atr_pct_override: float | None = None,
+    volatility_min_scale_override: float | None = None,
+    volatility_max_scale_override: float | None = None,
     state_path_override: Path | None = None,
     enable_trailing_profit_override: bool | None = None,
     trailing_profit_dry_run_override: bool | None = None,
@@ -280,6 +296,55 @@ def ManageCurrentOptionPositions(
         stale_minutes=float(DEFAULT_OPTION_PENDING_EXIT_STALE_MINUTES if pending_exit_stale_minutes_override is None else pending_exit_stale_minutes_override),
         cancel_on_stale=(DEFAULT_OPTION_PENDING_EXIT_CANCEL_ON_STALE if pending_exit_cancel_on_stale_override is None else bool(pending_exit_cancel_on_stale_override)),
     )
+    stop_loss_confirm_checks = max(
+        1,
+        int(
+            DEFAULT_OPTION_STOP_LOSS_CONFIRM_CHECKS
+            if stop_loss_confirm_checks_override is None
+            else stop_loss_confirm_checks_override
+        ),
+    )
+    stop_loss_underlying_move_pct = max(
+        0.0,
+        float(
+            DEFAULT_OPTION_STOP_LOSS_UNDERLYING_MOVE_PCT
+            if stop_loss_underlying_move_pct_override is None
+            else stop_loss_underlying_move_pct_override
+        ),
+    )
+    exit_use_limit_orders = (
+        DEFAULT_OPTION_EXIT_USE_LIMIT_ORDERS
+        if exit_use_limit_orders_override is None
+        else bool(exit_use_limit_orders_override)
+    )
+    exit_max_spread_pct = max(
+        0.0,
+        float(
+            DEFAULT_OPTION_EXIT_MAX_SPREAD_PCT
+            if exit_max_spread_pct_override is None
+            else exit_max_spread_pct_override
+        ),
+    )
+    volatility_scaled_thresholds = (
+        DEFAULT_OPTION_VOLATILITY_SCALED_THRESHOLDS
+        if volatility_scaled_thresholds_override is None
+        else bool(volatility_scaled_thresholds_override)
+    )
+    volatility_baseline_atr_pct = float(
+        DEFAULT_OPTION_VOLATILITY_BASELINE_ATR_PCT
+        if volatility_baseline_atr_pct_override is None
+        else volatility_baseline_atr_pct_override
+    )
+    volatility_min_scale = float(
+        DEFAULT_OPTION_VOLATILITY_MIN_SCALE
+        if volatility_min_scale_override is None
+        else volatility_min_scale_override
+    )
+    volatility_max_scale = float(
+        DEFAULT_OPTION_VOLATILITY_MAX_SCALE
+        if volatility_max_scale_override is None
+        else volatility_max_scale_override
+    )
     open_option_symbols: set[str] = set()
     for position in positions or []:
         symbol = str(getattr(position, "symbol", "") or "").strip().upper()
@@ -308,6 +373,14 @@ def ManageCurrentOptionPositions(
             momentum_history_config=momentum_history_config,
             option_price_momentum_config=option_price_momentum_config,
             state_path=state_path,
+            stop_loss_confirm_checks=stop_loss_confirm_checks,
+            stop_loss_underlying_move_pct=stop_loss_underlying_move_pct,
+            exit_use_limit_orders=exit_use_limit_orders,
+            exit_max_spread_pct=exit_max_spread_pct,
+            volatility_scaled_thresholds=volatility_scaled_thresholds,
+            volatility_baseline_atr_pct=volatility_baseline_atr_pct,
+            volatility_min_scale=volatility_min_scale,
+            volatility_max_scale=volatility_max_scale,
             position_state_override=reconciled_state,
             pending_reconciliation=pending_reconciliation,
         )
@@ -317,7 +390,9 @@ def ManageCurrentOptionPositions(
             else:
                 try:
                     if submit_full_exit_order is not None:
-                        close_order = submit_full_exit_order(symbol)
+                        close_order = submit_full_exit_order(
+                            symbol, limit_price=summary.get("exit_limit_price")
+                        )
                     else:
                         legacy_close_order = active_trading_client.close_position(symbol)
                         close_order = {
@@ -351,7 +426,11 @@ def ManageCurrentOptionPositions(
                 summary["close_error"] = "Partial sell action computed by structured engine, but no partial option sell callback was provided."
             else:
                 try:
-                    close_order = submit_partial_exit_order(symbol, int(summary.get("qty_to_sell") or 0))
+                    close_order = submit_partial_exit_order(
+                        symbol,
+                        int(summary.get("qty_to_sell") or 0),
+                        limit_price=summary.get("exit_limit_price"),
+                    )
                     summary["close_submitted"] = True
                     summary["close_order_id"] = str(close_order.get("id") or "")
                     summary["close_order_status"] = str(close_order.get("status") or "")
@@ -387,6 +466,12 @@ def ManageCurrentOptionPositions(
         "uses_dte_based_exit_thresholds": True,
         "take_profit_pct": take_profit_pct,
         "stop_loss_pct": stop_loss_pct,
+        "stop_loss_confirm_checks": stop_loss_confirm_checks,
+        "stop_loss_underlying_move_pct": stop_loss_underlying_move_pct,
+        "exit_use_limit_orders": exit_use_limit_orders,
+        "exit_max_spread_pct": exit_max_spread_pct,
+        "volatility_scaled_thresholds": volatility_scaled_thresholds,
+        "volatility_baseline_atr_pct": volatility_baseline_atr_pct,
         "exit_hours_to_expiration": exit_hours_to_expiration,
         "position_count": len(position_summaries),
         "sell_count": sum(1 for summary in position_summaries if summary.get("exit_action") in {"sell_full", "sell_partial"}),

@@ -33,6 +33,7 @@ from news_db_modules.processing import (
     mark_us_news_article_processed,
     mark_world_news_article_processed,
 )
+from news_db_modules.strategist_runs import record_strategist_run
 from news_db_modules.queries import (
     add_failed_url,
     get_failed_url,
@@ -74,6 +75,7 @@ __all__ = [
     "mark_us_news_article_processed",
     "mark_world_news_article_processed",
     "remove_failed_url",
+    "record_strategist_run",
 ]
 
 

@@ -58,6 +58,40 @@ STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
                 "risks": {"type": "array", "items": {"type": "string"}},
                 "contradictions_present": {"type": "boolean"},
                 "watchlist_reason": {"type": "string"},
+                "grounded_company_symbol": {"type": "string"},
+                "grounded_entity_ids": {
+                    "type": "object",
+                    "properties": {
+                        "company_id": {"type": "integer"},
+                        "industry_id": {"type": "integer"},
+                        "sector_id": {"type": "integer"},
+                    },
+                    "required": ["company_id", "industry_id", "sector_id"],
+                    "additionalProperties": False,
+                },
+                "evidence_claims": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "claim_type": {
+                                "type": "string",
+                                "enum": [
+                                    "summary",
+                                    "why_now",
+                                    "catalyst",
+                                    "thesis",
+                                    "risk",
+                                    "watchlist_reason",
+                                ],
+                            },
+                            "claim": {"type": "string"},
+                            "evidence_article_ids": {"type": "array", "items": {"type": "integer"}},
+                        },
+                        "required": ["claim_type", "claim", "evidence_article_ids"],
+                        "additionalProperties": False,
+                    },
+                },
             },
             "required": [
                 "decision",
@@ -75,6 +109,9 @@ STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
                 "risks",
                 "contradictions_present",
                 "watchlist_reason",
+                "grounded_company_symbol",
+                "grounded_entity_ids",
+                "evidence_claims",
             ],
             "additionalProperties": False,
         }

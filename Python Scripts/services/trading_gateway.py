@@ -4,12 +4,12 @@ import logging
 import os
 from typing import Any
 
-from services.common import looks_like_option_symbol, safe_float
+from services.common import looks_like_option_symbol, option_underlying_symbol, safe_float
 
 try:
     from alpaca.trading.client import TradingClient
     from alpaca.trading.enums import OrderSide, TimeInForce
-    from alpaca.trading.requests import MarketOrderRequest
+    from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest
 
     ALPACA_IMPORT_ERROR: Exception | None = None
 except ImportError as exc:  # pragma: no cover - optional dependency
@@ -17,6 +17,7 @@ except ImportError as exc:  # pragma: no cover - optional dependency
     OrderSide = None
     TimeInForce = None
     MarketOrderRequest = None
+    LimitOrderRequest = None
     ALPACA_IMPORT_ERROR = exc
 
 
@@ -66,22 +67,30 @@ class AlpacaTradingGateway:
         return buying_power
 
     def get_open_option_exposure(self, trading_client: TradingClient) -> tuple[float, int]:
-        positions = trading_client.get_all_positions()
-        option_exposure = 0.0
-        option_position_count = 0
-        for position in positions or []:
-            symbol = str(getattr(position, "symbol", "") or "").strip().upper()
-            asset_class = str(getattr(position, "asset_class", "") or "")
-            if not looks_like_option_symbol(symbol, asset_class):
-                continue
+        positions = self.get_open_option_positions(trading_client)
+        return sum(float(position["notional"]) for position in positions), len(positions)
 
-            option_position_count += 1
+    def get_open_option_positions(self, trading_client: TradingClient) -> list[dict[str, Any]]:
+        """Return normalized broker option positions for deterministic entry guardrails."""
+        positions = trading_client.get_all_positions()
+        normalized_positions: list[dict[str, Any]] = []
+        for position in positions or []:
+            option_symbol = str(getattr(position, "symbol", "") or "").strip().upper()
+            asset_class = str(getattr(position, "asset_class", "") or "")
+            if not looks_like_option_symbol(option_symbol, asset_class):
+                continue
             exposure_value = safe_float(getattr(position, "market_value", None))
             if exposure_value is None:
                 exposure_value = safe_float(getattr(position, "cost_basis", None))
-            option_exposure += abs(exposure_value or 0.0)
-
-        return option_exposure, option_position_count
+            normalized_positions.append(
+                {
+                    "option_symbol": option_symbol,
+                    "underlying_symbol": str(getattr(position, "underlying_symbol", "") or "").strip().upper() or option_underlying_symbol(option_symbol),
+                    "notional": abs(exposure_value or 0.0),
+                    "quantity": abs(safe_float(getattr(position, "qty", None)) or 0.0),
+                }
+            )
+        return normalized_positions
 
     def submit_option_market_order(
         self,
@@ -158,6 +167,57 @@ class AlpacaTradingGateway:
         order_summary = self._serialize_order_summary(order=order, symbol=normalized_symbol, qty=int(qty))
         order_summary["requested_qty"] = int(qty)
         order_summary["position_qty_before_order"] = current_qty_int
+        return order_summary
+
+    def submit_option_sell_limit_order(
+        self,
+        trading_client: TradingClient,
+        *,
+        option_symbol: str,
+        limit_price: float,
+        qty: int | None = None,
+    ) -> dict[str, Any]:
+        if LimitOrderRequest is None or OrderSide is None or TimeInForce is None:
+            raise RuntimeError("alpaca-py is required to submit option orders.")
+
+        normalized_symbol = str(option_symbol or "").strip().upper()
+        if not normalized_symbol:
+            raise ValueError("option_symbol must not be empty.")
+        limit_price_value = safe_float(limit_price)
+        if limit_price_value is None or limit_price_value <= 0:
+            raise ValueError("limit_price must be a positive number.")
+
+        open_position = trading_client.get_open_position(normalized_symbol)
+        asset_class = str(getattr(open_position, "asset_class", "") or "")
+        if not looks_like_option_symbol(normalized_symbol, asset_class):
+            raise ValueError(f"{normalized_symbol} is not an open option position.")
+
+        current_qty = safe_float(getattr(open_position, "qty", None))
+        current_qty_int = int(current_qty or 0)
+        if current_qty_int <= 0:
+            raise RuntimeError(f"No open quantity is available to sell for {normalized_symbol}.")
+        # Default to the full open quantity (used for full exits, where the caller
+        # only knows the symbol); otherwise validate the requested partial size.
+        sell_qty = current_qty_int if qty is None else int(qty)
+        if sell_qty <= 0:
+            raise ValueError("qty must be greater than zero.")
+        if sell_qty > current_qty_int:
+            raise ValueError(
+                f"Requested sell quantity {sell_qty} exceeds the current open quantity {current_qty_int} for {normalized_symbol}."
+            )
+
+        order_request = LimitOrderRequest(
+            symbol=normalized_symbol,
+            qty=sell_qty,
+            side=OrderSide.SELL,
+            time_in_force=TimeInForce.DAY,
+            limit_price=round(float(limit_price_value), 2),
+        )
+        order = trading_client.submit_order(order_data=order_request)
+        order_summary = self._serialize_order_summary(order=order, symbol=normalized_symbol, qty=sell_qty)
+        order_summary["requested_qty"] = sell_qty
+        order_summary["position_qty_before_order"] = current_qty_int
+        order_summary["limit_price"] = round(float(limit_price_value), 2)
         return order_summary
 
     def close_option_position(

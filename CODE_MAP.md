@@ -6,6 +6,11 @@ It is meant to answer two questions quickly:
 1. What is in this repo?
 2. How do the main pieces connect?
 
+For the supported extension boundaries and the feature checklist, use
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+[docs/FEATURE_PLAYBOOK.md](docs/FEATURE_PLAYBOOK.md). This map intentionally
+includes compatibility modules that new features should not target directly.
+
 
 ## 1. Syntax Tree
 
