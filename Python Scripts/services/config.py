@@ -138,6 +138,9 @@ class FrontMainSettings:
     max_deployable_buying_power_pct: float
     per_order_sizing_buying_power_pct: float
     max_option_order_qty_multiplier: int
+    max_concurrent_option_positions: int
+    max_option_sector_exposure_pct: float
+    daily_option_loss_limit_dollars: float
     alpaca_paper: bool
     cold_start_sanity_check_enabled: bool
 
@@ -239,6 +242,9 @@ class FrontMainSettings:
             max_deployable_buying_power_pct=env_percentage("MAX_DEPLOYABLE_BUYING_POWER_PCT", 30.0),
             per_order_sizing_buying_power_pct=env_percentage("PER_ORDER_SIZING_BUYING_POWER_PCT", 30.0),
             max_option_order_qty_multiplier=env_positive_int("MAX_OPTION_ORDER_QTY_MULTIPLIER", 50),
+            max_concurrent_option_positions=env_positive_int("MAX_CONCURRENT_OPTION_POSITIONS", 5),
+            max_option_sector_exposure_pct=max(0.01, env_percentage("MAX_OPTION_SECTOR_EXPOSURE_PCT", 50.0)),
+            daily_option_loss_limit_dollars=max(1.0, _env_float("DAILY_OPTION_LOSS_LIMIT_DOLLARS", 2000.0)),
             alpaca_paper=env_flag("ALPACA_PAPER", True),
             cold_start_sanity_check_enabled=env_flag("COLD_START_SANITY_CHECK", True),
         )
@@ -351,6 +357,9 @@ class ApiSettings:
     max_deployable_buying_power_pct: float
     per_order_sizing_buying_power_pct: float
     max_option_order_qty_multiplier: int
+    max_concurrent_option_positions: int
+    max_option_sector_exposure_pct: float
+    daily_option_loss_limit_dollars: float
 
     @classmethod
     def from_env(cls) -> ApiSettings:
@@ -366,6 +375,9 @@ class ApiSettings:
             max_deployable_buying_power_pct=env_percentage("MAX_DEPLOYABLE_BUYING_POWER_PCT", 30.0),
             per_order_sizing_buying_power_pct=env_percentage("PER_ORDER_SIZING_BUYING_POWER_PCT", 30.0),
             max_option_order_qty_multiplier=env_positive_int("MAX_OPTION_ORDER_QTY_MULTIPLIER", 50),
+            max_concurrent_option_positions=env_positive_int("MAX_CONCURRENT_OPTION_POSITIONS", 5),
+            max_option_sector_exposure_pct=max(0.01, env_percentage("MAX_OPTION_SECTOR_EXPOSURE_PCT", 50.0)),
+            daily_option_loss_limit_dollars=max(1.0, _env_float("DAILY_OPTION_LOSS_LIMIT_DOLLARS", 2000.0)),
         )
 
 

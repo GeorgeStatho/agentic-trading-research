@@ -67,6 +67,87 @@ def _compute_scaled_sell_qty(quantity: int, sell_fraction: float) -> int:
     return max(1, min(quantity, requested_qty))
 
 
+# Hard risk exits that must get out this cycle: they bypass the wide-spread
+# liquidity guard and cross straight to the bid when priced as a limit order.
+_URGENT_EXIT_REASONS = frozenset({"stop_loss", "near_expiration"})
+
+
+def _exit_should_hold_for_wide_spread(
+    *,
+    exit_reason: str,
+    option_spread_pct: float | None,
+    max_spread_pct: float,
+) -> bool:
+    """Return True when a non-urgent exit should be held because the option's
+    bid/ask spread is wider than the configured ceiling. Urgent exits and an
+    unmeasurable/disabled spread never block."""
+    if max_spread_pct <= 0.0:
+        return False
+    if exit_reason in _URGENT_EXIT_REASONS:
+        return False
+    if option_spread_pct is None:
+        return False
+    return option_spread_pct > max_spread_pct
+
+
+def _resolve_option_exit_limit_price(
+    *,
+    bid: float | None,
+    ask: float | None,
+    mid: float | None,
+    cross_spread: bool,
+) -> float | None:
+    """Compute a spread-aware limit price for a sell exit. Returns None when the
+    quote is unusable so the caller can fall back to a market order.
+
+    - cross_spread True  -> marketable limit at the bid (near-certain fill, but
+      never sells *through* the bid the way a bare market order can on an
+      illiquid book).
+    - cross_spread False -> passive limit at the midpoint to try to capture the
+      spread, clamped so it is never posted below the bid.
+    """
+    bid_value = safe_float(bid)
+    if bid_value is None or bid_value <= 0:
+        return None
+    if cross_spread:
+        return round(bid_value, 2)
+    mid_value = safe_float(mid)
+    ask_value = safe_float(ask)
+    if mid_value is not None and mid_value > 0:
+        target = mid_value
+    elif ask_value is not None and ask_value > 0:
+        target = (bid_value + ask_value) / 2.0
+    else:
+        return None
+    return round(max(bid_value, target), 2)
+
+
+def _round_option_sell_price_to_tick(
+    price: float | None,
+    *,
+    small_tick: float = 0.05,
+    large_tick: float = 0.10,
+    tick_price_threshold: float = 3.0,
+) -> float | None:
+    """Round a sell-limit price DOWN to a broker-valid tick. Rounding down keeps
+    the order valid and marketable (a sell limit still fills at the NBBO bid), so
+    crossing exits are unaffected and passive exits just get slightly more
+    fillable. Prices below one tick fall back to a penny to avoid rounding to 0."""
+    price_value = safe_float(price)
+    if price_value is None or price_value <= 0:
+        return price
+    tick = large_tick if price_value >= tick_price_threshold else small_tick
+    tick_value = safe_float(tick)
+    if tick_value is None or tick_value <= 0:
+        return round(price_value, 2)
+    tick_cents = max(1, int(round(tick_value * 100)))
+    price_cents = int(round(price_value * 100))
+    floored_cents = (price_cents // tick_cents) * tick_cents
+    if floored_cents <= 0:
+        return round(price_value, 2)
+    return round(floored_cents / 100.0, 2)
+
+
 def _structured_exit_action(
     *,
     option_symbol: str,
@@ -88,6 +169,9 @@ def _structured_exit_action(
     underlying_momentum_status: str = "unknown",
     momentum_negative_score: float | None = None,
     broker_unrealized_pl_pct_ratio: float | None = None,
+    stop_loss_confirm_checks: int = 1,
+    underlying_adverse_move_pct: float | None = None,
+    stop_loss_underlying_move_pct: float = 0.0,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     existing_state = dict(position_state or {})
     notes: list[str] = list(context_notes)
@@ -190,31 +274,99 @@ def _structured_exit_action(
             momentum_history_config=momentum_history_config,
         )
     )
-    if (
-        broker_unrealized_pl_pct_ratio is not None
-        and broker_unrealized_pl_pct_ratio <= (exit_thresholds.stop_loss_pct / 100.0)
-    ):
-        updated_state["last_action"] = "sell_full"
-        updated_state["last_decision_reason"] = "stop_loss"
-        return (
-            _build_exit_action(
-                action="sell_full",
-                reason="stop_loss",
-                pnl_pct=broker_unrealized_pl_pct_ratio,
-                max_pnl_pct=current_max_pnl_pct,
-                protected_profit_floor_pct=protected_profit_floor_pct,
-                trailing_giveback_pct=trailing_giveback_pct,
-                sell_fraction=1.0,
-                qty_to_sell=quantity,
-                notes=notes + [
-                    (
-                        f"Stop-loss triggered at {broker_unrealized_pl_pct_ratio * 100.0:.2f}% "
-                        f"versus floor {exit_thresholds.stop_loss_pct:.2f}% based on broker P/L."
-                    )
-                ],
-            ),
-            updated_state,
-        )
+    if broker_unrealized_pl_pct_ratio is not None:
+        if broker_unrealized_pl_pct_ratio <= (exit_thresholds.stop_loss_pct / 100.0):
+            # Gate the premium stop on a real adverse move in the underlying.
+            # Option premium is leveraged and spread/IV-noisy, so a small stock
+            # wobble can breach the floor and bounce back. When configured, hold
+            # through the breach unless the underlying itself has moved against the
+            # position by at least the threshold. If the underlying move is
+            # unknown/untrusted we fall back to the premium stop so protection is
+            # never silently lost.
+            require_underlying_move = stop_loss_underlying_move_pct > 0.0
+            if (
+                require_underlying_move
+                and underlying_adverse_move_pct is not None
+                and underlying_adverse_move_pct < stop_loss_underlying_move_pct
+            ):
+                updated_state["stop_loss_breach_count"] = 0
+                updated_state["last_action"] = "hold"
+                updated_state["last_decision_reason"] = "stop_loss_underlying_hold"
+                return (
+                    _build_exit_action(
+                        action="hold",
+                        reason="stop_loss_underlying_hold",
+                        pnl_pct=broker_unrealized_pl_pct_ratio,
+                        max_pnl_pct=current_max_pnl_pct,
+                        protected_profit_floor_pct=protected_profit_floor_pct,
+                        trailing_giveback_pct=trailing_giveback_pct,
+                        notes=notes + [
+                            (
+                                f"Broker P/L {broker_unrealized_pl_pct_ratio * 100.0:.2f}% breached the "
+                                f"{exit_thresholds.stop_loss_pct:.2f}% floor, but the underlying only moved "
+                                f"{underlying_adverse_move_pct * 100.0:.2f}% against the position versus the "
+                                f"{stop_loss_underlying_move_pct * 100.0:.2f}% threshold; holding through option-premium noise."
+                            )
+                        ],
+                    ),
+                    updated_state,
+                )
+            required_stop_loss_breaches = max(1, int(stop_loss_confirm_checks))
+            stop_loss_breach_count = (
+                int(safe_float(existing_state.get("stop_loss_breach_count")) or 0) + 1
+            )
+            updated_state["stop_loss_breach_count"] = stop_loss_breach_count
+            if stop_loss_breach_count >= required_stop_loss_breaches:
+                updated_state["last_action"] = "sell_full"
+                updated_state["last_decision_reason"] = "stop_loss"
+                confirmation_note = (
+                    f" (confirmed on {stop_loss_breach_count} consecutive checks)"
+                    if required_stop_loss_breaches > 1
+                    else ""
+                )
+                return (
+                    _build_exit_action(
+                        action="sell_full",
+                        reason="stop_loss",
+                        pnl_pct=broker_unrealized_pl_pct_ratio,
+                        max_pnl_pct=current_max_pnl_pct,
+                        protected_profit_floor_pct=protected_profit_floor_pct,
+                        trailing_giveback_pct=trailing_giveback_pct,
+                        sell_fraction=1.0,
+                        qty_to_sell=quantity,
+                        notes=notes + [
+                            (
+                                f"Stop-loss triggered at {broker_unrealized_pl_pct_ratio * 100.0:.2f}% "
+                                f"versus floor {exit_thresholds.stop_loss_pct:.2f}% based on broker P/L"
+                                f"{confirmation_note}."
+                            )
+                        ],
+                    ),
+                    updated_state,
+                )
+            updated_state["last_action"] = "hold"
+            updated_state["last_decision_reason"] = "stop_loss_pending_confirmation"
+            return (
+                _build_exit_action(
+                    action="hold",
+                    reason="stop_loss_pending_confirmation",
+                    pnl_pct=broker_unrealized_pl_pct_ratio,
+                    max_pnl_pct=current_max_pnl_pct,
+                    protected_profit_floor_pct=protected_profit_floor_pct,
+                    trailing_giveback_pct=trailing_giveback_pct,
+                    notes=notes + [
+                        (
+                            f"Stop-loss breach {stop_loss_breach_count} of {required_stop_loss_breaches} "
+                            f"at {broker_unrealized_pl_pct_ratio * 100.0:.2f}% versus floor "
+                            f"{exit_thresholds.stop_loss_pct:.2f}%; holding for confirmation before a full exit."
+                        )
+                    ],
+                ),
+                updated_state,
+            )
+        # Broker P/L recovered above the stop-loss floor; clear any pending breach
+        # streak so a fresh dip must re-confirm from scratch.
+        updated_state["stop_loss_breach_count"] = 0
     if hours_to_expiration is not None and hours_to_expiration <= exit_thresholds.exit_hours_to_expiration:
         updated_state["last_action"] = "sell_full"
         updated_state["last_decision_reason"] = "near_expiration"

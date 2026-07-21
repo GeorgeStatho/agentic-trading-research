@@ -71,6 +71,13 @@ def record_manager_decision_history(
             else None
         ),
         clean_text(history.get("resolved_outcome_label")),
+        clean_text(history.get("outcome_status")),
+        coerce_float(history.get("realized_pnl_pct")),
+        (
+            normalize_timestamp(history.get("closed_at"))
+            if history.get("closed_at") not in (None, "")
+            else None
+        ),
         decision_run_at,
         decision_run_at,
     )
@@ -101,14 +108,59 @@ def record_manager_decision_history(
             latest_trade_pnl_updated_at,
             pnl_expires_at,
             resolved_outcome_label,
+            outcome_status,
+            realized_pnl_pct,
+            closed_at,
             created_at,
             updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         values,
     )
-    return int(cursor.lastrowid)
+    decision_history_id = int(cursor.lastrowid)
+    snapshot = {
+        "version": "decision-autopsy-v1",
+        "company_id": company_id,
+        "symbol": symbol,
+        "company_name": company_name,
+        "decision_run_at": decision_run_at,
+        "strategist_decision": clean_text(history.get("strategist_decision")),
+        "manager_decision": clean_text(history.get("manager_decision")),
+        "manager_confidence": clean_text(history.get("manager_confidence")),
+        "manager_reason": clean_text(history.get("manager_reason")),
+        "target_dte_bucket": clean_text(history.get("target_dte_bucket")),
+        "selected_option_id": clean_text(history.get("selected_option_id")),
+        "selected_option_symbol": clean_text(history.get("selected_option_symbol")),
+        "selected_expiration_date": clean_text(history.get("selected_expiration_date")),
+        "selected_strike_price": coerce_float(history.get("selected_strike_price")),
+        "selected_option_source": clean_text(history.get("selected_option_source")),
+        "outcome_status": clean_text(history.get("outcome_status")),
+        "realized_pnl_pct": coerce_float(history.get("realized_pnl_pct")),
+        "closed_at": clean_text(history.get("closed_at")),
+        "manager_input": history.get("manager_input_json") if isinstance(history.get("manager_input_json"), dict) else {},
+        "manager_output": history.get("manager_output_json") if isinstance(history.get("manager_output_json"), dict) else {},
+    }
+    conn.execute(
+        """
+        INSERT INTO decision_autopsy_ledger (
+            manager_decision_history_id, symbol, decision_run_at, snapshot_json, created_at
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        (decision_history_id, symbol, decision_run_at, json_text(snapshot), decision_run_at),
+    )
+    from .backtesting import ensure_decision_evidence_snapshot
+
+    ensure_decision_evidence_snapshot(
+        {
+            "id": decision_history_id,
+            "decision_run_at": decision_run_at,
+            "manager_input_json": history.get("manager_input_json"),
+            "manager_output_json": history.get("manager_output_json"),
+        },
+        conn=conn,
+    )
+    return decision_history_id
 
 
 def update_manager_decision_latest_pnl(
@@ -146,6 +198,11 @@ def update_manager_decision_latest_pnl(
             latest_trade_pnl_updated_at = ?,
             pnl_expires_at = ?,
             resolved_outcome_label = ?,
+            outcome_status = CASE
+                WHEN outcome_status = 'closed' THEN outcome_status
+                WHEN ? LIKE 'managed_exit_submitted_%' THEN 'exit_pending'
+                ELSE 'open'
+            END,
             updated_at = ?
         WHERE id = ?
         """,
@@ -154,7 +211,59 @@ def update_manager_decision_latest_pnl(
             updated_at,
             normalize_timestamp(pnl_expires_at) if pnl_expires_at not in (None, "") else None,
             clean_text(resolved_outcome_label),
+            clean_text(resolved_outcome_label),
             updated_at,
+            normalized_id,
+        ),
+    )
+    return int(cursor.rowcount or 0) > 0
+
+
+def record_manager_decision_closed_outcome(
+    *,
+    decision_history_id: int,
+    realized_pnl_pct: float,
+    closed_at: Any,
+    resolved_outcome_label: str | None = None,
+    broker_confirmed: bool = False,
+    db_path: Path | str = DB_PATH,
+    conn: sqlite3.Connection | None = None,
+) -> bool:
+    """Persist a closed outcome only after the broker confirms the final exit."""
+    normalized_id = coerce_int(decision_history_id)
+    normalized_pnl = coerce_float(realized_pnl_pct)
+    if normalized_id is None or normalized_pnl is None or not broker_confirmed:
+        return False
+    if conn is None:
+        initialize_database(db_path=db_path)
+        with get_connection(db_path) as local_conn:
+            return record_manager_decision_closed_outcome(
+                decision_history_id=normalized_id,
+                realized_pnl_pct=normalized_pnl,
+                closed_at=closed_at,
+                resolved_outcome_label=resolved_outcome_label,
+                broker_confirmed=True,
+                conn=local_conn,
+            )
+
+    normalized_closed_at = normalize_timestamp(closed_at)
+    cursor = conn.execute(
+        """
+        UPDATE manager_decision_history
+        SET
+            outcome_status = 'closed',
+            realized_pnl_pct = ?,
+            closed_at = ?,
+            resolved_outcome_label = COALESCE(?, resolved_outcome_label),
+            updated_at = ?
+        WHERE id = ?
+          AND trade_executed = 1
+        """,
+        (
+            normalized_pnl,
+            normalized_closed_at,
+            clean_text(resolved_outcome_label),
+            normalized_closed_at,
             normalized_id,
         ),
     )

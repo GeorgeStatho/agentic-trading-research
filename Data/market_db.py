@@ -9,9 +9,29 @@ from market_db_modules.history_links import (
 )
 from market_db_modules.history_records import (
     expire_manager_decision_pnl,
+    record_manager_decision_closed_outcome,
     record_manager_decision_history,
     update_manager_decision_latest_pnl,
 )
+from market_db_modules.autopsy import backfill_decision_autopsy_ledger, list_decision_autopsy_ledger
+from market_db_modules.backtesting import (
+    get_backtest_run,
+    list_backtest_runs,
+    record_historical_option_contract,
+    record_historical_option_quote,
+    record_historical_underlying_bar,
+    run_backtest,
+)
+from market_db_modules.backtest_imports import import_alpaca_option_quote_csv
+from market_db_modules.backtest_marketdata import fetch_marketdata_eod_option_quotes
+from market_db_modules.portfolio_risk import get_company_sector_key, get_realized_option_loss_since
+from market_db_modules.manager_replay import (
+    complete_manager_replay_evaluation,
+    create_manager_replay_evaluation,
+    list_replayable_manager_decisions,
+    record_manager_replay_result,
+)
+from market_db_modules.market_regime import get_latest_market_regime_snapshot, record_market_regime_snapshot
 from market_db_modules.entities import (
     add_company,
     add_industry,
@@ -26,6 +46,7 @@ from market_db_modules.loaders import (
 )
 from market_db_modules.queries import (
     list_companies_by_industry,
+    list_decision_expectancy_rows,
     list_company_price_snapshots,
     list_industry_company_rankings,
     list_option_trade_executions,
@@ -49,14 +70,28 @@ __all__ = [
     "add_company_price_snapshot",
     "add_industry",
     "add_sector",
+    "backfill_decision_autopsy_ledger",
+    "complete_manager_replay_evaluation",
+    "create_manager_replay_evaluation",
     "expire_manager_decision_pnl",
+    "fetch_marketdata_eod_option_quotes",
+    "get_company_sector_key",
+    "get_realized_option_loss_since",
+    "record_manager_decision_closed_outcome",
     "get_latest_linked_manager_decision_for_option_symbol",
     "get_latest_open_manager_decision_for_trade_link",
     "get_market_data_refresh_state",
+    "get_latest_market_regime_snapshot",
+    "get_backtest_run",
     "get_telemetry_summary",
     "initialize_database",
+    "import_alpaca_option_quote_csv",
     "link_manager_decision_to_trade_execution",
+    "list_decision_autopsy_ledger",
+    "list_decision_expectancy_rows",
+    "list_replayable_manager_decisions",
     "list_companies_by_industry",
+    "list_backtest_runs",
     "list_company_price_snapshots",
     "list_industry_company_rankings",
     "list_option_trade_executions",
@@ -66,10 +101,16 @@ __all__ = [
     "load_sector_tree",
     "load_sector_tree_from_json",
     "record_manager_decision_history",
+    "record_historical_option_contract",
+    "record_historical_option_quote",
+    "record_historical_underlying_bar",
+    "record_manager_replay_result",
     "record_market_data_refresh_state",
+    "record_market_regime_snapshot",
     "record_option_trade_execution",
     "record_telemetry_installation",
     "replace_industry_company_rankings",
+    "run_backtest",
     "update_manager_decision_latest_pnl",
 ]
 

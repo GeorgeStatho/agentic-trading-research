@@ -173,6 +173,10 @@ class MarketContextVolatilityTests(unittest.TestCase):
         self.assertTrue(technicals["relative_strength"]["vs_sector_etf"]["available"])
         self.assertEqual(technicals["relative_strength"]["vs_sector_etf"]["benchmark_symbol"], "XLK")
         self.assertIsNotNone(technicals["relative_strength"]["vs_sector_etf"]["price_ratio"])
+        self.assertTrue(technicals["sector_market_relative_strength"]["available"])
+        self.assertEqual(technicals["sector_market_relative_strength"]["sector_etf"], "XLK")
+        self.assertEqual(technicals["sector_market_relative_strength"]["benchmark"], "SPY")
+        self.assertIn(technicals["sector_market_relative_strength"]["state"], {"outperforming", "underperforming", "flat"})
         technical_summary = result["technical_summary"]
         self.assertTrue(technical_summary["available"])
         self.assertEqual(technical_summary["trend_state"], "bullish")

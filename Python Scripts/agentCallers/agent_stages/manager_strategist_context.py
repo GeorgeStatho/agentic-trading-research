@@ -182,5 +182,113 @@ def _normalize_strategist_recommendation(recommendation: dict[str, Any] | None) 
     return {key: value for key, value in normalized.items() if value not in ("", [], None)}
 
 
+def _positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        return None
+    return normalized if normalized > 0 else None
+
+
+def _valid_grounded_fields(recommendation: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    grounding = payload.get("grounding") if isinstance(payload.get("grounding"), dict) else {}
+    company = payload.get("company") if isinstance(payload.get("company"), dict) else {}
+    expected_symbol = str(
+        grounding.get("company", {}).get("symbol") or company.get("symbol") or ""
+    ).strip().upper()
+    response_symbol = str(recommendation.get("grounded_company_symbol") or "").strip().upper()
+    if not expected_symbol or response_symbol != expected_symbol:
+        return {}
+
+    entity_ids = recommendation.get("grounded_entity_ids")
+    if not isinstance(entity_ids, dict):
+        return {}
+    normalized_entity_ids: dict[str, int] = {}
+    for entity_name, response_key in (
+        ("company", "company_id"),
+        ("industry", "industry_id"),
+        ("sector", "sector_id"),
+    ):
+        expected_id = _positive_int(grounding.get(entity_name, {}).get("id"))
+        if expected_id is None:
+            expected_id = _positive_int(company.get(response_key))
+        response_id = _positive_int(entity_ids.get(response_key))
+        if expected_id is not None and response_id != expected_id:
+            return {}
+        if response_id is not None:
+            normalized_entity_ids[response_key] = response_id
+    if not normalized_entity_ids:
+        return {}
+
+    raw_allowed_article_ids = grounding.get("article_ids", [])
+    if not isinstance(raw_allowed_article_ids, list):
+        return {}
+    allowed_article_ids = {
+        article_id
+        for article_id in (_positive_int(value) for value in raw_allowed_article_ids)
+        if article_id is not None
+    }
+    claims = recommendation.get("evidence_claims")
+    if not isinstance(claims, list):
+        return {}
+    normalized_claims: list[dict[str, Any]] = []
+    valid_claim_types = {"summary", "why_now", "catalyst", "thesis", "risk", "watchlist_reason"}
+    for claim in claims:
+        if not isinstance(claim, dict):
+            return {}
+        claim_type = str(claim.get("claim_type") or "").strip().lower()
+        claim_text = str(claim.get("claim") or "").strip()
+        raw_article_ids = claim.get("evidence_article_ids")
+        if claim_type not in valid_claim_types or not claim_text or not isinstance(raw_article_ids, list):
+            return {}
+        article_ids = [_positive_int(article_id) for article_id in raw_article_ids]
+        if not article_ids or any(article_id is None or article_id not in allowed_article_ids for article_id in article_ids):
+            return {}
+        normalized_claims.append(
+            {
+                "claim_type": claim_type,
+                "claim": claim_text,
+                "evidence_article_ids": article_ids,
+            }
+        )
+
+    result: dict[str, Any] = {
+        "grounded_company_symbol": response_symbol,
+        "grounded_entity_ids": normalized_entity_ids,
+        "evidence_claims": normalized_claims,
+    }
+    run_reference = recommendation.get("strategist_run_reference")
+    if isinstance(run_reference, dict):
+        run_id = _positive_int(run_reference.get("id"))
+        raw_input_article_ids = run_reference.get("input_article_ids", [])
+        if not isinstance(raw_input_article_ids, list):
+            return result
+        input_article_ids = [_positive_int(value) for value in raw_input_article_ids]
+        model = str(run_reference.get("model") or "").strip()
+        prompt_version = str(run_reference.get("prompt_version") or "").strip()
+        created_at = str(run_reference.get("created_at") or "").strip()
+        if (
+            run_id is not None
+            and model
+            and prompt_version
+            and created_at
+            and all(article_id is not None and article_id in allowed_article_ids for article_id in input_article_ids)
+        ):
+            result["strategist_run_reference"] = {
+                "id": run_id,
+                "model": model,
+                "prompt_version": prompt_version,
+                "input_article_ids": input_article_ids,
+                "created_at": created_at,
+            }
+    return result
+
+
 def _build_manager_visible_strategist_context(payload: dict[str, Any]) -> dict[str, Any]:
-    return _normalize_strategist_recommendation(payload.get("strategist_recommendation", {}))
+    recommendation = payload.get("strategist_recommendation", {})
+    normalized = _normalize_strategist_recommendation(recommendation)
+    if not isinstance(recommendation, dict):
+        return normalized
+    return {**normalized, **_valid_grounded_fields(recommendation, payload)}

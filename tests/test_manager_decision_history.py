@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -21,11 +22,13 @@ from market_db import (  # noqa: E402
     expire_manager_decision_pnl,
     get_latest_open_manager_decision_for_trade_link,
     initialize_database,
+    list_decision_autopsy_ledger,
     link_manager_decision_to_trade_execution,
     list_recent_manager_decision_history,
     record_manager_decision_history,
     update_manager_decision_latest_pnl,
 )
+from db_common import get_connection  # noqa: E402
 
 
 class ManagerDecisionHistoryTests(unittest.TestCase):
@@ -87,6 +90,13 @@ class ManagerDecisionHistoryTests(unittest.TestCase):
         self.assertEqual(rows[0]["manager_confidence"], "high")
         self.assertEqual(rows[0]["selected_option_symbol"], "MSFT260619C00450000")
 
+        ledger_rows = list_decision_autopsy_ledger(db_path=self.db_path)
+        self.assertEqual(len(ledger_rows), 1)
+        snapshot = json.loads(ledger_rows[0]["snapshot_json"])
+        self.assertEqual(ledger_rows[0]["manager_decision_history_id"], decision_id)
+        self.assertEqual(snapshot["manager_input"]["company"]["symbol"], "MSFT")
+        self.assertEqual(snapshot["manager_output"]["recommendation"]["decision"], "call")
+
     def test_link_trade_execution_and_update_latest_pnl(self) -> None:
         submitted_at = "2026-05-22T14:05:00+00:00"
         decision_id = record_manager_decision_history(
@@ -132,6 +142,15 @@ class ManagerDecisionHistoryTests(unittest.TestCase):
         )
         self.assertTrue(updated)
 
+        resolved_ledger_rows = list_decision_autopsy_ledger(
+            company_id=self.company_id,
+            resolved_only=True,
+            within_days=365,
+            db_path=self.db_path,
+        )
+        self.assertEqual(len(resolved_ledger_rows), 1)
+        self.assertEqual(resolved_ledger_rows[0]["manager_decision_history_id"], decision_id)
+
         rows = list_recent_manager_decision_history(
             underlying_symbol="MSFT",
             db_path=self.db_path,
@@ -142,6 +161,55 @@ class ManagerDecisionHistoryTests(unittest.TestCase):
         self.assertEqual(rows[0]["trade_execution_record_id"], 77)
         self.assertEqual(rows[0]["latest_trade_pnl_pct"], 12.5)
         self.assertEqual(rows[0]["resolved_outcome_label"], "open_profit")
+
+    def test_autopsy_ledger_loads_linked_live_order_details(self) -> None:
+        submitted_at = "2026-05-22T14:05:00+00:00"
+        decision_id = record_manager_decision_history(
+            {
+                "company_id": self.company_id,
+                "symbol": "MSFT",
+                "company_name": "Microsoft Corporation",
+                "decision_run_at": "2026-05-22T14:00:00+00:00",
+                "manager_decision": "call",
+                "manager_confidence": "high",
+                "selected_option_symbol": "MSFT260619C00450000",
+            },
+            db_path=self.db_path,
+        )
+        with get_connection(self.db_path) as conn:
+            execution_id = conn.execute(
+                """
+                INSERT INTO option_trade_executions (
+                    company_id, order_id, underlying_symbol, option_symbol, decision,
+                    expiration_date, order_qty, paper, order_status, order_side, submitted_at
+                ) VALUES (?, 'live-order-123', 'MSFT', 'MSFT260619C00450000', 'call',
+                          '2026-06-19', 2, 0, 'filled', 'buy', ?)
+                """,
+                (self.company_id, submitted_at),
+            ).lastrowid
+        link_manager_decision_to_trade_execution(
+            trade_execution_order_id="live-order-123",
+            trade_execution_record_id=execution_id,
+            company_id=self.company_id,
+            symbol="MSFT",
+            selected_option_symbol="MSFT260619C00450000",
+            submitted_at=submitted_at,
+            db_path=self.db_path,
+        )
+        update_manager_decision_latest_pnl(
+            decision_history_id=decision_id,
+            latest_trade_pnl_pct=-3.5,
+            latest_trade_pnl_updated_at="2026-05-23T14:00:00+00:00",
+            pnl_expires_at="2026-12-31T14:00:00+00:00",
+            resolved_outcome_label="closed_loss",
+            db_path=self.db_path,
+        )
+
+        rows = list_decision_autopsy_ledger(company_id=self.company_id, db_path=self.db_path)
+        record = next(row for row in rows if row["manager_decision_history_id"] == decision_id)
+        self.assertEqual(record["execution_paper"], 0)
+        self.assertEqual(record["execution_order_status"], "filled")
+        self.assertEqual(record["execution_option_symbol"], "MSFT260619C00450000")
 
     def test_expire_manager_decision_pnl_clears_stale_pnl_without_deleting_history(self) -> None:
         decision_id = record_manager_decision_history(

@@ -7,6 +7,9 @@ CREATE TABLE IF NOT EXISTS macro_events (
     event_name TEXT NOT NULL,
     event_date TEXT,
     event_time TEXT,
+    scheduled_at_utc TEXT,
+    calendar_timezone TEXT,
+    calendar_refreshed_at TEXT,
     country TEXT,
     currency TEXT,
     category TEXT,
@@ -239,14 +242,86 @@ CREATE TABLE IF NOT EXISTS failed_urls (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS strategist_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    input_article_ids_json TEXT NOT NULL,
+    input_payload_json TEXT NOT NULL,
+    output_payload_json TEXT,
+    status TEXT NOT NULL,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS news_exposure_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    input_article_ids_json TEXT NOT NULL,
+    article_summary TEXT,
+    uncertainties_json TEXT,
+    raw_response_json TEXT,
+    status TEXT NOT NULL DEFAULT 'completed',
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS news_exposure_edges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    from_type TEXT NOT NULL,
+    from_id TEXT NOT NULL,
+    to_type TEXT NOT NULL,
+    to_id TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    magnitude TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    mechanism TEXT NOT NULL,
+    evidence_article_ids_json TEXT NOT NULL,
+    exposure_score REAL NOT NULL DEFAULT 0,
+    score_inputs_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES news_exposure_runs(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS news_exposure_position_impacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    option_symbol TEXT NOT NULL,
+    risk_level TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    risk_score REAL NOT NULL DEFAULT 0,
+    score_inputs_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES news_exposure_runs(id) ON DELETE CASCADE,
+    UNIQUE (run_id, option_symbol)
+);
+
 CREATE INDEX IF NOT EXISTS idx_macro_events_event_date
     ON macro_events (event_date);
 
 CREATE INDEX IF NOT EXISTS idx_macro_events_category
     ON macro_events (category);
 
+CREATE INDEX IF NOT EXISTS idx_macro_events_scheduled_at_utc
+    ON macro_events (scheduled_at_utc);
+
 CREATE INDEX IF NOT EXISTS idx_news_articles_published_at
     ON news_articles (published_at);
+
+CREATE INDEX IF NOT EXISTS idx_news_exposure_runs_article_created
+    ON news_exposure_runs (article_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_news_exposure_edges_run
+    ON news_exposure_edges (run_id);
+
+CREATE INDEX IF NOT EXISTS idx_news_exposure_position_impacts_run
+    ON news_exposure_position_impacts (run_id);
 
 CREATE INDEX IF NOT EXISTS idx_news_articles_section
     ON news_articles (section);
@@ -296,6 +371,9 @@ CREATE INDEX IF NOT EXISTS idx_world_news_sector_impacts_article_id
 CREATE INDEX IF NOT EXISTS idx_world_news_sector_impacts_sector_id
     ON world_news_sector_impacts (sector_id);
 
+CREATE INDEX IF NOT EXISTS idx_world_news_sector_impacts_sector_article
+    ON world_news_sector_impacts (sector_id, article_id);
+
 CREATE INDEX IF NOT EXISTS idx_world_news_article_processing_article_id
     ON world_news_article_processing (article_id);
 
@@ -304,6 +382,9 @@ CREATE INDEX IF NOT EXISTS idx_us_news_sector_impacts_article_id
 
 CREATE INDEX IF NOT EXISTS idx_us_news_sector_impacts_sector_id
     ON us_news_sector_impacts (sector_id);
+
+CREATE INDEX IF NOT EXISTS idx_us_news_sector_impacts_sector_article
+    ON us_news_sector_impacts (sector_id, article_id);
 
 CREATE INDEX IF NOT EXISTS idx_us_news_article_processing_article_id
     ON us_news_article_processing (article_id);
@@ -314,6 +395,9 @@ CREATE INDEX IF NOT EXISTS idx_industry_opportunist_impacts_article_id
 CREATE INDEX IF NOT EXISTS idx_industry_opportunist_impacts_industry_id
     ON industry_opportunist_impacts (industry_id);
 
+CREATE INDEX IF NOT EXISTS idx_industry_opportunist_impacts_industry_article
+    ON industry_opportunist_impacts (industry_id, article_id);
+
 CREATE INDEX IF NOT EXISTS idx_industry_opportunist_article_processing_article_id
     ON industry_opportunist_article_processing (article_id);
 
@@ -322,6 +406,9 @@ CREATE INDEX IF NOT EXISTS idx_company_opportunist_impacts_article_id
 
 CREATE INDEX IF NOT EXISTS idx_company_opportunist_impacts_company_id
     ON company_opportunist_impacts (company_id);
+
+CREATE INDEX IF NOT EXISTS idx_company_opportunist_impacts_company_article
+    ON company_opportunist_impacts (company_id, article_id);
 
 CREATE INDEX IF NOT EXISTS idx_company_opportunist_article_processing_article_id
     ON company_opportunist_article_processing (article_id);
@@ -335,11 +422,17 @@ CREATE INDEX IF NOT EXISTS idx_sector_opportunist_impacts_article_id
 CREATE INDEX IF NOT EXISTS idx_sector_opportunist_impacts_sector_id
     ON sector_opportunist_impacts (sector_id);
 
+CREATE INDEX IF NOT EXISTS idx_sector_opportunist_impacts_sector_article
+    ON sector_opportunist_impacts (sector_id, article_id);
+
 CREATE INDEX IF NOT EXISTS idx_sector_opportunist_article_processing_article_id
     ON sector_opportunist_article_processing (article_id);
 
 CREATE INDEX IF NOT EXISTS idx_strategist_company_summaries_company_id
     ON strategist_company_summaries (company_id);
+
+CREATE INDEX IF NOT EXISTS idx_strategist_runs_company_created
+    ON strategist_runs (company_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_failed_urls_normalized_url
     ON failed_urls (normalized_url);

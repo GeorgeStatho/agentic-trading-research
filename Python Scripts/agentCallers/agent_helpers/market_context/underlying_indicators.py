@@ -46,6 +46,19 @@ def _empty_relative_strength_snapshot(*, benchmark_symbol: str, label: str) -> d
     }
 
 
+def _empty_sector_market_relative_strength_snapshot(*, sector_etf: str = "") -> dict[str, Any]:
+    return {
+        "available": False,
+        "sector_etf": sector_etf,
+        "benchmark": RELATIVE_STRENGTH_SPY_SYMBOL,
+        "return_20d_pct": None,
+        "benchmark_return_20d_pct": None,
+        "relative_return_20d_pct": None,
+        "state": "unknown",
+        "error": "",
+    }
+
+
 def _empty_technical_indicators_snapshot(*, sector_benchmark_symbol: str = "", sector_label: str = "") -> dict[str, Any]:
     return {
         "reference_price": None,
@@ -106,6 +119,9 @@ def _empty_technical_indicators_snapshot(*, sector_benchmark_symbol: str = "", s
                 label=sector_label or sector_benchmark_symbol,
             ),
         },
+        "sector_market_relative_strength": _empty_sector_market_relative_strength_snapshot(
+            sector_etf=sector_benchmark_symbol,
+        ),
     }
 
 
@@ -288,6 +304,41 @@ def _build_relative_strength_snapshot(
     return snapshot
 
 
+def _build_sector_market_relative_strength_snapshot(
+    sector_closes: list[float],
+    market_closes: list[float],
+    *,
+    sector_etf: str,
+) -> dict[str, Any]:
+    snapshot = _empty_sector_market_relative_strength_snapshot(sector_etf=sector_etf)
+    comparison = _build_relative_strength_snapshot(
+        sector_closes,
+        market_closes,
+        benchmark_symbol=RELATIVE_STRENGTH_SPY_SYMBOL,
+        label=RELATIVE_STRENGTH_SPY_SYMBOL,
+    )
+    returns = comparison.get("returns", {}).get("20d", {})
+    sector_return = _round_or_none(returns.get("stock_return_pct")) if isinstance(returns, dict) else None
+    benchmark_return = _round_or_none(returns.get("benchmark_return_pct")) if isinstance(returns, dict) else None
+    relative_return = _round_or_none(returns.get("relative_return_pct")) if isinstance(returns, dict) else None
+    snapshot.update(
+        {
+            "available": relative_return is not None,
+            "return_20d_pct": sector_return,
+            "benchmark_return_20d_pct": benchmark_return,
+            "relative_return_20d_pct": relative_return,
+            "state": (
+                "outperforming" if relative_return is not None and relative_return > 0
+                else "underperforming" if relative_return is not None and relative_return < 0
+                else "flat" if relative_return == 0
+                else "unknown"
+            ),
+            "error": str(comparison.get("error") or ""),
+        }
+    )
+    return snapshot
+
+
 def _build_technical_indicators_snapshot(
     *,
     close_values: list[float],
@@ -415,5 +466,13 @@ def _build_technical_indicators_snapshot(
             if not vs_sector["available"] and sector_error:
                 vs_sector["error"] = sector_error
             indicators["relative_strength"]["vs_sector_etf"] = vs_sector
+            sector_market = _build_sector_market_relative_strength_snapshot(
+                sector_closes,
+                spy_closes,
+                sector_etf=sector_benchmark_symbol,
+            )
+            if not sector_market["available"] and (sector_error or spy_error):
+                sector_market["error"] = sector_error or spy_error
+            indicators["sector_market_relative_strength"] = sector_market
 
     return indicators

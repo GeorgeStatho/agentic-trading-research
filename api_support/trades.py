@@ -12,6 +12,8 @@ from api_support.context import (
     list_option_trade_executions,
 )
 
+EXECUTED_TRADES_MAX_AGE_DAYS = 30
+
 
 def load_output_payload(path) -> dict:
     from api_support.common import read_json_payload
@@ -144,6 +146,7 @@ def build_executed_trades_payload(
     initialize_market_database(db_path=DB_PATH)
     rows = list_option_trade_executions(
         underlying_symbol=underlying_symbol,
+        within_days=EXECUTED_TRADES_MAX_AGE_DAYS,
         limit=limit,
         db_path=DB_PATH,
     )

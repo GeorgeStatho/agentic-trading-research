@@ -25,15 +25,17 @@ bootstrap_agent_callers()
 
 from agent_stages.manager_context import _build_manager_visible_market_context
 from agent_stages.manager_prompt import build_manager_prompt
-from agent_stages.manager_runner import DEFAULT_MODEL, decide_company_option_position
-from agent_stages.manager_shared import MANAGER_STAGE_VERSION
+from agent_stages.manager_runner import DEFAULT_MODEL, decide_company_option_position, replay_manager_decision_from_payload
+from agent_stages.manager_shared import MANAGER_PROMPT_VERSION, MANAGER_STAGE_VERSION
 
 
 __all__ = [
     "MANAGER_STAGE_VERSION",
+    "MANAGER_PROMPT_VERSION",
     "_build_manager_visible_market_context",
     "build_manager_prompt",
     "decide_company_option_position",
+    "replay_manager_decision_from_payload",
 ]
 
 

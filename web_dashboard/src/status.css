@@ -1,13 +1,13 @@
 .script-status {
   width: min(1100px, 92vw);
-  margin: 0 auto 2rem;
-  padding: 0.9rem 1rem;
-  border-radius: 14px;
+  margin: 0;
+  padding: 1rem 1.1rem;
+  border-radius: 16px;
   border: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 0.85rem;
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--bg) 95%, #202838);
   box-sizing: border-box;
 }
 
@@ -22,6 +22,7 @@
 
 .script-status__label {
   font-weight: 700;
+  color: var(--text-h);
   text-transform: capitalize;
 }
 

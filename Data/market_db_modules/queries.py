@@ -7,6 +7,7 @@ from typing import Any
 
 from db_common import DB_PATH, clean_text, get_connection
 from .shared import coerce_int, normalize_timestamp
+from .bootstrap import initialize_database
 
 
 def list_companies_by_industry(industry_key: str, db_path: Path | str = DB_PATH) -> list[sqlite3.Row]:
@@ -173,9 +174,57 @@ def list_recent_manager_decision_history(
     return rows
 
 
+def list_decision_expectancy_rows(
+    *,
+    within_days: int = 90,
+    as_of: datetime | str | None = None,
+    db_path: Path | str = DB_PATH,
+) -> list[sqlite3.Row]:
+    """Return unmasked executed-decision outcomes for deterministic analytics."""
+    normalized_as_of = normalize_timestamp(as_of)
+    reference_time = datetime.fromisoformat(normalized_as_of.replace("Z", "+00:00"))
+    if reference_time.tzinfo is None:
+        reference_time = reference_time.replace(tzinfo=timezone.utc)
+    cutoff = normalize_timestamp(reference_time - timedelta(days=max(1, int(within_days))))
+    initialize_database(db_path=db_path)
+    with get_connection(db_path) as conn:
+        return conn.execute(
+            """
+            SELECT
+                history.id,
+                history.decision_run_at,
+                history.manager_decision,
+                history.manager_confidence,
+                history.target_dte_bucket,
+                history.selected_option_source,
+                history.manager_output_json,
+                history.trade_executed,
+                history.latest_trade_pnl_pct,
+                history.latest_trade_pnl_updated_at,
+                history.pnl_expires_at,
+                history.realized_pnl_pct,
+                history.outcome_status,
+                history.closed_at,
+                history.resolved_outcome_label,
+                COALESCE(company.symbol, history.symbol) AS symbol,
+                industry.industry_key,
+                sector.sector_key
+            FROM manager_decision_history AS history
+            LEFT JOIN companies AS company ON company.id = history.company_id
+            LEFT JOIN industries AS industry ON industry.id = company.industry_id
+            LEFT JOIN sectors AS sector ON sector.id = industry.sector_id
+            WHERE history.trade_executed = 1
+              AND history.decision_run_at >= ?
+            ORDER BY history.decision_run_at DESC, history.id DESC
+            """,
+            (cutoff,),
+        ).fetchall()
+
+
 def list_option_trade_executions(
     *,
     underlying_symbol: str | None = None,
+    within_days: int | None = None,
     limit: int = 100,
     db_path: Path | str = DB_PATH,
 ) -> list[sqlite3.Row]:
@@ -210,9 +259,21 @@ def list_option_trade_executions(
         FROM option_trade_executions
     """
     parameters: list[Any] = []
+    where_clauses: list[str] = []
     if normalized_symbol is not None:
-        query += " WHERE underlying_symbol = ?"
+        where_clauses.append("underlying_symbol = ?")
         parameters.append(normalized_symbol)
+
+    if within_days is not None and int(within_days) > 0:
+        where_clauses.append("submitted_at >= ?")
+        parameters.append(
+            normalize_timestamp(
+                datetime.now(timezone.utc) - timedelta(days=max(1, int(within_days)))
+            )
+        )
+
+    if where_clauses:
+        query += " WHERE " + " AND ".join(where_clauses)
 
     query += " ORDER BY submitted_at DESC, id DESC LIMIT ?"
     parameters.append(max(1, int(limit)))

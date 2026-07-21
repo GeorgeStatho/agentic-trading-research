@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from datetime import datetime
 from typing import Any
 
@@ -12,11 +13,12 @@ from agent_helpers.manager import (
     build_market_context,
 )
 from agent_helpers.shared import Client, extract_json_value
+from services.evidence_continuation_gate import evaluate_evidence_continuation_gate
 from .manager_payload_context import (
     _build_context_snapshot,
     payload_has_evidence,
 )
-from .manager_strategist_context import _normalize_strategist_recommendation
+from .manager_strategist_context import _build_manager_visible_strategist_context
 from .manager_normalization import (
     extract_recommendation,
     extract_recommendation_from_text,
@@ -26,6 +28,7 @@ from .manager_prompt import build_manager_prompt
 from .manager_shared import (
     DEFAULT_MODEL,
     LOGGER,
+    MANAGER_PROMPT_VERSION,
     MANAGER_STAGE_VERSION,
     ask_model,
     get_default_client,
@@ -99,6 +102,8 @@ def _refresh_market_context_for_target_dte_bucket(
         option_strike_price_lte=option_strike_price_lte,
         option_contract_limit_per_type=option_contract_limit_per_type,
     )
+    if isinstance(market_context.get("market_regime"), dict):
+        refreshed_market_context["market_regime"] = market_context["market_regime"]
     refresh_debug["bucket_upstream_refresh_applied"] = True
     refresh_debug["bucket_upstream_contract_count"] = int(
         refreshed_market_context.get("option_market", {}).get("contract_count") or 0
@@ -142,6 +147,54 @@ def _build_no_evidence_result(
     }
 
 
+def replay_manager_decision_from_payload(
+    payload: dict[str, Any],
+    *,
+    client: Client | None = None,
+    model: str = DEFAULT_MODEL,
+) -> dict[str, Any]:
+    """Re-run only the manager LLM against a frozen decision-time payload.
+
+    This intentionally does not refresh market data, select an option contract,
+    submit an order, or write an execution record.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("company"), dict):
+        raise ValueError("A frozen manager replay payload with company context is required.")
+
+    replay_payload = copy.deepcopy(payload)
+    if not payload_has_evidence(replay_payload):
+        return {
+            "recommendation": {
+                "decision": "neither",
+                "confidence": "low",
+                "target_dte_bucket": "none",
+                "reason": "Frozen manager payload did not contain enough evidence for a directional replay.",
+            },
+            "replay_skipped": "no_evidence",
+        }
+
+    system_prompt, user_prompt = build_manager_prompt(replay_payload)
+    raw_response = ask_model(
+        client=client or get_default_client(),
+        model=model,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
+    parsed = extract_json_value(raw_response)
+    recommendation = normalize_recommendation(
+        extract_recommendation(parsed),
+        strategist_recommendation=replay_payload.get("strategist_recommendation", {}),
+    )
+    if recommendation is None:
+        recommendation = normalize_recommendation(
+            extract_recommendation_from_text(raw_response),
+            strategist_recommendation=replay_payload.get("strategist_recommendation", {}),
+        )
+    if recommendation is None:
+        raise RuntimeError("Manager replay model returned an invalid recommendation response.")
+    return {"recommendation": recommendation, "replay_prompt_version": MANAGER_PROMPT_VERSION}
+
+
 def decide_company_option_position(
     company_identifier: str,
     *,
@@ -161,6 +214,7 @@ def decide_company_option_position(
     option_strike_price_gte: float | None = None,
     option_strike_price_lte: float | None = None,
     option_contract_limit_per_type: int = DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
+    market_regime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     client = client or get_default_client()
     payload = build_manager_input(
@@ -177,9 +231,10 @@ def decide_company_option_position(
         option_strike_price_lte=option_strike_price_lte,
         option_contract_limit_per_type=option_contract_limit_per_type,
     )
-    payload["strategist_recommendation"] = _normalize_strategist_recommendation(
-        strategist_recommendation
-    )
+    if isinstance(market_regime, dict):
+        payload.setdefault("market_context", {})["market_regime"] = market_regime
+    payload["strategist_recommendation"] = strategist_recommendation or {}
+    payload["strategist_recommendation"] = _build_manager_visible_strategist_context(payload)
 
     company = payload["company"]
     market_context = payload.get("market_context", {})
@@ -187,11 +242,24 @@ def decide_company_option_position(
     context_snapshot = _build_context_snapshot(payload)
 
     if not payload_has_evidence(payload):
-        return _build_no_evidence_result(
+        no_evidence_result = _build_no_evidence_result(
             company,
             context_snapshot=context_snapshot,
             market_context=market_context,
         )
+        return {
+            **no_evidence_result,
+            "entry_gate": evaluate_evidence_continuation_gate(
+                recommendation=no_evidence_result["recommendation"],
+                payload=payload,
+                market_context=market_context,
+            ),
+            "resolved_autopsy_insights": payload.get("resolved_autopsy_insights", []),
+            "manager_replay_payload": copy.deepcopy(payload),
+            "manager_model": model,
+            "manager_prompt_version": MANAGER_PROMPT_VERSION,
+            "market_regime": market_context.get("market_regime", {}),
+        }
 
     system_prompt, user_prompt = build_manager_prompt(
         payload,
@@ -248,6 +316,11 @@ def decide_company_option_position(
             **upstream_bucket_refresh_debug,
         },
     }
+    entry_gate = evaluate_evidence_continuation_gate(
+        recommendation=recommendation,
+        payload=payload,
+        market_context=market_context,
+    )
     LOGGER.info(
         "Manager decision for %s produced decision=%s confidence=%s with %s contracts available",
         company.get("symbol"),
@@ -262,7 +335,13 @@ def decide_company_option_position(
         "market_context": market_context,
         "supporting_articles": payload.get("supporting_articles", {}),
         "recent_manager_decision_history": payload.get("recent_manager_decision_history", []),
+        "resolved_autopsy_insights": payload.get("resolved_autopsy_insights", []),
         "strategist_recommendation": payload.get("strategist_recommendation", {}),
         "recommendation": recommendation,
+        "entry_gate": entry_gate,
         "selected_option": None,
+        "manager_replay_payload": copy.deepcopy(payload),
+        "manager_model": model,
+        "manager_prompt_version": MANAGER_PROMPT_VERSION,
+        "market_regime": market_context.get("market_regime", {}),
     }

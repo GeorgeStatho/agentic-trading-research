@@ -21,4 +21,5 @@ from news_db import (
     mark_sector_opportunist_article_processed,
     mark_us_news_article_processed,
     mark_world_news_article_processed,
+    record_strategist_run,
 )

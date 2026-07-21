@@ -32,13 +32,17 @@ def build_manager_prompt(
         "2) live market and account context, including current stock price, relevant sector ETF performance, broad market indexes, option market summary, buying power, and current position state; "
         "and 3) the strategist recommendation as an upstream signal. "
         "When recent same-company manager decision history is present, use it as reflective feedback about what was tried before, what evidence was used, and how those decisions performed, but do not let one recent outcome override stronger fresh evidence. "
+        "Resolved autopsy insights are compact outcome feedback from prior decisions, not new market evidence. Use them only to calibrate confidence, timing, DTE caution, and recurring risk patterns. Do not cite their historical article IDs as support for the current thesis, and never let them override current grounded evidence or deterministic risk gates. "
         "Treat the strategist recommendation as useful but not authoritative. "
         "The strategist may include decision, confidence, evidence_quality, setup_quality, timing_clarity, "
-        "preferred_option_direction, expected_stock_direction, time_horizon, why_now, thesis, risks, and contradictions_present. "
+        "preferred_option_direction, expected_stock_direction, time_horizon, why_now, thesis, risks, contradictions_present, "
+        "grounded entity IDs, per-claim evidence_article_ids, and a strategist run reference. "
+        "Use citations only when they reference articles in this manager payload; the run reference is review metadata, not evidence by itself. "
         "Use that information as the upstream thesis input, then decide whether that thesis is tradable now under current conditions and constraints. "
         "Your primary job is execution permission: decide whether the setup should be acted on now, given live market context, account context, and timing. "
         "Weigh the evidence, its freshness and the live context before deciding; the production decision heuristics are not part of the public demo. "
         "Use opportunist_rollup as the primary summarized evidence layer, and use the compact views summary and supporting article summaries only as grounding detail. "
+        "market_context.market_regime is deterministic cycle-level timing context. It cannot replace grounded evidence and its later execution policy cannot be overridden by this recommendation. "
         "Your job is only to choose call, put, or neither for the underlying at this time. "
         "Do not choose, rank, or infer a specific option contract. "
         "Do not make the final affordability or liquidity decision yourself. Contract affordability and liquidity are enforced later by the deterministic selector and risk layer. "
@@ -70,6 +74,7 @@ def build_manager_prompt(
         "views_summary": _build_manager_visible_views_summary(payload),
         "supporting_articles": _build_manager_visible_supporting_articles(payload),
         "recent_manager_decision_history": payload.get("recent_manager_decision_history", []),
+        "resolved_autopsy_insights": payload.get("resolved_autopsy_insights", []),
         "strategist_recommendation": _build_manager_visible_strategist_context(payload),
         "market_context": _build_manager_visible_market_context(payload),
         "required_output": {

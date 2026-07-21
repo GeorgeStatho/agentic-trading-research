@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -20,9 +21,21 @@ from ._option_positions_market import (
     _normalize_unrealized_pl_pct,
     _parse_option_symbol,
     _resolve_option_exit_thresholds,
+    _resolve_volatility_scale,
+)
+from ._option_positions_defaults import (
+    DEFAULT_OPTION_EXIT_TICK_PRICE_THRESHOLD,
+    DEFAULT_OPTION_EXIT_TICK_SIZE_LARGE,
+    DEFAULT_OPTION_EXIT_TICK_SIZE_SMALL,
 )
 from ._option_positions_state import _normalize_order_status, _safe_int
-from ._option_positions_strategy import _structured_exit_action
+from ._option_positions_strategy import (
+    _URGENT_EXIT_REASONS,
+    _exit_should_hold_for_wide_spread,
+    _resolve_option_exit_limit_price,
+    _round_option_sell_price_to_tick,
+    _structured_exit_action,
+)
 from .utils import safe_float
 
 _TRUSTED_ENTRY_UNDERLYING_PRICE_SOURCES = {
@@ -80,6 +93,18 @@ def _build_option_position_snapshot(
     state_path: Path,
     get_latest_option_quote: Callable[[str], dict[str, Any]],
     get_latest_stock_price: Callable[[str], dict[str, Any]],
+    stop_loss_confirm_checks: int = 1,
+    stop_loss_underlying_move_pct: float = 0.0,
+    exit_use_limit_orders: bool = False,
+    exit_max_spread_pct: float = 0.0,
+    exit_tick_size_small: float = DEFAULT_OPTION_EXIT_TICK_SIZE_SMALL,
+    exit_tick_size_large: float = DEFAULT_OPTION_EXIT_TICK_SIZE_LARGE,
+    exit_tick_price_threshold: float = DEFAULT_OPTION_EXIT_TICK_PRICE_THRESHOLD,
+    volatility_scaled_thresholds: bool = False,
+    volatility_baseline_atr_pct: float = 0.02,
+    volatility_min_scale: float = 0.5,
+    volatility_max_scale: float = 2.0,
+    get_underlying_atr_pct: Callable[[str], float | None] | None = None,
     position_state_override: dict[str, Any] | None = None,
     pending_reconciliation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -142,7 +167,44 @@ def _build_option_position_snapshot(
         option_momentum=option_price_momentum_details,
         underlying_momentum=underlying_momentum_details,
     )
+    # The underlying assessment reports price_change_from_entry_pct as a signed
+    # percentage where positive = moved in the position's favor (it already
+    # negates for puts). Convert it to an adverse move fraction (positive = moved
+    # against the position) for the underlying-confirmed stop-loss gate. It is
+    # None whenever the entry underlying baseline is missing or untrusted.
+    favorable_underlying_move_pct = safe_float(
+        underlying_momentum_details.get("price_change_from_entry_pct")
+    )
+    underlying_adverse_move_pct = (
+        -favorable_underlying_move_pct / 100.0
+        if favorable_underlying_move_pct is not None
+        else None
+    )
     broker_quantity = _safe_int(quantity) or 0
+    # Volatility-scaled thresholds: widen/tighten the stop-loss, take-profit, and
+    # underlying-move gate by the underlying's ATR relative to a baseline. Scale is
+    # 1.0 (no change) when disabled or the ATR is unavailable, so the fixed
+    # thresholds always remain the safe fallback.
+    volatility_scale = 1.0
+    underlying_atr_pct: float | None = None
+    if volatility_scaled_thresholds and get_underlying_atr_pct is not None:
+        try:
+            underlying_atr_pct = get_underlying_atr_pct(parsed_symbol.get("underlying_symbol"))
+        except Exception:
+            underlying_atr_pct = None
+        volatility_scale = _resolve_volatility_scale(
+            current_atr_pct=underlying_atr_pct,
+            baseline_atr_pct=volatility_baseline_atr_pct,
+            min_scale=volatility_min_scale,
+            max_scale=volatility_max_scale,
+        )
+    if volatility_scale != 1.0:
+        exit_thresholds = replace(
+            exit_thresholds,
+            stop_loss_pct=round(exit_thresholds.stop_loss_pct * volatility_scale, 4),
+            take_profit_pct=round(exit_thresholds.take_profit_pct * volatility_scale, 4),
+        )
+    effective_stop_loss_underlying_move_pct = round(stop_loss_underlying_move_pct * volatility_scale, 6)
     exit_action, updated_state = _structured_exit_action(
         option_symbol=option_symbol,
         quantity=broker_quantity,
@@ -165,7 +227,68 @@ def _build_option_position_snapshot(
         recently_filled_order=(
             _normalize_order_status((pending_reconciliation or {}).get("pending_order_status")) == "filled"
         ),
+        stop_loss_confirm_checks=stop_loss_confirm_checks,
+        underlying_adverse_move_pct=underlying_adverse_move_pct,
+        stop_loss_underlying_move_pct=effective_stop_loss_underlying_move_pct,
     )
+    # Bid/ask spread as a fraction of the midpoint, used by the liquidity guard
+    # and to price limit exits. None when the quote is one-sided/unusable.
+    option_spread_pct: float | None = None
+    if (
+        current_bid is not None
+        and current_ask is not None
+        and current_mid_price is not None
+        and current_mid_price > 0
+        and current_ask >= current_bid
+    ):
+        option_spread_pct = round((current_ask - current_bid) / current_mid_price, 6)
+    exit_reason = str(exit_action.get("reason") or "")
+    # Liquidity guard: hold a non-urgent exit for another cycle rather than
+    # crossing a blown-out spread. Safe to downgrade here because sell-commitment
+    # state (e.g. took_first_scale_out) is only persisted at submission time, so
+    # the position stays eligible to retry next cycle.
+    if exit_action.get("action") in {"sell_full", "sell_partial"} and _exit_should_hold_for_wide_spread(
+        exit_reason=exit_reason,
+        option_spread_pct=option_spread_pct,
+        max_spread_pct=exit_max_spread_pct,
+    ):
+        updated_state["last_action"] = "hold"
+        updated_state["last_decision_reason"] = "liquidity_guard_wide_spread"
+        exit_action = {
+            **exit_action,
+            "action": "hold",
+            "reason": "liquidity_guard_wide_spread",
+            "sell_fraction": 0.0,
+            "qty_to_sell": 0,
+            "notes": list(exit_action.get("notes") or [])
+            + [
+                (
+                    f"Exit held: option spread {option_spread_pct * 100.0:.2f}% of mid exceeds the "
+                    f"{exit_max_spread_pct * 100.0:.2f}% liquidity ceiling; will retry next cycle."
+                )
+            ],
+        }
+        exit_reason = "liquidity_guard_wide_spread"
+    # Spread-aware limit price for the exit order (None => manager submits a
+    # market order, preserving legacy behavior when limit exits are disabled).
+    exit_limit_price: float | None = None
+    if exit_use_limit_orders and exit_action.get("action") in {"sell_full", "sell_partial"}:
+        last_retryable_exit_reason = str((position_state or {}).get("last_retryable_exit_reason") or "").strip()
+        cross_spread = exit_reason in _URGENT_EXIT_REASONS or (
+            bool(last_retryable_exit_reason) and last_retryable_exit_reason == exit_reason
+        )
+        exit_limit_price = _resolve_option_exit_limit_price(
+            bid=current_bid,
+            ask=current_ask,
+            mid=current_mid_price,
+            cross_spread=cross_spread,
+        )
+        exit_limit_price = _round_option_sell_price_to_tick(
+            exit_limit_price,
+            small_tick=exit_tick_size_small,
+            large_tick=exit_tick_size_large,
+            tick_price_threshold=exit_tick_price_threshold,
+        )
     updated_state.setdefault("entry_underlying_symbol", parsed_symbol.get("underlying_symbol") or "")
     updated_state.setdefault("entry_price", entry_price)
     updated_state.setdefault("entry_qty", broker_quantity)
@@ -212,6 +335,10 @@ def _build_option_position_snapshot(
         "exit_reason": exit_action.get("reason"),
         "qty_to_sell": exit_action.get("qty_to_sell"),
         "sell_fraction": exit_action.get("sell_fraction"),
+        "option_spread_pct": option_spread_pct,
+        "exit_limit_price": exit_limit_price,
+        "volatility_scale": volatility_scale,
+        "underlying_atr_pct": underlying_atr_pct,
         "max_pnl_pct": exit_action.get("max_pnl_pct"),
         "profit_protection_active": bool(persisted_state.get("profit_protection_active")),
         "protected_profit_floor_pct": exit_action.get("protected_profit_floor_pct"),
@@ -237,6 +364,7 @@ def _build_option_position_snapshot(
         "underlying_momentum_status": str(underlying_momentum_details.get("status") or ""),
         "underlying_momentum_reasons": list(underlying_momentum_details.get("reasons") or []),
         "underlying_momentum_informational_only": str(underlying_momentum_details.get("status") or "") == "unknown",
+        "underlying_adverse_move_pct": underlying_adverse_move_pct,
         "momentum_tracking_active": bool(persisted_state.get("momentum_tracking_active")),
         "momentum_history_sample_count": int(persisted_state.get("momentum_history_sample_count") or 0),
         "momentum_bad_count": int(persisted_state.get("momentum_bad_count") or 0),

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from agent_pipeline.main import get_current_pipeline_targets  # compatibility import for existing tests
+from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 
 from api_support.common import parse_datetime, trim_text
 from api_support.context import (
@@ -13,6 +14,7 @@ from api_support.context import (
 )
 
 VALID_ANALYZED_COMPANY_NEWS_VIEWS = {"company", "sector", "industry", "macro"}
+ANALYZED_COMPANY_NEWS_MAX_ARTICLE_AGE_DAYS = DEFAULT_MAX_ARTICLE_AGE_DAYS * 2
 
 
 def _empty_confidence_counts() -> dict[str, int]:
@@ -51,6 +53,27 @@ def _pick_analysis_status(*values: Any) -> str:
             best_status = normalized
             best_priority = priority
     return best_status
+
+
+def _is_within_analyzed_company_news_age_window(
+    published_at: Any,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    parsed_published_at = parse_datetime(str(published_at or ""))
+    if parsed_published_at is None:
+        return False
+    reference_time = now or datetime.now(timezone.utc)
+    return parsed_published_at >= reference_time - timedelta(
+        days=ANALYZED_COMPANY_NEWS_MAX_ARTICLE_AGE_DAYS
+    )
+
+
+def _recent_article_sql_clause(article_alias: str = "na") -> str:
+    return (
+        f"AND ({article_alias}.published_at >= ? "
+        f"OR {article_alias}.published_at NOT GLOB '????-??-??T*')"
+    )
 
 
 def _build_analyzed_company_news_pagination_payload(
@@ -420,6 +443,11 @@ def build_analyzed_company_news_payload(
     company_lookup: str = "",
 ) -> dict:
     active_view = normalize_analyzed_company_news_view(view)
+    article_age_reference_time = datetime.now(timezone.utc)
+    article_age_cutoff = (
+        article_age_reference_time
+        - timedelta(days=ANALYZED_COMPANY_NEWS_MAX_ARTICLE_AGE_DAYS)
+    ).isoformat()
     with get_connection(DB_PATH) as conn:
         company_news_source_mode = _resolve_company_news_source_mode(conn)
         normalized_company_lookup = normalize_company_lookup_query(company_lookup)
@@ -544,9 +572,10 @@ def build_analyzed_company_news_payload(
                     ON cop.article_id = cna.article_id
                    AND cop.company_id = cna.company_id
                 WHERE cna.company_id IN ({placeholders})
+                {_recent_article_sql_clause()}
                 ORDER BY c.symbol ASC, na.published_at DESC, cna.article_id DESC, coi.created_at DESC
                 """,
-                tuple(company_ids),
+                (*company_ids, article_age_cutoff),
             ).fetchall()
         elif active_view == "company" and company_news_source_mode == "opportunist_impacts":
             company_rows = conn.execute(
@@ -576,9 +605,10 @@ def build_analyzed_company_news_payload(
                 JOIN sectors AS s ON s.id = i.sector_id
                 JOIN news_articles AS na ON na.id = coi.article_id
                 WHERE coi.company_id IN ({placeholders})
+                {_recent_article_sql_clause()}
                 ORDER BY c.symbol ASC, na.published_at DESC, coi.article_id DESC, coi.created_at DESC
                 """,
-                tuple(company_ids),
+                (*company_ids, article_age_cutoff),
             ).fetchall()
 
         metadata_by_company_id: dict[int, dict] = {}
@@ -634,9 +664,10 @@ def build_analyzed_company_news_payload(
                 LEFT JOIN industry_opportunist_article_processing AS iop
                     ON iop.article_id = ioi.article_id
                 WHERE ioi.industry_id IN ({industry_placeholders})
+                {_recent_article_sql_clause()}
                 ORDER BY i.industry_key ASC, na.published_at DESC, ioi.article_id DESC, ioi.created_at DESC
                 """,
-                tuple(industry_ids),
+                (*industry_ids, article_age_cutoff),
             ).fetchall()
 
         sector_rows = []
@@ -667,9 +698,10 @@ def build_analyzed_company_news_payload(
                 LEFT JOIN sector_opportunist_article_processing AS sop
                     ON sop.article_id = soi.article_id
                 WHERE soi.sector_id IN ({sector_placeholders})
+                {_recent_article_sql_clause()}
                 ORDER BY s.sector_key ASC, na.published_at DESC, soi.article_id DESC, soi.created_at DESC
                 """,
-                tuple(sector_ids),
+                (*sector_ids, article_age_cutoff),
             ).fetchall()
 
         if sector_ids and active_view == "macro":
@@ -711,6 +743,7 @@ def build_analyzed_company_news_payload(
                     JOIN news_articles AS na ON na.id = wsi.article_id
                     LEFT JOIN world_news_article_processing AS wnap
                         ON wnap.article_id = wsi.article_id
+                    WHERE (na.published_at >= ? OR na.published_at NOT GLOB '????-??-??T*')
 
                     UNION ALL
 
@@ -731,12 +764,13 @@ def build_analyzed_company_news_payload(
                     JOIN news_articles AS na ON na.id = usi.article_id
                     LEFT JOIN us_news_article_processing AS unap
                         ON unap.article_id = usi.article_id
+                    WHERE (na.published_at >= ? OR na.published_at NOT GLOB '????-??-??T*')
                 ) AS combined
                 JOIN sectors AS s ON s.id = combined.sector_id
                 WHERE combined.sector_id IN ({sector_placeholders})
                 ORDER BY s.sector_key ASC, combined.published_at DESC, combined.article_id DESC, combined.impact_created_at DESC
                 """,
-                tuple(sector_ids),
+                (article_age_cutoff, article_age_cutoff, *sector_ids),
             ).fetchall()
 
     companies_by_id: dict[int, dict] = {}
@@ -769,6 +803,11 @@ def build_analyzed_company_news_payload(
 
     for row in company_rows:
         row_data = dict(row)
+        if not _is_within_analyzed_company_news_age_window(
+            row_data.get("published_at"),
+            now=article_age_reference_time,
+        ):
+            continue
         company_id = int(row_data["company_id"])
         company_entry = companies_by_id.get(company_id)
         if company_entry is not None:
@@ -776,6 +815,11 @@ def build_analyzed_company_news_payload(
 
     for row in industry_rows:
         row_data = dict(row)
+        if not _is_within_analyzed_company_news_age_window(
+            row_data.get("published_at"),
+            now=article_age_reference_time,
+        ):
+            continue
         try:
             industry_id = int(row_data["industry_id"])
         except (TypeError, ValueError):
@@ -787,6 +831,11 @@ def build_analyzed_company_news_payload(
 
     for row in sector_rows:
         row_data = dict(row)
+        if not _is_within_analyzed_company_news_age_window(
+            row_data.get("published_at"),
+            now=article_age_reference_time,
+        ):
+            continue
         try:
             sector_id = int(row_data["sector_id"])
         except (TypeError, ValueError):
@@ -798,6 +847,11 @@ def build_analyzed_company_news_payload(
 
     for row in macro_rows:
         row_data = dict(row)
+        if not _is_within_analyzed_company_news_age_window(
+            row_data.get("published_at"),
+            now=article_age_reference_time,
+        ):
+            continue
         try:
             sector_id = int(row_data["sector_id"])
         except (TypeError, ValueError):

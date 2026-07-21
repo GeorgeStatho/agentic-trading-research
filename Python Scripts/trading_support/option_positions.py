@@ -27,14 +27,22 @@ from ._option_positions_market import (
     _resolve_dte_exit_rule,
     _resolve_option_exit_thresholds,
     _resolve_trailing_giveback_pct,
+    _resolve_volatility_scale,
+    _compute_atr_pct,
     _get_latest_option_quote as _get_latest_option_quote_impl,
     _get_latest_stock_price as _get_latest_stock_price_impl,
+    _get_underlying_atr_pct as _get_underlying_atr_pct_impl,
 )
 from ._option_positions_snapshot import _build_option_position_snapshot as _build_option_position_snapshot_impl
 from ._option_positions_state import *
 from ._option_positions_state import _reconcile_pending_order_state
 from ._option_positions_strategy import *
-from ._option_positions_strategy import _structured_exit_action
+from ._option_positions_strategy import (
+    _exit_should_hold_for_wide_spread,
+    _resolve_option_exit_limit_price,
+    _round_option_sell_price_to_tick,
+    _structured_exit_action,
+)
 from services.option_momentum import (
     MOMENTUM_BAD,
     MOMENTUM_GOOD,
@@ -52,6 +60,15 @@ def _get_latest_stock_price(symbol: str) -> dict[str, Any]:
     return _get_latest_stock_price_impl(symbol, get_stock_history_client)
 
 
+def _get_underlying_atr_pct(symbol: str) -> float | None:
+    return _get_underlying_atr_pct_impl(
+        symbol,
+        get_stock_history_client,
+        period=DEFAULT_OPTION_VOLATILITY_ATR_PERIOD,
+        lookback_days=DEFAULT_OPTION_VOLATILITY_ATR_LOOKBACK_DAYS,
+    )
+
+
 def _build_option_position_snapshot(
     position: Any,
     *,
@@ -64,6 +81,14 @@ def _build_option_position_snapshot(
     momentum_history_config: MomentumHistoryConfig,
     option_price_momentum_config: OptionPriceMomentumConfig | None = None,
     state_path: Path,
+    stop_loss_confirm_checks: int = DEFAULT_OPTION_STOP_LOSS_CONFIRM_CHECKS,
+    stop_loss_underlying_move_pct: float = DEFAULT_OPTION_STOP_LOSS_UNDERLYING_MOVE_PCT,
+    exit_use_limit_orders: bool = DEFAULT_OPTION_EXIT_USE_LIMIT_ORDERS,
+    exit_max_spread_pct: float = DEFAULT_OPTION_EXIT_MAX_SPREAD_PCT,
+    volatility_scaled_thresholds: bool = DEFAULT_OPTION_VOLATILITY_SCALED_THRESHOLDS,
+    volatility_baseline_atr_pct: float = DEFAULT_OPTION_VOLATILITY_BASELINE_ATR_PCT,
+    volatility_min_scale: float = DEFAULT_OPTION_VOLATILITY_MIN_SCALE,
+    volatility_max_scale: float = DEFAULT_OPTION_VOLATILITY_MAX_SCALE,
     position_state_override: dict[str, Any] | None = None,
     pending_reconciliation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -88,6 +113,15 @@ def _build_option_position_snapshot(
         state_path=state_path,
         get_latest_option_quote=_get_latest_option_quote,
         get_latest_stock_price=_get_latest_stock_price,
+        stop_loss_confirm_checks=stop_loss_confirm_checks,
+        stop_loss_underlying_move_pct=stop_loss_underlying_move_pct,
+        exit_use_limit_orders=exit_use_limit_orders,
+        exit_max_spread_pct=exit_max_spread_pct,
+        volatility_scaled_thresholds=volatility_scaled_thresholds,
+        volatility_baseline_atr_pct=volatility_baseline_atr_pct,
+        volatility_min_scale=volatility_min_scale,
+        volatility_max_scale=volatility_max_scale,
+        get_underlying_atr_pct=_get_underlying_atr_pct,
         position_state_override=position_state_override,
         pending_reconciliation=pending_reconciliation,
     )
@@ -112,6 +146,14 @@ def ManageCurrentOptionPositions(
     take_profit_pct: float = DEFAULT_OPTION_TAKE_PROFIT_PCT,
     stop_loss_pct: float = DEFAULT_OPTION_STOP_LOSS_PCT,
     exit_hours_to_expiration: float = DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION,
+    stop_loss_confirm_checks_override: int | None = None,
+    stop_loss_underlying_move_pct_override: float | None = None,
+    exit_use_limit_orders_override: bool | None = None,
+    exit_max_spread_pct_override: float | None = None,
+    volatility_scaled_thresholds_override: bool | None = None,
+    volatility_baseline_atr_pct_override: float | None = None,
+    volatility_min_scale_override: float | None = None,
+    volatility_max_scale_override: float | None = None,
     state_path_override: Path | None = None,
     enable_trailing_profit_override: bool | None = None,
     trailing_profit_dry_run_override: bool | None = None,
@@ -154,6 +196,14 @@ def ManageCurrentOptionPositions(
         take_profit_pct=take_profit_pct,
         stop_loss_pct=stop_loss_pct,
         exit_hours_to_expiration=exit_hours_to_expiration,
+        stop_loss_confirm_checks_override=stop_loss_confirm_checks_override,
+        stop_loss_underlying_move_pct_override=stop_loss_underlying_move_pct_override,
+        exit_use_limit_orders_override=exit_use_limit_orders_override,
+        exit_max_spread_pct_override=exit_max_spread_pct_override,
+        volatility_scaled_thresholds_override=volatility_scaled_thresholds_override,
+        volatility_baseline_atr_pct_override=volatility_baseline_atr_pct_override,
+        volatility_min_scale_override=volatility_min_scale_override,
+        volatility_max_scale_override=volatility_max_scale_override,
         state_path_override=state_path_override,
         enable_trailing_profit_override=enable_trailing_profit_override,
         trailing_profit_dry_run_override=trailing_profit_dry_run_override,

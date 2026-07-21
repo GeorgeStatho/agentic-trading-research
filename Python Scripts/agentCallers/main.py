@@ -28,6 +28,8 @@ from agent_stages.manager import MANAGER_STAGE_VERSION, decide_company_option_po
 from agent_stages.strategist import decide_company_purchase
 from db_helpers.market import record_manager_decision_history
 from services.config import AgentPipelineSettings
+from services.market_regime import build_market_regime_snapshot
+from services.market_regime_gate import apply_market_regime_gate_to_manager_result
 
 
 LOGGER = logging.getLogger("agent_runner")
@@ -222,6 +224,8 @@ def _build_selected_option_output(
                 "selected_option_source": recommendation.get("selected_option_source"),
                 "selection_debug": recommendation.get("selection_debug", {}),
                 "strategist_recommendation": manager_result.get("strategist_recommendation", {}),
+                "entry_gate": manager_result.get("entry_gate", {}),
+                "market_regime_gate": manager_result.get("market_regime_gate", {}),
                 "selected_option": manager_result.get("selected_option"),
                 "reason": recommendation.get("reason"),
             }
@@ -348,10 +352,19 @@ def _record_manager_decision_history_for_result(manager_result: dict[str, Any]) 
             "strategist_recommendation": strategist_recommendation,
             "article_references": _extract_manager_article_references(manager_result),
             "recent_manager_decision_history": manager_result.get("recent_manager_decision_history", []),
+            "resolved_autopsy_insights": manager_result.get("resolved_autopsy_insights", []),
+            "replay_input": manager_result.get("manager_replay_payload", {}),
+            "replay_metadata": {
+                "version": "manager-replay-v1",
+                "model": manager_result.get("manager_model", ""),
+                "prompt_version": manager_result.get("manager_prompt_version", ""),
+            },
         },
         "manager_output_json": {
             "recommendation": recommendation,
             "selected_option": selected_option,
+            "entry_gate": manager_result.get("entry_gate", {}),
+            "market_regime_gate": manager_result.get("market_regime_gate", {}),
         },
     }
     return record_manager_decision_history(history_payload)
@@ -363,12 +376,19 @@ def _run_strategist_and_manager(
     company_context_by_symbol: dict[str, dict[str, Any]] | None = None,
     on_progress: ProgressCallback | None = None,
     on_manager_result: Callable[[dict[str, Any]], None] | None = None,
+    market_regime: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     # Run the strategist and manager stages for one company and keep their outputs aligned for the final payload.
     strategist_results: list[dict[str, Any]] = []
     manager_results: list[dict[str, Any]] = []
 
-    LOGGER.info("Running strategist and manager for %s selected companies", len(company_symbols))
+    cycle_market_regime = market_regime if isinstance(market_regime, dict) else build_market_regime_snapshot()
+    LOGGER.info(
+        "Running strategist and manager for %s selected companies under regime=%s as_of=%s",
+        len(company_symbols),
+        cycle_market_regime.get("state"),
+        cycle_market_regime.get("as_of"),
+    )
 
     for symbol in company_symbols:
         company_context = dict((company_context_by_symbol or {}).get(symbol) or {})
@@ -390,7 +410,7 @@ def _run_strategist_and_manager(
             },
         )
         LOGGER.info("Running strategist for %s", symbol)
-        strategist_result = decide_company_purchase(symbol)
+        strategist_result = decide_company_purchase(symbol, market_regime=cycle_market_regime)
         strategist_results.append(strategist_result)
         LOGGER.info(
             "Finished strategist for %s with decision=%s confidence=%s",
@@ -408,11 +428,17 @@ def _run_strategist_and_manager(
             },
         )
         LOGGER.info("Running manager for %s", symbol)
+        strategist_recommendation = dict(strategist_result.get("recommendation") or {})
+        strategist_run_reference = strategist_result.get("strategist_run_reference")
+        if isinstance(strategist_run_reference, dict) and strategist_run_reference:
+            strategist_recommendation["strategist_run_reference"] = strategist_run_reference
         manager_result = decide_company_option_position(
             symbol,
-            strategist_recommendation=strategist_result.get("recommendation", {}),
+            strategist_recommendation=strategist_recommendation,
+            market_regime=cycle_market_regime,
         )
         manager_result = apply_deterministic_option_selection(manager_result)
+        manager_result = apply_market_regime_gate_to_manager_result(manager_result)
         manager_results.append(manager_result)
         LOGGER.info(
             "Finished manager for %s with decision=%s confidence=%s selected_option_id=%s expiration=%s strike=%s",

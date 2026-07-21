@@ -8,6 +8,28 @@ from .entities import add_company, add_industry, add_sector
 from .shared import LEGACY_SECTOR_KEY, LEGACY_SECTOR_NAME, SCHEMA_PATH, is_legacy_schema
 
 
+_MANAGER_DECISION_OUTCOME_COLUMNS = {
+    "outcome_status": "TEXT",
+    "realized_pnl_pct": "REAL",
+    "closed_at": "TEXT",
+}
+
+
+def _ensure_manager_decision_outcome_columns(conn: sqlite3.Connection) -> None:
+    table_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'manager_decision_history'"
+    ).fetchone()
+    if table_exists is None:
+        return
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(manager_decision_history)").fetchall()
+    }
+    for column_name, column_type in _MANAGER_DECISION_OUTCOME_COLUMNS.items():
+        if column_name not in columns:
+            conn.execute(f"ALTER TABLE manager_decision_history ADD COLUMN {column_name} {column_type}")
+
+
 def _migrate_legacy_schema(conn: sqlite3.Connection) -> None:
     legacy_industries = []
     legacy_companies = []
@@ -70,3 +92,4 @@ def initialize_database(
             _migrate_legacy_schema(conn)
         else:
             conn.executescript(Path(schema_path).read_text(encoding="utf-8"))
+        _ensure_manager_decision_outcome_columns(conn)

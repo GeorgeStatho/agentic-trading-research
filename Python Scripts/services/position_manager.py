@@ -136,14 +136,31 @@ class OptionPositionManagerService:
             trail_200_floor_pct_override=self._settings.option_trail_200_floor_pct,
             pending_exit_stale_minutes_override=self._settings.option_pending_exit_stale_minutes,
             pending_exit_cancel_on_stale_override=self._settings.option_pending_exit_cancel_on_stale,
-            submit_full_exit_order=lambda option_symbol: self._trading_gateway.close_option_position(
-                trading_client,
-                option_symbol=option_symbol,
+            submit_full_exit_order=lambda option_symbol, limit_price=None: (
+                self._trading_gateway.submit_option_sell_limit_order(
+                    trading_client,
+                    option_symbol=option_symbol,
+                    limit_price=limit_price,
+                )
+                if limit_price is not None
+                else self._trading_gateway.close_option_position(
+                    trading_client,
+                    option_symbol=option_symbol,
+                )
             ),
-            submit_partial_exit_order=lambda option_symbol, qty: self._trading_gateway.submit_option_sell_market_order(
-                trading_client,
-                option_symbol=option_symbol,
-                qty=qty,
+            submit_partial_exit_order=lambda option_symbol, qty, limit_price=None: (
+                self._trading_gateway.submit_option_sell_limit_order(
+                    trading_client,
+                    option_symbol=option_symbol,
+                    qty=qty,
+                    limit_price=limit_price,
+                )
+                if limit_price is not None
+                else self._trading_gateway.submit_option_sell_market_order(
+                    trading_client,
+                    option_symbol=option_symbol,
+                    qty=qty,
+                )
             ),
             resolve_order_status=lambda order_id: self._trading_gateway.get_order_status_summary(
                 trading_client,

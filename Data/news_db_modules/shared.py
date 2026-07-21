@@ -19,6 +19,9 @@ MACRO_EVENT_COLUMN_TYPES = {
     "actual": "TEXT",
     "forecast": "TEXT",
     "previous": "TEXT",
+    "scheduled_at_utc": "TEXT",
+    "calendar_timezone": "TEXT",
+    "calendar_refreshed_at": "TEXT",
 }
 
 NEWS_ARTICLE_COLUMN_TYPES = {

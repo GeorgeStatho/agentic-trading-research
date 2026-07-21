@@ -3,37 +3,93 @@
   margin: 0 auto;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 16px;
+  gap: 12px;
 }
+
+.kpi-overview-header,
+.kpi-section-heading {
+  width: min(1100px, 92vw);
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  box-sizing: border-box;
+}
+
+.kpi-overview-header {
+  padding: 2px 2px 4px;
+}
+
+.kpi-overview-header p,
+.kpi-section-heading p {
+  margin-bottom: 5px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.kpi-overview-header h2,
+.kpi-section-heading h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.kpi-overview-header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.kpi-overview-header i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6ed29e;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #6ed29e 14%, transparent);
+}
+
+.kpi-grid--primary { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.kpi-grid--secondary { grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); }
 
 .kpi-grid--error {
   grid-template-columns: 1fr;
 }
 
 .kpi-grid--rankings {
-  margin-top: 18px;
+  margin-top: 0;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
 .kpi-card {
   border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 18px 18px 16px;
+  border-radius: 16px;
+  padding: 16px 16px 14px;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--bg) 92%, white) 0%, color-mix(in srgb, var(--bg) 98%, black) 100%);
   box-shadow: var(--shadow);
-  min-height: 132px;
+  min-height: 124px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   box-sizing: border-box;
 }
 
+.kpi-grid--primary .kpi-card:first-child {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 20%, transparent), transparent 52%),
+    color-mix(in srgb, var(--bg) 96%, #202838);
+}
+
 .kpi-card__label {
   font-size: 0.8rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  opacity: 0.72;
+  color: var(--text-dim);
 }
 
 .kpi-card__value {
@@ -47,7 +103,7 @@
 .kpi-card__detail {
   font-size: 0.94rem;
   line-height: 1.35;
-  opacity: 0.85;
+  color: var(--text);
 }
 
 .kpi-ranking-list {
@@ -122,7 +178,7 @@
 }
 
 .kpi-card--positive .kpi-card__value {
-  color: #16a34a;
+  color: #86efac;
 }
 
 .kpi-card--negative {
@@ -130,7 +186,7 @@
 }
 
 .kpi-card--negative .kpi-card__value {
-  color: #dc2626;
+  color: #fca5a5;
 }
 
 .kpi-card--status .kpi-card__value {
@@ -151,7 +207,7 @@
 .kpi-card--state-healthy .kpi-card__value,
 .kpi-card--state-open .kpi-card__value,
 .kpi-card--state-running .kpi-card__value {
-  color: #16a34a;
+  color: #86efac;
 }
 
 .kpi-card--state-degraded,
@@ -165,7 +221,7 @@
 .kpi-card--state-paused .kpi-card__value,
 .kpi-card--state-starting .kpi-card__value,
 .kpi-card--state-closed .kpi-card__value {
-  color: #d97706;
+  color: #fcd34d;
 }
 
 .kpi-card--state-down,
@@ -175,13 +231,18 @@
 
 .kpi-card--state-down .kpi-card__value,
 .kpi-card--state-error .kpi-card__value {
-  color: #dc2626;
+  color: #fca5a5;
 }
 
 @media (max-width: 720px) {
+  .kpi-overview-header,
+  .kpi-section-heading { align-items: start; flex-direction: column; }
+
   .kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .kpi-grid--primary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
   .kpi-card {
     min-height: 122px;
