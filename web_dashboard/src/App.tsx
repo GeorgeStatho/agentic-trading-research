@@ -3,6 +3,7 @@ import './App.css'
 import AnalyzedCompanyNewsPage from './analyzedCompanyNews.tsx'
 import CompanyDecisionsPage from './companyDecisions.tsx'
 import DashboardKpis from './dashboardKpis.tsx'
+import ExposureMapPage from './exposureMap.tsx'
 import Graph from './Graph.tsx'
 import OpenPositionsTable from './openPositionsTable.tsx'
 import OrderCardList from './orderCard.tsx'
@@ -10,7 +11,7 @@ import RiskControlsPanel from './riskControls.tsx'
 import ScriptStatusIndicator from './scriptStatus.tsx'
 import WhyBotTradedPanel from './whyBotTraded.tsx'
 
-type DashboardView = 'dashboard' | 'company-news' | 'company-decisions'
+type DashboardView = 'dashboard' | 'company-news' | 'company-decisions' | 'exposure-map'
 
 function getViewFromHash(): DashboardView {
   const normalizedHash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase()
@@ -19,6 +20,9 @@ function getViewFromHash(): DashboardView {
   }
   if (normalizedHash === 'company-decisions') {
     return 'company-decisions'
+  }
+  if (normalizedHash === 'exposure-map') {
+    return 'exposure-map'
   }
   return 'dashboard'
 }
@@ -47,7 +51,9 @@ function App() {
               ? 'Operations Dashboard'
               : view === 'company-news'
                 ? 'Analyzed Company News'
-                : 'Company Decisions'}
+                : view === 'company-decisions'
+                  ? 'Company Decisions'
+                  : 'Evidence Exposure Map'}
           </h1>
         </div>
         <nav className="app-nav" aria-label="Dashboard pages">
@@ -69,6 +75,12 @@ function App() {
           >
             Decisions
           </a>
+          <a
+            href="#/exposure-map"
+            className={`app-nav__link${view === 'exposure-map' ? ' app-nav__link--active' : ''}`}
+          >
+            Exposure Map
+          </a>
         </nav>
       </header>
 
@@ -76,6 +88,8 @@ function App() {
         <AnalyzedCompanyNewsPage />
       ) : view === 'company-decisions' ? (
         <CompanyDecisionsPage />
+      ) : view === 'exposure-map' ? (
+        <ExposureMapPage />
       ) : (
         <main className="mainbody">
           <DashboardKpis />

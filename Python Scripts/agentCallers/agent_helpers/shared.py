@@ -27,6 +27,11 @@ try:
 except ImportError:  # pragma: no cover - optional provider dependency
     OllamaClient = None
 
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover - optional provider dependency
+    OpenAI = None
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -103,6 +108,20 @@ def _build_vertex_client() -> Any:
     )
 
 
+def _build_openai_client() -> Any:
+    if OpenAI is None:
+        raise RuntimeError(
+            "The 'openai' Python package is required for OpenAI requests. "
+            "Install it in your environment with: pip install openai"
+        )
+
+    api_key = str(os.getenv("OPENAI_API_KEY") or "").strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY must be set when LLM_PROVIDER=openai.")
+
+    return OpenAI(api_key=api_key)
+
+
 def get_model_client(label: str | None = None) -> Client:
     # Choose the configured model backend once and return the callable/client pair the rest of the code should use.
     provider = _normalize_provider()
@@ -110,9 +129,12 @@ def get_model_client(label: str | None = None) -> Client:
     if provider == "vertex":
         return Client(provider=provider, raw_client=_build_vertex_client(), label=label)
 
+    if provider == "openai":
+        return Client(provider=provider, raw_client=_build_openai_client(), label=label)
+
     if provider != "ollama":
         raise RuntimeError(
-            f"Unsupported LLM_PROVIDER '{provider}'. Expected 'ollama' or 'vertex'."
+            f"Unsupported LLM_PROVIDER '{provider}'. Expected 'ollama', 'openai', or 'vertex'."
         )
 
     if OllamaClient is None:
@@ -302,6 +324,46 @@ def _ask_vertex_model(
     return content
 
 
+def _ask_openai_model(
+    client: Client,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    temperature: float,
+    response_schema: dict[str, Any] | None,
+) -> str:
+    resolved_model = _resolve_model_name(client.provider, model)
+    request_kwargs: dict[str, Any] = {
+        "model": resolved_model,
+        "instructions": system_prompt,
+        "input": user_prompt,
+        "temperature": temperature,
+    }
+    if response_schema is not None:
+        request_kwargs["text"] = {
+            "format": {
+                "type": "json_schema",
+                "name": "structured_response",
+                "strict": True,
+                "schema": response_schema,
+            }
+        }
+
+    try:
+        response = client.raw_client.responses.create(**request_kwargs)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not complete the OpenAI request for model '{resolved_model}'. {exc}"
+        ) from exc
+
+    content = getattr(response, "output_text", None)
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError(f"Model returned empty content: {response}")
+
+    return content
+
+
 def ask_llm_model(
     client: Client,
     model: str,
@@ -315,6 +377,16 @@ def ask_llm_model(
     # Route model calls through the supported provider path and normalize the response and error handling for callers.
     if client.provider == "vertex":
         return _ask_vertex_model(
+            client,
+            model,
+            system_prompt,
+            user_prompt,
+            temperature=temperature,
+            response_schema=response_schema,
+        )
+
+    if client.provider == "openai":
+        return _ask_openai_model(
             client,
             model,
             system_prompt,

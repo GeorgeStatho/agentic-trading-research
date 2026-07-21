@@ -1,0 +1,132 @@
+.exposure-map {
+  width: min(1540px, 96vw);
+  min-height: 730px;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(480px, 2.25fr) minmax(245px, 0.9fr);
+  gap: 16px;
+}
+
+.exposure-map__articles,
+.exposure-map__canvas-panel,
+.exposure-map__drawer {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--bg) 96%, #111827);
+  box-shadow: var(--shadow);
+}
+
+.exposure-map__articles,
+.exposure-map__drawer {
+  padding: 18px;
+  overflow: auto;
+}
+
+.exposure-map__section-heading p,
+.exposure-map__canvas-header p,
+.exposure-map__drawer-eyebrow,
+.exposure-node__type {
+  margin: 0 0 5px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.exposure-map h2,
+.exposure-map h3 {
+  margin: 0;
+  color: var(--text-h);
+}
+
+.exposure-map__article-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.exposure-map__article {
+  width: 100%;
+  display: grid;
+  gap: 6px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+}
+
+.exposure-map__article:hover,
+.exposure-map__article--active {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.exposure-map__article strong { line-height: 1.25; }
+.exposure-map__article small,
+.exposure-map__drawer small { opacity: 0.72; }
+.exposure-map__article-score { color: #7ed4a9; font-size: 0.72rem; font-weight: 700; }
+
+.exposure-map__canvas-panel { min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.exposure-map__canvas-header { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding: 18px 20px; border-bottom: 1px solid var(--border); }
+.exposure-map__canvas-header h2 { max-width: 690px; font-size: 1.1rem; line-height: 1.25; }
+.exposure-map__analysis-controls { display: flex; align-items: center; gap: 8px; }
+.exposure-map__analysis-controls input { width: 145px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--text); background: transparent; }
+
+.exposure-map__analyze {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 14px;
+  color: #0e1714;
+  font-weight: 800;
+  cursor: pointer;
+  background: #80d5aa;
+}
+
+.exposure-map__analyze:disabled { cursor: wait; opacity: 0.65; }
+.exposure-map__flow { min-height: 650px; flex: 1; background: #141925; }
+.exposure-map__empty, .exposure-map__error { margin: 18px; padding: 16px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.exposure-map__error { color: #ffb6bd; background: color-mix(in srgb, #dd5a63 16%, transparent); }
+
+.exposure-node {
+  width: 190px;
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 2px solid #7d899d;
+  border-radius: 12px;
+  color: #e7ebf4;
+  background: #202838;
+  box-shadow: 0 8px 20px rgb(0 0 0 / 20%);
+}
+
+.exposure-node strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exposure-node span, .exposure-node small { color: #b5c0d2; font-size: 0.76rem; }
+.exposure-node b { color: #ffb6bd; font-size: 0.78rem; }
+.exposure-node--positive { border-color: #46a37a; }
+.exposure-node--negative { border-color: #dd5a63; }
+.exposure-node--article { border-color: #a58cf4; width: 235px; }
+.exposure-node--position { border-color: #e5a94f; }
+
+.exposure-map__drawer { line-height: 1.45; }
+.exposure-map__drawer > p { margin: 10px 0; }
+.exposure-map__drawer a { display: inline-block; margin: 6px 0 15px; color: var(--accent); }
+.exposure-map__safety { margin-bottom: 18px; padding: 10px; border: 1px solid #e5a94f; border-radius: 10px; color: #ffcf87; font-weight: 800; font-size: 0.8rem; }
+.exposure-map__drawer-block { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.exposure-map__drawer-block h3 { font-size: 0.9rem; }
+.exposure-map__drawer-block p { margin: 8px 0; }
+.exposure-map__drawer ul { margin: 8px 0 0; padding-left: 20px; }
+
+@media (max-width: 1180px) {
+  .exposure-map { grid-template-columns: minmax(210px, 0.8fr) minmax(460px, 2fr); }
+  .exposure-map__drawer { grid-column: 1 / -1; }
+}
+
+@media (max-width: 760px) {
+  .exposure-map { grid-template-columns: 1fr; }
+  .exposure-map__articles { max-height: 260px; }
+  .exposure-map__canvas-header { align-items: flex-start; flex-direction: column; }
+  .exposure-map__flow { min-height: 560px; }
+}
