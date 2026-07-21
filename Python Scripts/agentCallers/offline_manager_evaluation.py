@@ -43,6 +43,8 @@ from db_helpers.market import (  # noqa: E402
 ReplayDecider = Callable[[dict[str, Any]], dict[str, Any]]
 _DIRECTIONAL_DECISIONS = {"call", "put"}
 _CONFIDENCE_BUCKETS = ("high", "medium", "low")
+HISTORICAL_OUTCOME_AUDIT_VERSION = "historical-outcome-audit-v1"
+LEGACY_PARTIAL_REPLAY_VERSION = "legacy-partial-replay-v1"
 
 
 def _json_object(value: Any) -> dict[str, Any]:
@@ -97,6 +99,113 @@ def build_replay_variants(
     return baseline_payload, feedback_payload, autopsy_ids
 
 
+def _legacy_article_summaries(manager_input: dict[str, Any]) -> list[dict[str, Any]]:
+    article_references = manager_input.get("article_references")
+    if not isinstance(article_references, list):
+        article_references = (
+            manager_input.get("supporting_articles", {}).get("article_summaries", [])
+            if isinstance(manager_input.get("supporting_articles"), dict)
+            else []
+        )
+    summaries: list[dict[str, Any]] = []
+    for article in article_references[:5] if isinstance(article_references, list) else []:
+        if not isinstance(article, dict):
+            continue
+        summaries.append(
+            {
+                "article_id": int(article.get("article_id") or 0),
+                "title": str(article.get("title") or ""),
+                "summary": str(article.get("summary") or ""),
+                "source": str(article.get("source") or ""),
+                "published_at": str(article.get("published_at") or ""),
+                "article_scope": str(article.get("article_scope") or ""),
+                "evidence_layers": [
+                    str(layer).strip()
+                    for layer in article.get("evidence_layers", [])
+                    if str(layer).strip()
+                ]
+                if isinstance(article.get("evidence_layers"), list)
+                else [],
+            }
+        )
+    return summaries
+
+
+def build_legacy_partial_replay_payload(
+    decision: dict[str, Any],
+    *,
+    autopsy_limit: int,
+    autopsy_max_age_days: int,
+    db_path: Path | str = DB_PATH,
+) -> tuple[dict[str, Any], list[int]] | None:
+    """Reconstruct a constrained prompt from legacy decision-time fields only."""
+    manager_input = _json_object(decision.get("manager_input_json"))
+    if isinstance(manager_input.get("replay_input"), dict):
+        return None
+    company = manager_input.get("company") if isinstance(manager_input.get("company"), dict) else {}
+    if not company:
+        company = {
+            "company_id": decision.get("company_id"),
+            "symbol": decision.get("symbol"),
+            "name": decision.get("company_name"),
+        }
+    symbol = str(company.get("symbol") or "").strip().upper()
+    if not symbol:
+        return None
+    company = {**company, "symbol": symbol}
+    market_context = manager_input.get("market_context") if isinstance(manager_input.get("market_context"), dict) else {}
+    strategist = (
+        manager_input.get("strategist_recommendation")
+        if isinstance(manager_input.get("strategist_recommendation"), dict)
+        else {}
+    )
+    article_summaries = _legacy_article_summaries(manager_input)
+    if not market_context and not strategist and not article_summaries:
+        return None
+    feedback = build_resolved_autopsy_insights(
+        company,
+        limit=autopsy_limit,
+        max_age_days=autopsy_max_age_days,
+        as_of=decision.get("decision_run_at"),
+        db_path=db_path,
+        exclude_decision_history_id=int(decision.get("id") or 0),
+    )
+    payload = {
+        "company": company,
+        "filters": {
+            "replay_mode": "legacy_partial",
+            "source": "decision_time_snapshot_only",
+            "limitations": [
+                "No full opportunist rollup was retained for this decision.",
+                "Article summaries are limited to saved references and fields.",
+                "No live data, contract selection, or execution is available in this replay.",
+            ],
+        },
+        "opportunist_rollup": {
+            "source": "saved_article_references",
+            "article_reference_count": len(article_summaries),
+            "limitations": "Legacy partial reconstruction; do not infer missing research evidence.",
+        },
+        "views": {
+            "legacy_saved_references": {
+                "label": "Saved article references",
+                "count": len(article_summaries),
+                "agent_conclusions": [],
+            }
+        },
+        "supporting_articles": {"article_summaries": article_summaries, "full_articles": []},
+        "market_context": copy.deepcopy(market_context),
+        "strategist_recommendation": copy.deepcopy(strategist),
+        "resolved_autopsy_insights": feedback,
+    }
+    autopsy_ids = [
+        int(item.get("autopsy_id") or 0)
+        for item in feedback
+        if int(item.get("autopsy_id") or 0) > 0
+    ]
+    return payload, autopsy_ids
+
+
 def calculate_replay_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
     """Score only replays matching the historically executed direction.
 
@@ -143,6 +252,227 @@ def calculate_replay_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
             "confidence_buckets": buckets,
         }
     return metrics
+
+
+def calculate_historical_outcome_audit_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Calculate observed calibration from stored manager decisions and outcomes."""
+    audited = [event for event in events if event.get("manager_decision") in _DIRECTIONAL_DECISIONS]
+    pnl_values = [float(event["pnl_pct"]) for event in audited if event.get("pnl_pct") is not None]
+    wins = [value for value in pnl_values if value > 0]
+    false_positives = [value for value in pnl_values if value <= 0]
+    confidence_buckets: dict[str, dict[str, Any]] = {}
+    for confidence in _CONFIDENCE_BUCKETS:
+        bucket_values = [
+            float(event["pnl_pct"])
+            for event in audited
+            if event.get("manager_confidence") == confidence and event.get("pnl_pct") is not None
+        ]
+        bucket_wins = [value for value in bucket_values if value > 0]
+        bucket_losses = [value for value in bucket_values if value <= 0]
+        confidence_buckets[confidence] = {
+            "count": len(bucket_values),
+            "win_rate": (len(bucket_wins) / len(bucket_values)) if bucket_values else None,
+            "average_pnl_pct": (sum(bucket_values) / len(bucket_values)) if bucket_values else None,
+            "false_positive_rate": (len(bucket_losses) / len(bucket_values)) if bucket_values else None,
+        }
+    return {
+        "audited_decision_count": len(audited),
+        "non_directional_excluded_count": len(events) - len(audited),
+        "win_rate": (len(wins) / len(pnl_values)) if pnl_values else None,
+        "average_pnl_pct": (sum(pnl_values) / len(pnl_values)) if pnl_values else None,
+        "false_positive_rate": (len(false_positives) / len(pnl_values)) if pnl_values else None,
+        "confidence_buckets": confidence_buckets,
+    }
+
+
+def run_historical_outcome_audit(
+    *,
+    limit: int = 100,
+    db_path: Path | str = DB_PATH,
+    persist: bool = True,
+) -> dict[str, Any]:
+    """Audit resolved historical manager outcomes without invoking any model."""
+    source_rows = [dict(row) for row in list_replayable_manager_decisions(limit=limit, db_path=db_path)]
+    evaluation_id = None
+    if persist:
+        evaluation_id = create_manager_replay_evaluation(
+            model="stored-manager-decision-history",
+            prompt_version=HISTORICAL_OUTCOME_AUDIT_VERSION,
+            autopsy_limit=1,
+            autopsy_max_age_days=1,
+            db_path=db_path,
+        )
+
+    events: list[dict[str, Any]] = []
+    for decision in source_rows:
+        manager_decision = str(decision.get("manager_decision") or "").lower()
+        manager_confidence = str(decision.get("manager_confidence") or "").lower()
+        event = {
+            "manager_decision_history_id": int(decision.get("id") or 0),
+            "manager_decision": manager_decision,
+            "manager_confidence": manager_confidence,
+            "pnl_pct": _coerce_pnl(decision.get("latest_trade_pnl_pct")),
+            "outcome_label": str(decision.get("resolved_outcome_label") or ""),
+        }
+        events.append(event)
+        if evaluation_id is not None:
+            record_manager_replay_result(
+                evaluation_id=evaluation_id,
+                manager_decision_history_id=event["manager_decision_history_id"],
+                replay_mode="historical_outcome_audit",
+                decision_run_at=decision.get("decision_run_at"),
+                autopsy_ids=[],
+                recommendation={
+                    "decision": manager_decision,
+                    "confidence": manager_confidence,
+                    "source": "stored_manager_decision_history",
+                },
+                db_path=db_path,
+            )
+
+    metrics = calculate_historical_outcome_audit_metrics(events)
+    report = {
+        "evaluation_id": evaluation_id,
+        "mode": "historical_outcome_audit",
+        "offline_only": True,
+        "model_invoked": False,
+        "source_decision_count": len(source_rows),
+        "metrics": metrics,
+        "events": events,
+    }
+    if evaluation_id is not None:
+        complete_manager_replay_evaluation(
+            evaluation_id=evaluation_id,
+            source_decision_count=len(source_rows),
+            replayed_decision_count=len(events),
+            skipped_decision_count=0,
+            metrics=metrics,
+            completed_at=datetime.now(timezone.utc),
+            db_path=db_path,
+        )
+    return report
+
+
+def run_legacy_partial_replay(
+    *,
+    model: str = DEFAULT_MODEL,
+    limit: int = 100,
+    autopsy_limit: int = DEFAULT_RESOLVED_AUTOPSY_LIMIT,
+    autopsy_max_age_days: int = DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS,
+    client: Client | None = None,
+    db_path: Path | str = DB_PATH,
+    persist: bool = True,
+    replay_decider: ReplayDecider | None = None,
+) -> dict[str, Any]:
+    """Run a separately reported approximation for legacy snapshot records."""
+    source_rows = [dict(row) for row in list_replayable_manager_decisions(limit=limit, db_path=db_path)]
+    evaluation_id = None
+    if persist:
+        evaluation_id = create_manager_replay_evaluation(
+            model=model,
+            prompt_version=LEGACY_PARTIAL_REPLAY_VERSION,
+            autopsy_limit=autopsy_limit,
+            autopsy_max_age_days=autopsy_max_age_days,
+            db_path=db_path,
+        )
+
+    def decide(payload: dict[str, Any]) -> dict[str, Any]:
+        if replay_decider is not None:
+            return replay_decider(payload)
+        return replay_manager_decision_from_payload(payload, client=client, model=model)
+
+    events: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for decision in source_rows:
+        rebuilt = build_legacy_partial_replay_payload(
+            decision,
+            autopsy_limit=autopsy_limit,
+            autopsy_max_age_days=autopsy_max_age_days,
+            db_path=db_path,
+        )
+        if rebuilt is None:
+            skipped.append(
+                {
+                    "manager_decision_history_id": decision.get("id"),
+                    "reason": "exact_replay_available_or_missing_legacy_snapshot_context",
+                }
+            )
+            continue
+        payload, autopsy_ids = rebuilt
+        event = {
+            "manager_decision_history_id": int(decision.get("id") or 0),
+            "replay_mode": "legacy_partial",
+            "historical_decision": str(decision.get("manager_decision") or "").lower(),
+            "historical_confidence": str(decision.get("manager_confidence") or "").lower(),
+            "pnl_pct": _coerce_pnl(decision.get("latest_trade_pnl_pct")),
+            "outcome_label": str(decision.get("resolved_outcome_label") or ""),
+            "autopsy_ids": autopsy_ids,
+        }
+        recommendation: dict[str, Any] | None = None
+        try:
+            result = decide(payload)
+            recommendation = result.get("recommendation") if isinstance(result, dict) else None
+            if not isinstance(recommendation, dict):
+                raise RuntimeError("Legacy partial replay did not return a recommendation object.")
+            event["replay_decision"] = str(recommendation.get("decision") or "").lower()
+            event["replay_confidence"] = str(recommendation.get("confidence") or "").lower()
+            event["recommendation"] = recommendation
+        except Exception as exc:
+            event["error"] = str(exc)
+        events.append(event)
+        if evaluation_id is not None:
+            record_manager_replay_result(
+                evaluation_id=evaluation_id,
+                manager_decision_history_id=event["manager_decision_history_id"],
+                replay_mode="legacy_partial",
+                decision_run_at=decision.get("decision_run_at"),
+                autopsy_ids=autopsy_ids,
+                recommendation=recommendation,
+                error_text=event.get("error"),
+                db_path=db_path,
+            )
+
+    completed = [event for event in events if not event.get("error")]
+    directional = [event for event in completed if event.get("replay_decision") in _DIRECTIONAL_DECISIONS]
+    scored = [
+        event
+        for event in directional
+        if event.get("replay_decision") == event.get("historical_decision") and event.get("pnl_pct") is not None
+    ]
+    pnl_values = [float(event["pnl_pct"]) for event in scored]
+    metrics = {
+        "legacy_partial_replayed_count": len(completed),
+        "error_count": len(events) - len(completed),
+        "scored_historical_trade_count": len(scored),
+        "counterfactual_unscored_count": len(directional) - len(scored),
+        "win_rate": (sum(value > 0 for value in pnl_values) / len(pnl_values)) if pnl_values else None,
+        "average_pnl_pct": (sum(pnl_values) / len(pnl_values)) if pnl_values else None,
+        "false_positive_rate": (sum(value <= 0 for value in pnl_values) / len(pnl_values)) if pnl_values else None,
+    }
+    report = {
+        "evaluation_id": evaluation_id,
+        "mode": "legacy_partial",
+        "offline_only": True,
+        "comparability": "Do not combine these approximate metrics with exact frozen-input replay metrics.",
+        "model": model,
+        "prompt_version": LEGACY_PARTIAL_REPLAY_VERSION,
+        "source_decision_count": len(source_rows),
+        "legacy_partial_replayed_count": len(events),
+        "skipped": skipped,
+        "metrics": metrics,
+        "events": events,
+    }
+    if evaluation_id is not None:
+        complete_manager_replay_evaluation(
+            evaluation_id=evaluation_id,
+            source_decision_count=len(source_rows),
+            replayed_decision_count=len(events),
+            skipped_decision_count=len(skipped),
+            metrics=metrics,
+            completed_at=datetime.now(timezone.utc),
+            db_path=db_path,
+        )
+    return report
 
 
 def run_offline_manager_evaluation(
@@ -260,18 +590,45 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--autopsy-max-age-days", type=int, default=DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS)
     parser.add_argument("--db-path", type=Path, default=DB_PATH)
     parser.add_argument("--no-persist", action="store_true", help="Print results without writing evaluation records.")
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--historical-outcome-audit",
+        action="store_true",
+        help="Report stored decision/confidence/P&L calibration without invoking an LLM.",
+    )
+    mode_group.add_argument(
+        "--legacy-partial-replay",
+        action="store_true",
+        help="Approximate legacy decisions from saved decision-time snapshots only.",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     load_project_env()
     args = _parse_args()
-    result = run_offline_manager_evaluation(
-        model=args.model,
-        limit=max(1, args.limit),
-        autopsy_limit=max(1, args.autopsy_limit),
-        autopsy_max_age_days=max(1, args.autopsy_max_age_days),
-        db_path=args.db_path,
-        persist=not args.no_persist,
-    )
+    if args.historical_outcome_audit:
+        result = run_historical_outcome_audit(
+            limit=max(1, args.limit),
+            db_path=args.db_path,
+            persist=not args.no_persist,
+        )
+    elif args.legacy_partial_replay:
+        result = run_legacy_partial_replay(
+            model=args.model,
+            limit=max(1, args.limit),
+            autopsy_limit=max(1, args.autopsy_limit),
+            autopsy_max_age_days=max(1, args.autopsy_max_age_days),
+            db_path=args.db_path,
+            persist=not args.no_persist,
+        )
+    else:
+        result = run_offline_manager_evaluation(
+            model=args.model,
+            limit=max(1, args.limit),
+            autopsy_limit=max(1, args.autopsy_limit),
+            autopsy_max_age_days=max(1, args.autopsy_max_age_days),
+            db_path=args.db_path,
+            persist=not args.no_persist,
+        )
     print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))

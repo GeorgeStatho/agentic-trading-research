@@ -27,6 +27,8 @@ from market_db import (  # noqa: E402
 from offline_manager_evaluation import (  # noqa: E402
     build_replay_variants,
     calculate_replay_metrics,
+    run_legacy_partial_replay,
+    run_historical_outcome_audit,
     run_offline_manager_evaluation,
 )
 
@@ -54,7 +56,16 @@ class OfflineManagerEvaluationTests(unittest.TestCase):
             "strategist_recommendation": {"decision": "trade_candidate"},
         }
 
-    def _record(self, *, decision_time: str, pnl_updated_at: str, pnl: float, replay_input: bool = True) -> int:
+    def _record(
+        self,
+        *,
+        decision_time: str,
+        pnl_updated_at: str,
+        pnl: float,
+        replay_input: bool = True,
+        manager_decision: str = "call",
+        manager_confidence: str = "high",
+    ) -> int:
         manager_input = {"company": {"symbol": "MSFT"}}
         if replay_input:
             manager_input["replay_input"] = self._replay_input()
@@ -64,8 +75,8 @@ class OfflineManagerEvaluationTests(unittest.TestCase):
                 "symbol": "MSFT",
                 "company_name": "Microsoft",
                 "decision_run_at": decision_time,
-                "manager_decision": "call",
-                "manager_confidence": "high",
+                "manager_decision": manager_decision,
+                "manager_confidence": manager_confidence,
                 "trade_executed": True,
                 "latest_trade_pnl_pct": pnl,
                 "latest_trade_pnl_updated_at": pnl_updated_at,
@@ -210,6 +221,110 @@ class OfflineManagerEvaluationTests(unittest.TestCase):
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'manager_decision_history'"
             ).fetchone()
         self.assertIsNotNone(exists)
+
+    def test_historical_outcome_audit_scores_legacy_decisions_without_model_calls(self) -> None:
+        self._record(
+            decision_time="2026-01-01T10:00:00+00:00",
+            pnl_updated_at="2026-01-03T10:00:00+00:00",
+            pnl=4.0,
+            replay_input=False,
+            manager_decision="call",
+            manager_confidence="high",
+        )
+        self._record(
+            decision_time="2026-01-04T10:00:00+00:00",
+            pnl_updated_at="2026-01-06T10:00:00+00:00",
+            pnl=-2.0,
+            replay_input=False,
+            manager_decision="put",
+            manager_confidence="low",
+        )
+
+        report = run_historical_outcome_audit(limit=10, db_path=self.db_path)
+
+        self.assertTrue(report["offline_only"])
+        self.assertFalse(report["model_invoked"])
+        self.assertEqual(report["metrics"]["audited_decision_count"], 2)
+        self.assertEqual(report["metrics"]["win_rate"], 0.5)
+        self.assertEqual(report["metrics"]["false_positive_rate"], 0.5)
+        self.assertEqual(report["metrics"]["confidence_buckets"]["high"]["count"], 1)
+        self.assertEqual(report["metrics"]["confidence_buckets"]["low"]["count"], 1)
+        with get_connection(self.db_path) as conn:
+            modes = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT replay_mode FROM manager_replay_results ORDER BY id"
+                ).fetchall()
+            ]
+        self.assertEqual(modes, ["historical_outcome_audit", "historical_outcome_audit"])
+
+    def test_legacy_partial_replay_uses_only_saved_snapshot_fields(self) -> None:
+        self._record(
+            decision_time="2026-01-01T10:00:00+00:00",
+            pnl_updated_at="2026-01-03T10:00:00+00:00",
+            pnl=-1.0,
+            replay_input=False,
+        )
+        record_manager_decision_history(
+            {
+                "company_id": self.company_id,
+                "symbol": "MSFT",
+                "company_name": "Microsoft",
+                "decision_run_at": "2026-01-10T10:00:00+00:00",
+                "manager_decision": "call",
+                "manager_confidence": "medium",
+                "trade_executed": True,
+                "latest_trade_pnl_pct": 3.0,
+                "latest_trade_pnl_updated_at": "2026-01-12T10:00:00+00:00",
+                "resolved_outcome_label": "closed_profit",
+                "manager_input_json": {
+                    "company": {"company_id": self.company_id, "symbol": "MSFT", "name": "Microsoft"},
+                    "market_context": {"current_stock_price": {"available": True, "price": 400.0}},
+                    "strategist_recommendation": {"decision": "trade_candidate", "confidence": "high"},
+                    "article_references": [{"article_id": 22, "title": "Stored catalyst", "source": "Newswire"}],
+                    "recent_manager_decision_history": [{"must_not": "be used"}],
+                },
+                "manager_output_json": {"recommendation": {"decision": "call"}},
+            },
+            db_path=self.db_path,
+        )
+        self._record(
+            decision_time="2026-01-15T10:00:00+00:00",
+            pnl_updated_at="2026-01-17T10:00:00+00:00",
+            pnl=2.0,
+            replay_input=True,
+        )
+
+        def decider(payload: dict[str, object]) -> dict[str, object]:
+            self.assertEqual(payload["filters"]["replay_mode"], "legacy_partial")
+            self.assertNotIn("recent_manager_decision_history", payload)
+            self.assertEqual(payload["supporting_articles"]["article_summaries"][0]["article_id"], 22)
+            self.assertEqual(payload["market_context"]["current_stock_price"]["price"], 400.0)
+            return {
+                "recommendation": {
+                    "decision": "call",
+                    "confidence": "medium",
+                    "target_dte_bucket": "20_30",
+                    "reason": "Snapshot-only replay",
+                }
+            }
+
+        report = run_legacy_partial_replay(
+            model="test-model",
+            limit=10,
+            autopsy_limit=3,
+            autopsy_max_age_days=180,
+            db_path=self.db_path,
+            replay_decider=decider,
+        )
+
+        self.assertEqual(report["mode"], "legacy_partial")
+        self.assertEqual(report["legacy_partial_replayed_count"], 1)
+        self.assertIn("Do not combine", report["comparability"])
+        self.assertTrue(any(item["reason"].startswith("exact_replay_available") for item in report["skipped"]))
+        with get_connection(self.db_path) as conn:
+            modes = [row[0] for row in conn.execute("SELECT replay_mode FROM manager_replay_results ORDER BY id").fetchall()]
+        self.assertEqual(modes, ["legacy_partial"])
 
 
 if __name__ == "__main__":

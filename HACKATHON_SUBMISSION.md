@@ -187,6 +187,13 @@ MANAGER_RESOLVED_AUTOPSY_MAX_AGE_DAYS=180
 ```bash
 # Offline A/B replay; this never executes or places a paper trade.
 python3 "Python Scripts/agentCallers/offline_manager_evaluation.py" --limit 100
+
+# Historical calibration audit for legacy decisions; does not invoke an LLM.
+python3 "Python Scripts/agentCallers/offline_manager_evaluation.py" --historical-outcome-audit --limit 100
+
+# Approximate legacy replay from saved decision-time snapshot fields only.
+# Keep this report separate from exact frozen-input replay metrics.
+python3 "Python Scripts/agentCallers/offline_manager_evaluation.py" --legacy-partial-replay --limit 100
 ```
 
 ## Submission Notes

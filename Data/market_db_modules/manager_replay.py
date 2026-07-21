@@ -86,7 +86,12 @@ def record_manager_replay_result(
     error_text: str | None = None,
     db_path: Path | str = DB_PATH,
 ) -> None:
-    if replay_mode not in {"baseline", "resolved_autopsy_feedback"}:
+    if replay_mode not in {
+        "baseline",
+        "resolved_autopsy_feedback",
+        "historical_outcome_audit",
+        "legacy_partial",
+    }:
         raise ValueError(f"Unsupported manager replay mode: {replay_mode}")
     with get_connection(db_path) as conn:
         conn.execute(
