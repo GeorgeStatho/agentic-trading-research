@@ -281,6 +281,9 @@ def normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str,
     risks = _normalize_string_list(recommendation.get("risks"))
     contradictions_present = _coerce_bool(recommendation.get("contradictions_present"))
     watchlist_reason = str(recommendation.get("watchlist_reason") or "").strip()
+    grounded_company_symbol = str(recommendation.get("grounded_company_symbol") or "").strip().upper()
+    grounded_entity_ids = recommendation.get("grounded_entity_ids")
+    evidence_claims = recommendation.get("evidence_claims")
 
     if not thesis:
         thesis = _normalize_string_list(recommendation.get("bull_case"))
@@ -356,6 +359,9 @@ def normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str,
         "risks": risks,
         "contradictions_present": contradictions_present,
         "watchlist_reason": watchlist_reason,
+        "grounded_company_symbol": grounded_company_symbol,
+        "grounded_entity_ids": grounded_entity_ids,
+        "evidence_claims": evidence_claims,
     }
 
 

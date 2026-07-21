@@ -41,5 +41,6 @@ from db_helpers.news import (
     mark_sector_opportunist_article_processed,
     mark_us_news_article_processed,
     mark_world_news_article_processed,
+    record_strategist_run,
 )
 from db_helpers.queries import get_all_companies, get_all_industries, get_all_sectors

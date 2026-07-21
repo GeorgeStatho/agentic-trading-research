@@ -271,6 +271,7 @@ class StrategistInputPayload(TypedDict):
     opportunist_rollup: dict[str, Any]
     views: StrategistViewsPayload
     supporting_articles: SupportingArticlesPayload
+    grounding: dict[str, Any]
 
 
 class ManagerInputPayload(StrategistInputPayload):

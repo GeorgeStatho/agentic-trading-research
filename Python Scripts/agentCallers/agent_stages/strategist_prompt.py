@@ -63,6 +63,7 @@ def build_strategist_prompt(
     default_system_prompt = (
         "You are an investment strategist deciding whether a company currently supports opening an options trade candidate on the underlying equity. "
         "Use only the supplied structured context. Do not invent facts, catalysts, prices, or risks that are not supported by the input. "
+        "The grounding block is authoritative: cite only its article_ids and refer only to its company, industry, and sector relationships. "
         "Treat upstream agent conclusions as signals, not truth. Weigh them against the article evidence, evidence freshness, contradiction level, "
         "and the supplied 1d, 5d, 1mo, and 3mo historical price action. "
         "Your primary job is to judge whether there is a real directional thesis on the underlying company or stock. "
@@ -87,6 +88,10 @@ def build_strategist_prompt(
         "Distinguish between evidence quality and setup quality: a company can have an interesting story but still be a poor trade setup. "
         "why_now must explain why the setup is actionable now, or why it is not actionable now. "
         "summary must be a short paragraph. thesis, catalyst, and risks must be concise lists of short strings. "
+        "Set grounded_company_symbol exactly to grounding.company.symbol. "
+        "Set grounded_entity_ids exactly from grounding.company.id, grounding.industry.id, and grounding.sector.id. "
+        "For every output claim, provide evidence_claims with a claim_type, a short claim, and one or more grounding.article_ids. "
+        "Include one citation for summary and why_now, plus one citation for every catalyst, thesis, risk, and non-empty watchlist_reason item. "
         "Return only valid JSON with a top-level key named recommendation. "
         "Do not include markdown fences, explanations, or extra keys."
     )
@@ -120,6 +125,9 @@ def build_strategist_prompt(
         "- risks: strongest reasons the trade could fail or should be avoided\n"
         "- contradictions_present: true if meaningful conflicting evidence exists\n"
         "- watchlist_reason: explain what is missing before this could become a trade_candidate; empty string if not applicable\n"
+        "- grounded_company_symbol: exact value from grounding.company.symbol\n"
+        "- grounded_entity_ids: exact company_id, industry_id, and sector_id from grounding\n"
+        "- evidence_claims: cite only grounding.article_ids; include summary, why_now, and every catalyst/thesis/risk claim\n"
     )
 
     user_payload = {
@@ -130,6 +138,7 @@ def build_strategist_prompt(
         "opportunist_rollup": payload.get("opportunist_rollup", {}),
         "views": payload.get("views", {}),
         "supporting_articles": payload.get("supporting_articles", {}),
+        "grounding": payload.get("grounding", {}),
         "required_output": {
             "recommendation": {
                 "decision": "trade_candidate|watchlist|do_not_trade",
@@ -147,6 +156,17 @@ def build_strategist_prompt(
                 "risks": ["short point"],
                 "contradictions_present": True,
                 "watchlist_reason": "short explanation or empty string",
+                "grounded_company_symbol": "exact grounded company symbol",
+                "grounded_entity_ids": {
+                    "company_id": 123,
+                    "industry_id": 456,
+                    "sector_id": 789,
+                },
+                "evidence_claims": [{
+                    "claim_type": "summary|why_now|catalyst|thesis|risk|watchlist_reason",
+                    "claim": "short grounded claim",
+                    "evidence_article_ids": [123],
+                }],
             }
         },
     }
@@ -174,5 +194,12 @@ def build_no_evidence_result(company: dict[str, Any], *, context_snapshot: dict[
             "risks": ["Insufficient supporting evidence from macro, sector, industry, and company article analysis."],
             "contradictions_present": False,
             "watchlist_reason": "",
+            "grounded_company_symbol": str(company.get("symbol") or "").strip().upper(),
+            "grounded_entity_ids": {
+                "company_id": company.get("company_id"),
+                "industry_id": company.get("industry_id"),
+                "sector_id": company.get("sector_id"),
+            },
+            "evidence_claims": [],
         },
     }

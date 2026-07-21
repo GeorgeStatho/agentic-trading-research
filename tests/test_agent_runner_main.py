@@ -33,6 +33,13 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
         mock_decide_company_purchase.return_value = {
             "company": {"company_id": 1, "symbol": "AAPL", "name": "Apple"},
             "recommendation": {"decision": "trade_candidate", "confidence": "high"},
+            "strategist_run_reference": {
+                "id": 42,
+                "model": "test-model",
+                "prompt_version": "grounded-strategist-v1",
+                "input_article_ids": [101],
+                "created_at": "2026-05-22T12:00:00+00:00",
+            },
         }
         mock_decide_company_option_position.return_value = {
             "company": {"company_id": 1, "symbol": "AAPL", "name": "Apple"},
@@ -88,6 +95,8 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
         self.assertEqual(recorded_payload["selected_option_symbol"], "AAPL260619C00190000")
         self.assertEqual(recorded_payload["manager_input_json"]["article_references"][0]["article_id"], 101)
         self.assertEqual(len(recorded_payload["manager_input_json"]["recent_manager_decision_history"]), 1)
+        manager_input = mock_decide_company_option_position.call_args.kwargs["strategist_recommendation"]
+        self.assertEqual(manager_input["strategist_run_reference"]["id"], 42)
 
     @patch.object(agent_runner_main, "record_manager_decision_history")
     @patch.object(agent_runner_main, "apply_deterministic_option_selection")

@@ -16,7 +16,7 @@ from .manager_payload_context import (
     _build_context_snapshot,
     payload_has_evidence,
 )
-from .manager_strategist_context import _normalize_strategist_recommendation
+from .manager_strategist_context import _build_manager_visible_strategist_context
 from .manager_normalization import (
     extract_recommendation,
     extract_recommendation_from_text,
@@ -177,9 +177,8 @@ def decide_company_option_position(
         option_strike_price_lte=option_strike_price_lte,
         option_contract_limit_per_type=option_contract_limit_per_type,
     )
-    payload["strategist_recommendation"] = _normalize_strategist_recommendation(
-        strategist_recommendation
-    )
+    payload["strategist_recommendation"] = strategist_recommendation or {}
+    payload["strategist_recommendation"] = _build_manager_visible_strategist_context(payload)
 
     company = payload["company"]
     market_context = payload.get("market_context", {})

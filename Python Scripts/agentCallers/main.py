@@ -408,9 +408,13 @@ def _run_strategist_and_manager(
             },
         )
         LOGGER.info("Running manager for %s", symbol)
+        strategist_recommendation = dict(strategist_result.get("recommendation") or {})
+        strategist_run_reference = strategist_result.get("strategist_run_reference")
+        if isinstance(strategist_run_reference, dict) and strategist_run_reference:
+            strategist_recommendation["strategist_run_reference"] = strategist_run_reference
         manager_result = decide_company_option_position(
             symbol,
-            strategist_recommendation=strategist_result.get("recommendation", {}),
+            strategist_recommendation=strategist_recommendation,
         )
         manager_result = apply_deterministic_option_selection(manager_result)
         manager_results.append(manager_result)

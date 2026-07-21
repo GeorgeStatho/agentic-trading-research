@@ -18,6 +18,7 @@ for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
 from agent_builders import strategist_payload as strategist_payload_builder  # noqa: E402
 from agent_helpers.manager import build_manager_input  # noqa: E402
 from agent_stages.manager import build_manager_prompt  # noqa: E402
+from agent_stages.manager_strategist_context import _build_manager_visible_strategist_context  # noqa: E402
 from agent_stages.strategist_prompt import build_strategist_prompt  # noqa: E402
 from services.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET, get_dte_bucket  # noqa: E402
 
@@ -221,7 +222,13 @@ class ManagerPayloadContractTests(VerboseTestCase):
 
     def test_build_manager_prompt_mentions_recent_decision_history_guidance(self):
         payload = {
-            "company": {"company_id": 1, "symbol": "AAPL", "name": "Apple Inc."},
+            "company": {
+                "company_id": 1,
+                "symbol": "AAPL",
+                "name": "Apple Inc.",
+                "industry_id": 2,
+                "sector_id": 3,
+            },
             "peer_groups": {"industry": {}, "top_companies": []},
             "opportunist_rollup": {"company": {"count": 2, "top_reasons": ["Fresh demand signal"]}},
             "filters": {"max_age_days": 5},
@@ -325,6 +332,28 @@ class ManagerPayloadContractTests(VerboseTestCase):
                 "confidence": "high",
                 "preferred_option_direction": "call",
                 "expected_stock_direction": "up",
+                "grounded_company_symbol": "AAPL",
+                "grounded_entity_ids": {"company_id": 1, "industry_id": 2, "sector_id": 3},
+                "evidence_claims": [
+                    {
+                        "claim_type": "summary",
+                        "claim": "Company evidence supports upside.",
+                        "evidence_article_ids": [10],
+                    }
+                ],
+                "strategist_run_reference": {
+                    "id": 91,
+                    "model": "test-model",
+                    "prompt_version": "grounded-strategist-v1",
+                    "input_article_ids": [10],
+                    "created_at": "2026-05-22T12:00:00+00:00",
+                },
+            },
+            "grounding": {
+                "company": {"id": 1, "symbol": "AAPL"},
+                "industry": {"id": 2},
+                "sector": {"id": 3},
+                "article_ids": [10],
             },
             "market_context": {
                 "current_stock_price": {"available": True, "price": 200.0},
@@ -357,7 +386,41 @@ class ManagerPayloadContractTests(VerboseTestCase):
         self.assertNotIn("agent_conclusions", user_payload["views_summary"]["company"])
         self.assertNotIn("source_url", user_payload["supporting_articles"]["article_summaries"][0])
         self.assertEqual(user_payload["supporting_articles"]["article_summaries"][0]["title"], "Fresh Apple article")
+        strategist_context = user_payload["strategist_recommendation"]
+        self.assertEqual(strategist_context["grounded_company_symbol"], "AAPL")
+        self.assertEqual(strategist_context["evidence_claims"][0]["evidence_article_ids"], [10])
+        self.assertEqual(strategist_context["strategist_run_reference"]["id"], 91)
         self.log_pass("manager prompt kept the recent-decision-history guidance and exposed the recent history block")
+
+    def test_manager_strips_strategist_references_outside_its_own_payload(self):
+        context = _build_manager_visible_strategist_context(
+            {
+                "company": {"company_id": 1, "industry_id": 2, "sector_id": 3, "symbol": "AAPL"},
+                "grounding": {
+                    "company": {"id": 1, "symbol": "AAPL"},
+                    "industry": {"id": 2},
+                    "sector": {"id": 3},
+                    "article_ids": [10],
+                },
+                "strategist_recommendation": {
+                    "decision": "trade_candidate",
+                    "confidence": "high",
+                    "grounded_company_symbol": "AAPL",
+                    "grounded_entity_ids": {"company_id": 1, "industry_id": 2, "sector_id": 3},
+                    "evidence_claims": [
+                        {
+                            "claim_type": "summary",
+                            "claim": "Unseen article claim",
+                            "evidence_article_ids": [99],
+                        }
+                    ],
+                },
+            }
+        )
+
+        self.assertEqual(context["decision"], "trade_candidate")
+        self.assertNotIn("evidence_claims", context)
+        self.assertNotIn("grounded_entity_ids", context)
 
     @patch("agent_helpers.manager.list_recent_manager_decision_history")
     @patch("agent_helpers.manager.build_market_context")

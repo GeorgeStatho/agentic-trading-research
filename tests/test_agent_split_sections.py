@@ -526,16 +526,18 @@ Risks:
         mock_save_summary.assert_called_once()
         self.log_pass("strategist runner short-circuited to do-not-trade when no evidence was present")
 
+    @patch("agent_stages.strategist_runner._record_failed_strategist_run")
     @patch("agent_stages.strategist_runner._save_strategist_summary")
     @patch("agent_stages.strategist_runner.extract_json_value")
     @patch("agent_stages.strategist_runner.ask_model")
     @patch("agent_stages.strategist_runner.build_strategist_input")
-    def test_decide_company_purchase_falls_back_to_text_parsing_when_json_parse_fails(
+    def test_decide_company_purchase_rejects_uncited_text_fallback(
         self,
         mock_build_strategist_input,
         mock_ask_model,
         mock_extract_json_value,
         mock_save_summary,
+        mock_record_failed_run,
     ):
         mock_build_strategist_input.return_value = {
             "company": {
@@ -563,14 +565,13 @@ Risks:
 """
         mock_extract_json_value.return_value = None
 
-        result = decide_company_purchase("AAPL", client=object(), model="test-model")
+        with self.assertRaisesRegex(ValueError, "grounded payload"):
+            decide_company_purchase("AAPL", client=object(), model="test-model")
 
-        self.assertEqual(result["recommendation"]["decision"], "trade_candidate")
-        self.assertEqual(result["recommendation"]["preferred_option_direction"], "call")
-        self.assertEqual(result["recommendation"]["expected_stock_direction"], "up")
         mock_ask_model.assert_called_once()
-        mock_save_summary.assert_called_once()
-        self.log_pass("strategist runner fell back to text parsing when structured JSON extraction failed")
+        mock_save_summary.assert_not_called()
+        mock_record_failed_run.assert_called_once()
+        self.log_pass("strategist runner rejected uncited text when structured JSON extraction failed")
 
 
 if __name__ == "__main__":

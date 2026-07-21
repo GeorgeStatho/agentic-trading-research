@@ -239,6 +239,20 @@ CREATE TABLE IF NOT EXISTS failed_urls (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS strategist_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    input_article_ids_json TEXT NOT NULL,
+    input_payload_json TEXT NOT NULL,
+    output_payload_json TEXT,
+    status TEXT NOT NULL,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS news_exposure_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     article_id INTEGER NOT NULL,
@@ -410,6 +424,9 @@ CREATE INDEX IF NOT EXISTS idx_sector_opportunist_article_processing_article_id
 
 CREATE INDEX IF NOT EXISTS idx_strategist_company_summaries_company_id
     ON strategist_company_summaries (company_id);
+
+CREATE INDEX IF NOT EXISTS idx_strategist_runs_company_created
+    ON strategist_runs (company_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_failed_urls_normalized_url
     ON failed_urls (normalized_url);
