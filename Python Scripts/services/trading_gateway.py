@@ -4,7 +4,7 @@ import logging
 import os
 from typing import Any
 
-from services.common import looks_like_option_symbol, safe_float
+from services.common import looks_like_option_symbol, option_underlying_symbol, safe_float
 
 try:
     from alpaca.trading.client import TradingClient
@@ -67,22 +67,30 @@ class AlpacaTradingGateway:
         return buying_power
 
     def get_open_option_exposure(self, trading_client: TradingClient) -> tuple[float, int]:
-        positions = trading_client.get_all_positions()
-        option_exposure = 0.0
-        option_position_count = 0
-        for position in positions or []:
-            symbol = str(getattr(position, "symbol", "") or "").strip().upper()
-            asset_class = str(getattr(position, "asset_class", "") or "")
-            if not looks_like_option_symbol(symbol, asset_class):
-                continue
+        positions = self.get_open_option_positions(trading_client)
+        return sum(float(position["notional"]) for position in positions), len(positions)
 
-            option_position_count += 1
+    def get_open_option_positions(self, trading_client: TradingClient) -> list[dict[str, Any]]:
+        """Return normalized broker option positions for deterministic entry guardrails."""
+        positions = trading_client.get_all_positions()
+        normalized_positions: list[dict[str, Any]] = []
+        for position in positions or []:
+            option_symbol = str(getattr(position, "symbol", "") or "").strip().upper()
+            asset_class = str(getattr(position, "asset_class", "") or "")
+            if not looks_like_option_symbol(option_symbol, asset_class):
+                continue
             exposure_value = safe_float(getattr(position, "market_value", None))
             if exposure_value is None:
                 exposure_value = safe_float(getattr(position, "cost_basis", None))
-            option_exposure += abs(exposure_value or 0.0)
-
-        return option_exposure, option_position_count
+            normalized_positions.append(
+                {
+                    "option_symbol": option_symbol,
+                    "underlying_symbol": str(getattr(position, "underlying_symbol", "") or "").strip().upper() or option_underlying_symbol(option_symbol),
+                    "notional": abs(exposure_value or 0.0),
+                    "quantity": abs(safe_float(getattr(position, "qty", None)) or 0.0),
+                }
+            )
+        return normalized_positions
 
     def submit_option_market_order(
         self,

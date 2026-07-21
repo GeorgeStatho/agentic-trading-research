@@ -24,6 +24,7 @@ from market_db import (  # noqa: E402
     record_historical_option_quote,
     run_backtest,
 )
+from market_db_modules.backtesting import _apply_portfolio_limits, _merged_config, _metrics  # noqa: E402
 
 
 class BacktestingTests(unittest.TestCase):
@@ -114,6 +115,70 @@ class BacktestingTests(unittest.TestCase):
         self.assertIn("next_quote_exceeds_entry_delay", event["warnings"])
         loaded = get_backtest_run(result["run"]["id"], db_path=self.db_path)
         self.assertTrue(loaded["read_only"])
+
+
+class PortfolioGuardrailTests(unittest.TestCase):
+    @staticmethod
+    def _event(
+        identifier: int,
+        *,
+        entry_at: str,
+        exit_at: str,
+        sector: str = "technology",
+        entry_notional: float = 1000.0,
+        realized_pnl_dollars: float = 0.0,
+    ) -> dict:
+        return {
+            "manager_decision_history_id": identifier,
+            "status": "simulated_closed",
+            "entry_at": entry_at,
+            "exit_at": exit_at,
+            "risk_release_at": exit_at,
+            "portfolio_sector": sector,
+            "entry_notional": entry_notional,
+            "realized_pnl_dollars": realized_pnl_dollars,
+            "realized_pnl_pct": realized_pnl_dollars / entry_notional * 100,
+            "warnings": [],
+        }
+
+    def _run_limits(self, events: list[dict], **overrides) -> list[dict]:
+        config = _merged_config({
+            "max_concurrent_positions": 10,
+            "max_total_entry_notional": 100000,
+            "max_sector_notional_pct": 100,
+            "daily_loss_limit_dollars": 100000,
+            **overrides,
+        })
+        return _apply_portfolio_limits(events, config)
+
+    def test_max_concurrent_positions_rejects_overlapping_entry(self) -> None:
+        events = self._run_limits([
+            self._event(1, entry_at="2026-01-01T10:00:00+00:00", exit_at="2026-01-01T11:00:00+00:00"),
+            self._event(2, entry_at="2026-01-01T10:01:00+00:00", exit_at="2026-01-01T11:01:00+00:00"),
+        ], max_concurrent_positions=1)
+        self.assertEqual(events[0]["status"], "simulated_closed")
+        self.assertEqual(events[1]["warnings"], ["portfolio_max_concurrent_positions"])
+
+    def test_total_notional_and_sector_limits_are_auditable(self) -> None:
+        total_events = self._run_limits([
+            self._event(1, entry_at="2026-01-01T10:00:00+00:00", exit_at="2026-01-01T11:00:00+00:00"),
+            self._event(2, entry_at="2026-01-01T10:01:00+00:00", exit_at="2026-01-01T11:01:00+00:00"),
+        ], max_total_entry_notional=1500)
+        self.assertEqual(total_events[1]["warnings"], ["portfolio_total_entry_notional_limit"])
+
+        sector_events = self._run_limits([
+            self._event(1, entry_at="2026-01-01T10:00:00+00:00", exit_at="2026-01-01T11:00:00+00:00"),
+            self._event(2, entry_at="2026-01-01T10:01:00+00:00", exit_at="2026-01-01T11:01:00+00:00"),
+        ], max_total_entry_notional=5000, max_sector_notional_pct=30)
+        self.assertEqual(sector_events[1]["warnings"], ["portfolio_sector_notional_limit"])
+
+    def test_daily_loss_limit_blocks_later_entries_and_counts_rejections(self) -> None:
+        events = self._run_limits([
+            self._event(1, entry_at="2026-01-01T08:00:00+00:00", exit_at="2026-01-01T09:00:00+00:00", realized_pnl_dollars=-200),
+            self._event(2, entry_at="2026-01-01T10:00:00+00:00", exit_at="2026-01-01T11:00:00+00:00"),
+        ], daily_loss_limit_dollars=150)
+        self.assertEqual(events[1]["warnings"], ["portfolio_daily_loss_limit"])
+        self.assertEqual(_metrics(events)["portfolio_rejected_count"], 1)
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ from market_db_modules.backtesting import (
 )
 from market_db_modules.backtest_imports import import_alpaca_option_quote_csv
 from market_db_modules.backtest_marketdata import fetch_marketdata_eod_option_quotes
+from market_db_modules.portfolio_risk import get_company_sector_key, get_realized_option_loss_since
 from market_db_modules.manager_replay import (
     complete_manager_replay_evaluation,
     create_manager_replay_evaluation,
@@ -73,6 +74,8 @@ __all__ = [
     "create_manager_replay_evaluation",
     "expire_manager_decision_pnl",
     "fetch_marketdata_eod_option_quotes",
+    "get_company_sector_key",
+    "get_realized_option_loss_since",
     "record_manager_decision_closed_outcome",
     "get_latest_linked_manager_decision_for_option_symbol",
     "get_latest_open_manager_decision_for_trade_link",

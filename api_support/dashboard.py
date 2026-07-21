@@ -34,8 +34,11 @@ from api_support.common import (
 from api_support.context import (
     BOT_DOWN_THRESHOLD_SECONDS,
     DEFAULT_OPTION_ORDER_QTY,
+    DAILY_OPTION_LOSS_LIMIT_DOLLARS,
+    MAX_CONCURRENT_OPTION_POSITIONS,
     MAX_DEPLOYABLE_BUYING_POWER_PCT,
     MAX_OPTION_ORDER_QTY_MULTIPLIER,
+    MAX_OPTION_SECTOR_EXPOSURE_PCT,
     OPTION_MANAGER_STATUS_PATH,
     OPTION_POSITION_MANAGEMENT_OUTPUT_PATH,
     OPTION_POSITION_SETTINGS,
@@ -1137,10 +1140,10 @@ def build_risk_controls_payload() -> dict:
             },
             {
                 "label": "Max open contracts",
-                "value": f"Base qty {DEFAULT_OPTION_ORDER_QTY}, up to x{MAX_OPTION_ORDER_QTY_MULTIPLIER} per idea",
+                "value": f"{MAX_CONCURRENT_OPTION_POSITIONS} open positions; base qty {DEFAULT_OPTION_ORDER_QTY}, up to x{MAX_OPTION_ORDER_QTY_MULTIPLIER} per idea",
                 "detail": (
-                    "There is still no portfolio-wide cap on total open contracts, but a single idea's order size is bounded "
-                    "by the configured multiplier on top of the AGENT_OPTION_ORDER_QTY baseline."
+                    "New entries are rejected once the broker reports the configured portfolio-wide option-position count. "
+                    "Each accepted idea remains subject to the configured per-idea quantity multiplier."
                 ),
                 "status": "configured",
             },
@@ -1151,6 +1154,18 @@ def build_risk_controls_payload() -> dict:
                     "The execution loop stops adding new option orders once the configured "
                     "deployable buying power allowance is consumed."
                 ),
+                "status": "configured",
+            },
+            {
+                "label": "Sector concentration cap",
+                "value": f"{MAX_OPTION_SECTOR_EXPOSURE_PCT:.0f}% of deployable option buying power",
+                "detail": "New entries are rejected when their persisted company sector would exceed this share of the total option-notional cap.",
+                "status": "configured",
+            },
+            {
+                "label": "Daily realized-loss limit",
+                "value": f"${DAILY_OPTION_LOSS_LIMIT_DOLLARS:,.0f}",
+                "detail": "New entries are rejected after persisted broker-confirmed option losses for the current market day reach this limit.",
                 "status": "configured",
             },
             {

@@ -15,7 +15,7 @@ from .shared import coerce_int, normalize_timestamp
 
 
 SNAPSHOT_VERSION = "decision-evidence-snapshot-v1"
-BACKTEST_ENGINE_VERSION = "one-contract-bid-ask-v1"
+BACKTEST_ENGINE_VERSION = "portfolio-guardrails-bid-ask-v2"
 DEFAULT_BACKTEST_CONFIG: dict[str, Any] = {
     "strategy_version": "frozen-manager-decision-v1",
     "model": "stored-manager-decision",
@@ -31,6 +31,10 @@ DEFAULT_BACKTEST_CONFIG: dict[str, Any] = {
     "max_hold_hours": 168,
     "take_profit_pct": 50.0,
     "stop_loss_pct": -50.0,
+    "max_concurrent_positions": 5,
+    "max_total_entry_notional": 50000.0,
+    "max_sector_notional_pct": 50.0,
+    "daily_loss_limit_dollars": 2000.0,
     "data_source_versions": {"option_quotes": "historical_option_quotes"},
 }
 
@@ -318,10 +322,13 @@ def _merged_config(config: dict[str, Any] | None) -> dict[str, Any]:
         for key in DEFAULT_BACKTEST_CONFIG:
             if key in config:
                 merged[key] = config[key]
-    for key in ("entry_slippage_bps", "exit_slippage_bps", "commission_per_contract", "max_spread_pct", "min_volume", "take_profit_pct", "stop_loss_pct"):
+    for key in ("entry_slippage_bps", "exit_slippage_bps", "commission_per_contract", "max_spread_pct", "min_volume", "take_profit_pct", "stop_loss_pct", "max_total_entry_notional", "max_sector_notional_pct", "daily_loss_limit_dollars"):
         merged[key] = _number(merged[key])
-    for key in ("option_multiplier", "default_order_qty", "max_entry_delay_minutes", "max_hold_hours"):
+    for key in ("option_multiplier", "default_order_qty", "max_entry_delay_minutes", "max_hold_hours", "max_concurrent_positions"):
         merged[key] = max(1, int(_number(merged[key], 1)))
+    merged["max_total_entry_notional"] = max(1.0, merged["max_total_entry_notional"])
+    merged["max_sector_notional_pct"] = min(100.0, max(0.01, merged["max_sector_notional_pct"]))
+    merged["daily_loss_limit_dollars"] = max(1.0, merged["daily_loss_limit_dollars"])
     merged["strategy_version"] = str(merged["strategy_version"] or DEFAULT_BACKTEST_CONFIG["strategy_version"])
     merged["model"] = str(merged["model"] or "")
     merged["prompt_version"] = str(merged["prompt_version"] or "")
@@ -369,6 +376,7 @@ def _simulate_event(decision: dict[str, Any], snapshot: dict[str, Any], conn: sq
         "decision": str(decision.get("manager_decision") or "").strip().lower(),
         "option_symbol": option_symbol,
         "rationale": str(decision.get("manager_reason") or "").strip(),
+        "portfolio_sector": str(decision.get("sector_key") or "unknown").strip().lower() or "unknown",
         "quantity": quantity,
         "warnings": [],
     }
@@ -412,6 +420,8 @@ def _simulate_event(decision: dict[str, Any], snapshot: dict[str, Any], conn: sq
             "status": "no_exit_quote",
             "entry_at": entry_at.isoformat(),
             "entry_price": entry_price,
+            "entry_notional": round(entry_notional, 4),
+            "risk_release_at": cutoff.isoformat(),
             "quote_provider": entry_quote.get("provider"),
             "pricing_source": pricing_source,
             "warnings": ["no_valid_historical_exit_quote"],
@@ -426,6 +436,8 @@ def _simulate_event(decision: dict[str, Any], snapshot: dict[str, Any], conn: sq
         "exit_at": exit_at.isoformat(),
         "entry_price": round(entry_price, 6),
         "exit_price": round(exit_price, 6),
+        "entry_notional": round(entry_notional, 4),
+        "risk_release_at": exit_at.isoformat(),
         "quote_provider": entry_quote.get("provider"),
         "pricing_source": pricing_source,
         "realized_pnl_pct": round(realized_pnl_pct, 4) if realized_pnl_pct is not None else None,
@@ -440,9 +452,75 @@ def _simulate_event(decision: dict[str, Any], snapshot: dict[str, Any], conn: sq
     }
 
 
+def _apply_portfolio_limits(events: list[dict[str, Any]], config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Reject candidate entries that exceed deterministic portfolio guardrails."""
+    active_positions: list[dict[str, Any]] = []
+    realized_losses_by_day: dict[str, float] = {}
+
+    candidates = [
+        event for event in events
+        if event.get("status") in {"simulated_closed", "no_exit_quote"}
+        and _parse_timestamp(event.get("entry_at")) is not None
+    ]
+    for event in sorted(candidates, key=lambda item: (str(item.get("entry_at") or ""), int(item.get("manager_decision_history_id") or 0))):
+        entry_at = _parse_timestamp(event.get("entry_at"))
+        if entry_at is None:
+            continue
+        remaining_positions: list[dict[str, Any]] = []
+        for position in active_positions:
+            release_at = _parse_timestamp(position.get("risk_release_at"))
+            if release_at is None or release_at > entry_at:
+                remaining_positions.append(position)
+                continue
+            realized_pnl = _number(position.get("realized_pnl_dollars"))
+            if realized_pnl < 0:
+                loss_day = release_at.date().isoformat()
+                realized_losses_by_day[loss_day] = realized_losses_by_day.get(loss_day, 0.0) + abs(realized_pnl)
+        active_positions = remaining_positions
+
+        entry_notional = _number(event.get("entry_notional"))
+        sector_key = str(event.get("portfolio_sector") or "unknown").strip().lower() or "unknown"
+        active_notional = sum(_number(position.get("entry_notional")) for position in active_positions)
+        sector_notional = sum(
+            _number(position.get("entry_notional"))
+            for position in active_positions
+            if str(position.get("portfolio_sector") or "unknown").strip().lower() == sector_key
+        )
+        sector_limit = config["max_total_entry_notional"] * (config["max_sector_notional_pct"] / 100.0)
+        daily_losses = realized_losses_by_day.get(entry_at.date().isoformat(), 0.0)
+        rejection_reason = ""
+        if daily_losses >= config["daily_loss_limit_dollars"]:
+            rejection_reason = "portfolio_daily_loss_limit"
+        elif len(active_positions) >= config["max_concurrent_positions"]:
+            rejection_reason = "portfolio_max_concurrent_positions"
+        elif active_notional + entry_notional > config["max_total_entry_notional"]:
+            rejection_reason = "portfolio_total_entry_notional_limit"
+        elif sector_notional + entry_notional > sector_limit:
+            rejection_reason = "portfolio_sector_notional_limit"
+
+        if rejection_reason:
+            event.update(
+                {
+                    "status": "portfolio_rejected",
+                    "entry_at": None,
+                    "exit_at": None,
+                    "entry_price": None,
+                    "exit_price": None,
+                    "realized_pnl_pct": None,
+                    "realized_pnl_dollars": None,
+                    "commission_dollars": None,
+                    "slippage_dollars": None,
+                    "warnings": [rejection_reason],
+                }
+            )
+            continue
+        active_positions.append(event)
+    return events
+
+
 def _metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
     filled = [event for event in events if event.get("status") == "simulated_closed"]
-    no_fill = [event for event in events if event.get("status") == "no_fill"]
+    no_fill = [event for event in events if event.get("status") in {"no_fill", "portfolio_rejected"}]
     pnl_values = [float(event["realized_pnl_pct"]) for event in filled if event.get("realized_pnl_pct") is not None]
     pnl_dollars = [float(event["realized_pnl_dollars"]) for event in filled if event.get("realized_pnl_dollars") is not None]
     wins = [value for value in pnl_values if value > 0]
@@ -452,7 +530,7 @@ def _metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
     peak = 0.0
     max_drawdown = 0.0
     equity_curve = []
-    for event in filled:
+    for event in sorted(filled, key=lambda item: (str(item.get("exit_at") or ""), int(item.get("manager_decision_history_id") or 0))):
         cumulative += _number(event.get("realized_pnl_dollars"))
         peak = max(peak, cumulative)
         max_drawdown = max(max_drawdown, peak - cumulative)
@@ -462,6 +540,7 @@ def _metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
         "filled_count": len(filled),
         "no_fill_count": len(no_fill),
         "no_exit_quote_count": len([event for event in events if event.get("status") == "no_exit_quote"]),
+        "portfolio_rejected_count": len([event for event in events if event.get("status") == "portfolio_rejected"]),
         "fill_rate_pct": round((len(filled) / len(events)) * 100, 2) if events else None,
         "win_rate_pct": round((len(wins) / len(pnl_values)) * 100, 2) if pnl_values else None,
         "expectancy_pct": round(sum(pnl_values) / len(pnl_values), 4) if pnl_values else None,
@@ -524,27 +603,33 @@ def run_backtest(
         run_id = int(cursor.lastrowid)
         try:
             query = """
-                SELECT id, symbol, decision_run_at, manager_decision, manager_reason,
-                       selected_option_symbol, selected_option_id, manager_input_json, manager_output_json
-                FROM manager_decision_history
-                WHERE LOWER(manager_decision) IN ('call', 'put')
+                SELECT history.id, history.symbol, history.decision_run_at, history.manager_decision, history.manager_reason,
+                       history.selected_option_symbol, history.selected_option_id, history.manager_input_json,
+                       history.manager_output_json, COALESCE(sector.sector_key, 'unknown') AS sector_key
+                FROM manager_decision_history AS history
+                LEFT JOIN companies AS company ON company.id = history.company_id
+                LEFT JOIN industries AS industry ON industry.id = company.industry_id
+                LEFT JOIN sectors AS sector ON sector.id = industry.sector_id
+                WHERE LOWER(history.manager_decision) IN ('call', 'put')
             """
             parameters: list[Any] = []
             if start_at:
-                query += " AND decision_run_at >= ?"
+                query += " AND history.decision_run_at >= ?"
                 parameters.append(normalize_timestamp(start_at))
             if end_at:
-                query += " AND decision_run_at <= ?"
+                query += " AND history.decision_run_at <= ?"
                 parameters.append(normalize_timestamp(end_at))
-            query += " ORDER BY decision_run_at ASC, id ASC LIMIT ?"
+            query += " ORDER BY history.decision_run_at ASC, history.id ASC LIMIT ?"
             parameters.append(max(1, min(int(limit), 1000)))
             decisions = [dict(row) for row in conn.execute(query, tuple(parameters)).fetchall()]
             events: list[dict[str, Any]] = []
             for decision in decisions:
                 snapshot = ensure_decision_evidence_snapshot(decision, conn=conn)
                 event = _simulate_event(decision, snapshot, conn, resolved_config)
-                _store_event(conn, run_id, event)
                 events.append(event)
+            _apply_portfolio_limits(events, resolved_config)
+            for event in events:
+                _store_event(conn, run_id, event)
             metrics = _metrics(events)
             metrics["decision_count"] = len(decisions)
             metrics["snapshot_count"] = len({event.get("evidence_snapshot_id") for event in events})
