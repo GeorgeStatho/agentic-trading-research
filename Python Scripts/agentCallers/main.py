@@ -349,6 +349,12 @@ def _record_manager_decision_history_for_result(manager_result: dict[str, Any]) 
             "article_references": _extract_manager_article_references(manager_result),
             "recent_manager_decision_history": manager_result.get("recent_manager_decision_history", []),
             "resolved_autopsy_insights": manager_result.get("resolved_autopsy_insights", []),
+            "replay_input": manager_result.get("manager_replay_payload", {}),
+            "replay_metadata": {
+                "version": "manager-replay-v1",
+                "model": manager_result.get("manager_model", ""),
+                "prompt_version": manager_result.get("manager_prompt_version", ""),
+            },
         },
         "manager_output_json": {
             "recommendation": recommendation,

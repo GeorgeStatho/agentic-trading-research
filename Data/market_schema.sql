@@ -140,6 +140,36 @@ CREATE TABLE IF NOT EXISTS decision_autopsy_ledger (
     FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS manager_replay_evaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    autopsy_limit INTEGER NOT NULL,
+    autopsy_max_age_days INTEGER NOT NULL,
+    source_decision_count INTEGER NOT NULL DEFAULT 0,
+    replayed_decision_count INTEGER NOT NULL DEFAULT 0,
+    skipped_decision_count INTEGER NOT NULL DEFAULT 0,
+    metrics_json TEXT,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS manager_replay_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    evaluation_id INTEGER NOT NULL,
+    manager_decision_history_id INTEGER NOT NULL,
+    replay_mode TEXT NOT NULL,
+    decision_run_at TEXT NOT NULL,
+    autopsy_ids_json TEXT NOT NULL DEFAULT '[]',
+    recommendation_json TEXT,
+    error_text TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (evaluation_id) REFERENCES manager_replay_evaluations(id) ON DELETE CASCADE,
+    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE CASCADE,
+    UNIQUE (evaluation_id, manager_decision_history_id, replay_mode)
+);
+
 CREATE TABLE IF NOT EXISTS telemetry_installations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     install_id TEXT NOT NULL UNIQUE,
@@ -222,6 +252,12 @@ CREATE INDEX IF NOT EXISTS idx_manager_decision_history_selected_option_symbol
 
 CREATE INDEX IF NOT EXISTS idx_decision_autopsy_ledger_run_at
     ON decision_autopsy_ledger (decision_run_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_manager_replay_results_evaluation
+    ON manager_replay_results (evaluation_id, replay_mode);
+
+CREATE INDEX IF NOT EXISTS idx_manager_replay_results_history
+    ON manager_replay_results (manager_decision_history_id);
 
 CREATE INDEX IF NOT EXISTS idx_telemetry_installations_project
     ON telemetry_installations (project);

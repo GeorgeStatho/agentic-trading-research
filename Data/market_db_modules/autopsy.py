@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from db_common import DB_PATH, get_connection, json_text
+from .shared import normalize_timestamp
 
 
 def _json_object(value: Any) -> dict[str, Any]:
@@ -76,6 +77,7 @@ def list_decision_autopsy_ledger(
     symbol: str | None = None,
     resolved_only: bool = False,
     within_days: int | None = None,
+    as_of: datetime | str | None = None,
     limit: int = 100,
     db_path: Path | str = DB_PATH,
 ) -> list[sqlite3.Row]:
@@ -87,6 +89,7 @@ def list_decision_autopsy_ledger(
     elif str(symbol or "").strip():
         where_clauses.append("ledger.symbol = ?")
         parameters.append(str(symbol).strip().upper())
+    as_of_timestamp = normalize_timestamp(as_of) if as_of is not None else None
     if resolved_only:
         where_clauses.extend(
             [
@@ -95,9 +98,20 @@ def list_decision_autopsy_ledger(
                 "history.resolved_outcome_label IS NOT NULL",
             ]
         )
+        if as_of_timestamp is not None:
+            where_clauses.append("history.latest_trade_pnl_updated_at <= ?")
+            parameters.append(as_of_timestamp)
     if within_days is not None and int(within_days) > 0:
         where_clauses.append("ledger.decision_run_at >= ?")
-        parameters.append((datetime.now(timezone.utc) - timedelta(days=max(1, int(within_days)))).isoformat())
+        reference_time = (
+            datetime.fromisoformat(as_of_timestamp)
+            if as_of_timestamp is not None
+            else datetime.now(timezone.utc)
+        )
+        parameters.append((reference_time - timedelta(days=max(1, int(within_days)))).isoformat())
+    if as_of_timestamp is not None:
+        where_clauses.append("ledger.decision_run_at < ?")
+        parameters.append(as_of_timestamp)
 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
     with get_connection(db_path) as conn:

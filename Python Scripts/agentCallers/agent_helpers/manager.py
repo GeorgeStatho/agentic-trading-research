@@ -41,6 +41,7 @@ from agent_helpers.market_context import (
     build_market_context,
 )
 from agent_contracts import ManagerInputPayload
+from db_common import DB_PATH
 from db_helpers.market import backfill_decision_autopsy_ledger, list_decision_autopsy_ledger, list_recent_manager_decision_history
 
 
@@ -67,6 +68,7 @@ __all__ = [
     "DEFAULT_RESOLVED_AUTOPSY_LIMIT",
     "DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS",
     "DEFAULT_SUMMARY_ARTICLE_LIMIT",
+    "build_resolved_autopsy_insights",
     "build_manager_input",
     "build_market_context",
     "test_market_context",
@@ -172,26 +174,34 @@ def _build_recent_manager_decision_history(
     return summarized
 
 
-def _build_resolved_autopsy_insights(
+def build_resolved_autopsy_insights(
     company: dict[str, Any],
     *,
     limit: int,
     max_age_days: int,
+    as_of: datetime | str | None = None,
+    db_path: Path | str = DB_PATH,
+    exclude_decision_history_id: int | None = None,
 ) -> list[dict[str, Any]]:
+    """Return outcome feedback that was resolved before a replay decision time."""
     try:
-        backfill_decision_autopsy_ledger()
+        backfill_decision_autopsy_ledger(db_path=db_path)
         rows = list_decision_autopsy_ledger(
             company_id=company.get("company_id"),
             symbol=company.get("symbol"),
             resolved_only=True,
             within_days=max(1, int(max_age_days)),
+            as_of=as_of,
             limit=max(1, int(limit)),
+            db_path=db_path,
         )
     except Exception:
         return []
     insights: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
+        if int(item.get("manager_decision_history_id") or 0) == int(exclude_decision_history_id or 0):
+            continue
         snapshot = _safe_json_object(item.get("snapshot_json"))
         manager_input = snapshot.get("manager_input") if isinstance(snapshot.get("manager_input"), dict) else {}
         strategist = manager_input.get("strategist_recommendation") if isinstance(manager_input.get("strategist_recommendation"), dict) else {}
@@ -293,7 +303,7 @@ def build_manager_input(
         history_max_age_days=recent_history_max_age_days,
         history_article_limit=recent_history_article_limit,
     )
-    payload["resolved_autopsy_insights"] = _build_resolved_autopsy_insights(
+    payload["resolved_autopsy_insights"] = build_resolved_autopsy_insights(
         payload["company"],
         limit=resolved_autopsy_limit,
         max_age_days=resolved_autopsy_max_age_days,

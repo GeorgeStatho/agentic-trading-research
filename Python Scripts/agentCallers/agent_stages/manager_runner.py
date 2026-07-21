@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from datetime import datetime
 from typing import Any
 
@@ -26,6 +27,7 @@ from .manager_prompt import build_manager_prompt
 from .manager_shared import (
     DEFAULT_MODEL,
     LOGGER,
+    MANAGER_PROMPT_VERSION,
     MANAGER_STAGE_VERSION,
     ask_model,
     get_default_client,
@@ -142,6 +144,54 @@ def _build_no_evidence_result(
     }
 
 
+def replay_manager_decision_from_payload(
+    payload: dict[str, Any],
+    *,
+    client: Client | None = None,
+    model: str = DEFAULT_MODEL,
+) -> dict[str, Any]:
+    """Re-run only the manager LLM against a frozen decision-time payload.
+
+    This intentionally does not refresh market data, select an option contract,
+    submit an order, or write an execution record.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("company"), dict):
+        raise ValueError("A frozen manager replay payload with company context is required.")
+
+    replay_payload = copy.deepcopy(payload)
+    if not payload_has_evidence(replay_payload):
+        return {
+            "recommendation": {
+                "decision": "neither",
+                "confidence": "low",
+                "target_dte_bucket": "none",
+                "reason": "Frozen manager payload did not contain enough evidence for a directional replay.",
+            },
+            "replay_skipped": "no_evidence",
+        }
+
+    system_prompt, user_prompt = build_manager_prompt(replay_payload)
+    raw_response = ask_model(
+        client=client or get_default_client(),
+        model=model,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
+    parsed = extract_json_value(raw_response)
+    recommendation = normalize_recommendation(
+        extract_recommendation(parsed),
+        strategist_recommendation=replay_payload.get("strategist_recommendation", {}),
+    )
+    if recommendation is None:
+        recommendation = normalize_recommendation(
+            extract_recommendation_from_text(raw_response),
+            strategist_recommendation=replay_payload.get("strategist_recommendation", {}),
+        )
+    if recommendation is None:
+        raise RuntimeError("Manager replay model returned an invalid recommendation response.")
+    return {"recommendation": recommendation, "replay_prompt_version": MANAGER_PROMPT_VERSION}
+
+
 def decide_company_option_position(
     company_identifier: str,
     *,
@@ -193,6 +243,9 @@ def decide_company_option_position(
             market_context=market_context,
             ),
             "resolved_autopsy_insights": payload.get("resolved_autopsy_insights", []),
+            "manager_replay_payload": copy.deepcopy(payload),
+            "manager_model": model,
+            "manager_prompt_version": MANAGER_PROMPT_VERSION,
         }
 
     system_prompt, user_prompt = build_manager_prompt(
@@ -268,4 +321,7 @@ def decide_company_option_position(
         "strategist_recommendation": payload.get("strategist_recommendation", {}),
         "recommendation": recommendation,
         "selected_option": None,
+        "manager_replay_payload": copy.deepcopy(payload),
+        "manager_model": model,
+        "manager_prompt_version": MANAGER_PROMPT_VERSION,
     }

@@ -1,0 +1,277 @@
+from __future__ import annotations
+
+"""Leakage-safe, no-execution A/B replay for manager autopsy feedback."""
+
+import argparse
+import copy
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+import sys
+from typing import Any, Callable
+
+
+if __package__ in {None, ""}:
+    AGENT_CALLERS_DIR = Path(__file__).resolve().parent
+    if str(AGENT_CALLERS_DIR) not in sys.path:
+        sys.path.append(str(AGENT_CALLERS_DIR))
+
+from _paths import bootstrap_agent_callers, load_project_env
+
+bootstrap_agent_callers()
+
+from agent_helpers.manager import (  # noqa: E402
+    DEFAULT_RESOLVED_AUTOPSY_LIMIT,
+    DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS,
+    build_resolved_autopsy_insights,
+)
+from agent_helpers.shared import Client  # noqa: E402
+from agent_stages.manager import (  # noqa: E402
+    DEFAULT_MODEL,
+    MANAGER_PROMPT_VERSION,
+    replay_manager_decision_from_payload,
+)
+from db_common import DB_PATH  # noqa: E402
+from db_helpers.market import (  # noqa: E402
+    complete_manager_replay_evaluation,
+    create_manager_replay_evaluation,
+    list_replayable_manager_decisions,
+    record_manager_replay_result,
+)
+
+
+ReplayDecider = Callable[[dict[str, Any]], dict[str, Any]]
+_DIRECTIONAL_DECISIONS = {"call", "put"}
+_CONFIDENCE_BUCKETS = ("high", "medium", "low")
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _coerce_pnl(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def build_replay_variants(
+    decision: dict[str, Any],
+    *,
+    autopsy_limit: int,
+    autopsy_max_age_days: int,
+    db_path: Path | str = DB_PATH,
+) -> tuple[dict[str, Any], dict[str, Any], list[int]] | None:
+    """Build baseline and feedback inputs from the same frozen decision snapshot.
+
+    Feedback is strictly limited to resolved same-company autopsies whose P/L
+    update had already occurred before this decision's timestamp.
+    """
+    manager_input = _json_object(decision.get("manager_input_json"))
+    replay_input = manager_input.get("replay_input")
+    if not isinstance(replay_input, dict) or not isinstance(replay_input.get("company"), dict):
+        return None
+
+    baseline_payload = copy.deepcopy(replay_input)
+    feedback_payload = copy.deepcopy(replay_input)
+    baseline_payload["resolved_autopsy_insights"] = []
+    feedback = build_resolved_autopsy_insights(
+        feedback_payload["company"],
+        limit=autopsy_limit,
+        max_age_days=autopsy_max_age_days,
+        as_of=decision.get("decision_run_at"),
+        db_path=db_path,
+        exclude_decision_history_id=int(decision.get("id") or 0),
+    )
+    feedback_payload["resolved_autopsy_insights"] = feedback
+    autopsy_ids = [int(item.get("autopsy_id") or 0) for item in feedback if int(item.get("autopsy_id") or 0) > 0]
+    return baseline_payload, feedback_payload, autopsy_ids
+
+
+def calculate_replay_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Score only replays matching the historically executed direction.
+
+    Alternate directions and no-trade decisions are retained as decision-change
+    evidence but not assigned fictional P/L without historical option pricing.
+    """
+    metrics: dict[str, Any] = {}
+    for mode in ("baseline", "resolved_autopsy_feedback"):
+        mode_events = [event for event in events if event.get("replay_mode") == mode]
+        completed = [event for event in mode_events if not event.get("error")]
+        directional = [event for event in completed if event.get("replay_decision") in _DIRECTIONAL_DECISIONS]
+        scored = [
+            event
+            for event in directional
+            if event.get("replay_decision") == event.get("historical_decision") and event.get("pnl_pct") is not None
+        ]
+        pnl_values = [float(event["pnl_pct"]) for event in scored]
+        wins = [value for value in pnl_values if value > 0]
+        false_positives = [value for value in pnl_values if value <= 0]
+        buckets: dict[str, dict[str, Any]] = {}
+        for confidence in _CONFIDENCE_BUCKETS:
+            bucket_values = [
+                float(event["pnl_pct"])
+                for event in scored
+                if event.get("replay_confidence") == confidence
+            ]
+            bucket_wins = [value for value in bucket_values if value > 0]
+            bucket_losses = [value for value in bucket_values if value <= 0]
+            buckets[confidence] = {
+                "count": len(bucket_values),
+                "win_rate": (len(bucket_wins) / len(bucket_values)) if bucket_values else None,
+                "average_pnl_pct": (sum(bucket_values) / len(bucket_values)) if bucket_values else None,
+                "false_positive_rate": (len(bucket_losses) / len(bucket_values)) if bucket_values else None,
+            }
+        metrics[mode] = {
+            "replayed_count": len(completed),
+            "error_count": len(mode_events) - len(completed),
+            "approved_count": len(directional),
+            "scored_historical_trade_count": len(scored),
+            "counterfactual_unscored_count": len(directional) - len(scored),
+            "win_rate": (len(wins) / len(scored)) if scored else None,
+            "average_pnl_pct": (sum(pnl_values) / len(pnl_values)) if pnl_values else None,
+            "false_positive_rate": (len(false_positives) / len(scored)) if scored else None,
+            "confidence_buckets": buckets,
+        }
+    return metrics
+
+
+def run_offline_manager_evaluation(
+    *,
+    model: str = DEFAULT_MODEL,
+    limit: int = 100,
+    autopsy_limit: int = DEFAULT_RESOLVED_AUTOPSY_LIMIT,
+    autopsy_max_age_days: int = DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS,
+    client: Client | None = None,
+    db_path: Path | str = DB_PATH,
+    persist: bool = True,
+    replay_decider: ReplayDecider | None = None,
+) -> dict[str, Any]:
+    """Compare frozen manager decisions with and without resolved feedback.
+
+    The function calls only the manager's LLM prompt path. It never refreshes
+    market data, invokes deterministic option selection, or submits an order.
+    """
+    source_rows = [dict(row) for row in list_replayable_manager_decisions(limit=limit, db_path=db_path)]
+    evaluation_id = None
+    if persist:
+        evaluation_id = create_manager_replay_evaluation(
+            model=model,
+            prompt_version=MANAGER_PROMPT_VERSION,
+            autopsy_limit=autopsy_limit,
+            autopsy_max_age_days=autopsy_max_age_days,
+            db_path=db_path,
+        )
+
+    def decide(payload: dict[str, Any]) -> dict[str, Any]:
+        if replay_decider is not None:
+            return replay_decider(payload)
+        return replay_manager_decision_from_payload(payload, client=client, model=model)
+
+    events: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for decision in source_rows:
+        variants = build_replay_variants(
+            decision,
+            autopsy_limit=autopsy_limit,
+            autopsy_max_age_days=autopsy_max_age_days,
+            db_path=db_path,
+        )
+        if variants is None:
+            skipped.append({"manager_decision_history_id": decision.get("id"), "reason": "missing_frozen_replay_input"})
+            continue
+        baseline_payload, feedback_payload, autopsy_ids = variants
+        for replay_mode, payload, current_autopsy_ids in (
+            ("baseline", baseline_payload, []),
+            ("resolved_autopsy_feedback", feedback_payload, autopsy_ids),
+        ):
+            event = {
+                "manager_decision_history_id": int(decision.get("id") or 0),
+                "replay_mode": replay_mode,
+                "historical_decision": str(decision.get("manager_decision") or "").lower(),
+                "historical_confidence": str(decision.get("manager_confidence") or "").lower(),
+                "pnl_pct": _coerce_pnl(decision.get("latest_trade_pnl_pct")),
+                "outcome_label": str(decision.get("resolved_outcome_label") or ""),
+                "autopsy_ids": current_autopsy_ids,
+            }
+            recommendation: dict[str, Any] | None = None
+            try:
+                result = decide(payload)
+                recommendation = result.get("recommendation") if isinstance(result, dict) else None
+                if not isinstance(recommendation, dict):
+                    raise RuntimeError("Replay did not return a recommendation object.")
+                event["replay_decision"] = str(recommendation.get("decision") or "").lower()
+                event["replay_confidence"] = str(recommendation.get("confidence") or "").lower()
+                event["recommendation"] = recommendation
+            except Exception as exc:  # Preserve individual replay failures for review.
+                event["error"] = str(exc)
+            events.append(event)
+            if evaluation_id is not None:
+                record_manager_replay_result(
+                    evaluation_id=evaluation_id,
+                    manager_decision_history_id=event["manager_decision_history_id"],
+                    replay_mode=replay_mode,
+                    decision_run_at=decision.get("decision_run_at"),
+                    autopsy_ids=current_autopsy_ids,
+                    recommendation=recommendation,
+                    error_text=event.get("error"),
+                    db_path=db_path,
+                )
+
+    metrics = calculate_replay_metrics(events)
+    report = {
+        "evaluation_id": evaluation_id,
+        "offline_only": True,
+        "model": model,
+        "prompt_version": MANAGER_PROMPT_VERSION,
+        "source_decision_count": len(source_rows),
+        "replayed_decision_count": len(source_rows) - len(skipped),
+        "skipped": skipped,
+        "metrics": metrics,
+        "events": events,
+    }
+    if evaluation_id is not None:
+        complete_manager_replay_evaluation(
+            evaluation_id=evaluation_id,
+            source_decision_count=len(source_rows),
+            replayed_decision_count=len(source_rows) - len(skipped),
+            skipped_decision_count=len(skipped),
+            metrics=metrics,
+            completed_at=datetime.now(timezone.utc),
+            db_path=db_path,
+        )
+    return report
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Offline A/B manager replay with resolved autopsy feedback.")
+    parser.add_argument("--limit", type=int, default=100, help="Maximum resolved historical decisions to replay.")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="Configured provider model to replay.")
+    parser.add_argument("--autopsy-limit", type=int, default=DEFAULT_RESOLVED_AUTOPSY_LIMIT)
+    parser.add_argument("--autopsy-max-age-days", type=int, default=DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS)
+    parser.add_argument("--db-path", type=Path, default=DB_PATH)
+    parser.add_argument("--no-persist", action="store_true", help="Print results without writing evaluation records.")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    load_project_env()
+    args = _parse_args()
+    result = run_offline_manager_evaluation(
+        model=args.model,
+        limit=max(1, args.limit),
+        autopsy_limit=max(1, args.autopsy_limit),
+        autopsy_max_age_days=max(1, args.autopsy_max_age_days),
+        db_path=args.db_path,
+        persist=not args.no_persist,
+    )
+    print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))
