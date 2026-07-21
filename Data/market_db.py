@@ -12,6 +12,7 @@ from market_db_modules.history_records import (
     record_manager_decision_history,
     update_manager_decision_latest_pnl,
 )
+from market_db_modules.autopsy import backfill_decision_autopsy_ledger, list_decision_autopsy_ledger
 from market_db_modules.entities import (
     add_company,
     add_industry,
@@ -49,6 +50,7 @@ __all__ = [
     "add_company_price_snapshot",
     "add_industry",
     "add_sector",
+    "backfill_decision_autopsy_ledger",
     "expire_manager_decision_pnl",
     "get_latest_linked_manager_decision_for_option_symbol",
     "get_latest_open_manager_decision_for_trade_link",
@@ -56,6 +58,7 @@ __all__ = [
     "get_telemetry_summary",
     "initialize_database",
     "link_manager_decision_to_trade_execution",
+    "list_decision_autopsy_ledger",
     "list_companies_by_industry",
     "list_company_price_snapshots",
     "list_industry_company_rankings",

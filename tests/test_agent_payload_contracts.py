@@ -327,6 +327,22 @@ class ManagerPayloadContractTests(VerboseTestCase):
                     ],
                 }
             ],
+            "resolved_autopsy_insights": [
+                {
+                    "autopsy_id": 17,
+                    "decision_history_id": 12,
+                    "decision_run_at": "2026-05-10T14:00:00+00:00",
+                    "manager_decision": "call",
+                    "manager_confidence": "high",
+                    "target_dte_bucket": "20_30",
+                    "strategist_decision": "trade_candidate",
+                    "article_ids": [10],
+                    "outcome_pnl_pct": -8.5,
+                    "outcome_label": "open_loss",
+                    "pre_trade_risks": ["Event volatility can invalidate the catalyst."],
+                    "what_proved_us_wrong": "Event volatility can invalidate the catalyst.",
+                }
+            ],
             "strategist_recommendation": {
                 "decision": "trade_candidate",
                 "confidence": "high",
@@ -373,8 +389,10 @@ class ManagerPayloadContractTests(VerboseTestCase):
         self.assertIn("views_summary", user_payload)
         self.assertIn("context_snapshot", user_payload)
         self.assertIn("recent_manager_decision_history", user_payload)
+        self.assertIn("resolved_autopsy_insights", user_payload)
         self.assertNotIn("peer_groups", user_payload)
         self.assertEqual(len(user_payload["recent_manager_decision_history"]), 1)
+        self.assertEqual(user_payload["resolved_autopsy_insights"][0]["outcome_pnl_pct"], -8.5)
         self.assertEqual(
             user_payload["recent_manager_decision_history"][0]["article_references"][0]["title"],
             "Fresh Apple article",

@@ -348,6 +348,7 @@ def _record_manager_decision_history_for_result(manager_result: dict[str, Any]) 
             "strategist_recommendation": strategist_recommendation,
             "article_references": _extract_manager_article_references(manager_result),
             "recent_manager_decision_history": manager_result.get("recent_manager_decision_history", []),
+            "resolved_autopsy_insights": manager_result.get("resolved_autopsy_insights", []),
         },
         "manager_output_json": {
             "recommendation": recommendation,

@@ -69,6 +69,7 @@ def _build_context_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
         "strategist_timing_clarity": str(strategist_recommendation.get("timing_clarity") or ""),
         "strategist_time_horizon": str(strategist_recommendation.get("time_horizon") or ""),
         "strategist_contradictions_present": bool(strategist_recommendation.get("contradictions_present")),
+        "resolved_autopsy_insight_count": len(payload.get("resolved_autopsy_insights", [])),
     }
 
 

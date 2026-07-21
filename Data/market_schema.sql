@@ -130,6 +130,16 @@ CREATE TABLE IF NOT EXISTS manager_decision_history (
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS decision_autopsy_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    manager_decision_history_id INTEGER NOT NULL UNIQUE,
+    symbol TEXT,
+    decision_run_at TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS telemetry_installations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     install_id TEXT NOT NULL UNIQUE,
@@ -209,6 +219,9 @@ CREATE INDEX IF NOT EXISTS idx_manager_decision_history_trade_execution_order_id
 
 CREATE INDEX IF NOT EXISTS idx_manager_decision_history_selected_option_symbol
     ON manager_decision_history (selected_option_symbol);
+
+CREATE INDEX IF NOT EXISTS idx_decision_autopsy_ledger_run_at
+    ON decision_autopsy_ledger (decision_run_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_telemetry_installations_project
     ON telemetry_installations (project);

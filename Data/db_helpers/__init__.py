@@ -10,6 +10,7 @@ from db_helpers.market import (
     initialize_market_database,
     link_manager_decision_to_trade_execution,
     list_companies_by_industry,
+    list_decision_autopsy_ledger,
     list_recent_manager_decision_history,
     list_option_trade_executions,
     load_sector_tree,

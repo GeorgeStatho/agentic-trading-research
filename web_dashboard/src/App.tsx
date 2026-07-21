@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import './App.css'
 import AnalyzedCompanyNewsPage from './analyzedCompanyNews.tsx'
 import CompanyDecisionsPage from './companyDecisions.tsx'
+import DecisionAutopsyPage from './decisionAutopsy.tsx'
 import DashboardKpis from './dashboardKpis.tsx'
 import ExposureMapPage from './exposureMap.tsx'
 import Graph from './Graph.tsx'
@@ -11,7 +12,7 @@ import RiskControlsPanel from './riskControls.tsx'
 import ScriptStatusIndicator from './scriptStatus.tsx'
 import WhyBotTradedPanel from './whyBotTraded.tsx'
 
-type DashboardView = 'dashboard' | 'company-news' | 'company-decisions' | 'exposure-map'
+type DashboardView = 'dashboard' | 'company-news' | 'company-decisions' | 'decision-autopsy' | 'exposure-map'
 
 function getViewFromHash(): DashboardView {
   const normalizedHash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase()
@@ -20,6 +21,9 @@ function getViewFromHash(): DashboardView {
   }
   if (normalizedHash === 'company-decisions') {
     return 'company-decisions'
+  }
+  if (normalizedHash === 'decision-autopsy') {
+    return 'decision-autopsy'
   }
   if (normalizedHash === 'exposure-map') {
     return 'exposure-map'
@@ -51,9 +55,11 @@ function App() {
               ? 'Operations Dashboard'
               : view === 'company-news'
                 ? 'Analyzed Company News'
-                : view === 'company-decisions'
-                  ? 'Company Decisions'
-                  : 'Evidence Exposure Map'}
+              : view === 'company-decisions'
+                ? 'Company Decisions'
+                : view === 'decision-autopsy'
+                  ? 'Decision Autopsy Ledger'
+                : 'Evidence Exposure Map'}
           </h1>
         </div>
         <nav className="app-nav" aria-label="Dashboard pages">
@@ -76,6 +82,12 @@ function App() {
             Decisions
           </a>
           <a
+            href="#/decision-autopsy"
+            className={`app-nav__link${view === 'decision-autopsy' ? ' app-nav__link--active' : ''}`}
+          >
+            Autopsy Ledger
+          </a>
+          <a
             href="#/exposure-map"
             className={`app-nav__link${view === 'exposure-map' ? ' app-nav__link--active' : ''}`}
           >
@@ -88,6 +100,8 @@ function App() {
         <AnalyzedCompanyNewsPage />
       ) : view === 'company-decisions' ? (
         <CompanyDecisionsPage />
+      ) : view === 'decision-autopsy' ? (
+        <DecisionAutopsyPage />
       ) : view === 'exposure-map' ? (
         <ExposureMapPage />
       ) : (

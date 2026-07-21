@@ -41,7 +41,7 @@ from agent_helpers.market_context import (
     build_market_context,
 )
 from agent_contracts import ManagerInputPayload
-from db_helpers.market import list_recent_manager_decision_history
+from db_helpers.market import backfill_decision_autopsy_ledger, list_decision_autopsy_ledger, list_recent_manager_decision_history
 
 
 DEFAULT_RECENT_MANAGER_HISTORY_LIMIT = max(1, int(os.getenv("MANAGER_DECISION_HISTORY_LIMIT", "3")))
@@ -53,6 +53,8 @@ DEFAULT_RECENT_MANAGER_HISTORY_ARTICLE_LIMIT = max(
     1,
     int(os.getenv("MANAGER_DECISION_HISTORY_ARTICLE_LIMIT", "3")),
 )
+DEFAULT_RESOLVED_AUTOPSY_LIMIT = max(1, int(os.getenv("MANAGER_RESOLVED_AUTOPSY_LIMIT", "3")))
+DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS = max(1, int(os.getenv("MANAGER_RESOLVED_AUTOPSY_MAX_AGE_DAYS", "180")))
 
 
 __all__ = [
@@ -62,6 +64,8 @@ __all__ = [
     "DEFAULT_RECENT_MANAGER_HISTORY_ARTICLE_LIMIT",
     "DEFAULT_RECENT_MANAGER_HISTORY_LIMIT",
     "DEFAULT_RECENT_MANAGER_HISTORY_MAX_AGE_DAYS",
+    "DEFAULT_RESOLVED_AUTOPSY_LIMIT",
+    "DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS",
     "DEFAULT_SUMMARY_ARTICLE_LIMIT",
     "build_manager_input",
     "build_market_context",
@@ -168,6 +172,75 @@ def _build_recent_manager_decision_history(
     return summarized
 
 
+def _build_resolved_autopsy_insights(
+    company: dict[str, Any],
+    *,
+    limit: int,
+    max_age_days: int,
+) -> list[dict[str, Any]]:
+    try:
+        backfill_decision_autopsy_ledger()
+        rows = list_decision_autopsy_ledger(
+            company_id=company.get("company_id"),
+            symbol=company.get("symbol"),
+            resolved_only=True,
+            within_days=max(1, int(max_age_days)),
+            limit=max(1, int(limit)),
+        )
+    except Exception:
+        return []
+    insights: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        snapshot = _safe_json_object(item.get("snapshot_json"))
+        manager_input = snapshot.get("manager_input") if isinstance(snapshot.get("manager_input"), dict) else {}
+        strategist = manager_input.get("strategist_recommendation") if isinstance(manager_input.get("strategist_recommendation"), dict) else {}
+        risks = [str(risk).strip() for risk in strategist.get("risks", []) if str(risk).strip()][:2] if isinstance(strategist.get("risks"), list) else []
+        article_ids = [
+            int(article.get("article_id") or 0)
+            for article in _extract_recent_history_article_references(manager_input, article_limit=3)
+            if int(article.get("article_id") or 0) > 0
+        ]
+        pnl = item.get("latest_trade_pnl_pct")
+        try:
+            pnl = float(pnl) if pnl is not None else None
+        except (TypeError, ValueError):
+            pnl = None
+        insights.append(
+            {
+                "autopsy_id": int(item.get("id") or 0),
+                "decision_history_id": int(item.get("manager_decision_history_id") or 0),
+                "decision_run_at": str(item.get("decision_run_at") or ""),
+                "manager_decision": str(snapshot.get("manager_decision") or ""),
+                "manager_confidence": str(snapshot.get("manager_confidence") or ""),
+                "target_dte_bucket": str(snapshot.get("target_dte_bucket") or ""),
+                "strategist_decision": str(snapshot.get("strategist_decision") or strategist.get("decision") or ""),
+                "article_ids": article_ids,
+                "outcome_pnl_pct": pnl,
+                "outcome_label": str(item.get("resolved_outcome_label") or ""),
+                "pre_trade_risks": risks,
+                "what_proved_us_wrong": (
+                    risks[0]
+                    if pnl is not None and pnl < 0 and risks
+                    else "No adverse outcome was recorded in the eligible review window."
+                ),
+            }
+        )
+    return insights
+
+
+def _safe_json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def build_manager_input(
     company_identifier: str,
     *,
@@ -185,6 +258,8 @@ def build_manager_input(
     recent_history_limit: int = DEFAULT_RECENT_MANAGER_HISTORY_LIMIT,
     recent_history_max_age_days: int = DEFAULT_RECENT_MANAGER_HISTORY_MAX_AGE_DAYS,
     recent_history_article_limit: int = DEFAULT_RECENT_MANAGER_HISTORY_ARTICLE_LIMIT,
+    resolved_autopsy_limit: int = DEFAULT_RESOLVED_AUTOPSY_LIMIT,
+    resolved_autopsy_max_age_days: int = DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS,
 ) -> ManagerInputPayload:
     """Build the full manager payload for one company.
 
@@ -217,6 +292,11 @@ def build_manager_input(
         history_limit=recent_history_limit,
         history_max_age_days=recent_history_max_age_days,
         history_article_limit=recent_history_article_limit,
+    )
+    payload["resolved_autopsy_insights"] = _build_resolved_autopsy_insights(
+        payload["company"],
+        limit=resolved_autopsy_limit,
+        max_age_days=resolved_autopsy_max_age_days,
     )
     return payload
 

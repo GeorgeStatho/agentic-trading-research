@@ -186,11 +186,14 @@ def decide_company_option_position(
     context_snapshot = _build_context_snapshot(payload)
 
     if not payload_has_evidence(payload):
-        return _build_no_evidence_result(
+        return {
+            **_build_no_evidence_result(
             company,
             context_snapshot=context_snapshot,
             market_context=market_context,
-        )
+            ),
+            "resolved_autopsy_insights": payload.get("resolved_autopsy_insights", []),
+        }
 
     system_prompt, user_prompt = build_manager_prompt(
         payload,
@@ -261,6 +264,7 @@ def decide_company_option_position(
         "market_context": market_context,
         "supporting_articles": payload.get("supporting_articles", {}),
         "recent_manager_decision_history": payload.get("recent_manager_decision_history", []),
+        "resolved_autopsy_insights": payload.get("resolved_autopsy_insights", []),
         "strategist_recommendation": payload.get("strategist_recommendation", {}),
         "recommendation": recommendation,
         "selected_option": None,

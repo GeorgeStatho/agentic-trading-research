@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from market_db import (  # noqa: E402
     expire_manager_decision_pnl,
     get_latest_open_manager_decision_for_trade_link,
     initialize_database,
+    list_decision_autopsy_ledger,
     link_manager_decision_to_trade_execution,
     list_recent_manager_decision_history,
     record_manager_decision_history,
@@ -87,6 +89,13 @@ class ManagerDecisionHistoryTests(unittest.TestCase):
         self.assertEqual(rows[0]["manager_confidence"], "high")
         self.assertEqual(rows[0]["selected_option_symbol"], "MSFT260619C00450000")
 
+        ledger_rows = list_decision_autopsy_ledger(db_path=self.db_path)
+        self.assertEqual(len(ledger_rows), 1)
+        snapshot = json.loads(ledger_rows[0]["snapshot_json"])
+        self.assertEqual(ledger_rows[0]["manager_decision_history_id"], decision_id)
+        self.assertEqual(snapshot["manager_input"]["company"]["symbol"], "MSFT")
+        self.assertEqual(snapshot["manager_output"]["recommendation"]["decision"], "call")
+
     def test_link_trade_execution_and_update_latest_pnl(self) -> None:
         submitted_at = "2026-05-22T14:05:00+00:00"
         decision_id = record_manager_decision_history(
@@ -131,6 +140,15 @@ class ManagerDecisionHistoryTests(unittest.TestCase):
             db_path=self.db_path,
         )
         self.assertTrue(updated)
+
+        resolved_ledger_rows = list_decision_autopsy_ledger(
+            company_id=self.company_id,
+            resolved_only=True,
+            within_days=365,
+            db_path=self.db_path,
+        )
+        self.assertEqual(len(resolved_ledger_rows), 1)
+        self.assertEqual(resolved_ledger_rows[0]["manager_decision_history_id"], decision_id)
 
         rows = list_recent_manager_decision_history(
             underlying_symbol="MSFT",

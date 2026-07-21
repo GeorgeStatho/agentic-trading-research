@@ -108,7 +108,35 @@ def record_manager_decision_history(
         """,
         values,
     )
-    return int(cursor.lastrowid)
+    decision_history_id = int(cursor.lastrowid)
+    snapshot = {
+        "version": "decision-autopsy-v1",
+        "company_id": company_id,
+        "symbol": symbol,
+        "company_name": company_name,
+        "decision_run_at": decision_run_at,
+        "strategist_decision": clean_text(history.get("strategist_decision")),
+        "manager_decision": clean_text(history.get("manager_decision")),
+        "manager_confidence": clean_text(history.get("manager_confidence")),
+        "manager_reason": clean_text(history.get("manager_reason")),
+        "target_dte_bucket": clean_text(history.get("target_dte_bucket")),
+        "selected_option_id": clean_text(history.get("selected_option_id")),
+        "selected_option_symbol": clean_text(history.get("selected_option_symbol")),
+        "selected_expiration_date": clean_text(history.get("selected_expiration_date")),
+        "selected_strike_price": coerce_float(history.get("selected_strike_price")),
+        "selected_option_source": clean_text(history.get("selected_option_source")),
+        "manager_input": history.get("manager_input_json") if isinstance(history.get("manager_input_json"), dict) else {},
+        "manager_output": history.get("manager_output_json") if isinstance(history.get("manager_output_json"), dict) else {},
+    }
+    conn.execute(
+        """
+        INSERT INTO decision_autopsy_ledger (
+            manager_decision_history_id, symbol, decision_run_at, snapshot_json, created_at
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        (decision_history_id, symbol, decision_run_at, json_text(snapshot), decision_run_at),
+    )
+    return decision_history_id
 
 
 def update_manager_decision_latest_pnl(
