@@ -15,6 +15,7 @@ def list_replayable_manager_decisions(
     db_path: Path | str = DB_PATH,
 ) -> list[sqlite3.Row]:
     """Return resolved, executed decisions in chronological replay order."""
+    initialize_database(db_path=db_path)
     with get_connection(db_path) as conn:
         return conn.execute(
             """

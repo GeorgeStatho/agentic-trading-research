@@ -194,6 +194,23 @@ class OfflineManagerEvaluationTests(unittest.TestCase):
         self.assertEqual(report["replayed_decision_count"], 0)
         self.assertEqual(report["skipped"][0]["reason"], "missing_frozen_replay_input")
 
+    def test_evaluation_bootstraps_an_empty_market_database(self) -> None:
+        empty_db_path = Path(self.temp_dir.name) / "empty_market.db"
+
+        report = run_offline_manager_evaluation(
+            model="test-model",
+            db_path=empty_db_path,
+            persist=False,
+            replay_decider=lambda _: self.fail("An empty database must not invoke the manager."),
+        )
+
+        self.assertEqual(report["source_decision_count"], 0)
+        with get_connection(empty_db_path) as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'manager_decision_history'"
+            ).fetchone()
+        self.assertIsNotNone(exists)
+
 
 if __name__ == "__main__":
     unittest.main()
