@@ -17,6 +17,7 @@ type Record = {
 }
 
 type Payload = { as_of: string; count: number; records: Record[]; read_only: boolean; no_trade_executed_by_feature: boolean }
+type DemoScenario = { demo_mode: true; disclaimer: string; autopsy: Payload }
 
 function formatDate(value: string): string {
   const date = new Date(value)
@@ -36,14 +37,22 @@ async function getAutopsies(): Promise<Payload> {
   return response.json() as Promise<Payload>
 }
 
-function DecisionAutopsyPage() {
+async function getDemoAutopsies(): Promise<Payload> {
+  const response = await fetch('/api/demo-mode')
+  if (!response.ok) throw new Error(`Failed to load demo mode: ${response.status}`)
+  const payload = await response.json() as DemoScenario
+  return payload.autopsy
+}
+
+function DecisionAutopsyPage({ demoMode = false }: { demoMode?: boolean }) {
   const [payload, setPayload] = useState<Payload | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
-    getAutopsies().then((next) => {
+    const load = demoMode ? getDemoAutopsies() : getAutopsies()
+    load.then((next) => {
       if (!active) return
       setPayload(next)
       setSelectedId(next.records[0]?.id ?? null)
@@ -51,7 +60,7 @@ function DecisionAutopsyPage() {
       if (active) setError(reason instanceof Error ? reason.message : 'Failed to load ledger.')
     })
     return () => { active = false }
-  }, [])
+  }, [demoMode])
 
   const selected = useMemo(() => payload?.records.find((record) => record.id === selectedId) ?? payload?.records[0] ?? null, [payload, selectedId])
   const counts = useMemo(() => ({
@@ -65,6 +74,7 @@ function DecisionAutopsyPage() {
       <div><p>Decision Autopsy</p><h1>AI Accountability Ledger</h1><span>Immutable decision-time evidence snapshots. Read only—this feature never submits an order.</span></div>
       <div className="autopsy-hero__metrics"><article><span>Proposals</span><b>{counts.proposed}</b></article><article><span>Executed</span><b>{counts.executed}</b></article><article><span>Adverse outcomes</span><b>{counts.adverse}</b></article></div>
     </section>
+    {demoMode ? <section className="autopsy-demo-notice">Seeded fictional walkthrough. This review creates no trade, order, or live outcome.</section> : null}
     {error ? <section className="autopsy-empty">{error}</section> : null}
     {!error && !payload ? <section className="autopsy-empty">Loading immutable decision records…</section> : null}
     {payload && <section className="autopsy-layout">

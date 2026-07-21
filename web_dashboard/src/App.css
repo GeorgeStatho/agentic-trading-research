@@ -252,6 +252,22 @@
   color: var(--text-h);
 }
 
+.app-nav__demo {
+  border: 1px solid #e5a94f;
+  border-radius: 999px;
+  padding: 10px 14px;
+  color: #ffcf87;
+  font: inherit;
+  cursor: pointer;
+  background: color-mix(in srgb, #e5a94f 8%, transparent);
+}
+
+.app-nav__demo--active {
+  border-color: var(--accent);
+  color: var(--text-h);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 @media (max-width: 820px) {
   .app-topbar {
     flex-direction: column;

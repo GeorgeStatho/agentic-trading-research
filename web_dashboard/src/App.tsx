@@ -15,7 +15,7 @@ import WhyBotTradedPanel from './whyBotTraded.tsx'
 type DashboardView = 'dashboard' | 'company-news' | 'company-decisions' | 'decision-autopsy' | 'exposure-map'
 
 function getViewFromHash(): DashboardView {
-  const normalizedHash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase()
+  const normalizedHash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase().split('?')[0]
   if (normalizedHash === 'company-news') {
     return 'company-news'
   }
@@ -31,12 +31,18 @@ function getViewFromHash(): DashboardView {
   return 'dashboard'
 }
 
+function getDemoModeFromHash(): boolean {
+  return new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('demo') === '1'
+}
+
 function App() {
   const [view, setView] = useState<DashboardView>(() => getViewFromHash())
+  const [demoMode, setDemoMode] = useState(() => getDemoModeFromHash())
 
   useEffect(() => {
     const handleHashChange = () => {
       setView(getViewFromHash())
+      setDemoMode(getDemoModeFromHash())
     }
 
     window.addEventListener('hashchange', handleHashChange)
@@ -44,6 +50,11 @@ function App() {
       window.removeEventListener('hashchange', handleHashChange)
     }
   }, [])
+
+  const hrefFor = (target: DashboardView) => `#/${target}${demoMode ? '?demo=1' : ''}`
+  const toggleDemoMode = () => {
+    window.location.hash = demoMode ? '#/exposure-map' : '#/exposure-map?demo=1'
+  }
 
   return (
     <div className="app-shell">
@@ -64,35 +75,38 @@ function App() {
         </div>
         <nav className="app-nav" aria-label="Dashboard pages">
           <a
-            href="#/dashboard"
+            href={hrefFor('dashboard')}
             className={`app-nav__link${view === 'dashboard' ? ' app-nav__link--active' : ''}`}
           >
             Overview
           </a>
           <a
-            href="#/company-news"
+            href={hrefFor('company-news')}
             className={`app-nav__link${view === 'company-news' ? ' app-nav__link--active' : ''}`}
           >
             Company News
           </a>
           <a
-            href="#/company-decisions"
+            href={hrefFor('company-decisions')}
             className={`app-nav__link${view === 'company-decisions' ? ' app-nav__link--active' : ''}`}
           >
             Decisions
           </a>
           <a
-            href="#/decision-autopsy"
+            href={hrefFor('decision-autopsy')}
             className={`app-nav__link${view === 'decision-autopsy' ? ' app-nav__link--active' : ''}`}
           >
             Autopsy Ledger
           </a>
           <a
-            href="#/exposure-map"
+            href={hrefFor('exposure-map')}
             className={`app-nav__link${view === 'exposure-map' ? ' app-nav__link--active' : ''}`}
           >
             Exposure Map
           </a>
+          <button type="button" className={`app-nav__demo${demoMode ? ' app-nav__demo--active' : ''}`} onClick={toggleDemoMode}>
+            {demoMode ? 'Exit Demo' : 'Demo Mode'}
+          </button>
         </nav>
       </header>
 
@@ -101,9 +115,9 @@ function App() {
       ) : view === 'company-decisions' ? (
         <CompanyDecisionsPage />
       ) : view === 'decision-autopsy' ? (
-        <DecisionAutopsyPage />
+        <DecisionAutopsyPage demoMode={demoMode} />
       ) : view === 'exposure-map' ? (
-        <ExposureMapPage />
+        <ExposureMapPage demoMode={demoMode} />
       ) : (
         <main className="mainbody">
           <DashboardKpis />

@@ -40,6 +40,15 @@ class ApiSmokeTests(unittest.TestCase):
         self.assertEqual(response.get_json(), {"status": "ok"})
         self.assertEqual(response.headers.get("Access-Control-Allow-Origin"), "*")
 
+    def test_demo_mode_route_returns_seeded_read_only_story(self):
+        response = self.client.get("/api/demo-mode")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["demo_mode"])
+        self.assertTrue(payload["exposure"]["payload"]["no_trade_executed"])
+        self.assertFalse(payload["autopsy"]["records"][0]["outcome"]["trade_executed"])
+
 
 if __name__ == "__main__":
     unittest.main()

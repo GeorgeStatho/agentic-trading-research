@@ -72,6 +72,8 @@
 .exposure-map__article small,
 .exposure-map__drawer small { opacity: 0.72; }
 .exposure-map__article-score { color: #7ed4a9; font-size: 0.72rem; font-weight: 700; }
+.exposure-map__demo-badge, .exposure-map__demo-copy { display: inline-flex; width: max-content; margin-top: 8px; padding: 4px 7px; border: 1px solid #e5a94f; border-radius: 999px; color: #ffcf87; font-size: .7rem; font-weight: 700; }
+.exposure-map__demo-copy { margin: 0; border-color: color-mix(in srgb, var(--accent) 46%, var(--border)); color: var(--text-dim); }
 
 .exposure-map__canvas-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .exposure-map__canvas-header { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding: 18px 20px; border-bottom: 1px solid var(--border); }
@@ -138,6 +140,7 @@
 .exposure-map__drawer > p { margin: 10px 0; }
 .exposure-map__drawer a { display: inline-block; margin: 6px 0 15px; color: var(--accent); }
 .exposure-map__safety { margin-bottom: 18px; padding: 10px; border: 1px solid #e5a94f; border-radius: 10px; color: #ffcf87; font-weight: 800; font-size: 0.8rem; }
+.exposure-map__demo-notice { margin: -8px 0 16px; padding: 9px; border-left: 3px solid var(--accent); color: var(--text-dim); font-size: .78rem; background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .exposure-map__drawer-block { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
 .exposure-map__drawer-block h3 { font-size: 0.9rem; }
 .exposure-map__drawer-block p { margin: 8px 0; }

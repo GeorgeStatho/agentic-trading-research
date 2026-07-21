@@ -153,12 +153,15 @@ React dashboard
 
 ## Demo Flow
 
-1. Open **Company News** and select a recent high-evidence article.
-2. Open **Exposure Map**, choose that article, and run/cached-run grounded analysis.
-3. Filter to negative impact or high-risk position paths; select a node to inspect source, causal mechanism, score inputs, and uncertainty.
-4. Open **Decisions** to compare Strategist and Manager output.
-5. Open **Decision Autopsy Ledger** to replay the proposal, evidence, constraints, execution outcome, and post-trade review.
-6. Show that a future manager run receives only compact, resolved autopsy feedback while preserving current evidence and deterministic safety gates.
+1. Select **Demo Mode** in the dashboard header for the always-available seeded Uber walkthrough.
+2. Open **Exposure Map** to show a source article, red sector/company/short-DTE option path, causal explanation, and deterministic risk inputs.
+3. Open **Autopsy Ledger** while Demo Mode remains active to show the matching evidence and “what proved us wrong?” review.
+4. Exit Demo Mode to show live project data, then open **Company News** and select a recent high-evidence article.
+5. Open **Exposure Map**, choose that article, and run/cached-run grounded analysis.
+6. Filter to negative impact or high-risk position paths; select a node to inspect source, causal mechanism, score inputs, and uncertainty.
+7. Open **Decisions** to compare Strategist and Manager output.
+8. Open **Decision Autopsy Ledger** to replay the proposal, evidence, constraints, execution outcome, and post-trade review.
+9. Show that a future manager run receives only compact, resolved autopsy feedback while preserving current evidence and deterministic safety gates.
 
 ## Validation Performed
 

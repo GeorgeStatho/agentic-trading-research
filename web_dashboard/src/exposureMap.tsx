@@ -75,7 +75,10 @@ type ExposurePayload = {
   position_impacts: PositionImpact[]
   uncertainties: string[]
   no_trade_executed: boolean
+  demo_data?: boolean
 }
+
+type DemoScenario = { demo_mode: true; disclaimer: string; exposure: { articles: Article[]; payload: ExposurePayload } }
 
 type ExposureNodeData = GraphNode
 type FlowNode = Node<ExposureNodeData, 'exposure'>
@@ -159,6 +162,12 @@ async function analyzeArticle(articleId: number, model: string): Promise<Exposur
     throw new Error(payload?.error ?? `Failed to analyze article: ${response.status}`)
   }
   return response.json() as Promise<ExposurePayload>
+}
+
+async function getDemoScenario(): Promise<DemoScenario> {
+  const response = await fetch('/api/demo-mode')
+  if (!response.ok) throw new Error(`Failed to load demo mode: ${response.status}`)
+  return response.json() as Promise<DemoScenario>
 }
 
 function buildFlowNodes(nodes: GraphNode[]): FlowNode[] {
@@ -259,7 +268,7 @@ function buildVisibleGraph(
   }
 }
 
-function ExposureMapPage() {
+function ExposureMapPage({ demoMode = false }: { demoMode?: boolean }) {
   const [articles, setArticles] = useState<Article[]>([])
   const [selectedArticleId, setSelectedArticleId] = useState<number | null>(null)
   const [payload, setPayload] = useState<ExposurePayload | null>(null)
@@ -275,13 +284,20 @@ function ExposureMapPage() {
 
   useEffect(() => {
     let active = true
-    getArticles()
-      .then((nextArticles) => {
+    const load = demoMode
+      ? getDemoScenario().then((scenario) => ({ articles: scenario.exposure.articles, payload: scenario.exposure.payload }))
+      : getArticles().then((nextArticles) => ({ articles: nextArticles, payload: null }))
+    load
+      .then(({ articles: nextArticles, payload: nextPayload }) => {
         if (!active) {
           return
         }
         setArticles(nextArticles)
         setSelectedArticleId(nextArticles[0]?.id ?? null)
+        if (nextPayload) {
+          setPayload(nextPayload)
+          setSelectedNode(nextPayload.nodes.find((node) => node.type === 'article') ?? null)
+        }
         setError(null)
       })
       .catch((loadError: unknown) => {
@@ -295,10 +311,10 @@ function ExposureMapPage() {
         }
       })
     return () => { active = false }
-  }, [])
+  }, [demoMode])
 
   useEffect(() => {
-    if (selectedArticleId === null) {
+    if (demoMode || selectedArticleId === null) {
       setPayload(null)
       return
     }
@@ -323,7 +339,7 @@ function ExposureMapPage() {
         }
       })
     return () => { active = false }
-  }, [selectedArticleId])
+  }, [demoMode, selectedArticleId])
 
   const visibleGraph = useMemo(
     () => buildVisibleGraph(payload?.nodes ?? [], payload?.edges ?? [], directionFilter, riskFilter, positionPathsOnly),
@@ -366,6 +382,7 @@ function ExposureMapPage() {
         <div className="exposure-map__section-heading">
           <p>Evidence Queue</p>
           <h2>Recent news</h2>
+          {demoMode ? <span className="exposure-map__demo-badge">Seeded demo</span> : null}
         </div>
         {articles.length === 0 && !loading ? <p className="exposure-map__empty">No scored articles are available yet.</p> : null}
         <div className="exposure-map__article-list">
@@ -391,15 +408,14 @@ function ExposureMapPage() {
             <h2>{selectedArticle?.title ?? 'Select an article'}</h2>
           </div>
           <div className="exposure-map__analysis-controls">
-            <input
+            {demoMode ? <span className="exposure-map__demo-copy">Cached walkthrough · no model call</span> : <><input
               aria-label="Model override"
               value={modelOverride}
               placeholder="Configured model"
               onChange={(event) => setModelOverride(event.target.value)}
-            />
-            <button type="button" className="exposure-map__analyze" onClick={startAnalysis} disabled={analyzing || selectedArticleId === null}>
+            /><button type="button" className="exposure-map__analyze" onClick={startAnalysis} disabled={analyzing || selectedArticleId === null}>
               {analyzing ? 'Analyzing…' : payload?.has_run ? 'Use cached analysis' : 'Analyze article'}
-            </button>
+            </button></>}
           </div>
         </div>
         <div className="exposure-map__graph-toolbar" aria-label="Exposure map filters and controls">
@@ -464,6 +480,7 @@ function ExposureMapPage() {
 
       <aside className="exposure-map__drawer">
         <div className="exposure-map__safety">No trade is executed by this feature.</div>
+        {demoMode ? <div className="exposure-map__demo-notice">Seeded fictional scenario for demos. No live news, positions, or orders are used.</div> : null}
         <p className="exposure-map__drawer-eyebrow">Why this matters</p>
         <h2>{selectedNode?.label ?? selectedArticle?.title ?? 'No selection'}</h2>
         {selectedNode?.reason ? <p>{selectedNode.reason}</p> : null}
