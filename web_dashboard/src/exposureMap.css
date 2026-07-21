@@ -1,6 +1,7 @@
 .exposure-map {
   width: min(1540px, 96vw);
-  min-height: 730px;
+  height: min(760px, calc(100dvh - 200px));
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(220px, 0.8fr) minmax(480px, 2.25fr) minmax(245px, 0.9fr);
   gap: 16px;
@@ -18,7 +19,10 @@
 .exposure-map__articles,
 .exposure-map__drawer {
   padding: 18px;
-  overflow: auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .exposure-map__section-heading p,
@@ -69,7 +73,7 @@
 .exposure-map__drawer small { opacity: 0.72; }
 .exposure-map__article-score { color: #7ed4a9; font-size: 0.72rem; font-weight: 700; }
 
-.exposure-map__canvas-panel { min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.exposure-map__canvas-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .exposure-map__canvas-header { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding: 18px 20px; border-bottom: 1px solid var(--border); }
 .exposure-map__canvas-header h2 { max-width: 690px; font-size: 1.1rem; line-height: 1.25; }
 .exposure-map__analysis-controls { display: flex; align-items: center; gap: 8px; }
@@ -86,7 +90,7 @@
 }
 
 .exposure-map__analyze:disabled { cursor: wait; opacity: 0.65; }
-.exposure-map__flow { min-height: 650px; flex: 1; background: #141925; }
+.exposure-map__flow { min-height: 0; flex: 1; background: #141925; }
 .exposure-map__empty, .exposure-map__error { margin: 18px; padding: 16px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .exposure-map__error { color: #ffb6bd; background: color-mix(in srgb, #dd5a63 16%, transparent); }
 
@@ -120,8 +124,9 @@
 .exposure-map__drawer ul { margin: 8px 0 0; padding-left: 20px; }
 
 @media (max-width: 1180px) {
-  .exposure-map { grid-template-columns: minmax(210px, 0.8fr) minmax(460px, 2fr); }
-  .exposure-map__drawer { grid-column: 1 / -1; }
+  .exposure-map { height: auto; min-height: 730px; grid-template-columns: minmax(210px, 0.8fr) minmax(460px, 2fr); }
+  .exposure-map__drawer { grid-column: 1 / -1; max-height: 360px; }
+  .exposure-map__flow { min-height: 650px; }
 }
 
 @media (max-width: 760px) {
