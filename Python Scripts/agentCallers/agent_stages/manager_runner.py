@@ -102,6 +102,8 @@ def _refresh_market_context_for_target_dte_bucket(
         option_strike_price_lte=option_strike_price_lte,
         option_contract_limit_per_type=option_contract_limit_per_type,
     )
+    if isinstance(market_context.get("market_regime"), dict):
+        refreshed_market_context["market_regime"] = market_context["market_regime"]
     refresh_debug["bucket_upstream_refresh_applied"] = True
     refresh_debug["bucket_upstream_contract_count"] = int(
         refreshed_market_context.get("option_market", {}).get("contract_count") or 0
@@ -212,6 +214,7 @@ def decide_company_option_position(
     option_strike_price_gte: float | None = None,
     option_strike_price_lte: float | None = None,
     option_contract_limit_per_type: int = DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
+    market_regime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     client = client or get_default_client()
     payload = build_manager_input(
@@ -228,6 +231,8 @@ def decide_company_option_position(
         option_strike_price_lte=option_strike_price_lte,
         option_contract_limit_per_type=option_contract_limit_per_type,
     )
+    if isinstance(market_regime, dict):
+        payload.setdefault("market_context", {})["market_regime"] = market_regime
     payload["strategist_recommendation"] = strategist_recommendation or {}
     payload["strategist_recommendation"] = _build_manager_visible_strategist_context(payload)
 
@@ -253,6 +258,7 @@ def decide_company_option_position(
             "manager_replay_payload": copy.deepcopy(payload),
             "manager_model": model,
             "manager_prompt_version": MANAGER_PROMPT_VERSION,
+            "market_regime": market_context.get("market_regime", {}),
         }
 
     system_prompt, user_prompt = build_manager_prompt(
@@ -337,4 +343,5 @@ def decide_company_option_position(
         "manager_replay_payload": copy.deepcopy(payload),
         "manager_model": model,
         "manager_prompt_version": MANAGER_PROMPT_VERSION,
+        "market_regime": market_context.get("market_regime", {}),
     }

@@ -80,6 +80,7 @@ def _build_manager_visible_market_context(payload: dict[str, Any]) -> dict[str, 
         "current_stock_price": market_context.get("current_stock_price", {}),
         "underlying_price_history": market_context.get("underlying_price_history", {}),
         "market_indices": market_context.get("market_indices", {}),
+        "market_regime": market_context.get("market_regime", {}),
         "sector_etf": market_context.get("sector_etf", {}),
         "account_state": market_context.get("account_state", {}),
         "option_market_summary": {

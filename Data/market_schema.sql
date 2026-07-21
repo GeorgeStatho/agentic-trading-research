@@ -133,6 +133,16 @@ CREATE TABLE IF NOT EXISTS manager_decision_history (
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS market_regime_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    as_of TEXT NOT NULL,
+    state TEXT NOT NULL,
+    confidence TEXT,
+    policy_version TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS decision_autopsy_ledger (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     manager_decision_history_id INTEGER NOT NULL UNIQUE,
@@ -377,6 +387,9 @@ CREATE INDEX IF NOT EXISTS idx_option_trade_executions_submitted_at
 
 CREATE INDEX IF NOT EXISTS idx_manager_decision_history_company_id
     ON manager_decision_history (company_id);
+
+CREATE INDEX IF NOT EXISTS idx_market_regime_runs_as_of
+    ON market_regime_runs (as_of DESC);
 
 CREATE INDEX IF NOT EXISTS idx_manager_decision_history_symbol
     ON manager_decision_history (symbol);

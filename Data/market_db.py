@@ -31,6 +31,7 @@ from market_db_modules.manager_replay import (
     list_replayable_manager_decisions,
     record_manager_replay_result,
 )
+from market_db_modules.market_regime import get_latest_market_regime_snapshot, record_market_regime_snapshot
 from market_db_modules.entities import (
     add_company,
     add_industry,
@@ -80,6 +81,7 @@ __all__ = [
     "get_latest_linked_manager_decision_for_option_symbol",
     "get_latest_open_manager_decision_for_trade_link",
     "get_market_data_refresh_state",
+    "get_latest_market_regime_snapshot",
     "get_backtest_run",
     "get_telemetry_summary",
     "initialize_database",
@@ -104,6 +106,7 @@ __all__ = [
     "record_historical_underlying_bar",
     "record_manager_replay_result",
     "record_market_data_refresh_state",
+    "record_market_regime_snapshot",
     "record_option_trade_execution",
     "record_telemetry_installation",
     "replace_industry_company_rankings",

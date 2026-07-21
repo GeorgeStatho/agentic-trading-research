@@ -169,7 +169,12 @@ class EvidenceContinuationGateTests(unittest.TestCase):
             "strategist_recommendation": {"decision": "trade_candidate"},
             "selected_option": {"symbol": "MSFT260619C00450000"},
         }
-        self.assertEqual(builder.build_from_company_results([{**base_company, "entry_gate": {"allowed": False}}]), [])
+        self.assertEqual(
+            builder.build_from_company_results(
+                [{**base_company, "entry_gate": {"allowed": False}, "market_regime_gate": {"allowed": True}}]
+            ),
+            [],
+        )
         self.assertIsNone(
             builder.build_from_manager_result(
                 {
@@ -178,6 +183,7 @@ class EvidenceContinuationGateTests(unittest.TestCase):
                     "strategist_recommendation": {"decision": "trade_candidate"},
                     "selected_option": {"symbol": "MSFT260619C00450000"},
                     "entry_gate": {"allowed": False},
+                    "market_regime_gate": {"allowed": True},
                 }
             )
         )

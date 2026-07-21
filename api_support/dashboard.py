@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from agent_pipeline.ranking import get_current_rankings
 from db_helpers.market import (
+    get_latest_market_regime_snapshot,
     get_telemetry_summary,
     list_decision_expectancy_rows,
     list_recent_manager_decision_history,
@@ -80,6 +81,7 @@ def _empty_company_decision_entry(*, symbol: str, name: str, last_updated_at: st
             "selected_strike_price": None,
             "selected_option_source": "",
             "entry_gate": {},
+            "market_regime_gate": {},
         },
         "manager_history": [],
     }
@@ -174,6 +176,7 @@ def _extract_manager_snapshot_from_history_row(
     if not isinstance(recommendation, dict):
         recommendation = {}
     entry_gate = manager_output.get("entry_gate") if isinstance(manager_output.get("entry_gate"), dict) else {}
+    market_regime_gate = manager_output.get("market_regime_gate") if isinstance(manager_output.get("market_regime_gate"), dict) else {}
 
     return {
         "decision": str(item.get("manager_decision") or recommendation.get("decision") or "").strip(),
@@ -194,6 +197,7 @@ def _extract_manager_snapshot_from_history_row(
             item.get("selected_option_source") or recommendation.get("selected_option_source") or ""
         ).strip(),
         "entry_gate": entry_gate,
+        "market_regime_gate": market_regime_gate,
     }
 
 
@@ -292,6 +296,19 @@ def build_company_decisions_payload() -> dict:
     return _build_company_decisions_payload_from_history()
 
 
+def build_market_regime_payload() -> dict:
+    snapshot = get_latest_market_regime_snapshot()
+    if not isinstance(snapshot, dict):
+        return {
+            "available": False,
+            "state": "unknown",
+            "reason_codes": ["no_market_regime_snapshot_recorded"],
+            "input_freshness": {},
+            "macro_event_window": {},
+        }
+    return {"available": True, **snapshot}
+
+
 DECISION_EXPECTANCY_GROUPS = {
     "confidence",
     "dte_bucket",
@@ -301,6 +318,7 @@ DECISION_EXPECTANCY_GROUPS = {
     "confidence_x_dte_bucket",
     "confidence_x_selector_mode",
     "entry_gate",
+    "market_regime",
     "evidence_count_bucket",
     "trend_state",
     "relative_strength_state",
@@ -431,6 +449,7 @@ def _expectancy_group(row: dict, group_by: str) -> tuple[str, str]:
         "sector": (row["sector"], "sector"),
         "time_of_day": (row["time_of_day"], "time_of_day"),
         "entry_gate": (row["entry_gate"], "entry_gate"),
+        "market_regime": (row["market_regime"], "generic"),
         "evidence_count_bucket": (row["evidence_count_bucket"], "generic"),
         "trend_state": (row["trend_state"], "generic"),
         "relative_strength_state": (row["relative_strength_state"], "generic"),
@@ -488,6 +507,7 @@ def build_decision_expectancy_payload(
         manager_output = safe_json_loads(raw_row.get("manager_output_json"))
         manager_output = manager_output if isinstance(manager_output, dict) else {}
         entry_gate = manager_output.get("entry_gate") if isinstance(manager_output.get("entry_gate"), dict) else {}
+        market_regime_gate = manager_output.get("market_regime_gate") if isinstance(manager_output.get("market_regime_gate"), dict) else {}
         gate_evidence = entry_gate.get("evidence") if isinstance(entry_gate.get("evidence"), dict) else {}
         gate_technical = entry_gate.get("technical") if isinstance(entry_gate.get("technical"), dict) else {}
         citation_count = int(gate_evidence.get("citation_count") or 0)
@@ -500,6 +520,7 @@ def build_decision_expectancy_payload(
             "sector": _expectancy_text(raw_row.get("sector_key")),
             "time_of_day": _expectancy_time_of_day_bucket(raw_row.get("decision_run_at")),
             "entry_gate": "allowed" if entry_gate.get("allowed") is True else "blocked" if entry_gate.get("allowed") is False else "unknown",
+            "market_regime": _expectancy_text(market_regime_gate.get("regime_state")),
             "evidence_count_bucket": "3_plus" if citation_count >= 3 else "2" if citation_count == 2 else "0_1" if citation_count else "unknown",
             "trend_state": _expectancy_text(gate_technical.get("trend_state")),
             "relative_strength_state": _expectancy_text(gate_technical.get("relative_strength_confirmation")),
@@ -1280,6 +1301,7 @@ def build_dashboard_kpis() -> dict:
     option_manager_status = read_json_payload(OPTION_MANAGER_STATUS_PATH)
     top_rankings = _build_top_rankings_payload()
     usage_summary = _build_usage_summary()
+    market_regime = build_market_regime_payload()
 
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
@@ -1321,5 +1343,6 @@ def build_dashboard_kpis() -> dict:
         "usage_summary": usage_summary,
         "bot_status": summarize_bot_status(worker_status, option_manager_status),
         "market_status": summarize_market_status(clock),
+        "market_regime": market_regime,
         "top_rankings": top_rankings,
     }

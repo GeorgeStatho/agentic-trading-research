@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from html import unescape
 from pathlib import Path
 
@@ -62,6 +63,7 @@ COUNTRY_BY_CURRENCY = {
     "USD": "United States",
     "ZAR": "South Africa",
 }
+CALENDAR_TIMEZONE = "America/New_York"
 
 
 def _fetch_text(url: str, timeout: int = 20) -> str:
@@ -142,6 +144,32 @@ def _parse_event_datetime(row_html: str, cell_text: str) -> tuple[str | None, st
     if cell_text:
         return None, cell_text
     return None, None
+
+
+def _normalize_calendar_timestamps(events: list[dict]) -> list[dict]:
+    refreshed_at = datetime.now(timezone.utc).isoformat()
+    calendar_zone = ZoneInfo(CALENDAR_TIMEZONE)
+    for event in events:
+        event["calendar_timezone"] = CALENDAR_TIMEZONE
+        event["calendar_refreshed_at"] = refreshed_at
+        event["scheduled_at_utc"] = None
+        event_date = str(event.get("event_date") or "").strip()
+        event_time = str(event.get("event_time") or "").strip()
+        if not event_date or not event_time or event_time.lower() in {"all day", "tentative", "-"}:
+            continue
+        parsed: datetime | None = None
+        for date_format in ("%Y-%m-%d", "%A, %B %d, %Y"):
+            for time_format in ("%H:%M:%S", "%H:%M", "%I:%M %p"):
+                try:
+                    parsed = datetime.strptime(f"{event_date} {event_time}", f"{date_format} {time_format}")
+                    break
+                except ValueError:
+                    continue
+            if parsed is not None:
+                break
+        if parsed is not None:
+            event["scheduled_at_utc"] = parsed.replace(tzinfo=calendar_zone).astimezone(timezone.utc).isoformat()
+    return events
 
 
 def _extract_calendar_rows(html: str) -> list[str]:
@@ -314,7 +342,7 @@ def fetch_investing_macro_calendar() -> list[dict]:
 
 
 def ingest_macro_and_news() -> dict[str, int]:
-    macro_events = fetch_investing_macro_calendar()
+    macro_events = _normalize_calendar_timestamps(fetch_investing_macro_calendar())
     load_macro_events(macro_events)
     MACRO_EVENTS_JSON_PATH.write_text(
         json.dumps(macro_events, indent=2, sort_keys=True),

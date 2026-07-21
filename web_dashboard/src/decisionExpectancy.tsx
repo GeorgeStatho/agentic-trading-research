@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import './decisionExpectancy.css'
 
 type Basis = 'marked' | 'closed'
-type GroupBy = 'confidence' | 'dte_bucket' | 'selector_mode' | 'sector' | 'time_of_day' | 'confidence_x_dte_bucket' | 'confidence_x_selector_mode' | 'entry_gate' | 'evidence_count_bucket' | 'trend_state' | 'relative_strength_state' | 'volume_state'
+type GroupBy = 'confidence' | 'dte_bucket' | 'selector_mode' | 'sector' | 'time_of_day' | 'confidence_x_dte_bucket' | 'confidence_x_selector_mode' | 'entry_gate' | 'market_regime' | 'evidence_count_bucket' | 'trend_state' | 'relative_strength_state' | 'volume_state'
 type SortKey = 'label' | 'trade_count' | 'pnl_sample_count' | 'win_rate_pct' | 'expectancy_pct'
 
 type Cohort = {
@@ -116,7 +116,7 @@ function DecisionExpectancyPage() {
 
     <section className="decision-expectancy__controls" aria-label="Decision expectancy filters">
       <label>Basis<select value={basis} onChange={(event) => setBasis(event.target.value as Basis)}><option value="marked">Marked P/L</option><option value="closed">Closed realized P/L</option></select></label>
-      <label>Group by<select value={groupBy} onChange={(event) => setGroupBy(event.target.value as GroupBy)}><option value="confidence">Confidence</option><option value="dte_bucket">DTE bucket</option><option value="selector_mode">Selector mode</option><option value="sector">Sector</option><option value="time_of_day">Time of day</option><option value="entry_gate">Continuation gate</option><option value="evidence_count_bucket">Evidence count</option><option value="trend_state">Trend state</option><option value="relative_strength_state">Relative strength</option><option value="volume_state">Volume state</option><option value="confidence_x_dte_bucket">Confidence × DTE</option><option value="confidence_x_selector_mode">Confidence × selector</option></select></label>
+      <label>Group by<select value={groupBy} onChange={(event) => setGroupBy(event.target.value as GroupBy)}><option value="confidence">Confidence</option><option value="dte_bucket">DTE bucket</option><option value="selector_mode">Selector mode</option><option value="sector">Sector</option><option value="time_of_day">Time of day</option><option value="entry_gate">Continuation gate</option><option value="market_regime">Market regime</option><option value="evidence_count_bucket">Evidence count</option><option value="trend_state">Trend state</option><option value="relative_strength_state">Relative strength</option><option value="volume_state">Volume state</option><option value="confidence_x_dte_bucket">Confidence × DTE</option><option value="confidence_x_selector_mode">Confidence × selector</option></select></label>
       <label>Window<select value={withinDays} onChange={(event) => setWithinDays(Number(event.target.value))}><option value={30}>30 days</option><option value={90}>90 days</option><option value={180}>180 days</option><option value={365}>365 days</option><option value={730}>730 days</option></select></label>
       <label>Min samples<select value={minSamples} onChange={(event) => setMinSamples(Number(event.target.value))}><option value={3}>3</option><option value={5}>5</option><option value={10}>10</option></select></label>
       <label>Decision<select value={decision} onChange={(event) => setDecision(event.target.value)}><option value="all">All</option><option value="call">Calls</option><option value="put">Puts</option></select></label>

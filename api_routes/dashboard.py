@@ -12,6 +12,7 @@ from api_support.dashboard import (
     build_dashboard_kpis,
     build_open_positions_payload,
     build_risk_controls_payload,
+    build_market_regime_payload,
 )
 
 
@@ -40,6 +41,13 @@ def register_dashboard_routes(app) -> None:
             return jsonify(build_risk_controls_payload()), 200
         except Exception as exc:
             return internal_error("Failed to load risk controls.", exc)
+
+    @app.get("/api/market-regime")
+    def market_regime():
+        try:
+            return jsonify(build_market_regime_payload()), 200
+        except Exception as exc:
+            return internal_error("Failed to load market regime.", exc)
 
     @app.get("/api/company-decisions")
     def company_decisions():

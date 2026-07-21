@@ -142,6 +142,7 @@ def decide_company_purchase(
     max_age_days: int | None = DEFAULT_MAX_ARTICLE_AGE_DAYS,
     summary_article_limit: int = DEFAULT_SUMMARY_ARTICLE_LIMIT,
     full_article_limit: int = DEFAULT_FULL_ARTICLE_LIMIT,
+    market_regime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     # Run the strategist stage end to end, including no-evidence short circuits and text fallback parsing.
     client = client or get_default_client()
@@ -153,6 +154,8 @@ def decide_company_purchase(
         summary_article_limit=summary_article_limit,
         full_article_limit=full_article_limit,
     )
+    if isinstance(market_regime, dict):
+        payload["market_context"] = {"market_regime": market_regime}
 
     company = payload["company"]
     context_snapshot = build_context_snapshot(payload)

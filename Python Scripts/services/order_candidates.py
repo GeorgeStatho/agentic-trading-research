@@ -34,6 +34,7 @@ class OrderCandidateBuilder:
             strategist_recommendation.get("decision")
         )
         entry_gate = company_result.get("entry_gate") or {}
+        market_regime_gate = company_result.get("market_regime_gate") or {}
 
         if decision not in {"call", "put"}:
             return False
@@ -44,6 +45,8 @@ class OrderCandidateBuilder:
         if strategist_decision == "do_not_trade":
             return False
         if not isinstance(entry_gate, dict) or entry_gate.get("allowed") is not True:
+            return False
+        if not isinstance(market_regime_gate, dict) or market_regime_gate.get("allowed") is not True:
             return False
         return True
 
@@ -74,6 +77,7 @@ class OrderCandidateBuilder:
             "selected_option": selected_option,
             "strategist_recommendation": company_result.get("strategist_recommendation", {}),
             "entry_gate": company_result.get("entry_gate", {}),
+            "market_regime_gate": company_result.get("market_regime_gate", {}),
             "reason": company_result.get("reason"),
         }
 
@@ -116,6 +120,7 @@ class OrderCandidateBuilder:
             "selected_option_source": recommendation.get("selected_option_source"),
             "strategist_recommendation": manager_result.get("strategist_recommendation", {}),
             "entry_gate": manager_result.get("entry_gate", {}),
+            "market_regime_gate": manager_result.get("market_regime_gate", {}),
             "selected_option": manager_result.get("selected_option"),
             "reason": recommendation.get("reason"),
         }

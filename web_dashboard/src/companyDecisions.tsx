@@ -15,6 +15,7 @@ type StageDecision = {
   selected_strike_price?: number | null;
   selected_option_source?: string;
   entry_gate?: { allowed?: boolean; policy_version?: string; reason_codes?: string[]; evidence?: { citation_count?: number; independent_source_count?: number; minimum_evidence_score?: number | null }; technical?: { trend_state?: string; relative_strength_confirmation?: string; volume_confirmation?: string } };
+  market_regime_gate?: { allowed?: boolean; regime_state?: string; policy_version?: string; reason_codes?: string[]; enforcement_mode?: string };
 };
 
 type HistoryArticleReference = {
@@ -343,6 +344,16 @@ function CompanyDecisionsPage() {
                     <div className="company-decisions__subsection">
                       <p className="company-decisions__subheading">Thesis</p>
                       {renderList(company.strategist.thesis, 'No thesis points saved.')}
+                    </div>
+                    <div className="company-decisions__subsection">
+                      <p className="company-decisions__subheading">Market regime gate</p>
+                      <dl className="company-decisions__facts">
+                        <div><dt>Regime</dt><dd>{formatValue(company.manager.market_regime_gate?.regime_state)}</dd></div>
+                        <div><dt>Status</dt><dd>{company.manager.market_regime_gate?.allowed === true ? 'Allowed' : company.manager.market_regime_gate?.allowed === false ? 'Blocked' : 'Not recorded'}</dd></div>
+                        <div><dt>Mode</dt><dd>{formatValue(company.manager.market_regime_gate?.enforcement_mode)}</dd></div>
+                        <div><dt>Policy</dt><dd>{formatValue(company.manager.market_regime_gate?.policy_version)}</dd></div>
+                      </dl>
+                      {company.manager.market_regime_gate?.reason_codes?.length ? <p className="company-decisions__text">Regime reasons: {company.manager.market_regime_gate.reason_codes.join(', ')}</p> : null}
                     </div>
                     <div className="company-decisions__subsection">
                       <p className="company-decisions__subheading">Risks</p>

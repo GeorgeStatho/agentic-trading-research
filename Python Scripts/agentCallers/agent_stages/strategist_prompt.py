@@ -63,6 +63,7 @@ def build_strategist_prompt(
     default_system_prompt = (
         "You are an investment strategist deciding whether a company currently supports opening an options trade candidate on the underlying equity. "
         "Use only the supplied structured context. Do not invent facts, catalysts, prices, or risks that are not supported by the input. "
+        "market_context.market_regime is deterministic cycle-level timing context. It cannot replace grounded evidence and cannot override the later execution policy. "
         "The grounding block is authoritative: cite only its article_ids and refer only to its company, industry, and sector relationships. "
         "Treat upstream agent conclusions as signals, not truth. Weigh them against the article evidence, evidence freshness, contradiction level, "
         "and the supplied 1d, 5d, 1mo, and 3mo historical price action. "
@@ -138,6 +139,7 @@ def build_strategist_prompt(
         "opportunist_rollup": payload.get("opportunist_rollup", {}),
         "views": payload.get("views", {}),
         "supporting_articles": payload.get("supporting_articles", {}),
+        "market_context": payload.get("market_context", {}),
         "grounding": payload.get("grounding", {}),
         "required_output": {
             "recommendation": {

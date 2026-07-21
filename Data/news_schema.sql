@@ -7,6 +7,9 @@ CREATE TABLE IF NOT EXISTS macro_events (
     event_name TEXT NOT NULL,
     event_date TEXT,
     event_time TEXT,
+    scheduled_at_utc TEXT,
+    calendar_timezone TEXT,
+    calendar_refreshed_at TEXT,
     country TEXT,
     currency TEXT,
     category TEXT,
@@ -304,6 +307,9 @@ CREATE INDEX IF NOT EXISTS idx_macro_events_event_date
 
 CREATE INDEX IF NOT EXISTS idx_macro_events_category
     ON macro_events (category);
+
+CREATE INDEX IF NOT EXISTS idx_macro_events_scheduled_at_utc
+    ON macro_events (scheduled_at_utc);
 
 CREATE INDEX IF NOT EXISTS idx_news_articles_published_at
     ON news_articles (published_at);

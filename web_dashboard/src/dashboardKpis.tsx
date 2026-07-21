@@ -46,6 +46,14 @@ type DashboardKpiPayload = {
     label: string;
     detail: string;
   };
+  market_regime: {
+    available: boolean;
+    state: string;
+    confidence?: string;
+    input_freshness?: { market_data_age_seconds?: number | null; macro_calendar_age_minutes?: number | null };
+    macro_event_window?: { active?: boolean; next_event?: string | null; minutes_until?: number | null };
+    reason_codes?: string[];
+  };
   top_rankings: {
     top_sectors: Array<{
       sector_key: string;
@@ -257,6 +265,16 @@ function buildCards(payload: DashboardKpiPayload): KpiCardConfig[] {
       detail: payload.market_status.detail || 'Clock unavailable',
       tone: 'status',
       state: getStatusState(payload.market_status.state),
+    },
+    {
+      title: 'Market Regime',
+      value: payload.market_regime.state.replaceAll('_', ' ') || 'Unknown',
+      detail: payload.market_regime.macro_event_window?.active
+        ? `Macro blackout: ${payload.market_regime.macro_event_window.next_event || 'active'}`
+        : `Data ${payload.market_regime.input_freshness?.market_data_age_seconds ?? 'N/A'}s · calendar ${payload.market_regime.input_freshness?.macro_calendar_age_minutes ?? 'N/A'}m`,
+      tone: payload.market_regime.state === 'trend_up' || payload.market_regime.state === 'trend_down' ? 'status' : 'negative',
+      state: payload.market_regime.state === 'trend_up' || payload.market_regime.state === 'trend_down' ? 'healthy' : 'warning',
+      compactValue: true,
     },
   ];
 }

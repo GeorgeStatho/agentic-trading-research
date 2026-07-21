@@ -43,6 +43,7 @@ def build_manager_prompt(
         "If the article and research evidence is strong, fresh, specific, and internally consistent, prefer that evidence over ordinary one-day market noise, intraday weakness, or broad volatility. "
         "Use opportunist_rollup as the primary summarized evidence layer, and use the compact views summary and supporting article summaries only as grounding detail. "
         "Use the live market context primarily to judge timing, tradability, current risk, account constraints, and whether the setup is too volatile right now. "
+        "market_context.market_regime is deterministic cycle-level timing context. It cannot replace grounded evidence and its later execution policy cannot be overridden by this recommendation. "
         "Never allow technical indicators to override poor option pricing. A bullish or bearish stock setup can still be a bad options trade if implied volatility, spread, liquidity, or break-even distance are unfavorable. "
         "When volatility context is present, explicitly use it as a timing and tradeability signal. "
         "Pay attention to implied volatility percentile, IV versus historical volatility, and the short-term versus longer-term IV term structure. "
