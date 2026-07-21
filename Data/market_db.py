@@ -14,6 +14,14 @@ from market_db_modules.history_records import (
     update_manager_decision_latest_pnl,
 )
 from market_db_modules.autopsy import backfill_decision_autopsy_ledger, list_decision_autopsy_ledger
+from market_db_modules.backtesting import (
+    get_backtest_run,
+    list_backtest_runs,
+    record_historical_option_contract,
+    record_historical_option_quote,
+    record_historical_underlying_bar,
+    run_backtest,
+)
 from market_db_modules.manager_replay import (
     complete_manager_replay_evaluation,
     create_manager_replay_evaluation,
@@ -66,6 +74,7 @@ __all__ = [
     "get_latest_linked_manager_decision_for_option_symbol",
     "get_latest_open_manager_decision_for_trade_link",
     "get_market_data_refresh_state",
+    "get_backtest_run",
     "get_telemetry_summary",
     "initialize_database",
     "link_manager_decision_to_trade_execution",
@@ -73,6 +82,7 @@ __all__ = [
     "list_decision_expectancy_rows",
     "list_replayable_manager_decisions",
     "list_companies_by_industry",
+    "list_backtest_runs",
     "list_company_price_snapshots",
     "list_industry_company_rankings",
     "list_option_trade_executions",
@@ -82,11 +92,15 @@ __all__ = [
     "load_sector_tree",
     "load_sector_tree_from_json",
     "record_manager_decision_history",
+    "record_historical_option_contract",
+    "record_historical_option_quote",
+    "record_historical_underlying_bar",
     "record_manager_replay_result",
     "record_market_data_refresh_state",
     "record_option_trade_execution",
     "record_telemetry_installation",
     "replace_industry_company_rankings",
+    "run_backtest",
     "update_manager_decision_latest_pnl",
 ]
 

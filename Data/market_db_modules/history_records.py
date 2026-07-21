@@ -149,6 +149,17 @@ def record_manager_decision_history(
         """,
         (decision_history_id, symbol, decision_run_at, json_text(snapshot), decision_run_at),
     )
+    from .backtesting import ensure_decision_evidence_snapshot
+
+    ensure_decision_evidence_snapshot(
+        {
+            "id": decision_history_id,
+            "decision_run_at": decision_run_at,
+            "manager_input_json": history.get("manager_input_json"),
+            "manager_output_json": history.get("manager_output_json"),
+        },
+        conn=conn,
+    )
     return decision_history_id
 
 

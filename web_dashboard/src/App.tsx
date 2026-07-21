@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import './App.css'
 import AnalyzedCompanyNewsPage from './analyzedCompanyNews.tsx'
+import BacktestPage from './backtest.tsx'
 import CompanyDecisionsPage from './companyDecisions.tsx'
 import DecisionAutopsyPage from './decisionAutopsy.tsx'
 import DecisionExpectancyPage from './decisionExpectancy.tsx'
@@ -13,7 +14,7 @@ import RiskControlsPanel from './riskControls.tsx'
 import ScriptStatusIndicator from './scriptStatus.tsx'
 import WhyBotTradedPanel from './whyBotTraded.tsx'
 
-type DashboardView = 'dashboard' | 'company-news' | 'company-decisions' | 'decision-autopsy' | 'decision-expectancy' | 'exposure-map'
+type DashboardView = 'dashboard' | 'company-news' | 'company-decisions' | 'decision-autopsy' | 'decision-expectancy' | 'backtests' | 'exposure-map'
 
 function getViewFromHash(): DashboardView {
   const normalizedHash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase().split('?')[0]
@@ -28,6 +29,9 @@ function getViewFromHash(): DashboardView {
   }
   if (normalizedHash === 'decision-expectancy') {
     return 'decision-expectancy'
+  }
+  if (normalizedHash === 'backtests') {
+    return 'backtests'
   }
   if (normalizedHash === 'exposure-map') {
     return 'exposure-map'
@@ -76,7 +80,9 @@ function App() {
                   ? 'Decision Autopsy Ledger'
                   : view === 'decision-expectancy'
                     ? 'Decision Expectancy'
-                    : 'Evidence Exposure Map'}
+                    : view === 'backtests'
+                      ? 'Historical Backtests'
+                      : 'Evidence Exposure Map'}
           </h1>
         </div>
         <nav className="app-nav" aria-label="Dashboard pages">
@@ -111,6 +117,12 @@ function App() {
             Expectancy
           </a>
           <a
+            href={hrefFor('backtests')}
+            className={`app-nav__link${view === 'backtests' ? ' app-nav__link--active' : ''}`}
+          >
+            Backtests
+          </a>
+          <a
             href={hrefFor('exposure-map')}
             className={`app-nav__link${view === 'exposure-map' ? ' app-nav__link--active' : ''}`}
           >
@@ -130,6 +142,8 @@ function App() {
         <DecisionAutopsyPage demoMode={demoMode} />
       ) : view === 'decision-expectancy' ? (
         <DecisionExpectancyPage />
+      ) : view === 'backtests' ? (
+        <BacktestPage />
       ) : view === 'exposure-map' ? (
         <ExposureMapPage demoMode={demoMode} />
       ) : (

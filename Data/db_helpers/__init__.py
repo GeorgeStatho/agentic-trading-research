@@ -1,6 +1,7 @@
 from db_helpers.common import DB_PATH, DATA_DIR, get_connection, validate_sql_identifier
 from db_helpers.market import (
     expire_manager_decision_pnl,
+    get_backtest_run,
     ensure_all_sector_market_data,
     ensure_industry_market_data,
     ensure_sector_market_data,
@@ -10,6 +11,7 @@ from db_helpers.market import (
     initialize_market_database,
     link_manager_decision_to_trade_execution,
     list_companies_by_industry,
+    list_backtest_runs,
     list_decision_expectancy_rows,
     list_decision_autopsy_ledger,
     list_recent_manager_decision_history,
@@ -17,9 +19,13 @@ from db_helpers.market import (
     load_sector_tree,
     load_sector_tree_from_json,
     record_manager_decision_history,
+    record_historical_option_contract,
+    record_historical_option_quote,
+    record_historical_underlying_bar,
     record_manager_decision_closed_outcome,
     record_telemetry_installation,
     update_manager_decision_latest_pnl,
+    run_backtest,
 )
 from db_helpers.news import (
     add_company_news_article,
