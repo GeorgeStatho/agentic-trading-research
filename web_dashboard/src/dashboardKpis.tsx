@@ -321,11 +321,20 @@ function DashboardKpis() {
   }
 
   const cards = buildCards(payload);
+  const accountCards = cards.slice(0, 5);
+  const operatingCards = cards.slice(5);
 
   return (
     <>
-      <section className="kpi-grid" aria-label="Top KPI cards">
-        {cards.map((card) => (
+      <section className="kpi-overview-header" aria-label="Account snapshot heading">
+        <div>
+          <p>Account Snapshot</p>
+          <h2>Live capital, exposure, and operating state</h2>
+        </div>
+        <span><i /> Refreshes every minute</span>
+      </section>
+      <section className="kpi-grid kpi-grid--primary" aria-label="Top KPI cards">
+        {accountCards.map((card) => (
           <article
             key={card.title}
             className={`kpi-card kpi-card--${card.tone ?? 'neutral'}${card.state ? ` kpi-card--state-${card.state}` : ''}${card.compactValue ? ' kpi-card--compact' : ''}`}
@@ -337,6 +346,31 @@ function DashboardKpis() {
         ))}
       </section>
 
+      <section className="kpi-section-heading" aria-label="Performance and safeguards heading">
+        <div>
+          <p>Performance & Safeguards</p>
+          <h2>Trading rules, outcomes, and system health</h2>
+        </div>
+      </section>
+      <section className="kpi-grid kpi-grid--secondary" aria-label="Performance, safeguards, and system status">
+        {operatingCards.map((card) => (
+          <article
+            key={card.title}
+            className={`kpi-card kpi-card--${card.tone ?? 'neutral'}${card.state ? ` kpi-card--state-${card.state}` : ''}${card.compactValue ? ' kpi-card--compact' : ''}`}
+          >
+            <p className="kpi-card__label">{card.title}</p>
+            <p className="kpi-card__value">{card.value}</p>
+            <p className="kpi-card__detail">{card.detail}</p>
+          </article>
+        ))}
+      </section>
+
+      <section className="kpi-section-heading" aria-label="Research rankings heading">
+        <div>
+          <p>Research Rankings</p>
+          <h2>Highest-scoring sector and industry context</h2>
+        </div>
+      </section>
       <section className="kpi-grid kpi-grid--rankings" aria-label="Current top ranked sectors and industries">
         <article className="kpi-card kpi-card--compact">
           <p className="kpi-card__label">Top 3 Sectors</p>

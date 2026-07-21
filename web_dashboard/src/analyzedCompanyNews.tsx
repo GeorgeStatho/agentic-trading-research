@@ -546,6 +546,16 @@ function AnalyzedCompanyNewsPage() {
   const filteredCards = viewCards
     .filter((card) => matchesSearch(card, searchValue))
     .filter((card) => matchesConfidence(card, activeConfidence));
+  const visibleArticleCount = filteredCards.reduce(
+    (count, card) => count + filterArticles(card.articles, activeConfidence).length,
+    0,
+  );
+  const visibleHighConfidenceCount = filteredCards.reduce(
+    (count, card) => count + filterArticles(card.articles, activeConfidence).flatMap((article) => article.assessments)
+      .filter((assessment) => assessment.confidence === 'high').length,
+    0,
+  );
+  const hasLocalFilters = Boolean(searchValue.trim()) || activeConfidence !== 'all';
 
   return (
     <main className="company-news-page">
@@ -558,6 +568,10 @@ function AnalyzedCompanyNewsPage() {
               ? `Review the connected ${activeViewMeta.label.toLowerCase()} coverage for ${payload.lookup_query}.`
               : 'Review company analysis separately from sector, industry, and macro coverage. The selector below changes which news layer is displayed for the currently loaded page.'}
           </p>
+          <div className="company-news-hero__status">
+            <span><i /> Grounded analysis only</span>
+            <span>Refreshes every minute</span>
+          </div>
         </div>
         <div className="company-news-hero__stats" aria-label="Company news summary">
           <article className="company-news-stat">
@@ -571,21 +585,16 @@ function AnalyzedCompanyNewsPage() {
             <p className="company-news-stat__value">{formatCount(payload?.page_company_count ?? 0)}</p>
           </article>
           <article className="company-news-stat">
-            <p className="company-news-stat__label">Loaded Articles</p>
-            <p className="company-news-stat__value">{formatCount(payload?.article_count ?? 0)}</p>
+            <p className="company-news-stat__label">Visible articles</p>
+            <p className="company-news-stat__value">{formatCount(visibleArticleCount)}</p>
           </article>
           <article className="company-news-stat">
-            <p className="company-news-stat__label">Current View</p>
+            <p className="company-news-stat__label">High confidence</p>
+            <p className="company-news-stat__value">{formatCount(visibleHighConfidenceCount)}</p>
+          </article>
+          <article className="company-news-stat">
+            <p className="company-news-stat__label">Active layer</p>
             <p className="company-news-stat__value company-news-stat__value--timestamp">{activeViewMeta.title}</p>
-          </article>
-          <article className="company-news-stat">
-            <p className="company-news-stat__label">Loaded Split</p>
-            <p className="company-news-stat__value company-news-stat__value--stacked">
-              C {formatCount(payload?.section_article_counts.company ?? 0)} / S{' '}
-              {formatCount(payload?.section_article_counts.sector ?? 0)} / I{' '}
-              {formatCount(payload?.section_article_counts.industry ?? 0)} / M{' '}
-              {formatCount(payload?.section_article_counts.macro ?? 0)}
-            </p>
           </article>
           <article className="company-news-stat">
             <p className="company-news-stat__label">Updated</p>
@@ -603,8 +612,12 @@ function AnalyzedCompanyNewsPage() {
             type="button"
             className={`company-news-view-selector__button${activeView === view.key ? ' company-news-view-selector__button--active' : ''}`}
             onClick={() => setActiveView(view.key)}
+            aria-pressed={activeView === view.key}
           >
-            <span className="company-news-view-selector__label">{view.label}</span>
+            <span className="company-news-view-selector__topline">
+              <span className="company-news-view-selector__label">{view.label}</span>
+              <span className="company-news-view-selector__count">{formatCount(payload?.section_article_counts[view.key] ?? 0)}</span>
+            </span>
             <span className="company-news-view-selector__description">{view.description}</span>
           </button>
         ))}
@@ -667,6 +680,17 @@ function AnalyzedCompanyNewsPage() {
               {confidence === 'all' ? 'All confidence' : `${confidence} confidence`}
             </button>
           ))}
+          <button
+            type="button"
+            className="company-news-filter company-news-filter--reset"
+            disabled={!hasLocalFilters}
+            onClick={() => {
+              setSearchValue('');
+              setActiveConfidence('all');
+            }}
+          >
+            Reset filters
+          </button>
         </div>
       </section>
 
@@ -691,6 +715,7 @@ function AnalyzedCompanyNewsPage() {
             'Preparing the first page of analyzed news.'
           )}
         </div>
+        <span className="company-news-pagination__live"><i /> Live data · 60s refresh</span>
         <div className="company-news-pagination__controls">
           <label className="company-news-pagination__size">
             <span>Companies per page</span>
@@ -769,9 +794,9 @@ function AnalyzedCompanyNewsPage() {
                     <p className="company-news-company__meta">{card.subtitle}</p>
                   </div>
                   <div className="company-news-company__summary">
-                    <span>{formatCount(visibleArticles.length)} visible articles</span>
-                    <span>{formatCount(card.confidence_counts.high)} high confidence assessments</span>
-                    <span>Latest context {card.latest_published_at ? formatDateTime(card.latest_published_at) : 'unknown'}</span>
+                    <span className="company-news-company__metric"><b>{formatCount(visibleArticles.length)}</b> visible articles</span>
+                    <span className="company-news-company__metric"><b>{formatCount(card.confidence_counts.high)}</b> high confidence</span>
+                    <span className="company-news-company__metric">Latest {card.latest_published_at ? formatDateTime(card.latest_published_at) : 'unknown'}</span>
                   </div>
                 </header>
 

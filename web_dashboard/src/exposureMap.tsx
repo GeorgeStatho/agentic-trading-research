@@ -4,6 +4,7 @@ import {
   Controls,
   MarkerType,
   ReactFlow,
+  type ReactFlowInstance,
   type Edge,
   type Node,
   type NodeProps,
@@ -79,6 +80,8 @@ type ExposurePayload = {
 type ExposureNodeData = GraphNode
 type FlowNode = Node<ExposureNodeData, 'exposure'>
 type FlowEdge = Edge<{ label: string; score: number }>
+type DirectionFilter = 'all' | 'positive' | 'negative' | 'unclear'
+type RiskFilter = 'all' | 'high' | 'medium' | 'low'
 
 const columns: Record<GraphNode['type'], number> = {
   article: 0,
@@ -190,6 +193,72 @@ function buildFlowEdges(edges: GraphEdge[]): FlowEdge[] {
   }))
 }
 
+function buildVisibleGraph(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  directionFilter: DirectionFilter,
+  riskFilter: RiskFilter,
+  positionPathsOnly: boolean,
+): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  if (directionFilter === 'all' && riskFilter === 'all' && !positionPathsOnly) {
+    return { nodes, edges }
+  }
+
+  const incomingEdges = new Map<string, GraphEdge[]>()
+  const outgoingEdges = new Map<string, GraphEdge[]>()
+  for (const edge of edges) {
+    incomingEdges.set(edge.target, [...(incomingEdges.get(edge.target) ?? []), edge])
+    outgoingEdges.set(edge.source, [...(outgoingEdges.get(edge.source) ?? []), edge])
+  }
+
+  const visibleNodeIds = new Set<string>()
+  const includeAncestors = (nodeId: string) => {
+    if (visibleNodeIds.has(nodeId)) {
+      return
+    }
+    visibleNodeIds.add(nodeId)
+    for (const edge of incomingEdges.get(nodeId) ?? []) {
+      includeAncestors(edge.source)
+    }
+  }
+  const descendedNodeIds = new Set<string>()
+  const includeDescendants = (nodeId: string) => {
+    if (descendedNodeIds.has(nodeId)) {
+      return
+    }
+    descendedNodeIds.add(nodeId)
+    visibleNodeIds.add(nodeId)
+    for (const edge of outgoingEdges.get(nodeId) ?? []) {
+      includeDescendants(edge.target)
+    }
+  }
+
+  if (directionFilter !== 'all') {
+    nodes
+      .filter((node) => node.type !== 'article' && node.direction === directionFilter)
+      .forEach((node) => {
+        includeAncestors(node.id)
+        includeDescendants(node.id)
+      })
+  }
+
+  if (positionPathsOnly || riskFilter !== 'all') {
+    nodes
+      .filter(
+        (node) =>
+          node.type === 'position' &&
+          (riskFilter === 'all' || node.risk_level?.toLowerCase() === riskFilter),
+      )
+      .forEach((node) => includeAncestors(node.id))
+  }
+
+  const visibleNodes = nodes.filter((node) => visibleNodeIds.has(node.id))
+  return {
+    nodes: visibleNodes,
+    edges: edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)),
+  }
+}
+
 function ExposureMapPage() {
   const [articles, setArticles] = useState<Article[]>([])
   const [selectedArticleId, setSelectedArticleId] = useState<number | null>(null)
@@ -199,6 +268,10 @@ function ExposureMapPage() {
   const [loading, setLoading] = useState(true)
   const [analyzing, setAnalyzing] = useState(false)
   const [modelOverride, setModelOverride] = useState('')
+  const [directionFilter, setDirectionFilter] = useState<DirectionFilter>('all')
+  const [riskFilter, setRiskFilter] = useState<RiskFilter>('all')
+  const [positionPathsOnly, setPositionPathsOnly] = useState(false)
+  const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null)
 
   useEffect(() => {
     let active = true
@@ -252,8 +325,12 @@ function ExposureMapPage() {
     return () => { active = false }
   }, [selectedArticleId])
 
-  const flowNodes = useMemo(() => buildFlowNodes(payload?.nodes ?? []), [payload])
-  const flowEdges = useMemo(() => buildFlowEdges(payload?.edges ?? []), [payload])
+  const visibleGraph = useMemo(
+    () => buildVisibleGraph(payload?.nodes ?? [], payload?.edges ?? [], directionFilter, riskFilter, positionPathsOnly),
+    [payload, directionFilter, riskFilter, positionPathsOnly],
+  )
+  const flowNodes = useMemo(() => buildFlowNodes(visibleGraph.nodes), [visibleGraph.nodes])
+  const flowEdges = useMemo(() => buildFlowEdges(visibleGraph.edges), [visibleGraph.edges])
   const selectedArticle = articles.find((article) => article.id === selectedArticleId) ?? payload?.article
 
   const startAnalysis = () => {
@@ -271,6 +348,16 @@ function ExposureMapPage() {
         setError(analysisError instanceof Error ? analysisError.message : 'Failed to analyze article.')
       })
       .finally(() => setAnalyzing(false))
+  }
+
+  const resetFilters = () => {
+    setDirectionFilter('all')
+    setRiskFilter('all')
+    setPositionPathsOnly(false)
+  }
+
+  const fitGraph = () => {
+    flowInstance?.fitView({ padding: 0.2, duration: 250 })
   }
 
   return (
@@ -315,6 +402,45 @@ function ExposureMapPage() {
             </button>
           </div>
         </div>
+        <div className="exposure-map__graph-toolbar" aria-label="Exposure map filters and controls">
+          <div className="exposure-map__filter-group">
+            <span className="exposure-map__filter-label">Impact</span>
+            {(['all', 'positive', 'negative', 'unclear'] as DirectionFilter[]).map((filter) => (
+              <button
+                key={filter}
+                type="button"
+                className={`exposure-map__filter${directionFilter === filter ? ' exposure-map__filter--active' : ''}`}
+                onClick={() => setDirectionFilter(filter)}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+          <div className="exposure-map__filter-group">
+            <label className="exposure-map__filter-label" htmlFor="exposure-risk-filter">Position risk</label>
+            <select id="exposure-risk-filter" value={riskFilter} onChange={(event) => setRiskFilter(event.target.value as RiskFilter)}>
+              <option value="all">All</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <label className="exposure-map__toggle">
+              <input type="checkbox" checked={positionPathsOnly} onChange={(event) => setPositionPathsOnly(event.target.checked)} />
+              Position paths
+            </label>
+          </div>
+          <div className="exposure-map__graph-actions">
+            <button type="button" onClick={fitGraph} disabled={!flowInstance || flowNodes.length === 0}>Fit graph</button>
+            <button type="button" onClick={resetFilters}>Reset filters</button>
+          </div>
+        </div>
+        <div className="exposure-map__legend" aria-label="Exposure map legend">
+          <span><i className="exposure-map__legend-dot exposure-map__legend-dot--article" />Article</span>
+          <span><i className="exposure-map__legend-dot exposure-map__legend-dot--positive" />Positive impact</span>
+          <span><i className="exposure-map__legend-dot exposure-map__legend-dot--negative" />Negative impact</span>
+          <span><i className="exposure-map__legend-dot exposure-map__legend-dot--unclear" />Unclear impact</span>
+          <span><i className="exposure-map__legend-line" />Thicker edge = higher deterministic exposure</span>
+        </div>
         {error ? <p className="exposure-map__error">{error}</p> : null}
         {!loading && payload && !payload.has_run ? <div className="exposure-map__empty">Select “Analyze article” to generate and cache grounded explanations.</div> : null}
         {loading ? <div className="exposure-map__empty">Loading evidence map…</div> : null}
@@ -326,10 +452,11 @@ function ExposureMapPage() {
               nodeTypes={nodeTypes}
               fitView
               minZoom={0.3}
-              onNodeClick={(_, node) => setSelectedNode(node.data)}
+              onInit={setFlowInstance}
+              onNodeClick={(_, node) => setSelectedNode(node.data as GraphNode)}
             >
               <Background color="#3d4658" gap={22} size={1} />
-              <Controls />
+              <Controls showFitView={false} />
             </ReactFlow>
           </div>
         ) : null}

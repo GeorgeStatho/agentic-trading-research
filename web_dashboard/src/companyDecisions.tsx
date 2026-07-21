@@ -64,6 +64,7 @@ type CompanyDecisionsPayload = {
 };
 
 const COMPANY_DECISIONS_POLL_INTERVAL_MS = 60_000;
+type DecisionFilter = 'all' | 'call' | 'put' | 'neither';
 
 async function getCompanyDecisions(): Promise<CompanyDecisionsPayload> {
   const response = await fetch(`/api/company-decisions?ts=${Date.now()}`);
@@ -108,6 +109,21 @@ function formatDateTime(value: string): string {
   }).format(parsed);
 }
 
+function normalizeDecision(value: string | undefined): string {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+function decisionTone(value: string | undefined): string {
+  const decision = normalizeDecision(value);
+  if (decision === 'call' || decision === 'trade_candidate') {
+    return 'positive';
+  }
+  if (decision === 'put') {
+    return 'negative';
+  }
+  return 'neutral';
+}
+
 function renderList(items: string[] | undefined, emptyLabel: string) {
   if (!items || items.length === 0) {
     return <p className="company-decisions__text">{emptyLabel}</p>;
@@ -132,7 +148,11 @@ function renderArticleReferenceList(items: HistoryArticleReference[] | undefined
       {items.map((item) => (
         <li key={`${item.article_id}-${item.title}`}>
           <strong>{item.title || `Article ${item.article_id}`}</strong>
-          {item.source ? ` (${item.source})` : ''}
+          <span className="company-decisions__article-reference-meta">
+            {[item.source, item.article_scope, item.published_at ? formatDateTime(item.published_at) : '']
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
         </li>
       ))}
     </ul>
@@ -142,6 +162,8 @@ function renderArticleReferenceList(items: HistoryArticleReference[] | undefined
 function CompanyDecisionsPage() {
   const [payload, setPayload] = useState<CompanyDecisionsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [searchValue, setSearchValue] = useState('');
+  const [activeDecision, setActiveDecision] = useState<DecisionFilter>('all');
 
   useEffect(() => {
     let isMounted = true;
@@ -204,6 +226,25 @@ function CompanyDecisionsPage() {
     );
   }
 
+  const decisionCounts = payload.companies.reduce(
+    (counts, company) => {
+      const decision = normalizeDecision(company.manager.decision);
+      if (decision === 'call' || decision === 'put' || decision === 'neither') {
+        counts[decision] += 1;
+      }
+      return counts;
+    },
+    { call: 0, put: 0, neither: 0 },
+  );
+  const normalizedSearch = searchValue.trim().toLowerCase();
+  const visibleCompanies = payload.companies.filter((company) => {
+    const searchMatches = !normalizedSearch || [company.symbol, company.name, company.manager.decision, company.strategist.decision]
+      .some((value) => String(value ?? '').toLowerCase().includes(normalizedSearch));
+    const decisionMatches = activeDecision === 'all' || normalizeDecision(company.manager.decision) === activeDecision;
+    return searchMatches && decisionMatches;
+  });
+  const hasFilters = Boolean(normalizedSearch) || activeDecision !== 'all';
+
   return (
     <main className="company-decisions">
       <section className="company-decisions__panel">
@@ -218,16 +259,70 @@ function CompanyDecisionsPage() {
           </div>
         </div>
 
+        <div className="company-decisions__metrics" aria-label="Stored decision summary">
+          <article><span>Stored</span><strong>{payload.company_count}</strong></article>
+          <article className="company-decisions__metric company-decisions__metric--positive"><span>Calls</span><strong>{decisionCounts.call}</strong></article>
+          <article className="company-decisions__metric company-decisions__metric--negative"><span>Puts</span><strong>{decisionCounts.put}</strong></article>
+          <article><span>No trade</span><strong>{decisionCounts.neither}</strong></article>
+          <p><i /> Read-only history · refreshes every minute</p>
+        </div>
+
+        <section className="company-decisions__controls" aria-label="Decision archive filters">
+          <label className="company-decisions__search">
+            <span>Search decisions</span>
+            <input
+              type="search"
+              value={searchValue}
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder="Symbol, company, strategist, or manager decision"
+            />
+          </label>
+          <div className="company-decisions__filter-group" aria-label="Manager decision filter">
+            {(['all', 'call', 'put', 'neither'] as const).map((decision) => (
+              <button
+                key={decision}
+                type="button"
+                className={`company-decisions__filter${activeDecision === decision ? ' company-decisions__filter--active' : ''}`}
+                onClick={() => setActiveDecision(decision)}
+                aria-pressed={activeDecision === decision}
+              >
+                {decision === 'all' ? 'All decisions' : decision === 'neither' ? 'No trade' : decision}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="company-decisions__filter company-decisions__filter--reset"
+              disabled={!hasFilters}
+              onClick={() => {
+                setSearchValue('');
+                setActiveDecision('all');
+              }}
+            >
+              Reset
+            </button>
+          </div>
+        </section>
+
         {payload.company_count === 0 ? (
           <p className="company-decisions__empty">No saved strategist or manager decisions were found yet.</p>
+        ) : visibleCompanies.length === 0 ? (
+          <p className="company-decisions__empty">No stored decisions match the current filters.</p>
         ) : (
           <div className="company-decisions__grid">
-            {payload.companies.map((company) => (
+            {visibleCompanies.map((company) => (
               <article key={company.symbol} className="company-decisions__card">
                 <div className="company-decisions__company">
                   <div>
                     <p className="company-decisions__symbol">{company.symbol}</p>
                     <p className="company-decisions__name">{formatValue(company.name)}</p>
+                    <div className="company-decisions__decision-summary">
+                      <span className={`company-decisions__decision-badge company-decisions__decision-badge--${decisionTone(company.strategist.decision)}`}>
+                        Strategist · {formatValue(company.strategist.decision)}
+                      </span>
+                      <span className={`company-decisions__decision-badge company-decisions__decision-badge--${decisionTone(company.manager.decision)}`}>
+                        Manager · {formatValue(company.manager.decision)}
+                      </span>
+                    </div>
                   </div>
                   <p className="company-decisions__updated">
                     Updated {formatDateTime(company.last_updated_at)}
@@ -240,9 +335,7 @@ function CompanyDecisionsPage() {
                     <p className="company-decisions__stage-main">
                       {formatValue(company.strategist.decision)}
                     </p>
-                    <p className="company-decisions__detail">
-                      Confidence: {formatValue(company.strategist.confidence)}
-                    </p>
+                    <p className="company-decisions__detail">Confidence: {formatValue(company.strategist.confidence)}</p>
                     <p className="company-decisions__text">
                       {formatValue(company.strategist.summary)}
                     </p>
@@ -261,9 +354,7 @@ function CompanyDecisionsPage() {
                     <p className="company-decisions__stage-main">
                       {formatValue(company.manager.decision)}
                     </p>
-                    <p className="company-decisions__detail">
-                      Confidence: {formatValue(company.manager.confidence)}
-                    </p>
+                    <p className="company-decisions__detail">Confidence: {formatValue(company.manager.confidence)}</p>
                     <p className="company-decisions__text">
                       {formatValue(company.manager.reason)}
                     </p>
@@ -296,8 +387,8 @@ function CompanyDecisionsPage() {
                         </div>
                       </dl>
                     </div>
-                    <div className="company-decisions__subsection">
-                      <p className="company-decisions__subheading">Recent history</p>
+                    <details className="company-decisions__history-details">
+                      <summary>Recent history <span>{company.manager_history.length}</span></summary>
                       {company.manager_history.length === 0 ? (
                         <p className="company-decisions__text">No linked manager history saved yet.</p>
                       ) : (
@@ -345,7 +436,7 @@ function CompanyDecisionsPage() {
                           ))}
                         </div>
                       )}
-                    </div>
+                    </details>
                   </section>
                 </div>
               </article>

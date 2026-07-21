@@ -1,5 +1,6 @@
 :root {
   --text: #6b6375;
+  --text-dim: #81798a;
   --text-h: #08060d;
   --bg: #fff;
   --border: #e5e4e7;
@@ -33,6 +34,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --text: #9ca3af;
+    --text-dim: #7d899d;
     --text-h: #f3f4f6;
     --bg: #16171d;
     --border: #2e303a;
@@ -51,15 +53,14 @@
 }
 
 #root {
-  width: 1126px;
-  max-width: 100%;
+  width: 100%;
   margin: 0 auto;
   min-height: 100svh;
   box-sizing: border-box;
 }
 
 body {
-  margin: 10;
+  margin: 0;
 }
 
 h1,
@@ -88,8 +89,8 @@ p {
   flex-direction: column;
   align-items: center;
   min-height: 100vh;
-  padding: 48px 0 72px;
-  gap: 24px;
+  padding: 0 0 72px;
+  gap: 18px;
 }
 
 
