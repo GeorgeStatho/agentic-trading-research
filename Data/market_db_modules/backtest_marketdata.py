@@ -243,7 +243,8 @@ def fetch_marketdata_eod_option_quotes(
     if normalized_start and normalized_end and normalized_start > normalized_end:
         raise ValueError("start_at cannot be after end_at.")
 
-    resolved_token = str(token or os.getenv("MARKETDATA_TOKEN") or "").strip()
+    token_value = os.getenv("MARKETDATA_TOKEN") if token is None else token
+    resolved_token = str(token_value or "").strip()
     resolved_request_get = request_get or (requests.get if requests is not None else None)
     initialize_database(db_path=db_path)
     config = {
