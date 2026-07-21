@@ -352,6 +352,11 @@ def _quote_path(conn: sqlite3.Connection, option_symbol: str, as_of: datetime) -
     return [dict(row) for row in rows]
 
 
+def _pricing_source(quote: dict[str, Any]) -> str:
+    raw_quote = _json_object(quote.get("raw_json"))
+    return str(raw_quote.get("pricing_source") or "observed_quote")
+
+
 def _simulate_event(decision: dict[str, Any], snapshot: dict[str, Any], conn: sqlite3.Connection, config: dict[str, Any]) -> dict[str, Any]:
     as_of = _parse_timestamp(decision.get("decision_run_at"))
     option_symbol = str(decision.get("selected_option_symbol") or "").strip().upper()
@@ -380,6 +385,7 @@ def _simulate_event(decision: dict[str, Any], snapshot: dict[str, Any], conn: sq
     multiplier = config["option_multiplier"]
     commission = config["commission_per_contract"] * quantity * 2
     entry_notional = entry_price * multiplier * quantity
+    pricing_source = _pricing_source(entry_quote)
     cutoff = entry_at + timedelta(hours=config["max_hold_hours"])
     exit_quote: dict[str, Any] | None = None
     exit_price = 0.0
@@ -406,6 +412,8 @@ def _simulate_event(decision: dict[str, Any], snapshot: dict[str, Any], conn: sq
             "status": "no_exit_quote",
             "entry_at": entry_at.isoformat(),
             "entry_price": entry_price,
+            "quote_provider": entry_quote.get("provider"),
+            "pricing_source": pricing_source,
             "warnings": ["no_valid_historical_exit_quote"],
         }
     gross_pnl = (exit_price - entry_price) * multiplier * quantity
@@ -418,6 +426,8 @@ def _simulate_event(decision: dict[str, Any], snapshot: dict[str, Any], conn: sq
         "exit_at": exit_at.isoformat(),
         "entry_price": round(entry_price, 6),
         "exit_price": round(exit_price, 6),
+        "quote_provider": entry_quote.get("provider"),
+        "pricing_source": pricing_source,
         "realized_pnl_pct": round(realized_pnl_pct, 4) if realized_pnl_pct is not None else None,
         "realized_pnl_dollars": round(realized_pnl_dollars, 4),
         "commission_dollars": round(commission, 4),
@@ -577,16 +587,21 @@ def get_backtest_run(run_id: int, *, db_path: Path | str = DB_PATH) -> dict[str,
             (int(run_id),),
         ).fetchall()
     run_data = dict(run)
-    return {
-        "run": {**run_data, "metrics": _json_object(run_data.get("metrics_json")), "config": _json_object(run_data.get("config_json")), "data_source_versions": _json_object(run_data.get("data_source_versions_json"))},
-        "events": [
+    event_payloads = []
+    for event in events:
+        event_data = _json_object(event["event_json"])
+        event_payloads.append(
             {
                 **dict(event),
                 "warnings": _json_object(event["warnings_json"]) if str(event["warnings_json"] or "").startswith("{") else json.loads(event["warnings_json"] or "[]"),
-                "event": _json_object(event["event_json"]),
+                "event": event_data,
+                "quote_provider": event_data.get("quote_provider"),
+                "pricing_source": event_data.get("pricing_source"),
             }
-            for event in events
-        ],
+        )
+    return {
+        "run": {**run_data, "metrics": _json_object(run_data.get("metrics_json")), "config": _json_object(run_data.get("config_json")), "data_source_versions": _json_object(run_data.get("data_source_versions_json"))},
+        "events": event_payloads,
         "read_only": True,
         "no_trade_executed_by_feature": True,
     }
