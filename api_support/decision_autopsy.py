@@ -61,6 +61,13 @@ def _build_review(snapshot: dict[str, Any], row: dict[str, Any]) -> dict[str, st
     }
 
 
+def _execution_mode(row: dict[str, Any]) -> str:
+    paper = row.get("execution_paper")
+    if paper is None:
+        return "unlinked"
+    return "paper" if bool(paper) else "live"
+
+
 def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
     row = dict(raw_row)
     snapshot = safe_json_loads(row.get("snapshot_json"))
@@ -110,6 +117,17 @@ def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
             "pnl_pct": safe_float(row.get("latest_trade_pnl_pct")),
             "pnl_updated_at": str(row.get("latest_trade_pnl_updated_at") or "").strip(),
             "resolved_outcome_label": str(row.get("resolved_outcome_label") or "").strip(),
+        },
+        "execution": {
+            "record_id": int(row.get("trade_execution_record_id") or 0) or None,
+            "mode": _execution_mode(row),
+            "paper": bool(row.get("execution_paper")) if row.get("execution_paper") is not None else None,
+            "status": str(row.get("execution_order_status") or "").strip(),
+            "option_symbol": str(row.get("execution_option_symbol") or "").strip(),
+            "underlying_symbol": str(row.get("execution_underlying_symbol") or "").strip(),
+            "quantity": safe_float(row.get("execution_order_qty")),
+            "side": str(row.get("execution_order_side") or "").strip(),
+            "submitted_at": str(row.get("execution_submitted_at") or "").strip(),
         },
         "review": _build_review(snapshot, row),
     }

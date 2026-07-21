@@ -126,12 +126,26 @@ def list_decision_autopsy_ledger(
                 ledger.created_at,
                 history.trade_executed,
                 history.trade_execution_order_id,
+                history.trade_execution_record_id,
                 history.latest_trade_pnl_pct,
                 history.latest_trade_pnl_updated_at,
-                history.resolved_outcome_label
+                history.resolved_outcome_label,
+                execution.paper AS execution_paper,
+                execution.order_status AS execution_order_status,
+                execution.option_symbol AS execution_option_symbol,
+                execution.underlying_symbol AS execution_underlying_symbol,
+                execution.order_qty AS execution_order_qty,
+                execution.order_side AS execution_order_side,
+                execution.submitted_at AS execution_submitted_at
             FROM decision_autopsy_ledger AS ledger
             LEFT JOIN manager_decision_history AS history
                 ON history.id = ledger.manager_decision_history_id
+            LEFT JOIN option_trade_executions AS execution
+                ON execution.id = history.trade_execution_record_id
+                OR (
+                    history.trade_execution_record_id IS NULL
+                    AND execution.order_id = history.trade_execution_order_id
+                )
             {where_sql}
             ORDER BY ledger.decision_run_at DESC, ledger.id DESC
             LIMIT ?

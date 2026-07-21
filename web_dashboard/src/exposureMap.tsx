@@ -32,6 +32,12 @@ type GraphNode = {
   dte?: number | null
   quantity?: number | null
   paper?: boolean
+  position_state?: 'historical_live'
+  recorded_at?: string
+  outcome_pnl_pct?: number | null
+  outcome_updated_at?: string
+  outcome_label?: string
+  learned_reason?: string
   risk_score?: number | null
   risk_level?: string
   reason?: string
@@ -59,6 +65,19 @@ type PositionImpact = {
   score_inputs?: Record<string, unknown> | null
 }
 
+type HistoricalLiveImpact = PositionImpact & {
+  execution_id: number
+  manager_decision_history_id: number
+  underlying_symbol: string
+  dte?: number | null
+  quantity?: number | null
+  recorded_at?: string
+  outcome_pnl_pct?: number | null
+  outcome_updated_at?: string
+  outcome_label?: string
+  learned_reason?: string
+}
+
 type ExposurePayload = {
   article_id: number
   has_run: boolean
@@ -73,6 +92,7 @@ type ExposurePayload = {
   nodes: GraphNode[]
   edges: GraphEdge[]
   position_impacts: PositionImpact[]
+  historical_live_impacts?: HistoricalLiveImpact[]
   uncertainties: string[]
   no_trade_executed: boolean
   demo_data?: boolean
@@ -106,6 +126,10 @@ function formatEvidenceScore(value: number | null | undefined): string {
   return value === null || value === undefined ? 'N/A' : value.toFixed(2)
 }
 
+function formatPnl(value: number | null | undefined): string {
+  return value === null || value === undefined || Number.isNaN(value) ? 'Outcome pending' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}% P/L`
+}
+
 function scoreColor(direction?: string): string {
   if (direction === 'negative') {
     return '#dd5a63'
@@ -118,16 +142,18 @@ function scoreColor(direction?: string): string {
 
 function ExposureNode({ data }: NodeProps<FlowNode>) {
   const direction = data.direction ?? 'unclear'
+  const historicalLive = data.position_state === 'historical_live'
   return (
-    <div className={`exposure-node exposure-node--${data.type} exposure-node--${direction}`}>
-      <p className="exposure-node__type">{data.type === 'position' ? 'Paper Position' : data.type}</p>
+    <div className={`exposure-node exposure-node--${data.type} exposure-node--${direction}${historicalLive ? ' exposure-node--historical-live' : ''}`}>
+      <p className="exposure-node__type">{data.type === 'position' ? (historicalLive ? 'Live Trade Outcome' : 'Paper Position') : data.type}</p>
       <strong>{data.label}</strong>
       {data.subtitle ? <span>{data.subtitle}</span> : null}
       {data.type === 'article' ? <small>Evidence {formatEvidenceScore(data.evidence_score)}</small> : null}
       {data.type === 'position' ? (
-        <small>{data.dte ?? 'N/A'} DTE · {data.quantity ?? 0} contracts · paper</small>
+        <small>{data.dte ?? 'N/A'} DTE{historicalLive ? ' at execution' : ''} · {data.quantity ?? 0} contracts · {historicalLive ? 'recorded live trade' : 'paper'}</small>
       ) : null}
-      {data.type === 'position' && data.risk_score !== undefined ? <b>Risk {data.risk_score}</b> : null}
+      {historicalLive ? <b>{formatPnl(data.outcome_pnl_pct)}{data.outcome_label ? ` · ${data.outcome_label.replaceAll('_', ' ')}` : ''}</b> : null}
+      {data.type === 'position' && !historicalLive && data.risk_score !== undefined ? <b>Risk {data.risk_score}</b> : null}
     </div>
   )
 }
@@ -462,6 +488,7 @@ function ExposureMapPage({ demoMode = false }: { demoMode?: boolean }) {
           <span><i className="exposure-map__legend-dot exposure-map__legend-dot--positive" />Positive impact</span>
           <span><i className="exposure-map__legend-dot exposure-map__legend-dot--negative" />Negative impact</span>
           <span><i className="exposure-map__legend-dot exposure-map__legend-dot--unclear" />Unclear impact</span>
+          <span><i className="exposure-map__legend-dot exposure-map__legend-dot--live-history" />Recorded live outcome</span>
           <span><i className="exposure-map__legend-line" />Thicker edge = higher deterministic exposure</span>
         </div>
         {error ? <p className="exposure-map__error">{error}</p> : null}
@@ -495,9 +522,16 @@ function ExposureMapPage({ demoMode = false }: { demoMode?: boolean }) {
         {selectedArticle?.source_url ? <a href={selectedArticle.source_url} target="_blank" rel="noreferrer">Open source: {selectedArticle.source || 'article'}</a> : null}
         {selectedNode?.type === 'position' ? (
           <div className="exposure-map__drawer-block">
-            <h3>Deterministic score</h3>
-            <p>Risk {selectedNode.risk_score ?? 0} · {selectedNode.risk_level ?? 'low'} · {selectedNode.dte ?? 'N/A'} DTE</p>
-            <p>{String(selectedNode.score_inputs?.formula ?? 'Position exposure × magnitude × confidence × DTE/volatility multiplier')}</p>
+            {selectedNode.position_state === 'historical_live' ? <>
+              <h3>Recorded live outcome</h3>
+              <p>{formatPnl(selectedNode.outcome_pnl_pct)}{selectedNode.outcome_label ? ` · ${selectedNode.outcome_label.replaceAll('_', ' ')}` : ''}</p>
+              <p>Executed {selectedNode.recorded_at ? formatDate(selectedNode.recorded_at) : 'at an unknown time'} · {selectedNode.dte ?? 'N/A'} DTE at execution</p>
+              {selectedNode.learned_reason ? <p>{selectedNode.learned_reason}</p> : null}
+            </> : <>
+              <h3>Deterministic score</h3>
+              <p>Risk {selectedNode.risk_score ?? 0} · {selectedNode.risk_level ?? 'low'} · {selectedNode.dte ?? 'N/A'} DTE</p>
+              <p>{String(selectedNode.score_inputs?.formula ?? 'Position exposure × magnitude × confidence × DTE/volatility multiplier')}</p>
+            </>}
           </div>
         ) : null}
         <div className="exposure-map__drawer-block">
@@ -507,6 +541,14 @@ function ExposureMapPage({ demoMode = false }: { demoMode?: boolean }) {
               {payload.position_impacts.map((impact) => <li key={impact.option_symbol}><strong>{impact.option_symbol}</strong> · {impact.risk_level} ({impact.risk_score})</li>)}
             </ul>
           ) : <p>No current paper positions are connected to this article.</p>}
+        </div>
+        <div className="exposure-map__drawer-block">
+          <h3>Learned live outcomes</h3>
+          {payload?.historical_live_impacts?.length ? (
+            <ul>
+              {payload.historical_live_impacts.map((impact) => <li key={impact.execution_id}><strong>{impact.option_symbol}</strong> · {formatPnl(impact.outcome_pnl_pct)}{impact.outcome_label ? ` · ${impact.outcome_label.replaceAll('_', ' ')}` : ''}</li>)}
+            </ul>
+          ) : <p>No linked non-paper execution outcomes are affected by this article.</p>}
         </div>
         <div className="exposure-map__drawer-block">
           <h3>Uncertainty</h3>

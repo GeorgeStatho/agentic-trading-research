@@ -127,6 +127,17 @@ def _parse_expiration(value: Any) -> date | None:
             return None
 
 
+def _parse_timestamp(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
 def _number(value: Any, fallback: float = 0.0) -> float:
     try:
         return float(value)
@@ -410,6 +421,99 @@ def _load_paper_positions(conn) -> list[dict[str, Any]]:
             }
         )
     return sorted(output, key=lambda position: position["option_symbol"])
+
+
+def _load_historical_live_executions(conn) -> list[dict[str, Any]]:
+    """Load linked non-paper executions as outcome evidence, never as open positions."""
+    rows = conn.execute(
+        """
+        SELECT
+            execution.id AS execution_id,
+            execution.order_id,
+            execution.option_symbol,
+            execution.underlying_symbol,
+            execution.expiration_date,
+            execution.strike_price,
+            execution.order_qty,
+            execution.order_side,
+            execution.decision,
+            execution.company_id,
+            execution.submitted_at,
+            execution.recorded_at,
+            execution.raw_json,
+            history.id AS manager_decision_history_id,
+            history.manager_reason,
+            history.latest_trade_pnl_pct,
+            history.latest_trade_pnl_updated_at,
+            history.resolved_outcome_label,
+            ledger.snapshot_json AS autopsy_snapshot_json
+        FROM option_trade_executions AS execution
+        JOIN manager_decision_history AS history
+          ON history.trade_execution_record_id = execution.id
+          OR (
+              history.trade_execution_record_id IS NULL
+              AND history.trade_execution_order_id = execution.order_id
+          )
+        LEFT JOIN decision_autopsy_ledger AS ledger
+          ON ledger.manager_decision_history_id = history.id
+        WHERE execution.paper = 0
+          AND COALESCE(history.trade_executed, 0) = 1
+        ORDER BY COALESCE(execution.submitted_at, execution.recorded_at) DESC, execution.id DESC
+        """
+    ).fetchall()
+    output: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        option_symbol = str(item.get("option_symbol") or "").strip().upper()
+        underlying_symbol = str(item.get("underlying_symbol") or "").strip().upper()
+        if not option_symbol or not underlying_symbol:
+            continue
+        execution_time = _parse_timestamp(item.get("submitted_at")) or _parse_timestamp(item.get("recorded_at"))
+        expiration = _parse_expiration(item.get("expiration_date"))
+        dte_at_execution = max(0, (expiration - execution_time.date()).days) if expiration and execution_time else None
+        snapshot = _safe_json_loads(item.get("autopsy_snapshot_json"))
+        review = snapshot.get("review") if isinstance(snapshot, dict) else None
+        learned_reason = ""
+        if isinstance(review, dict):
+            learned_reason = str(review.get("what_proved_us_wrong") or review.get("headline") or "").strip()
+        if not learned_reason:
+            learned_reason = str(item.get("manager_reason") or "").strip()
+        output.append(
+            {
+                "execution_id": int(item["execution_id"]),
+                "manager_decision_history_id": int(item["manager_decision_history_id"]),
+                "option_symbol": option_symbol,
+                "underlying_symbol": underlying_symbol,
+                "expiration_date": str(item.get("expiration_date") or ""),
+                "strike_price": _number(item.get("strike_price"), 0.0) or None,
+                "quantity": abs(_number(item.get("order_qty"), 0.0)),
+                "order_side": str(item.get("order_side") or "buy").strip().lower(),
+                "contract_type": "put" if str(item.get("decision") or "").strip().lower() == "put" else "call",
+                "dte": dte_at_execution,
+                "implied_volatility": _extract_implied_volatility(_safe_json_loads(item.get("raw_json"))),
+                "paper": False,
+                "position_state": "historical_live",
+                "recorded_at": str(item.get("submitted_at") or item.get("recorded_at") or ""),
+                "outcome_pnl_pct": item.get("latest_trade_pnl_pct"),
+                "outcome_updated_at": str(item.get("latest_trade_pnl_updated_at") or ""),
+                "outcome_label": str(item.get("resolved_outcome_label") or "").strip(),
+                "learned_reason": learned_reason,
+            }
+        )
+    return output
+
+
+def _historical_live_reason(position: dict[str, Any], edge: dict[str, Any]) -> str:
+    outcome_label = str(position.get("outcome_label") or "").replace("_", " ").strip()
+    pnl_value = position.get("outcome_pnl_pct")
+    pnl_text = ""
+    if pnl_value is not None:
+        pnl_text = f"{_number(pnl_value):+.2f}% P/L"
+    outcome = " · ".join(part for part in (pnl_text, outcome_label) if part) or "outcome pending"
+    learned_reason = str(position.get("learned_reason") or "").strip()
+    causal_reason = str(edge.get("mechanism") or "").strip()
+    details = learned_reason or causal_reason or "Recorded for outcome review."
+    return f"Historical live outcome: {outcome}. {details}"
 
 
 def _build_grounding_payload(article: dict[str, Any], relationships: list[dict[str, Any]], positions: list[dict[str, Any]]) -> dict[str, Any]:
@@ -796,12 +900,14 @@ def build_exposure_map_payload(article_id: int, *, run_id: int | None = None, co
         if run is None:
             return {
                 "article_id": int(article_id), "has_run": False, "article": article, "nodes": [], "edges": [],
-                "position_impacts": [], "uncertainties": [], "no_trade_executed": True,
+                "position_impacts": [], "historical_live_impacts": [], "uncertainties": [], "no_trade_executed": True,
             }
         run_data = dict(run)
         edge_rows = [dict(row) for row in active_conn.execute("SELECT * FROM news_exposure_edges WHERE run_id = ? ORDER BY id", (run_data["id"],)).fetchall()]
         position_impacts = [dict(row) for row in active_conn.execute("SELECT * FROM news_exposure_position_impacts WHERE run_id = ? ORDER BY risk_score DESC", (run_data["id"],)).fetchall()]
         current_positions = {position["option_symbol"]: position for position in _load_paper_positions(active_conn)}
+        historical_live_positions = _load_historical_live_executions(active_conn)
+        historical_live_impacts: list[dict[str, Any]] = []
         nodes: dict[str, dict[str, Any]] = {
             f"article:{article['id']}": {"id": f"article:{article['id']}", "type": "article", "label": article["title"], "subtitle": article["source"], "evidence_score": article["evidence_score"]}
         }
@@ -837,10 +943,73 @@ def build_exposure_map_payload(article_id: int, *, run_id: int | None = None, co
                     _add_ancestor_nodes(active_conn, nodes, company, graph_edges)
             if company_node_id in nodes:
                 graph_edges.append({"id": f"position:{position['option_symbol']}", "source": company_node_id, "target": node_id, "kind": "position", "label": impact["reason"], "score": _number(impact["risk_score"]), "direction": "negative" if impact["risk_level"] == "high" else "unclear", "score_inputs": _safe_json_loads(impact["score_inputs_json"])})
+        for position in historical_live_positions:
+            selected_edge = _find_position_edge(position, edge_rows, active_conn)
+            if selected_edge is None:
+                continue
+            score, score_inputs = calculate_position_risk_score(
+                quantity=_number(position["quantity"]),
+                direction=selected_edge["direction"],
+                magnitude=selected_edge["magnitude"],
+                confidence=selected_edge["confidence"],
+                dte=position.get("dte"),
+                implied_volatility=position.get("implied_volatility"),
+                contract_type=position["contract_type"],
+                order_side=position["order_side"],
+            )
+            reason = _historical_live_reason(position, selected_edge)
+            historical_impact = {
+                **position,
+                "risk_score": score,
+                "risk_level": _risk_level(score),
+                "reason": reason,
+                "score_inputs": {**score_inputs, "assessment_scope": "historical_live_execution"},
+            }
+            historical_live_impacts.append(historical_impact)
+            node_id = f"live-execution:{position['execution_id']}"
+            nodes[node_id] = {
+                "id": node_id,
+                "type": "position",
+                "label": position["option_symbol"],
+                "subtitle": position["underlying_symbol"],
+                "direction": selected_edge["direction"],
+                "dte": position["dte"],
+                "quantity": position["quantity"],
+                "paper": False,
+                "position_state": "historical_live",
+                "recorded_at": position["recorded_at"],
+                "outcome_pnl_pct": position["outcome_pnl_pct"],
+                "outcome_updated_at": position["outcome_updated_at"],
+                "outcome_label": position["outcome_label"],
+                "learned_reason": position["learned_reason"],
+                "risk_score": score,
+                "risk_level": _risk_level(score),
+                "reason": reason,
+                "score_inputs": historical_impact["score_inputs"],
+            }
+            company_node_id = f"company:{position['underlying_symbol']}"
+            if company_node_id not in nodes:
+                company = _load_entity_node(active_conn, "company", position["underlying_symbol"])
+                if company is not None:
+                    company["direction"] = selected_edge["direction"]
+                    nodes[company_node_id] = company
+                    _add_ancestor_nodes(active_conn, nodes, company, graph_edges)
+            if company_node_id in nodes:
+                graph_edges.append({
+                    "id": f"live-execution:{position['execution_id']}",
+                    "source": company_node_id,
+                    "target": node_id,
+                    "kind": "position",
+                    "label": reason,
+                    "score": score,
+                    "direction": selected_edge["direction"],
+                    "score_inputs": historical_impact["score_inputs"],
+                })
         return {
             "article_id": int(article_id), "has_run": True, "run": {"id": run_data["id"], "model": run_data["model"], "prompt_version": run_data["prompt_version"], "created_at": run_data["created_at"], "article_summary": run_data["article_summary"]},
             "article": article, "nodes": list(nodes.values()), "edges": graph_edges,
             "position_impacts": [{**impact, "score_inputs": _safe_json_loads(impact["score_inputs_json"])} for impact in position_impacts],
+            "historical_live_impacts": historical_live_impacts,
             "uncertainties": _safe_json_loads(run_data["uncertainties_json"]) or [], "no_trade_executed": True,
         }
     finally:

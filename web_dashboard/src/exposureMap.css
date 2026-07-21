@@ -110,6 +110,7 @@
 .exposure-map__legend-dot--positive { border-color: #46a37a; }
 .exposure-map__legend-dot--negative { border-color: #dd5a63; }
 .exposure-map__legend-dot--unclear { border-color: #7d899d; }
+.exposure-map__legend-dot--live-history { border-color: #e5a94f; border-style: dashed; }
 .exposure-map__legend-line { width: 20px; height: 4px; border-radius: 99px; background: linear-gradient(90deg, #7d899d 30%, #a58cf4 30% 65%, #dd5a63 65%); }
 .exposure-map__flow { min-height: 0; flex: 1; background: #141925; }
 .exposure-map__empty, .exposure-map__error { margin: 18px; padding: 16px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 10%, transparent); }
@@ -134,6 +135,7 @@
 .exposure-node--negative { border-color: #dd5a63; }
 .exposure-node--article { border-color: #a58cf4; width: 235px; }
 .exposure-node--position { border-color: #e5a94f; }
+.exposure-node--historical-live { border-style: dashed; background: color-mix(in srgb, #e5a94f 11%, #202838); }
 .react-flow__node.selected .exposure-node { outline: 3px solid color-mix(in srgb, var(--accent) 80%, white); outline-offset: 3px; }
 
 .exposure-map__drawer { line-height: 1.45; }

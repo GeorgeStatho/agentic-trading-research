@@ -247,6 +247,9 @@ CREATE INDEX IF NOT EXISTS idx_manager_decision_history_decision_run_at
 CREATE INDEX IF NOT EXISTS idx_manager_decision_history_trade_execution_order_id
     ON manager_decision_history (trade_execution_order_id);
 
+CREATE INDEX IF NOT EXISTS idx_manager_decision_history_trade_execution_record_id
+    ON manager_decision_history (trade_execution_record_id);
+
 CREATE INDEX IF NOT EXISTS idx_manager_decision_history_selected_option_symbol
     ON manager_decision_history (selected_option_symbol);
 

@@ -180,6 +180,76 @@ class ExposureMapTests(unittest.TestCase):
             self.assertEqual(loaded_payload["position_impacts"], [])
             self.assertTrue(loaded_payload["no_trade_executed"])
 
+    def test_linked_live_execution_is_shown_as_historical_outcome_evidence(self):
+        with TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "exposure-live-history.sqlite3"
+            article_id = self._seed_article(db_path)
+            submitted_at = datetime(2026, 7, 20, tzinfo=timezone.utc).isoformat()
+            with get_connection(db_path) as conn:
+                company_id = conn.execute("SELECT id FROM companies WHERE symbol = 'NVDA'").fetchone()["id"]
+                execution_id = conn.execute(
+                    """
+                    INSERT INTO option_trade_executions (
+                        company_id, order_id, underlying_symbol, option_symbol, decision,
+                        expiration_date, order_qty, paper, order_status, order_side, submitted_at
+                    ) VALUES (?, 'live-order-1', 'NVDA', 'NVDA260724C00180000', 'call',
+                              '2026-07-24', 2, 0, 'filled', 'buy', ?)
+                    """,
+                    (company_id, submitted_at),
+                ).lastrowid
+                history_id = conn.execute(
+                    """
+                    INSERT INTO manager_decision_history (
+                        company_id, symbol, decision_run_at, manager_reason, trade_executed,
+                        trade_execution_order_id, trade_execution_record_id, latest_trade_pnl_pct,
+                        resolved_outcome_label
+                    ) VALUES (?, 'NVDA', ?, 'Guidance risk required a wider time horizon.', 1,
+                              'live-order-1', ?, -12.5, 'resolved_loss')
+                    """,
+                    (company_id, submitted_at, execution_id),
+                ).lastrowid
+                conn.execute(
+                    """
+                    INSERT INTO decision_autopsy_ledger (
+                        manager_decision_history_id, symbol, decision_run_at, snapshot_json
+                    ) VALUES (?, 'NVDA', ?, ?)
+                    """,
+                    (
+                        history_id,
+                        submitted_at,
+                        json.dumps({"review": {"what_proved_us_wrong": "The export policy risk materialized sooner than the thesis allowed."}}),
+                    ),
+                )
+            model_response = json.dumps({
+                "article_summary": "The article reports a policy change affecting technology.",
+                "edges": [{
+                    "from": {"type": "article", "id": article_id},
+                    "to": {"type": "sector", "id": "1"},
+                    "direction": "negative",
+                    "magnitude": "high",
+                    "confidence": "high",
+                    "mechanism": "The stored sector relationship identifies technology exposure.",
+                    "evidence_article_ids": [article_id],
+                }],
+                "position_impacts": [],
+                "uncertainties": [],
+            })
+            with patch("api_support.exposure_map.DB_PATH", db_path), patch(
+                "api_support.exposure_map.get_model_client", return_value=object()
+            ), patch("api_support.exposure_map.ask_llm_model", return_value=model_response):
+                create_exposure_run(article_id)
+                loaded_payload = build_exposure_map_payload(article_id)
+
+            self.assertEqual(loaded_payload["position_impacts"], [])
+            self.assertEqual(len(loaded_payload["historical_live_impacts"]), 1)
+            live_impact = loaded_payload["historical_live_impacts"][0]
+            self.assertEqual(live_impact["outcome_pnl_pct"], -12.5)
+            self.assertIn("export policy risk materialized", live_impact["reason"])
+            live_node = next(node for node in loaded_payload["nodes"] if node["id"] == f"live-execution:{execution_id}")
+            self.assertFalse(live_node["paper"])
+            self.assertEqual(live_node["position_state"], "historical_live")
+            self.assertTrue(loaded_payload["no_trade_executed"])
+
 
 if __name__ == "__main__":
     unittest.main()

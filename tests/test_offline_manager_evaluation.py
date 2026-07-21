@@ -258,6 +258,39 @@ class OfflineManagerEvaluationTests(unittest.TestCase):
             ]
         self.assertEqual(modes, ["historical_outcome_audit", "historical_outcome_audit"])
 
+    def test_historical_outcome_audit_identifies_linked_live_orders(self) -> None:
+        decision_id = self._record(
+            decision_time="2026-01-01T10:00:00+00:00",
+            pnl_updated_at="2026-01-03T10:00:00+00:00",
+            pnl=-6.0,
+        )
+        with get_connection(self.db_path) as conn:
+            execution_id = conn.execute(
+                """
+                INSERT INTO option_trade_executions (
+                    company_id, order_id, underlying_symbol, option_symbol, decision,
+                    expiration_date, order_qty, paper, order_status, order_side, submitted_at
+                ) VALUES (?, 'live-replay-order', 'MSFT', 'MSFT260619C00450000', 'call',
+                          '2026-06-19', 1, 0, 'filled', 'buy', '2026-01-01T10:05:00+00:00')
+                """,
+                (self.company_id,),
+            ).lastrowid
+            conn.execute(
+                """
+                UPDATE manager_decision_history
+                SET trade_execution_order_id = 'live-replay-order', trade_execution_record_id = ?
+                WHERE id = ?
+                """,
+                (execution_id, decision_id),
+            )
+
+        report = run_historical_outcome_audit(limit=10, db_path=self.db_path, persist=False)
+
+        self.assertEqual(report["events"][0]["execution_mode"], "live")
+        self.assertEqual(report["events"][0]["execution"]["status"], "filled")
+        self.assertEqual(report["metrics"]["execution_modes"]["live"]["count"], 1)
+        self.assertEqual(report["metrics"]["execution_modes"]["live"]["false_positive_rate"], 1.0)
+
     def test_legacy_partial_replay_uses_only_saved_snapshot_fields(self) -> None:
         self._record(
             decision_time="2026-01-01T10:00:00+00:00",

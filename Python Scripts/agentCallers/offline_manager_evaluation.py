@@ -66,6 +66,39 @@ def _coerce_pnl(value: Any) -> float | None:
         return None
 
 
+def _execution_mode(decision: dict[str, Any]) -> str:
+    paper = decision.get("execution_paper")
+    if paper is None:
+        return "unlinked"
+    return "paper" if bool(paper) else "live"
+
+
+def _execution_details(decision: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "mode": _execution_mode(decision),
+        "record_id": int(decision.get("trade_execution_record_id") or 0) or None,
+        "order_id": str(decision.get("trade_execution_order_id") or ""),
+        "status": str(decision.get("execution_order_status") or ""),
+        "option_symbol": str(decision.get("execution_option_symbol") or ""),
+        "underlying_symbol": str(decision.get("execution_underlying_symbol") or ""),
+        "quantity": decision.get("execution_order_qty"),
+        "side": str(decision.get("execution_order_side") or ""),
+        "submitted_at": str(decision.get("execution_submitted_at") or ""),
+    }
+
+
+def _outcome_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
+    pnl_values = [float(event["pnl_pct"]) for event in events if event.get("pnl_pct") is not None]
+    wins = [value for value in pnl_values if value > 0]
+    false_positives = [value for value in pnl_values if value <= 0]
+    return {
+        "count": len(events),
+        "win_rate": (len(wins) / len(pnl_values)) if pnl_values else None,
+        "average_pnl_pct": (sum(pnl_values) / len(pnl_values)) if pnl_values else None,
+        "false_positive_rate": (len(false_positives) / len(pnl_values)) if pnl_values else None,
+    }
+
+
 def build_replay_variants(
     decision: dict[str, Any],
     *,
@@ -250,6 +283,12 @@ def calculate_replay_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
             "average_pnl_pct": (sum(pnl_values) / len(pnl_values)) if pnl_values else None,
             "false_positive_rate": (len(false_positives) / len(scored)) if scored else None,
             "confidence_buckets": buckets,
+            "execution_modes": {
+                execution_mode: _outcome_summary(
+                    [event for event in scored if event.get("execution_mode") == execution_mode]
+                )
+                for execution_mode in ("paper", "live", "unlinked")
+            },
         }
     return metrics
 
@@ -282,6 +321,12 @@ def calculate_historical_outcome_audit_metrics(events: list[dict[str, Any]]) -> 
         "average_pnl_pct": (sum(pnl_values) / len(pnl_values)) if pnl_values else None,
         "false_positive_rate": (len(false_positives) / len(pnl_values)) if pnl_values else None,
         "confidence_buckets": confidence_buckets,
+        "execution_modes": {
+            execution_mode: _outcome_summary(
+                [event for event in audited if event.get("execution_mode") == execution_mode]
+            )
+            for execution_mode in ("paper", "live", "unlinked")
+        },
     }
 
 
@@ -313,6 +358,8 @@ def run_historical_outcome_audit(
             "manager_confidence": manager_confidence,
             "pnl_pct": _coerce_pnl(decision.get("latest_trade_pnl_pct")),
             "outcome_label": str(decision.get("resolved_outcome_label") or ""),
+            "execution_mode": _execution_mode(decision),
+            "execution": _execution_details(decision),
         }
         events.append(event)
         if evaluation_id is not None:
@@ -531,6 +578,8 @@ def run_offline_manager_evaluation(
                 "historical_confidence": str(decision.get("manager_confidence") or "").lower(),
                 "pnl_pct": _coerce_pnl(decision.get("latest_trade_pnl_pct")),
                 "outcome_label": str(decision.get("resolved_outcome_label") or ""),
+                "execution_mode": _execution_mode(decision),
+                "execution": _execution_details(decision),
                 "autopsy_ids": current_autopsy_ids,
             }
             recommendation: dict[str, Any] | None = None

@@ -3,6 +3,7 @@ import './decisionAutopsy.css'
 
 type Article = { article_id: number; title: string; source: string; published_at: string; article_scope: string }
 type Claim = { claim_type?: string; claim?: string; evidence_article_ids?: number[] }
+type ExecutionMode = 'paper' | 'live' | 'unlinked'
 type Record = {
   id: number
   symbol: string
@@ -13,6 +14,7 @@ type Record = {
   evidence: Article[]
   constraints: { target_dte_bucket: string; selected_option_id: string; selected_option_symbol: string; selected_expiration_date: string; selected_strike_price: number | null; selected_option_source: string }
   outcome: { trade_executed: boolean; order_id: string; pnl_pct: number | null; pnl_updated_at: string; resolved_outcome_label: string }
+  execution?: { record_id: number | null; mode: ExecutionMode; paper: boolean | null; status: string; option_symbol: string; underlying_symbol: string; quantity: number | null; side: string; submitted_at: string }
   review: { status: string; headline: string; what_proved_us_wrong: string }
 }
 
@@ -29,6 +31,12 @@ function tone(value: string): string {
   if (normalized.includes('adverse') || normalized === 'put') return 'negative'
   if (normalized.includes('favorable') || normalized === 'call' || normalized.includes('candidate')) return 'positive'
   return 'neutral'
+}
+
+function executionModeLabel(mode: ExecutionMode): string {
+  if (mode === 'live') return 'Live order'
+  if (mode === 'paper') return 'Paper order'
+  return 'Execution link unavailable'
 }
 
 async function getAutopsies(): Promise<Payload> {
@@ -89,7 +97,7 @@ function DecisionAutopsyPage({ demoMode = false }: { demoMode?: boolean }) {
           <section className="autopsy-evidence"><p className="autopsy-eyebrow">Grounded Evidence</p><h3>Inputs available at decision time</h3>{selected.evidence.length ? <ul>{selected.evidence.map((article) => <li key={article.article_id}><b>{article.title || `Article ${article.article_id}`}</b><span>{[article.source, article.article_scope, article.published_at ? formatDate(article.published_at) : ''].filter(Boolean).join(' · ')}</span></li>)}</ul> : <p>No compact article references were preserved for this decision.</p>}</section>
         </> : <p className="autopsy-empty">No decision records are available yet.</p>}
       </section>
-      <aside className="autopsy-review">{selected ? <><div className="autopsy-review__safety">Read-only review. No order is executed here.</div><p className="autopsy-eyebrow">Outcome & Review</p><h2>{selected.review.headline}</h2><section><h3>What proved us wrong?</h3><p>{selected.review.what_proved_us_wrong}</p></section><section><h3>Recorded outcome</h3><dl><div><dt>Executed</dt><dd>{selected.outcome.trade_executed ? 'Yes' : 'No'}</dd></div><div><dt>P/L</dt><dd>{selected.outcome.pnl_pct === null ? 'Pending' : `${selected.outcome.pnl_pct.toFixed(2)}%`}</dd></div><div><dt>Outcome</dt><dd>{selected.outcome.resolved_outcome_label || 'Pending'}</dd></div><div><dt>Order</dt><dd>{selected.outcome.order_id || 'None'}</dd></div></dl></section><section><h3>Pre-trade risks</h3>{selected.strategist.risks.length ? <ul>{selected.strategist.risks.map((risk) => <li key={risk}>{risk}</li>)}</ul> : <p>No risks were preserved.</p>}</section></> : null}</aside>
+      <aside className="autopsy-review">{selected ? <><div className="autopsy-review__safety">Read-only review. No order is executed here.</div><p className="autopsy-eyebrow">Outcome & Review</p><h2>{selected.review.headline}</h2><section><h3>What proved us wrong?</h3><p>{selected.review.what_proved_us_wrong}</p></section><section><h3>Recorded outcome</h3><dl><div><dt>Executed</dt><dd>{selected.outcome.trade_executed ? 'Yes' : 'No'}</dd></div><div><dt>Environment</dt><dd>{executionModeLabel(selected.execution?.mode ?? 'unlinked')}</dd></div><div><dt>P/L</dt><dd>{selected.outcome.pnl_pct === null ? 'Pending' : `${selected.outcome.pnl_pct.toFixed(2)}%`}</dd></div><div><dt>Outcome</dt><dd>{selected.outcome.resolved_outcome_label || 'Pending'}</dd></div><div><dt>Order</dt><dd>{selected.outcome.order_id || 'None'}</dd></div><div><dt>Status</dt><dd>{selected.execution?.status || 'Unavailable'}</dd></div><div><dt>Contract</dt><dd>{selected.execution?.option_symbol || selected.constraints.selected_option_symbol || 'Unavailable'}</dd></div><div><dt>Submitted</dt><dd>{selected.execution?.submitted_at ? formatDate(selected.execution.submitted_at) : 'Unavailable'}</dd></div></dl></section><section><h3>Pre-trade risks</h3>{selected.strategist.risks.length ? <ul>{selected.strategist.risks.map((risk) => <li key={risk}>{risk}</li>)}</ul> : <p>No risks were preserved.</p>}</section></> : null}</aside>
     </section>}
   </main>
 }
