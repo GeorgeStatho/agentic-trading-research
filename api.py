@@ -21,6 +21,7 @@ for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
         sys.path.append(normalized)
 
 from api_routes.dashboard import register_dashboard_routes
+from api_routes.demo_mode import register_demo_mode_routes
 from api_routes.decision_autopsy import register_decision_autopsy_routes
 from api_routes.exposure_map import register_exposure_map_routes
 from api_routes.health import register_health_routes
@@ -44,6 +45,7 @@ def add_cors_headers(response):
 
 register_health_routes(app)
 register_dashboard_routes(app)
+register_demo_mode_routes(app)
 register_decision_autopsy_routes(app)
 register_trade_routes(app)
 register_news_routes(app)
