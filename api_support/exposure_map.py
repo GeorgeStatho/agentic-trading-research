@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from agent_helpers.shared import ask_llm_model, extract_json_object, get_model_client
+from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 from api_support.context import DB_PATH, get_connection, initialize_market_database
 from db_helpers import initialize_news_database
 
@@ -16,6 +17,7 @@ VALID_MAGNITUDES = {"low", "medium", "high"}
 VALID_CONFIDENCES = {"low", "medium", "high"}
 MAGNITUDE_WEIGHTS = {"low": 0.45, "medium": 0.70, "high": 1.0}
 CONFIDENCE_WEIGHTS = {"low": 0.50, "medium": 0.75, "high": 1.0}
+EXPOSURE_MAP_MAX_ARTICLE_AGE_DAYS = DEFAULT_MAX_ARTICLE_AGE_DAYS * 2
 
 EXPOSURE_MAP_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -846,16 +848,23 @@ def build_exposure_map_payload(article_id: int, *, run_id: int | None = None, co
             active_conn.close()
 
 
-def list_recent_exposure_articles(limit: int = 50) -> dict[str, Any]:
+def list_recent_exposure_articles(
+    limit: int = 50,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
     _initialize_databases()
+    reference_time = now or datetime.now(timezone.utc)
+    cutoff = reference_time - timedelta(days=EXPOSURE_MAP_MAX_ARTICLE_AGE_DAYS)
     with get_connection(DB_PATH) as conn:
         rows = conn.execute(
             """
             SELECT id, title, summary, source, source_url, published_at, evidence_score
             FROM news_articles
+            WHERE published_at >= ?
             ORDER BY COALESCE(evidence_score, 0) DESC, COALESCE(published_at, created_at) DESC, id DESC
             LIMIT ?
             """,
-            (max(1, min(int(limit), 100)),),
+            (cutoff.isoformat(), max(1, min(int(limit), 100))),
         ).fetchall()
     return {"articles": [dict(row) for row in rows], "no_trade_executed": True}

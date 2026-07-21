@@ -24,6 +24,7 @@ from api_support.exposure_map import (
     build_exposure_map_payload,
     calculate_position_risk_score,
     create_exposure_run,
+    list_recent_exposure_articles,
     resolve_exposure_map_model,
     validate_terra_response,
 )
@@ -97,6 +98,35 @@ class ExposureMapTests(unittest.TestCase):
     def test_invalid_json_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "invalid JSON"):
             validate_terra_response(None, article_id=42, relationships=[], positions=[])
+
+    def test_recent_exposure_queue_excludes_articles_outside_the_age_window(self):
+        with TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "exposure-queue.sqlite3"
+            initialize_market_database(db_path=db_path)
+            initialize_news_database(db_path=db_path)
+            now = datetime(2026, 7, 20, tzinfo=timezone.utc)
+            with get_connection(db_path) as conn:
+                fresh_id = conn.execute(
+                    """
+                    INSERT INTO news_articles (source, article_key, title, source_url, evidence_score, published_at)
+                    VALUES ('Test Wire', 'fresh-queue-article', 'Fresh evidence', 'https://example.test/fresh', 0.60, ?)
+                    """,
+                    ((now - timedelta(days=9)).isoformat(),),
+                ).lastrowid
+                stale_id = conn.execute(
+                    """
+                    INSERT INTO news_articles (source, article_key, title, source_url, evidence_score, published_at)
+                    VALUES ('Test Wire', 'stale-queue-article', 'Stale high-score evidence', 'https://example.test/stale', 0.99, ?)
+                    """,
+                    ((now - timedelta(days=11)).isoformat(),),
+                ).lastrowid
+
+            with patch("api_support.exposure_map.DB_PATH", db_path):
+                result = list_recent_exposure_articles(now=now)
+
+        article_ids = [article["id"] for article in result["articles"]]
+        self.assertIn(int(fresh_id), article_ids)
+        self.assertNotIn(int(stale_id), article_ids)
 
     def test_unknown_model_reference_is_rejected(self):
         response = {
