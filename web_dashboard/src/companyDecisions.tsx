@@ -14,6 +14,7 @@ type StageDecision = {
   selected_expiration_date?: string;
   selected_strike_price?: number | null;
   selected_option_source?: string;
+  entry_gate?: { allowed?: boolean; policy_version?: string; reason_codes?: string[]; evidence?: { citation_count?: number; independent_source_count?: number; minimum_evidence_score?: number | null }; technical?: { trend_state?: string; relative_strength_confirmation?: string; volume_confirmation?: string } };
 };
 
 type HistoryArticleReference = {
@@ -358,6 +359,18 @@ function CompanyDecisionsPage() {
                     <p className="company-decisions__text">
                       {formatValue(company.manager.reason)}
                     </p>
+                    <div className="company-decisions__subsection">
+                      <p className="company-decisions__subheading">Evidence continuation gate</p>
+                      <dl className="company-decisions__facts">
+                        <div><dt>Policy</dt><dd>{formatValue(company.manager.entry_gate?.policy_version)}</dd></div>
+                        <div><dt>Status</dt><dd>{company.manager.entry_gate?.allowed === true ? 'Allowed' : company.manager.entry_gate?.allowed === false ? 'Blocked' : 'Not recorded'}</dd></div>
+                        <div><dt>Evidence</dt><dd>{company.manager.entry_gate?.evidence?.citation_count ?? 'N/A'} citations / {company.manager.entry_gate?.evidence?.independent_source_count ?? 'N/A'} sources</dd></div>
+                        <div><dt>Trend</dt><dd>{formatValue(company.manager.entry_gate?.technical?.trend_state)}</dd></div>
+                        <div><dt>Relative strength</dt><dd>{formatValue(company.manager.entry_gate?.technical?.relative_strength_confirmation)}</dd></div>
+                        <div><dt>Volume</dt><dd>{formatValue(company.manager.entry_gate?.technical?.volume_confirmation)}</dd></div>
+                      </dl>
+                      {company.manager.entry_gate?.reason_codes?.length ? <p className="company-decisions__text">Blocked by: {company.manager.entry_gate.reason_codes.join(', ')}</p> : null}
+                    </div>
                     <div className="company-decisions__subsection">
                       <p className="company-decisions__subheading">Contract selection</p>
                       <dl className="company-decisions__facts">

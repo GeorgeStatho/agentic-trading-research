@@ -33,6 +33,7 @@ class OrderCandidateBuilder:
         strategist_decision = self._normalize_strategist_decision(
             strategist_recommendation.get("decision")
         )
+        entry_gate = company_result.get("entry_gate") or {}
 
         if decision not in {"call", "put"}:
             return False
@@ -41,6 +42,8 @@ class OrderCandidateBuilder:
         if confidence == "medium" and not self._execute_medium_confidence_trades:
             return False
         if strategist_decision == "do_not_trade":
+            return False
+        if not isinstance(entry_gate, dict) or entry_gate.get("allowed") is not True:
             return False
         return True
 
@@ -70,6 +73,7 @@ class OrderCandidateBuilder:
             "selected_option_symbol": option_symbol,
             "selected_option": selected_option,
             "strategist_recommendation": company_result.get("strategist_recommendation", {}),
+            "entry_gate": company_result.get("entry_gate", {}),
             "reason": company_result.get("reason"),
         }
 
@@ -111,6 +115,7 @@ class OrderCandidateBuilder:
             "selected_strike_price": recommendation.get("selected_strike_price"),
             "selected_option_source": recommendation.get("selected_option_source"),
             "strategist_recommendation": manager_result.get("strategist_recommendation", {}),
+            "entry_gate": manager_result.get("entry_gate", {}),
             "selected_option": manager_result.get("selected_option"),
             "reason": recommendation.get("reason"),
         }

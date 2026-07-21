@@ -222,6 +222,7 @@ def _build_selected_option_output(
                 "selected_option_source": recommendation.get("selected_option_source"),
                 "selection_debug": recommendation.get("selection_debug", {}),
                 "strategist_recommendation": manager_result.get("strategist_recommendation", {}),
+                "entry_gate": manager_result.get("entry_gate", {}),
                 "selected_option": manager_result.get("selected_option"),
                 "reason": recommendation.get("reason"),
             }
@@ -359,6 +360,7 @@ def _record_manager_decision_history_for_result(manager_result: dict[str, Any]) 
         "manager_output_json": {
             "recommendation": recommendation,
             "selected_option": selected_option,
+            "entry_gate": manager_result.get("entry_gate", {}),
         },
     }
     return record_manager_decision_history(history_payload)

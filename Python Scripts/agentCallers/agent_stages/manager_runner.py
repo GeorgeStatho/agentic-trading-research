@@ -13,6 +13,7 @@ from agent_helpers.manager import (
     build_market_context,
 )
 from agent_helpers.shared import Client, extract_json_value
+from services.evidence_continuation_gate import evaluate_evidence_continuation_gate
 from .manager_payload_context import (
     _build_context_snapshot,
     payload_has_evidence,
@@ -236,11 +237,17 @@ def decide_company_option_position(
     context_snapshot = _build_context_snapshot(payload)
 
     if not payload_has_evidence(payload):
-        return {
-            **_build_no_evidence_result(
+        no_evidence_result = _build_no_evidence_result(
             company,
             context_snapshot=context_snapshot,
             market_context=market_context,
+        )
+        return {
+            **no_evidence_result,
+            "entry_gate": evaluate_evidence_continuation_gate(
+                recommendation=no_evidence_result["recommendation"],
+                payload=payload,
+                market_context=market_context,
             ),
             "resolved_autopsy_insights": payload.get("resolved_autopsy_insights", []),
             "manager_replay_payload": copy.deepcopy(payload),
@@ -303,6 +310,11 @@ def decide_company_option_position(
             **upstream_bucket_refresh_debug,
         },
     }
+    entry_gate = evaluate_evidence_continuation_gate(
+        recommendation=recommendation,
+        payload=payload,
+        market_context=market_context,
+    )
     LOGGER.info(
         "Manager decision for %s produced decision=%s confidence=%s with %s contracts available",
         company.get("symbol"),
@@ -320,6 +332,7 @@ def decide_company_option_position(
         "resolved_autopsy_insights": payload.get("resolved_autopsy_insights", []),
         "strategist_recommendation": payload.get("strategist_recommendation", {}),
         "recommendation": recommendation,
+        "entry_gate": entry_gate,
         "selected_option": None,
         "manager_replay_payload": copy.deepcopy(payload),
         "manager_model": model,

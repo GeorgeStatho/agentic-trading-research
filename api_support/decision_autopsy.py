@@ -76,6 +76,7 @@ def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
     manager_output = snapshot.get("manager_output") if isinstance(snapshot.get("manager_output"), dict) else {}
     strategist = manager_input.get("strategist_recommendation") if isinstance(manager_input.get("strategist_recommendation"), dict) else {}
     recommendation = manager_output.get("recommendation") if isinstance(manager_output.get("recommendation"), dict) else {}
+    entry_gate = manager_output.get("entry_gate") if isinstance(manager_output.get("entry_gate"), dict) else {}
     market_context = manager_input.get("market_context") if isinstance(manager_input.get("market_context"), dict) else {}
     constraints = {
         "target_dte_bucket": str(snapshot.get("target_dte_bucket") or "").strip(),
@@ -87,6 +88,7 @@ def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
         "account_state": market_context.get("account_state", {}),
         "option_market_summary": market_context.get("option_market", {}),
         "selection_debug": recommendation.get("selection_debug", {}),
+        "entry_gate": entry_gate,
     }
     return {
         "id": int(row.get("id") or 0),

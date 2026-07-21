@@ -84,6 +84,7 @@ def _build_processed_article_record(
         "impact_created_at": row["impact_created_at"] or "",
         "processed_at": row["processed_at"] or "",
         "model": row["model"] or "",
+        "evidence_score": row.get("evidence_score"),
         "title": row["title"] or "",
         "summary": row["summary"] or "",
         "body": row["body"] or "",
@@ -171,6 +172,7 @@ def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
                 na.body,
                 na.source,
                 na.source_url,
+                na.evidence_score,
                 na.published_at
             FROM sector_opportunist_impacts AS soi
             JOIN sectors AS s ON s.id = soi.sector_id
@@ -236,6 +238,7 @@ def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]
                 na.body,
                 na.source,
                 na.source_url,
+                na.evidence_score,
                 na.published_at
             FROM industry_opportunist_impacts AS ioi
             JOIN industries AS i ON i.id = ioi.industry_id
@@ -301,6 +304,7 @@ def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
                 na.body,
                 na.source,
                 na.source_url,
+                na.evidence_score,
                 na.published_at
             FROM company_opportunist_impacts AS coi
             JOIN companies AS c ON c.id = coi.company_id

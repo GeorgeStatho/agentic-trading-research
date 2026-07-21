@@ -138,6 +138,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
     recommendation = dict(manager_result.get("recommendation") or {})
     market_context = dict(manager_result.get("market_context") or {})
     strategist_recommendation = dict(manager_result.get("strategist_recommendation") or {})
+    entry_gate = dict(manager_result.get("entry_gate") or {})
     option_market = dict(market_context.get("option_market") or {})
     option_contracts = list(option_market.get("contracts") or [])
 
@@ -172,6 +173,9 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
         confidence=confidence,
         strategist_recommendation=strategist_recommendation,
     )
+    if entry_gate and decision in {"call", "put"} and entry_gate.get("allowed") is not True:
+        selection_allowed = False
+        selection_guardrail_reason = "evidence_continuation_blocked"
     selection_allowed_after_volatility = selection_allowed
 
     if selection_allowed:
@@ -238,6 +242,8 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
         else None
     )
     selected_strike_price = _coerce_float(selected_option.get("strike_price")) if selected_option else None
+    if entry_gate.get("allowed") is True and decision in {"call", "put"} and selected_option is None:
+        selected_option_source = "continuation_confirmed_but_no_eligible_contract"
 
     updated_recommendation = {
         **recommendation,
@@ -259,6 +265,9 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
             "selection_allowed": selection_allowed,
             "selection_allowed_after_volatility": selection_allowed_after_volatility,
             "selection_guardrail_reason": selection_guardrail_reason,
+            "entry_gate_allowed": entry_gate.get("allowed") is True,
+            "entry_gate_policy_version": str(entry_gate.get("policy_version") or ""),
+            "entry_gate_reason_codes": entry_gate.get("reason_codes") if isinstance(entry_gate.get("reason_codes"), list) else [],
             "volatility_guardrail_reason": volatility_guardrail_reason,
             "strategist_decision_seen": _normalize_strategist_decision(
                 strategist_recommendation.get("decision")

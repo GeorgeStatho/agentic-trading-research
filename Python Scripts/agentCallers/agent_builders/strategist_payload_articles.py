@@ -24,6 +24,7 @@ def _serialize_signal(item: dict[str, Any], *, layer: str) -> AgentSignalPayload
         "source_url": item.get("source_url") or "",
         "title": item.get("title") or "",
         "summary": item.get("summary") or "",
+        "evidence_score": item.get("evidence_score"),
     }
     if item.get("impact_direction"):
         signal["impact_direction"] = item["impact_direction"]
@@ -81,6 +82,7 @@ def _upsert_supporting_article(
             "source_url": item.get("source_url") or "",
             "published_at": item.get("published_at") or "",
             "article_scope": item.get("article_scope") or "",
+            "evidence_score": item.get("evidence_score"),
             "evidence_layers": [],
             "agent_signals": [],
         },
@@ -144,6 +146,7 @@ def _build_supporting_articles(
             "source_url": article["source_url"],
             "published_at": article["published_at"],
             "article_scope": article["article_scope"],
+            "evidence_score": article.get("evidence_score"),
             "evidence_layers": article["evidence_layers"],
             "agent_signals": article["agent_signals"],
         }
@@ -160,6 +163,7 @@ def _build_supporting_articles(
             "source_url": article["source_url"],
             "published_at": article["published_at"],
             "article_scope": article["article_scope"],
+            "evidence_score": article.get("evidence_score"),
             "evidence_layers": article["evidence_layers"],
             "agent_signals": article["agent_signals"],
         }

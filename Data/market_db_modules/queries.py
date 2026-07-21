@@ -197,6 +197,7 @@ def list_decision_expectancy_rows(
                 history.manager_confidence,
                 history.target_dte_bucket,
                 history.selected_option_source,
+                history.manager_output_json,
                 history.trade_executed,
                 history.latest_trade_pnl_pct,
                 history.latest_trade_pnl_updated_at,
