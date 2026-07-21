@@ -106,6 +106,26 @@ class AlpacaHistoricalQuoteFetchTests(unittest.TestCase):
             statuses = [row["status"] for row in conn.execute("SELECT status FROM historical_option_quote_coverage ORDER BY id").fetchall()]
         self.assertEqual(statuses, ["unavailable", "unavailable"])
 
+    def test_missing_historical_quote_endpoint_records_one_provider_gap_without_retries(self) -> None:
+        requests_made = 0
+
+        def missing_endpoint(*_args, **_kwargs):
+            nonlocal requests_made
+            requests_made += 1
+            return _FakeResponse({}, status_code=404)
+
+        result = fetch_alpaca_historical_option_quotes(
+            db_path=self.db_path, api_key="key", api_secret="secret", request_get=missing_endpoint,
+        )
+
+        self.assertEqual(requests_made, 1)
+        self.assertFalse(result["historical_bid_ask_supported"])
+        self.assertEqual(result["unavailable_count"], 2)
+        self.assertEqual(
+            {gap["reason"] for gap in result["coverage_gaps"]},
+            {"alpaca_historical_option_bid_ask_endpoint_unavailable"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -21,6 +21,7 @@ from .bootstrap import initialize_database
 ALPACA_OPTION_QUOTES_URL = "https://data.alpaca.markets/v1beta1/options/quotes"
 DEFAULT_ENTRY_DELAY_MINUTES = 1_440
 DEFAULT_MAX_HOLD_HOURS = 168
+ALPACA_HISTORICAL_OPTION_BID_ASK_UNAVAILABLE = "alpaca_historical_option_bid_ask_endpoint_unavailable"
 
 
 def _decision_rows(
@@ -273,10 +274,12 @@ def fetch_alpaca_historical_option_quotes(
         "error_count": 0,
         "inserted_quote_count": 0,
         "invalid_quote_count": 0,
+        "historical_bid_ask_supported": None,
         "coverage_gaps": [],
     }
     credentials_error = "missing_alpaca_credentials" if not resolved_api_key or not resolved_api_secret else ""
     client_error = "requests_dependency_unavailable" if resolved_request_get is None else ""
+    endpoint_unavailable_reason = ""
 
     with get_connection(db_path) as conn:
         for decision in decisions:
@@ -304,6 +307,16 @@ def fetch_alpaca_historical_option_quotes(
                     quote_count=cached_count, metadata={"cached_quote_count": cached_count},
                 )
                 continue
+            if endpoint_unavailable_reason:
+                result["unavailable_count"] += 1
+                result["coverage_gaps"].append({"decision_id": decision["id"], "option_symbol": option_symbol, "reason": endpoint_unavailable_reason})
+                _record_coverage(
+                    conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
+                    requested_start_at=requested_start, requested_end_at=requested_end, status="unavailable",
+                    error_text=endpoint_unavailable_reason,
+                    metadata={"provider_capability": "historical_option_bid_ask_unavailable"},
+                )
+                continue
             if credentials_error or client_error:
                 reason = credentials_error or client_error
                 result["unavailable_count"] += 1
@@ -326,6 +339,7 @@ def fetch_alpaca_historical_option_quotes(
                 inserted_count = _store_quote_batch(conn, quotes, "alpaca")
                 result["inserted_quote_count"] += inserted_count
                 if quotes:
+                    result["historical_bid_ask_supported"] = True
                     result["fetched_count"] += 1
                     _record_coverage(
                         conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
@@ -346,7 +360,12 @@ def fetch_alpaca_historical_option_quotes(
                 status_code = getattr(getattr(exc, "response", None), "status_code", None)
                 status = "unavailable" if status_code in {401, 403, 404, 422} else "error"
                 result[f"{status}_count"] += 1
-                reason = f"alpaca_request_failed:{type(exc).__name__}:{exc}"
+                if status_code == 404:
+                    endpoint_unavailable_reason = ALPACA_HISTORICAL_OPTION_BID_ASK_UNAVAILABLE
+                    result["historical_bid_ask_supported"] = False
+                    reason = endpoint_unavailable_reason
+                else:
+                    reason = f"alpaca_request_failed:{type(exc).__name__}:{exc}"
                 result["coverage_gaps"].append({"decision_id": decision["id"], "option_symbol": option_symbol, "reason": reason})
                 _record_coverage(
                     conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
