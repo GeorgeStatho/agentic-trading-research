@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
-from api_support.backtest import build_backtest_run_payload, build_backtest_runs_payload, create_backtest_run
+from api_support.backtest import (
+    build_backtest_run_payload,
+    build_backtest_runs_payload,
+    create_backtest_run,
+    fetch_backtest_eod_quotes,
+)
 from api_support.common import internal_error, safe_int
 
 
@@ -36,3 +41,17 @@ def register_backtest_routes(app) -> None:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:
             return internal_error("Failed to run backtest.", exc)
+
+    @app.post("/api/backtests/marketdata-eod")
+    def fetch_marketdata_eod_quotes():
+        payload = request.get_json(silent=True)
+        if payload is None:
+            payload = {}
+        if not isinstance(payload, dict):
+            return jsonify({"error": "Expected a JSON object."}), 400
+        try:
+            return jsonify(fetch_backtest_eod_quotes(payload)), 200
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            return internal_error("Failed to fetch MarketData.app EOD quotes.", exc)
