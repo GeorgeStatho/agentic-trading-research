@@ -2,6 +2,7 @@ from db_helpers.common import DB_PATH, DATA_DIR, get_connection, validate_sql_id
 from db_helpers.market import (
     expire_manager_decision_pnl,
     get_backtest_run,
+    import_alpaca_option_quote_csv,
     ensure_all_sector_market_data,
     ensure_industry_market_data,
     ensure_sector_market_data,

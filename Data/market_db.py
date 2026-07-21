@@ -22,6 +22,7 @@ from market_db_modules.backtesting import (
     record_historical_underlying_bar,
     run_backtest,
 )
+from market_db_modules.backtest_imports import import_alpaca_option_quote_csv
 from market_db_modules.manager_replay import (
     complete_manager_replay_evaluation,
     create_manager_replay_evaluation,
@@ -77,6 +78,7 @@ __all__ = [
     "get_backtest_run",
     "get_telemetry_summary",
     "initialize_database",
+    "import_alpaca_option_quote_csv",
     "link_manager_decision_to_trade_execution",
     "list_decision_autopsy_ledger",
     "list_decision_expectancy_rows",
