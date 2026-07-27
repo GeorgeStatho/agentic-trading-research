@@ -57,7 +57,20 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
 
 
 def _normalize_order_status(status: Any) -> str:
-    return str(status or "").strip().lower()
+    """Return the plain broker status value used by pending-order rules.
+
+    Alpaca's ``OrderStatus`` is an enum.  Depending on where it crosses the
+    service boundary, ``str(status)`` can be either ``"filled"`` or
+    ``"OrderStatus.FILLED"``.  The latter must be treated as the same
+    terminal status; otherwise a filled order remains in pending state and
+    blocks later exit decisions.
+    """
+    raw_status = getattr(status, "value", status)
+    normalized = str(raw_status or "").strip().lower()
+    for prefix in ("orderstatus.", "order_status."):
+        if normalized.startswith(prefix):
+            return normalized[len(prefix) :]
+    return normalized
 
 
 def _normalize_momentum_history(history: Any) -> list[dict[str, Any]]:

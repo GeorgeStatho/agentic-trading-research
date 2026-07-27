@@ -428,6 +428,50 @@ class OptionPositionTests(VerboseTestCase):
             self.assertEqual(persisted_state["last_retryable_exit_status"], "rejected")
             self.log_pass("retryable zero-fill rejection reset the first scale-out flag for a clean retry")
 
+    def test_reconcile_filled_alpaca_enum_status_clears_pending_order(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "option_state.json"
+            submitted_at = datetime.now().isoformat()
+            self.option_positions.update_position_state(
+                state_path,
+                OPTION_SYMBOL,
+                {
+                    "pending_order_id": "order-filled",
+                    "pending_qty": 1,
+                    "pending_reason": "first_scale_out_trigger",
+                    "pending_action": "sell_partial",
+                    "pending_order_submitted_at": submitted_at,
+                    "took_first_scale_out": True,
+                },
+            )
+
+            persisted_state, reconciliation = self.option_positions._reconcile_pending_order_state(
+                state_path=state_path,
+                option_symbol=OPTION_SYMBOL,
+                position_state=self.option_positions.get_position_state(state_path, OPTION_SYMBOL),
+                resolve_order_status=lambda order_id: {
+                    "id": order_id,
+                    "status": "OrderStatus.FILLED",
+                    "submitted_at": submitted_at,
+                    "updated_at": submitted_at,
+                    "qty": "1",
+                    "requested_qty": 1,
+                    "filled_qty": "1",
+                },
+                cancel_order=None,
+                broker_quantity=1,
+                pending_exit_config=self.option_positions.PendingExitConfig(
+                    stale_minutes=10.0,
+                    cancel_on_stale=True,
+                ),
+            )
+
+            self.assertEqual(reconciliation["pending_order_status"], "filled")
+            self.assertTrue(reconciliation["pending_order_terminal"])
+            self.assertEqual(persisted_state["pending_order_id"], "")
+            self.assertTrue(persisted_state["took_first_scale_out"])
+            self.log_pass("filled Alpaca enum statuses clear pending exits instead of blocking trailing protection")
+
     def test_structured_exit_action_triggers_momentum_history_failed(self) -> None:
         exit_action, updated_state = self.option_positions._structured_exit_action(
             option_symbol=OPTION_SYMBOL,

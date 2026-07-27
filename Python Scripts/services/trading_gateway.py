@@ -115,6 +115,7 @@ class AlpacaTradingGateway:
 
     @staticmethod
     def _serialize_order_summary(order: Any, *, symbol: str, qty: int) -> dict[str, Any]:
+        status = getattr(order, "status", "")
         return {
             "id": str(getattr(order, "id", "")),
             "symbol": str(getattr(order, "symbol", symbol)),
@@ -123,7 +124,10 @@ class AlpacaTradingGateway:
             "side": str(getattr(order, "side", "")),
             "type": str(getattr(order, "type", "")),
             "time_in_force": str(getattr(order, "time_in_force", "")),
-            "status": str(getattr(order, "status", "")),
+            # alpaca-py exposes OrderStatus as an enum.  Persist its value
+            # instead of ``OrderStatus.FILLED`` so downstream reconciliation
+            # can reliably identify terminal orders.
+            "status": str(getattr(status, "value", status)),
             "submitted_at": str(getattr(order, "submitted_at", "")),
         }
 
