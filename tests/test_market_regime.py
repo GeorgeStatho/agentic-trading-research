@@ -10,14 +10,20 @@ from unittest.mock import patch
 ROOT_DIR = Path(__file__).resolve().parents[1]
 PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
 AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
+WEBSCRAPING_DIR = PYTHON_SCRIPTS_DIR / "Webscraping"
+for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, WEBSCRAPING_DIR):
     normalized = str(path)
     if normalized not in sys.path:
         sys.path.insert(0, normalized)
 
-from services.market_regime import MarketRegimeSnapshotPolicy, classify_market_regime  # noqa: E402
+from services.market_regime import (  # noqa: E402
+    MarketRegimeSnapshotPolicy,
+    build_market_regime_snapshot,
+    classify_market_regime,
+)
 from services.market_regime_gate import MarketRegimePolicy, evaluate_market_regime_gate  # noqa: E402
 from services.order_candidates import OrderCandidateBuilder  # noqa: E402
+from pipelines.macroNewsPipeline import _normalize_calendar_timestamps, _parse_forex_factory_calendar  # noqa: E402
 
 
 NOW = datetime(2026, 7, 21, 15, 0, tzinfo=timezone.utc)
@@ -75,6 +81,59 @@ class MarketRegimeClassificationTests(unittest.TestCase):
 
         self.assertEqual(result["state"], "stressed")
         self.assertTrue(result["macro_event_window"]["active"])
+
+    def test_snapshot_refreshes_macro_calendar_once_before_classification(self) -> None:
+        closes = [100 + index * 0.45 for index in range(70)]
+        with (
+            patch(
+                "services.market_regime.refresh_macro_calendar_for_market_regime",
+                return_value={"refreshed": True, "macro_event_count": 12},
+            ) as refresh,
+            patch("services.market_regime._fetch_closes", side_effect=[(closes, NOW.isoformat()), ([20.0] * 251 + [10.0], NOW.isoformat())]),
+            patch("services.market_regime._load_macro_calendar", side_effect=[([], None), ([], NOW.isoformat())]),
+        ):
+            snapshot = build_market_regime_snapshot(as_of=NOW, persist=False)
+
+        refresh.assert_called_once_with()
+        self.assertEqual(snapshot["state"], "trend_up")
+        self.assertEqual(snapshot["macro_calendar_refresh"], {"refreshed": True, "macro_event_count": 12})
+
+    def test_snapshot_records_a_failed_macro_refresh_without_disabling_fail_closed_behavior(self) -> None:
+        with (
+            patch(
+                "services.market_regime.refresh_macro_calendar_for_market_regime",
+                return_value={
+                    "refreshed": False,
+                    "macro_event_count": 0,
+                    "reason_code": "macro_calendar_refresh_failed",
+                },
+            ),
+            patch("services.market_regime._fetch_closes", side_effect=[([], None), ([], None)]),
+            patch("services.market_regime._load_macro_calendar", return_value=([], None)),
+        ):
+            snapshot = build_market_regime_snapshot(as_of=NOW, persist=False)
+
+        self.assertEqual(snapshot["state"], "unknown")
+        self.assertIn("macro_calendar_refresh_failed", snapshot["reason_codes"])
+
+    def test_fallback_calendar_keeps_an_explicit_utc_timestamp(self) -> None:
+        events = _parse_forex_factory_calendar(
+            [
+                {
+                    "title": "FOMC Statement",
+                    "country": "USD",
+                    "date": "2026-07-29T14:00:00-04:00",
+                    "impact": "High",
+                }
+            ]
+        )
+        normalized = _normalize_calendar_timestamps(events)
+
+        self.assertEqual(len(normalized), 1)
+        self.assertEqual(normalized[0]["country"], "United States")
+        self.assertEqual(normalized[0]["importance"], "high")
+        self.assertEqual(normalized[0]["scheduled_at_utc"], "2026-07-29T18:00:00+00:00")
+        self.assertTrue(normalized[0]["calendar_refreshed_at"])
 
 
 class MarketRegimeGateTests(unittest.TestCase):
