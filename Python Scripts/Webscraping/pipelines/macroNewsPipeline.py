@@ -7,8 +7,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from html import unescape
 from pathlib import Path
-
-import requests
+from typing import Any
 
 WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
 if str(WEBSCRAPING_DIR) not in sys.path:
@@ -19,6 +18,7 @@ DATA_DIR = PROJECT_DIR / "Data"
 if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
 
+from fetching.http_client import HttpClient, HttpFetchError
 from db_helpers import load_macro_events
 
 
@@ -68,15 +68,11 @@ CALENDAR_TIMEZONE = "America/New_York"
 
 
 def _fetch_text(url: str, timeout: int = 20) -> str:
-    response = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout)
-    response.raise_for_status()
-    return response.text
+    return HttpClient(timeout_seconds=timeout, headers=DEFAULT_HEADERS).get_text(url)
 
 
 def _fetch_json(url: str, timeout: int = 20) -> Any:
-    response = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout)
-    response.raise_for_status()
-    return response.json()
+    return HttpClient(timeout_seconds=timeout, headers=DEFAULT_HEADERS).get_json(url)
 
 
 def _clean_text(value: str) -> str:
@@ -385,7 +381,7 @@ def _parse_forex_factory_calendar(payload: Any) -> list[dict]:
 def fetch_forex_factory_macro_calendar() -> list[dict]:
     try:
         events = _parse_forex_factory_calendar(_fetch_json(FOREX_FACTORY_CALENDAR_URL))
-    except requests.RequestException as exc:
+    except HttpFetchError as exc:
         print(f"Failed to fetch Forex Factory calendar: {exc}")
         return []
     if events:
@@ -400,7 +396,7 @@ def fetch_investing_macro_calendar() -> list[dict]:
     for url in INVESTING_CALENDAR_URLS:
         try:
             html = _fetch_text(url)
-        except requests.RequestException as exc:
+        except HttpFetchError as exc:
             print(f"Failed to fetch Investing.com calendar from {url}: {exc}")
             continue
 

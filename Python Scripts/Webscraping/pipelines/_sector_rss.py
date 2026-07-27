@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 import json
-from urllib.request import Request, urlopen
-import xml.etree.ElementTree as ET
 
 from db_helpers import DATA_DIR
+from discovery.rss import extract_recent_rss_urls, fetch_recent_rss_urls, fetch_rss_feed_xml
 
 
 DEFAULT_RSS_MAX_AGE_DAYS = 3
@@ -36,58 +33,6 @@ def get_sector_feed_urls(sector: dict) -> list[str]:
     return matching_urls
 
 
-def fetch_rss_feed_xml(rss_url: str, timeout_seconds: int = 20) -> str:
-    request = Request(
-        rss_url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (compatible; StockTradingExperiment/1.0; +https://www.cnbc.com/)",
-            "Accept": "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
-        },
-    )
-    with urlopen(request, timeout=timeout_seconds) as response:
-        return response.read().decode("utf-8", errors="replace")
-
-
-def _parse_rss_pub_date(pub_date: str) -> datetime | None:
-    value = str(pub_date or "").strip()
-    if not value:
-        return None
-
-    try:
-        parsed = parsedate_to_datetime(value)
-    except (TypeError, ValueError, IndexError):
-        return None
-
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-
-    return parsed.astimezone(timezone.utc)
-
-
-def extract_recent_rss_urls(rss_xml: str, max_age_days: int = DEFAULT_RSS_MAX_AGE_DAYS) -> list[str]:
-    # Extract the recent rss urls from the raw response and return a stable value.
-    root = ET.fromstring(rss_xml)
-    now = datetime.now(timezone.utc)
-    urls: list[str] = []
-
-    for item in root.findall("./channel/item"):
-        link = str(item.findtext("link") or "").strip()
-        if not link:
-            continue
-
-        published_at = _parse_rss_pub_date(item.findtext("pubDate") or "")
-        if published_at is None:
-            continue
-
-        age_days = (now - published_at).total_seconds() / 86400
-        if age_days > max_age_days:
-            continue
-
-        urls.append(link)
-
-    return urls
-
-
 def get_recent_sector_feed_article_urls(
     sector: dict,
     *,
@@ -98,8 +43,7 @@ def get_recent_sector_feed_article_urls(
     seen_urls: set[str] = set()
 
     for rss_feed_url in rss_feed_urls:
-        rss_xml = fetch_rss_feed_xml(rss_feed_url)
-        feed_urls = extract_recent_rss_urls(rss_xml, max_age_days=max_age_days)
+        feed_urls = fetch_recent_rss_urls(rss_feed_url, max_age_days=max_age_days)
         for url in feed_urls:
             if url in seen_urls:
                 continue

@@ -10,11 +10,18 @@ if __package__ in {None, ""}:
         sys.path.append(str(WEBSCRAPING_DIR))
 
 from sources.source_config import is_allowed_source
+from market_data.yfinance_client import REQUEST_HANDLER
 
 
 def get_company_news_items(company: str, count: int = 10) -> list[dict]:
-    ticker = yf.Ticker(company)
-    return ticker.get_news(count=count)
+    """Fetch provider news through the common throttled/retrying yfinance client."""
+
+    ticker = REQUEST_HANDLER.run(yf.Ticker, company, _context=f"Ticker({company})")
+    return REQUEST_HANDLER.run(
+        ticker.get_news,
+        count=count,
+        _context=f"get_news({company})",
+    )
 
 
 def extract_title_and_url(news_data: list[dict]) -> list[tuple[str, str]]:
