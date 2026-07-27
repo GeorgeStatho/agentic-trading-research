@@ -91,6 +91,43 @@ def _normalize_string_list(value: Any) -> list[str]:
     return cleaned
 
 
+def _add_derived_watchlist_reason_claim(
+    evidence_claims: Any,
+    *,
+    watchlist_reason: str,
+    source_claim_type: str,
+) -> Any:
+    """Cite a normalization-derived watchlist reason from its original claim.
+
+    The model is still responsible for citing an explicit ``watchlist_reason``.
+    This only preserves grounding when normalization derives that field from an
+    already-cited ``why_now`` or ``summary`` value.
+    """
+    if not isinstance(evidence_claims, list) or not watchlist_reason:
+        return evidence_claims
+
+    for evidence_claim in evidence_claims:
+        if not isinstance(evidence_claim, dict):
+            continue
+        claim_type = str(evidence_claim.get("claim_type") or "").strip().lower()
+        if claim_type == "watchlist_reason":
+            return evidence_claims
+        if claim_type != source_claim_type:
+            continue
+        article_ids = evidence_claim.get("evidence_article_ids")
+        if isinstance(article_ids, list) and article_ids:
+            return [
+                *evidence_claims,
+                {
+                    "claim_type": "watchlist_reason",
+                    "claim": watchlist_reason,
+                    "evidence_article_ids": list(article_ids),
+                },
+            ]
+
+    return evidence_claims
+
+
 def _normalize_decision(value: Any) -> str:
     # Normalize the decision so downstream code can rely on one consistent shape.
     decision = str(value or "").strip().lower()
@@ -297,6 +334,7 @@ def normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str,
 
     if not summary and thesis:
         summary = thesis[0]
+    provided_why_now = why_now
     if not why_now:
         why_now = summary or watchlist_reason
     if not evidence_quality and confidence:
@@ -314,6 +352,11 @@ def normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str,
         contradictions_present = False
     if decision == "watchlist" and not watchlist_reason:
         watchlist_reason = why_now or summary
+        evidence_claims = _add_derived_watchlist_reason_claim(
+            evidence_claims,
+            watchlist_reason=watchlist_reason,
+            source_claim_type="why_now" if provided_why_now else "summary",
+        )
 
     if not preferred_option_direction and expected_stock_direction:
         direction_map = {"up": "call", "down": "put", "neutral": "neither"}

@@ -19,6 +19,7 @@ from agent_stages.strategist_grounding import (
     build_strategist_grounding,
     validate_grounded_recommendation,
 )
+from agent_stages.strategist_normalization import normalize_recommendation
 from db_common import get_connection
 from market_db import initialize_database as initialize_market_database
 from news_db import initialize_database as initialize_news_database
@@ -48,6 +49,83 @@ def grounded_recommendation(*, article_id: int = 42, company_symbol: str = "AAPL
 
 
 class StrategistGroundingTests(unittest.TestCase):
+    def test_normalization_cites_derived_watchlist_reason_from_why_now(self):
+        recommendation = grounded_recommendation()
+        recommendation["decision"] = "watchlist"
+
+        normalized = normalize_recommendation(recommendation)
+
+        self.assertIsNotNone(normalized)
+        self.assertEqual(normalized["watchlist_reason"], recommendation["why_now"])
+        watchlist_claims = [
+            claim
+            for claim in normalized["evidence_claims"]
+            if claim["claim_type"] == "watchlist_reason"
+        ]
+        self.assertEqual(
+            watchlist_claims,
+            [
+                {
+                    "claim_type": "watchlist_reason",
+                    "claim": recommendation["why_now"],
+                    "evidence_article_ids": [42],
+                }
+            ],
+        )
+        validated = validate_grounded_recommendation(
+            normalized,
+            grounding={
+                "company": {"symbol": "AAPL", "id": 7},
+                "industry": {"id": 3},
+                "sector": {"id": 1},
+                "article_ids": [42],
+            },
+        )
+        self.assertEqual(validated["watchlist_reason"], recommendation["why_now"])
+
+    def test_normalization_cites_derived_watchlist_reason_from_summary_fallback(self):
+        recommendation = grounded_recommendation()
+        recommendation["decision"] = "watchlist"
+        recommendation["why_now"] = ""
+        recommendation["evidence_claims"][0]["evidence_article_ids"] = [43]
+
+        normalized = normalize_recommendation(recommendation)
+
+        self.assertIsNotNone(normalized)
+        watchlist_claim = next(
+            claim
+            for claim in normalized["evidence_claims"]
+            if claim["claim_type"] == "watchlist_reason"
+        )
+        self.assertEqual(watchlist_claim["claim"], recommendation["summary"])
+        self.assertEqual(watchlist_claim["evidence_article_ids"], [43])
+
+    def test_normalization_does_not_invent_watchlist_citation_without_cited_source(self):
+        recommendation = grounded_recommendation()
+        recommendation["decision"] = "watchlist"
+        recommendation["evidence_claims"] = [
+            claim
+            for claim in recommendation["evidence_claims"]
+            if claim["claim_type"] != "why_now"
+        ]
+
+        normalized = normalize_recommendation(recommendation)
+
+        self.assertIsNotNone(normalized)
+        self.assertFalse(
+            any(claim["claim_type"] == "watchlist_reason" for claim in normalized["evidence_claims"])
+        )
+        with self.assertRaisesRegex(ValueError, "missing grounded"):
+            validate_grounded_recommendation(
+                normalized,
+                grounding={
+                    "company": {"symbol": "AAPL", "id": 7},
+                    "industry": {"id": 3},
+                    "sector": {"id": 1},
+                    "article_ids": [42],
+                },
+            )
+
     def test_grounding_collects_visible_article_ids_and_relationships(self):
         grounding = build_strategist_grounding(
             {
