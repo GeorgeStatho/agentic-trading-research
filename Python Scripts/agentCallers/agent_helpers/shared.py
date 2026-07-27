@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+import hashlib
 import json
 import logging
 import os
@@ -192,6 +193,79 @@ def _extract_response_text(response: Any) -> str | None:
     return combined or None
 
 
+def _safe_response_value(value: Any) -> str | int | float | bool | None:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    name = getattr(value, "name", None)
+    if isinstance(name, str) and name:
+        return name
+    return str(value)
+
+
+def _record_vertex_response_diagnostic(
+    response: Any,
+    *,
+    model: str,
+    response_diagnostic: dict[str, Any] | None,
+) -> None:
+    """Capture completion metadata without retaining the request payload."""
+    if response_diagnostic is None:
+        return
+
+    candidates = getattr(response, "candidates", None)
+    candidate = candidates[0] if isinstance(candidates, list) and candidates else None
+    response_diagnostic.update(
+        {
+            "provider": "vertex",
+            "model": model,
+            "candidate_count": len(candidates) if isinstance(candidates, list) else 0,
+            "finish_reason": _safe_response_value(getattr(candidate, "finish_reason", None)),
+            "finish_message": _safe_response_value(getattr(candidate, "finish_message", None)),
+        }
+    )
+    usage = getattr(response, "usage_metadata", None)
+    if usage is not None:
+        for key in ("prompt_token_count", "candidates_token_count", "total_token_count"):
+            value = _safe_response_value(getattr(usage, key, None))
+            if value is not None:
+                response_diagnostic[key] = value
+
+
+def build_model_response_diagnostic(
+    raw_response: str,
+    *,
+    response_diagnostic: dict[str, Any] | None = None,
+    excerpt_characters: int = 4_000,
+) -> dict[str, Any]:
+    """Return a bounded diagnostic for an invalid structured model response."""
+    raw = str(raw_response or "")
+    excerpt_limit = max(1, int(excerpt_characters))
+    diagnostic: dict[str, Any] = {
+        "response_characters": len(raw),
+        "response_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+        "response_excerpt": raw[:excerpt_limit],
+    }
+    if len(raw) > excerpt_limit:
+        diagnostic["response_tail"] = raw[-min(500, excerpt_limit):]
+        diagnostic["response_excerpt_truncated"] = True
+    if response_diagnostic:
+        diagnostic["provider_response"] = dict(response_diagnostic)
+
+    try:
+        json.loads(raw)
+    except json.JSONDecodeError as exc:
+        diagnostic["json_decode_error"] = {
+            "message": exc.msg,
+            "line": exc.lineno,
+            "column": exc.colno,
+            "position": exc.pos,
+        }
+    except TypeError as exc:
+        diagnostic["json_decode_error"] = {"message": str(exc)}
+
+    return diagnostic
+
+
 def _extract_status_code(exc: Exception) -> int | None:
     direct_status = getattr(exc, "status_code", None)
     if isinstance(direct_status, int):
@@ -270,6 +344,7 @@ def _ask_vertex_model(
     *,
     temperature: float,
     response_schema: dict[str, Any] | None,
+    response_diagnostic: dict[str, Any] | None,
 ) -> str:
     # Call the Vertex model with the shared request settings and translate provider errors into a stable message shape.
     if genai_types is None:
@@ -294,6 +369,11 @@ def _ask_vertex_model(
                 model=resolved_model,
                 contents=user_prompt,
                 config=genai_types.GenerateContentConfig(**config_kwargs),
+            )
+            _record_vertex_response_diagnostic(
+                response,
+                model=resolved_model,
+                response_diagnostic=response_diagnostic,
             )
             break
         except Exception as exc:
@@ -332,6 +412,7 @@ def _ask_openai_model(
     *,
     temperature: float,
     response_schema: dict[str, Any] | None,
+    response_diagnostic: dict[str, Any] | None,
 ) -> str:
     resolved_model = _resolve_model_name(client.provider, model)
     request_kwargs: dict[str, Any] = {
@@ -373,6 +454,7 @@ def ask_llm_model(
     temperature: float = 0,
     host_label: str | None = None,
     response_schema: dict[str, Any] | None = None,
+    response_diagnostic: dict[str, Any] | None = None,
 ) -> str:
     # Route model calls through the supported provider path and normalize the response and error handling for callers.
     if client.provider == "vertex":
@@ -383,6 +465,7 @@ def ask_llm_model(
             user_prompt,
             temperature=temperature,
             response_schema=response_schema,
+            response_diagnostic=response_diagnostic,
         )
 
     if client.provider == "openai":
@@ -393,6 +476,7 @@ def ask_llm_model(
             user_prompt,
             temperature=temperature,
             response_schema=response_schema,
+            response_diagnostic=response_diagnostic,
         )
 
     if client.provider != "ollama":

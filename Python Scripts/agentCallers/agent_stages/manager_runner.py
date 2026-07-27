@@ -12,7 +12,7 @@ from agent_helpers.manager import (
     build_manager_input,
     build_market_context,
 )
-from agent_helpers.shared import Client, extract_json_value
+from agent_helpers.shared import Client, build_model_response_diagnostic, extract_json_value
 from services.evidence_continuation_gate import evaluate_evidence_continuation_gate
 from .manager_payload_context import (
     _build_context_snapshot,
@@ -302,11 +302,13 @@ def decide_company_option_position(
         system_prompt_override=system_prompt_override,
         task_override=task_override,
     )
+    response_diagnostic: dict[str, Any] = {}
     raw_response = ask_model(
         client=client,
         model=model,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
+        response_diagnostic=response_diagnostic,
     )
 
     parsed = extract_json_value(raw_response)
@@ -320,10 +322,17 @@ def decide_company_option_position(
             strategist_recommendation=payload.get("strategist_recommendation", {}),
         )
     if recommendation is None:
+        diagnostic = build_model_response_diagnostic(
+            raw_response,
+            response_diagnostic=response_diagnostic,
+        )
+        diagnostic["stage"] = "manager"
+        diagnostic["company_symbol"] = str(company.get("symbol") or "").strip().upper()
+        LOGGER.error("Manager response diagnostic: %s", diagnostic)
         raise RuntimeError(
             "Manager model returned an invalid response. "
             "Expected a JSON object with recommendation.decision/confidence/reason. "
-            f"Raw response: {raw_response[:800]}"
+            "See the preceding manager response diagnostic for the parse error and completion metadata."
         )
 
     market_context, upstream_bucket_refresh_debug = _refresh_market_context_for_target_dte_bucket(

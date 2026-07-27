@@ -12,6 +12,7 @@ from .manager_payload_context import (
 from .manager_strategist_context import _build_manager_visible_strategist_context
 from .manager_shared import (
     DEFAULT_MANAGER_TARGET_DTE_BUCKET,
+    MANAGER_REASON_MAX_CHARS,
     TARGET_DTE_BUCKET_CHOICES_TEXT,
     TIME_HORIZON_DTE_MAPPING_TEXT,
 )
@@ -89,7 +90,7 @@ def build_manager_prompt(
         "entry_quality must be one of: excellent, good, acceptable, poor, chase. "
         "recommended_action_adjustment must be one of: approve, approve_with_normal_size, reduce_confidence, reduce_size, wait, skip. "
         "Use 'none' when no options trade should be opened or when no DTE preference should be expressed. "
-        "reason must be a short paragraph explaining the main drivers of the decision. "
+        f"reason must be a single short paragraph of at most {MANAGER_REASON_MAX_CHARS} characters explaining the main drivers of the decision. "
         "Also include these optional but preferred fields when supported by the context: overextension_risk, options_pricing_risk, technical_summary, and risk_summary."
     )
     system_prompt = str(system_prompt_override or default_system_prompt)
@@ -121,7 +122,7 @@ def build_manager_prompt(
                 "options_pricing_risk": "low|medium|high",
                 "technical_summary": "short paragraph",
                 "risk_summary": "short paragraph",
-                "reason": "short paragraph",
+                "reason": f"single paragraph, max {MANAGER_REASON_MAX_CHARS} characters",
             }
         },
     }
