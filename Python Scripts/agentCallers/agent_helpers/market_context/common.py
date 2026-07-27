@@ -22,6 +22,7 @@ bootstrap_agent_callers(include_webscraping=True)
 
 try:
     from alpaca.data import OptionHistoricalDataClient, StockHistoricalDataClient
+    from alpaca.data.enums import DataFeed
     from alpaca.data.requests import (
         OptionChainRequest,
         StockBarsRequest,
@@ -35,6 +36,7 @@ try:
 
     ALPACA_IMPORT_ERROR: Exception | None = None
 except ImportError as exc:  # pragma: no cover - optional dependency
+    DataFeed = None
     OptionHistoricalDataClient = None
     OptionChainRequest = None
     StockBarsRequest = None

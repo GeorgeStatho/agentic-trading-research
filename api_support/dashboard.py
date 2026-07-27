@@ -13,6 +13,7 @@ from db_helpers.market import (
     list_decision_expectancy_rows,
     list_recent_manager_decision_history,
 )
+from db_helpers import DB_PATH, get_connection
 from performance_metrics import (
     DEFAULT_ANNUAL_RISK_FREE_RATE,
     compute_daily_returns,
@@ -82,6 +83,10 @@ def _empty_company_decision_entry(*, symbol: str, name: str, last_updated_at: st
             "selected_option_source": "",
             "entry_gate": {},
             "market_regime_gate": {},
+        },
+        "diagnostics": {
+            "historical_bars": {},
+            "strategist_validation": {},
         },
         "manager_history": [],
     }
@@ -201,6 +206,81 @@ def _extract_manager_snapshot_from_history_row(
     }
 
 
+def _extract_historical_bars_diagnostic(manager_input_json: object) -> dict:
+    manager_input = manager_input_json if isinstance(manager_input_json, dict) else {}
+    market_context = manager_input.get("market_context")
+    if not isinstance(market_context, dict):
+        market_context = {}
+    underlying = market_context.get("underlying_price_history")
+    if not isinstance(underlying, dict):
+        return {}
+
+    return {
+        "available": bool(underlying.get("available")),
+        "source": str(underlying.get("source") or "").strip(),
+        "feed": str(underlying.get("feed") or "").strip(),
+        "close_count": int(underlying.get("close_count") or 0),
+        "error": str(underlying.get("error") or "").strip(),
+    }
+
+
+def _load_latest_strategist_run_statuses() -> dict[int, dict]:
+    """Return the most recent persisted strategist status for each company.
+
+    A failed strategist response has no manager-decision row because the cycle
+    intentionally stops before manager evaluation.  The dashboard therefore
+    reads the already-persisted strategist run directly to show that failure.
+    """
+    try:
+        with get_connection(DB_PATH) as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    sr.company_id,
+                    c.symbol,
+                    c.name AS company_name,
+                    sr.status,
+                    sr.error_message,
+                    sr.input_article_ids_json,
+                    sr.created_at
+                FROM strategist_runs AS sr
+                JOIN companies AS c ON c.id = sr.company_id
+                ORDER BY sr.company_id ASC, sr.created_at DESC, sr.id DESC
+                """
+            ).fetchall()
+    except Exception:
+        return {}
+
+    latest_by_company: dict[int, dict] = {}
+    for row in rows:
+        item = dict(row)
+        company_id = int(item.get("company_id") or 0)
+        if company_id <= 0 or company_id in latest_by_company:
+            continue
+        article_ids = safe_json_loads(item.get("input_article_ids_json"))
+        latest_by_company[company_id] = {
+            "company_id": company_id,
+            "symbol": str(item.get("symbol") or "").strip().upper(),
+            "company_name": str(item.get("company_name") or "").strip(),
+            "status": str(item.get("status") or "").strip().lower(),
+            "error_message": str(item.get("error_message") or "").strip(),
+            "input_article_count": len(article_ids) if isinstance(article_ids, list) else 0,
+            "created_at": str(item.get("created_at") or "").strip(),
+        }
+    return latest_by_company
+
+
+def _strategist_validation_diagnostic(status: dict | None) -> dict:
+    if not isinstance(status, dict) or status.get("status") != "failed":
+        return {}
+    return {
+        "status": "failed",
+        "error_message": str(status.get("error_message") or "").strip(),
+        "input_article_count": int(status.get("input_article_count") or 0),
+        "created_at": str(status.get("created_at") or "").strip(),
+    }
+
+
 def _serialize_manager_history_row(item: dict) -> dict:
     return {
         "id": int(item.get("id") or 0),
@@ -234,7 +314,8 @@ def _build_company_decisions_payload_from_history() -> dict:
     except Exception:
         return _build_empty_company_decisions_payload()
 
-    if not rows:
+    strategist_run_statuses = _load_latest_strategist_run_statuses()
+    if not rows and not strategist_run_statuses:
         return _build_empty_company_decisions_payload()
 
     companies_by_symbol: dict[str, dict] = {}
@@ -268,6 +349,28 @@ def _build_company_decisions_payload_from_history() -> dict:
             item,
             item.get("manager_output_json"),
         )
+        company_id = int(item.get("company_id") or 0)
+        companies_by_symbol[symbol]["diagnostics"] = {
+            "historical_bars": _extract_historical_bars_diagnostic(item.get("manager_input_json")),
+            "strategist_validation": _strategist_validation_diagnostic(
+                strategist_run_statuses.get(company_id)
+            ),
+        }
+
+    for company_id, strategist_status in strategist_run_statuses.items():
+        validation = _strategist_validation_diagnostic(strategist_status)
+        if not validation:
+            continue
+        symbol = str(strategist_status.get("symbol") or "").strip().upper()
+        if not symbol:
+            continue
+        if symbol not in companies_by_symbol:
+            companies_by_symbol[symbol] = _empty_company_decision_entry(
+                symbol=symbol,
+                name=str(strategist_status.get("company_name") or "").strip(),
+                last_updated_at=str(strategist_status.get("created_at") or "").strip(),
+            )
+        companies_by_symbol[symbol]["diagnostics"]["strategist_validation"] = validation
 
     for symbol, company_entry in companies_by_symbol.items():
         company_entry["manager_history"] = [

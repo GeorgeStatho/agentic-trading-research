@@ -49,12 +49,29 @@ type ManagerHistoryEntry = {
   article_references: HistoryArticleReference[];
 };
 
+type DecisionDiagnostics = {
+  historical_bars?: {
+    available?: boolean;
+    source?: string;
+    feed?: string;
+    close_count?: number;
+    error?: string;
+  };
+  strategist_validation?: {
+    status?: string;
+    error_message?: string;
+    input_article_count?: number;
+    created_at?: string;
+  };
+};
+
 type CompanyDecision = {
   symbol: string;
   name: string;
   last_updated_at: string;
   strategist: StageDecision;
   manager: StageDecision;
+  diagnostics?: DecisionDiagnostics;
   manager_history: ManagerHistoryEntry[];
 };
 
@@ -341,6 +358,15 @@ function CompanyDecisionsPage() {
                     <p className="company-decisions__text">
                       {formatValue(company.strategist.summary)}
                     </p>
+                    {company.diagnostics?.strategist_validation?.status === 'failed' ? (
+                      <div className="company-decisions__diagnostic company-decisions__diagnostic--error">
+                        <p className="company-decisions__subheading">Latest strategist attempt failed</p>
+                        <p className="company-decisions__text">{formatValue(company.diagnostics.strategist_validation.error_message)}</p>
+                        <p className="company-decisions__detail">
+                          {company.diagnostics.strategist_validation.input_article_count ?? 0} grounded article(s) supplied · {formatDateTime(company.diagnostics.strategist_validation.created_at ?? '')}
+                        </p>
+                      </div>
+                    ) : null}
                     <div className="company-decisions__subsection">
                       <p className="company-decisions__subheading">Thesis</p>
                       {renderList(company.strategist.thesis, 'No thesis points saved.')}
@@ -382,6 +408,15 @@ function CompanyDecisionsPage() {
                       </dl>
                       {company.manager.entry_gate?.reason_codes?.length ? <p className="company-decisions__text">Blocked by: {company.manager.entry_gate.reason_codes.join(', ')}</p> : null}
                     </div>
+                    {company.diagnostics?.historical_bars?.error ? (
+                      <div className="company-decisions__diagnostic company-decisions__diagnostic--error">
+                        <p className="company-decisions__subheading">Historical-bars diagnostic</p>
+                        <p className="company-decisions__text">{company.diagnostics.historical_bars.error}</p>
+                        <p className="company-decisions__detail">
+                          Source: {formatValue(company.diagnostics.historical_bars.source)} · Feed: {formatValue(company.diagnostics.historical_bars.feed)} · {company.diagnostics.historical_bars.close_count ?? 0} valid closes
+                        </p>
+                      </div>
+                    ) : null}
                     <div className="company-decisions__subsection">
                       <p className="company-decisions__subheading">Contract selection</p>
                       <dl className="company-decisions__facts">

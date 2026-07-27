@@ -282,6 +282,22 @@
   line-height: 1.5;
 }
 
+.company-decisions__diagnostic {
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.company-decisions__diagnostic--error {
+  border-color: color-mix(in srgb, #dd5a63 52%, var(--border));
+  background: color-mix(in srgb, #dd5a63 8%, transparent);
+}
+
+.company-decisions__diagnostic .company-decisions__text {
+  margin-top: 8px;
+}
+
 .company-decisions__subsection {
   margin-top: 16px;
 }
