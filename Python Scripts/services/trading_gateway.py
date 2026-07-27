@@ -5,6 +5,7 @@ import os
 from typing import Any
 
 from services.common import looks_like_option_symbol, option_underlying_symbol, safe_float
+from services.order_values import normalize_order_summary
 
 try:
     from alpaca.trading.client import TradingClient
@@ -115,21 +116,17 @@ class AlpacaTradingGateway:
 
     @staticmethod
     def _serialize_order_summary(order: Any, *, symbol: str, qty: int) -> dict[str, Any]:
-        status = getattr(order, "status", "")
-        return {
+        return normalize_order_summary({
             "id": str(getattr(order, "id", "")),
             "symbol": str(getattr(order, "symbol", symbol)),
             "asset_class": str(getattr(order, "asset_class", "")),
             "qty": str(getattr(order, "qty", qty)),
-            "side": str(getattr(order, "side", "")),
-            "type": str(getattr(order, "type", "")),
-            "time_in_force": str(getattr(order, "time_in_force", "")),
-            # alpaca-py exposes OrderStatus as an enum.  Persist its value
-            # instead of ``OrderStatus.FILLED`` so downstream reconciliation
-            # can reliably identify terminal orders.
-            "status": str(getattr(status, "value", status)),
+            "side": getattr(order, "side", ""),
+            "type": getattr(order, "type", ""),
+            "time_in_force": getattr(order, "time_in_force", ""),
+            "status": getattr(order, "status", ""),
             "submitted_at": str(getattr(order, "submitted_at", "")),
-        }
+        })
 
     def submit_option_sell_market_order(
         self,
@@ -269,6 +266,8 @@ class AlpacaTradingGateway:
         order_summary["canceled_at"] = str(getattr(order, "canceled_at", ""))
         order_summary["failed_at"] = str(getattr(order, "failed_at", ""))
         order_summary["expired_at"] = str(getattr(order, "expired_at", ""))
+        order_summary["replaced_by"] = str(getattr(order, "replaced_by", ""))
+        order_summary["replaces"] = str(getattr(order, "replaces", ""))
         order_summary["updated_at"] = str(getattr(order, "updated_at", ""))
         return order_summary
 

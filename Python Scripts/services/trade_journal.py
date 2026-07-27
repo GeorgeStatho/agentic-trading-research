@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from db_helpers.market import record_option_trade_execution
+from services.order_values import normalize_order_side, normalize_order_status
 
 
 class OptionTradeJournal:
@@ -64,8 +65,8 @@ class OptionTradeJournal:
                 "id": order_id,
                 "symbol": option_symbol,
                 "qty": requested_qty,
-                "status": str(position_summary.get("close_order_status") or "").strip(),
-                "side": str(position_summary.get("close_order_side") or "sell").strip(),
+                "status": normalize_order_status(position_summary.get("close_order_status")),
+                "side": normalize_order_side(position_summary.get("close_order_side") or "sell"),
                 "type": "market",
                 "time_in_force": "day",
                 "submitted_at": position_summary.get("last_action_at"),

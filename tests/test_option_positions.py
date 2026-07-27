@@ -472,6 +472,154 @@ class OptionPositionTests(VerboseTestCase):
             self.assertTrue(persisted_state["took_first_scale_out"])
             self.log_pass("filled Alpaca enum statuses clear pending exits instead of blocking trailing protection")
 
+    def test_pending_order_status_policy_covers_every_supported_alpaca_status(self) -> None:
+        expected_statuses = {
+            "new",
+            "partially_filled",
+            "filled",
+            "done_for_day",
+            "canceled",
+            "cancelled",
+            "expired",
+            "replaced",
+            "pending_cancel",
+            "pending_replace",
+            "pending_review",
+            "accepted",
+            "pending_new",
+            "accepted_for_bidding",
+            "stopped",
+            "rejected",
+            "suspended",
+            "calculated",
+            "held",
+        }
+        covered_statuses = (
+            self.option_positions.PENDING_ORDER_OPEN_STATUSES
+            | self.option_positions.PENDING_ORDER_CLEAR_STATUSES
+            | {"replaced"}
+        )
+        self.assertSetEqual(expected_statuses, covered_statuses)
+        self.log_pass("pending-exit lifecycle has an explicit policy for every Alpaca order status")
+
+    def test_reconcile_pending_review_and_suspended_orders_can_be_cancelled_when_stale(self) -> None:
+        for status in ("OrderStatus.PENDING_REVIEW", "OrderStatus.SUSPENDED"):
+            with self.subTest(status=status), TemporaryDirectory() as temp_dir:
+                state_path = Path(temp_dir) / "option_state.json"
+                submitted_at = (datetime.now() - timedelta(minutes=5)).isoformat()
+                self.option_positions.update_position_state(
+                    state_path,
+                    OPTION_SYMBOL,
+                    {
+                        "pending_order_id": "order-stale",
+                        "pending_qty": 1,
+                        "pending_reason": "trailing_profit_stop",
+                        "pending_action": "sell_full",
+                        "pending_order_submitted_at": submitted_at,
+                    },
+                )
+                cancelled_order_ids: list[str] = []
+                persisted_state, reconciliation = self.option_positions._reconcile_pending_order_state(
+                    state_path=state_path,
+                    option_symbol=OPTION_SYMBOL,
+                    position_state=self.option_positions.get_position_state(state_path, OPTION_SYMBOL),
+                    resolve_order_status=lambda order_id, status=status: {
+                        "id": order_id,
+                        "status": status,
+                        "submitted_at": submitted_at,
+                        "qty": "1",
+                        "requested_qty": 1,
+                    },
+                    cancel_order=lambda order_id: cancelled_order_ids.append(order_id)
+                    or {"id": order_id, "status": "OrderStatus.CANCELED", "qty": "1", "requested_qty": 1},
+                    broker_quantity=1,
+                    pending_exit_config=self.option_positions.PendingExitConfig(
+                        stale_minutes=1.0,
+                        cancel_on_stale=True,
+                    ),
+                )
+                self.assertEqual(cancelled_order_ids, ["order-stale"])
+                self.assertTrue(reconciliation["pending_order_terminal"])
+                self.assertEqual(persisted_state["pending_order_id"], "")
+
+    def test_reconcile_done_for_day_clears_pending_exit_for_retry(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "option_state.json"
+            submitted_at = datetime.now().isoformat()
+            self.option_positions.update_position_state(
+                state_path,
+                OPTION_SYMBOL,
+                {
+                    "pending_order_id": "order-done",
+                    "pending_qty": 1,
+                    "pending_reason": "first_scale_out_trigger",
+                    "pending_action": "sell_partial",
+                    "pending_order_submitted_at": submitted_at,
+                    "took_first_scale_out": True,
+                },
+            )
+            persisted_state, reconciliation = self.option_positions._reconcile_pending_order_state(
+                state_path=state_path,
+                option_symbol=OPTION_SYMBOL,
+                position_state=self.option_positions.get_position_state(state_path, OPTION_SYMBOL),
+                resolve_order_status=lambda order_id: {
+                    "id": order_id,
+                    "status": "OrderStatus.DONE_FOR_DAY",
+                    "submitted_at": submitted_at,
+                    "qty": "1",
+                    "requested_qty": 1,
+                },
+                cancel_order=None,
+                broker_quantity=1,
+                pending_exit_config=self.option_positions.PendingExitConfig(
+                    stale_minutes=10.0,
+                    cancel_on_stale=True,
+                ),
+            )
+            self.assertTrue(reconciliation["pending_order_terminal"])
+            self.assertEqual(persisted_state["pending_order_id"], "")
+            self.assertFalse(persisted_state["took_first_scale_out"])
+
+    def test_reconcile_replaced_order_follows_the_broker_replacement(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "option_state.json"
+            submitted_at = datetime.now().isoformat()
+            self.option_positions.update_position_state(
+                state_path,
+                OPTION_SYMBOL,
+                {
+                    "pending_order_id": "old-order",
+                    "pending_qty": 1,
+                    "pending_reason": "trailing_profit_stop",
+                    "pending_action": "sell_full",
+                    "pending_order_submitted_at": submitted_at,
+                },
+            )
+            persisted_state, reconciliation = self.option_positions._reconcile_pending_order_state(
+                state_path=state_path,
+                option_symbol=OPTION_SYMBOL,
+                position_state=self.option_positions.get_position_state(state_path, OPTION_SYMBOL),
+                resolve_order_status=lambda order_id: {
+                    "id": order_id,
+                    "status": "OrderStatus.REPLACED",
+                    "replaced_by": "replacement-order",
+                    "submitted_at": submitted_at,
+                    "updated_at": submitted_at,
+                    "qty": "1",
+                    "requested_qty": 1,
+                },
+                cancel_order=None,
+                broker_quantity=1,
+                pending_exit_config=self.option_positions.PendingExitConfig(
+                    stale_minutes=10.0,
+                    cancel_on_stale=True,
+                ),
+            )
+            self.assertEqual(reconciliation["pending_order_status"], "replaced")
+            self.assertFalse(reconciliation["pending_order_terminal"])
+            self.assertEqual(persisted_state["pending_order_id"], "replacement-order")
+            self.assertEqual(persisted_state["last_replaced_order_id"], "old-order")
+
     def test_structured_exit_action_triggers_momentum_history_failed(self) -> None:
         exit_action, updated_state = self.option_positions._structured_exit_action(
             option_symbol=OPTION_SYMBOL,
