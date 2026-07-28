@@ -47,6 +47,7 @@ from foolAPI import get_stock_data as get_fool_stock_data
 from gurufocusAPI import get_stock_data as get_gurufocus_stock_data
 from market_data.yFinanceNews import extract_title_and_url, get_company_news_items
 from morningStarAPI import get_stock_data as get_morningstar_stock_data
+from sources.company_official import CompanyEvent, fetch_company_ir_events, fetch_sec_edgar_events
 
 from db_helpers import (
     add_company_news_article,
@@ -332,6 +333,53 @@ def _process_company_jobs(jobs: list[CompanySourceJob]) -> dict[int, int]:
     )
 
 
+def _save_company_events(events: list[CompanyEvent]) -> dict[int, int]:
+    """Store primary company events in the existing company-news evidence path."""
+    saved_counts: dict[int, int] = {}
+    for event in events:
+        add_company_news_article(
+            company_id=event.company_id,
+            source=event.source,
+            article_key=event.article_key,
+            title=event.title,
+            source_url=event.source_url,
+            source_page_url=event.source_page_url,
+            summary=event.summary,
+            body=event.body,
+            published_at=event.published_at,
+            section=event.section,
+            source_reputation_score=1.0,
+            directness_score=1.0,
+            confirmation_score=0.5,
+            independent_source_count=1,
+            factuality_score=1.0,
+            evidence_score=0.9,
+            raw_json=event.raw_json,
+        )
+        saved_counts[event.company_id] = saved_counts.get(event.company_id, 0) + 1
+    return saved_counts
+
+
+def _merge_saved_counts(*counts_by_company: dict[int, int]) -> dict[int, int]:
+    merged: dict[int, int] = {}
+    for counts in counts_by_company:
+        for company_id, count in counts.items():
+            merged[company_id] = merged.get(company_id, 0) + count
+    return merged
+
+
+def _ingest_primary_company_events(companies: list[dict]) -> dict[int, int]:
+    """Collect direct company disclosures before secondary publisher coverage."""
+    edgar_events = fetch_sec_edgar_events(companies)
+    ir_events = fetch_company_ir_events(companies)
+    LOGGER.info(
+        "Collected %s SEC filing event(s) and %s investor-relations event(s)",
+        len(edgar_events),
+        len(ir_events),
+    )
+    return _save_company_events([*edgar_events, *ir_events])
+
+
 def _find_company(company_identifier: str) -> dict | None:
     # Resolve a user-facing identifier to a DB company record by trying the
     # ticker first, then falling back to an exact company-name match.
@@ -499,7 +547,7 @@ def get_company_news(company_identifier: str) -> int:
     # For single-company runs we still use the same bulk-crawl flow so the
     # behavior matches the full pipeline and logs stay comparable.
     jobs = _build_company_jobs(company)
-    saved_counts = _process_company_jobs(jobs)
+    saved_counts = _merge_saved_counts(_ingest_primary_company_events([company]), _process_company_jobs(jobs))
     saved = saved_counts.get(company["id"], 0)
     LOGGER.info(
         "Finished single-company scrape for %s (%s): saved %s articles. Log file: %s",
@@ -521,7 +569,7 @@ def get_all_company_news() -> None:
     # crawl batch, then report how many articles were saved per company.
     LOGGER.info("Starting all-company scrape for %s companies", len(companies))
     jobs = _build_all_company_jobs(companies)
-    saved_counts = _process_company_jobs(jobs)
+    saved_counts = _merge_saved_counts(_ingest_primary_company_events(companies), _process_company_jobs(jobs))
 
     for company in companies:
         saved = saved_counts.get(company["id"], 0)
@@ -545,7 +593,7 @@ def get_industries_company_news(industry_identifiers: list[str]) -> int:
         len(industries),
     )
     jobs = _build_all_company_jobs(companies)
-    saved_counts = _process_company_jobs(jobs)
+    saved_counts = _merge_saved_counts(_ingest_primary_company_events(companies), _process_company_jobs(jobs))
 
     total_saved = 0
     for company in companies:
@@ -578,7 +626,7 @@ def get_top_companies_news(*, top_company_count: int = 25) -> int:
         len(companies),
     )
     jobs = _build_all_company_jobs(companies)
-    saved_counts = _process_company_jobs(jobs)
+    saved_counts = _merge_saved_counts(_ingest_primary_company_events(companies), _process_company_jobs(jobs))
 
     total_saved = 0
     for company in companies:
