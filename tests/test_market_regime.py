@@ -23,7 +23,7 @@ from services.market_regime import (  # noqa: E402
 )
 from services.market_regime_gate import MarketRegimePolicy, evaluate_market_regime_gate  # noqa: E402
 from services.order_candidates import OrderCandidateBuilder  # noqa: E402
-from pipelines.macroNewsPipeline import _normalize_calendar_timestamps, _parse_forex_factory_calendar  # noqa: E402
+from pipelines.macroNewsPipeline import _normalize_calendar_timestamps, fetch_macro_calendar  # noqa: E402
 
 
 NOW = datetime(2026, 7, 21, 15, 0, tzinfo=timezone.utc)
@@ -116,16 +116,15 @@ class MarketRegimeClassificationTests(unittest.TestCase):
         self.assertEqual(snapshot["state"], "unknown")
         self.assertIn("macro_calendar_refresh_failed", snapshot["reason_codes"])
 
-    def test_fallback_calendar_keeps_an_explicit_utc_timestamp(self) -> None:
-        events = _parse_forex_factory_calendar(
-            [
-                {
-                    "title": "FOMC Statement",
-                    "country": "USD",
-                    "date": "2026-07-29T14:00:00-04:00",
-                    "impact": "High",
-                }
-            ]
+    def test_official_fomc_calendar_keeps_an_explicit_utc_timestamp(self) -> None:
+        fomc_html = """
+            <h1>2026 FOMC Meetings</h1>
+            <table><tr><th>Meeting</th><th>Date</th></tr>
+            <tr><td>FOMC meeting</td><td>July 28-29</td></tr></table>
+        """
+        events = fetch_macro_calendar(
+            now=NOW,
+            fetch_text=lambda url: fomc_html if "federalreserve.gov" in url else "<html></html>",
         )
         normalized = _normalize_calendar_timestamps(events)
 
