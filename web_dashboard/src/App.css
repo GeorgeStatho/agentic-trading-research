@@ -183,9 +183,21 @@
   display: flex;
   align-items: center;
   gap: 13px;
+  width: 100%;
   padding: 12px 16px;
+  border: 0;
   border-radius: 8px;
   color: var(--on-surface-variant);
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.app-sidebar__item:hover {
+  color: var(--on-surface);
+  background: var(--surface-container-high);
 }
 
 .app-sidebar__item--active {
@@ -209,6 +221,8 @@
   padding: 32px;
   box-sizing: border-box;
 }
+
+.dashboard-section { scroll-margin-top: 88px; }
 
 .dashboard-hero {
   display: flex;

@@ -16,6 +16,7 @@ import ScriptStatusIndicator from './scriptStatus.tsx'
 import WhyBotTradedPanel from './whyBotTraded.tsx'
 
 type DashboardView = 'dashboard' | 'company-news' | 'company-decisions' | 'decision-autopsy' | 'decision-expectancy' | 'backtests' | 'exposure-map'
+type DashboardSection = 'dashboard-top' | 'live-feed' | 'risk-management' | 'strategy-editor' | 'execution-logs' | 'support'
 
 type IconName = 'bell' | 'settings' | 'user' | 'dashboard' | 'feed' | 'shield' | 'note' | 'history' | 'support'
 
@@ -65,6 +66,7 @@ function getDemoModeFromHash(): boolean {
 function App() {
   const [view, setView] = useState<DashboardView>(() => getViewFromHash())
   const [demoMode, setDemoMode] = useState(() => getDemoModeFromHash())
+  const [activeDashboardSection, setActiveDashboardSection] = useState<DashboardSection>('dashboard-top')
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -82,6 +84,18 @@ function App() {
   const toggleDemoMode = () => {
     window.location.hash = demoMode ? '#/exposure-map' : '#/exposure-map?demo=1'
   }
+  const scrollToDashboardSection = (section: DashboardSection) => {
+    setActiveDashboardSection(section)
+    document.getElementById(section)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+  const sidebarItems: Array<{ section: DashboardSection; label: string; icon: IconName }> = [
+    { section: 'dashboard-top', label: 'Dashboard', icon: 'dashboard' },
+    { section: 'live-feed', label: 'Live Feed', icon: 'feed' },
+    { section: 'risk-management', label: 'Risk Management', icon: 'shield' },
+    { section: 'strategy-editor', label: 'Strategy Editor', icon: 'note' },
+    { section: 'execution-logs', label: 'Execution Logs', icon: 'history' },
+    { section: 'support', label: 'Support', icon: 'support' },
+  ]
 
   return (
     <div className="app-shell">
@@ -114,12 +128,17 @@ function App() {
               <div><p className="app-sidebar__status-label">System Active</p><p className="app-sidebar__latency">Latency: 12ms</p></div>
             </div>
             <nav className="app-sidebar__nav">
-              <div className="app-sidebar__item app-sidebar__item--active"><span className="app-sidebar__icon"><Icon name="dashboard" /></span>Dashboard</div>
-              <div className="app-sidebar__item"><span className="app-sidebar__icon"><Icon name="feed" /></span>Live Feed</div>
-              <div className="app-sidebar__item"><span className="app-sidebar__icon"><Icon name="shield" /></span>Risk Management</div>
-              <div className="app-sidebar__item"><span className="app-sidebar__icon"><Icon name="note" /></span>Strategy Editor</div>
-              <div className="app-sidebar__item"><span className="app-sidebar__icon"><Icon name="history" /></span>Execution Logs</div>
-              <div className="app-sidebar__item"><span className="app-sidebar__icon"><Icon name="support" /></span>Support</div>
+              {sidebarItems.map((item) => (
+                <button
+                  key={item.section}
+                  type="button"
+                  className={`app-sidebar__item${activeDashboardSection === item.section ? ' app-sidebar__item--active' : ''}`}
+                  onClick={() => scrollToDashboardSection(item.section)}
+                  aria-current={activeDashboardSection === item.section ? 'page' : undefined}
+                >
+                  <span className="app-sidebar__icon"><Icon name={item.icon} /></span>{item.label}
+                </button>
+              ))}
             </nav>
           </aside>
         ) : null}
@@ -138,19 +157,19 @@ function App() {
         <ExposureMapPage demoMode={demoMode} />
       ) : (
         <main className="mainbody">
-          <section className="dashboard-hero">
+          <section id="dashboard-top" className="dashboard-hero dashboard-section">
             <div>
               <p className="dashboard-hero__eyebrow">Stock Trading Experiment</p>
               <h2>Operations Dashboard</h2>
             </div>
           </section>
           <DashboardKpis />
-          <RiskControlsPanel />
-          <ScriptStatusIndicator />
-          <WhyBotTradedPanel />
+          <div id="risk-management" className="dashboard-section"><RiskControlsPanel /></div>
+          <div id="live-feed" className="dashboard-section"><ScriptStatusIndicator /></div>
+          <div id="strategy-editor" className="dashboard-section"><WhyBotTradedPanel /></div>
           <Graph />
-          <OpenPositionsTable />
-          <OrderCardList />
+          <div id="support" className="dashboard-section"><OpenPositionsTable /></div>
+          <div id="execution-logs" className="dashboard-section"><OrderCardList /></div>
         </main>
       )}
       </div>
