@@ -7,7 +7,6 @@
 # Local environment files
 .env
 !.env.example
-!config/company_ir_feeds.json
 
 # Keep frontend JSON config tracked
 !web_dashboard/package.json

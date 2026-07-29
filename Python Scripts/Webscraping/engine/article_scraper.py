@@ -4,7 +4,6 @@ import multiprocessing
 import os
 import sys
 import threading
-import time
 import scrapy
 from scrapy import signals
 from scrapy.crawler import CrawlerProcess
@@ -45,7 +44,6 @@ except ModuleNotFoundError:
 
 LOGGER = get_scrape_logger("article_scraper")
 DEFAULT_RENDERED_EXTRACTION_WORKERS = 6
-DEFAULT_CRAWL_SUBPROCESS_TIMEOUT_SECONDS = 600
 
 
 def _is_yahoo_finance_url(url: str) -> bool:
@@ -59,17 +57,6 @@ def _get_rendered_extraction_workers() -> int:
     except (TypeError, ValueError):
         return DEFAULT_RENDERED_EXTRACTION_WORKERS
     return max(1, parsed)
-
-
-def _get_crawl_subprocess_timeout_seconds() -> float:
-    raw_value = os.getenv(
-        "WEBSCRAPING_CRAWL_SUBPROCESS_TIMEOUT_SECONDS",
-        str(DEFAULT_CRAWL_SUBPROCESS_TIMEOUT_SECONDS),
-    )
-    try:
-        return max(1.0, float(raw_value))
-    except (TypeError, ValueError):
-        return float(DEFAULT_CRAWL_SUBPROCESS_TIMEOUT_SECONDS)
 
 
 class _KeyboardStopMonitor:
@@ -509,25 +496,12 @@ def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
     LOGGER.info("Starting article-page crawl for %s URLs in a subprocess", len(urls))
     worker.start()
 
-    # Read the worker payload before joining. Waiting on join() first can leave
-    # the child blocked flushing a large payload.  Conversely, an unbounded
-    # get() would hang forever if the child fails during process bootstrap.
-    deadline = time.monotonic() + _get_crawl_subprocess_timeout_seconds()
+    # Read the worker payload before joining. If we wait on join() first, the
+    # child can remain blocked flushing a large queue payload back to the
+    # parent, which looks like the crawl "never closes" even though Scrapy has
+    # already finished.
     try:
-        reader = getattr(result_queue, "_reader", None)
-        result: dict | None = None
-        while result is None:
-            if reader is not None and reader.poll(0.5):
-                result = result_queue.get()
-                break
-            if not worker.is_alive():
-                worker.join()
-                raise RuntimeError(
-                    f"Article crawl subprocess exited without returning a result (exit code {worker.exitcode})."
-                )
-            if time.monotonic() >= deadline:
-                _stop_article_worker(worker)
-                raise TimeoutError("Article crawl subprocess timed out before returning a result.")
+        result: dict = result_queue.get()
         worker.join()
     except (KeyboardInterrupt, InterruptedError):
         LOGGER.warning("Keyboard interrupt received while waiting for the article crawl subprocess; stopping it early")
@@ -540,9 +514,6 @@ def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
 
     if worker.exitcode != 0:
         raise RuntimeError(f"Article crawl subprocess failed with exit code {worker.exitcode}")
-
-    if result is None:
-        raise RuntimeError("Article crawl subprocess returned no result.")
 
     if result.get("error"):
         raise RuntimeError(f"Article crawl subprocess failed: {result['error']}")

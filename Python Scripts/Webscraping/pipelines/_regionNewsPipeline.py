@@ -5,8 +5,7 @@ from typing import Callable
 from pipelines._shared import fetch_existing_article_by_url, get_log_file_path, get_scrape_logger
 from pipelines._entity_adapters import make_direct_request_builder, make_entity_article_saver, make_request_saver
 from pipelines._orchestration import run_article_save_requests
-from pipelines._sector_rss import DEFAULT_RSS_MAX_AGE_DAYS
-from discovery.rss import fetch_recent_rss_urls
+from pipelines._sector_rss import DEFAULT_RSS_MAX_AGE_DAYS, extract_recent_rss_urls, fetch_rss_feed_xml
 
 
 LOGGER = get_scrape_logger("region_pipeline")
@@ -142,7 +141,8 @@ def make_region_pipeline(
         return saved
 
     def get_news_from_rss(max_age_days: int = DEFAULT_RSS_MAX_AGE_DAYS) -> int:
-        urls = fetch_recent_rss_urls(rss_feed_url, max_age_days=max_age_days)
+        rss_xml = fetch_rss_feed_xml(rss_feed_url)
+        urls = extract_recent_rss_urls(rss_xml, max_age_days=max_age_days)
         logger.info(
             "Collected %s unique RSS article URLs for %s from %s",
             len(urls),

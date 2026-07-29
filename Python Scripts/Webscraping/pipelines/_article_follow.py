@@ -24,7 +24,6 @@ from pipelines._shared import (
     record_failed_url,
     cast,
 )
-from processing.validation import validate_article_content
 
 API_DIR = Path(__file__).resolve().parents[1] / "APIs"
 if str(API_DIR) not in sys.path:
@@ -319,17 +318,6 @@ def save_followed_article_links(
                     entity_label,
                     href,
                     article.error,
-                )
-                continue
-            content_validation = validate_article_content(title=article.title, body=article.text)
-            if not content_validation.is_valid:
-                record_failed_url(href, "article_validation", content_validation.reason)
-                logger.warning(
-                    "Article validation failed for %s %s at %s: %s",
-                    entity_kind,
-                    entity_label,
-                    href,
-                    content_validation.reason,
                 )
                 continue
             clear_failed_url(href)
