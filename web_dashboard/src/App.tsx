@@ -121,7 +121,6 @@ function App() {
               <div className="app-sidebar__item"><span className="app-sidebar__icon"><Icon name="history" /></span>Execution Logs</div>
               <div className="app-sidebar__item"><span className="app-sidebar__icon"><Icon name="support" /></span>Support</div>
             </nav>
-            <button type="button" className="app-sidebar__stop">Emergency Stop</button>
           </aside>
         ) : null}
 
@@ -143,10 +142,6 @@ function App() {
             <div>
               <p className="dashboard-hero__eyebrow">Stock Trading Experiment</p>
               <h2>Operations Dashboard</h2>
-            </div>
-            <div className="dashboard-hero__actions">
-              <button type="button" className="dashboard-hero__action">Exposure Map</button>
-              <button type="button" className="dashboard-hero__action dashboard-hero__action--accent">Demo Mode</button>
             </div>
           </section>
           <DashboardKpis />
