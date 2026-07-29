@@ -16,6 +16,14 @@ type OpenPosition = {
   mid_price: number | null;
   unrealized_pl_pct: number | null;
   days_to_expiration: number | null;
+  profit_protection: {
+    floor_type: 'trailing_profit' | 'stop_loss' | 'unavailable';
+    floor_profit_pct: number | null;
+    floor_mark_price: number | null;
+    trailing_profit_armed: boolean;
+    high_water_profit_pct: number | null;
+    high_water_mark_price: number | null;
+  } | null;
   exit_rule_status: string;
   decision_reasons: string[];
 };
@@ -67,6 +75,14 @@ function formatPercent(value: number | null): string {
   return `${value.toFixed(1)}%`;
 }
 
+function formatSignedPercent(value: number | null): string {
+  if (value === null || Number.isNaN(value)) {
+    return 'N/A';
+  }
+
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)}% P/L`;
+}
+
 function formatBidAsk(position: OpenPosition): string {
   if (position.current_bid === null && position.current_ask === null) {
     return 'N/A';
@@ -87,6 +103,16 @@ function getExitStatusTone(status: string): string {
     return 'warning';
   }
   return 'neutral';
+}
+
+function getFloorLabel(position: OpenPosition): string {
+  if (position.profit_protection?.floor_type === 'trailing_profit') {
+    return 'Profit floor';
+  }
+  if (position.profit_protection?.floor_type === 'stop_loss') {
+    return 'Stop-loss floor';
+  }
+  return 'Floor unavailable';
 }
 
 function OpenPositionsTable() {
@@ -181,6 +207,8 @@ function OpenPositionsTable() {
                 <th>Current Mark</th>
                 <th>Mid Price</th>
                 <th>P/L %</th>
+                <th>Manager Sell Floor</th>
+                <th>Highest Recorded</th>
                 <th>Days to Expiration</th>
                 <th>Exit Rule Status</th>
               </tr>
@@ -206,6 +234,20 @@ function OpenPositionsTable() {
                   <td>{formatCurrency(position.mid_price)}</td>
                   <td className={position.unrealized_pl_pct !== null && position.unrealized_pl_pct < 0 ? 'positions-table__negative' : position.unrealized_pl_pct !== null && position.unrealized_pl_pct > 0 ? 'positions-table__positive' : ''}>
                     {formatPercent(position.unrealized_pl_pct)}
+                  </td>
+                  <td>
+                    <div className={`positions-table__protection${position.profit_protection?.trailing_profit_armed ? ' positions-table__protection--armed' : ''}`}>
+                      <span className="positions-table__protection-label">{getFloorLabel(position)}</span>
+                      <strong>{formatCurrency(position.profit_protection?.floor_mark_price ?? null)}</strong>
+                      <span>{formatSignedPercent(position.profit_protection?.floor_profit_pct ?? null)}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div className="positions-table__protection">
+                      <span className="positions-table__protection-label">High-water mark</span>
+                      <strong>{formatCurrency(position.profit_protection?.high_water_mark_price ?? null)}</strong>
+                      <span>{formatSignedPercent(position.profit_protection?.high_water_profit_pct ?? null)}</span>
+                    </div>
                   </td>
                   <td>{position.days_to_expiration === null ? 'N/A' : formatNumber(position.days_to_expiration)}</td>
                   <td>

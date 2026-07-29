@@ -1104,6 +1104,59 @@ def format_exit_rule_status(position_summary: dict, management_payload: dict) ->
     return "Monitoring"
 
 
+def _is_enabled(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _price_at_profit_pct(entry_price: float | None, profit_pct: float | None) -> float | None:
+    if entry_price is None or profit_pct is None:
+        return None
+    return round(entry_price * (1.0 + (profit_pct / 100.0)), 4)
+
+
+def build_option_protection_payload(
+    *,
+    snapshot: dict,
+    management_payload: dict,
+    entry_price: float | None,
+) -> dict:
+    """Return the manager's active price-exit floor and its recorded high-water mark.
+
+    The manager persists trailing values as decimal P/L ratios (0.40 means 40%).
+    The dashboard API exposes human-readable percentages and estimated option marks
+    derived from the entry price, while making the source of the active floor explicit.
+    """
+    protected_floor_ratio = safe_float(snapshot.get("protected_profit_floor_pct"))
+    protection_active = _is_enabled(snapshot.get("profit_protection_active"))
+    stop_loss_pct = safe_float(snapshot.get("stop_loss_pct"))
+    if stop_loss_pct is None:
+        stop_loss_pct = safe_float(management_payload.get("stop_loss_pct"))
+
+    if protection_active and protected_floor_ratio is not None:
+        floor_pct = round(protected_floor_ratio * 100.0, 4)
+        floor_type = "trailing_profit"
+    elif stop_loss_pct is not None:
+        floor_pct = stop_loss_pct
+        floor_type = "stop_loss"
+    else:
+        floor_pct = None
+        floor_type = "unavailable"
+
+    high_water_ratio = safe_float(snapshot.get("max_pnl_pct"))
+    high_water_pct = round(high_water_ratio * 100.0, 4) if high_water_ratio is not None else None
+
+    return {
+        "floor_type": floor_type,
+        "floor_profit_pct": floor_pct,
+        "floor_mark_price": _price_at_profit_pct(entry_price, floor_pct),
+        "trailing_profit_armed": protection_active and protected_floor_ratio is not None,
+        "high_water_profit_pct": high_water_pct,
+        "high_water_mark_price": _price_at_profit_pct(entry_price, high_water_pct),
+    }
+
+
 def build_open_positions_payload() -> dict:
     live_positions = alpaca_get_json("/v2/positions")
     normalized_positions = live_positions if isinstance(live_positions, list) else []
@@ -1194,6 +1247,11 @@ def build_open_positions_payload() -> dict:
                     "mid_price": mid_price,
                     "unrealized_pl_pct": unrealized_pl_pct,
                     "days_to_expiration": days_to_expiration,
+                    "profit_protection": build_option_protection_payload(
+                        snapshot=snapshot,
+                        management_payload=management_payload,
+                        entry_price=entry_price,
+                    ),
                     "exit_rule_status": format_exit_rule_status(snapshot, management_payload),
                     "decision": str(snapshot.get("decision") or ""),
                     "decision_reasons": snapshot.get("decision_reasons") if isinstance(snapshot.get("decision_reasons"), list) else [],
@@ -1218,6 +1276,7 @@ def build_open_positions_payload() -> dict:
                 "mid_price": mid_price,
                 "unrealized_pl_pct": unrealized_pl_pct,
                 "days_to_expiration": None,
+                "profit_protection": None,
                 "exit_rule_status": "N/A",
                 "decision": "",
                 "decision_reasons": [],
