@@ -222,6 +222,12 @@
   box-sizing: border-box;
 }
 
+/* Pages other than Overview render sidebar-less at a fixed width — centre them in the layout. */
+.app-layout > main:not(.mainbody) {
+  margin: 24px auto;
+  min-width: 0;
+}
+
 .dashboard-section { scroll-margin-top: 88px; }
 
 .dashboard-hero {
@@ -267,9 +273,28 @@
 }
 
 @media (max-width: 720px) {
-  .app-topbar { padding: 0 16px; }
+  .app-topbar { min-height: 0; padding: 8px 16px 0; }
+  .app-topbar__inner { flex-wrap: wrap; gap: 8px 12px; }
+  .app-brand { flex: 1 1 auto; min-width: 0; }
   .app-brand h1 { font-size: 20px; }
-  .app-nav { display: none; }
+  .app-topbar__actions { flex: 0 0 auto; }
+  .app-nav {
+    order: 3;
+    flex: 1 0 100%;
+    gap: 16px;
+    margin: 0 -16px;
+    padding: 0 16px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .app-nav::-webkit-scrollbar { display: none; }
+  .app-nav__link { padding: 8px 0 10px; }
+  .app-nav__demo { padding: 5px 11px; margin-bottom: 4px; }
+  .app-layout { min-height: 0; }
+  .app-layout > main:not(.mainbody) { margin: 16px auto; }
+  .dashboard-section { scroll-margin-top: 116px; }
   .mainbody { padding: 16px; }
   .dashboard-hero { align-items: flex-start; flex-direction: column; padding: 23px; margin-bottom: 34px; }
   .dashboard-hero h2 { font-size: 28px; }
