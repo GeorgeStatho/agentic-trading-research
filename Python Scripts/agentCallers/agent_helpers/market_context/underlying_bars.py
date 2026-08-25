@@ -5,6 +5,7 @@ from typing import Any
 
 from .common import (
     ALPACA_IMPORT_ERROR,
+    DataFeed,
     LOGGER,
     StockBarsRequest,
     TimeFrame,
@@ -76,7 +77,7 @@ def _fetch_daily_stock_bars(symbol: str) -> tuple[list[Any], str]:
         return [], "Company symbol was missing."
 
     clients = _get_alpaca_clients()
-    if clients is None or StockBarsRequest is None or TimeFrame is None:
+    if clients is None or StockBarsRequest is None or TimeFrame is None or DataFeed is None:
         return [], (
             f"alpaca-py is unavailable: {ALPACA_IMPORT_ERROR}"
             if ALPACA_IMPORT_ERROR is not None
@@ -92,6 +93,9 @@ def _fetch_daily_stock_bars(symbol: str) -> tuple[list[Any], str]:
                 timeframe=TimeFrame.Day,
                 start=start_time,
                 end=end_time,
+                # The historical-bars endpoint otherwise defaults to SIP.  Explicit IEX
+                # keeps this request compatible with Alpaca's free Basic data plan.
+                feed=DataFeed.IEX,
             )
         )
         return _normalize_stock_bars_response(bars_response, normalized_symbol), ""

@@ -24,12 +24,16 @@ class OptionPositionManagerService:
         paths: FrontMainPaths,
         trading_gateway: Any,
         trade_journal: Any | None = None,
+        thesis_journal: Any | None = None,
+        thesis_validator: Any | None = None,
         logger: logging.Logger,
     ) -> None:
         self._settings = settings
         self._paths = paths
         self._trading_gateway = trading_gateway
         self._trade_journal = trade_journal
+        self._thesis_journal = thesis_journal
+        self._thesis_validator = thesis_validator
         self._logger = logger
 
     @staticmethod
@@ -104,6 +108,68 @@ class OptionPositionManagerService:
                     pnl_pct,
                 )
 
+    def _record_submitted_exits(self, positions: list[dict[str, Any]]) -> None:
+        """Record every submitted close in the trade journal and retire its thesis."""
+        for position_summary in positions:
+            if not isinstance(position_summary, dict) or not position_summary.get("close_submitted"):
+                continue
+            self._record_exit_in_trade_journal(position_summary)
+            self._record_exit_in_thesis_journal(position_summary)
+
+    def _record_exit_in_trade_journal(self, position_summary: dict[str, Any]) -> None:
+        if self._trade_journal is None:
+            return
+        try:
+            record_id = self._trade_journal.record_position_exit(position_summary)
+            position_summary["db_recorded"] = record_id is not None
+            position_summary["db_record_id"] = record_id
+        except Exception as exc:
+            self._logger.exception(
+                "Failed to record managed option exit in DB for %s: %s",
+                position_summary.get("symbol"),
+                exc,
+            )
+            position_summary["db_recorded"] = False
+            position_summary["db_record_error"] = str(exc)
+
+    def _record_exit_in_thesis_journal(self, position_summary: dict[str, Any]) -> None:
+        if self._thesis_journal is None:
+            return
+        try:
+            self._thesis_journal.record_exit(position_summary)
+        except Exception as exc:
+            self._logger.exception(
+                "Failed to close position thesis for %s: %s",
+                position_summary.get("symbol"),
+                exc,
+            )
+
+    def _run_thesis_validation(
+        self,
+        *,
+        positions: list[dict[str, Any]],
+        trading_client: TradingClient,
+    ) -> dict[str, Any] | None:
+        """Run the daily LLM thesis validator (shadow by default) after the rules layer."""
+        if self._thesis_validator is None or not positions:
+            return None
+        try:
+            return self._thesis_validator.run_due_validation(
+                positions=positions,
+                submit_full_exit=lambda option_symbol: self._trading_gateway.close_option_position(
+                    trading_client,
+                    option_symbol=option_symbol,
+                ),
+                submit_partial_exit=lambda option_symbol, qty: self._trading_gateway.submit_option_sell_market_order(
+                    trading_client,
+                    option_symbol=option_symbol,
+                    qty=qty,
+                ),
+            )
+        except Exception as exc:
+            self._logger.exception("Thesis validator cycle failed: %s", exc)
+            return {"error": str(exc)}
+
     def run_cycle(self, *, trading_client: TradingClient) -> dict[str, Any]:
         from Trading import ManageCurrentOptionPositions
 
@@ -173,29 +239,21 @@ class OptionPositionManagerService:
             trading_client_override=trading_client,
         )
 
-        for position_summary in management_result.get("positions", []):
-            if not isinstance(position_summary, dict) or not position_summary.get("close_submitted"):
-                continue
-            if self._trade_journal is None:
-                break
-            try:
-                record_id = self._trade_journal.record_position_exit(position_summary)
-                position_summary["db_recorded"] = record_id is not None
-                position_summary["db_record_id"] = record_id
-            except Exception as exc:
-                self._logger.exception(
-                    "Failed to record managed option exit in DB for %s: %s",
-                    position_summary.get("symbol"),
-                    exc,
-                )
-                position_summary["db_recorded"] = False
-                position_summary["db_record_error"] = str(exc)
-
-        self._refresh_manager_decision_history_pnl(
+        positions = (
             management_result.get("positions", [])
             if isinstance(management_result.get("positions", []), list)
             else []
         )
+
+        self._record_submitted_exits(positions)
+        self._refresh_manager_decision_history_pnl(positions)
+
+        thesis_validation_result = self._run_thesis_validation(
+            positions=positions,
+            trading_client=trading_client,
+        )
+        if thesis_validation_result is not None:
+            management_result["thesis_validator"] = thesis_validation_result
 
         JsonFileWriter.write(self._paths.option_position_management_output_path, management_result)
         self._logger.info(

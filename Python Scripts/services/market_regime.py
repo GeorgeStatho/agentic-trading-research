@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable
 
 from agent_helpers.market_context.common import REQUEST_HANDLER, yf
@@ -299,6 +301,53 @@ def _load_macro_calendar() -> tuple[list[dict[str, Any]], str | None]:
         return [], None
 
 
+def _macro_calendar_is_fresh(
+    refreshed_at: str | None,
+    *,
+    as_of: datetime,
+    policy: MarketRegimeSnapshotPolicy,
+) -> bool:
+    refreshed = _parse_datetime(refreshed_at)
+    if refreshed is None:
+        return False
+    age_minutes = (as_of - refreshed).total_seconds() / 60.0
+    return 0 <= age_minutes <= policy.max_macro_calendar_age_minutes
+
+
+def refresh_macro_calendar_for_market_regime() -> dict[str, Any]:
+    """Refresh the dated macro-calendar input once before a regime snapshot.
+
+    The live agent cycle usually runs from existing database targets, so it does
+    not otherwise execute the standalone macro-calendar ingestion workflow.
+    Keep this integration here, at the cycle-level market service, rather than
+    refreshing once per company recommendation.
+    """
+    webscraping_dir = Path(__file__).resolve().parents[1] / "Webscraping"
+    normalized_webscraping_dir = str(webscraping_dir)
+    if normalized_webscraping_dir not in sys.path:
+        sys.path.append(normalized_webscraping_dir)
+
+    try:
+        from pipelines.macroNewsPipeline import ingest_macro_and_news
+
+        result = ingest_macro_and_news()
+        event_count = int((result or {}).get("macro_events") or 0)
+        if event_count < 1:
+            return {
+                "refreshed": False,
+                "macro_event_count": 0,
+                "reason_code": "macro_calendar_refresh_returned_no_events",
+            }
+        return {"refreshed": True, "macro_event_count": event_count}
+    except Exception as exc:  # pragma: no cover - a failed refresh must preserve fail-closed classification
+        LOGGER.warning("Unable to refresh macro calendar for market regime: %s", exc)
+        return {
+            "refreshed": False,
+            "macro_event_count": 0,
+            "reason_code": "macro_calendar_refresh_failed",
+        }
+
+
 def _fetch_closes(symbol: str) -> tuple[list[float], str | None]:
     bars, error = _fetch_daily_stock_bars(symbol)
     if not error and bars:
@@ -332,20 +381,41 @@ def build_market_regime_snapshot(
     as_of: datetime | None = None,
     policy: MarketRegimeSnapshotPolicy | None = None,
     persist: bool = True,
+    refresh_macro_calendar: bool = True,
 ) -> dict[str, Any]:
     """Build exactly one market-wide snapshot for a strategist/manager cycle."""
+    active_policy = policy or MarketRegimeSnapshotPolicy.from_env()
+    now = (as_of or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    macro_events, macro_refreshed_at = _load_macro_calendar()
+    calendar_is_fresh = _macro_calendar_is_fresh(
+        macro_refreshed_at,
+        as_of=now,
+        policy=active_policy,
+    )
+    if refresh_macro_calendar and not calendar_is_fresh:
+        macro_refresh = refresh_macro_calendar_for_market_regime()
+        macro_events, macro_refreshed_at = _load_macro_calendar()
+    else:
+        macro_refresh = {
+            "refreshed": False,
+            "macro_event_count": len(macro_events),
+            "skipped_reason": "macro_calendar_already_fresh" if calendar_is_fresh else "refresh_disabled",
+        }
     spy_closes, spy_timestamp = _fetch_closes("SPY")
     vix_closes, _ = _fetch_closes("VIX")
-    macro_events, macro_refreshed_at = _load_macro_calendar()
     snapshot = classify_market_regime(
         spy_closes=spy_closes,
         spy_last_timestamp=spy_timestamp,
         vix_closes=vix_closes,
         macro_events=macro_events,
         macro_refreshed_at=macro_refreshed_at,
-        as_of=as_of,
-        policy=policy,
+        as_of=now,
+        policy=active_policy,
     )
+    snapshot["macro_calendar_refresh"] = macro_refresh
+    refresh_reason = macro_refresh.get("reason_code")
+    if refresh_reason:
+        snapshot["reason_codes"] = list(dict.fromkeys([*snapshot["reason_codes"], refresh_reason]))
     if persist:
         try:
             from market_db import record_market_regime_snapshot

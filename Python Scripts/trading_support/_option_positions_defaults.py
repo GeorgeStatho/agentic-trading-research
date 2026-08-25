@@ -259,11 +259,14 @@ PENDING_ORDER_OPEN_STATUSES = {
     "pending_cancel",
     "pending_new",
     "pending_replace",
+    "pending_review",
     "stopped",
+    "suspended",
 }
 PENDING_ORDER_CLEAR_STATUSES = {
     "canceled",
     "cancelled",
+    "done_for_day",
     "expired",
     "filled",
     "rejected",

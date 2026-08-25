@@ -54,6 +54,18 @@ type DashboardKpiPayload = {
     macro_event_window?: { active?: boolean; next_event?: string | null; minutes_until?: number | null };
     reason_codes?: string[];
   };
+  thesis_validator: {
+    available: boolean;
+    mode: string;
+    flip_rate?: number | null;
+    action_rate?: number | null;
+    grounding_rate?: number | null;
+    evaluated_count?: number;
+    position_day_count?: number;
+    trading_day_count?: number;
+    executed_exit_count?: number;
+    window_days?: number;
+  };
   top_rankings: {
     top_sectors: Array<{
       sector_key: string;
@@ -266,6 +278,7 @@ function buildCards(payload: DashboardKpiPayload): KpiCardConfig[] {
       tone: 'status',
       state: getStatusState(payload.market_status.state),
     },
+    buildThesisValidatorCard(payload.thesis_validator),
     {
       title: 'Market Regime',
       value: payload.market_regime.state.replaceAll('_', ' ') || 'Unknown',
@@ -277,6 +290,34 @@ function buildCards(payload: DashboardKpiPayload): KpiCardConfig[] {
       compactValue: true,
     },
   ];
+}
+
+function formatRate(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return 'N/A';
+  }
+  return `${(value * 100).toFixed(0)}%`;
+}
+
+function buildThesisValidatorCard(validator: DashboardKpiPayload['thesis_validator']): KpiCardConfig {
+  const mode = (validator?.mode || 'shadow').replaceAll('_', ' ');
+  if (!validator?.available) {
+    return {
+      title: 'Thesis Validator',
+      value: `${mode} mode`,
+      detail: 'No validation runs recorded yet; verdicts start after the first 15:30 ET check.',
+      compactValue: true,
+    };
+  }
+
+  const groundingRate = validator.grounding_rate ?? null;
+  return {
+    title: 'Thesis Validator',
+    value: `${mode} · flip ${formatRate(validator.flip_rate)}`,
+    detail: `Action ${formatRate(validator.action_rate)} · grounded ${formatRate(groundingRate)} · ${validator.evaluated_count ?? 0} verdicts over ${validator.trading_day_count ?? 0} days (target: flip <10%, action 3-25%, grounded >95%)`,
+    tone: groundingRate !== null && groundingRate < 0.95 ? 'negative' : 'neutral',
+    compactValue: true,
+  };
 }
 
 function DashboardKpis() {

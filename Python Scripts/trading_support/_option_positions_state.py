@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from services.order_values import normalize_order_status
 from .utils import safe_float
 from services.option_position_state import get_position_state, update_position_state
 
@@ -57,7 +58,7 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
 
 
 def _normalize_order_status(status: Any) -> str:
-    return str(status or "").strip().lower()
+    return normalize_order_status(status)
 
 
 def _normalize_momentum_history(history: Any) -> list[dict[str, Any]]:
@@ -333,6 +334,28 @@ def _reconcile_pending_order_state(
     if normalized_status in PENDING_ORDER_OPEN_STATUSES:
         persisted_state = update_position_state(state_path, option_symbol, updates)
         return persisted_state, reconciliation
+    if normalized_status == "replaced":
+        replacement_order_id = str(order_summary.get("replaced_by") or "").strip()
+        if not replacement_order_id:
+            reconciliation["pending_order_error"] = (
+                "Broker reported the pending exit as replaced but did not provide its replacement order id."
+            )
+            persisted_state = update_position_state(state_path, option_symbol, updates)
+            return persisted_state, reconciliation
+        updates.update(
+            {
+                "pending_order_id": replacement_order_id,
+                "pending_order_submitted_at": str(
+                    order_summary.get("updated_at")
+                    or order_summary.get("submitted_at")
+                    or checked_at
+                ),
+                "last_replaced_order_id": pending_order_id,
+                "last_replacement_order_id": replacement_order_id,
+            }
+        )
+        persisted_state = update_position_state(state_path, option_symbol, updates)
+        return persisted_state, reconciliation
     if normalized_status in PENDING_ORDER_CLEAR_STATUSES:
         pending_reason = str(existing_state.get("pending_reason") or "").strip()
         pending_action = str(existing_state.get("pending_action") or "").strip()
@@ -403,7 +426,7 @@ def _mark_exit_submission(
         pending_updates["took_second_scale_out"] = True
     persisted_state = update_position_state(state_path, option_symbol, pending_updates)
     summary["pending_order_id"] = pending_order_id
-    summary["pending_order_status"] = str(order_summary.get("status") or "")
+    summary["pending_order_status"] = _normalize_order_status(order_summary.get("status"))
     summary["pending_order_last_checked_at"] = str(order_summary.get("submitted_at") or "")
     summary["pending_order_terminal"] = False
     summary["pending_order_error"] = ""

@@ -36,6 +36,7 @@ INVESTING_CALENDAR_URLS = [
     "https://calendar.example.com/-economic-calendar",
     "https://calendar.example.com/economic-calendar-",
 ]
+FOREX_FACTORY_CALENDAR_URL = "https://calendar-feed.example.com/ff_calendar_thisweek.json"
 HTML_DEBUG_PREVIEW_CHARS = 2000
 MACRO_EVENTS_JSON_PATH = DATA_DIR / "macro_events.json"
 COUNTRY_BY_CURRENCY = {
@@ -70,6 +71,12 @@ def _fetch_text(url: str, timeout: int = 20) -> str:
     response = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout)
     response.raise_for_status()
     return response.text
+
+
+def _fetch_json(url: str, timeout: int = 20) -> Any:
+    response = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout)
+    response.raise_for_status()
+    return response.json()
 
 
 def _clean_text(value: str) -> str:
@@ -152,6 +159,19 @@ def _normalize_calendar_timestamps(events: list[dict]) -> list[dict]:
     for event in events:
         event["calendar_timezone"] = CALENDAR_TIMEZONE
         event["calendar_refreshed_at"] = refreshed_at
+        supplied_timestamp = str(event.get("scheduled_at_utc") or "").strip()
+        supplied_at = None
+        if supplied_timestamp:
+            try:
+                supplied_at = datetime.fromisoformat(supplied_timestamp.replace("Z", "+00:00"))
+            except ValueError:
+                supplied_at = None
+        if supplied_at is not None:
+            if supplied_at.tzinfo is None:
+                supplied_at = supplied_at.replace(tzinfo=calendar_zone)
+            event["scheduled_at_utc"] = supplied_at.astimezone(timezone.utc).isoformat()
+            continue
+
         event["scheduled_at_utc"] = None
         event_date = str(event.get("event_date") or "").strip()
         event_time = str(event.get("event_time") or "").strip()
@@ -310,6 +330,71 @@ def _parse_generic_table_calendar(html: str, source_url: str) -> list[dict]:
     return events
 
 
+def _forex_factory_importance(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"high", "medium", "low"}:
+        return normalized
+    return "normal"
+
+
+def _parse_forex_factory_calendar(payload: Any) -> list[dict]:
+    if not isinstance(payload, list):
+        return []
+
+    events: list[dict] = []
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        event_name = _clean_text(str(row.get("title") or ""))
+        currency = _clean_text(str(row.get("country") or "")).upper()
+        scheduled_text = str(row.get("date") or "").strip()
+        if not event_name or not currency or not scheduled_text:
+            continue
+        try:
+            scheduled_at = datetime.fromisoformat(scheduled_text.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if scheduled_at.tzinfo is None:
+            scheduled_at = scheduled_at.replace(tzinfo=ZoneInfo(CALENDAR_TIMEZONE))
+
+        local_scheduled_at = scheduled_at.astimezone(ZoneInfo(CALENDAR_TIMEZONE))
+        event_key = "::".join(
+            ("forex-factory", currency, local_scheduled_at.isoformat(), _slugify(event_name))
+        )
+        events.append(
+            {
+                "source": "Forex Factory",
+                "event_key": event_key,
+                "event_name": event_name,
+                "event_date": local_scheduled_at.date().isoformat(),
+                "event_time": local_scheduled_at.time().strftime("%H:%M:%S"),
+                "scheduled_at_utc": scheduled_at.astimezone(timezone.utc).isoformat(),
+                "country": _map_country(currency),
+                "currency": currency,
+                "category": _infer_category(event_name),
+                "importance": _forex_factory_importance(row.get("impact")),
+                "source_url": FOREX_FACTORY_CALENDAR_URL,
+                "actual": _clean_text(str(row.get("actual") or "")) or None,
+                "forecast": _clean_text(str(row.get("forecast") or "")) or None,
+                "previous": _clean_text(str(row.get("previous") or "")) or None,
+            }
+        )
+    return events
+
+
+def fetch_forex_factory_macro_calendar() -> list[dict]:
+    try:
+        events = _parse_forex_factory_calendar(_fetch_json(FOREX_FACTORY_CALENDAR_URL))
+    except requests.RequestException as exc:
+        print(f"Failed to fetch Forex Factory calendar: {exc}")
+        return []
+    if events:
+        print(f"Parsed {len(events)} calendar events from Forex Factory.")
+    else:
+        print("No calendar events were parsed from Forex Factory.")
+    return events
+
+
 def fetch_investing_macro_calendar() -> list[dict]:
     # Fetch the investing macro calendar and normalize the result for the next stage.
     for url in INVESTING_CALENDAR_URLS:
@@ -341,8 +426,19 @@ def fetch_investing_macro_calendar() -> list[dict]:
     return []
 
 
+def fetch_macro_calendar() -> list[dict]:
+    """Fetch a dated macro calendar from the keyless JSON source first.
+
+    calendar.example.com's HTML endpoint is retained as a fallback for compatibility,
+    but it is commonly protected by bot mitigation and should not be the normal
+    critical path for a fail-closed trading gate.
+    """
+    events = fetch_forex_factory_macro_calendar()
+    return events or fetch_investing_macro_calendar()
+
+
 def ingest_macro_and_news() -> dict[str, int]:
-    macro_events = _normalize_calendar_timestamps(fetch_investing_macro_calendar())
+    macro_events = _normalize_calendar_timestamps(fetch_macro_calendar())
     load_macro_events(macro_events)
     MACRO_EVENTS_JSON_PATH.write_text(
         json.dumps(macro_events, indent=2, sort_keys=True),

@@ -5,6 +5,7 @@ from typing import Any
 
 from .manager_shared import (
     DEFAULT_MANAGER_TARGET_DTE_BUCKET,
+    MANAGER_REASON_MAX_CHARS,
     TARGET_DTE_BUCKET_REGEX,
     TIME_HORIZON_TO_DTE_BUCKET,
     VALID_CONFIDENCE_LEVELS,
@@ -86,6 +87,8 @@ def normalize_recommendation(
     if not raw_reason and isinstance(recommendation.get("thesis"), list):
         raw_reason = "; ".join(str(x).strip() for x in recommendation["thesis"][:3] if str(x).strip())
     reason = str(raw_reason or "").strip()
+    if len(reason) > MANAGER_REASON_MAX_CHARS:
+        reason = reason[:MANAGER_REASON_MAX_CHARS].rstrip()
 
     if decision not in VALID_DECISIONS:
         return None

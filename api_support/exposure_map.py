@@ -9,6 +9,7 @@ from agent_helpers.shared import ask_llm_model, extract_json_object, get_model_c
 from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 from api_support.context import DB_PATH, get_connection, initialize_market_database
 from db_helpers import initialize_news_database
+from services.order_values import normalize_order_side, normalize_order_status
 
 
 PROMPT_VERSION = "exposure-map-v1"
@@ -196,7 +197,7 @@ def calculate_position_risk_score(
     normalized_magnitude = _normalize_level(magnitude, VALID_MAGNITUDES, "medium")
     normalized_confidence = _normalize_level(confidence, VALID_CONFIDENCES, "medium")
     normalized_contract_type = str(contract_type or "").strip().lower()
-    normalized_order_side = str(order_side or "buy").strip().lower()
+    normalized_order_side = normalize_order_side(order_side or "buy")
     normalized_dte = max(0, int(dte or 0))
 
     if normalized_dte <= 7:
@@ -383,12 +384,12 @@ def _load_paper_positions(conn) -> list[dict[str, Any]]:
     for row in rows:
         item = dict(row)
         symbol = str(item.get("option_symbol") or "").strip().upper()
-        if not symbol or str(item.get("order_status") or "").strip().lower() in excluded_statuses:
+        if not symbol or normalize_order_status(item.get("order_status")) in excluded_statuses:
             continue
         quantity = abs(_number(item.get("order_qty"), 0.0))
         if quantity <= 0:
             continue
-        side = str(item.get("order_side") or "buy").strip().lower()
+        side = normalize_order_side(item.get("order_side") or "buy")
         signed_quantity = -quantity if side in {"sell", "sell_to_close", "sell_to_open", "sell_short"} else quantity
         position = positions.setdefault(symbol, {"quantity": 0.0})
         position.update(item)
@@ -413,7 +414,7 @@ def _load_paper_positions(conn) -> list[dict[str, Any]]:
                 "expiration_date": str(position.get("expiration_date") or ""),
                 "strike_price": _number(position.get("strike_price"), 0.0) or None,
                 "quantity": quantity,
-                "order_side": str(position.get("order_side") or "buy").strip().lower(),
+                "order_side": normalize_order_side(position.get("order_side") or "buy"),
                 "contract_type": "put" if decision == "put" else "call" if decision == "call" else "option",
                 "dte": dte,
                 "implied_volatility": _extract_implied_volatility(raw_json),
@@ -487,7 +488,7 @@ def _load_historical_live_executions(conn) -> list[dict[str, Any]]:
                 "expiration_date": str(item.get("expiration_date") or ""),
                 "strike_price": _number(item.get("strike_price"), 0.0) or None,
                 "quantity": abs(_number(item.get("order_qty"), 0.0)),
-                "order_side": str(item.get("order_side") or "buy").strip().lower(),
+                "order_side": normalize_order_side(item.get("order_side") or "buy"),
                 "contract_type": "put" if str(item.get("decision") or "").strip().lower() == "put" else "call",
                 "dte": dte_at_execution,
                 "implied_volatility": _extract_implied_volatility(_safe_json_loads(item.get("raw_json"))),

@@ -86,7 +86,11 @@ STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
                                 ],
                             },
                             "claim": {"type": "string"},
-                            "evidence_article_ids": {"type": "array", "items": {"type": "integer"}},
+                            "evidence_article_ids": {
+                                "type": "array",
+                                "items": {"type": "integer"},
+                                "minItems": 1,
+                            },
                         },
                         "required": ["claim_type", "claim", "evidence_article_ids"],
                         "additionalProperties": False,

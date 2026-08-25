@@ -73,7 +73,10 @@ class DashboardCompanyDecisionsTests(unittest.TestCase):
             }
         ]
 
-        with patch("api_support.dashboard.list_recent_manager_decision_history", return_value=recent_history_rows):
+        with (
+            patch("api_support.dashboard.list_recent_manager_decision_history", return_value=recent_history_rows),
+            patch("api_support.dashboard._load_latest_strategist_run_statuses", return_value={}),
+        ):
             payload = build_company_decisions_payload()
 
         self.assertEqual(payload["company_count"], 1)
@@ -94,12 +97,57 @@ class DashboardCompanyDecisionsTests(unittest.TestCase):
         self.assertEqual(company["manager_history"][0]["article_references"][0]["title"], "Apple catalyst")
 
     def test_company_decisions_returns_empty_payload_when_db_history_is_missing(self):
-        with patch("api_support.dashboard.list_recent_manager_decision_history", return_value=[]):
+        with (
+            patch("api_support.dashboard.list_recent_manager_decision_history", return_value=[]),
+            patch("api_support.dashboard._load_latest_strategist_run_statuses", return_value={}),
+        ):
             payload = build_company_decisions_payload()
 
         self.assertEqual(payload["company_count"], 0)
         self.assertEqual(payload["last_updated_at"], "")
         self.assertEqual(payload["companies"], [])
+
+    def test_company_decisions_surface_historical_bar_and_strategist_validation_errors(self):
+        recent_history_rows = [
+            {
+                "id": 77,
+                "company_id": 1,
+                "symbol": "AAPL",
+                "company_name": "Apple Inc.",
+                "decision_run_at": "2026-05-21T14:30:00+00:00",
+                "strategist_decision": "watchlist",
+                "manager_decision": "neither",
+                "manager_input_json": (
+                    '{"market_context":{"underlying_price_history":'
+                    '{"available":false,"source":"alpaca_stock_bars","feed":"iex",'
+                    '"close_count":0,"error":"Alpaca request timed out"}}}'
+                ),
+                "manager_output_json": "{}",
+            }
+        ]
+        strategist_statuses = {
+            1: {
+                "company_id": 1,
+                "symbol": "AAPL",
+                "company_name": "Apple Inc.",
+                "status": "failed",
+                "error_message": "Strategist evidence claim must cite at least one article ID.",
+                "input_article_count": 4,
+                "created_at": "2026-05-21T14:35:00+00:00",
+            }
+        }
+
+        with (
+            patch("api_support.dashboard.list_recent_manager_decision_history", return_value=recent_history_rows),
+            patch("api_support.dashboard._load_latest_strategist_run_statuses", return_value=strategist_statuses),
+        ):
+            payload = build_company_decisions_payload()
+
+        diagnostics = payload["companies"][0]["diagnostics"]
+        self.assertEqual(diagnostics["historical_bars"]["error"], "Alpaca request timed out")
+        self.assertEqual(diagnostics["historical_bars"]["feed"], "iex")
+        self.assertEqual(diagnostics["strategist_validation"]["status"], "failed")
+        self.assertEqual(diagnostics["strategist_validation"]["input_article_count"], 4)
 
 
 if __name__ == "__main__":

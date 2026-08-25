@@ -184,6 +184,9 @@ async function analyzeArticle(articleId: number, model: string): Promise<Exposur
     body: JSON.stringify({ article_id: articleId, ...(model.trim() ? { model: model.trim() } : {}) }),
   })
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error('Administrative access is required. Open “Unlock protected actions,” sign in, then try again.')
+    }
     const payload = await response.json().catch(() => null) as { error?: string } | null
     throw new Error(payload?.error ?? `Failed to analyze article: ${response.status}`)
   }
@@ -446,7 +449,17 @@ function ExposureMapPage({ demoMode = false }: { demoMode?: boolean }) {
               value={modelOverride}
               placeholder="Configured model"
               onChange={(event) => setModelOverride(event.target.value)}
-            /><button type="button" className="exposure-map__analyze" onClick={startAnalysis} disabled={analyzing || selectedArticleId === null}>
+            />
+            <a
+              className="exposure-map__unlock"
+              href="/admin-login#/exposure-map"
+              target="_blank"
+              rel="noreferrer"
+              title="Open the browser sign-in prompt for protected actions"
+            >
+              Unlock protected actions
+            </a>
+            <button type="button" className="exposure-map__analyze" onClick={startAnalysis} disabled={analyzing || selectedArticleId === null}>
               {analyzing ? 'Analyzing…' : payload?.has_run ? 'Use cached analysis' : 'Analyze article'}
             </button></>}
           </div>

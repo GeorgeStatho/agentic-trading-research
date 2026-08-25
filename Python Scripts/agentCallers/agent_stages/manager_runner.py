@@ -12,7 +12,7 @@ from agent_helpers.manager import (
     build_manager_input,
     build_market_context,
 )
-from agent_helpers.shared import Client, extract_json_value
+from agent_helpers.shared import Client, build_model_response_diagnostic, extract_json_value
 from services.evidence_continuation_gate import evaluate_evidence_continuation_gate
 from .manager_payload_context import (
     _build_context_snapshot,
@@ -36,6 +36,39 @@ from .manager_shared import (
     normalize_target_dte_bucket,
     target_dte_bucket_to_expiration_filters,
 )
+
+
+def _apply_manager_evidence_payload(
+    payload: dict[str, Any],
+    manager_evidence_payload: dict[str, Any] | None,
+) -> bool:
+    """Use the strategist's frozen, company-matched evidence in this decision.
+
+    The manager keeps fresh market context, but its evidence gate must evaluate
+    the same articles and scores that the strategist cited.
+    """
+    if not isinstance(manager_evidence_payload, dict):
+        return False
+
+    company = payload.get("company") if isinstance(payload.get("company"), dict) else {}
+    evidence_company = manager_evidence_payload.get("company")
+    evidence_company = evidence_company if isinstance(evidence_company, dict) else {}
+    expected_symbol = str(company.get("symbol") or "").strip().upper()
+    evidence_symbol = str(evidence_company.get("symbol") or "").strip().upper()
+    if not expected_symbol or evidence_symbol != expected_symbol:
+        LOGGER.warning("Ignoring manager evidence payload with mismatched company symbol.")
+        return False
+
+    supporting_articles = manager_evidence_payload.get("supporting_articles")
+    grounding = manager_evidence_payload.get("grounding")
+    if not isinstance(supporting_articles, dict) or not isinstance(grounding, dict):
+        return False
+
+    for key in ("filters", "opportunist_rollup", "views", "supporting_articles", "grounding"):
+        value = manager_evidence_payload.get(key)
+        if value is not None:
+            payload[key] = copy.deepcopy(value)
+    return True
 
 
 def _refresh_market_context_for_target_dte_bucket(
@@ -215,6 +248,7 @@ def decide_company_option_position(
     option_strike_price_lte: float | None = None,
     option_contract_limit_per_type: int = DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
     market_regime: dict[str, Any] | None = None,
+    manager_evidence_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     client = client or get_default_client()
     payload = build_manager_input(
@@ -231,6 +265,7 @@ def decide_company_option_position(
         option_strike_price_lte=option_strike_price_lte,
         option_contract_limit_per_type=option_contract_limit_per_type,
     )
+    evidence_payload_applied = _apply_manager_evidence_payload(payload, manager_evidence_payload)
     if isinstance(market_regime, dict):
         payload.setdefault("market_context", {})["market_regime"] = market_regime
     payload["strategist_recommendation"] = strategist_recommendation or {}
@@ -240,6 +275,7 @@ def decide_company_option_position(
     market_context = payload.get("market_context", {})
     option_contracts = market_context.get("option_market", {}).get("contracts", [])
     context_snapshot = _build_context_snapshot(payload)
+    context_snapshot["strategist_evidence_payload_applied"] = evidence_payload_applied
 
     if not payload_has_evidence(payload):
         no_evidence_result = _build_no_evidence_result(
@@ -266,11 +302,13 @@ def decide_company_option_position(
         system_prompt_override=system_prompt_override,
         task_override=task_override,
     )
+    response_diagnostic: dict[str, Any] = {}
     raw_response = ask_model(
         client=client,
         model=model,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
+        response_diagnostic=response_diagnostic,
     )
 
     parsed = extract_json_value(raw_response)
@@ -284,10 +322,17 @@ def decide_company_option_position(
             strategist_recommendation=payload.get("strategist_recommendation", {}),
         )
     if recommendation is None:
+        diagnostic = build_model_response_diagnostic(
+            raw_response,
+            response_diagnostic=response_diagnostic,
+        )
+        diagnostic["stage"] = "manager"
+        diagnostic["company_symbol"] = str(company.get("symbol") or "").strip().upper()
+        LOGGER.error("Manager response diagnostic: %s", diagnostic)
         raise RuntimeError(
             "Manager model returned an invalid response. "
             "Expected a JSON object with recommendation.decision/confidence/reason. "
-            f"Raw response: {raw_response[:800]}"
+            "See the preceding manager response diagnostic for the parse error and completion metadata."
         )
 
     market_context, upstream_bucket_refresh_debug = _refresh_market_context_for_target_dte_bucket(

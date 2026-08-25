@@ -63,6 +63,43 @@ class DashboardOpenPositionsTests(unittest.TestCase):
         self.assertEqual(position["unrealized_pl_pct"], expected_unrealized_pl_pct)
         self.assertNotEqual(position["unrealized_pl_pct"], round(((expected_mid_price - 3.25) / 3.25) * 100.0, 4))
 
+    def test_option_rows_expose_manager_sell_floor_and_high_water_mark(self):
+        raw_positions = [
+            {
+                "symbol": "XOM260612C00155000",
+                "asset_class": "option",
+                "qty": "1",
+                "avg_entry_price": "2.50",
+                "current_price": "3.67",
+            }
+        ]
+        snapshots = {
+            "XOM260612C00155000": {
+                "entry_price": 2.50,
+                "stop_loss_pct": -25.0,
+                "profit_protection_active": True,
+                "protected_profit_floor_pct": 0.40,
+                "max_pnl_pct": 0.62,
+            }
+        }
+
+        with patch("api_support.dashboard.alpaca_get_json", return_value=raw_positions), patch(
+            "api_support.dashboard.load_option_management_snapshot",
+            return_value=(snapshots, {}),
+        ), patch(
+            "api_support.dashboard.get_latest_option_quote",
+            return_value={"bid_price": 3.67, "ask_price": 3.86, "timestamp": "2026-05-15T15:30:00Z"},
+        ):
+            payload = build_open_positions_payload()
+
+        protection = payload["positions"][0]["profit_protection"]
+        self.assertEqual(protection["floor_type"], "trailing_profit")
+        self.assertTrue(protection["trailing_profit_armed"])
+        self.assertEqual(protection["floor_profit_pct"], 40.0)
+        self.assertEqual(protection["floor_mark_price"], 3.50)
+        self.assertEqual(protection["high_water_profit_pct"], 62.0)
+        self.assertEqual(protection["high_water_mark_price"], 4.05)
+
 
 if __name__ == "__main__":
     unittest.main()
