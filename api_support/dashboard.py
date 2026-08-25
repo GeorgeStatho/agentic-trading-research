@@ -47,6 +47,7 @@ from api_support.context import (
     PER_ORDER_SIZING_BUYING_POWER_PCT,
     SCRIPT_STATUS_PATH,
 )
+from api_support.thesis_validator import load_latest_thesis_verdicts
 from api_support.trades import build_trade_explanation_payload
 
 
@@ -1161,6 +1162,7 @@ def build_open_positions_payload() -> dict:
     live_positions = alpaca_get_json("/v2/positions")
     normalized_positions = live_positions if isinstance(live_positions, list) else []
     option_snapshots, management_payload = load_option_management_snapshot()
+    thesis_verdicts = load_latest_thesis_verdicts()
     option_quote_cache: dict[str, dict] = {}
 
     rows: list[dict] = []
@@ -1255,6 +1257,7 @@ def build_open_positions_payload() -> dict:
                     "exit_rule_status": format_exit_rule_status(snapshot, management_payload),
                     "decision": str(snapshot.get("decision") or ""),
                     "decision_reasons": snapshot.get("decision_reasons") if isinstance(snapshot.get("decision_reasons"), list) else [],
+                    "thesis_verdict": thesis_verdicts.get(symbol),
                 }
             )
             continue
@@ -1280,6 +1283,7 @@ def build_open_positions_payload() -> dict:
                 "exit_rule_status": "N/A",
                 "decision": "",
                 "decision_reasons": [],
+                "thesis_verdict": None,
             }
         )
 
@@ -1408,6 +1412,28 @@ def build_risk_controls_payload() -> dict:
     }
 
 
+def _build_thesis_validator_kpi_payload() -> dict:
+    """Shadow-mode health summary for the KPI card; fail-soft so the KPI
+    endpoint never breaks over validator data."""
+    import os
+
+    from api_support.context import logger
+
+    mode = str(os.getenv("THESIS_VALIDATOR_MODE", "shadow")).strip().lower() or "shadow"
+    try:
+        from db_helpers.market import summarize_thesis_validator_health
+
+        health = summarize_thesis_validator_health()
+    except Exception as exc:
+        logger.warning("Failed to summarize thesis validator health: %s", exc)
+        return {"available": False, "mode": mode}
+    return {
+        "available": health.get("position_day_count", 0) > 0,
+        "mode": mode,
+        **health,
+    }
+
+
 def build_dashboard_kpis() -> dict:
     account = alpaca_get_json("/v2/account")
     positions = alpaca_get_json("/v2/positions")
@@ -1464,6 +1490,7 @@ def build_dashboard_kpis() -> dict:
     top_rankings = _build_top_rankings_payload()
     usage_summary = _build_usage_summary()
     market_regime = build_market_regime_payload()
+    thesis_validator = _build_thesis_validator_kpi_payload()
 
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
@@ -1507,4 +1534,5 @@ def build_dashboard_kpis() -> dict:
         "market_status": summarize_market_status(clock),
         "market_regime": market_regime,
         "top_rankings": top_rankings,
+        "thesis_validator": thesis_validator,
     }

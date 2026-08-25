@@ -26,6 +26,18 @@ type OpenPosition = {
   } | null;
   exit_rule_status: string;
   decision_reasons: string[];
+  thesis_verdict: {
+    thesis_state: string;
+    would_open_today: string | null;
+    rationale: string | null;
+    consistency: string | null;
+    arbiter_action: string | null;
+    arbiter_reason: string | null;
+    run_date: string | null;
+    mode: string | null;
+    executed: boolean;
+    grounded: boolean;
+  } | null;
 };
 
 type OpenPositionsPayload = {
@@ -103,6 +115,33 @@ function getExitStatusTone(status: string): string {
     return 'warning';
   }
   return 'neutral';
+}
+
+function getThesisTone(state: string): string {
+  switch (state) {
+    case 'intact':
+      return 'positive';
+    case 'degraded':
+      return 'warning';
+    case 'invalidated':
+      return 'negative';
+    default:
+      return 'neutral';
+  }
+}
+
+function formatThesisState(state: string): string {
+  return state.replaceAll('_', ' ');
+}
+
+function buildThesisTooltip(verdict: NonNullable<OpenPosition['thesis_verdict']>): string {
+  const parts = [
+    verdict.rationale || '',
+    verdict.would_open_today ? `Would open today: ${verdict.would_open_today}` : '',
+    verdict.consistency ? `Samples: ${verdict.consistency}` : '',
+    verdict.run_date ? `Checked ${verdict.run_date} (${verdict.mode ?? 'shadow'} mode)` : '',
+  ];
+  return parts.filter(Boolean).join('\n');
 }
 
 function getFloorLabel(position: OpenPosition): string {
@@ -211,6 +250,7 @@ function OpenPositionsTable() {
                 <th>Highest Recorded</th>
                 <th>Days to Expiration</th>
                 <th>Exit Rule Status</th>
+                <th>Thesis</th>
               </tr>
             </thead>
             <tbody>
@@ -257,6 +297,30 @@ function OpenPositionsTable() {
                     {position.decision_reasons.length > 0 ? (
                       <p className="positions-table__reason">{position.decision_reasons[0]}</p>
                     ) : null}
+                  </td>
+                  <td>
+                    {position.thesis_verdict ? (
+                      <>
+                        <span
+                          className={`positions-table__badge positions-table__badge--${getThesisTone(position.thesis_verdict.thesis_state)}`}
+                          title={buildThesisTooltip(position.thesis_verdict)}
+                        >
+                          {formatThesisState(position.thesis_verdict.thesis_state)}
+                        </span>
+                        {position.thesis_verdict.arbiter_action && position.thesis_verdict.arbiter_action !== 'none' ? (
+                          <p className="positions-table__reason">
+                            {position.thesis_verdict.executed ? '' : 'shadow: '}
+                            {position.thesis_verdict.arbiter_action.replaceAll('_', ' ')}
+                          </p>
+                        ) : null}
+                      </>
+                    ) : position.position_kind === 'option' ? (
+                      <span className="positions-table__badge positions-table__badge--neutral" title="No thesis captured or not validated yet.">
+                        not checked
+                      </span>
+                    ) : (
+                      'N/A'
+                    )}
                   </td>
                 </tr>
               ))}

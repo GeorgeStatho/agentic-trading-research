@@ -12,6 +12,7 @@ from market_db import (
     add_company_price_snapshot,
     close_position_thesis,
     count_thesis_validator_exits_for_date,
+    get_latest_thesis_validation_runs_by_option_symbol,
     get_open_position_thesis_for_option_symbol,
     get_thesis_validation_run_for_date,
     list_thesis_validation_runs,

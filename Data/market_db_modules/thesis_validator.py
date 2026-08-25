@@ -326,6 +326,51 @@ def list_thesis_validation_runs(
     return [_run_row_to_dict(row) for row in rows]
 
 
+def get_latest_thesis_validation_runs_by_option_symbol(
+    *,
+    db_path: Path | str = DB_PATH,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Latest run per option symbol, without the heavy evidence/sample blobs."""
+    if conn is None:
+        initialize_database(db_path=db_path)
+        with get_connection(db_path) as local_conn:
+            return get_latest_thesis_validation_runs_by_option_symbol(conn=local_conn)
+
+    rows = conn.execute(
+        """
+        SELECT
+            runs.thesis_id,
+            runs.option_symbol,
+            runs.symbol,
+            runs.run_at,
+            runs.run_date,
+            runs.mode,
+            runs.consistency,
+            runs.flip_detected,
+            runs.grounded,
+            runs.thesis_state,
+            runs.would_open_today,
+            runs.rationale,
+            runs.confidence,
+            runs.rules_verdict,
+            runs.arbiter_action,
+            runs.arbiter_reason,
+            runs.executed,
+            runs.mark_mid_price
+        FROM thesis_validation_runs AS runs
+        JOIN (
+            SELECT option_symbol, MAX(run_at) AS latest_run_at
+            FROM thesis_validation_runs
+            GROUP BY option_symbol
+        ) AS latest
+            ON latest.option_symbol = runs.option_symbol
+           AND latest.latest_run_at = runs.run_at
+        """
+    ).fetchall()
+    return {str(row["option_symbol"]): dict(row) for row in rows}
+
+
 def summarize_thesis_validator_health(
     *,
     max_age_days: int = 60,

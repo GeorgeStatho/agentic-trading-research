@@ -62,6 +62,7 @@ from market_db_modules.telemetry import get_telemetry_summary, record_telemetry_
 from market_db_modules.thesis_validator import (
     close_position_thesis,
     count_thesis_validator_exits_for_date,
+    get_latest_thesis_validation_runs_by_option_symbol,
     get_open_position_thesis_for_option_symbol,
     get_thesis_validation_run_for_date,
     list_thesis_validation_runs,
@@ -92,6 +93,7 @@ __all__ = [
     "record_manager_decision_closed_outcome",
     "get_latest_linked_manager_decision_for_option_symbol",
     "get_latest_open_manager_decision_for_trade_link",
+    "get_latest_thesis_validation_runs_by_option_symbol",
     "get_open_position_thesis_for_option_symbol",
     "get_thesis_validation_run_for_date",
     "get_market_data_refresh_state",
