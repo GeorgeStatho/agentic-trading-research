@@ -108,6 +108,42 @@ class OptionPositionManagerService:
                     pnl_pct,
                 )
 
+    def _record_submitted_exits(self, positions: list[dict[str, Any]]) -> None:
+        """Record every submitted close in the trade journal and retire its thesis."""
+        for position_summary in positions:
+            if not isinstance(position_summary, dict) or not position_summary.get("close_submitted"):
+                continue
+            self._record_exit_in_trade_journal(position_summary)
+            self._record_exit_in_thesis_journal(position_summary)
+
+    def _record_exit_in_trade_journal(self, position_summary: dict[str, Any]) -> None:
+        if self._trade_journal is None:
+            return
+        try:
+            record_id = self._trade_journal.record_position_exit(position_summary)
+            position_summary["db_recorded"] = record_id is not None
+            position_summary["db_record_id"] = record_id
+        except Exception as exc:
+            self._logger.exception(
+                "Failed to record managed option exit in DB for %s: %s",
+                position_summary.get("symbol"),
+                exc,
+            )
+            position_summary["db_recorded"] = False
+            position_summary["db_record_error"] = str(exc)
+
+    def _record_exit_in_thesis_journal(self, position_summary: dict[str, Any]) -> None:
+        if self._thesis_journal is None:
+            return
+        try:
+            self._thesis_journal.record_exit(position_summary)
+        except Exception as exc:
+            self._logger.exception(
+                "Failed to close position thesis for %s: %s",
+                position_summary.get("symbol"),
+                exc,
+            )
+
     def _run_thesis_validation(
         self,
         *,
@@ -203,43 +239,13 @@ class OptionPositionManagerService:
             trading_client_override=trading_client,
         )
 
-        for position_summary in management_result.get("positions", []):
-            if not isinstance(position_summary, dict) or not position_summary.get("close_submitted"):
-                continue
-            if self._trade_journal is None:
-                break
-            try:
-                record_id = self._trade_journal.record_position_exit(position_summary)
-                position_summary["db_recorded"] = record_id is not None
-                position_summary["db_record_id"] = record_id
-            except Exception as exc:
-                self._logger.exception(
-                    "Failed to record managed option exit in DB for %s: %s",
-                    position_summary.get("symbol"),
-                    exc,
-                )
-                position_summary["db_recorded"] = False
-                position_summary["db_record_error"] = str(exc)
-
         positions = (
             management_result.get("positions", [])
             if isinstance(management_result.get("positions", []), list)
             else []
         )
 
-        if self._thesis_journal is not None:
-            for position_summary in positions:
-                if not isinstance(position_summary, dict) or not position_summary.get("close_submitted"):
-                    continue
-                try:
-                    self._thesis_journal.record_exit(position_summary)
-                except Exception as exc:
-                    self._logger.exception(
-                        "Failed to close position thesis for %s: %s",
-                        position_summary.get("symbol"),
-                        exc,
-                    )
-
+        self._record_submitted_exits(positions)
         self._refresh_manager_decision_history_pnl(positions)
 
         thesis_validation_result = self._run_thesis_validation(

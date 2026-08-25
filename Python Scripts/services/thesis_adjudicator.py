@@ -31,6 +31,9 @@ THESIS_ADJUDICATOR_PROMPT_VERSION = "thesis-adjudicator-v1"
 VALID_THESIS_STATES = ("intact", "degraded", "invalidated", "unclear")
 VALID_WOULD_OPEN = ("yes", "no", "marginal")
 
+RATIONALE_MAX_CHARS = 320
+RAW_RESPONSE_EXCERPT_CHARS = 2_000
+
 # 2/3 agreement costs one severity level; downgrading "degraded" lands on
 # "intact", which the arbiter maps to no action - deliberately conservative.
 _SEVERITY_DOWNGRADE = {
@@ -46,7 +49,7 @@ THESIS_VERDICT_SCHEMA: dict[str, Any] = {
         "thesis_state": {"type": "string", "enum": list(VALID_THESIS_STATES)},
         "would_open_today": {"type": "string", "enum": list(VALID_WOULD_OPEN)},
         "evidence_ids": {"type": "array", "items": {"type": "integer"}},
-        "rationale": {"type": "string", "maxLength": 320},
+        "rationale": {"type": "string", "maxLength": RATIONALE_MAX_CHARS},
         "confidence": {"type": "number"},
     },
     "required": ["thesis_state", "would_open_today", "evidence_ids", "rationale", "confidence"],
@@ -153,7 +156,7 @@ def _normalize_sample(parsed: dict[str, Any]) -> dict[str, Any] | None:
         "thesis_state": thesis_state,
         "would_open_today": would_open,
         "evidence_ids": sorted(set(evidence_ids)),
-        "rationale": " ".join(str(parsed.get("rationale") or "").split())[:320],
+        "rationale": " ".join(str(parsed.get("rationale") or "").split())[:RATIONALE_MAX_CHARS],
         "confidence": max(0.0, min(1.0, confidence)),
     }
 
@@ -227,15 +230,15 @@ def apply_consistency_gate(samples: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def adjudicate_thesis(
+def _collect_grounded_samples(
     evidence_pack: dict[str, Any],
     *,
-    client: Any | None = None,
-    model: str = DEFAULT_THESIS_VALIDATOR_MODEL,
-    samples: int = 3,
-    temperature: float = 0.4,
-) -> dict[str, Any]:
-    """Run Phases 2-3 for one evidence pack and return the gated verdict."""
+    client: Any,
+    model: str,
+    sample_count: int,
+    temperature: float,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Phase 2: sample the model N times, returning (raw audit trail, grounded samples)."""
     from agent_helpers.shared import ask_llm_model, extract_json_object
 
     allowed_article_ids = {
@@ -247,10 +250,10 @@ def adjudicate_thesis(
 
     raw_samples: list[dict[str, Any]] = []
     grounded_samples: list[dict[str, Any]] = []
-    for sample_index in range(max(1, int(samples))):
+    for sample_index in range(sample_count):
         try:
             raw_response = ask_llm_model(
-                client or get_default_client(),
+                client,
                 model,
                 ADJUDICATOR_SYSTEM_PROMPT,
                 user_prompt,
@@ -263,19 +266,40 @@ def adjudicate_thesis(
             raw_samples.append({"error": str(exc)})
             continue
 
+        response_excerpt = str(raw_response)[:RAW_RESPONSE_EXCERPT_CHARS]
         normalized = _normalize_sample(extract_json_object(raw_response) or {})
         if normalized is None:
-            raw_samples.append({"error": "invalid_response", "raw_response": str(raw_response)[:2000]})
+            raw_samples.append({"error": "invalid_response", "raw_response": response_excerpt})
             continue
         grounded = ground_sample(normalized, allowed_article_ids=allowed_article_ids)
-        raw_samples.append({**grounded, "raw_response": str(raw_response)[:2000]})
+        raw_samples.append({**grounded, "raw_response": response_excerpt})
         grounded_samples.append(grounded)
 
+    return raw_samples, grounded_samples
+
+
+def adjudicate_thesis(
+    evidence_pack: dict[str, Any],
+    *,
+    client: Any | None = None,
+    model: str = DEFAULT_THESIS_VALIDATOR_MODEL,
+    samples: int = 3,
+    temperature: float = 0.4,
+) -> dict[str, Any]:
+    """Run Phases 2-3 for one evidence pack and return the gated verdict."""
+    requested_samples = max(1, int(samples))
+    raw_samples, grounded_samples = _collect_grounded_samples(
+        evidence_pack,
+        client=client or get_default_client(),
+        model=model,
+        sample_count=requested_samples,
+        temperature=temperature,
+    )
     verdict = apply_consistency_gate(grounded_samples)
     return {
         **verdict,
         "sample_count": len(grounded_samples),
-        "requested_samples": max(1, int(samples)),
+        "requested_samples": requested_samples,
         "raw_samples": raw_samples,
         "prompt_version": THESIS_ADJUDICATOR_PROMPT_VERSION,
         "model": model,

@@ -24,6 +24,10 @@ LOGGER = logging.getLogger(__name__)
 
 THESIS_CAPTURE_VERSION = "thesis-capture-v1"
 
+CATALYST_SUMMARY_MAX_CHARS = 300
+MANAGER_REASON_MAX_CHARS = 600
+MAX_INVALIDATION_CONDITIONS = 3
+
 # Keyword classifier for catalyst_type. First match wins; "other" is the floor.
 _CATALYST_TYPE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("earnings_surprise", ("earnings", "eps", "quarterly results", "beat", "miss", "revenue")),
@@ -37,7 +41,7 @@ _CATALYST_TYPE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
-def _clean_sentence(value: Any, *, max_chars: int = 300) -> str:
+def _clean_sentence(value: Any, *, max_chars: int = CATALYST_SUMMARY_MAX_CHARS) -> str:
     text = " ".join(str(value or "").split()).strip()
     return text[:max_chars]
 
@@ -124,7 +128,7 @@ def _build_invalidation_conditions(
     top_risk = _clean_sentence(risks[0]) if risks else ""
     if top_risk:
         conditions.append(f"This thesis is wrong if this entry risk materializes: {top_risk}")
-    return conditions[:3]
+    return conditions[:MAX_INVALIDATION_CONDITIONS]
 
 
 def build_position_thesis_record(execution: dict[str, Any]) -> dict[str, Any] | None:
@@ -184,7 +188,7 @@ def build_position_thesis_record(execution: dict[str, Any]) -> dict[str, Any] | 
         ),
         "raw_json": {
             "version": THESIS_CAPTURE_VERSION,
-            "manager_reason": _clean_sentence(execution.get("reason"), max_chars=600),
+            "manager_reason": _clean_sentence(execution.get("reason"), max_chars=MANAGER_REASON_MAX_CHARS),
             "strategist_thesis": [
                 _clean_sentence(item) for item in (strategist.get("thesis") or []) if str(item).strip()
             ],

@@ -131,7 +131,6 @@ class ThesisValidatorService:
         submit_partial_exit: Callable[..., Any] | None,
     ) -> dict[str, Any] | None:
         from db_helpers.market import (
-            count_thesis_validator_exits_for_date,
             get_open_position_thesis_for_option_symbol,
             get_thesis_validation_run_for_date,
             record_thesis_validation_run,
@@ -162,8 +161,7 @@ class ThesisValidatorService:
             "mark_mid_price": safe_float(position_summary.get("mid_price")),
         }
 
-        rules_exit_active = self._rules_exit_active(position_summary)
-        if rules_exit_active:
+        if self._rules_exit_active(position_summary):
             # The deterministic layer already decided to exit; the LLM is not consulted.
             run_record.update(
                 {
@@ -178,7 +176,45 @@ class ThesisValidatorService:
             return {"option_symbol": option_symbol, "status": "rules_exit_precedence"}
 
         run_record["rules_verdict"] = "hold"
-        verdict: dict[str, Any] | None = None
+        verdict = self._adjudicate_into_record(
+            run_record,
+            thesis=thesis,
+            position_summary=position_summary,
+        )
+        arbiter = self._arbitrate_into_record(
+            run_record,
+            verdict=verdict,
+            position_summary=position_summary,
+        )
+        executed = self._maybe_execute_arbiter_action(
+            run_record,
+            arbiter=arbiter,
+            option_symbol=option_symbol,
+            position_summary=position_summary,
+            submit_full_exit=submit_full_exit,
+            submit_partial_exit=submit_partial_exit,
+        )
+
+        record_thesis_validation_run(run_record)
+        return {
+            "option_symbol": option_symbol,
+            "status": "evaluated",
+            "thesis_state": run_record.get("thesis_state"),
+            "would_open_today": run_record.get("would_open_today"),
+            "consistency": run_record.get("consistency"),
+            "arbiter_action": arbiter["action"],
+            "arbiter_reason": arbiter["reason"],
+            "executed": executed,
+        }
+
+    def _adjudicate_into_record(
+        self,
+        run_record: dict[str, Any],
+        *,
+        thesis: dict[str, Any],
+        position_summary: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Run Phases 1-3 and fold the gated verdict into the run record."""
         try:
             from services.thesis_adjudicator import DEFAULT_THESIS_VALIDATOR_MODEL, adjudicate_thesis
             from services.thesis_evidence_pack import build_thesis_evidence_pack
@@ -195,22 +231,10 @@ class ThesisValidatorService:
                 samples=self._settings.samples,
                 temperature=self._settings.temperature,
             )
-            run_record.update(
-                {
-                    "raw_samples": verdict.get("raw_samples", []),
-                    "sample_count": verdict.get("sample_count", 0),
-                    "consistency": verdict.get("consistency"),
-                    "flip_detected": verdict.get("flip_detected"),
-                    "grounded": verdict.get("grounded"),
-                    "thesis_state": verdict.get("thesis_state"),
-                    "would_open_today": verdict.get("would_open_today"),
-                    "evidence_ids": verdict.get("evidence_ids", []),
-                    "rationale": verdict.get("rationale"),
-                    "confidence": verdict.get("confidence"),
-                }
-            )
         except Exception as exc:
-            self._logger.exception("Thesis validation failed for %s: %s", option_symbol, exc)
+            self._logger.exception(
+                "Thesis validation failed for %s: %s", run_record.get("option_symbol"), exc
+            )
             run_record.update(
                 {
                     "thesis_state": "unclear",
@@ -218,47 +242,73 @@ class ThesisValidatorService:
                     "error_text": str(exc),
                 }
             )
-            verdict = None
+            return None
+
+        run_record.update(
+            {
+                "raw_samples": verdict.get("raw_samples", []),
+                "sample_count": verdict.get("sample_count", 0),
+                "consistency": verdict.get("consistency"),
+                "flip_detected": verdict.get("flip_detected"),
+                "grounded": verdict.get("grounded"),
+                "thesis_state": verdict.get("thesis_state"),
+                "would_open_today": verdict.get("would_open_today"),
+                "evidence_ids": verdict.get("evidence_ids", []),
+                "rationale": verdict.get("rationale"),
+                "confidence": verdict.get("confidence"),
+            }
+        )
+        return verdict
+
+    def _arbitrate_into_record(
+        self,
+        run_record: dict[str, Any],
+        *,
+        verdict: dict[str, Any] | None,
+        position_summary: dict[str, Any],
+    ) -> dict[str, Any]:
+        from db_helpers.market import count_thesis_validator_exits_for_date
 
         arbiter = decide_thesis_arbiter_action(
             rules_exit_active=False,
             verdict=verdict,
-            quantity=int(safe_float(position_summary.get("quantity")) or 0),
-            llm_exits_today=count_thesis_validator_exits_for_date(run_date),
+            quantity=self._contract_quantity(position_summary),
+            llm_exits_today=count_thesis_validator_exits_for_date(run_record["run_date"]),
             max_daily_llm_exits=self._settings.max_daily_llm_exits,
             kill_switch=self._settings.kill_switch,
         )
         run_record["arbiter_action"] = arbiter["action"]
         run_record["arbiter_reason"] = arbiter["reason"]
+        return arbiter
 
+    def _maybe_execute_arbiter_action(
+        self,
+        run_record: dict[str, Any],
+        *,
+        arbiter: dict[str, Any],
+        option_symbol: str,
+        position_summary: dict[str, Any],
+        submit_full_exit: Callable[..., Any] | None,
+        submit_partial_exit: Callable[..., Any] | None,
+    ) -> bool:
         executed = False
-        if (
-            self._settings.mode == "live"
-            and not self._settings.kill_switch
-            and arbiter["action"] in {ACTION_CLOSE, ACTION_CLOSE_HALF}
-        ):
+        live_execution_allowed = self._settings.mode == "live" and not self._settings.kill_switch
+        if live_execution_allowed and arbiter["action"] in {ACTION_CLOSE, ACTION_CLOSE_HALF}:
             executed, execution_error = self._execute_action(
                 action=arbiter["action"],
                 option_symbol=option_symbol,
-                quantity=int(safe_float(position_summary.get("quantity")) or 0),
+                quantity=self._contract_quantity(position_summary),
                 submit_full_exit=submit_full_exit,
                 submit_partial_exit=submit_partial_exit,
             )
             if execution_error:
                 run_record["error_text"] = execution_error
         run_record["executed"] = executed
+        return executed
 
-        record_thesis_validation_run(run_record)
-        return {
-            "option_symbol": option_symbol,
-            "status": "evaluated",
-            "thesis_state": run_record.get("thesis_state"),
-            "would_open_today": run_record.get("would_open_today"),
-            "consistency": run_record.get("consistency"),
-            "arbiter_action": arbiter["action"],
-            "arbiter_reason": arbiter["reason"],
-            "executed": executed,
-        }
+    @staticmethod
+    def _contract_quantity(position_summary: dict[str, Any]) -> int:
+        return int(safe_float(position_summary.get("quantity")) or 0)
 
     def run_due_validation(
         self,
