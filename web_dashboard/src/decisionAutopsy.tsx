@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+
+import { formatDateTime } from './format'
 import './decisionAutopsy.css'
 
 type Article = { article_id: number; title: string; source: string; published_at: string; article_scope: string }
@@ -22,8 +24,7 @@ type Payload = { as_of: string; count: number; records: Record[]; read_only: boo
 type DemoScenario = { demo_mode: true; disclaimer: string; autopsy: Payload }
 
 function formatDate(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'Unknown time' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+  return formatDateTime(value, { placeholder: 'Unknown time' })
 }
 
 function tone(value: string): string {

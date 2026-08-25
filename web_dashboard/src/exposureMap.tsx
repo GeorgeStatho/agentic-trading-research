@@ -10,6 +10,8 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+
+import { formatDateTime, formatDecimal, formatSignedPercent } from './format'
 import './exposureMap.css'
 
 type Article = {
@@ -115,19 +117,15 @@ const columns: Record<GraphNode['type'], number> = {
 }
 
 function formatDate(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return 'Unknown time'
-  }
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+  return formatDateTime(value, { placeholder: 'Unknown time' })
 }
 
 function formatEvidenceScore(value: number | null | undefined): string {
-  return value === null || value === undefined ? 'N/A' : value.toFixed(2)
+  return formatDecimal(value)
 }
 
 function formatPnl(value: number | null | undefined): string {
-  return value === null || value === undefined || Number.isNaN(value) ? 'Outcome pending' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}% P/L`
+  return formatSignedPercent(value, { placeholder: 'Outcome pending', suffix: ' P/L' })
 }
 
 function scoreColor(direction?: string): string {

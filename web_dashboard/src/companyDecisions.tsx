@@ -1,4 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+
+import { fetchPolledJson } from './api';
+import { formatDateTime, formatPercent, formatText } from './format';
+import { usePolledResource } from './useRemoteResource';
 import './companyDecisions.css';
 
 type StageDecision = {
@@ -82,50 +86,10 @@ type CompanyDecisionsPayload = {
   companies: CompanyDecision[];
 };
 
-const COMPANY_DECISIONS_POLL_INTERVAL_MS = 60_000;
 type DecisionFilter = 'all' | 'call' | 'put' | 'neither';
 
-async function getCompanyDecisions(): Promise<CompanyDecisionsPayload> {
-  const response = await fetch(`/api/company-decisions?ts=${Date.now()}`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to load company decisions: ${response.status}`);
-  }
-
-  return response.json() as Promise<CompanyDecisionsPayload>;
-}
-
-function formatValue(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) {
-    return 'N/A';
-  }
-
-  const normalized = String(value).trim();
-  return normalized || 'N/A';
-}
-
-function formatPct(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return 'N/A';
-  }
-  return `${value.toFixed(2)}%`;
-}
-
-function formatDateTime(value: string): string {
-  const normalized = value.trim();
-  if (!normalized) {
-    return 'N/A';
-  }
-
-  const parsed = new Date(normalized);
-  if (Number.isNaN(parsed.getTime())) {
-    return normalized;
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(parsed);
+function getCompanyDecisions(): Promise<CompanyDecisionsPayload> {
+  return fetchPolledJson<CompanyDecisionsPayload>('/api/company-decisions', 'company decisions');
 }
 
 function normalizeDecision(value: string | undefined): string {
@@ -179,39 +143,11 @@ function renderArticleReferenceList(items: HistoryArticleReference[] | undefined
 }
 
 function CompanyDecisionsPage() {
-  const [payload, setPayload] = useState<CompanyDecisionsPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { payload, error } = usePolledResource(getCompanyDecisions, {
+    errorMessage: 'Failed to load company decisions.',
+  });
   const [searchValue, setSearchValue] = useState('');
   const [activeDecision, setActiveDecision] = useState<DecisionFilter>('all');
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const load = () => {
-      getCompanyDecisions()
-        .then((nextPayload) => {
-          if (!isMounted) {
-            return;
-          }
-          setPayload(nextPayload);
-          setError(null);
-        })
-        .catch((err: unknown) => {
-          if (!isMounted) {
-            return;
-          }
-          setError(err instanceof Error ? err.message : 'Failed to load company decisions.');
-        });
-    };
-
-    load();
-    const intervalId = window.setInterval(load, COMPANY_DECISIONS_POLL_INTERVAL_MS);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(intervalId);
-    };
-  }, []);
 
   if (error) {
     return (
@@ -333,13 +269,13 @@ function CompanyDecisionsPage() {
                 <div className="company-decisions__company">
                   <div>
                     <p className="company-decisions__symbol">{company.symbol}</p>
-                    <p className="company-decisions__name">{formatValue(company.name)}</p>
+                    <p className="company-decisions__name">{formatText(company.name)}</p>
                     <div className="company-decisions__decision-summary">
                       <span className={`company-decisions__decision-badge company-decisions__decision-badge--${decisionTone(company.strategist.decision)}`}>
-                        Strategist · {formatValue(company.strategist.decision)}
+                        Strategist · {formatText(company.strategist.decision)}
                       </span>
                       <span className={`company-decisions__decision-badge company-decisions__decision-badge--${decisionTone(company.manager.decision)}`}>
-                        Manager · {formatValue(company.manager.decision)}
+                        Manager · {formatText(company.manager.decision)}
                       </span>
                     </div>
                   </div>
@@ -352,16 +288,16 @@ function CompanyDecisionsPage() {
                   <section className="company-decisions__stage">
                     <p className="company-decisions__stage-label">Strategist</p>
                     <p className="company-decisions__stage-main">
-                      {formatValue(company.strategist.decision)}
+                      {formatText(company.strategist.decision)}
                     </p>
-                    <p className="company-decisions__detail">Confidence: {formatValue(company.strategist.confidence)}</p>
+                    <p className="company-decisions__detail">Confidence: {formatText(company.strategist.confidence)}</p>
                     <p className="company-decisions__text">
-                      {formatValue(company.strategist.summary)}
+                      {formatText(company.strategist.summary)}
                     </p>
                     {company.diagnostics?.strategist_validation?.status === 'failed' ? (
                       <div className="company-decisions__diagnostic company-decisions__diagnostic--error">
                         <p className="company-decisions__subheading">Latest strategist attempt failed</p>
-                        <p className="company-decisions__text">{formatValue(company.diagnostics.strategist_validation.error_message)}</p>
+                        <p className="company-decisions__text">{formatText(company.diagnostics.strategist_validation.error_message)}</p>
                         <p className="company-decisions__detail">
                           {company.diagnostics.strategist_validation.input_article_count ?? 0} grounded article(s) supplied · {formatDateTime(company.diagnostics.strategist_validation.created_at ?? '')}
                         </p>
@@ -374,10 +310,10 @@ function CompanyDecisionsPage() {
                     <div className="company-decisions__subsection">
                       <p className="company-decisions__subheading">Market regime gate</p>
                       <dl className="company-decisions__facts">
-                        <div><dt>Regime</dt><dd>{formatValue(company.manager.market_regime_gate?.regime_state)}</dd></div>
+                        <div><dt>Regime</dt><dd>{formatText(company.manager.market_regime_gate?.regime_state)}</dd></div>
                         <div><dt>Status</dt><dd>{company.manager.market_regime_gate?.allowed === true ? 'Allowed' : company.manager.market_regime_gate?.allowed === false ? 'Blocked' : 'Not recorded'}</dd></div>
-                        <div><dt>Mode</dt><dd>{formatValue(company.manager.market_regime_gate?.enforcement_mode)}</dd></div>
-                        <div><dt>Policy</dt><dd>{formatValue(company.manager.market_regime_gate?.policy_version)}</dd></div>
+                        <div><dt>Mode</dt><dd>{formatText(company.manager.market_regime_gate?.enforcement_mode)}</dd></div>
+                        <div><dt>Policy</dt><dd>{formatText(company.manager.market_regime_gate?.policy_version)}</dd></div>
                       </dl>
                       {company.manager.market_regime_gate?.reason_codes?.length ? <p className="company-decisions__text">Regime reasons: {company.manager.market_regime_gate.reason_codes.join(', ')}</p> : null}
                     </div>
@@ -390,21 +326,21 @@ function CompanyDecisionsPage() {
                   <section className="company-decisions__stage">
                     <p className="company-decisions__stage-label">Manager</p>
                     <p className="company-decisions__stage-main">
-                      {formatValue(company.manager.decision)}
+                      {formatText(company.manager.decision)}
                     </p>
-                    <p className="company-decisions__detail">Confidence: {formatValue(company.manager.confidence)}</p>
+                    <p className="company-decisions__detail">Confidence: {formatText(company.manager.confidence)}</p>
                     <p className="company-decisions__text">
-                      {formatValue(company.manager.reason)}
+                      {formatText(company.manager.reason)}
                     </p>
                     <div className="company-decisions__subsection">
                       <p className="company-decisions__subheading">Evidence continuation gate</p>
                       <dl className="company-decisions__facts">
-                        <div><dt>Policy</dt><dd>{formatValue(company.manager.entry_gate?.policy_version)}</dd></div>
+                        <div><dt>Policy</dt><dd>{formatText(company.manager.entry_gate?.policy_version)}</dd></div>
                         <div><dt>Status</dt><dd>{company.manager.entry_gate?.allowed === true ? 'Allowed' : company.manager.entry_gate?.allowed === false ? 'Blocked' : 'Not recorded'}</dd></div>
                         <div><dt>Evidence</dt><dd>{company.manager.entry_gate?.evidence?.citation_count ?? 'N/A'} citations / {company.manager.entry_gate?.evidence?.independent_source_count ?? 'N/A'} sources</dd></div>
-                        <div><dt>Trend</dt><dd>{formatValue(company.manager.entry_gate?.technical?.trend_state)}</dd></div>
-                        <div><dt>Relative strength</dt><dd>{formatValue(company.manager.entry_gate?.technical?.relative_strength_confirmation)}</dd></div>
-                        <div><dt>Volume</dt><dd>{formatValue(company.manager.entry_gate?.technical?.volume_confirmation)}</dd></div>
+                        <div><dt>Trend</dt><dd>{formatText(company.manager.entry_gate?.technical?.trend_state)}</dd></div>
+                        <div><dt>Relative strength</dt><dd>{formatText(company.manager.entry_gate?.technical?.relative_strength_confirmation)}</dd></div>
+                        <div><dt>Volume</dt><dd>{formatText(company.manager.entry_gate?.technical?.volume_confirmation)}</dd></div>
                       </dl>
                       {company.manager.entry_gate?.reason_codes?.length ? <p className="company-decisions__text">Blocked by: {company.manager.entry_gate.reason_codes.join(', ')}</p> : null}
                     </div>
@@ -413,7 +349,7 @@ function CompanyDecisionsPage() {
                         <p className="company-decisions__subheading">Historical-bars diagnostic</p>
                         <p className="company-decisions__text">{company.diagnostics.historical_bars.error}</p>
                         <p className="company-decisions__detail">
-                          Source: {formatValue(company.diagnostics.historical_bars.source)} · Feed: {formatValue(company.diagnostics.historical_bars.feed)} · {company.diagnostics.historical_bars.close_count ?? 0} valid closes
+                          Source: {formatText(company.diagnostics.historical_bars.source)} · Feed: {formatText(company.diagnostics.historical_bars.feed)} · {company.diagnostics.historical_bars.close_count ?? 0} valid closes
                         </p>
                       </div>
                     ) : null}
@@ -422,27 +358,27 @@ function CompanyDecisionsPage() {
                       <dl className="company-decisions__facts">
                         <div>
                           <dt>History record</dt>
-                          <dd>{formatValue(company.manager.manager_decision_history_id)}</dd>
+                          <dd>{formatText(company.manager.manager_decision_history_id)}</dd>
                         </div>
                         <div>
                           <dt>Target DTE bucket</dt>
-                          <dd>{formatValue(company.manager.target_dte_bucket)}</dd>
+                          <dd>{formatText(company.manager.target_dte_bucket)}</dd>
                         </div>
                         <div>
                           <dt>Option contract</dt>
-                          <dd>{formatValue(company.manager.selected_option_id)}</dd>
+                          <dd>{formatText(company.manager.selected_option_id)}</dd>
                         </div>
                         <div>
                           <dt>Expiration</dt>
-                          <dd>{formatValue(company.manager.selected_expiration_date)}</dd>
+                          <dd>{formatText(company.manager.selected_expiration_date)}</dd>
                         </div>
                         <div>
                           <dt>Strike</dt>
-                          <dd>{formatValue(company.manager.selected_strike_price)}</dd>
+                          <dd>{formatText(company.manager.selected_strike_price)}</dd>
                         </div>
                         <div>
                           <dt>Source</dt>
-                          <dd>{formatValue(company.manager.selected_option_source)}</dd>
+                          <dd>{formatText(company.manager.selected_option_source)}</dd>
                         </div>
                       </dl>
                     </div>
@@ -456,7 +392,7 @@ function CompanyDecisionsPage() {
                             <article key={`${company.symbol}-${entry.id}`} className="company-decisions__history-item">
                               <div className="company-decisions__history-header">
                                 <p className="company-decisions__history-main">
-                                  {formatValue(entry.manager_decision)} / {formatValue(entry.manager_confidence)}
+                                  {formatText(entry.manager_decision)} / {formatText(entry.manager_confidence)}
                                 </p>
                                 <p className="company-decisions__history-time">
                                   {formatDateTime(entry.decision_run_at)}
@@ -465,7 +401,7 @@ function CompanyDecisionsPage() {
                               <dl className="company-decisions__facts">
                                 <div>
                                   <dt>DTE bucket</dt>
-                                  <dd>{formatValue(entry.target_dte_bucket)}</dd>
+                                  <dd>{formatText(entry.target_dte_bucket)}</dd>
                                 </div>
                                 <div>
                                   <dt>Trade executed</dt>
@@ -473,19 +409,19 @@ function CompanyDecisionsPage() {
                                 </div>
                                 <div>
                                   <dt>Latest P/L</dt>
-                                  <dd>{formatPct(entry.latest_trade_pnl_pct)}</dd>
+                                  <dd>{formatPercent(entry.latest_trade_pnl_pct)}</dd>
                                 </div>
                                 <div>
                                   <dt>Outcome</dt>
-                                  <dd>{formatValue(entry.resolved_outcome_label)}</dd>
+                                  <dd>{formatText(entry.resolved_outcome_label)}</dd>
                                 </div>
                                 <div>
                                   <dt>Order id</dt>
-                                  <dd>{formatValue(entry.trade_execution_order_id)}</dd>
+                                  <dd>{formatText(entry.trade_execution_order_id)}</dd>
                                 </div>
                               </dl>
                               <p className="company-decisions__text">
-                                {formatValue(entry.manager_reason)}
+                                {formatText(entry.manager_reason)}
                               </p>
                               <div className="company-decisions__subsection">
                                 <p className="company-decisions__subheading">Articles used</p>
