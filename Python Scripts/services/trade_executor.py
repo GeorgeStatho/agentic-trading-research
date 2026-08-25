@@ -71,11 +71,13 @@ class OptionTradeExecutor:
         settings: FrontMainSettings,
         trading_gateway: Any,
         trade_journal: Any | None = None,
+        thesis_journal: Any | None = None,
         logger: logging.Logger,
     ) -> None:
         self._settings = settings
         self._trading_gateway = trading_gateway
         self._trade_journal = trade_journal
+        self._thesis_journal = thesis_journal
         self._logger = logger
 
     def _get_option_reference_price(self, selected_option: dict[str, Any]) -> float:
@@ -406,6 +408,21 @@ class OptionTradeExecutor:
                 )
                 execution["manager_decision_history_linked"] = False
                 execution["manager_decision_history_link_error"] = str(exc)
+            if self._thesis_journal is not None:
+                # Phase 0 of the thesis validator: capture the entry thesis now,
+                # because it cannot be backfilled later. Never blocks the trade.
+                try:
+                    thesis_id = self._thesis_journal.record_entry(execution)
+                    execution["thesis_recorded"] = thesis_id is not None
+                    execution["thesis_id"] = thesis_id
+                except Exception as exc:
+                    self._logger.exception(
+                        "Failed to record position thesis for %s: %s",
+                        option_symbol,
+                        exc,
+                    )
+                    execution["thesis_recorded"] = False
+                    execution["thesis_record_error"] = str(exc)
         except Exception as exc:
             self._logger.exception("Failed to submit option order for %s: %s", option_symbol, exc)
             execution = self._build_execution(

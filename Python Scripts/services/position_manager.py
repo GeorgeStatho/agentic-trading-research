@@ -24,12 +24,16 @@ class OptionPositionManagerService:
         paths: FrontMainPaths,
         trading_gateway: Any,
         trade_journal: Any | None = None,
+        thesis_journal: Any | None = None,
+        thesis_validator: Any | None = None,
         logger: logging.Logger,
     ) -> None:
         self._settings = settings
         self._paths = paths
         self._trading_gateway = trading_gateway
         self._trade_journal = trade_journal
+        self._thesis_journal = thesis_journal
+        self._thesis_validator = thesis_validator
         self._logger = logger
 
     @staticmethod
@@ -103,6 +107,32 @@ class OptionPositionManagerService:
                     option_symbol,
                     pnl_pct,
                 )
+
+    def _run_thesis_validation(
+        self,
+        *,
+        positions: list[dict[str, Any]],
+        trading_client: TradingClient,
+    ) -> dict[str, Any] | None:
+        """Run the daily LLM thesis validator (shadow by default) after the rules layer."""
+        if self._thesis_validator is None or not positions:
+            return None
+        try:
+            return self._thesis_validator.run_due_validation(
+                positions=positions,
+                submit_full_exit=lambda option_symbol: self._trading_gateway.close_option_position(
+                    trading_client,
+                    option_symbol=option_symbol,
+                ),
+                submit_partial_exit=lambda option_symbol, qty: self._trading_gateway.submit_option_sell_market_order(
+                    trading_client,
+                    option_symbol=option_symbol,
+                    qty=qty,
+                ),
+            )
+        except Exception as exc:
+            self._logger.exception("Thesis validator cycle failed: %s", exc)
+            return {"error": str(exc)}
 
     def run_cycle(self, *, trading_client: TradingClient) -> dict[str, Any]:
         from Trading import ManageCurrentOptionPositions
@@ -191,11 +221,33 @@ class OptionPositionManagerService:
                 position_summary["db_recorded"] = False
                 position_summary["db_record_error"] = str(exc)
 
-        self._refresh_manager_decision_history_pnl(
+        positions = (
             management_result.get("positions", [])
             if isinstance(management_result.get("positions", []), list)
             else []
         )
+
+        if self._thesis_journal is not None:
+            for position_summary in positions:
+                if not isinstance(position_summary, dict) or not position_summary.get("close_submitted"):
+                    continue
+                try:
+                    self._thesis_journal.record_exit(position_summary)
+                except Exception as exc:
+                    self._logger.exception(
+                        "Failed to close position thesis for %s: %s",
+                        position_summary.get("symbol"),
+                        exc,
+                    )
+
+        self._refresh_manager_decision_history_pnl(positions)
+
+        thesis_validation_result = self._run_thesis_validation(
+            positions=positions,
+            trading_client=trading_client,
+        )
+        if thesis_validation_result is not None:
+            management_result["thesis_validator"] = thesis_validation_result
 
         JsonFileWriter.write(self._paths.option_position_management_output_path, management_result)
         self._logger.info(

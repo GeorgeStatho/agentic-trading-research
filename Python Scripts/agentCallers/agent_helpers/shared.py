@@ -63,6 +63,21 @@ VERTEX_RETRY_MAX_DELAY_SECONDS = max(
     float(os.getenv("VERTEX_RETRY_MAX_DELAY_SECONDS", "30")),
 )
 
+# Explicit context caching is opt-in. Implicit caching is already on by default for
+# Gemini 2.5 models, so enable this only for stages whose system prompt clears the
+# provider minimum (2048 tokens) and which run many calls inside one TTL window.
+VERTEX_EXPLICIT_CACHE_ENABLED = str(
+    os.getenv("VERTEX_EXPLICIT_CACHE", "")
+).strip().lower() in {"1", "true", "yes"}
+# Cached tokens are billed for storage per hour, and RUN_INTERVAL_SECONDS defaults to
+# three hours -- a TTL longer than one cycle's strategist/manager burst is billed idle.
+VERTEX_CACHE_TTL_SECONDS = max(60, int(os.getenv("VERTEX_CACHE_TTL_SECONDS", "900")))
+
+# cache_key -> (cached_content_name, local_expiry_monotonic)
+_VERTEX_CACHE_REGISTRY: dict[str, tuple[str, float]] = {}
+# cache_keys whose prompt the provider refused to cache; never retried.
+_VERTEX_CACHE_UNAVAILABLE: set[str] = set()
+
 
 def _normalize_provider(provider: str | None = None) -> str:
     return str(provider or os.getenv("LLM_PROVIDER", "ollama")).strip().lower()
@@ -225,7 +240,12 @@ def _record_vertex_response_diagnostic(
     )
     usage = getattr(response, "usage_metadata", None)
     if usage is not None:
-        for key in ("prompt_token_count", "candidates_token_count", "total_token_count"):
+        for key in (
+            "prompt_token_count",
+            "candidates_token_count",
+            "total_token_count",
+            "cached_content_token_count",
+        ):
             value = _safe_response_value(getattr(usage, key, None))
             if value is not None:
                 response_diagnostic[key] = value
@@ -288,6 +308,13 @@ def _is_vertex_rate_limited(exc: Exception) -> bool:
     return "RESOURCE_EXHAUSTED" in message or "RATE LIMIT" in message
 
 
+def _is_vertex_cache_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if "cachedcontent" in message.replace("_", "").replace(" ", ""):
+        return True
+    return "cached content" in message or _extract_status_code(exc) == 404
+
+
 def _build_vertex_error_message(exc: Exception, model_name: str) -> str:
     # Assemble the vertex error message so callers can work from one normalized shape.
     message = str(exc).strip()
@@ -336,6 +363,72 @@ def _build_vertex_error_message(exc: Exception, model_name: str) -> str:
     )
 
 
+def _cached_system_prompt_name(
+    client: Client,
+    resolved_model: str,
+    system_prompt: str,
+) -> str | None:
+    """Return a reusable Vertex cache holding ``system_prompt``, or None if caching is unavailable.
+
+    Only the system instruction is cached: it is the sole request component that is
+    byte-identical across calls within a stage. Callers must fall back to sending the
+    system prompt inline whenever this returns None -- prompts below the provider's
+    minimum cacheable size (2048 tokens for Gemini 2.5) are rejected at create time.
+    """
+    if not VERTEX_EXPLICIT_CACHE_ENABLED or genai_types is None:
+        return None
+
+    prompt_digest = hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[:16]
+    cache_key = f"{resolved_model}:{prompt_digest}"
+
+    cached = _VERTEX_CACHE_REGISTRY.get(cache_key)
+    if cached is not None and time.monotonic() < cached[1]:
+        return cached[0]
+
+    if cache_key in _VERTEX_CACHE_UNAVAILABLE:
+        return None
+
+    try:
+        cache = client.raw_client.caches.create(
+            model=resolved_model,
+            config=genai_types.CreateCachedContentConfig(
+                system_instruction=system_prompt,
+                display_name=f"agent-stage-{prompt_digest}",
+                ttl=f"{VERTEX_CACHE_TTL_SECONDS}s",
+            ),
+        )
+    except Exception as exc:
+        # Most commonly the prompt is under the provider minimum, which will never
+        # succeed for this prompt. Record it so every later call skips the attempt.
+        _VERTEX_CACHE_UNAVAILABLE.add(cache_key)
+        LOGGER.info(
+            "Vertex context caching unavailable for model '%s' (prompt %s); "
+            "falling back to inline system instructions. Reason: %s",
+            resolved_model,
+            prompt_digest,
+            exc,
+        )
+        return None
+
+    # Expire locally before the server does so a call never races a vanishing cache.
+    local_expiry = time.monotonic() + max(30, VERTEX_CACHE_TTL_SECONDS - 60)
+    _VERTEX_CACHE_REGISTRY[cache_key] = (cache.name, local_expiry)
+    LOGGER.info(
+        "Created Vertex context cache %s for model '%s' (prompt %s, ttl %ss)",
+        cache.name,
+        resolved_model,
+        prompt_digest,
+        VERTEX_CACHE_TTL_SECONDS,
+    )
+    return cache.name
+
+
+def _invalidate_vertex_cache(cache_name: str) -> None:
+    for key, (name, _expiry) in list(_VERTEX_CACHE_REGISTRY.items()):
+        if name == cache_name:
+            _VERTEX_CACHE_REGISTRY.pop(key, None)
+
+
 def _ask_vertex_model(
     client: Client,
     model: str,
@@ -352,15 +445,21 @@ def _ask_vertex_model(
             "The 'google-genai' Python package is required for Vertex AI requests."
         )
 
-    config_kwargs: dict[str, Any] = {
-        "temperature": temperature,
-        "system_instruction": system_prompt,
-    }
+    resolved_model = _resolve_model_name(client.provider, model)
+
+    config_kwargs: dict[str, Any] = {"temperature": temperature}
     if response_schema is not None:
         config_kwargs["response_mime_type"] = "application/json"
         config_kwargs["response_schema"] = response_schema
 
-    resolved_model = _resolve_model_name(client.provider, model)
+    # A cached system instruction is baked into the cache, so it must not also be sent
+    # inline -- the provider rejects requests that set both.
+    cache_name = _cached_system_prompt_name(client, resolved_model, system_prompt)
+    if cache_name is not None:
+        config_kwargs["cached_content"] = cache_name
+    else:
+        config_kwargs["system_instruction"] = system_prompt
+
     retry_delay_seconds = VERTEX_RETRY_INITIAL_DELAY_SECONDS
 
     for attempt in range(1, VERTEX_MAX_ATTEMPTS + 1):
@@ -377,6 +476,19 @@ def _ask_vertex_model(
             )
             break
         except Exception as exc:
+            # A cache can expire server-side mid-cycle. Drop it and retry inline rather
+            # than failing the stage over a cost optimisation.
+            if "cached_content" in config_kwargs and _is_vertex_cache_error(exc):
+                LOGGER.warning(
+                    "Vertex context cache %s is no longer usable; "
+                    "retrying with an inline system instruction. Reason: %s",
+                    config_kwargs["cached_content"],
+                    exc,
+                )
+                _invalidate_vertex_cache(config_kwargs.pop("cached_content"))
+                config_kwargs["system_instruction"] = system_prompt
+                continue
+
             if _is_vertex_rate_limited(exc) and attempt < VERTEX_MAX_ATTEMPTS:
                 LOGGER.warning(
                     "Vertex AI rate limit hit for model '%s' (attempt %s/%s). "

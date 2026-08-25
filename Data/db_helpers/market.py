@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 import logging
 import sys
@@ -8,6 +10,14 @@ from market_db import initialize_database as initialize_market_database
 from market_db import (
     expire_manager_decision_pnl,
     add_company_price_snapshot,
+    close_position_thesis,
+    count_thesis_validator_exits_for_date,
+    get_open_position_thesis_for_option_symbol,
+    get_thesis_validation_run_for_date,
+    list_thesis_validation_runs,
+    record_position_thesis,
+    record_thesis_validation_run,
+    summarize_thesis_validator_health,
     backfill_decision_autopsy_ledger,
     complete_manager_replay_evaluation,
     create_manager_replay_evaluation,

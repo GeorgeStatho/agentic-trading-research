@@ -61,7 +61,7 @@ OPTION_DTE_BUCKETS = (
         "45-60 DTE",
         45,
         60,
-        target_otm_pct=0.035,
+        target_otm_pct=0.030,
         force_exit_days_to_expiration=27,
         default_take_profit_pct=85.0,
         default_stop_loss_pct=-40.0,
