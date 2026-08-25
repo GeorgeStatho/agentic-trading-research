@@ -23,11 +23,43 @@ load_project_env()
 
 import agent_helpers.market_context as market_context  # noqa: E402
 from agent_helpers.market_context import underlying as underlying_module  # noqa: E402
+from agent_helpers.market_context import underlying_bars as underlying_bars_module  # noqa: E402
 from agent_helpers.market_context import common as market_context_common  # noqa: E402
 from agent_stages.manager_payload_context import _build_manager_visible_market_context  # noqa: E402
 
 
 class MarketContextVolatilityTests(unittest.TestCase):
+    def test_daily_stock_bar_request_explicitly_uses_iex(self):
+        class FakeStockClient:
+            request = None
+
+            def get_stock_bars(self, request):
+                self.request = request
+                return {"AAPL": []}
+
+        class FakeStockBarsRequest:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        class FakeTimeFrame:
+            Day = "1Day"
+
+        class FakeDataFeed:
+            IEX = "iex"
+
+        stock_client = FakeStockClient()
+        with (
+            patch.object(underlying_bars_module, "_get_alpaca_clients", return_value={"stock": stock_client}),
+            patch.object(underlying_bars_module, "StockBarsRequest", FakeStockBarsRequest),
+            patch.object(underlying_bars_module, "TimeFrame", FakeTimeFrame),
+            patch.object(underlying_bars_module, "DataFeed", FakeDataFeed),
+        ):
+            bars, error = underlying_bars_module._fetch_daily_stock_bars("aapl")
+
+        self.assertEqual(bars, [])
+        self.assertEqual(error, "")
+        self.assertEqual(stock_client.request.kwargs["feed"], FakeDataFeed.IEX)
+
     def test_summarize_underlying_price_history_computes_realized_volatility_from_alpaca_bars(self):
         start_time = datetime(2026, 1, 2, tzinfo=timezone.utc)
         bars = []
@@ -50,6 +82,7 @@ class MarketContextVolatilityTests(unittest.TestCase):
         self.assertTrue(result["available"])
         self.assertEqual(result["symbol"], "AAPL")
         self.assertEqual(result["source"], "alpaca_stock_bars")
+        self.assertEqual(result["feed"], "iex")
         self.assertEqual(result["close_count"], 70)
         self.assertEqual(result["first_bar_timestamp"], bars[0]["timestamp"])
         self.assertEqual(result["last_bar_timestamp"], bars[-1]["timestamp"])

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+import hashlib
 import json
 import logging
 import os
@@ -61,6 +62,21 @@ VERTEX_RETRY_MAX_DELAY_SECONDS = max(
     VERTEX_RETRY_INITIAL_DELAY_SECONDS,
     float(os.getenv("VERTEX_RETRY_MAX_DELAY_SECONDS", "30")),
 )
+
+# Explicit context caching is opt-in. Implicit caching is already on by default for
+# Gemini 2.5 models, so enable this only for stages whose system prompt clears the
+# provider minimum (2048 tokens) and which run many calls inside one TTL window.
+VERTEX_EXPLICIT_CACHE_ENABLED = str(
+    os.getenv("VERTEX_EXPLICIT_CACHE", "")
+).strip().lower() in {"1", "true", "yes"}
+# Cached tokens are billed for storage per hour, and RUN_INTERVAL_SECONDS defaults to
+# three hours -- a TTL longer than one cycle's strategist/manager burst is billed idle.
+VERTEX_CACHE_TTL_SECONDS = max(60, int(os.getenv("VERTEX_CACHE_TTL_SECONDS", "900")))
+
+# cache_key -> (cached_content_name, local_expiry_monotonic)
+_VERTEX_CACHE_REGISTRY: dict[str, tuple[str, float]] = {}
+# cache_keys whose prompt the provider refused to cache; never retried.
+_VERTEX_CACHE_UNAVAILABLE: set[str] = set()
 
 
 def _normalize_provider(provider: str | None = None) -> str:
@@ -192,6 +208,84 @@ def _extract_response_text(response: Any) -> str | None:
     return combined or None
 
 
+def _safe_response_value(value: Any) -> str | int | float | bool | None:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    name = getattr(value, "name", None)
+    if isinstance(name, str) and name:
+        return name
+    return str(value)
+
+
+def _record_vertex_response_diagnostic(
+    response: Any,
+    *,
+    model: str,
+    response_diagnostic: dict[str, Any] | None,
+) -> None:
+    """Capture completion metadata without retaining the request payload."""
+    if response_diagnostic is None:
+        return
+
+    candidates = getattr(response, "candidates", None)
+    candidate = candidates[0] if isinstance(candidates, list) and candidates else None
+    response_diagnostic.update(
+        {
+            "provider": "vertex",
+            "model": model,
+            "candidate_count": len(candidates) if isinstance(candidates, list) else 0,
+            "finish_reason": _safe_response_value(getattr(candidate, "finish_reason", None)),
+            "finish_message": _safe_response_value(getattr(candidate, "finish_message", None)),
+        }
+    )
+    usage = getattr(response, "usage_metadata", None)
+    if usage is not None:
+        for key in (
+            "prompt_token_count",
+            "candidates_token_count",
+            "total_token_count",
+            "cached_content_token_count",
+        ):
+            value = _safe_response_value(getattr(usage, key, None))
+            if value is not None:
+                response_diagnostic[key] = value
+
+
+def build_model_response_diagnostic(
+    raw_response: str,
+    *,
+    response_diagnostic: dict[str, Any] | None = None,
+    excerpt_characters: int = 4_000,
+) -> dict[str, Any]:
+    """Return a bounded diagnostic for an invalid structured model response."""
+    raw = str(raw_response or "")
+    excerpt_limit = max(1, int(excerpt_characters))
+    diagnostic: dict[str, Any] = {
+        "response_characters": len(raw),
+        "response_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+        "response_excerpt": raw[:excerpt_limit],
+    }
+    if len(raw) > excerpt_limit:
+        diagnostic["response_tail"] = raw[-min(500, excerpt_limit):]
+        diagnostic["response_excerpt_truncated"] = True
+    if response_diagnostic:
+        diagnostic["provider_response"] = dict(response_diagnostic)
+
+    try:
+        json.loads(raw)
+    except json.JSONDecodeError as exc:
+        diagnostic["json_decode_error"] = {
+            "message": exc.msg,
+            "line": exc.lineno,
+            "column": exc.colno,
+            "position": exc.pos,
+        }
+    except TypeError as exc:
+        diagnostic["json_decode_error"] = {"message": str(exc)}
+
+    return diagnostic
+
+
 def _extract_status_code(exc: Exception) -> int | None:
     direct_status = getattr(exc, "status_code", None)
     if isinstance(direct_status, int):
@@ -212,6 +306,13 @@ def _is_vertex_rate_limited(exc: Exception) -> bool:
 
     message = str(exc).upper()
     return "RESOURCE_EXHAUSTED" in message or "RATE LIMIT" in message
+
+
+def _is_vertex_cache_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if "cachedcontent" in message.replace("_", "").replace(" ", ""):
+        return True
+    return "cached content" in message or _extract_status_code(exc) == 404
 
 
 def _build_vertex_error_message(exc: Exception, model_name: str) -> str:
@@ -262,6 +363,72 @@ def _build_vertex_error_message(exc: Exception, model_name: str) -> str:
     )
 
 
+def _cached_system_prompt_name(
+    client: Client,
+    resolved_model: str,
+    system_prompt: str,
+) -> str | None:
+    """Return a reusable Vertex cache holding ``system_prompt``, or None if caching is unavailable.
+
+    Only the system instruction is cached: it is the sole request component that is
+    byte-identical across calls within a stage. Callers must fall back to sending the
+    system prompt inline whenever this returns None -- prompts below the provider's
+    minimum cacheable size (2048 tokens for Gemini 2.5) are rejected at create time.
+    """
+    if not VERTEX_EXPLICIT_CACHE_ENABLED or genai_types is None:
+        return None
+
+    prompt_digest = hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[:16]
+    cache_key = f"{resolved_model}:{prompt_digest}"
+
+    cached = _VERTEX_CACHE_REGISTRY.get(cache_key)
+    if cached is not None and time.monotonic() < cached[1]:
+        return cached[0]
+
+    if cache_key in _VERTEX_CACHE_UNAVAILABLE:
+        return None
+
+    try:
+        cache = client.raw_client.caches.create(
+            model=resolved_model,
+            config=genai_types.CreateCachedContentConfig(
+                system_instruction=system_prompt,
+                display_name=f"agent-stage-{prompt_digest}",
+                ttl=f"{VERTEX_CACHE_TTL_SECONDS}s",
+            ),
+        )
+    except Exception as exc:
+        # Most commonly the prompt is under the provider minimum, which will never
+        # succeed for this prompt. Record it so every later call skips the attempt.
+        _VERTEX_CACHE_UNAVAILABLE.add(cache_key)
+        LOGGER.info(
+            "Vertex context caching unavailable for model '%s' (prompt %s); "
+            "falling back to inline system instructions. Reason: %s",
+            resolved_model,
+            prompt_digest,
+            exc,
+        )
+        return None
+
+    # Expire locally before the server does so a call never races a vanishing cache.
+    local_expiry = time.monotonic() + max(30, VERTEX_CACHE_TTL_SECONDS - 60)
+    _VERTEX_CACHE_REGISTRY[cache_key] = (cache.name, local_expiry)
+    LOGGER.info(
+        "Created Vertex context cache %s for model '%s' (prompt %s, ttl %ss)",
+        cache.name,
+        resolved_model,
+        prompt_digest,
+        VERTEX_CACHE_TTL_SECONDS,
+    )
+    return cache.name
+
+
+def _invalidate_vertex_cache(cache_name: str) -> None:
+    for key, (name, _expiry) in list(_VERTEX_CACHE_REGISTRY.items()):
+        if name == cache_name:
+            _VERTEX_CACHE_REGISTRY.pop(key, None)
+
+
 def _ask_vertex_model(
     client: Client,
     model: str,
@@ -270,6 +437,7 @@ def _ask_vertex_model(
     *,
     temperature: float,
     response_schema: dict[str, Any] | None,
+    response_diagnostic: dict[str, Any] | None,
 ) -> str:
     # Call the Vertex model with the shared request settings and translate provider errors into a stable message shape.
     if genai_types is None:
@@ -277,15 +445,21 @@ def _ask_vertex_model(
             "The 'google-genai' Python package is required for Vertex AI requests."
         )
 
-    config_kwargs: dict[str, Any] = {
-        "temperature": temperature,
-        "system_instruction": system_prompt,
-    }
+    resolved_model = _resolve_model_name(client.provider, model)
+
+    config_kwargs: dict[str, Any] = {"temperature": temperature}
     if response_schema is not None:
         config_kwargs["response_mime_type"] = "application/json"
         config_kwargs["response_schema"] = response_schema
 
-    resolved_model = _resolve_model_name(client.provider, model)
+    # A cached system instruction is baked into the cache, so it must not also be sent
+    # inline -- the provider rejects requests that set both.
+    cache_name = _cached_system_prompt_name(client, resolved_model, system_prompt)
+    if cache_name is not None:
+        config_kwargs["cached_content"] = cache_name
+    else:
+        config_kwargs["system_instruction"] = system_prompt
+
     retry_delay_seconds = VERTEX_RETRY_INITIAL_DELAY_SECONDS
 
     for attempt in range(1, VERTEX_MAX_ATTEMPTS + 1):
@@ -295,8 +469,26 @@ def _ask_vertex_model(
                 contents=user_prompt,
                 config=genai_types.GenerateContentConfig(**config_kwargs),
             )
+            _record_vertex_response_diagnostic(
+                response,
+                model=resolved_model,
+                response_diagnostic=response_diagnostic,
+            )
             break
         except Exception as exc:
+            # A cache can expire server-side mid-cycle. Drop it and retry inline rather
+            # than failing the stage over a cost optimisation.
+            if "cached_content" in config_kwargs and _is_vertex_cache_error(exc):
+                LOGGER.warning(
+                    "Vertex context cache %s is no longer usable; "
+                    "retrying with an inline system instruction. Reason: %s",
+                    config_kwargs["cached_content"],
+                    exc,
+                )
+                _invalidate_vertex_cache(config_kwargs.pop("cached_content"))
+                config_kwargs["system_instruction"] = system_prompt
+                continue
+
             if _is_vertex_rate_limited(exc) and attempt < VERTEX_MAX_ATTEMPTS:
                 LOGGER.warning(
                     "Vertex AI rate limit hit for model '%s' (attempt %s/%s). "
@@ -332,6 +524,7 @@ def _ask_openai_model(
     *,
     temperature: float,
     response_schema: dict[str, Any] | None,
+    response_diagnostic: dict[str, Any] | None,
 ) -> str:
     resolved_model = _resolve_model_name(client.provider, model)
     request_kwargs: dict[str, Any] = {
@@ -373,6 +566,7 @@ def ask_llm_model(
     temperature: float = 0,
     host_label: str | None = None,
     response_schema: dict[str, Any] | None = None,
+    response_diagnostic: dict[str, Any] | None = None,
 ) -> str:
     # Route model calls through the supported provider path and normalize the response and error handling for callers.
     if client.provider == "vertex":
@@ -383,6 +577,7 @@ def ask_llm_model(
             user_prompt,
             temperature=temperature,
             response_schema=response_schema,
+            response_diagnostic=response_diagnostic,
         )
 
     if client.provider == "openai":
@@ -393,6 +588,7 @@ def ask_llm_model(
             user_prompt,
             temperature=temperature,
             response_schema=response_schema,
+            response_diagnostic=response_diagnostic,
         )
 
     if client.provider != "ollama":

@@ -436,6 +436,7 @@ def _run_strategist_and_manager(
             symbol,
             strategist_recommendation=strategist_recommendation,
             market_regime=cycle_market_regime,
+            manager_evidence_payload=strategist_result.get("manager_evidence_payload"),
         )
         manager_result = apply_deterministic_option_selection(manager_result)
         manager_result = apply_market_regime_gate_to_manager_result(manager_result)

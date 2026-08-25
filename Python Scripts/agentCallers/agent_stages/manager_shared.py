@@ -37,6 +37,8 @@ VALID_STRATEGIST_DECISIONS = {"trade_candidate", "watchlist", "do_not_trade"}
 VALID_QUALITY_LEVELS = {"strong", "moderate", "weak"}
 VALID_TIMING_CLARITY = {"clear", "unclear"}
 VALID_TIME_HORIZONS = {*TIME_HORIZON_TO_DTE_BUCKET.keys(), "unclear"}
+MANAGER_REASON_MAX_CHARS = 600
+MANAGER_SUMMARY_MAX_CHARS = 600
 
 LOGGER = logging.getLogger(__name__)
 TARGET_DTE_BUCKET_CHOICES_TEXT = get_target_dte_bucket_choices_text()
@@ -57,9 +59,16 @@ MANAGER_RECOMMENDATION_SCHEMA: dict[str, Any] = {
                 "decision": {"type": "string", "enum": ["call", "put", "neither"]},
                 "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
                 "target_dte_bucket": {"type": "string", "enum": list(ORDERED_OPTION_DTE_BUCKET_KEYS_WITH_NONE)},
-                "reason": {"type": "string"},
+                "technical_confirmation": {"type": "string", "enum": ["strong", "moderate", "mixed", "weak", "overextended"]},
+                "entry_quality": {"type": "string", "enum": ["excellent", "good", "acceptable", "poor", "chase"]},
+                "recommended_action_adjustment": {"type": "string", "enum": ["approve", "approve_with_normal_size", "reduce_confidence", "reduce_size", "wait", "skip"]},
+                "overextension_risk": {"type": "string", "enum": ["low", "medium", "high"]},
+                "options_pricing_risk": {"type": "string", "enum": ["low", "medium", "high"]},
+                "technical_summary": {"type": "string", "maxLength": MANAGER_SUMMARY_MAX_CHARS},
+                "risk_summary": {"type": "string", "maxLength": MANAGER_SUMMARY_MAX_CHARS},
+                "reason": {"type": "string", "maxLength": MANAGER_REASON_MAX_CHARS},
             },
-            "required": ["decision", "confidence", "target_dte_bucket", "reason"],
+            "required": ["decision", "confidence", "target_dte_bucket", "technical_confirmation", "entry_quality", "recommended_action_adjustment", "reason"],
             "additionalProperties": False,
         }
     },
@@ -77,7 +86,14 @@ def get_default_client() -> Client:
     return _manager_client
 
 
-def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> str:
+def ask_model(
+    client: Client,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    response_diagnostic: dict[str, Any] | None = None,
+) -> str:
     return ask_llm_model(
         client,
         model,
@@ -86,6 +102,7 @@ def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) 
         temperature=0,
         host_label=MODEL_BACKEND_LABEL,
         response_schema=MANAGER_RECOMMENDATION_SCHEMA,
+        response_diagnostic=response_diagnostic,
     )
 
 

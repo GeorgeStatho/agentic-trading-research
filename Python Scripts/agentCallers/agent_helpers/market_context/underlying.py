@@ -28,6 +28,7 @@ def _empty_underlying_price_history_snapshot(*, symbol: str, error: str = "") ->
         "available": False,
         "symbol": symbol,
         "source": "alpaca_stock_bars",
+        "feed": "iex",
         "timeframe": "1Day",
         "lookback_calendar_days": UNDERLYING_HISTORY_LOOKBACK_CALENDAR_DAYS,
         "close_count": 0,

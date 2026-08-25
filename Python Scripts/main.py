@@ -36,6 +36,8 @@ from services.io_utils import JsonFileWriter, StatusReporter
 from services.logging_utils import _build_log_path, _configure_logging
 from services.order_candidates import OrderCandidateBuilder
 from services.position_manager import OptionPositionManagerService
+from services.thesis_capture import PositionThesisJournal
+from services.thesis_validator_service import ThesisValidatorService
 from services.trade_journal import OptionTradeJournal
 from services.trade_executor import OptionExposureSnapshot, OptionTradeExecutor, TradeExecutionSession
 from services.trading_gateway import AlpacaTradingGateway
@@ -55,10 +57,13 @@ TRADE_JOURNAL = OptionTradeJournal(
     paper=APP_SETTINGS.alpaca_paper,
     logger=LOGGER,
 )
+THESIS_JOURNAL = PositionThesisJournal(logger=LOGGER)
+THESIS_VALIDATOR = ThesisValidatorService(logger=LOGGER)
 TRADE_EXECUTOR = OptionTradeExecutor(
     settings=APP_SETTINGS,
     trading_gateway=TRADING_GATEWAY,
     trade_journal=TRADE_JOURNAL,
+    thesis_journal=THESIS_JOURNAL,
     logger=LOGGER,
 )
 POSITION_MANAGER = OptionPositionManagerService(
@@ -66,6 +71,8 @@ POSITION_MANAGER = OptionPositionManagerService(
     paths=APP_PATHS,
     trading_gateway=TRADING_GATEWAY,
     trade_journal=TRADE_JOURNAL,
+    thesis_journal=THESIS_JOURNAL,
+    thesis_validator=THESIS_VALIDATOR,
     logger=LOGGER,
 )
 FRONT_MAIN_APP = FrontMainApplication(

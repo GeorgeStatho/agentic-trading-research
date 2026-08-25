@@ -71,11 +71,13 @@ class OptionTradeExecutor:
         settings: FrontMainSettings,
         trading_gateway: Any,
         trade_journal: Any | None = None,
+        thesis_journal: Any | None = None,
         logger: logging.Logger,
     ) -> None:
         self._settings = settings
         self._trading_gateway = trading_gateway
         self._trade_journal = trade_journal
+        self._thesis_journal = thesis_journal
         self._logger = logger
 
     def _get_option_reference_price(self, selected_option: dict[str, Any]) -> float:
@@ -359,53 +361,6 @@ class OptionTradeExecutor:
                 option_symbol=option_symbol,
                 qty=calculated_order_qty,
             )
-            session.remaining_deployable_buying_power -= estimated_order_cost
-            session.current_option_exposure += estimated_order_cost
-            session.sector_exposure_by_key[sector_key] = session.sector_exposure_by_key.get(sector_key, 0.0) + estimated_order_cost
-            if option_symbol not in session.open_option_symbols:
-                session.open_option_symbols.add(option_symbol)
-                session.current_option_position_count += 1
-            execution = self._build_execution(
-                candidate=candidate,
-                session=session,
-                order_qty=calculated_order_qty,
-                submitted=True,
-                order=order_summary,
-                estimated_order_cost=estimated_order_cost,
-                error="",
-            )
-            if self._trade_journal is not None:
-                try:
-                    record_id = self._trade_journal.record_execution(execution)
-                    execution["db_recorded"] = record_id is not None
-                    execution["db_record_id"] = record_id
-                except Exception as exc:
-                    self._logger.exception(
-                        "Failed to record executed option trade in DB for %s: %s",
-                        option_symbol,
-                        exc,
-                    )
-                    execution["db_recorded"] = False
-                    execution["db_record_error"] = str(exc)
-            try:
-                manager_decision_history_id = link_manager_decision_to_trade_execution(
-                    trade_execution_order_id=str(order_summary.get("id") or ""),
-                    trade_execution_record_id=execution.get("db_record_id"),
-                    company_id=candidate.get("company_id"),
-                    symbol=candidate.get("symbol"),
-                    selected_option_symbol=option_symbol,
-                    submitted_at=order_summary.get("submitted_at"),
-                )
-                execution["manager_decision_history_linked"] = manager_decision_history_id is not None
-                execution["manager_decision_history_id"] = manager_decision_history_id
-            except Exception as exc:
-                self._logger.exception(
-                    "Failed to link option execution back to manager decision history for %s: %s",
-                    option_symbol,
-                    exc,
-                )
-                execution["manager_decision_history_linked"] = False
-                execution["manager_decision_history_link_error"] = str(exc)
         except Exception as exc:
             self._logger.exception("Failed to submit option order for %s: %s", option_symbol, exc)
             execution = self._build_execution(
@@ -417,9 +372,113 @@ class OptionTradeExecutor:
                 estimated_order_cost=estimated_order_cost,
                 error=str(exc),
             )
+        else:
+            self._reserve_session_capacity(
+                session=session,
+                option_symbol=option_symbol,
+                sector_key=sector_key,
+                estimated_order_cost=estimated_order_cost,
+            )
+            execution = self._build_execution(
+                candidate=candidate,
+                session=session,
+                order_qty=calculated_order_qty,
+                submitted=True,
+                order=order_summary,
+                estimated_order_cost=estimated_order_cost,
+                error="",
+            )
+            self._record_trade_journal_entry(execution, option_symbol=option_symbol)
+            self._link_manager_decision_history(
+                execution,
+                candidate=candidate,
+                order_summary=order_summary,
+                option_symbol=option_symbol,
+            )
+            self._record_thesis_entry(execution, option_symbol=option_symbol)
 
         session.executions.append(execution)
         return execution
+
+    @staticmethod
+    def _reserve_session_capacity(
+        *,
+        session: TradeExecutionSession,
+        option_symbol: str,
+        sector_key: str,
+        estimated_order_cost: float,
+    ) -> None:
+        """Consume shared session budgets once an order has been submitted."""
+        session.remaining_deployable_buying_power -= estimated_order_cost
+        session.current_option_exposure += estimated_order_cost
+        session.sector_exposure_by_key[sector_key] = (
+            session.sector_exposure_by_key.get(sector_key, 0.0) + estimated_order_cost
+        )
+        if option_symbol not in session.open_option_symbols:
+            session.open_option_symbols.add(option_symbol)
+            session.current_option_position_count += 1
+
+    def _record_trade_journal_entry(self, execution: dict[str, Any], *, option_symbol: str) -> None:
+        if self._trade_journal is None:
+            return
+        try:
+            record_id = self._trade_journal.record_execution(execution)
+            execution["db_recorded"] = record_id is not None
+            execution["db_record_id"] = record_id
+        except Exception as exc:
+            self._logger.exception(
+                "Failed to record executed option trade in DB for %s: %s",
+                option_symbol,
+                exc,
+            )
+            execution["db_recorded"] = False
+            execution["db_record_error"] = str(exc)
+
+    def _link_manager_decision_history(
+        self,
+        execution: dict[str, Any],
+        *,
+        candidate: dict[str, Any],
+        order_summary: dict[str, Any],
+        option_symbol: str,
+    ) -> None:
+        try:
+            manager_decision_history_id = link_manager_decision_to_trade_execution(
+                trade_execution_order_id=str(order_summary.get("id") or ""),
+                trade_execution_record_id=execution.get("db_record_id"),
+                company_id=candidate.get("company_id"),
+                symbol=candidate.get("symbol"),
+                selected_option_symbol=option_symbol,
+                submitted_at=order_summary.get("submitted_at"),
+            )
+            execution["manager_decision_history_linked"] = manager_decision_history_id is not None
+            execution["manager_decision_history_id"] = manager_decision_history_id
+        except Exception as exc:
+            self._logger.exception(
+                "Failed to link option execution back to manager decision history for %s: %s",
+                option_symbol,
+                exc,
+            )
+            execution["manager_decision_history_linked"] = False
+            execution["manager_decision_history_link_error"] = str(exc)
+
+    def _record_thesis_entry(self, execution: dict[str, Any], *, option_symbol: str) -> None:
+        # Phase 0 of the thesis validator: capture the entry thesis now, because
+        # it cannot be backfilled later. Never blocks the trade.
+        if self._thesis_journal is None:
+            return
+        try:
+            thesis_id = self._thesis_journal.record_entry(execution)
+            execution["thesis_recorded"] = thesis_id is not None
+            execution["thesis_id"] = thesis_id
+        except Exception as exc:
+            self._logger.exception(
+                "Failed to record position thesis for %s: %s",
+                option_symbol,
+                exc,
+            )
+            execution["thesis_recorded"] = False
+            execution["thesis_record_error"] = str(exc)
 
     def execute(
         self,

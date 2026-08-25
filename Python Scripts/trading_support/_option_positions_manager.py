@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from alpaca.trading.client import TradingClient
 
+from services.order_values import normalize_order_side, normalize_order_status
 from services.option_position_state import delete_position_state, get_position_state, load_state
 
 from ._option_positions_defaults import (
@@ -122,7 +123,7 @@ def CloseOptionPositions(
                 "symbol": symbol,
                 "qty": str(getattr(position, "qty", "")),
                 "close_order_id": str(getattr(close_order, "id", "")),
-                "close_order_status": str(getattr(close_order, "status", "")),
+                "close_order_status": normalize_order_status(getattr(close_order, "status", "")),
             }
         )
     return close_results
@@ -397,15 +398,15 @@ def ManageCurrentOptionPositions(
                         legacy_close_order = active_trading_client.close_position(symbol)
                         close_order = {
                             "id": str(getattr(legacy_close_order, "id", "")),
-                            "status": str(getattr(legacy_close_order, "status", "")),
-                            "side": str(getattr(legacy_close_order, "side", "sell")),
+                            "status": normalize_order_status(getattr(legacy_close_order, "status", "")),
+                            "side": normalize_order_side(getattr(legacy_close_order, "side", "sell")),
                             "qty": str(getattr(legacy_close_order, "qty", summary.get("quantity") or "")),
                             "submitted_at": str(getattr(legacy_close_order, "submitted_at", "")),
                         }
                     summary["close_submitted"] = True
                     summary["close_order_id"] = str(close_order.get("id") or "")
-                    summary["close_order_status"] = str(close_order.get("status") or "")
-                    summary["close_order_side"] = str(close_order.get("side") or "")
+                    summary["close_order_status"] = normalize_order_status(close_order.get("status"))
+                    summary["close_order_side"] = normalize_order_side(close_order.get("side"))
                     summary["close_requested_qty"] = (
                         _safe_int(close_order.get("requested_qty"))
                         or _safe_int(close_order.get("qty"))
@@ -433,8 +434,8 @@ def ManageCurrentOptionPositions(
                     )
                     summary["close_submitted"] = True
                     summary["close_order_id"] = str(close_order.get("id") or "")
-                    summary["close_order_status"] = str(close_order.get("status") or "")
-                    summary["close_order_side"] = str(close_order.get("side") or "")
+                    summary["close_order_status"] = normalize_order_status(close_order.get("status"))
+                    summary["close_order_side"] = normalize_order_side(close_order.get("side"))
                     summary["close_requested_qty"] = (
                         _safe_int(close_order.get("requested_qty"))
                         or _safe_int(close_order.get("qty"))

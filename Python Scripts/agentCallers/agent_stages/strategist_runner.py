@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 import os
 from typing import Any
@@ -38,6 +39,23 @@ DEFAULT_MODEL = os.getenv(
 
 _strategist_client: Client | None = None
 STRATEGIST_PROMPT_VERSION = "grounded-strategist-v1"
+
+
+def _build_manager_evidence_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Freeze the exact article evidence used for the strategist decision."""
+    return copy.deepcopy(
+        {
+            key: payload.get(key)
+            for key in (
+                "company",
+                "filters",
+                "opportunist_rollup",
+                "views",
+                "supporting_articles",
+                "grounding",
+            )
+        }
+    )
 
 
 def get_default_client() -> Client:
@@ -172,6 +190,7 @@ def decide_company_purchase(
         return {
             **result,
             "grounding": payload.get("grounding", {}),
+            "manager_evidence_payload": _build_manager_evidence_payload(payload),
             "strategist_run_reference": strategist_run_reference,
         }
 
@@ -229,5 +248,6 @@ def decide_company_purchase(
     return {
         **result,
         "grounding": payload.get("grounding", {}),
+        "manager_evidence_payload": _build_manager_evidence_payload(payload),
         "strategist_run_reference": strategist_run_reference,
     }

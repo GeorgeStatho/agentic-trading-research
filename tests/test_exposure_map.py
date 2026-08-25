@@ -47,6 +47,30 @@ class ExposureMapTests(unittest.TestCase):
         ):
             self.assertEqual(resolve_exposure_map_model(), "qwen-test")
 
+    def test_enum_form_sell_side_has_the_same_risk_direction_as_a_plain_sell(self):
+        plain_score, plain_details = calculate_position_risk_score(
+            quantity=1,
+            direction="positive",
+            magnitude="medium",
+            confidence="high",
+            dte=14,
+            implied_volatility=0.25,
+            contract_type="call",
+            order_side="sell",
+        )
+        enum_score, enum_details = calculate_position_risk_score(
+            quantity=1,
+            direction="positive",
+            magnitude="medium",
+            confidence="high",
+            dte=14,
+            implied_volatility=0.25,
+            contract_type="call",
+            order_side="OrderSide.SELL",
+        )
+        self.assertEqual(enum_score, plain_score)
+        self.assertEqual(enum_details, plain_details)
+
     def _seed_article(self, db_path: Path) -> int:
         initialize_market_database(db_path=db_path)
         initialize_news_database(db_path=db_path)

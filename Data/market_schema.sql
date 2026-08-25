@@ -320,6 +320,58 @@ CREATE TABLE IF NOT EXISTS backtest_events (
     FOREIGN KEY (evidence_snapshot_id) REFERENCES decision_evidence_snapshots(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS position_theses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    manager_decision_history_id INTEGER,
+    trade_execution_order_id TEXT,
+    company_id INTEGER,
+    symbol TEXT NOT NULL,
+    option_symbol TEXT NOT NULL,
+    structure TEXT,
+    opened_at TEXT NOT NULL,
+    catalyst_type TEXT,
+    catalyst_summary TEXT,
+    source_article_ids_json TEXT NOT NULL DEFAULT '[]',
+    expected_horizon_days INTEGER,
+    invalidation_conditions_json TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'open',
+    closed_at TEXT,
+    raw_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE SET NULL,
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS thesis_validation_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thesis_id INTEGER NOT NULL,
+    option_symbol TEXT NOT NULL,
+    symbol TEXT,
+    run_at TEXT NOT NULL,
+    run_date TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'shadow',
+    evidence_pack_json TEXT NOT NULL DEFAULT '{}',
+    raw_samples_json TEXT NOT NULL DEFAULT '[]',
+    sample_count INTEGER NOT NULL DEFAULT 0,
+    consistency TEXT,
+    flip_detected INTEGER NOT NULL DEFAULT 0,
+    grounded INTEGER NOT NULL DEFAULT 0,
+    thesis_state TEXT NOT NULL,
+    would_open_today TEXT,
+    evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+    rationale TEXT,
+    confidence REAL,
+    rules_verdict TEXT,
+    arbiter_action TEXT NOT NULL DEFAULT 'none',
+    arbiter_reason TEXT,
+    executed INTEGER NOT NULL DEFAULT 0,
+    mark_mid_price REAL,
+    error_text TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (thesis_id) REFERENCES position_theses(id) ON DELETE CASCADE,
+    UNIQUE (thesis_id, run_date)
+);
+
 CREATE TABLE IF NOT EXISTS telemetry_installations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     install_id TEXT NOT NULL UNIQUE,
@@ -435,6 +487,18 @@ CREATE INDEX IF NOT EXISTS idx_backtest_runs_created_at
 
 CREATE INDEX IF NOT EXISTS idx_backtest_events_run_as_of
     ON backtest_events (run_id, as_of);
+
+CREATE INDEX IF NOT EXISTS idx_position_theses_option_symbol
+    ON position_theses (option_symbol, status);
+
+CREATE INDEX IF NOT EXISTS idx_position_theses_symbol
+    ON position_theses (symbol);
+
+CREATE INDEX IF NOT EXISTS idx_thesis_validation_runs_thesis_id
+    ON thesis_validation_runs (thesis_id, run_date);
+
+CREATE INDEX IF NOT EXISTS idx_thesis_validation_runs_run_date
+    ON thesis_validation_runs (run_date);
 
 CREATE INDEX IF NOT EXISTS idx_telemetry_installations_project
     ON telemetry_installations (project);

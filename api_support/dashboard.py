@@ -13,6 +13,7 @@ from db_helpers.market import (
     list_decision_expectancy_rows,
     list_recent_manager_decision_history,
 )
+from db_helpers import DB_PATH, get_connection
 from performance_metrics import (
     DEFAULT_ANNUAL_RISK_FREE_RATE,
     compute_daily_returns,
@@ -46,6 +47,7 @@ from api_support.context import (
     PER_ORDER_SIZING_BUYING_POWER_PCT,
     SCRIPT_STATUS_PATH,
 )
+from api_support.thesis_validator import load_latest_thesis_verdicts
 from api_support.trades import build_trade_explanation_payload
 
 
@@ -82,6 +84,10 @@ def _empty_company_decision_entry(*, symbol: str, name: str, last_updated_at: st
             "selected_option_source": "",
             "entry_gate": {},
             "market_regime_gate": {},
+        },
+        "diagnostics": {
+            "historical_bars": {},
+            "strategist_validation": {},
         },
         "manager_history": [],
     }
@@ -201,6 +207,81 @@ def _extract_manager_snapshot_from_history_row(
     }
 
 
+def _extract_historical_bars_diagnostic(manager_input_json: object) -> dict:
+    manager_input = manager_input_json if isinstance(manager_input_json, dict) else {}
+    market_context = manager_input.get("market_context")
+    if not isinstance(market_context, dict):
+        market_context = {}
+    underlying = market_context.get("underlying_price_history")
+    if not isinstance(underlying, dict):
+        return {}
+
+    return {
+        "available": bool(underlying.get("available")),
+        "source": str(underlying.get("source") or "").strip(),
+        "feed": str(underlying.get("feed") or "").strip(),
+        "close_count": int(underlying.get("close_count") or 0),
+        "error": str(underlying.get("error") or "").strip(),
+    }
+
+
+def _load_latest_strategist_run_statuses() -> dict[int, dict]:
+    """Return the most recent persisted strategist status for each company.
+
+    A failed strategist response has no manager-decision row because the cycle
+    intentionally stops before manager evaluation.  The dashboard therefore
+    reads the already-persisted strategist run directly to show that failure.
+    """
+    try:
+        with get_connection(DB_PATH) as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    sr.company_id,
+                    c.symbol,
+                    c.name AS company_name,
+                    sr.status,
+                    sr.error_message,
+                    sr.input_article_ids_json,
+                    sr.created_at
+                FROM strategist_runs AS sr
+                JOIN companies AS c ON c.id = sr.company_id
+                ORDER BY sr.company_id ASC, sr.created_at DESC, sr.id DESC
+                """
+            ).fetchall()
+    except Exception:
+        return {}
+
+    latest_by_company: dict[int, dict] = {}
+    for row in rows:
+        item = dict(row)
+        company_id = int(item.get("company_id") or 0)
+        if company_id <= 0 or company_id in latest_by_company:
+            continue
+        article_ids = safe_json_loads(item.get("input_article_ids_json"))
+        latest_by_company[company_id] = {
+            "company_id": company_id,
+            "symbol": str(item.get("symbol") or "").strip().upper(),
+            "company_name": str(item.get("company_name") or "").strip(),
+            "status": str(item.get("status") or "").strip().lower(),
+            "error_message": str(item.get("error_message") or "").strip(),
+            "input_article_count": len(article_ids) if isinstance(article_ids, list) else 0,
+            "created_at": str(item.get("created_at") or "").strip(),
+        }
+    return latest_by_company
+
+
+def _strategist_validation_diagnostic(status: dict | None) -> dict:
+    if not isinstance(status, dict) or status.get("status") != "failed":
+        return {}
+    return {
+        "status": "failed",
+        "error_message": str(status.get("error_message") or "").strip(),
+        "input_article_count": int(status.get("input_article_count") or 0),
+        "created_at": str(status.get("created_at") or "").strip(),
+    }
+
+
 def _serialize_manager_history_row(item: dict) -> dict:
     return {
         "id": int(item.get("id") or 0),
@@ -234,7 +315,8 @@ def _build_company_decisions_payload_from_history() -> dict:
     except Exception:
         return _build_empty_company_decisions_payload()
 
-    if not rows:
+    strategist_run_statuses = _load_latest_strategist_run_statuses()
+    if not rows and not strategist_run_statuses:
         return _build_empty_company_decisions_payload()
 
     companies_by_symbol: dict[str, dict] = {}
@@ -268,6 +350,28 @@ def _build_company_decisions_payload_from_history() -> dict:
             item,
             item.get("manager_output_json"),
         )
+        company_id = int(item.get("company_id") or 0)
+        companies_by_symbol[symbol]["diagnostics"] = {
+            "historical_bars": _extract_historical_bars_diagnostic(item.get("manager_input_json")),
+            "strategist_validation": _strategist_validation_diagnostic(
+                strategist_run_statuses.get(company_id)
+            ),
+        }
+
+    for company_id, strategist_status in strategist_run_statuses.items():
+        validation = _strategist_validation_diagnostic(strategist_status)
+        if not validation:
+            continue
+        symbol = str(strategist_status.get("symbol") or "").strip().upper()
+        if not symbol:
+            continue
+        if symbol not in companies_by_symbol:
+            companies_by_symbol[symbol] = _empty_company_decision_entry(
+                symbol=symbol,
+                name=str(strategist_status.get("company_name") or "").strip(),
+                last_updated_at=str(strategist_status.get("created_at") or "").strip(),
+            )
+        companies_by_symbol[symbol]["diagnostics"]["strategist_validation"] = validation
 
     for symbol, company_entry in companies_by_symbol.items():
         company_entry["manager_history"] = [
@@ -1001,10 +1105,64 @@ def format_exit_rule_status(position_summary: dict, management_payload: dict) ->
     return "Monitoring"
 
 
+def _is_enabled(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _price_at_profit_pct(entry_price: float | None, profit_pct: float | None) -> float | None:
+    if entry_price is None or profit_pct is None:
+        return None
+    return round(entry_price * (1.0 + (profit_pct / 100.0)), 4)
+
+
+def build_option_protection_payload(
+    *,
+    snapshot: dict,
+    management_payload: dict,
+    entry_price: float | None,
+) -> dict:
+    """Return the manager's active price-exit floor and its recorded high-water mark.
+
+    The manager persists trailing values as decimal P/L ratios (0.40 means 40%).
+    The dashboard API exposes human-readable percentages and estimated option marks
+    derived from the entry price, while making the source of the active floor explicit.
+    """
+    protected_floor_ratio = safe_float(snapshot.get("protected_profit_floor_pct"))
+    protection_active = _is_enabled(snapshot.get("profit_protection_active"))
+    stop_loss_pct = safe_float(snapshot.get("stop_loss_pct"))
+    if stop_loss_pct is None:
+        stop_loss_pct = safe_float(management_payload.get("stop_loss_pct"))
+
+    if protection_active and protected_floor_ratio is not None:
+        floor_pct = round(protected_floor_ratio * 100.0, 4)
+        floor_type = "trailing_profit"
+    elif stop_loss_pct is not None:
+        floor_pct = stop_loss_pct
+        floor_type = "stop_loss"
+    else:
+        floor_pct = None
+        floor_type = "unavailable"
+
+    high_water_ratio = safe_float(snapshot.get("max_pnl_pct"))
+    high_water_pct = round(high_water_ratio * 100.0, 4) if high_water_ratio is not None else None
+
+    return {
+        "floor_type": floor_type,
+        "floor_profit_pct": floor_pct,
+        "floor_mark_price": _price_at_profit_pct(entry_price, floor_pct),
+        "trailing_profit_armed": protection_active and protected_floor_ratio is not None,
+        "high_water_profit_pct": high_water_pct,
+        "high_water_mark_price": _price_at_profit_pct(entry_price, high_water_pct),
+    }
+
+
 def build_open_positions_payload() -> dict:
     live_positions = alpaca_get_json("/v2/positions")
     normalized_positions = live_positions if isinstance(live_positions, list) else []
     option_snapshots, management_payload = load_option_management_snapshot()
+    thesis_verdicts = load_latest_thesis_verdicts()
     option_quote_cache: dict[str, dict] = {}
 
     rows: list[dict] = []
@@ -1091,9 +1249,15 @@ def build_open_positions_payload() -> dict:
                     "mid_price": mid_price,
                     "unrealized_pl_pct": unrealized_pl_pct,
                     "days_to_expiration": days_to_expiration,
+                    "profit_protection": build_option_protection_payload(
+                        snapshot=snapshot,
+                        management_payload=management_payload,
+                        entry_price=entry_price,
+                    ),
                     "exit_rule_status": format_exit_rule_status(snapshot, management_payload),
                     "decision": str(snapshot.get("decision") or ""),
                     "decision_reasons": snapshot.get("decision_reasons") if isinstance(snapshot.get("decision_reasons"), list) else [],
+                    "thesis_verdict": thesis_verdicts.get(symbol),
                 }
             )
             continue
@@ -1115,9 +1279,11 @@ def build_open_positions_payload() -> dict:
                 "mid_price": mid_price,
                 "unrealized_pl_pct": unrealized_pl_pct,
                 "days_to_expiration": None,
+                "profit_protection": None,
                 "exit_rule_status": "N/A",
                 "decision": "",
                 "decision_reasons": [],
+                "thesis_verdict": None,
             }
         )
 
@@ -1246,6 +1412,28 @@ def build_risk_controls_payload() -> dict:
     }
 
 
+def _build_thesis_validator_kpi_payload() -> dict:
+    """Shadow-mode health summary for the KPI card; fail-soft so the KPI
+    endpoint never breaks over validator data."""
+    import os
+
+    from api_support.context import logger
+
+    mode = str(os.getenv("THESIS_VALIDATOR_MODE", "shadow")).strip().lower() or "shadow"
+    try:
+        from db_helpers.market import summarize_thesis_validator_health
+
+        health = summarize_thesis_validator_health()
+    except Exception as exc:
+        logger.warning("Failed to summarize thesis validator health: %s", exc)
+        return {"available": False, "mode": mode}
+    return {
+        "available": health.get("position_day_count", 0) > 0,
+        "mode": mode,
+        **health,
+    }
+
+
 def build_dashboard_kpis() -> dict:
     account = alpaca_get_json("/v2/account")
     positions = alpaca_get_json("/v2/positions")
@@ -1302,6 +1490,7 @@ def build_dashboard_kpis() -> dict:
     top_rankings = _build_top_rankings_payload()
     usage_summary = _build_usage_summary()
     market_regime = build_market_regime_payload()
+    thesis_validator = _build_thesis_validator_kpi_payload()
 
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
@@ -1345,4 +1534,5 @@ def build_dashboard_kpis() -> dict:
         "market_status": summarize_market_status(clock),
         "market_regime": market_regime,
         "top_rankings": top_rankings,
+        "thesis_validator": thesis_validator,
     }

@@ -46,7 +46,7 @@
 .positions-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 1060px;
+  min-width: 1320px;
 }
 
 .positions-table th,
@@ -120,6 +120,33 @@
   font-size: 0.82rem;
   line-height: 1.35;
   opacity: 0.8;
+}
+
+.positions-table__protection {
+  display: grid;
+  min-width: 128px;
+  gap: 3px;
+  color: var(--on-surface-variant);
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.positions-table__protection strong {
+  color: var(--on-surface);
+  font-size: 0.94rem;
+}
+
+.positions-table__protection-label {
+  color: var(--on-surface-variant);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.positions-table__protection--armed strong,
+.positions-table__protection--armed > span:last-child {
+  color: var(--secondary);
 }
 
 .positions-table__positive {
