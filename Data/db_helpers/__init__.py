@@ -1,9 +1,11 @@
 from db_helpers.common import DB_PATH, DATA_DIR, get_connection, validate_sql_identifier
 from db_helpers.market import (
+    count_option_entry_executions_since,
     expire_manager_decision_pnl,
     get_backtest_run,
     fetch_marketdata_eod_option_quotes,
     get_company_sector_key,
+    get_latest_stop_loss_exit_at,
     import_alpaca_option_quote_csv,
     ensure_all_sector_market_data,
     ensure_industry_market_data,

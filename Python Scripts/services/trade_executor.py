@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -17,7 +18,9 @@ if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
 
 from db_helpers.market import (
+    count_option_entry_executions_since,
     get_company_sector_key,
+    get_latest_stop_loss_exit_at,
     get_realized_option_loss_since,
     link_manager_decision_to_trade_execution,
 )
@@ -42,6 +45,10 @@ class TradeExecutionSession:
     sector_exposure_by_key: dict[str, float] = field(default_factory=dict)
     daily_realized_loss: float = 0.0
     open_option_symbols: set[str] = field(default_factory=set)
+    # Hard dollar ceiling for one new entry's total premium; 0 disables the cap.
+    max_premium_per_trade: float = 0.0
+    # Buys submitted this session per underlying, for the entry attempt cap.
+    entries_by_underlying: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -101,6 +108,7 @@ class OptionTradeExecutor:
         option_reference_price: float,
         base_order_qty: int,
         max_deployable_buying_power: float,
+        max_premium_per_trade: float = 0.0,
     ) -> tuple[int, float]:
         # Handle the calculate order qty flow in one place so callers can rely on a single, well-defined result.
         if option_reference_price <= 0.0:
@@ -117,6 +125,14 @@ class OptionTradeExecutor:
                 base_order_qty * self._settings.max_option_order_qty_multiplier,
             ),
         )
+        if max_premium_per_trade > 0.0:
+            # The premium cap is a hard ceiling: it shrinks the order and, unlike
+            # the sizing budget above, refuses the trade (qty 0) when even one
+            # contract costs more than the allowance.
+            calculated_order_qty = min(
+                calculated_order_qty,
+                math.floor(max_premium_per_trade / estimated_contract_cost),
+            )
         return calculated_order_qty, estimated_contract_cost
 
     def create_session(
@@ -140,6 +156,10 @@ class OptionTradeExecutor:
         current_option_exposure = sum(abs(float(position.get("notional") or 0.0)) for position in open_positions)
         market_now = datetime.now(MARKET_TIMEZONE)
         daily_loss_start = market_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        resolve_premium_cap = getattr(self._settings, "resolve_max_premium_per_trade", None)
+        max_premium_per_trade = (
+            float(resolve_premium_cap(available_buying_power)) if callable(resolve_premium_cap) else 0.0
+        )
         return TradeExecutionSession(
             available_buying_power=available_buying_power,
             max_deployable_buying_power=max_deployable_buying_power,
@@ -150,6 +170,7 @@ class OptionTradeExecutor:
             sector_exposure_by_key=sector_exposure_by_key,
             daily_realized_loss=get_realized_option_loss_since(start_at=daily_loss_start),
             open_option_symbols={str(position.get("option_symbol") or "").strip().upper() for position in open_positions},
+            max_premium_per_trade=max_premium_per_trade,
         )
 
     def _build_trade_result(self, session: TradeExecutionSession) -> dict[str, Any]:
@@ -168,6 +189,10 @@ class OptionTradeExecutor:
                 "max_concurrent_option_positions": int(getattr(self._settings, "max_concurrent_option_positions", 5)),
                 "max_option_sector_exposure_pct": float(getattr(self._settings, "max_option_sector_exposure_pct", 50.0)),
                 "daily_option_loss_limit_dollars": float(getattr(self._settings, "daily_option_loss_limit_dollars", 2000.0)),
+                "max_premium_per_trade_dollars": float(session.max_premium_per_trade),
+                "max_symbol_entries_per_window": int(getattr(self._settings, "max_symbol_entries_per_window", 0) or 0),
+                "symbol_entry_window_days": int(getattr(self._settings, "symbol_entry_window_days", 7) or 7),
+                "symbol_stop_loss_cooldown_days": int(getattr(self._settings, "symbol_stop_loss_cooldown_days", 0) or 0),
             },
             "submitted_count": sum(1 for execution in session.executions if execution.get("submitted")),
             "candidate_count": len(session.executions),
@@ -209,10 +234,71 @@ class OptionTradeExecutor:
             company_id=candidate.get("company_id"),
         )
 
+    @staticmethod
+    def _candidate_underlying_symbol(candidate: dict[str, Any], option_symbol: str = "") -> str:
+        underlying_symbol = str(candidate.get("symbol") or "").strip().upper()
+        if underlying_symbol:
+            return underlying_symbol
+        occ_match = re.match(r"^([A-Z0-9]{1,8}?)\d{6}[CP]\d{8}$", str(option_symbol or "").strip().upper())
+        return occ_match.group(1) if occ_match else ""
+
+    def _symbol_entry_attempt_guardrail(
+        self,
+        *,
+        underlying_symbol: str,
+        session: TradeExecutionSession,
+    ) -> str:
+        """Deterministic per-underlying churn brakes, from the live trade review:
+        repeated re-entries into the same name after stops were a net loser, so
+        cap attempts per rolling window and cool down after a stop-loss exit."""
+        if not underlying_symbol:
+            return ""
+        current_time = datetime.now(timezone.utc)
+
+        entry_cap = int(getattr(self._settings, "max_symbol_entries_per_window", 0) or 0)
+        if entry_cap > 0:
+            window_days = max(1, int(getattr(self._settings, "symbol_entry_window_days", 7) or 7))
+            try:
+                recent_entry_count = count_option_entry_executions_since(
+                    underlying_symbol=underlying_symbol,
+                    start_at=current_time - timedelta(days=window_days),
+                )
+            except Exception as exc:
+                self._logger.exception(
+                    "Failed to count recent option entries for %s; skipping the attempt cap this cycle: %s",
+                    underlying_symbol,
+                    exc,
+                )
+                recent_entry_count = 0
+            # The journal already records this session's submissions, so take the
+            # max of both counters instead of summing to avoid double counting
+            # while still covering a failed journal write.
+            session_entry_count = session.entries_by_underlying.get(underlying_symbol, 0)
+            if max(recent_entry_count, session_entry_count) >= entry_cap:
+                return "symbol_entry_attempt_cap"
+
+        cooldown_days = int(getattr(self._settings, "symbol_stop_loss_cooldown_days", 0) or 0)
+        if cooldown_days > 0:
+            try:
+                last_stop_exit_at = get_latest_stop_loss_exit_at(underlying_symbol=underlying_symbol)
+            except Exception as exc:
+                self._logger.exception(
+                    "Failed to read the last stop-loss exit for %s; skipping the cooldown this cycle: %s",
+                    underlying_symbol,
+                    exc,
+                )
+                last_stop_exit_at = None
+            if last_stop_exit_at:
+                cooldown_start = (current_time - timedelta(days=cooldown_days)).strftime("%Y-%m-%d %H:%M:%S")
+                if str(last_stop_exit_at) >= cooldown_start:
+                    return "symbol_stop_loss_cooldown"
+        return ""
+
     def _portfolio_guardrail_reason(
         self,
         *,
         option_symbol: str,
+        underlying_symbol: str,
         estimated_order_cost: float,
         sector_key: str,
         session: TradeExecutionSession,
@@ -230,7 +316,10 @@ class OptionTradeExecutor:
         sector_cap = session.max_deployable_buying_power * (sector_cap_pct / 100.0)
         if session.sector_exposure_by_key.get(sector_key, 0.0) + estimated_order_cost > sector_cap:
             return "portfolio_sector_notional_limit"
-        return ""
+        return self._symbol_entry_attempt_guardrail(
+            underlying_symbol=underlying_symbol,
+            session=session,
+        )
 
     def finalize_session(self, session: TradeExecutionSession) -> dict[str, Any]:
         """Expose the current execution-session snapshot as a trade result payload."""
@@ -279,6 +368,7 @@ class OptionTradeExecutor:
             option_reference_price=option_reference_price,
             base_order_qty=session.base_order_qty,
             max_deployable_buying_power=session.max_deployable_buying_power,
+            max_premium_per_trade=session.max_premium_per_trade,
         )
 
         if estimated_contract_cost == 0.0:
@@ -298,10 +388,36 @@ class OptionTradeExecutor:
             session.executions.append(execution)
             return execution
 
+        if calculated_order_qty <= 0:
+            # A single contract already costs more than the per-trade premium
+            # ceiling, so there is no size at which this entry is allowed.
+            self._logger.info(
+                "Skipping %s because one contract costs %.2f, above the %.2f per-trade premium cap.",
+                option_symbol,
+                estimated_contract_cost,
+                session.max_premium_per_trade,
+            )
+            execution = self._build_execution(
+                candidate=candidate,
+                session=session,
+                order_qty=0,
+                submitted=False,
+                order=None,
+                estimated_order_cost=estimated_contract_cost,
+                error=(
+                    f"Skipped because one contract cost {estimated_contract_cost:.2f} exceeds the "
+                    f"{session.max_premium_per_trade:.2f} per-trade premium cap."
+                ),
+                portfolio_guardrail="premium_per_trade_cap",
+            )
+            session.executions.append(execution)
+            return execution
+
         estimated_order_cost = calculated_order_qty * estimated_contract_cost
         sector_key = self._candidate_sector_key(candidate)
         portfolio_guardrail = self._portfolio_guardrail_reason(
             option_symbol=option_symbol,
+            underlying_symbol=self._candidate_underlying_symbol(candidate, option_symbol),
             estimated_order_cost=estimated_order_cost,
             sector_key=sector_key,
             session=session,
@@ -376,6 +492,7 @@ class OptionTradeExecutor:
             self._reserve_session_capacity(
                 session=session,
                 option_symbol=option_symbol,
+                underlying_symbol=self._candidate_underlying_symbol(candidate, option_symbol),
                 sector_key=sector_key,
                 estimated_order_cost=estimated_order_cost,
             )
@@ -407,6 +524,7 @@ class OptionTradeExecutor:
         option_symbol: str,
         sector_key: str,
         estimated_order_cost: float,
+        underlying_symbol: str = "",
     ) -> None:
         """Consume shared session budgets once an order has been submitted."""
         session.remaining_deployable_buying_power -= estimated_order_cost
@@ -414,6 +532,10 @@ class OptionTradeExecutor:
         session.sector_exposure_by_key[sector_key] = (
             session.sector_exposure_by_key.get(sector_key, 0.0) + estimated_order_cost
         )
+        if underlying_symbol:
+            session.entries_by_underlying[underlying_symbol] = (
+                session.entries_by_underlying.get(underlying_symbol, 0) + 1
+            )
         if option_symbol not in session.open_option_symbols:
             session.open_option_symbols.add(option_symbol)
             session.current_option_position_count += 1
