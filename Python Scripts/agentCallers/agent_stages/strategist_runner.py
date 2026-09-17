@@ -161,6 +161,7 @@ def decide_company_purchase(
     summary_article_limit: int = DEFAULT_SUMMARY_ARTICLE_LIMIT,
     full_article_limit: int = DEFAULT_FULL_ARTICLE_LIMIT,
     market_regime: dict[str, Any] | None = None,
+    candidate_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     # Run the strategist stage end to end, including no-evidence short circuits and text fallback parsing.
     client = client or get_default_client()
@@ -175,6 +176,9 @@ def decide_company_purchase(
     if isinstance(market_regime, dict):
         payload["market_context"] = {"market_regime": market_regime}
 
+    from services.candidate_lifecycle import checkpoint
+    payload["candidate_id"] = (candidate_context or {}).get("candidate_id")
+    checkpoint(candidate_context, "pre_strategist", payload)
     company = payload["company"]
     context_snapshot = build_context_snapshot(payload)
 
@@ -200,6 +204,8 @@ def decide_company_purchase(
         task_override=task_override,
     )
     raw_response: str | None = None
+    checkpoint(candidate_context, "strategist_prompt", {"model": model,
+               "system_prompt": system_prompt, "user_prompt": user_prompt})
     try:
         raw_response = ask_model(
             client=client,

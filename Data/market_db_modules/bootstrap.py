@@ -9,6 +9,8 @@ from .shared import LEGACY_SECTOR_KEY, LEGACY_SECTOR_NAME, SCHEMA_PATH, is_legac
 
 
 _MANAGER_DECISION_OUTCOME_COLUMNS = {
+    "exit_reason": "TEXT",
+    "closing_order_ids_json": "TEXT",
     "outcome_status": "TEXT",
     "realized_pnl_pct": "REAL",
     "closed_at": "TEXT",
@@ -93,3 +95,5 @@ def initialize_database(
         else:
             conn.executescript(Path(schema_path).read_text(encoding="utf-8"))
         _ensure_manager_decision_outcome_columns(conn)
+        from .telemetry_schema import migrate_telemetry_columns
+        migrate_telemetry_columns(conn)

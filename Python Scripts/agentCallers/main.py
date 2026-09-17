@@ -132,6 +132,7 @@ def _filter_company_symbols_by_high_confidence_support(
     *,
     minimum_high_confidence_articles: int,
     max_age_days: int | None,
+    candidate_context_by_symbol: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     normalized_symbols = _normalize_company_symbols(company_symbols)
     if minimum_high_confidence_articles <= 0:
@@ -140,7 +141,13 @@ def _filter_company_symbols_by_high_confidence_support(
     allowed_symbols: list[str] = []
     skipped_companies: list[dict[str, Any]] = []
 
+    from services.candidate_lifecycle import begin_candidate, checkpoint, reject, observe
+    from services.pipeline_version import build_pipeline_version
+    version = observe(build_pipeline_version)
+    contexts = candidate_context_by_symbol if candidate_context_by_symbol is not None else {}
     for symbol in normalized_symbols:
+        context = observe(begin_candidate, symbol, version=version)
+        contexts[symbol] = context
         try:
             summary = get_company_opportunist_summary(symbol, max_age_days=max_age_days)
         except Exception:
@@ -167,6 +174,10 @@ def _filter_company_symbols_by_high_confidence_support(
             except (TypeError, ValueError):
                 high_confidence_article_count = 0
 
+        checkpoint(context, "SUPPORT", {"summary": summary,
+                   "high_confidence_article_count": high_confidence_article_count,
+                   "minimum_high_confidence_articles": minimum_high_confidence_articles,
+                   "max_age_days": max_age_days})
         if high_confidence_article_count >= minimum_high_confidence_articles:
             allowed_symbols.append(symbol)
             continue
@@ -185,6 +196,12 @@ def _filter_company_symbols_by_high_confidence_support(
         )
 
     if skipped_companies:
+        for skipped in skipped_companies:
+            context = contexts.get(skipped["symbol"])
+            skipped["candidate_id"] = (context or {}).get("candidate_id")
+            reject(context, "SUPPORT", skipped["skip_reason"], metrics=skipped,
+                   thresholds={"minimum_high_confidence_articles": minimum_high_confidence_articles,
+                               "max_age_days": max_age_days})
         LOGGER.info(
             "Skipped %s companies before strategist/manager due to insufficient recent high-confidence company articles: %s",
             len(skipped_companies),
@@ -211,6 +228,10 @@ def _build_selected_option_output(
 
         companies.append(
             {
+                "candidate_id": manager_result.get("candidate_id"),
+                "candidate_context": manager_result.get("candidate_context"),
+                "market_context": manager_result.get("market_context", {}),
+                "manager_decision_history_id": manager_result.get("manager_decision_history_id"),
                 "company_id": company.get("company_id"),
                 "symbol": company.get("symbol"),
                 "name": company.get("name"),
@@ -330,6 +351,8 @@ def _record_manager_decision_history_for_result(manager_result: dict[str, Any]) 
     decision_run_at = str(manager_result.get("ran_at") or datetime.now().isoformat())
 
     history_payload = {
+        "candidate_id": manager_result.get("candidate_id"),
+        "pipeline_version": (manager_result.get("candidate_context") or {}).get("pipeline_version"),
         "company_id": company.get("company_id"),
         "symbol": company.get("symbol"),
         "company_name": company.get("name"),
@@ -374,6 +397,7 @@ def _run_strategist_and_manager(
     company_symbols: list[str],
     *,
     company_context_by_symbol: dict[str, dict[str, Any]] | None = None,
+    candidate_context_by_symbol: dict[str, dict[str, Any]] | None = None,
     on_progress: ProgressCallback | None = None,
     on_manager_result: Callable[[dict[str, Any]], None] | None = None,
     market_regime: dict[str, Any] | None = None,
@@ -390,7 +414,11 @@ def _run_strategist_and_manager(
         cycle_market_regime.get("as_of"),
     )
 
+    from services.candidate_lifecycle import begin_candidate, checkpoint, reject, record_gate, observe
+    from services.pipeline_version import build_pipeline_version
+    cycle_version = observe(build_pipeline_version)
     for symbol in company_symbols:
+        candidate_context = (candidate_context_by_symbol or {}).get(symbol) or observe(begin_candidate, symbol, version=cycle_version)
         company_context = dict((company_context_by_symbol or {}).get(symbol) or {})
         progress_base = {
             "current_symbol": symbol,
@@ -410,7 +438,13 @@ def _run_strategist_and_manager(
             },
         )
         LOGGER.info("Running strategist for %s", symbol)
-        strategist_result = decide_company_purchase(symbol, market_regime=cycle_market_regime)
+        try:
+            strategist_result = decide_company_purchase(symbol, market_regime=cycle_market_regime,
+                                                        candidate_context=candidate_context)
+        except Exception as exc:
+            reject(candidate_context, "STRATEGIST", "stage_error", metrics={"error": str(exc)})
+            raise
+        checkpoint(candidate_context, "post_strategist", strategist_result)
         strategist_results.append(strategist_result)
         LOGGER.info(
             "Finished strategist for %s with decision=%s confidence=%s",
@@ -432,14 +466,33 @@ def _run_strategist_and_manager(
         strategist_run_reference = strategist_result.get("strategist_run_reference")
         if isinstance(strategist_run_reference, dict) and strategist_run_reference:
             strategist_recommendation["strategist_run_reference"] = strategist_run_reference
-        manager_result = decide_company_option_position(
-            symbol,
-            strategist_recommendation=strategist_recommendation,
-            market_regime=cycle_market_regime,
-            manager_evidence_payload=strategist_result.get("manager_evidence_payload"),
-        )
+        try:
+            manager_result = decide_company_option_position(
+                symbol,
+                strategist_recommendation=strategist_recommendation,
+                market_regime=cycle_market_regime,
+                manager_evidence_payload=strategist_result.get("manager_evidence_payload"),
+                candidate_context=candidate_context,
+            )
+        except Exception as exc:
+            reject(candidate_context, "MANAGER", "stage_error", metrics={"error": str(exc)})
+            raise
+        manager_result["candidate_context"] = candidate_context
+        manager_result["candidate_id"] = (candidate_context or {}).get("candidate_id")
+        checkpoint(candidate_context, "post_manager", manager_result)
+        record_gate(candidate_context, "CONTINUATION", manager_result.get("entry_gate"))
+        checkpoint(candidate_context, "pre_contract_selection", manager_result)
         manager_result = apply_deterministic_option_selection(manager_result)
+        checkpoint(candidate_context, "post_contract_selection", manager_result)
+        checkpoint(candidate_context, "pre_regime_gate", manager_result)
         manager_result = apply_market_regime_gate_to_manager_result(manager_result)
+        record_gate(candidate_context, "REGIME", manager_result.get("market_regime_gate"))
+        if not manager_result.get("selected_option"):
+            reject(candidate_context, "CONTRACT_SELECTION",
+                   manager_result.get("recommendation", {}).get("selected_option_source") or "no_contract",
+                   metrics=manager_result, thresholds=(cycle_version or {}).get("selector_config", {}))
+        if manager_result.get("recommendation", {}).get("decision") not in {"call", "put"}:
+            reject(candidate_context, "MANAGER", "non_directional_decision", metrics=manager_result.get("recommendation"))
         manager_results.append(manager_result)
         LOGGER.info(
             "Finished manager for %s with decision=%s confidence=%s selected_option_id=%s expiration=%s strike=%s",
@@ -488,14 +541,17 @@ def run_full_agent_stack(
 
     pipeline_settings = AgentPipelineSettings.from_env()
     company_context_by_symbol = _build_company_context_by_symbol(pipeline_result)
+    candidate_contexts = {}
     company_symbols, skipped_companies = _filter_company_symbols_by_high_confidence_support(
         _dedupe_company_symbols(pipeline_result),
         minimum_high_confidence_articles=pipeline_settings.minimum_high_confidence_company_articles,
         max_age_days=DEFAULT_MAX_ARTICLE_AGE_DAYS,
+        candidate_context_by_symbol=candidate_contexts,
     )
     strategist_results, manager_results = _run_strategist_and_manager(
         company_symbols,
         company_context_by_symbol=company_context_by_symbol,
+        candidate_context_by_symbol=candidate_contexts,
         on_progress=on_progress,
         on_manager_result=on_manager_result,
     )
@@ -531,14 +587,17 @@ def run_full_agent_stack_from_existing_data(
 
     pipeline_settings = AgentPipelineSettings.from_env()
     company_context_by_symbol = _build_company_context_by_symbol(pipeline_result)
+    candidate_contexts = {}
     company_symbols, skipped_companies = _filter_company_symbols_by_high_confidence_support(
         _dedupe_company_symbols(pipeline_result),
         minimum_high_confidence_articles=pipeline_settings.minimum_high_confidence_company_articles,
         max_age_days=DEFAULT_MAX_ARTICLE_AGE_DAYS,
+        candidate_context_by_symbol=candidate_contexts,
     )
     strategist_results, manager_results = _run_strategist_and_manager(
         company_symbols,
         company_context_by_symbol=company_context_by_symbol,
+        candidate_context_by_symbol=candidate_contexts,
         on_progress=on_progress,
         on_manager_result=on_manager_result,
     )

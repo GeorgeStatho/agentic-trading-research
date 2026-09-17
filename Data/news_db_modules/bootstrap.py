@@ -66,6 +66,7 @@ def _run_bootstrap_migrations(conn: sqlite3.Connection) -> None:
     _migrate_company_opportunist_article_processing(conn)
     _ensure_missing_columns(conn, "macro_events", MACRO_EVENT_COLUMN_TYPES)
     _ensure_missing_columns(conn, "news_articles", NEWS_ARTICLE_COLUMN_TYPES)
+    _ensure_missing_columns(conn, "strategist_runs", {"candidate_id": "TEXT"})
 
 
 def initialize_database(

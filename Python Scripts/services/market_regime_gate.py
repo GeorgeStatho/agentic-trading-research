@@ -8,13 +8,13 @@ from typing import Any
 @dataclass(frozen=True)
 class MarketRegimePolicy:
     policy_version: str = "market-regime-v1"
-    mode: str = "enforce"
+    mode: str = "shadow"
 
     @classmethod
     def from_env(cls) -> "MarketRegimePolicy":
-        mode = str(os.getenv("MARKET_REGIME_GATE_MODE", "enforce")).strip().lower()
+        mode = str(os.getenv("MARKET_REGIME_GATE_MODE", "shadow")).strip().lower()
         if mode not in {"observe", "shadow", "enforce"}:
-            mode = "enforce"
+            mode = "shadow"
         return cls(mode=mode)
 
 

@@ -31,6 +31,7 @@ from db_helpers.market import (
     record_historical_option_quote,
     record_historical_underlying_bar,
     record_manager_decision_closed_outcome,
+    list_unresolved_manager_decisions,
     record_telemetry_installation,
     update_manager_decision_latest_pnl,
     run_backtest,

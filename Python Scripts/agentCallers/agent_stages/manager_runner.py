@@ -249,6 +249,7 @@ def decide_company_option_position(
     option_contract_limit_per_type: int = DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
     market_regime: dict[str, Any] | None = None,
     manager_evidence_payload: dict[str, Any] | None = None,
+    candidate_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     client = client or get_default_client()
     payload = build_manager_input(
@@ -276,6 +277,8 @@ def decide_company_option_position(
     option_contracts = market_context.get("option_market", {}).get("contracts", [])
     context_snapshot = _build_context_snapshot(payload)
     context_snapshot["strategist_evidence_payload_applied"] = evidence_payload_applied
+    from services.candidate_lifecycle import checkpoint
+    checkpoint(candidate_context, "pre_manager", {"payload": payload, "model": model})
 
     if not payload_has_evidence(payload):
         no_evidence_result = _build_no_evidence_result(
@@ -283,6 +286,8 @@ def decide_company_option_position(
             context_snapshot=context_snapshot,
             market_context=market_context,
         )
+        checkpoint(candidate_context, "pre_gates", {"payload": payload,
+                   "recommendation": no_evidence_result["recommendation"], "market_context": market_context})
         return {
             **no_evidence_result,
             "entry_gate": evaluate_evidence_continuation_gate(
@@ -303,6 +308,8 @@ def decide_company_option_position(
         task_override=task_override,
     )
     response_diagnostic: dict[str, Any] = {}
+    checkpoint(candidate_context, "manager_prompt", {"model": model,
+               "system_prompt": system_prompt, "user_prompt": user_prompt})
     raw_response = ask_model(
         client=client,
         model=model,
@@ -361,6 +368,9 @@ def decide_company_option_position(
             **upstream_bucket_refresh_debug,
         },
     }
+    from services.candidate_lifecycle import checkpoint
+    checkpoint(candidate_context, "pre_gates", {"payload": payload, "recommendation": recommendation,
+                                                "market_context": market_context})
     entry_gate = evaluate_evidence_continuation_gate(
         recommendation=recommendation,
         payload=payload,

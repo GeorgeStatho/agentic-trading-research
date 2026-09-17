@@ -128,4 +128,9 @@ def record_option_trade_execution(
         """,
         values,
     )
-    return int(cursor.fetchone()["id"])
+    record_id = int(cursor.fetchone()["id"])
+    from .execution_telemetry import store_execution_telemetry
+    store_execution_telemetry(order_id, execution.get("execution_telemetry") or {},
+                              context=execution.get("candidate_context"),
+                              execution_version=execution.get("execution_version"), conn=conn)
+    return record_id

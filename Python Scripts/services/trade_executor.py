@@ -247,6 +247,7 @@ class OptionTradeExecutor:
         *,
         underlying_symbol: str,
         session: TradeExecutionSession,
+        diagnostics: dict[str, Any] | None = None,
     ) -> str:
         """Deterministic per-underlying churn brakes, from the live trade review:
         repeated re-entries into the same name after stops were a net loser, so
@@ -254,6 +255,8 @@ class OptionTradeExecutor:
         if not underlying_symbol:
             return ""
         current_time = datetime.now(timezone.utc)
+        diagnostics = diagnostics if diagnostics is not None else {}
+        diagnostics['checked_at'] = current_time.isoformat()
 
         entry_cap = int(getattr(self._settings, "max_symbol_entries_per_window", 0) or 0)
         if entry_cap > 0:
@@ -274,6 +277,8 @@ class OptionTradeExecutor:
             # max of both counters instead of summing to avoid double counting
             # while still covering a failed journal write.
             session_entry_count = session.entries_by_underlying.get(underlying_symbol, 0)
+            diagnostics.update(recent_entry_count=recent_entry_count, session_entry_count=session_entry_count,
+                               window_days=window_days, entry_cap=entry_cap)
             if max(recent_entry_count, session_entry_count) >= entry_cap:
                 return "symbol_entry_attempt_cap"
 
@@ -288,6 +293,7 @@ class OptionTradeExecutor:
                     exc,
                 )
                 last_stop_exit_at = None
+            diagnostics.update(last_stop_exit_at=last_stop_exit_at, cooldown_days=cooldown_days)
             if last_stop_exit_at:
                 cooldown_start = (current_time - timedelta(days=cooldown_days)).strftime("%Y-%m-%d %H:%M:%S")
                 if str(last_stop_exit_at) >= cooldown_start:
@@ -302,6 +308,7 @@ class OptionTradeExecutor:
         estimated_order_cost: float,
         sector_key: str,
         session: TradeExecutionSession,
+        diagnostics: dict[str, Any] | None = None,
     ) -> str:
         daily_loss_limit = max(1.0, float(getattr(self._settings, "daily_option_loss_limit_dollars", 2000.0)))
         if session.daily_realized_loss >= daily_loss_limit:
@@ -319,13 +326,30 @@ class OptionTradeExecutor:
         return self._symbol_entry_attempt_guardrail(
             underlying_symbol=underlying_symbol,
             session=session,
+            diagnostics=diagnostics,
         )
 
     def finalize_session(self, session: TradeExecutionSession) -> dict[str, Any]:
         """Expose the current execution-session snapshot as a trade result payload."""
         return self._build_trade_result(session)
 
-    def execute_candidate(
+    def execute_candidate(self, *, trading_client, candidate, session):
+        from services.candidate_lifecycle import checkpoint, reject, observe
+        from services.pipeline_version import build_pipeline_version, serializable
+        candidate = dict(candidate)
+        candidate["execution_version"] = observe(build_pipeline_version, settings=self._settings)
+        context = candidate.get("candidate_context")
+        checkpoint(context, "pre_execution", {"candidate": candidate, "session": serializable(session)})
+        result = self._execute_candidate(trading_client=trading_client, candidate=candidate, session=session)
+        if result.get("submitted"):
+            checkpoint(context, "order_submitted", result)
+        else:
+            reason = result.get("portfolio_guardrail") or "execution_not_submitted"
+            reject(context, "EXECUTION", reason, metrics=result,
+                   thresholds=(candidate.get("execution_version") or {}).get("runtime_settings", {}))
+        return result
+
+    def _execute_candidate(
         self,
         *,
         trading_client: TradingClient,
@@ -415,12 +439,14 @@ class OptionTradeExecutor:
 
         estimated_order_cost = calculated_order_qty * estimated_contract_cost
         sector_key = self._candidate_sector_key(candidate)
+        candidate['portfolio_gate_inputs'] = {}
         portfolio_guardrail = self._portfolio_guardrail_reason(
             option_symbol=option_symbol,
             underlying_symbol=self._candidate_underlying_symbol(candidate, option_symbol),
             estimated_order_cost=estimated_order_cost,
             sector_key=sector_key,
             session=session,
+            diagnostics=candidate['portfolio_gate_inputs'],
         )
         if portfolio_guardrail:
             execution = self._build_execution(
@@ -471,6 +497,15 @@ class OptionTradeExecutor:
             self._settings.max_deployable_buying_power_pct,
         )
 
+        from services.candidate_lifecycle import checkpoint, observe
+        from services.execution_telemetry import capture_execution_context
+        arrival = observe(getattr(self._trading_gateway, 'get_execution_market_snapshot', lambda **_: None),
+                          option_symbol=option_symbol, underlying_symbol=candidate.get("symbol"))
+        candidate["execution_telemetry"] = capture_execution_context(candidate, arrival)
+        checkpoint(candidate.get("candidate_context"), "pre_order", {
+            "candidate": candidate, "quantity": calculated_order_qty,
+            "estimated_order_cost": estimated_order_cost, "session": self._build_trade_result(session),
+        })
         try:
             order_summary = self._trading_gateway.submit_option_market_order(
                 trading_client,
@@ -513,9 +548,26 @@ class OptionTradeExecutor:
                 option_symbol=option_symbol,
             )
             self._record_thesis_entry(execution, option_symbol=option_symbol)
+            observe(self._observe_submitted_order, trading_client, execution)
+
 
         session.executions.append(execution)
         return execution
+
+    def _observe_submitted_order(self, trading_client, execution):
+        from services.execution_telemetry import fill_metrics
+        from db_helpers.market import store_execution_telemetry, ensure_position_outcome
+        order_id = str(execution["order"]["id"])
+        order = self._trading_gateway.get_order_status_summary(trading_client, order_id=order_id)
+        if not isinstance(order, dict):
+            return
+        from services.candidate_lifecycle import observe
+        market = observe(getattr(self._trading_gateway, 'get_execution_market_snapshot', lambda **_: None),
+            option_symbol=execution["selected_option_symbol"], underlying_symbol=execution.get("symbol"))
+        metrics = fill_metrics(order, execution.get("execution_telemetry") or {}, market_snapshot=market)
+        execution.setdefault("execution_telemetry", {}).update(metrics)
+        store_execution_telemetry(order_id, metrics)
+        ensure_position_outcome(order_id)
 
     @staticmethod
     def _reserve_session_capacity(

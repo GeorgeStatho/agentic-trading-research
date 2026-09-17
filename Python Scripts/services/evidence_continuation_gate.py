@@ -29,7 +29,7 @@ class EvidenceContinuationPolicy:
     allowed_call_entry_quality: frozenset[str] = frozenset({"good", "excellent"})
     allowed_put_entry_quality: frozenset[str] = frozenset({"good", "excellent"})
     fail_closed_on_missing_data: bool = True
-    enforcement_mode: str = "enforce"
+    enforcement_mode: str = "shadow"
     policy_version: str = POLICY_VERSION
 
     @classmethod
@@ -54,7 +54,7 @@ class EvidenceContinuationPolicy:
             return frozenset(value for value in values if value) or default
 
         max_overextension = _text(os.getenv("EVIDENCE_CONTINUATION_MAX_OVEREXTENSION", "medium"))
-        enforcement_mode = _text(os.getenv("EVIDENCE_CONTINUATION_MODE", "enforce"))
+        enforcement_mode = _text(os.getenv("EVIDENCE_CONTINUATION_MODE", "shadow"))
         return cls(
             enabled=flag("EVIDENCE_CONTINUATION_ENABLED", True),
             required_evidence_count=positive_int("EVIDENCE_CONTINUATION_REQUIRED_EVIDENCE_COUNT", 2),
@@ -67,7 +67,7 @@ class EvidenceContinuationPolicy:
             allowed_call_entry_quality=qualities("EVIDENCE_CONTINUATION_ALLOWED_CALL_QUALITIES", frozenset({"good", "excellent"})),
             allowed_put_entry_quality=qualities("EVIDENCE_CONTINUATION_ALLOWED_PUT_QUALITIES", frozenset({"good", "excellent"})),
             fail_closed_on_missing_data=flag("EVIDENCE_CONTINUATION_FAIL_CLOSED_ON_MISSING_DATA", True),
-            enforcement_mode=enforcement_mode if enforcement_mode in {"enforce", "shadow"} else "enforce",
+            enforcement_mode=enforcement_mode if enforcement_mode in {"enforce", "shadow"} else "shadow",
         )
 
 
@@ -100,6 +100,7 @@ def _evidence_snapshot(payload: dict[str, Any], policy: EvidenceContinuationPoli
     }
     eligible_articles: list[dict[str, Any]] = []
     invalid_grounding = False
+    seen_article_ids = set()
     for article in _supporting_articles(payload):
         article_id = article.get("article_id")
         score = _float(article.get("evidence_score"))
@@ -108,12 +109,16 @@ def _evidence_snapshot(payload: dict[str, Any], policy: EvidenceContinuationPoli
             continue
         if score is None or score < policy.min_evidence_score:
             continue
-        eligible_articles.append(article)
+        if article_id not in seen_article_ids:
+            eligible_articles.append(article)
+            seen_article_ids.add(article_id)
 
     sources = {
-        _text(article.get("source"))
+        (_text(article.get("root_event_id")) if article.get("primary_ticker")
+         else _text(article.get("root_source_id")))
         for article in eligible_articles
-        if _text(article.get("source"))
+        if _text(article.get("root_event_id")) and _text(article.get("root_source_id"))
+        and article.get("root_source_id") != "unverified"
     }
     scores = [_float(article.get("evidence_score")) for article in eligible_articles]
     valid_grounding = bool(allowed_ids) and not invalid_grounding and len(eligible_articles) > 0

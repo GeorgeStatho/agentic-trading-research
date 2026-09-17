@@ -71,7 +71,9 @@ def _normalize_stock_bars_response(response: Any, symbol: str) -> list[Any]:
     return []
 
 
-def _fetch_daily_stock_bars(symbol: str) -> tuple[list[Any], str]:
+def _fetch_daily_stock_bars(
+    symbol: str, *, lookback_calendar_days: int = UNDERLYING_HISTORY_LOOKBACK_CALENDAR_DAYS,
+) -> tuple[list[Any], str]:
     normalized_symbol = str(symbol or "").strip().upper()
     if not normalized_symbol:
         return [], "Company symbol was missing."
@@ -85,7 +87,7 @@ def _fetch_daily_stock_bars(symbol: str) -> tuple[list[Any], str]:
         )
 
     end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(days=UNDERLYING_HISTORY_LOOKBACK_CALENDAR_DAYS)
+    start_time = end_time - timedelta(days=lookback_calendar_days)
     try:
         bars_response = clients["stock"].get_stock_bars(
             StockBarsRequest(

@@ -44,7 +44,18 @@ class OptionTradeJournal:
             return None
 
         requested_qty = position_summary.get("close_requested_qty") or position_summary.get("qty_to_sell")
+        from services.execution_telemetry import capture_execution_context
+        quote = {'bid_price': position_summary.get('current_bid'), 'ask_price': position_summary.get('current_ask'),
+                 'timestamp': position_summary.get('option_quote_timestamp')}
+        telemetry = capture_execution_context(
+            {'selected_option': {'latest_quote': quote},
+             'market_context': {'current_stock_price': {'price': position_summary.get('underlying_stock_price')}}},
+            {'option': quote})
+        telemetry['submitted_price'] = position_summary.get('exit_limit_price')
         execution = {
+            "execution_telemetry": telemetry,
+            "candidate_context": position_summary.get('candidate_context'),
+            "execution_version": position_summary.get('execution_version'),
             "submitted": True,
             "symbol": str(position_summary.get("underlying_symbol") or "").strip().upper(),
             "name": str(position_summary.get("underlying_symbol") or "").strip().upper(),
@@ -67,7 +78,8 @@ class OptionTradeJournal:
                 "qty": requested_qty,
                 "status": normalize_order_status(position_summary.get("close_order_status")),
                 "side": normalize_order_side(position_summary.get("close_order_side") or "sell"),
-                "type": "market",
+                "type": "limit" if position_summary.get("exit_limit_price") is not None else "market",
+                "limit_price": position_summary.get("exit_limit_price"),
                 "time_in_force": "day",
                 "submitted_at": position_summary.get("last_action_at"),
             },

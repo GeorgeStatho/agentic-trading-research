@@ -43,3 +43,36 @@ def get_latest_market_regime_snapshot(db_path: Path | str = DB_PATH) -> dict[str
     except json.JSONDecodeError:
         snapshot = {}
     return {**record, **snapshot, "market_regime_run_id": record["id"]}
+
+
+def store_regime_bars(symbol, bars, *, provider, db_path=DB_PATH):
+    """Batch an entire lookback in one transaction; repeated refreshes are safe."""
+    initialize_database(db_path=db_path)
+    with get_connection(db_path) as conn:
+        conn.executemany("""
+            INSERT INTO historical_underlying_bars
+                (symbol, bar_at, timeframe, open_price, high_price, low_price, close_price, volume, provider)
+            VALUES (?, ?, '1d', ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(symbol, bar_at, timeframe, provider) DO UPDATE SET
+                open_price=excluded.open_price, high_price=excluded.high_price,
+                low_price=excluded.low_price, close_price=excluded.close_price, volume=excluded.volume
+        """, [(symbol, bar["bar_at"], bar.get("open"), bar.get("high"), bar.get("low"),
+               bar["close"], bar.get("volume"), provider) for bar in bars])
+
+
+def load_regime_bars(symbol, *, as_of, db_path=DB_PATH):
+    initialize_database(db_path=db_path)
+    with get_connection(db_path) as conn:
+        rows = conn.execute("""
+            SELECT bar_at, close_price, provider FROM historical_underlying_bars
+            WHERE symbol = ? AND timeframe = '1d' AND close_price > 0
+              AND julianday(bar_at) <= julianday(?)
+            ORDER BY julianday(bar_at)
+        """, (symbol, as_of.isoformat())).fetchall()
+    # Keep one provider per series; mixing feeds can introduce artificial returns.
+    series = {}
+    for row in rows:
+        series.setdefault(row["provider"], []).append(dict(row))
+    if not series:
+        return []
+    return max(series.values(), key=lambda items: (items[-1]["bar_at"], len(items)))[-252:]

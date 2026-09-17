@@ -25,6 +25,16 @@ MACRO_EVENT_COLUMN_TYPES = {
 }
 
 NEWS_ARTICLE_COLUMN_TYPES = {
+    "source_type": "TEXT",
+    "primary_ticker": "TEXT",
+    "catalyst_id": "TEXT",
+    "root_event_id": "TEXT",
+    "root_source_id": "TEXT",
+    "syndication_parent_id": "INTEGER",
+    "primary_source_url": "TEXT",
+    "event_time": "TEXT",
+    "first_seen_time": "TEXT",
+
     "normalized_title": "TEXT",
     "normalized_url": "TEXT",
     "content_hash": "TEXT",

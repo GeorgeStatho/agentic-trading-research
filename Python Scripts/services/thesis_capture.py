@@ -168,6 +168,8 @@ def build_position_thesis_record(execution: dict[str, Any]) -> dict[str, Any] | 
     )
 
     return {
+        "candidate_id": execution.get("candidate_id"),
+        "pipeline_version": (execution.get("candidate_context") or {}).get("pipeline_version"),
         "manager_decision_history_id": execution.get("manager_decision_history_id"),
         "trade_execution_order_id": str(order.get("id") or "").strip() or None,
         "company_id": execution.get("company_id"),

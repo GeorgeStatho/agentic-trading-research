@@ -244,6 +244,13 @@ class StrategistViewsPayload(TypedDict):
 
 
 class SupportingArticleSummaryPayload(TypedDict):
+    evidence_score: NotRequired[float | None]
+    root_event_id: NotRequired[str | None]
+    root_source_id: NotRequired[str | None]
+    primary_ticker: NotRequired[str | None]
+    catalyst_id: NotRequired[str | None]
+    source_type: NotRequired[str | None]
+    independent_source_count: NotRequired[int | None]
     article_id: int
     title: str
     summary: str

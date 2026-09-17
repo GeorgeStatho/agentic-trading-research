@@ -3,6 +3,7 @@ from __future__ import annotations
 from db_common import DB_PATH
 from news_db_modules.article_store import add_news_article
 from news_db_modules.bootstrap import initialize_database
+from news_db_modules.provenance import backfill_news_provenance
 from news_db_modules.entity_articles import (
     add_company_news_article,
     add_industry_news_article,
@@ -43,6 +44,7 @@ from news_db_modules.queries import (
 )
 
 __all__ = [
+    "backfill_news_provenance",
     "DB_PATH",
     "add_company_news_article",
     "add_company_opportunist_impact",

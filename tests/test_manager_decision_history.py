@@ -26,6 +26,7 @@ from market_db import (  # noqa: E402
     link_manager_decision_to_trade_execution,
     list_recent_manager_decision_history,
     record_manager_decision_history,
+    record_manager_decision_closed_outcome,
     update_manager_decision_latest_pnl,
 )
 from db_common import get_connection  # noqa: E402
@@ -142,6 +143,15 @@ class ManagerDecisionHistoryTests(unittest.TestCase):
         )
         self.assertTrue(updated)
 
+        self.assertEqual(list_decision_autopsy_ledger(
+            company_id=self.company_id, resolved_only=True, db_path=self.db_path,
+        ), [])
+        record_manager_decision_closed_outcome(
+            decision_history_id=decision_id, realized_pnl_pct=11.0,
+            closed_at="2026-05-24T14:00:00+00:00", resolved_outcome_label="closed_profit",
+            broker_confirmed=True, db_path=self.db_path,
+        )
+
         resolved_ledger_rows = list_decision_autopsy_ledger(
             company_id=self.company_id,
             resolved_only=True,
@@ -160,7 +170,7 @@ class ManagerDecisionHistoryTests(unittest.TestCase):
         self.assertEqual(rows[0]["trade_execution_order_id"], "order-123")
         self.assertEqual(rows[0]["trade_execution_record_id"], 77)
         self.assertEqual(rows[0]["latest_trade_pnl_pct"], 12.5)
-        self.assertEqual(rows[0]["resolved_outcome_label"], "open_profit")
+        self.assertEqual(rows[0]["resolved_outcome_label"], "closed_profit")
 
     def test_autopsy_ledger_loads_linked_live_order_details(self) -> None:
         submitted_at = "2026-05-22T14:05:00+00:00"

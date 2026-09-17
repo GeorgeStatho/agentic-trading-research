@@ -148,7 +148,7 @@ def _round_option_sell_price_to_tick(
     return round(floored_cents / 100.0, 2)
 
 
-def _structured_exit_action(
+def _structured_exit_action_impl(
     *,
     option_symbol: str,
     quantity: int,
@@ -172,6 +172,7 @@ def _structured_exit_action(
     stop_loss_confirm_checks: int = 1,
     underlying_adverse_move_pct: float | None = None,
     stop_loss_underlying_move_pct: float = 0.0,
+    ignored_exit_reasons: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     existing_state = dict(position_state or {})
     notes: list[str] = list(context_notes)
@@ -275,7 +276,7 @@ def _structured_exit_action(
         )
     )
     if broker_unrealized_pl_pct_ratio is not None:
-        if broker_unrealized_pl_pct_ratio <= (exit_thresholds.stop_loss_pct / 100.0):
+        if "stop_loss" not in ignored_exit_reasons and broker_unrealized_pl_pct_ratio <= (exit_thresholds.stop_loss_pct / 100.0):
             # Gate the premium stop on a real adverse move in the underlying.
             # Option premium is leveraged and spread/IV-noisy, so a small stock
             # wobble can breach the floor and bounce back. When configured, hold
@@ -367,7 +368,7 @@ def _structured_exit_action(
         # Broker P/L recovered above the stop-loss floor; clear any pending breach
         # streak so a fresh dip must re-confirm from scratch.
         updated_state["stop_loss_breach_count"] = 0
-    if hours_to_expiration is not None and hours_to_expiration <= exit_thresholds.exit_hours_to_expiration:
+    if "near_expiration" not in ignored_exit_reasons and hours_to_expiration is not None and hours_to_expiration <= exit_thresholds.exit_hours_to_expiration:
         updated_state["last_action"] = "sell_full"
         updated_state["last_decision_reason"] = "near_expiration"
         return (
@@ -388,15 +389,15 @@ def _structured_exit_action(
         decision, reasons = _deterministic_option_exit_decision(
             unrealized_pl_pct=(
                 profit_unrealized_pl_pct_ratio * 100.0
-                if profit_unrealized_pl_pct_ratio is not None
+                if profit_unrealized_pl_pct_ratio is not None and "static_take_profit" not in ignored_exit_reasons
                 else None
             ),
             stop_loss_unrealized_pl_pct=(
                 broker_unrealized_pl_pct_ratio * 100.0
-                if broker_unrealized_pl_pct_ratio is not None
+                if broker_unrealized_pl_pct_ratio is not None and "stop_loss" not in ignored_exit_reasons
                 else None
             ),
-            hours_to_expiration=hours_to_expiration,
+            hours_to_expiration=None if "near_expiration" in ignored_exit_reasons else hours_to_expiration,
             take_profit_pct=exit_thresholds.take_profit_pct,
             stop_loss_pct=exit_thresholds.stop_loss_pct,
             exit_hours_to_expiration=exit_thresholds.exit_hours_to_expiration,
@@ -443,7 +444,8 @@ def _structured_exit_action(
     updated_state["took_first_scale_out"] = took_first_scale_out
     updated_state["took_second_scale_out"] = took_second_scale_out
     if (
-        profit_protection_active
+        "trailing_profit_stop" not in ignored_exit_reasons
+        and profit_protection_active
         and profit_unrealized_pl_pct_ratio is not None
         and protected_profit_floor_pct is not None
         and profit_unrealized_pl_pct_ratio <= protected_profit_floor_pct
@@ -468,7 +470,7 @@ def _structured_exit_action(
         state=updated_state,
         momentum_history_config=momentum_history_config,
     )
-    if trailing_profit_config.enable_momentum_exit and momentum_history_exit_triggered:
+    if "momentum_history_failed" not in ignored_exit_reasons and trailing_profit_config.enable_momentum_exit and momentum_history_exit_triggered:
         updated_state["last_action"] = "sell_full"
         updated_state["last_decision_reason"] = "momentum_history_failed"
         return (
@@ -489,6 +491,7 @@ def _structured_exit_action(
         profit_unrealized_pl_pct_ratio is not None
         and profit_unrealized_pl_pct_ratio >= trailing_profit_config.first_scale_out_trigger_pct
         and not took_first_scale_out
+        and "first_scale_out_trigger" not in ignored_exit_reasons
     ):
         qty_to_sell = _compute_scaled_sell_qty(quantity, trailing_profit_config.first_scale_out_fraction)
         if qty_to_sell <= 0:
@@ -515,6 +518,7 @@ def _structured_exit_action(
         profit_unrealized_pl_pct_ratio is not None
         and profit_unrealized_pl_pct_ratio >= trailing_profit_config.second_scale_out_trigger_pct
         and not took_second_scale_out
+        and "second_scale_out_trigger" not in ignored_exit_reasons
     ):
         qty_to_sell = _compute_scaled_sell_qty(quantity, trailing_profit_config.second_scale_out_fraction)
         if qty_to_sell <= 0:
@@ -551,3 +555,20 @@ def _structured_exit_action(
         ),
         updated_state,
     )
+
+
+def _structured_exit_action(**kwargs):
+    """Retain the priority verdict; evaluate lower rungs on disposable state for attribution."""
+    action, state = _structured_exit_action_impl(**kwargs)
+    coactive = []
+    probe = action
+    for _ in range(7):
+        if probe.get("action") not in {"sell_full", "sell_partial"}:
+            break
+        reason = probe["reason"]
+        if reason in coactive:
+            break
+        coactive.append(reason)
+        probe, _ = _structured_exit_action_impl(**kwargs, ignored_exit_reasons=frozenset(coactive))
+    action["coactive_exit_reasons"] = coactive
+    return action, state

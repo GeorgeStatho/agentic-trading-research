@@ -24,7 +24,8 @@
         "/markets/",
         "/business/"
       ],
-      "max_article_age_days": 14
+      "max_article_age_days": 14,
+      "provenance_source_type": "wire_service"
     },
     "cnbc.com": {
       "allowed": true,
@@ -38,7 +39,8 @@
         "/video/",
         "/pro/"
       ],
-      "max_article_age_days": 14
+      "max_article_age_days": 14,
+      "provenance_source_type": "original_reporting"
     },
     "morningstar.com": {
       "allowed": false,
@@ -52,7 +54,8 @@
         "/markets/",
         "/stocks/"
       ],
-      "max_article_age_days": 21
+      "max_article_age_days": 21,
+      "provenance_source_type": "analyst_research"
     },
     "barrons.com": {
       "allowed": false,
@@ -64,7 +67,8 @@
       "article_patterns": [
         "/articles/"
       ],
-      "max_article_age_days": 21
+      "max_article_age_days": 21,
+      "provenance_source_type": "original_reporting"
     },
     "marketwatch.com": {
       "allowed": false,
@@ -76,7 +80,8 @@
       "article_patterns": [
         "/story/"
       ],
-      "max_article_age_days": 14
+      "max_article_age_days": 14,
+      "provenance_source_type": "original_reporting"
     },
     "fool.com": {
       "allowed": true,
@@ -91,7 +96,8 @@
         "/research/",
         "/news/"
       ],
-      "max_article_age_days": 14
+      "max_article_age_days": 14,
+      "provenance_source_type": "commentary"
     },
     "investing.com": {
       "allowed": false,
@@ -103,7 +109,8 @@
       "article_patterns": [
         "/news/"
       ],
-      "max_article_age_days": 10
+      "max_article_age_days": 10,
+      "provenance_source_type": "aggregator"
     },
     "gurufocus.com": {
       "allowed": false,
@@ -116,7 +123,8 @@
         "/news/",
         "/stock/"
       ],
-      "max_article_age_days": 14
+      "max_article_age_days": 14,
+      "provenance_source_type": "analyst_research"
     },
     "businessinsider.com": {
       "allowed": false,
@@ -130,7 +138,8 @@
         "/stock-market/",
         "/economy/"
       ],
-      "max_article_age_days": 14
+      "max_article_age_days": 14,
+      "provenance_source_type": "original_reporting"
     },
     "markets.businessinsider.com": {
       "allowed": false,
@@ -142,7 +151,8 @@
       "article_patterns": [
         "/news/"
       ],
-      "max_article_age_days": 10
+      "max_article_age_days": 10,
+      "provenance_source_type": "aggregator"
     },
     "finance.yahoo.com": {
       "allowed": false,
@@ -154,7 +164,8 @@
       "article_patterns": [
         "/news/"
       ],
-      "max_article_age_days": 10
+      "max_article_age_days": 10,
+      "provenance_source_type": "aggregator"
     },
     "news.yahoo.com": {
       "allowed": false,
@@ -166,7 +177,8 @@
       "article_patterns": [
         "/"
       ],
-      "max_article_age_days": 10
+      "max_article_age_days": 10,
+      "provenance_source_type": "aggregator"
     }
   }
 }

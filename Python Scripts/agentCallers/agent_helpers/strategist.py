@@ -85,6 +85,13 @@ def _build_processed_article_record(
         "processed_at": row["processed_at"] or "",
         "model": row["model"] or "",
         "evidence_score": row.get("evidence_score"),
+        "root_event_id": row.get("root_event_id"),
+        "root_source_id": row.get("root_source_id"),
+        "primary_ticker": row.get("primary_ticker"),
+        "catalyst_id": row.get("catalyst_id"),
+        "source_type": row.get("source_type"),
+        "independent_source_count": row.get("independent_source_count"),
+
         "title": row["title"] or "",
         "summary": row["summary"] or "",
         "body": row["body"] or "",
@@ -173,6 +180,9 @@ def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
                 na.source,
                 na.source_url,
                 na.evidence_score,
+                na.root_event_id, na.root_source_id, na.catalyst_id, na.source_type,
+                na.primary_ticker,
+                na.independent_source_count,
                 na.published_at
             FROM sector_opportunist_impacts AS soi
             JOIN sectors AS s ON s.id = soi.sector_id
@@ -239,6 +249,9 @@ def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]
                 na.source,
                 na.source_url,
                 na.evidence_score,
+                na.root_event_id, na.root_source_id, na.catalyst_id, na.source_type,
+                na.primary_ticker,
+                na.independent_source_count,
                 na.published_at
             FROM industry_opportunist_impacts AS ioi
             JOIN industries AS i ON i.id = ioi.industry_id
@@ -305,6 +318,9 @@ def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
                 na.source,
                 na.source_url,
                 na.evidence_score,
+                na.root_event_id, na.root_source_id, na.catalyst_id, na.source_type,
+                na.primary_ticker,
+                na.independent_source_count,
                 na.published_at
             FROM company_opportunist_impacts AS coi
             JOIN companies AS c ON c.id = coi.company_id

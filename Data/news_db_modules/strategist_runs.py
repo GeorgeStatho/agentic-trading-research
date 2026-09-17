@@ -41,8 +41,8 @@ def record_strategist_run(
         """
         INSERT INTO strategist_runs (
             company_id, model, prompt_version, input_article_ids_json, input_payload_json,
-            output_payload_json, status, error_message, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            output_payload_json, status, error_message, created_at, candidate_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             company_id,
@@ -54,6 +54,7 @@ def record_strategist_run(
             status,
             error_message,
             created_at,
+            input_payload.get('candidate_id'),
         ),
     )
     return int(cursor.lastrowid)

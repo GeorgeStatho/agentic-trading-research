@@ -333,6 +333,7 @@ def _build_option_position_snapshot(
         "decision_reasons": exit_action.get("notes", []),
         "exit_action": exit_action.get("action"),
         "exit_reason": exit_action.get("reason"),
+        "coactive_exit_reasons": exit_action.get("coactive_exit_reasons", []),
         "qty_to_sell": exit_action.get("qty_to_sell"),
         "sell_fraction": exit_action.get("sell_fraction"),
         "option_spread_pct": option_spread_pct,

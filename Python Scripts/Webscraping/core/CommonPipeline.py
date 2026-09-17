@@ -111,7 +111,8 @@ def compute_article_scores(article, link: dict, href: str, source_metadata: dict
         source_url=href,
         source_metadata=source_metadata,
     )
-    confirmation_value = confirmation_score(1)
+    # Cross-source confirmation is assigned transactionally after persistence.
+    confirmation_value = confirmation_score(0)
     evidence_value = compute_evidence_score(
         recency=recency_value,
         source_reputation=source_reputation_value,
@@ -126,7 +127,7 @@ def compute_article_scores(article, link: dict, href: str, source_metadata: dict
         "source_reputation_score": source_reputation_value,
         "directness_score": directness_value,
         "confirmation_score": confirmation_value,
-        "independent_source_count": 1,
+        "independent_source_count": None,
         "factuality_score": factuality_value,
         "evidence_score": evidence_value,
     }
