@@ -36,6 +36,9 @@ class OrderCandidateBuilder:
         entry_gate = company_result.get("entry_gate") or {}
         market_regime_gate = company_result.get("market_regime_gate") or {}
 
+        from services.catalyst_gates import catalyst_admission_allowed
+        if not catalyst_admission_allowed(company_result.get('candidate_context')):
+            return False
         if decision not in {"call", "put"}:
             return False
         if confidence not in {"high", "medium"}:

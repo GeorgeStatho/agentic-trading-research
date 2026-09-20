@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from db_common import DB_PATH, DATA_DIR
+from market_db_modules.catalyst_research import record_catalyst_gate_observation, freshness_outcome_report
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.position_outcomes import (ensure_position_outcome, record_position_observation, list_post_exit_positions, resolve_post_exit_returns, exit_attribution_report, resolve_position_benchmarks, position_entry_context)
 from market_db_modules.execution_telemetry import (store_execution_telemetry, pending_execution_telemetry, execution_telemetry_report)
@@ -83,6 +84,7 @@ from market_db_modules.thesis_validator import (
 from market_db_modules.trade_executions import record_option_trade_execution
 
 __all__ = [
+    "record_catalyst_gate_observation", "freshness_outcome_report",
     "resolve_position_benchmarks", "position_entry_context",
     "ensure_position_outcome",
     "record_position_observation",

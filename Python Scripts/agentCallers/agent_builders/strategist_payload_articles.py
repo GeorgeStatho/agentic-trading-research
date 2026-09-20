@@ -46,6 +46,12 @@ def _serialize_signal(item: dict[str, Any], *, layer: str) -> AgentSignalPayload
         signal["industry_name"] = item["industry_name"]
     if item.get("company_name"):
         signal["company_name"] = item["company_name"]
+    import json
+    for key in ('catalyst_id', 'catalyst_family', 'catalyst_type', 'mechanism', 'expected_horizon'):
+        if item.get(key):
+            signal[key] = item[key]
+    if item.get('root_event_ids_json'):
+        signal['root_event_ids'] = json.loads(item['root_event_ids_json'])
     return signal
 
 

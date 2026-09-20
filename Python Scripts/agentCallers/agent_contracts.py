@@ -208,6 +208,12 @@ class CompanyScopePayload(TypedDict):
 
 
 class AgentSignalPayload(TypedDict):
+    catalyst_id: NotRequired[str]
+    catalyst_family: NotRequired[str]
+    catalyst_type: NotRequired[str]
+    mechanism: NotRequired[str]
+    root_event_ids: NotRequired[list[str]]
+    expected_horizon: NotRequired[str]
     layer: str
     article_id: int
     confidence: str

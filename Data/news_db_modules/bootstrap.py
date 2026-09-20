@@ -80,3 +80,5 @@ def initialize_database(
 
     with get_connection(db_path) as conn:
         _run_bootstrap_migrations(conn)
+        from catalyst_schema import migrate_catalysts
+        migrate_catalysts(conn)

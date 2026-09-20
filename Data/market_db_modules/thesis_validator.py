@@ -108,6 +108,8 @@ def record_position_thesis(
     thesis_id = int(cursor.lastrowid)
     conn.execute("UPDATE position_theses SET candidate_id=?, pipeline_version_json=? WHERE id=?",
                  (thesis.get("candidate_id"), json_text(thesis.get("pipeline_version")), thesis_id))
+    from catalyst_schema import stamp_candidate_catalyst
+    stamp_candidate_catalyst(conn, 'position_theses', thesis_id, thesis.get('candidate_id'))
     return thesis_id
 
 

@@ -31,11 +31,15 @@ def record_candidate(symbol, version, *, evidence=None, db_path=DB_PATH):
         article_ids = sorted({row.get('article_id', row.get('id')) for row in evidence
                               if row.get('article_id', row.get('id')) is not None})
         catalyst_ids = sorted({row['catalyst_id'] for row in evidence if row.get('catalyst_id')})
-        conn.execute('INSERT INTO candidates VALUES (?, ?, ?, ?, ?, ?)',
+        conn.execute('INSERT INTO candidates (candidate_id, symbol, created_at, catalyst_ids_json, article_ids_json, pipeline_version_json) VALUES (?, ?, ?, ?, ?, ?)',
                      (candidate_id, symbol.upper(), created_at, json_text(catalyst_ids), json_text(article_ids), json_text(version)))
+        from news_db_modules.catalysts import attach_candidate_catalysts
+        states = attach_candidate_catalysts(candidate_id, symbol, evidence, cutoff=created_at, conn=conn)
+        catalyst_ids = [state['catalyst_id'] for state in states]
     return {'candidate_id': candidate_id, 'symbol': symbol.upper(), 'created_at': created_at,
             'catalyst_ids': catalyst_ids, 'article_ids': article_ids, 'pipeline_version': version,
-            'evidence': evidence}
+            'evidence': evidence, 'catalysts': states, 'catalyst_id': states[0]['catalyst_id'],
+            'catalyst_family': states[0]['catalyst_family']}
 
 
 def record_candidate_snapshot(context, stage, payload, *, cutoff=None, db_path=DB_PATH):
@@ -67,6 +71,11 @@ def record_candidate_rejection(context, result, *, shadow=False, db_path=DB_PATH
             (context['candidate_id'], context.get('symbol'), result.stage, result.reason_code,
              json_text(result.metrics), json_text(result.thresholds),
              context['pipeline_version']['pipeline_version'], now_iso(), int(shadow)))
+        from catalyst_schema import stamp_candidate_catalyst
+        rejection = conn.execute('SELECT id FROM candidate_rejections WHERE candidate_id=? AND stage=? AND reason_code=? AND shadow=?',
+                                 (context['candidate_id'], result.stage, result.reason_code, int(shadow))).fetchone()
+        if rejection:
+            stamp_candidate_catalyst(conn, 'candidate_rejections', rejection['id'], context['candidate_id'])
 
 
 def load_candidate_lifecycle(candidate_id, *, db_path=DB_PATH):
@@ -78,7 +87,8 @@ def load_candidate_lifecycle(candidate_id, *, db_path=DB_PATH):
             if sha256(snapshot['snapshot_json'].encode()).hexdigest() != snapshot['snapshot_hash']:
                 raise ValueError('Candidate snapshot hash mismatch')
             snapshot['snapshot'] = json.loads(snapshot.pop('snapshot_json'))
-        return {'candidate_id': candidate_id, 'snapshots': snapshots, 'rejections': [dict(row) for row in conn.execute(
+        return {'candidate_id': candidate_id, 'catalysts': [dict(row) for row in conn.execute(
+            'SELECT * FROM candidate_catalysts WHERE candidate_id=? ORDER BY is_primary DESC, catalyst_id', (candidate_id,))], 'snapshots': snapshots, 'rejections': [dict(row) for row in conn.execute(
             'SELECT * FROM candidate_rejections WHERE candidate_id=? ORDER BY id', (candidate_id,))],
             'orders': [dict(row) for row in conn.execute(
                 'SELECT * FROM option_trade_executions WHERE candidate_id=? ORDER BY id', (candidate_id,))],

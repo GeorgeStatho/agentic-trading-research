@@ -174,11 +174,15 @@ def _filter_company_symbols_by_high_confidence_support(
             except (TypeError, ValueError):
                 high_confidence_article_count = 0
 
+        provenance = (context or {}).get('catalyst_gates', {}).get('PROVENANCE', {})
+        use_provenance = provenance.get('enforcement_mode') == 'enforce'
+        supported = provenance.get('allowed') if use_provenance else high_confidence_article_count >= minimum_high_confidence_articles
         checkpoint(context, "SUPPORT", {"summary": summary,
+                   "provenance_replaces_article_count": use_provenance, "allowed": bool(supported),
                    "high_confidence_article_count": high_confidence_article_count,
                    "minimum_high_confidence_articles": minimum_high_confidence_articles,
                    "max_age_days": max_age_days})
-        if high_confidence_article_count >= minimum_high_confidence_articles:
+        if supported:
             allowed_symbols.append(symbol)
             continue
 
@@ -191,7 +195,7 @@ def _filter_company_symbols_by_high_confidence_support(
                 "high_confidence_article_count": high_confidence_article_count,
                 "minimum_required_high_confidence_articles": minimum_high_confidence_articles,
                 "window_max_age_days": max_age_days,
-                "skip_reason": "insufficient_high_confidence_articles",
+                "skip_reason": "provenance_rejected" if use_provenance else "insufficient_high_confidence_articles",
             }
         )
 
@@ -203,7 +207,7 @@ def _filter_company_symbols_by_high_confidence_support(
                    thresholds={"minimum_high_confidence_articles": minimum_high_confidence_articles,
                                "max_age_days": max_age_days})
         LOGGER.info(
-            "Skipped %s companies before strategist/manager due to insufficient recent high-confidence company articles: %s",
+            "Skipped %s companies at strategist/manager admission: %s",
             len(skipped_companies),
             ", ".join(
                 f"{item.get('symbol')}({item.get('high_confidence_article_count')}/{item.get('minimum_required_high_confidence_articles')})"
@@ -419,6 +423,10 @@ def _run_strategist_and_manager(
     cycle_version = observe(build_pipeline_version)
     for symbol in company_symbols:
         candidate_context = (candidate_context_by_symbol or {}).get(symbol) or observe(begin_candidate, symbol, version=cycle_version)
+        from services.catalyst_gates import catalyst_admission_allowed
+        if not catalyst_admission_allowed(candidate_context):
+            checkpoint(candidate_context, 'admission_blocked', (candidate_context or {}).get('catalyst_gates', {}))
+            continue
         company_context = dict((company_context_by_symbol or {}).get(symbol) or {})
         progress_base = {
             "current_symbol": symbol,

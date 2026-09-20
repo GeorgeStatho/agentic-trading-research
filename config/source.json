@@ -179,6 +179,22 @@
       ],
       "max_article_age_days": 10,
       "provenance_source_type": "aggregator"
+    },
+    "sec.gov": {
+      "allowed": false,
+      "provenance_source_type": "primary_filing"
+    },
+    "uscourts.gov": {
+      "allowed": false,
+      "provenance_source_type": "court_document"
+    },
+    "investor.nvidia.com": {
+      "allowed": false,
+      "provenance_source_type": "company_release"
+    },
+    "investor.apple.com": {
+      "allowed": false,
+      "provenance_source_type": "company_release"
     }
   }
 }

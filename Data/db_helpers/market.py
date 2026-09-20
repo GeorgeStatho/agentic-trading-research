@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from db_common import DB_PATH, get_connection
 from market_db import initialize_database as initialize_market_database
 from market_db import (
+    record_catalyst_gate_observation, freshness_outcome_report,
     ensure_position_outcome, record_position_observation, list_post_exit_positions, resolve_post_exit_returns, exit_attribution_report, resolve_position_benchmarks, position_entry_context,
     store_execution_telemetry, pending_execution_telemetry, execution_telemetry_report,
     record_candidate, record_candidate_snapshot, record_candidate_rejection, load_candidate_lifecycle, candidate_funnel,

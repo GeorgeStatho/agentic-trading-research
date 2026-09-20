@@ -357,6 +357,13 @@ class OptionTradeExecutor:
         session: TradeExecutionSession,
     ) -> dict[str, Any]:
         """Execute one candidate immediately and update the shared session state."""
+        from services.catalyst_gates import catalyst_admission_allowed
+        if not catalyst_admission_allowed(candidate.get('candidate_context')):
+            execution = self._build_execution(candidate=candidate, session=session, order_qty=0,
+                submitted=False, order=None, estimated_order_cost=None, error='Catalyst admission blocked or unavailable.',
+                portfolio_guardrail='catalyst_admission_blocked')
+            session.executions.append(execution)
+            return execution
         option_symbol = str(candidate.get("selected_option_symbol") or "").strip().upper()
         if not option_symbol:
             execution = self._build_execution(

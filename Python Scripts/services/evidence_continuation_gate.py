@@ -13,7 +13,7 @@ import os
 from typing import Any
 
 
-POLICY_VERSION = "evidence-continuation-v1"
+POLICY_VERSION = "evidence-continuation-v2-provenance"
 
 
 @dataclass(frozen=True)
@@ -113,18 +113,24 @@ def _evidence_snapshot(payload: dict[str, Any], policy: EvidenceContinuationPoli
             eligible_articles.append(article)
             seen_article_ids.add(article_id)
 
-    sources = {
-        (_text(article.get("root_event_id")) if article.get("primary_ticker")
-         else _text(article.get("root_source_id")))
-        for article in eligible_articles
-        if _text(article.get("root_event_id")) and _text(article.get("root_source_id"))
-        and article.get("root_source_id") != "unverified"
-    }
+    from catalyst_models import PRIMARY_SOURCE_TYPES
+    roots_by_catalyst = {}
+    primary_exception = False
+    for article in eligible_articles:
+        root = _text(article.get('root_event_id'))
+        origin = _text(article.get('root_source_id'))
+        if root and origin and origin != 'unverified':
+            group = article.get('catalyst_id') or 'legacy_unclassified'
+            roots_by_catalyst.setdefault(group, set()).add(root if article.get('primary_ticker') else origin)
+            if article.get('source_type') in PRIMARY_SOURCE_TYPES and (_float(article.get('evidence_score')) or 0) >= .75:
+                primary_exception = True
+    independent_count = max((len(roots) for roots in roots_by_catalyst.values()), default=0)
     scores = [_float(article.get("evidence_score")) for article in eligible_articles]
     valid_grounding = bool(allowed_ids) and not invalid_grounding and len(eligible_articles) > 0
     return {
         "citation_count": len(eligible_articles),
-        "independent_source_count": len(sources),
+        "independent_source_count": independent_count,
+        "primary_source_exception": primary_exception,
         "minimum_evidence_score": round(min(score for score in scores if score is not None), 4) if scores else None,
         "valid_grounding": valid_grounding,
     }
@@ -189,9 +195,9 @@ def evaluate_evidence_continuation_gate(
         reasons.append("manager_not_directional")
     if not evidence["valid_grounding"]:
         reasons.append("invalid_or_missing_grounded_evidence")
-    if evidence["citation_count"] < policy.required_evidence_count:
+    if evidence["citation_count"] < policy.required_evidence_count and not evidence["primary_source_exception"]:
         reasons.append("insufficient_evidence_count")
-    if evidence["independent_source_count"] < policy.required_independent_sources:
+    if evidence["independent_source_count"] < policy.required_independent_sources and not evidence["primary_source_exception"]:
         reasons.append("insufficient_independent_sources")
     if evidence["minimum_evidence_score"] is None:
         reasons.append("missing_evidence_score")

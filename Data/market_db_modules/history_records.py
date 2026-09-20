@@ -122,6 +122,8 @@ def record_manager_decision_history(
     decision_history_id = int(cursor.lastrowid)
     conn.execute("UPDATE manager_decision_history SET candidate_id=?, pipeline_version_json=? WHERE id=?",
                  (history.get("candidate_id"), json_text(history.get("pipeline_version")), decision_history_id))
+    from catalyst_schema import stamp_candidate_catalyst
+    stamp_candidate_catalyst(conn, 'manager_decision_history', decision_history_id, history.get('candidate_id'))
     from .shadow_gates import record_decision_gate_verdicts
     record_decision_gate_verdicts(decision_history_id, history.get("manager_output_json"), conn=conn)
     snapshot = {

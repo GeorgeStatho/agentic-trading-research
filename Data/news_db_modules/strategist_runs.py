@@ -57,4 +57,7 @@ def record_strategist_run(
             input_payload.get('candidate_id'),
         ),
     )
-    return int(cursor.lastrowid)
+    record_id = int(cursor.lastrowid)
+    from catalyst_schema import stamp_candidate_catalyst
+    stamp_candidate_catalyst(conn, 'strategist_runs', record_id, input_payload.get('candidate_id'))
+    return record_id

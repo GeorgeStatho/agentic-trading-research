@@ -97,3 +97,5 @@ def initialize_database(
         _ensure_manager_decision_outcome_columns(conn)
         from .telemetry_schema import migrate_telemetry_columns
         migrate_telemetry_columns(conn)
+        from catalyst_schema import migrate_catalysts
+        migrate_catalysts(conn)

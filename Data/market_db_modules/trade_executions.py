@@ -133,4 +133,7 @@ def record_option_trade_execution(
     store_execution_telemetry(order_id, execution.get("execution_telemetry") or {},
                               context=execution.get("candidate_context"),
                               execution_version=execution.get("execution_version"), conn=conn)
+    from catalyst_schema import stamp_candidate_catalyst
+    stamp_candidate_catalyst(conn, 'option_trade_executions', record_id,
+                            (execution.get('candidate_context') or {}).get('candidate_id'))
     return record_id

@@ -57,7 +57,10 @@ def ensure_position_outcome(order_id, *, db_path=DB_PATH):
         if row['decision_closed_at']:
             close_position_outcome(row['decision_id'], realized_pnl_pct=row['decision_realized_pnl_pct'],
                                    closed_at=row['decision_closed_at'], exit_reason=row['exit_reason'], conn=conn)
-        return conn.execute('SELECT id FROM position_outcomes WHERE entry_order_id=?', (order_id,)).fetchone()['id']
+        outcome_id = conn.execute('SELECT id FROM position_outcomes WHERE entry_order_id=?', (order_id,)).fetchone()['id']
+        from catalyst_schema import stamp_candidate_catalyst
+        stamp_candidate_catalyst(conn, 'position_outcomes', outcome_id, row['candidate_id'])
+        return outcome_id
 
 
 def record_position_observation(snapshot, *, observed_at=None, version=None, db_path=DB_PATH):

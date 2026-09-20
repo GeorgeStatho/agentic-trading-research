@@ -55,7 +55,9 @@ def build_pipeline_version(*, settings=None):
 
     effective_settings = settings or FrontMainSettings.from_env()
     settings_block = settings_values(effective_settings)
-    gates = serializable({'continuation': DEFAULT_EVIDENCE_CONTINUATION_POLICY,
+    from services.catalyst_gates import CatalystGatePolicy
+    from catalyst_models import HALF_LIFE_MINUTES, CLASSIFICATION_VERSION, DECAY_BASIS
+    gates = serializable({'catalyst_decay_priors': HALF_LIFE_MINUTES, 'catalyst': CatalystGatePolicy.from_env(), 'continuation': DEFAULT_EVIDENCE_CONTINUATION_POLICY,
                           'regime': MarketRegimePolicy.from_env(),
                           'regime_snapshot': MarketRegimeSnapshotPolicy.from_env()})
     def constants(module):
@@ -63,6 +65,9 @@ def build_pipeline_version(*, settings=None):
                 if k.isupper() and isinstance(v, (str, int, float, bool, dict, list, tuple, set, frozenset))}
     source_files = [p for folder in ('services', 'trading_support', 'agentCallers')
                     for p in (ROOT / 'Python Scripts' / folder).rglob('*.py')]
+    source_files.extend([ROOT / path for path in ('Data/catalyst_models.py', 'Data/catalyst_schema.py',
+        'Data/catalyst_schema.sql', 'Data/news_db_modules/provenance.py', 'Data/news_db_modules/catalysts.py',
+        'config/source.json')])
     source_hashes = {str(p.relative_to(ROOT)): sha256(p.read_bytes()).hexdigest() for p in sorted(source_files)}
     manifest = {
         'manifest_version': 'pipeline-manifest-v1',
@@ -75,6 +80,9 @@ def build_pipeline_version(*, settings=None):
                                   if value.default is None or isinstance(value.default, (str, int, float, bool))}
                            for stage, function in (('strategist', decide_company_purchase), ('manager', decide_company_option_position))},
         'pipeline_settings': settings_values(AgentPipelineSettings.from_env()),
+        'catalyst_classification_version': CLASSIFICATION_VERSION,
+        'provenance_source_config': json.loads((ROOT / 'config/source.json').read_text()),
+        'catalyst_decay_priors': HALF_LIFE_MINUTES, 'catalyst_decay_basis': DECAY_BASIS,
         'gate_config_hash': digest(gates), 'gate_config': gates,
         'runtime_settings': settings_block, 'selector_config': constants(config),
         'contract_selector_version': SELECTOR_VERSION,

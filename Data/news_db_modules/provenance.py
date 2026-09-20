@@ -53,7 +53,7 @@ def _origin(article):
     host = (urlsplit(url).hostname or "").lower().removeprefix("www.")
     if host == "sec.gov" or host.endswith(".sec.gov"):
         source_type = "primary_filing"
-    elif host.endswith(".gov"):
+    elif host.endswith(".gov") and source_type not in {"court_document", "primary_filing"}:
         source_type = "government"
     try:
         raw = json.loads(article.get("raw_json") or "{}")
@@ -61,7 +61,14 @@ def _origin(article):
         raw = {}
     provenance = raw.get("provenance", {}) if isinstance(raw, dict) else {}
     provenance = provenance if isinstance(provenance, dict) else {}
-    primary_url = normalize_url(str(provenance.get("primary_source_url") or "")) or None
+    supplied_url = str(provenance.get("primary_source_url") or "")
+    supplied_parts = urlsplit(supplied_url)
+    primary_url = None
+    if supplied_parts.scheme in {'http', 'https'} and supplied_parts.hostname:
+        primary_metadata = get_source_metadata(supplied_url)
+        primary_kind = primary_metadata.get('provenance_source_type')
+        if primary_kind in {'primary_filing', 'company_release', 'government', 'court_document', 'earnings_call'} or supplied_parts.hostname.endswith('.gov'):
+            primary_url = normalize_url(supplied_url)
     if primary_url:
         return source_type, "url:" + primary_url, primary_url
     if source_type in {"primary_filing", "company_release", "government", "court_document", "earnings_call"}:
@@ -88,13 +95,28 @@ def update_article_provenance(article_id: int, *, conn) -> None:
         "SELECT 1 FROM sqlite_master WHERE name = 'companies'"
     ).fetchone() else None
     ticker = article.get("primary_ticker") or (company["symbol"] if company else None)
-    when = _timestamp(article["published_at"])
+    try:
+        raw = json.loads(article.get('raw_json') or '{}')
+    except (TypeError, ValueError):
+        raw = {}
+    supplied = raw.get('provenance', {}) if isinstance(raw, dict) else {}
+    supplied = supplied if isinstance(supplied, dict) else {}
+    published = _timestamp(article['published_at'])
+    event = _timestamp(supplied.get('event_time'))
+    when = event if event and published and event <= published else published
     source_type, origin, primary_url = _origin(article)
     catalyst = article.get("catalyst_id")
     # Unlinked articles receive an isolated ID, and are regrouped once a primary
     # company link arrives. A first company link stays primary on later reuse.
     if not article.get("primary_ticker"):
         catalyst = None
+    if catalyst is None and ticker:
+        prior = conn.execute('''SELECT catalyst_id FROM news_articles WHERE primary_ticker=? AND id!=?
+            AND catalyst_id IS NOT NULL AND ((? IS NOT NULL AND primary_source_url=?)
+                 OR (content_hash=? AND title=? AND source!=?)) ORDER BY id LIMIT 1''',
+            (ticker, article_id, primary_url, primary_url, article.get('content_hash'), article['title'], article['source'])).fetchone()
+        if prior:
+            catalyst = prior['catalyst_id']
     if catalyst is None and ticker and when:
         candidates = conn.execute("""
             SELECT * FROM news_articles
@@ -107,7 +129,9 @@ def update_article_provenance(article_id: int, *, conn) -> None:
         for candidate in candidates:
             other = _tokens(candidate["title"])
             # Compare against the cluster anchor, preventing rolling 24h chains.
-            anchor = conn.execute("SELECT title, event_time FROM news_articles WHERE catalyst_id = ? ORDER BY id LIMIT 1",
+            anchor = conn.execute("""SELECT a.title, COALESCE(c.first_public_time, a.event_time) AS event_time
+                FROM news_articles a LEFT JOIN catalysts c ON c.catalyst_id=a.catalyst_id
+                WHERE a.catalyst_id = ? ORDER BY a.id LIMIT 1""",
                                   (candidate["catalyst_id"],)).fetchone()
             anchor_time = _timestamp(anchor["event_time"])
             other = _tokens(anchor["title"])
@@ -129,6 +153,8 @@ def update_article_provenance(article_id: int, *, conn) -> None:
           when.isoformat() if when else None, datetime.now(timezone.utc).isoformat(), article_id))
     for cluster in {catalyst, old_catalyst} - {None}:
         _refresh_cluster_scores(cluster, conn=conn)
+        from .catalysts import refresh_catalyst
+        refresh_catalyst(cluster, conn=conn)
 
 
 def _refresh_cluster_scores(catalyst, *, conn):
