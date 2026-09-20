@@ -10,20 +10,16 @@ def valid_quote(quote):
     return bid is not None and ask is not None and 0 < ask and 0 <= bid <= ask
 
 
+NEW_YORK = ZoneInfo('America/New_York')
+
+
 def session_close(local_date):
-    return datetime.combine(local_date, time(16), ZoneInfo('America/New_York'))
+    return datetime.combine(local_date, time(16), NEW_YORK)
 
 
-def session_final(local_date, *, as_of, market_sessions):
-    """A day's last known quote is only that day's mark once the session can no longer move.
-
-    Before the close, the latest intraday quote is a partial observation: acting on it
-    would finalize an outcome the rest of the session could still erase. When session
-    evidence is supplied, the day must also be an observed session.
-    """
-    if as_of < session_close(local_date):
-        return False
-    return not market_sessions or any(utc(session).date() == local_date for session in market_sessions)
+def session_dates(market_sessions):
+    """Observed sessions as New York dates, which is the basis daily marks are keyed on."""
+    return {utc(session).astimezone(NEW_YORK).date() for session in market_sessions or ()}
 
 
 def simulate_option(contract, quotes, *, cutoff, as_of, policy, market_sessions=None):
@@ -48,28 +44,37 @@ def simulate_option(contract, quotes, *, cutoff, as_of, policy, market_sessions=
                                   'quote_id': entry.get('id'), 'provider': entry['provider']}, capital=capital)
     target = start + timedelta(days=policy.holding_days)
     try:
-        expiry = datetime.combine(utc(contract['expiration_date']).date(), time(16), ZoneInfo('America/New_York')) if contract.get('expiration_date') else None
+        expiry = datetime.combine(utc(contract['expiration_date']).date(), time(16), NEW_YORK) if contract.get('expiration_date') else None
     except ValueError:
         return {**base, 'status': 'invalid_contract_expiry'}
     if not expiry or expiry < target:
         return {**base, 'status': 'expiry_before_horizon'}
+    sessions = session_dates(market_sessions)
     daily = {}
     for quote in quotes:
         at = utc(quote['quote_at'])
         if at > start:
-            daily[at.astimezone(ZoneInfo('America/New_York')).date()] = quote
-    peak, previous = price, start
+            daily[at.astimezone(NEW_YORK).date()] = quote
+    peak, previous, previous_date = price, start, start.astimezone(NEW_YORK).date()
     for local_date, quote in daily.items():
         at, bid = utc(quote['quote_at']), number(quote['bid_price'])
-        if not session_final(local_date, as_of=end, market_sessions=market_sessions):
+        # A day's last known quote is only that day's mark once the session can no longer
+        # move it. Mid-session, acting on it would freeze an outcome the rest of the day
+        # could still erase, so wait rather than finalize. Later days are open too.
+        if end < session_close(local_date):
             return {**base, 'status': 'pending'}
-        if market_sessions and any(previous.date() < utc(session).date() < at.date() for session in market_sessions):
+        if sessions and local_date not in sessions:
+            # Session evidence that has not arrived yet can still confirm this day. Once
+            # observed coverage runs past it, its absence is permanent: finalize as
+            # unevaluable instead of re-collecting a day that can never be confirmed.
+            return {**base, 'status': 'missing_daily_marks' if max(sessions) > local_date else 'pending'}
+        if any(previous_date < session < local_date for session in sessions):
             return {**base, 'status': 'missing_daily_marks'}
         if (at - previous).total_seconds() > policy.maximum_mark_gap_days * 86400:
             return {**base, 'status': 'missing_daily_marks'}
         if at > expiry:
             return {**base, 'status': 'missing_expiry_quote'}
-        previous, peak = at, max(peak, bid)
+        previous, previous_date, peak = at, local_date, max(peak, bid)
         reasons = []
         if bid <= price * (1 - policy.stop_loss):
             reasons.append('risk_stop')
@@ -84,7 +89,8 @@ def simulate_option(contract, quotes, *, cutoff, as_of, policy, market_sessions=
         if reasons:
             days = (at - start).total_seconds() / 86400
             return {**base, 'status': 'complete',
-                    'verified_daily_marks': bool(market_sessions) and any(utc(session).date() == local_date for session in market_sessions),
+                    # Every mark up to this exit was matched against an observed session above.
+                    'verified_daily_marks': bool(sessions),
                     'hypothetical_exit': {'at': quote['quote_at'], 'price': bid, 'reason': reasons[0],
                                           'quote_id': quote.get('id')},
                     'hypothetical_pnl': (bid - price) * 100 - 2 * policy.fee_per_contract_side,

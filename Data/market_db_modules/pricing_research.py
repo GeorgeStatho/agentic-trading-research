@@ -11,11 +11,17 @@ from .bootstrap import initialize_database
 SECTOR_ETFS = json.loads((Path(__file__).resolve().parents[1] / 'sector_etfs.json').read_text())
 
 
-def migrate_pricing_columns(conn):
-    """Separate the raw residual from the direction-adjusted one on existing databases."""
-    columns = {row['name'] for row in conn.execute('PRAGMA table_info(candidate_price_observations)')}
-    if columns and 'forward_raw_residual_return' not in columns:
-        conn.execute('ALTER TABLE candidate_price_observations ADD COLUMN forward_raw_residual_return REAL')
+def backfill_raw_residuals(conn):
+    """Recover the raw residual on rows written before it was stored separately.
+
+    The stored value folds in the catalyst direction, and that direction is frozen on the
+    same row's snapshot, so multiplying by it again is exact rather than an estimate. The
+    collector only revisits rows with no forward return, so these would never resolve.
+    """
+    conn.execute("""UPDATE candidate_price_observations
+        SET forward_raw_residual_return = forward_residual_return * CASE
+            json_extract(snapshot_json, '$.direction') WHEN 'positive' THEN 1 WHEN 'negative' THEN -1 END
+        WHERE forward_raw_residual_return IS NULL AND forward_residual_return IS NOT NULL""")
 
 
 def sector_symbol(state):

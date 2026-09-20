@@ -72,16 +72,8 @@ def option_quotes(conn, contract, cutoff, as_of):
             and (utc(row['quote_at']) > utc(cutoff) or utc(row['available_at']) <= utc(cutoff))]
 
 
-def _position(conn, inputs, decision, strategy, run, as_of):
-    base = {'information_cutoff_time': inputs['information_cutoff_time'], 'outcome_cutoff_time': as_of,
-            'hypothetical_entry': None, 'hypothetical_exit': None, 'hypothetical_pnl': None,
-            'deployed_dollar_days': None, 'rejected_by': inputs['rejected_by']}
-    if decision is None:
-        return {**base, 'status': 'missing_decision'}
-    if decision == 'skip':
-        return {**base, 'status': 'cash', 'hypothetical_pnl': 0, 'deployed_dollar_days': 0}
-    contract = inputs['selected_contract'] if strategy in {'counterfactual', 'full_v2'} else baseline_contract(inputs, decision, run['policy'])
-    quotes = option_quotes(conn, contract, inputs['information_cutoff_time'], as_of) if contract else []
+def observed_sessions(conn, as_of):
+    """Completed, already-published SPY sessions: the evidence a daily mark is checked against."""
     from services.price_response import completed_at
     sessions = []
     for row in conn.execute("SELECT * FROM historical_underlying_bars WHERE symbol='SPY' AND timeframe='1d'"):
@@ -91,6 +83,19 @@ def _position(conn, inputs, decision, strategy, run, as_of):
         end = completed_at(bar)
         if end and end <= utc(as_of) and utc(raw.get('available_at') or bar['created_at']) <= utc(as_of):
             sessions.append(end)
+    return sessions
+
+
+def _position(conn, inputs, decision, strategy, run, as_of, sessions):
+    base = {'information_cutoff_time': inputs['information_cutoff_time'], 'outcome_cutoff_time': as_of,
+            'hypothetical_entry': None, 'hypothetical_exit': None, 'hypothetical_pnl': None,
+            'deployed_dollar_days': None, 'rejected_by': inputs['rejected_by']}
+    if decision is None:
+        return {**base, 'status': 'missing_decision'}
+    if decision == 'skip':
+        return {**base, 'status': 'cash', 'hypothetical_pnl': 0, 'deployed_dollar_days': 0}
+    contract = inputs['selected_contract'] if strategy in {'counterfactual', 'full_v2'} else baseline_contract(inputs, decision, run['policy'])
+    quotes = option_quotes(conn, contract, inputs['information_cutoff_time'], as_of) if contract else []
     return {**base, **simulate_option(contract, quotes, cutoff=inputs['information_cutoff_time'], as_of=as_of, policy=run['policy'], market_sessions=sessions),
             'selection_source': 'recorded_production' if strategy in {'counterfactual', 'full_v2'} else 'baseline_delta_selector'}
 
@@ -101,7 +106,8 @@ def benchmark_position(conn, symbol, reference, inputs, run, as_of):
     base = {'information_cutoff_time': inputs['information_cutoff_time'], 'outcome_cutoff_time': as_of,
             'status': 'missing_benchmark_prices', 'hypothetical_pnl': None, 'deployed_dollar_days': None,
             'basis': 'same-capital buy-and-hold from the first session close at or after the '
-                     'candidate entry; price return, not dividend total return'}
+                     'candidate entry; a window that closes before that first close holds '
+                     'nothing; price return, not dividend total return'}
     if reference.get('status') != 'complete':
         return {**base, 'status': 'missing_reference_trade'}
     entry_at = utc(reference['hypothetical_entry']['at'])
@@ -111,27 +117,35 @@ def benchmark_position(conn, symbol, reference, inputs, run, as_of):
         row = dict(row)
         raw = json.loads(row.get('raw_json') or '{}')
         row['available_at'] = raw.get('available_at')
-        row['research_available_at'] = raw.get('available_at') or row['created_at']
         at = completed_at(row)
         if utc(raw.get('available_at') or row['created_at']) > utc(as_of):
             continue
         if at and at <= utc(as_of) and row['close_price'] and row['close_price'] > 0:
             prices.append((at, row))
     # A close that already happened is not executable at an intraday decision time, so the
-    # benchmark enters at the first session close at or after the candidate's entry.
-    entries = sorted((item for item in prices if item[0] >= entry_at), key=lambda item: (item[0], item[1]['provider']))
-    if not entries or (entries[0][0] - entry_at).total_seconds() > run['policy'].maximum_mark_gap_days * 86400:
+    # benchmark enters at the first session close at or after the candidate's entry. Series
+    # are never spliced, so a provider only qualifies when it also holds the exit close.
+    gap = run['policy'].maximum_mark_gap_days * 86400
+    pair = None
+    for first_at, first in sorted((item for item in prices if item[0] >= entry_at), key=lambda item: (item[0], item[1]['provider'])):
+        if (first_at - entry_at).total_seconds() > gap:
+            break
+        floor = max(exit_at, first_at)
+        exits = sorted((item for item in prices if item[0] >= floor and item[1]['provider'] == first['provider']),
+                       key=lambda item: item[0])
+        if exits and (exits[0][0] - floor).total_seconds() <= gap:
+            pair = ((first_at, first), exits[0])
+            break
+    if pair is None:
         return base
-    first_at, first = entries[0]
-    exits = sorted((item for item in prices if item[0] >= max(exit_at, first_at) and item[1]['provider'] == first['provider']),
-                   key=lambda item: item[0])
-    if not exits or (exits[0][0] - max(exit_at, first_at)).total_seconds() > run['policy'].maximum_mark_gap_days * 86400:
-        return base
-    last_at, last = exits[0]
+    (first_at, first), (last_at, last) = pair
     capital = reference['capital']
     cost = run['policy'].benchmark_cost_bps / 10000
-    pnl = capital * (last['close_price'] / first['close_price'] * (1 - cost) / (1 + cost) - 1)
-    return {**base, 'status': 'complete', 'hypothetical_pnl': pnl, 'capital': capital,
+    # The reference trade closed before the benchmark's first executable close, so no
+    # benchmark position existed. Charging a round trip would invent a cost it never paid.
+    held = last_at > first_at
+    pnl = capital * (last['close_price'] / first['close_price'] * (1 - cost) / (1 + cost) - 1) if held else 0
+    return {**base, 'status': 'complete', 'hypothetical_pnl': pnl, 'capital': capital, 'held': held,
             'hypothetical_entry': {'at': first_at.isoformat(), 'bar_id': first['id'], 'price': first['close_price'],
                                    'candidate_entry_at': entry_at.isoformat()},
             'hypothetical_exit': {'at': last_at.isoformat(), 'bar_id': last['id'], 'price': last['close_price']},
@@ -193,6 +207,8 @@ def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
                 count += 1
             if count >= run['target_candidates']:
                 conn.execute("UPDATE research_runs SET status='sealed' WHERE run_id=?", (run_id,))
+        # One session read serves every strategy and candidate in this collection.
+        sessions = observed_sessions(conn, at)
         for row in conn.execute('SELECT * FROM research_candidates WHERE run_id=?', (run_id,)).fetchall():
             inputs = json.loads(row['input_json'])
             if fingerprint(inputs) != row['input_hash']:
@@ -208,7 +224,7 @@ def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
                     results[strategy] = json.loads(existing['result_json'])
                     continue
                 result = (benchmark_position(conn, strategy, results['counterfactual'], inputs, run, at)
-                          if strategy in {'SMH', 'QQQ'} else _position(conn, inputs, decisions[strategy], strategy, run, at))
+                          if strategy in {'SMH', 'QQQ'} else _position(conn, inputs, decisions[strategy], strategy, run, at, sessions))
                 results[strategy] = result
                 conn.execute('''INSERT INTO research_shadow_positions VALUES (?,?,?,?,?,?,?)
                     ON CONFLICT(run_id,candidate_id,strategy) DO UPDATE SET

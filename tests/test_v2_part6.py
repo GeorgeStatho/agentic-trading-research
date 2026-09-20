@@ -163,6 +163,20 @@ class ShadowTests(unittest.TestCase):
                                  market_sessions=[quote(3)['quote_at'], quote(4)['quote_at']])
         self.assertEqual(result['status'], 'pending')
 
+    def test_a_day_session_coverage_has_passed_is_unevaluable_not_forever_pending(self):
+        # Sessions run past the 09-07 quote without ever containing it, so waiting for its
+        # evidence would re-collect a day that can never be confirmed.
+        sessions = [quote(day)['quote_at'] for day in (3, 4, 8)]
+        result = simulate_option(contract(), quotes(), cutoff=ENTRY, as_of=END, policy=POLICY, market_sessions=sessions)
+        self.assertEqual(result['status'], 'missing_daily_marks')
+
+    def test_session_evidence_is_matched_on_the_new_york_date(self):
+        # 00:30Z belongs to the previous New York session, which is the basis marks use.
+        result = simulate_option(contract(), [quote(2, 1.9, 2), quote(3, 3.2, 3.3)], cutoff=ENTRY, as_of=END,
+                                 policy=POLICY, market_sessions=['2026-09-04T00:30:00+00:00'])
+        self.assertEqual(result['hypothetical_exit']['reason'], 'take_profit')
+        self.assertTrue(result['verified_daily_marks'])
+
     def test_expiry_shorter_than_hold_does_not_fabricate_settlement(self):
         result = simulate_option({**contract(), 'expiration_date': '2026-09-04'}, quotes(), cutoff=ENTRY, as_of=END, policy=POLICY)
         self.assertEqual(result['status'], 'expiry_before_horizon')
@@ -335,6 +349,53 @@ class ResearchDatabaseTests(unittest.TestCase):
         self.assertEqual(result['hypothetical_entry']['price'], 120)
         self.assertEqual(result['hypothetical_entry']['at'], '2026-09-02T20:00:00+00:00')
         self.assertLess(result['hypothetical_pnl'], 0)
+
+    def test_window_closing_before_the_first_executable_close_holds_nothing(self):
+        from market_db_modules.research_runs import benchmark_position
+        # The option round-tripped the same session, so the benchmark never took a position.
+        reference = {'status': 'complete', 'capital': 200,
+                     'hypothetical_entry': {'at': '2026-09-02T17:00:00+00:00'},
+                     'hypothetical_exit': {'at': '2026-09-02T19:00:00+00:00'}}
+        with closing(get_connection(self.db)) as conn, conn:
+            for at, close in (('2026-09-02T20:00:00+00:00', 120), ('2026-09-03T20:00:00+00:00', 130)):
+                conn.execute("""INSERT INTO historical_underlying_bars
+                    (symbol,bar_at,timeframe,close_price,provider,raw_json,created_at)
+                    VALUES ('SMH',?,'1d',?,'fixture',?,?)""", (at, close, canonical({'available_at': at}), at))
+            result = benchmark_position(conn, 'SMH', reference, {'information_cutoff_time': ENTRY},
+                                        {'policy': POLICY}, END)
+        # A round-trip cost here would be charged for a position that was never held.
+        self.assertEqual((result['status'], result['held']), ('complete', False))
+        self.assertEqual((result['hypothetical_pnl'], result['deployed_dollar_days']), (0, 0))
+
+    def test_benchmark_provider_must_cover_both_ends_of_the_window(self):
+        from market_db_modules.research_runs import benchmark_position
+        reference = {'status': 'complete', 'capital': 200,
+                     'hypothetical_entry': {'at': '2026-09-02T17:00:00+00:00'},
+                     'hypothetical_exit': {'at': '2026-09-03T20:00:00+00:00'}}
+        with closing(get_connection(self.db)) as conn, conn:
+            # 'alpaca' sorts first but abandoned its series after the entry bar.
+            for provider, at, close in (('alpaca', '2026-09-02T20:00:00+00:00', 120),
+                                        ('yfinance', '2026-09-02T20:00:00+00:00', 120),
+                                        ('yfinance', '2026-09-03T20:00:00+00:00', 132)):
+                conn.execute("""INSERT INTO historical_underlying_bars
+                    (symbol,bar_at,timeframe,close_price,provider,raw_json,created_at)
+                    VALUES ('QQQ',?,'1d',?,?,?,?)""", (at, close, provider, canonical({'available_at': at}), at))
+            result = benchmark_position(conn, 'QQQ', reference, {'information_cutoff_time': ENTRY},
+                                        {'policy': POLICY}, END)
+        self.assertEqual(result['status'], 'complete')
+        self.assertGreater(result['hypothetical_pnl'], 0)
+
+    def test_pre_split_forward_returns_recover_their_raw_residual(self):
+        from market_db_modules.pricing_research import backfill_raw_residuals
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute("""INSERT INTO candidate_price_observations
+                (candidate_id,catalyst_id,observed_at,bucket,snapshot_json,forward_residual_return,forward_at,forward_checked_at)
+                VALUES ('legacy','fixture',?,'low',?,.05,?,?)""",
+                (ENTRY, canonical({'direction': 'negative'}), ENTRY, ENTRY))
+            backfill_raw_residuals(conn)
+            row = conn.execute("SELECT * FROM candidate_price_observations WHERE candidate_id='legacy'").fetchone()
+        # The stored value folds in the frozen direction, so re-applying it is exact.
+        self.assertAlmostEqual(row['forward_raw_residual_return'], -.05)
 
     def test_correct_bearish_direction_is_not_scored_as_a_miss(self):
         run_id = self.run_fixture()

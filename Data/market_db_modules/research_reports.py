@@ -38,6 +38,10 @@ def calibration_table(rows):
     return result
 
 
+def raw_residual(row):
+    return row['forward_raw_residual_return'] if 'forward_raw_residual_return' in row.keys() else None
+
+
 def strategy_table(rows):
     names = (*STRATEGIES, 'SMH', 'QQQ')
     paired = [row for row in rows if all(row['positions'].get(name, {}).get('status') in {'complete', 'cash'} for name in names)]
@@ -81,8 +85,9 @@ def monthly_report(run_id, month, *, as_of=None, db_path=DB_PATH):
                 if utc(row['outcome_cutoff_time']) <= utc(at)}
             residual = conn.execute('SELECT * FROM candidate_price_observations WHERE candidate_id=?', (saved['candidate_id'],)).fetchone()
             # calibration_table applies the predicted direction itself, so it needs the raw
-            # residual. Rows written before the split have no raw value and stay unresolved.
-            move = (residual['forward_raw_residual_return'] if residual and residual['forward_at'] and residual['forward_checked_at']
+            # residual. A database this process never initialized may predate that column;
+            # report it as unresolved rather than failing the whole report.
+            move = (raw_residual(residual) if residual and residual['forward_at'] and residual['forward_checked_at']
                     and utc(residual['forward_at']) <= utc(at) and utc(residual['forward_checked_at']) <= utc(at) else None)
             rows.append({'candidate_id': saved['candidate_id'], 'features': inputs['features'],
                          'gates': inputs['features'].get('gates', {}), 'positions': positions,

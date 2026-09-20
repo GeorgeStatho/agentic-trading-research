@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from pathlib import Path
 
@@ -89,7 +90,9 @@ def initialize_database(
     db_path: Path | str = DB_PATH,
     schema_path: Path | str = SCHEMA_PATH,
 ) -> None:
-    with get_connection(db_path) as conn:
+    # sqlite3 keeps a self-referencing statement cache, so a connection left to the garbage
+    # collector holds the file open long after the caller is done with it.
+    with closing(get_connection(db_path)) as conn, conn:
         if is_legacy_schema(conn):
             _migrate_legacy_schema(conn)
         else:
@@ -100,8 +103,8 @@ def initialize_database(
         from catalyst_schema import migrate_catalysts
         migrate_catalysts(conn)
         conn.executescript(Path(__file__).with_name('pricing_schema.sql').read_text(encoding='utf-8'))
-        from .pricing_research import migrate_pricing_columns
-        migrate_pricing_columns(conn)
+        from .pricing_research import backfill_raw_residuals
+        backfill_raw_residuals(conn)
         from .contract_research import migrate_contract_research
         migrate_contract_research(conn)
         conn.executescript(Path(__file__).with_name('research_schema.sql').read_text(encoding='utf-8'))

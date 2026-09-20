@@ -18,7 +18,8 @@ LINK_COLUMNS = {'candidate_id': 'TEXT', 'pipeline_version_json': 'TEXT'}
 def migrate_telemetry_columns(conn):
     for table, columns in (('option_trade_executions', EXECUTION_COLUMNS),
                            ('manager_decision_history', LINK_COLUMNS), ('position_theses', LINK_COLUMNS),
-                           ('position_outcomes', {'benchmark_json': 'TEXT'})):
+                           ('position_outcomes', {'benchmark_json': 'TEXT'}),
+                           ('candidate_price_observations', {'forward_raw_residual_return': 'REAL'})):
         existing = {row['name'] for row in conn.execute(f'PRAGMA table_info({table})')}
         if existing:
             for name, kind in columns.items():
