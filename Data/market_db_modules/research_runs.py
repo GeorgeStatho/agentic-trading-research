@@ -100,7 +100,8 @@ def benchmark_position(conn, symbol, reference, inputs, run, as_of):
     from services.price_response import completed_at
     base = {'information_cutoff_time': inputs['information_cutoff_time'], 'outcome_cutoff_time': as_of,
             'status': 'missing_benchmark_prices', 'hypothetical_pnl': None, 'deployed_dollar_days': None,
-            'basis': 'same-capital candidate-window buy-and-hold; price return, not dividend total return'}
+            'basis': 'same-capital buy-and-hold from the first session close at or after the '
+                     'candidate entry; price return, not dividend total return'}
     if reference.get('status') != 'complete':
         return {**base, 'status': 'missing_reference_trade'}
     entry_at = utc(reference['hypothetical_entry']['at'])
@@ -116,22 +117,25 @@ def benchmark_position(conn, symbol, reference, inputs, run, as_of):
             continue
         if at and at <= utc(as_of) and row['close_price'] and row['close_price'] > 0:
             prices.append((at, row))
-    entries = sorted((item for item in prices if item[0] <= entry_at and utc(item[1]['research_available_at']) <= entry_at),
-                     key=lambda item: (item[0], item[1]['provider']))
-    if not entries or (entry_at - entries[-1][0]).total_seconds() > run['policy'].maximum_mark_gap_days * 86400:
+    # A close that already happened is not executable at an intraday decision time, so the
+    # benchmark enters at the first session close at or after the candidate's entry.
+    entries = sorted((item for item in prices if item[0] >= entry_at), key=lambda item: (item[0], item[1]['provider']))
+    if not entries or (entries[0][0] - entry_at).total_seconds() > run['policy'].maximum_mark_gap_days * 86400:
         return base
-    first_at, first = entries[-1]
-    exits = sorted((item for item in prices if item[0] >= exit_at and item[1]['provider'] == first['provider']), key=lambda item: item[0])
-    if not exits or (exits[0][0] - exit_at).total_seconds() > run['policy'].maximum_mark_gap_days * 86400:
+    first_at, first = entries[0]
+    exits = sorted((item for item in prices if item[0] >= max(exit_at, first_at) and item[1]['provider'] == first['provider']),
+                   key=lambda item: item[0])
+    if not exits or (exits[0][0] - max(exit_at, first_at)).total_seconds() > run['policy'].maximum_mark_gap_days * 86400:
         return base
     last_at, last = exits[0]
     capital = reference['capital']
     cost = run['policy'].benchmark_cost_bps / 10000
     pnl = capital * (last['close_price'] / first['close_price'] * (1 - cost) / (1 + cost) - 1)
     return {**base, 'status': 'complete', 'hypothetical_pnl': pnl, 'capital': capital,
-            'hypothetical_entry': {'at': entry_at.isoformat(), 'bar_id': first['id'], 'price': first['close_price']},
+            'hypothetical_entry': {'at': first_at.isoformat(), 'bar_id': first['id'], 'price': first['close_price'],
+                                   'candidate_entry_at': entry_at.isoformat()},
             'hypothetical_exit': {'at': last_at.isoformat(), 'bar_id': last['id'], 'price': last['close_price']},
-            'deployed_dollar_days': capital * (last_at - entry_at).total_seconds() / 86400}
+            'deployed_dollar_days': capital * (last_at - first_at).total_seconds() / 86400}
 
 
 def candidate_finished(conn, candidate_id, as_of):

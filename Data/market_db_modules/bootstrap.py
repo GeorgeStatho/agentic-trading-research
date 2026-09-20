@@ -100,6 +100,8 @@ def initialize_database(
         from catalyst_schema import migrate_catalysts
         migrate_catalysts(conn)
         conn.executescript(Path(__file__).with_name('pricing_schema.sql').read_text(encoding='utf-8'))
+        from .pricing_research import migrate_pricing_columns
+        migrate_pricing_columns(conn)
         from .contract_research import migrate_contract_research
         migrate_contract_research(conn)
         conn.executescript(Path(__file__).with_name('research_schema.sql').read_text(encoding='utf-8'))

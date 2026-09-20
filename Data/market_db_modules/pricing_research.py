@@ -11,6 +11,13 @@ from .bootstrap import initialize_database
 SECTOR_ETFS = json.loads((Path(__file__).resolve().parents[1] / 'sector_etfs.json').read_text())
 
 
+def migrate_pricing_columns(conn):
+    """Separate the raw residual from the direction-adjusted one on existing databases."""
+    columns = {row['name'] for row in conn.execute('PRAGMA table_info(candidate_price_observations)')}
+    if columns and 'forward_raw_residual_return' not in columns:
+        conn.execute('ALTER TABLE candidate_price_observations ADD COLUMN forward_raw_residual_return REAL')
+
+
 def sector_symbol(state):
     return (SECTOR_ETFS.get(state.get('sector')) or {}).get('ticker')
 

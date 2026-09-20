@@ -3,10 +3,12 @@ from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import logging
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 for folder in ('Data', 'Python Scripts', 'Python Scripts/agentCallers', 'Python Scripts/Webscraping'):
@@ -21,6 +23,8 @@ from services.research_contract import ResearchPolicy, assert_information_cutoff
 from services.research_inputs import load_inputs, baseline_contract
 from services.research_promotion import approved, guard_policy, champion_allows, source_hash
 from services.shadow_portfolio import simulate_option, evaluate_gate
+from services.order_candidates import OrderCandidateBuilder
+from services.trade_executor import TradeExecutionSession, OptionTradeExecutor
 
 START = '2026-09-01T20:00:00+00:00'
 ENTRY = '2026-09-02T20:00:00+00:00'
@@ -138,6 +142,27 @@ class ShadowTests(unittest.TestCase):
         result = simulate_option(contract(), quotes(), cutoff=ENTRY, as_of='2026-09-03T20:00:00Z', policy=POLICY)
         self.assertEqual(result['status'], 'pending')
 
+    def test_open_session_cannot_finalize_a_daily_outcome(self):
+        # Collecting at 13:00 New York sees a spike the rest of the session can still erase.
+        midday = {'id': 'midday', 'quote_at': '2026-09-03T16:00:00+00:00', 'bid_price': 3.2,
+                  'ask_price': 3.3, 'provider': 'fixture'}
+        history = [quote(2, 1.9, 2), midday]
+        during = simulate_option(contract(), history, cutoff=ENTRY, as_of='2026-09-03T17:00:00+00:00', policy=POLICY)
+        self.assertEqual((during['status'], during['hypothetical_exit']), ('pending', None))
+        # Once the session has closed that same quote is the day's best available mark.
+        self.assertEqual(self.simulate(history)['hypothetical_exit']['reason'], 'take_profit')
+
+    def test_closing_quote_replaces_an_earlier_mark_from_the_same_session(self):
+        midday = {'id': 'midday', 'quote_at': '2026-09-03T16:00:00+00:00', 'bid_price': 3.2,
+                  'ask_price': 3.3, 'provider': 'fixture'}
+        result = self.simulate([quote(2, 1.9, 2), midday, quote(3, 2.1, 2.2)])
+        self.assertIsNone(result['hypothetical_exit'])
+
+    def test_unobserved_session_cannot_finalize_an_exit(self):
+        result = simulate_option(contract(), quotes(), cutoff=ENTRY, as_of=END, policy=POLICY,
+                                 market_sessions=[quote(3)['quote_at'], quote(4)['quote_at']])
+        self.assertEqual(result['status'], 'pending')
+
     def test_expiry_shorter_than_hold_does_not_fabricate_settlement(self):
         result = simulate_option({**contract(), 'expiration_date': '2026-09-04'}, quotes(), cutoff=ENTRY, as_of=END, policy=POLICY)
         self.assertEqual(result['status'], 'expiry_before_horizon')
@@ -155,6 +180,50 @@ class ShadowTests(unittest.TestCase):
         self.assertEqual((gate['n_seen'], gate['n_passed'], gate['n_missing_outcomes'], gate['coverage_complete']), (1, 0, 1, False))
 
 
+class ExecutionIdentityTests(unittest.TestCase):
+    """A research identity must reach the executor's guard, not stop at a conversion."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.db = Path(self.temp.name) / 'research.db'
+        initialize_database(db_path=self.db)
+
+    @staticmethod
+    def manager_result(**extra):
+        return {'candidate_id': 'candidate-000', 'candidate_context': {},
+                'company': {'company_id': 1, 'symbol': 'NVDA', 'name': 'NVIDIA', 'sector_key': 'technology'},
+                'recommendation': {'decision': 'call', 'confidence': 'high', 'reason': 'fixture'},
+                'strategist_recommendation': {'decision': 'trade_candidate'},
+                'entry_gate': {'allowed': True}, 'market_regime_gate': {'allowed': True},
+                'selected_option': {'symbol': 'NVDA-option'}, **extra}
+
+    def test_research_identity_survives_conversion_and_blocks_execution(self):
+        built = OrderCandidateBuilder().build_from_manager_result(
+            self.manager_result(research_run_id='challenger', research_strategy='full_v2'))
+        self.assertEqual((built['research_run_id'], built['research_strategy']), ('challenger', 'full_v2'))
+
+        seen = {}
+        def spy(candidate, **kwargs):
+            seen['candidate'] = candidate
+            return champion_allows(candidate, db_path=self.db)
+
+        executor = OptionTradeExecutor(settings=SimpleNamespace(), trading_gateway=Mock(),
+                                       logger=logging.getLogger('fixture'))
+        session = TradeExecutionSession(available_buying_power=20000, max_deployable_buying_power=10000,
+                                        remaining_deployable_buying_power=10000, base_order_qty=1)
+        with patch('services.research_promotion.champion_allows', spy):
+            result = executor.execute_candidate(trading_client=Mock(), candidate=built, session=session)
+        self.assertEqual(result, {'submitted': False, 'portfolio_guardrail': 'research_champion_only'})
+        self.assertEqual(seen['candidate']['research_run_id'], 'challenger')
+        executor._trading_gateway.submit_option_market_order.assert_not_called()
+
+    def test_untagged_candidate_is_not_blocked_by_the_research_guard(self):
+        built = OrderCandidateBuilder().build_from_manager_result(self.manager_result())
+        self.assertIsNone(built['research_run_id'])
+        self.assertTrue(champion_allows(built, db_path=self.db))
+
+
 class ResearchDatabaseTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -166,23 +235,24 @@ class ResearchDatabaseTests(unittest.TestCase):
     def run_fixture(self, n=1, kind='frozen_forward'):
         return start_run(self.manifest, kind=kind, target_candidates=n, now=START, db_path=self.db)['run_id']
 
-    def candidate(self, n=0, passed=True, selected=True, version=None, entry=ENTRY):
+    def candidate(self, n=0, passed=True, selected=True, version=None, entry=ENTRY, decision='call'):
         symbol = f'NVDA-option-{n}'
         selected_contract = contract(symbol)
         selected_contract['latest_quote']['timestamp'] = entry
         candidate_id = f'candidate-{n:03d}'
         manifest = version or self.manifest
-        catalyst = {'catalyst_family': 'earnings', 'direction': 'positive', 'independent_root_count': 2, 'evidence_score': .8}
-        payload = {'recommendation': {'decision': 'call', 'confidence': 'high', 'thesis_confidence': 'high',
+        way = 'positive' if decision == 'call' else 'negative'
+        catalyst = {'catalyst_family': 'earnings', 'direction': way, 'independent_root_count': 2, 'evidence_score': .8}
+        payload = {'recommendation': {'decision': decision, 'confidence': 'high', 'thesis_confidence': 'high',
                     'timing_confidence': 'medium', 'execution_confidence': 'low'}, 'manager_model': 'fixture-model',
-                   'strategist_recommendation': {'decision': 'call'},
+                   'strategist_recommendation': {'decision': decision},
                    'candidate_context': {'catalysts': [catalyst]}, 'selected_option': selected_contract if selected else None,
                    'market_context': {'market_regime': {'state': 'trend_up' if n % 2 else 'range'},
                        'option_market': {'contracts': [selected_contract]},
                        'underlying_price_history': {'technical_summary': {'trend_state': 'bullish'},
                             'technical_indicators': {'relative_volume': {'relative_volume_20d': 2}}},
                        '_v2_scenario_distribution': {'returns': [.02] * 30, 'minimum_samples': 30, 'as_of': entry}}}
-        original = {'recommendation': payload['recommendation'], 'payload': {'opportunist_rollup': {'company': {'dominant_direction': 'positive'}}}}
+        original = {'recommendation': payload['recommendation'], 'payload': {'opportunist_rollup': {'company': {'dominant_direction': way}}}}
         with closing(get_connection(self.db)) as conn, conn:
             conn.execute('''INSERT INTO candidates(candidate_id,symbol,created_at,catalyst_ids_json,article_ids_json,pipeline_version_json)
                 VALUES (?,?,?,?,?,?)''', (candidate_id, 'NVDA', entry, '[]', '[]', canonical(manifest)))
@@ -248,6 +318,38 @@ class ResearchDatabaseTests(unittest.TestCase):
         self.assertTrue(all(row['paired_n'] == 1 for row in report['strategies']))
         self.assertLess(next(row for row in report['strategies'] if row['strategy'] == 'QQQ')['net_pnl'], 0)
 
+    def test_benchmark_cannot_enter_at_a_close_that_already_happened(self):
+        from market_db_modules.research_runs import benchmark_position
+        reference = {'status': 'complete', 'capital': 200,
+                     'hypothetical_entry': {'at': '2026-09-02T17:00:00+00:00'},
+                     'hypothetical_exit': {'at': '2026-09-07T20:00:00+00:00'}}
+        with closing(get_connection(self.db)) as conn, conn:
+            for at, close in (('2026-09-01T20:00:00+00:00', 100), ('2026-09-02T20:00:00+00:00', 120),
+                              ('2026-09-07T20:00:00+00:00', 120)):
+                conn.execute("""INSERT INTO historical_underlying_bars
+                    (symbol,bar_at,timeframe,close_price,provider,raw_json,created_at)
+                    VALUES ('QQQ',?,'1d',?,'fixture',?,?)""", (at, close, canonical({'available_at': at}), at))
+            result = benchmark_position(conn, 'QQQ', reference, {'information_cutoff_time': ENTRY},
+                                        {'policy': POLICY}, END)
+        # Yesterday's $100 close was no longer executable at a 13:00 entry.
+        self.assertEqual(result['hypothetical_entry']['price'], 120)
+        self.assertEqual(result['hypothetical_entry']['at'], '2026-09-02T20:00:00+00:00')
+        self.assertLess(result['hypothetical_pnl'], 0)
+
+    def test_correct_bearish_direction_is_not_scored_as_a_miss(self):
+        run_id = self.run_fixture()
+        candidate_id = self.candidate(decision='put')
+        with closing(get_connection(self.db)) as conn, conn:
+            # A bearish catalyst whose stock fell 5%: raw residual negative, adjusted positive.
+            conn.execute("""INSERT INTO candidate_price_observations
+                (candidate_id,catalyst_id,observed_at,bucket,snapshot_json,forward_residual_return,
+                 forward_raw_residual_return,forward_at,forward_checked_at)
+                VALUES (?,'fixture',?,'low','{}',.05,-.05,?,?)""", (candidate_id, ENTRY, ENTRY, ENTRY))
+        report = self.collect_report(run_id)
+        thesis = next(row for row in report['calibration'] if row['component'] == 'thesis_confidence')
+        high = next(item for item in thesis['bins'] if item['bin'] == 'high')
+        self.assertEqual((high['n_resolved'], high['direction_accuracy'], high['mean_residual_return']), (1, 1, -.05))
+
     def test_forward_excludes_candidates_before_freeze_and_manifest_drift(self):
         run_id = self.run_fixture(3)
         self.candidate(0, entry='2026-08-30T20:00:00+00:00')
@@ -306,7 +408,9 @@ class ResearchDatabaseTests(unittest.TestCase):
         candidate_id = self.candidate()
         with closing(get_connection(self.db)) as conn, conn:
             conn.execute('''INSERT INTO candidate_price_observations
-                VALUES (?, 'fixture', ?, 'low', '{}', .2, '2026-10-01', '2026-10-01')''', (candidate_id, ENTRY))
+                (candidate_id,catalyst_id,observed_at,bucket,snapshot_json,forward_residual_return,
+                 forward_raw_residual_return,forward_at,forward_checked_at)
+                VALUES (?, 'fixture', ?, 'low', '{}', .2, .2, '2026-10-01', '2026-10-01')''', (candidate_id, ENTRY))
         report = self.collect_report(run_id)
         self.assertTrue(all(row['monotonic'] is None for row in report['calibration']))
 

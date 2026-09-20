@@ -93,6 +93,10 @@ class OrderCandidateBuilder:
             "entry_gate": company_result.get("entry_gate", {}),
             "market_regime_gate": company_result.get("market_regime_gate", {}),
             "reason": company_result.get("reason"),
+            # The executor's champion guard reads these top-level fields, so a research
+            # identity must survive every conversion rather than being dropped here.
+            "research_run_id": company_result.get("research_run_id"),
+            "research_strategy": company_result.get("research_strategy"),
         }
 
     def build(self, agent_result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -142,5 +146,7 @@ class OrderCandidateBuilder:
             "market_regime_gate": manager_result.get("market_regime_gate", {}),
             "selected_option": manager_result.get("selected_option"),
             "reason": recommendation.get("reason"),
+            "research_run_id": manager_result.get("research_run_id"),
+            "research_strategy": manager_result.get("research_strategy"),
         }
         return self._build_candidate(company_result)

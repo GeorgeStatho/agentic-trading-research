@@ -80,7 +80,9 @@ def monthly_report(run_id, month, *, as_of=None, db_path=DB_PATH):
                 'SELECT * FROM research_shadow_positions WHERE run_id=? AND candidate_id=?', (run_id, saved['candidate_id']))
                 if utc(row['outcome_cutoff_time']) <= utc(at)}
             residual = conn.execute('SELECT * FROM candidate_price_observations WHERE candidate_id=?', (saved['candidate_id'],)).fetchone()
-            move = (residual['forward_residual_return'] if residual and residual['forward_at'] and residual['forward_checked_at']
+            # calibration_table applies the predicted direction itself, so it needs the raw
+            # residual. Rows written before the split have no raw value and stay unresolved.
+            move = (residual['forward_raw_residual_return'] if residual and residual['forward_at'] and residual['forward_checked_at']
                     and utc(residual['forward_at']) <= utc(at) and utc(residual['forward_checked_at']) <= utc(at) else None)
             rows.append({'candidate_id': saved['candidate_id'], 'features': inputs['features'],
                          'gates': inputs['features'].get('gates', {}), 'positions': positions,

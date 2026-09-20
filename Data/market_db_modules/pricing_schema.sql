@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS candidate_price_observations (
     snapshot_json TEXT NOT NULL,
     forward_residual_return REAL,
     forward_at TEXT,
-    forward_checked_at TEXT
+    forward_checked_at TEXT,
+    forward_raw_residual_return REAL
 );
 CREATE INDEX IF NOT EXISTS idx_catalyst_response_family ON catalyst_response_events(catalyst_family);

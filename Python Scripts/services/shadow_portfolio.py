@@ -10,6 +10,22 @@ def valid_quote(quote):
     return bid is not None and ask is not None and 0 < ask and 0 <= bid <= ask
 
 
+def session_close(local_date):
+    return datetime.combine(local_date, time(16), ZoneInfo('America/New_York'))
+
+
+def session_final(local_date, *, as_of, market_sessions):
+    """A day's last known quote is only that day's mark once the session can no longer move.
+
+    Before the close, the latest intraday quote is a partial observation: acting on it
+    would finalize an outcome the rest of the session could still erase. When session
+    evidence is supplied, the day must also be an observed session.
+    """
+    if as_of < session_close(local_date):
+        return False
+    return not market_sessions or any(utc(session).date() == local_date for session in market_sessions)
+
+
 def simulate_option(contract, quotes, *, cutoff, as_of, policy, market_sessions=None):
     base = {'information_cutoff_time': cutoff, 'outcome_cutoff_time': as_of,
             'hypothetical_entry': None, 'hypothetical_exit': None, 'hypothetical_pnl': None,
@@ -43,8 +59,10 @@ def simulate_option(contract, quotes, *, cutoff, as_of, policy, market_sessions=
         if at > start:
             daily[at.astimezone(ZoneInfo('America/New_York')).date()] = quote
     peak, previous = price, start
-    for quote in daily.values():
+    for local_date, quote in daily.items():
         at, bid = utc(quote['quote_at']), number(quote['bid_price'])
+        if not session_final(local_date, as_of=end, market_sessions=market_sessions):
+            return {**base, 'status': 'pending'}
         if market_sessions and any(previous.date() < utc(session).date() < at.date() for session in market_sessions):
             return {**base, 'status': 'missing_daily_marks'}
         if (at - previous).total_seconds() > policy.maximum_mark_gap_days * 86400:
@@ -66,7 +84,7 @@ def simulate_option(contract, quotes, *, cutoff, as_of, policy, market_sessions=
         if reasons:
             days = (at - start).total_seconds() / 86400
             return {**base, 'status': 'complete',
-                    'verified_daily_marks': bool(market_sessions) and any(utc(session).date() == at.date() for session in market_sessions),
+                    'verified_daily_marks': bool(market_sessions) and any(utc(session).date() == local_date for session in market_sessions),
                     'hypothetical_exit': {'at': quote['quote_at'], 'price': bid, 'reason': reasons[0],
                                           'quote_id': quote.get('id')},
                     'hypothetical_pnl': (bid - price) * 100 - 2 * policy.fee_per_contract_side,

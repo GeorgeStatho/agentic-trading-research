@@ -114,9 +114,12 @@ def capture_forward_returns(*, as_of, db_path):
         # would now give a different baseline than the original daily proxy.
         from services.price_response import residual
         move = residual(response['endpoint_prices'], metrics['endpoint_prices'], metrics['betas'])['residual_return']
+        # Keep both: the raw residual is the stock's own move, the adjusted one folds in
+        # the catalyst direction. Consumers that apply direction themselves need the raw field.
         with get_connection(db_path) as conn:
-            conn.execute('UPDATE candidate_price_observations SET forward_residual_return=?, forward_at=? WHERE candidate_id=?',
-                         (move * sign, response['outcome_at'], row['candidate_id']))
+            conn.execute('''UPDATE candidate_price_observations
+                SET forward_residual_return=?, forward_raw_residual_return=?, forward_at=? WHERE candidate_id=?''',
+                         (move * sign, move, response['outcome_at'], row['candidate_id']))
 
 
 def collect_catalyst_responses(*, as_of=None, policy=None, fetcher=fetch_response_history, refresh=True, db_path=DB_PATH):
