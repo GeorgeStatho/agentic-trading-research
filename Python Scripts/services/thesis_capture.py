@@ -22,7 +22,7 @@ from services.option_dte_buckets import (
 
 LOGGER = logging.getLogger(__name__)
 
-THESIS_CAPTURE_VERSION = "thesis-capture-v1"
+THESIS_CAPTURE_VERSION = "thesis-capture-v2-catalyst-horizon"
 
 CATALYST_SUMMARY_MAX_CHARS = 300
 MANAGER_REASON_MAX_CHARS = 600
@@ -166,6 +166,12 @@ def build_position_thesis_record(execution: dict[str, Any]) -> dict[str, Any] | 
         selected_expiration_date=execution.get("selected_expiration_date"),
         time_horizon=strategist.get("time_horizon"),
     )
+    horizon_source = 'legacy_dte_bucket_fallback'
+    from services.pricing_policy import HORIZON_DAYS
+    state = ((execution.get('candidate_context') or {}).get('catalysts') or [{}])[0]
+    if state.get('classification_status') == 'classified' and state.get('expected_horizon') in HORIZON_DAYS:
+        expected_horizon_days = HORIZON_DAYS[state['expected_horizon']]
+        horizon_source = 'classified_catalyst_calendar_prior'
 
     return {
         "candidate_id": execution.get("candidate_id"),
@@ -189,6 +195,7 @@ def build_position_thesis_record(execution: dict[str, Any]) -> dict[str, Any] | 
             risks=risks,
         ),
         "raw_json": {
+            'expected_horizon_source': horizon_source,
             "version": THESIS_CAPTURE_VERSION,
             "manager_reason": _clean_sentence(execution.get("reason"), max_chars=MANAGER_REASON_MAX_CHARS),
             "strategist_thesis": [

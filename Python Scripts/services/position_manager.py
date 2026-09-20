@@ -276,6 +276,12 @@ class OptionPositionManagerService:
                         getattr(self._trading_gateway, 'get_position_exit_iv', lambda _: None), position)
                     position['iv_observed_at'] = datetime.now(timezone.utc).isoformat()
                 observe(record_position_observation, position, version=version)
+                from market_db_modules.contract_research import record_observation
+                observed_at = datetime.now(timezone.utc).isoformat()
+                comparison = position.get('v2_exit_comparison') or {}
+                observe(record_observation, 'exit:' + str(position.get('symbol')) + ':' + observed_at,
+                        'POSITION_EXIT_V2', comparison, observed_at=observed_at,
+                        candidate_id=(comparison.get('inputs') or {}).get('candidate_id'))
                 position['candidate_context'] = observe(position_entry_context, position.get('symbol'))
                 position['execution_version'] = version
         self._record_submitted_exits(positions)

@@ -92,6 +92,20 @@ def quantile(values, fraction):
     return ordered[lower] + (ordered[upper] - ordered[lower]) * (index - lower)
 
 
+def catalyst_return_distribution(family, horizon_days, *, as_of, exclude_catalyst_id=None, db_path=DB_PATH):
+    """Empirical scenarios use the same maturity/availability boundaries as stats."""
+    with get_connection(db_path) as conn:
+        rows = conn.execute('''SELECT r.catalyst_id, r.residual_return FROM catalyst_responses r
+            JOIN catalyst_response_events e USING(catalyst_id)
+            WHERE e.catalyst_family=? AND r.horizon_days=? AND r.status='complete'
+            AND r.residual_return IS NOT NULL AND julianday(r.outcome_at)<=julianday(?)
+            AND julianday(r.recorded_at)<=julianday(?) AND julianday(e.registered_at)<=julianday(?)
+            AND (? IS NULL OR e.catalyst_id!=?) ORDER BY r.catalyst_id''',
+            (family, horizon_days, as_of.isoformat(), as_of.isoformat(), as_of.isoformat(),
+             exclude_catalyst_id, exclude_catalyst_id)).fetchall()
+    return [dict(row) for row in rows]
+
+
 def catalyst_stats(family, horizon_days, *, as_of, minimum_samples=30, exclude_catalyst_id=None, db_path=DB_PATH):
     with get_connection(db_path) as conn:
         rows = conn.execute('''SELECT e.direction, r.residual_return, r.metrics_json

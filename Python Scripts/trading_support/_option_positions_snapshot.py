@@ -205,7 +205,11 @@ def _build_option_position_snapshot(
             take_profit_pct=round(exit_thresholds.take_profit_pct * volatility_scale, 4),
         )
     effective_stop_loss_underlying_move_pct = round(stop_loss_underlying_move_pct * volatility_scale, 6)
+    from services.candidate_lifecycle import observe
+    from services.position_exit_policy import build_position_exit_context
+    v2_exit_context = observe(build_position_exit_context, option_symbol, parsed_symbol, stock_quote) or {}
     exit_action, updated_state = _structured_exit_action(
+        v2_exit_context=v2_exit_context,
         option_symbol=option_symbol,
         quantity=broker_quantity,
         unrealized_pl_pct_ratio=unrealized_pl_pct_ratio,
@@ -334,6 +338,9 @@ def _build_option_position_snapshot(
         "exit_action": exit_action.get("action"),
         "exit_reason": exit_action.get("reason"),
         "coactive_exit_reasons": exit_action.get("coactive_exit_reasons", []),
+        "v2_exit_comparison": exit_action.get('v2_exit_comparison', {}),
+        "implied_volatility": (v2_exit_context.get('inputs') or {}).get('current_iv'),
+        "iv_observed_at": (v2_exit_context.get('inputs') or {}).get('iv_at'),
         "qty_to_sell": exit_action.get("qty_to_sell"),
         "sell_fraction": exit_action.get("sell_fraction"),
         "option_spread_pct": option_spread_pct,

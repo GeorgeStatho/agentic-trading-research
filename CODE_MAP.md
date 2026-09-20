@@ -433,3 +433,107 @@ main.py
 ```
 
 That split explains why the repo feels mixed: it contains both the older trading prototype and the newer research-first pipeline.
+
+
+## V2 Part 1 measurement foundations
+
+- `Python Scripts/services/outcome_reconciliation.py`: broker-fill round trips,
+  invoked at worker startup and after position-management cycles.
+- `Data/news_db_modules/provenance.py`: article/catalyst/root grouping and
+  transactional source-count updates at ingestion.
+- `Python Scripts/services/regime_history.py`: dated SPY/VIX history persisted in
+  `historical_underlying_bars` and consumed by the regime classifier.
+- `Data/market_db_modules/shadow_gates.py`: immutable decision-time gate verdicts
+  and their joins to realized outcomes.
+- `scripts/v2_part1.py`: outcome, provenance, regime, and gate maintenance commands.
+- [TRADINGBOT_V2_PART1_CHANGES.md](TRADINGBOT_V2_PART1_CHANGES.md): implementation
+  rationale, validation results, and outstanding deployment checks.
+
+## V2 Part 2 telemetry foundations
+
+- `Python Scripts/services/pipeline_version.py`: effective configuration, model,
+  prompt and source manifests, hashed for historical identification.
+- `Python Scripts/services/candidate_lifecycle.py` and
+  `Data/market_db_modules/candidate_lifecycle.py`: candidate IDs, immutable
+  checkpoints, canonical rejection storage, cohort funnels and hash-checked reads.
+- `Python Scripts/services/execution_telemetry.py` and
+  `Data/market_db_modules/execution_telemetry.py`: quote capture, broker-fill
+  reconciliation, coverage, fill rates and slippage reports.
+- `Python Scripts/services/position_telemetry.py` and
+  `Data/market_db_modules/position_outcomes.py`: entry-order lifetimes, sampled
+  extrema, final-exit attribution and daily post-exit/benchmark observations.
+- `Data/market_db_modules/telemetry_schema.py`: additive legacy schema migration.
+- `scripts/v2_part2.py`: execution, funnel, lifecycle, exits, fills and post-exit CLI.
+- `tests/test_v2_part2.py`: telemetry invariants and handoff coverage.
+- [TRADINGBOT_V2_PART2_CHANGES.md](TRADINGBOT_V2_PART2_CHANGES.md): choices,
+  measurement definitions, commands, validation and deployment acceptance.
+
+## V2 Part 3 provenance and catalysts
+
+- `Data/catalyst_models.py`: capture taxonomy, coarse modelling families,
+  `CatalystState` and explicit calendar-time decay priors.
+- `Data/catalyst_schema.py` / `Data/catalyst_schema.sql`: shared additive migration
+  for catalysts, roots, candidate associations, gate observations and record links.
+- `Data/news_db_modules/catalysts.py`: state refresh, frozen candidate associations,
+  impact-root validation, backfill and family coverage report.
+- `Data/news_db_modules/provenance.py`: source-chain grouping and original root
+  timing; classifications come from `config/source.json`.
+- `Python Scripts/services/catalyst_gates.py`: provenance/primary-source exception,
+  freshness decay, shadow recording and enforced admission checks.
+- `Data/market_db_modules/catalyst_research.py`: immutable gate observations and
+  executed-outcome coverage by catalyst-age quartile.
+- `scripts/v2_part3.py`: catalyst backfill, family and freshness reports.
+- `tests/test_v2_part3.py`: Part 3 invariants and integration tests.
+- [TRADINGBOT_V2_PART3_CHANGES.md](TRADINGBOT_V2_PART3_CHANGES.md): implementation
+  decisions, clock semantics, configuration, validation and acceptance limits.
+
+## V2 Part 4 pricing gates
+
+- `Python Scripts/services/price_response.py`: completed-bar alignment, pre-event
+  joint betas, residual returns, sampled MFE/MAE and shadow absorption verdicts.
+- `Python Scripts/services/pricing_policy.py`: versioned sample, horizon, quote
+  and collection defaults; pricing gates have no enforcement mode.
+- `Data/market_db_modules/pricing_schema.sql` / `pricing_research.py`: additive
+  response/event storage, immutable observations, as-of statistics and coverage.
+- `Python Scripts/services/catalyst_response_collector.py`: bounded history refresh,
+  independent catalyst outcomes and forward returns from frozen candidate prices.
+  The news collector invokes it after ingestion; CLI also supports cached-only runs.
+- `Python Scripts/services/option_hurdle_gate.py`: ATM call/put pairing, quote checks,
+  expiry-to-holding-horizon scaling and expected/implied-move comparison.
+- `Python Scripts/services/pricing_gates.py`: candidate creation and pre-selection
+  adapters; hashed snapshots and canonical shadow rejections.
+- `Python Scripts/agentCallers/agent_helpers/market_context/option_chain.py`:
+  retains ATM research quotes separately from the existing OTM selector list.
+- `Python Scripts/services/market_regime_gate.py`: scope opposition, hard data/macro
+  veto semantics and legacy-versus-weighted verdicts.
+- `scripts/v2_part4.py`: collection budgets, family statistics and absorption reports.
+- `tests/test_v2_part4.py`: numerical, timing, quote, migration and integration tests.
+- [TRADINGBOT_V2_PART4_CHANGES.md](TRADINGBOT_V2_PART4_CHANGES.md): choices,
+  configuration, validation and operational acceptance limits.
+
+## V2 Part 5 contracts and execution
+
+- `Python Scripts/services/contract_policy.py`: versioned rollout modes and
+  thresholds for liquidity, scenario selection, risk clusters and exit rungs.
+- `Python Scripts/services/liquidity_gate.py`: size/age/spread verdicts, selector
+  filtering, canonical reasons and execution-quote validation.
+- `Python Scripts/services/scenario_selector.py`: empirical Greek scenarios,
+  independent cost components, P&L quantiles and strict-hybrid-pool ranking.
+- `Python Scripts/services/limit_entry.py`: offline bounded entry state machine,
+  partial-fill/cancellation rules, price caps and invalidation; no live broker loop.
+- `Python Scripts/services/risk_clusters.py` and `config/risk_clusters.csv`:
+  maintained assignments and projected position/notional caps.
+- `Data/market_db_modules/contract_research.py`: additive company cluster migration,
+  immutable observations and market-fill baseline/coverage reports.
+- `Python Scripts/services/contract_observations.py`: candidate checkpoint and
+  research observation adapters for Part 5 comparisons.
+- `Python Scripts/services/position_exit_policy.py`: dated entry/IV inputs,
+  catalyst time expiry, volatility collapse and shadow priority comparisons.
+- `Python Scripts/services/thesis_capture.py`: classified catalyst holding horizons
+  with a labelled legacy DTE fallback; the thesis writer retains fractional days.
+- `Python Scripts/trading_support/_option_positions_strategy.py`: new exit rungs
+  in the existing risk/expiration/trailing ladder and coactive attribution.
+- `scripts/v2_part5.py`: baseline and observation/mapping coverage reports.
+- `tests/test_v2_part5.py`: numerical, state-machine, migration and runtime tests.
+- [TRADINGBOT_V2_PART5_CHANGES.md](TRADINGBOT_V2_PART5_CHANGES.md): implementation
+  rationale, configuration, validation and explicit E1/live-thesis deferrals.

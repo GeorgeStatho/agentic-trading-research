@@ -159,7 +159,8 @@ def evaluate_price_absorption(state, histories, stats, *, as_of, policy=None):
     response = measure_response(histories, event_at=state.get('first_public_time'), as_of=as_of,
                                 direction=state.get('direction'), policy=policy)
     expected = positive(stats.get('expected_abs_residual_move')) if stats.get('usable') else None
-    denominator = expected or atr_fraction(histories, before=timestamp(state.get('first_public_time')) or as_of)
+    atr = atr_fraction(histories, before=timestamp(state.get('first_public_time')) or as_of)
+    denominator = expected or atr
     move = response.get('residual_return')
     ratio = abs(move) / denominator if move is not None and denominator else None
     bucket = ('unknown' if ratio is None else 'largely_unexpressed' if ratio < .30 else
@@ -174,6 +175,6 @@ def evaluate_price_absorption(state, histories, stats, *, as_of, policy=None):
             'thresholds': {'absorption_ratio': policy.absorption_threshold},
             'metrics': {**response, 'residual_move_since_event': move, 'price_absorption_ratio': ratio,
                         'bucket': bucket, 'historical_expected_abs_move': expected,
-                        'normalizing_move': denominator, 'normalization': 'empirical_absolute_move' if expected else 'atr_14',
+                        'atr_fraction': atr, 'normalizing_move': denominator, 'normalization': 'empirical_absolute_move' if expected else 'atr_14',
                         'calibration': 'provisional', 'historical_sample_size': stats.get('n', 0),
                         'stats': stats, 'catalyst_direction': state.get('direction')}}

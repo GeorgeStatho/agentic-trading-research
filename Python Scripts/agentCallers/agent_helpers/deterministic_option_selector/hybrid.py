@@ -75,9 +75,11 @@ def _passes_hybrid_fast_filters(
         reasons.append("dte_above_max")
 
     open_interest = _coerce_float(contract.get("open_interest"))
-    if open_interest is None:
+    from services.contract_policy import ContractPolicy
+    oi_is_hard_filter = ContractPolicy.from_env().liquidity_mode != 'enforce'
+    if open_interest is None and oi_is_hard_filter:
         reasons.append("missing_open_interest")
-    elif open_interest < HYBRID_MIN_OPEN_INTEREST:
+    elif open_interest is not None and open_interest < HYBRID_MIN_OPEN_INTEREST and oi_is_hard_filter:
         reasons.append("open_interest_below_min")
 
     spread_pct = _get_spread_pct(contract)
@@ -277,9 +279,12 @@ def _pick_matching_contract_hybrid(
             target_dte_bucket=target_dte_bucket,
         )
     )
-    selected = dict(candidate_pool[0])
+    from services.scenario_selector import select_with_scenarios
+    scenario_choice, scenario_comparison = select_with_scenarios(candidate_pool, market_context, spot=reference_stock_price)
+    selected = dict(scenario_choice)
     selected["_selection_mode"] = "hybrid_fast_short_dte"
     selected["_selector_debug"] = {
+        "scenario_comparison": scenario_comparison,
         "selector_mode_requested": selector_mode_requested,
         "target_dte_bucket": target_dte_bucket,
         "target_otm_distance": target_otm_distance,

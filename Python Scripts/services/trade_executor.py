@@ -49,6 +49,8 @@ class TradeExecutionSession:
     max_premium_per_trade: float = 0.0
     # Buys submitted this session per underlying, for the entry attempt cap.
     entries_by_underlying: dict[str, int] = field(default_factory=dict)
+    cluster_exposure_by_key: dict[str, float] = field(default_factory=dict)
+    cluster_option_symbols: dict[str, set[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -147,12 +149,19 @@ class OptionTradeExecutor:
         max_deployable_buying_power = available_buying_power * self._settings.max_deployable_buying_power_ratio
         open_positions = self._trading_gateway.get_open_option_positions(trading_client)
         sector_exposure_by_key: dict[str, float] = {}
+        cluster_exposure_by_key: dict[str, float] = {}
+        cluster_option_symbols: dict[str, set[str]] = {}
+        from services.risk_clusters import get_risk_cluster
         for position in open_positions:
             underlying_symbol = str(position.get("underlying_symbol") or "").strip().upper()
             sector_key = get_company_sector_key(symbol=underlying_symbol)
             sector_exposure_by_key[sector_key] = sector_exposure_by_key.get(sector_key, 0.0) + abs(
                 float(position.get("notional") or 0.0)
             )
+            cluster = get_risk_cluster(underlying_symbol)
+            if cluster:
+                cluster_exposure_by_key[cluster] = cluster_exposure_by_key.get(cluster, 0.0) + abs(float(position.get('notional') or 0))
+                cluster_option_symbols.setdefault(cluster, set()).add(str(position.get('option_symbol')))
         current_option_exposure = sum(abs(float(position.get("notional") or 0.0)) for position in open_positions)
         market_now = datetime.now(MARKET_TIMEZONE)
         daily_loss_start = market_now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -171,6 +180,8 @@ class OptionTradeExecutor:
             daily_realized_loss=get_realized_option_loss_since(start_at=daily_loss_start),
             open_option_symbols={str(position.get("option_symbol") or "").strip().upper() for position in open_positions},
             max_premium_per_trade=max_premium_per_trade,
+            cluster_exposure_by_key=cluster_exposure_by_key,
+            cluster_option_symbols=cluster_option_symbols,
         )
 
     def _build_trade_result(self, session: TradeExecutionSession) -> dict[str, Any]:
@@ -184,6 +195,8 @@ class OptionTradeExecutor:
             "current_option_exposure": session.current_option_exposure,
             "current_option_position_count": session.current_option_position_count,
             "sector_exposure_by_key": session.sector_exposure_by_key,
+            "cluster_exposure_by_key": session.cluster_exposure_by_key,
+            "cluster_option_symbols": {key: sorted(value) for key, value in session.cluster_option_symbols.items()},
             "daily_realized_loss": session.daily_realized_loss,
             "portfolio_limits": {
                 "max_concurrent_option_positions": int(getattr(self._settings, "max_concurrent_option_positions", 5)),
@@ -323,6 +336,13 @@ class OptionTradeExecutor:
         sector_cap = session.max_deployable_buying_power * (sector_cap_pct / 100.0)
         if session.sector_exposure_by_key.get(sector_key, 0.0) + estimated_order_cost > sector_cap:
             return "portfolio_sector_notional_limit"
+        from services.risk_clusters import evaluate_cluster, get_risk_cluster
+        cluster = evaluate_cluster(cluster=get_risk_cluster(underlying_symbol), option_symbol=option_symbol,
+                                   estimated_cost=estimated_order_cost, session=session)
+        if diagnostics is not None:
+            diagnostics['risk_cluster_gate'] = cluster
+        if not cluster['allowed']:
+            return 'portfolio_risk_cluster_limit'
         return self._symbol_entry_attempt_guardrail(
             underlying_symbol=underlying_symbol,
             session=session,
@@ -455,6 +475,15 @@ class OptionTradeExecutor:
             session=session,
             diagnostics=candidate['portfolio_gate_inputs'],
         )
+        from services.contract_observations import record_contract_observation
+        from services.candidate_lifecycle import reject
+        cluster_gate = candidate['portfolio_gate_inputs'].get('risk_cluster_gate')
+        if cluster_gate:
+            candidate['risk_cluster_id'] = cluster_gate['risk_cluster_id']
+            record_contract_observation(candidate.get('candidate_context'), 'RISK_CLUSTER', cluster_gate)
+            if cluster_gate['would_allow'] is False and cluster_gate['enforcement_mode'] != 'disabled':
+                reject(candidate.get('candidate_context'), 'RISK_CLUSTER', 'portfolio_risk_cluster_limit',
+                       metrics=cluster_gate['metrics'], thresholds=cluster_gate['thresholds'], shadow=cluster_gate['allowed'])
         if portfolio_guardrail:
             execution = self._build_execution(
                 candidate=candidate,
@@ -509,6 +538,24 @@ class OptionTradeExecutor:
         arrival = observe(getattr(self._trading_gateway, 'get_execution_market_snapshot', lambda **_: None),
                           option_symbol=option_symbol, underlying_symbol=candidate.get("symbol"))
         candidate["execution_telemetry"] = capture_execution_context(candidate, arrival)
+        from services.liquidity_gate import evaluate_liquidity
+        from services.candidate_lifecycle import reject
+        from services.limit_entry import observe_entry_plan
+        liquidity = evaluate_liquidity({'latest_quote': (arrival or {}).get('option') or {}}, quantity=calculated_order_qty)
+        candidate['execution_liquidity_gate'] = liquidity
+        record_contract_observation(candidate.get('candidate_context'), 'EXECUTION_LIQUIDITY', liquidity)
+        for reason in liquidity['reason_codes'] if liquidity['enforcement_mode'] != 'disabled' else []:
+            reject(candidate.get('candidate_context'), 'EXECUTION_LIQUIDITY', reason,
+                   metrics=liquidity['metrics'], thresholds=liquidity['thresholds'], shadow=liquidity['allowed'])
+        if not liquidity['allowed']:
+            execution = self._build_execution(candidate=candidate, session=session, order_qty=calculated_order_qty,
+                submitted=False, order=None, estimated_order_cost=estimated_order_cost,
+                error='Fresh quote failed V2 liquidity checks.', portfolio_guardrail='execution_liquidity_blocked')
+            session.executions.append(execution)
+            return execution
+        candidate['limit_entry_shadow'] = observe(observe_entry_plan, candidate, arrival,
+                                                  quantity=calculated_order_qty, paper=self._settings.alpaca_paper)
+        record_contract_observation(candidate.get('candidate_context'), 'LIMIT_ENTRY_SHADOW', candidate['limit_entry_shadow'])
         checkpoint(candidate.get("candidate_context"), "pre_order", {
             "candidate": candidate, "quantity": calculated_order_qty,
             "estimated_order_cost": estimated_order_cost, "session": self._build_trade_result(session),
@@ -537,6 +584,7 @@ class OptionTradeExecutor:
                 underlying_symbol=self._candidate_underlying_symbol(candidate, option_symbol),
                 sector_key=sector_key,
                 estimated_order_cost=estimated_order_cost,
+                risk_cluster_id=candidate.get('risk_cluster_id'),
             )
             execution = self._build_execution(
                 candidate=candidate,
@@ -584,6 +632,7 @@ class OptionTradeExecutor:
         sector_key: str,
         estimated_order_cost: float,
         underlying_symbol: str = "",
+        risk_cluster_id: str | None = None,
     ) -> None:
         """Consume shared session budgets once an order has been submitted."""
         session.remaining_deployable_buying_power -= estimated_order_cost
@@ -595,6 +644,9 @@ class OptionTradeExecutor:
             session.entries_by_underlying[underlying_symbol] = (
                 session.entries_by_underlying.get(underlying_symbol, 0) + 1
             )
+        if risk_cluster_id:
+            session.cluster_exposure_by_key[risk_cluster_id] = session.cluster_exposure_by_key.get(risk_cluster_id, 0.0) + estimated_order_cost
+            session.cluster_option_symbols.setdefault(risk_cluster_id, set()).add(option_symbol)
         if option_symbol not in session.open_option_symbols:
             session.open_option_symbols.add(option_symbol)
             session.current_option_position_count += 1

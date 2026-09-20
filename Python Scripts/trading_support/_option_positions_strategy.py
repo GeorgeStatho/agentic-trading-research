@@ -173,6 +173,7 @@ def _structured_exit_action_impl(
     underlying_adverse_move_pct: float | None = None,
     stop_loss_underlying_move_pct: float = 0.0,
     ignored_exit_reasons: frozenset[str] = frozenset(),
+    v2_exit_context: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     existing_state = dict(position_state or {})
     notes: list[str] = list(context_notes)
@@ -368,6 +369,17 @@ def _structured_exit_action_impl(
         # Broker P/L recovered above the stop-loss floor; clear any pending breach
         # streak so a fresh dip must re-confirm from scratch.
         updated_state["stop_loss_breach_count"] = 0
+    def v2_action(reason):
+        updated_state['last_action'] = 'sell_full'
+        updated_state['last_decision_reason'] = reason
+        return (_build_exit_action(action='sell_full', reason=reason, pnl_pct=profit_unrealized_pl_pct_ratio,
+            max_pnl_pct=current_max_pnl_pct, protected_profit_floor_pct=protected_profit_floor_pct,
+            trailing_giveback_pct=trailing_giveback_pct, sell_fraction=1.0, qty_to_sell=quantity,
+            notes=notes + [reason + ': deterministic V2 position rule.']), updated_state)
+
+    active_v2 = set((v2_exit_context or {}).get('active_reasons') or []) - ignored_exit_reasons
+    if 'CATALYST_EXPIRED' in active_v2:
+        return v2_action('CATALYST_EXPIRED')
     if "near_expiration" not in ignored_exit_reasons and hours_to_expiration is not None and hours_to_expiration <= exit_thresholds.exit_hours_to_expiration:
         updated_state["last_action"] = "sell_full"
         updated_state["last_decision_reason"] = "near_expiration"
@@ -385,6 +397,8 @@ def _structured_exit_action_impl(
             ),
             updated_state,
         )
+    if 'VOLATILITY_REGIME_CHANGE' in active_v2:
+        return v2_action('VOLATILITY_REGIME_CHANGE')
     if not enable_trailing_profit:
         decision, reasons = _deterministic_option_exit_decision(
             unrealized_pl_pct=(
@@ -562,7 +576,7 @@ def _structured_exit_action(**kwargs):
     action, state = _structured_exit_action_impl(**kwargs)
     coactive = []
     probe = action
-    for _ in range(7):
+    for _ in range(10):
         if probe.get("action") not in {"sell_full", "sell_partial"}:
             break
         reason = probe["reason"]
@@ -571,4 +585,7 @@ def _structured_exit_action(**kwargs):
         coactive.append(reason)
         probe, _ = _structured_exit_action_impl(**kwargs, ignored_exit_reasons=frozenset(coactive))
     action["coactive_exit_reasons"] = coactive
+    if kwargs.get('v2_exit_context') is not None:
+        from services.position_exit_policy import shadow_exit_comparison
+        action['v2_exit_comparison'] = shadow_exit_comparison(action, kwargs['v2_exit_context'])
     return action, state
