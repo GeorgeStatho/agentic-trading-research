@@ -532,6 +532,7 @@ def _run_strategist_and_manager(
             LOGGER.exception("Failed to record manager decision history for %s", symbol)
         if on_manager_result is not None:
             on_manager_result(manager_result)
+        checkpoint(candidate_context, 'candidate_complete', {'status': 'evaluated'})
 
     return strategist_results, manager_results
 

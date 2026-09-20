@@ -73,6 +73,8 @@ def build_pipeline_version(*, settings=None):
         'Data/catalyst_schema.sql', 'Data/news_db_modules/provenance.py', 'Data/news_db_modules/catalysts.py',
         'Data/market_db_modules/pricing_research.py', 'Data/market_db_modules/pricing_schema.sql',
         'Data/market_db_modules/contract_research.py', 'config/risk_clusters.csv',
+        'Data/market_db_modules/research_runs.py', 'Data/market_db_modules/research_reports.py',
+        'Data/market_db_modules/research_schema.sql',
         'Data/market_db_modules/thesis_validator.py',
         'Python Scripts/news_collector_main.py', 'Data/sector_etfs.json', 'config/source.json')])
     source_hashes = {str(p.relative_to(ROOT)): sha256(p.read_bytes()).hexdigest() for p in sorted(source_files)}

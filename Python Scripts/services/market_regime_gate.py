@@ -18,7 +18,8 @@ class MarketRegimePolicy:
         mode = str(os.getenv("MARKET_REGIME_GATE_MODE", "shadow")).strip().lower()
         if mode not in {"observe", "shadow", "enforce"}:
             mode = "shadow"
-        return cls(mode=mode)
+        from services.research_promotion import guard_policy
+        return guard_policy(cls(mode=mode), {'mode': 'REGIME'})
 
 
 def evaluate_market_regime_gate(

@@ -358,6 +358,9 @@ class OptionTradeExecutor:
         from services.pipeline_version import build_pipeline_version, serializable
         candidate = dict(candidate)
         candidate["execution_version"] = observe(build_pipeline_version, settings=self._settings)
+        from services.research_promotion import champion_allows
+        if not champion_allows(candidate):
+            return {"submitted": False, "portfolio_guardrail": "research_champion_only"}
         context = candidate.get("candidate_context")
         checkpoint(context, "pre_execution", {"candidate": candidate, "session": serializable(session)})
         result = self._execute_candidate(trading_client=trading_client, candidate=candidate, session=session)

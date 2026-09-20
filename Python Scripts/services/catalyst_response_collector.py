@@ -126,5 +126,9 @@ def collect_catalyst_responses(*, as_of=None, policy=None, fetcher=fetch_respons
     budget = refresh_universe_history(as_of=now, policy=policy, fetcher=fetcher, db_path=db_path) if refresh else {}
     processed = capture_responses(as_of=now, policy=policy, db_path=db_path)
     capture_forward_returns(as_of=now, db_path=db_path)
+    from market_db_modules.research_runs import collect_active_runs
+    from services.candidate_lifecycle import observe
+    research_runs = observe(collect_active_runs, as_of=now, db_path=db_path)
     return {'collection': {**budget, 'processed_events': processed, 'event_budget': EVENT_BUDGET},
+            'research_runs': research_runs,
             **pricing_report(db_path=db_path)}

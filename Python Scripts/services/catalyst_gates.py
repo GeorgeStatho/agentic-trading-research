@@ -25,7 +25,9 @@ class CatalystGatePolicy:
             if value not in {'shadow', 'enforce', 'disabled'}:
                 raise ValueError(f'{name} must be shadow, enforce, or disabled')
             return value
-        return cls(provenance_mode=mode('V2_PROVENANCE_MODE'), freshness_mode=mode('V2_FRESHNESS_MODE'))
+        from services.research_promotion import guard_policy
+        return guard_policy(cls(provenance_mode=mode('V2_PROVENANCE_MODE'), freshness_mode=mode('V2_FRESHNESS_MODE')),
+                            {'provenance_mode': 'PROVENANCE', 'freshness_mode': 'FRESHNESS'})
 
 
 def _result(stage, reason, passed, mode, metrics, policy):

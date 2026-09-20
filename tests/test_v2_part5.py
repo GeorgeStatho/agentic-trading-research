@@ -129,7 +129,7 @@ class ScenarioTests(unittest.TestCase):
         selected, comparison = select_with_scenarios(pool, context, spot=100)
         self.assertEqual(selected['symbol'], pool[0]['symbol'])
         self.assertEqual(comparison['scenario_option_symbol'], 'second')
-        with patch.dict('os.environ', {'V2_SCENARIO_MODE': 'enforce'}):
+        with patch.dict('os.environ', {'V2_SCENARIO_MODE': 'enforce'}), patch('services.research_promotion.approved', return_value=True):
             selected, _ = select_with_scenarios(pool, context, spot=100)
         self.assertEqual(selected['symbol'], 'second')
 
@@ -190,7 +190,7 @@ class ClusterTests(unittest.TestCase):
         executor = OptionTradeExecutor(settings=SimpleNamespace(), trading_gateway=Mock(), logger=logging.getLogger('fixture'))
         book = session(cluster_option_symbols={'AI_semiconductors': {'NVDA-option'}})
         with patch('services.risk_clusters.get_risk_cluster', return_value='AI_semiconductors'), patch.dict(
-                'os.environ', {'V2_RISK_CLUSTER_MODE': 'enforce'}):
+                'os.environ', {'V2_RISK_CLUSTER_MODE': 'enforce'}), patch('services.research_promotion.approved', return_value=True):
             reason = executor._portfolio_guardrail_reason(option_symbol='AMD-option', underlying_symbol='AMD',
                 estimated_order_cost=500, sector_key='technology', session=book)
         self.assertEqual(reason, 'portfolio_risk_cluster_limit')
@@ -202,7 +202,7 @@ class ClusterTests(unittest.TestCase):
         stale = {**option()['latest_quote'], 'timestamp': (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()}
         fixture.gateway.get_execution_market_snapshot.return_value = {'option': stale}
         with patch.dict('os.environ', {'V2_LIQUIDITY_MODE': 'enforce'}), patch(
-                'services.risk_clusters.get_risk_cluster', return_value='mega_cap_tech'):
+                'services.risk_clusters.get_risk_cluster', return_value='mega_cap_tech'), patch('services.research_promotion.approved', return_value=True):
             execution = fixture.executor._execute_candidate(trading_client=object(), candidate=fixture._candidate(), session=fixture._session())
         self.assertFalse(execution['submitted'])
         self.assertEqual(execution['portfolio_guardrail'], 'execution_liquidity_blocked')

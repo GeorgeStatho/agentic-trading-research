@@ -55,7 +55,7 @@ class EvidenceContinuationPolicy:
 
         max_overextension = _text(os.getenv("EVIDENCE_CONTINUATION_MAX_OVEREXTENSION", "medium"))
         enforcement_mode = _text(os.getenv("EVIDENCE_CONTINUATION_MODE", "shadow"))
-        return cls(
+        policy = cls(
             enabled=flag("EVIDENCE_CONTINUATION_ENABLED", True),
             required_evidence_count=positive_int("EVIDENCE_CONTINUATION_REQUIRED_EVIDENCE_COUNT", 2),
             required_independent_sources=positive_int("EVIDENCE_CONTINUATION_REQUIRED_INDEPENDENT_SOURCES", 2),
@@ -69,6 +69,8 @@ class EvidenceContinuationPolicy:
             fail_closed_on_missing_data=flag("EVIDENCE_CONTINUATION_FAIL_CLOSED_ON_MISSING_DATA", True),
             enforcement_mode=enforcement_mode if enforcement_mode in {"enforce", "shadow"} else "shadow",
         )
+        from services.research_promotion import guard_policy
+        return guard_policy(policy, {"enforcement_mode": "CONTINUATION"})
 
 
 def _float(value: Any) -> float | None:

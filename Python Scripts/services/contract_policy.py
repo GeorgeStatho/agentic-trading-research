@@ -46,10 +46,13 @@ class ContractPolicy:
 
     @classmethod
     def from_env(cls):
-        return cls(liquidity_mode=mode('V2_LIQUIDITY_MODE'), scenario_mode=mode('V2_SCENARIO_MODE'),
+        policy = cls(liquidity_mode=mode('V2_LIQUIDITY_MODE'), scenario_mode=mode('V2_SCENARIO_MODE'),
                    cluster_mode=mode('V2_RISK_CLUSTER_MODE'), exit_mode=mode('V2_POSITION_EXIT_MODE'),
                    minimum_quote_size=int(os.getenv('V2_MIN_QUOTE_SIZE', '1')),
                    maximum_spread_fraction=float(os.getenv('V2_MAX_SPREAD_FRACTION', '.06')),
                    maximum_cluster_positions=int(os.getenv('V2_MAX_CLUSTER_POSITIONS', '1')),
                    maximum_cluster_exposure_fraction=float(os.getenv('V2_MAX_CLUSTER_EXPOSURE_FRACTION', '.25')),
                    scenario_iv_change=float(os.getenv('V2_SCENARIO_IV_CHANGE', '-.05')))
+        from services.research_promotion import guard_policy
+        return guard_policy(policy, {'liquidity_mode': ('LIQUIDITY', 'EXECUTION_LIQUIDITY'), 'cluster_mode': 'RISK_CLUSTER',
+                                     'scenario_mode': 'SCENARIO_SELECTION', 'exit_mode': 'POSITION_EXIT_V2'})
