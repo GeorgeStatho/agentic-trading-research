@@ -99,3 +99,4 @@ def initialize_database(
         migrate_telemetry_columns(conn)
         from catalyst_schema import migrate_catalysts
         migrate_catalysts(conn)
+        conn.executescript(Path(__file__).with_name('pricing_schema.sql').read_text(encoding='utf-8'))

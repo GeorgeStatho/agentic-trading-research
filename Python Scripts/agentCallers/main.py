@@ -490,6 +490,8 @@ def _run_strategist_and_manager(
         checkpoint(candidate_context, "post_manager", manager_result)
         record_gate(candidate_context, "CONTINUATION", manager_result.get("entry_gate"))
         checkpoint(candidate_context, "pre_contract_selection", manager_result)
+        from services.pricing_gates import apply_option_hurdle_to_manager_result
+        manager_result = observe(apply_option_hurdle_to_manager_result, manager_result) or manager_result
         manager_result = apply_deterministic_option_selection(manager_result)
         checkpoint(candidate_context, "post_contract_selection", manager_result)
         checkpoint(candidate_context, "pre_regime_gate", manager_result)

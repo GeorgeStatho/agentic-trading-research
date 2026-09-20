@@ -56,8 +56,11 @@ def build_pipeline_version(*, settings=None):
     effective_settings = settings or FrontMainSettings.from_env()
     settings_block = settings_values(effective_settings)
     from services.catalyst_gates import CatalystGatePolicy
+    from services.pricing_policy import PricingPolicy, HORIZON_DAYS, RESPONSE_HORIZONS
     from catalyst_models import HALF_LIFE_MINUTES, CLASSIFICATION_VERSION, DECAY_BASIS
-    gates = serializable({'catalyst_decay_priors': HALF_LIFE_MINUTES, 'catalyst': CatalystGatePolicy.from_env(), 'continuation': DEFAULT_EVIDENCE_CONTINUATION_POLICY,
+    gates = serializable({'pricing': PricingPolicy.from_env(), 'pricing_horizons': HORIZON_DAYS,
+                          'response_horizons': RESPONSE_HORIZONS,
+                          'catalyst_decay_priors': HALF_LIFE_MINUTES, 'catalyst': CatalystGatePolicy.from_env(), 'continuation': DEFAULT_EVIDENCE_CONTINUATION_POLICY,
                           'regime': MarketRegimePolicy.from_env(),
                           'regime_snapshot': MarketRegimeSnapshotPolicy.from_env()})
     def constants(module):
@@ -67,7 +70,8 @@ def build_pipeline_version(*, settings=None):
                     for p in (ROOT / 'Python Scripts' / folder).rglob('*.py')]
     source_files.extend([ROOT / path for path in ('Data/catalyst_models.py', 'Data/catalyst_schema.py',
         'Data/catalyst_schema.sql', 'Data/news_db_modules/provenance.py', 'Data/news_db_modules/catalysts.py',
-        'config/source.json')])
+        'Data/market_db_modules/pricing_research.py', 'Data/market_db_modules/pricing_schema.sql',
+        'Python Scripts/news_collector_main.py', 'Data/sector_etfs.json', 'config/source.json')])
     source_hashes = {str(p.relative_to(ROOT)): sha256(p.read_bytes()).hexdigest() for p in sorted(source_files)}
     manifest = {
         'manifest_version': 'pipeline-manifest-v1',

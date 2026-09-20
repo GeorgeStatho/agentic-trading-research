@@ -33,6 +33,8 @@ def begin_candidate(symbol, *, version=None):
     record_candidate_snapshot(context, 'candidate_created', context, cutoff=context['created_at'])
     from services.catalyst_gates import record_catalyst_gates
     context['catalyst_gates'] = record_catalyst_gates(context)
+    from services.pricing_gates import record_candidate_price_response
+    context['price_absorption_gate'] = observe(record_candidate_price_response, context)
     return context
 
 

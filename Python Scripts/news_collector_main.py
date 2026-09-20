@@ -177,6 +177,9 @@ def run_news_collection_cycle() -> dict[str, Any]:
         regime = {"error": str(exc)}
     result = run_news_collection_pipeline()
     result["market_regime_refresh"] = regime
+    from services.candidate_lifecycle import observe
+    from services.catalyst_response_collector import collect_catalyst_responses
+    result['catalyst_response_refresh'] = observe(collect_catalyst_responses)
     JsonFileWriter.write(SETTINGS.output_path, result)
     LOGGER.info("Saved news collection output to %s", SETTINGS.output_path)
     return result
