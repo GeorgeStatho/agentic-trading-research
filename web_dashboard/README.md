@@ -13,6 +13,7 @@ It currently shows:
 - trade execution output cards
 - analyzed company news and strategist/manager decisions
 - Evidence Exposure Map and Decision Autopsy Ledger
+- V2 Rollout: effective gate modes, shadow verdicts and promotion evidence
 - static Demo Mode for a seeded, read-only walkthrough
 
 ## Main Files
@@ -23,6 +24,7 @@ It currently shows:
 - [src/orderCard.tsx](src/orderCard.tsx): trade execution cards
 - [src/exposureMap.tsx](src/exposureMap.tsx): grounded article-to-position graph
 - [src/decisionAutopsy.tsx](src/decisionAutopsy.tsx): immutable decision review
+- [src/v2Status.tsx](src/v2Status.tsx): V2 rollout state, shadow verdicts and promotion evidence
 - [src/displayPreviousorder.ts](src/displayPreviousorder.ts): portfolio-history fetch + transform helper
 - [nginx.conf](nginx.conf): nginx config used in the Docker image
 - [Dockerfile](Dockerfile): frontend build + nginx image
@@ -39,6 +41,7 @@ The frontend expects these routes:
 - `/api/exposure-map/<article_id>`
 - `/api/decision-autopsies`
 - `/api/demo-mode`
+- `/api/v2-status`
 
 In Docker, nginx proxies `/api/*` to the internal Flask service.
 

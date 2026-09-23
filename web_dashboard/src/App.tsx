@@ -13,9 +13,10 @@ import OpenPositionsTable from './openPositionsTable.tsx'
 import OrderCardList from './orderCard.tsx'
 import RiskControlsPanel from './riskControls.tsx'
 import ScriptStatusIndicator from './scriptStatus.tsx'
+import V2StatusPage from './v2Status.tsx'
 import WhyBotTradedPanel from './whyBotTraded.tsx'
 
-type DashboardView = 'dashboard' | 'company-news' | 'company-decisions' | 'decision-autopsy' | 'decision-expectancy' | 'backtests' | 'exposure-map'
+type DashboardView = 'dashboard' | 'company-news' | 'company-decisions' | 'decision-autopsy' | 'decision-expectancy' | 'backtests' | 'exposure-map' | 'v2-rollout'
 type DashboardSection = 'dashboard-top' | 'live-feed' | 'risk-management' | 'strategy-editor' | 'execution-logs' | 'support'
 
 type IconName = 'bell' | 'settings' | 'user' | 'dashboard' | 'feed' | 'shield' | 'note' | 'history' | 'support'
@@ -55,6 +56,9 @@ function getViewFromHash(): DashboardView {
   }
   if (normalizedHash === 'exposure-map') {
     return 'exposure-map'
+  }
+  if (normalizedHash === 'v2-rollout') {
+    return 'v2-rollout'
   }
   return 'dashboard'
 }
@@ -110,6 +114,7 @@ function App() {
             <a href={hrefFor('decision-expectancy')} className={`app-nav__link${view === 'decision-expectancy' ? ' app-nav__link--active' : ''}`}>Expectancy</a>
             <a href={hrefFor('backtests')} className={`app-nav__link${view === 'backtests' ? ' app-nav__link--active' : ''}`}>Backtests</a>
             <a href={hrefFor('exposure-map')} className={`app-nav__link${view === 'exposure-map' ? ' app-nav__link--active' : ''}`}>Exposure Map</a>
+            <a href={hrefFor('v2-rollout')} className={`app-nav__link${view === 'v2-rollout' ? ' app-nav__link--active' : ''}`}>V2 Rollout</a>
             <button type="button" className={`app-nav__demo${demoMode ? ' app-nav__demo--active' : ''}`} onClick={toggleDemoMode}>{demoMode ? 'Exit Demo' : 'Demo Mode'}</button>
           </nav>
           <div className="app-topbar__actions" aria-label="Dashboard utilities">
@@ -155,6 +160,8 @@ function App() {
         <BacktestPage />
       ) : view === 'exposure-map' ? (
         <ExposureMapPage demoMode={demoMode} />
+      ) : view === 'v2-rollout' ? (
+        <V2StatusPage />
       ) : (
         <main className="mainbody">
           <section id="dashboard-top" className="dashboard-hero dashboard-section">
