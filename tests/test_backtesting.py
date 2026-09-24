@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -62,6 +63,46 @@ class BacktestingTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
+
+    def test_default_window_includes_latest_decisions_past_250_and_preserves_old_runs(self) -> None:
+        old_run = run_backtest(db_path=self.db_path)
+        start = datetime(2026, 9, 20, 10, tzinfo=timezone.utc)
+        timestamps = [(start + timedelta(minutes=i)).isoformat() for i in range(251)]
+        with get_connection(self.db_path) as conn:
+            conn.executemany(
+                "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES ('NVDA', ?, 'call')",
+                [(timestamp,) for timestamp in timestamps],
+            )
+        result = run_backtest(db_path=self.db_path)
+        self.assertEqual([event["as_of"] for event in result["events"]], timestamps[1:])
+        metrics = result["run"]["metrics"]
+        self.assertEqual(metrics["available_decision_count"], 253)
+        self.assertEqual(metrics["decision_count"], 250)
+        self.assertEqual(metrics["omitted_older_decision_count"], 3)
+        self.assertEqual(metrics["decision_start_at"], timestamps[1])
+        self.assertEqual(metrics["decision_end_at"], timestamps[-1])
+        self.assertEqual(get_backtest_run(old_run["run"]["id"], db_path=self.db_path), old_run)
+
+    def test_latest_selection_respects_date_bounds_and_id_ties(self) -> None:
+        timestamp = "2026-09-20T10:00:00+00:00"
+        with get_connection(self.db_path) as conn:
+            ids = [conn.execute(
+                "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES (?, ?, 'call')",
+                (symbol, timestamp),
+            ).lastrowid for symbol in ("NVDA", "AMD", "MU")]
+            conn.execute(
+                "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES ('IBM', '2026-09-21T10:00:00+00:00', 'call')"
+            )
+        result = run_backtest(start_at=timestamp, end_at=timestamp, limit=2, db_path=self.db_path)
+        self.assertEqual([event["manager_decision_history_id"] for event in result["events"]], ids[1:])
+        self.assertEqual(result["run"]["metrics"]["available_decision_count"], 3)
+        self.assertEqual(result["run"]["metrics"]["omitted_older_decision_count"], 1)
+
+    def test_empty_date_window_reports_empty_coverage(self) -> None:
+        result = run_backtest(start_at="2027-01-01T00:00:00+00:00", db_path=self.db_path)
+        self.assertEqual(result["events"], [])
+        self.assertEqual(result["run"]["metrics"]["available_decision_count"], 0)
+        self.assertIsNone(result["run"]["metrics"]["decision_end_at"])
 
     def test_backtest_uses_available_evidence_and_historical_bid_ask_fills_only(self) -> None:
         first_quote_id = record_historical_option_quote(
