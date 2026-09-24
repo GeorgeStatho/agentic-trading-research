@@ -36,6 +36,9 @@ class OrderCandidateBuilder:
         entry_gate = company_result.get("entry_gate") or {}
         market_regime_gate = company_result.get("market_regime_gate") or {}
 
+        from services.catalyst_gates import catalyst_admission_allowed
+        if not catalyst_admission_allowed(company_result.get('candidate_context')):
+            return False
         if decision not in {"call", "put"}:
             return False
         if confidence not in {"high", "medium"}:
@@ -50,6 +53,11 @@ class OrderCandidateBuilder:
             return False
         return True
 
+    def _record_ineligible(self, company_result, reason):
+        from services.candidate_lifecycle import reject
+        reject(company_result.get("candidate_context"), "ORDER_ELIGIBILITY", reason,
+               metrics=company_result, thresholds={"execute_medium_confidence_trades": self._execute_medium_confidence_trades})
+
     def _build_candidate(self, company_result: dict[str, Any]) -> dict[str, Any] | None:
         # Assemble the candidate so callers can work from one normalized shape.
         decision = str(company_result.get("decision") or "").strip().lower()
@@ -58,11 +66,17 @@ class OrderCandidateBuilder:
         option_symbol = str(selected_option.get("symbol") or "").strip().upper()
 
         if not self._is_trade_eligible(company_result):
+            self._record_ineligible(company_result, "ineligible_recommendation")
             return None
         if not option_symbol:
+            self._record_ineligible(company_result, "missing_contract")
             return None
 
         return {
+            "candidate_id": company_result.get("candidate_id"),
+            "candidate_context": company_result.get("candidate_context"),
+            "market_context": company_result.get("market_context", {}),
+            "manager_decision_history_id": company_result.get("manager_decision_history_id"),
             "company_id": company_result.get("company_id"),
             "symbol": company_result.get("symbol"),
             "name": company_result.get("name"),
@@ -79,6 +93,10 @@ class OrderCandidateBuilder:
             "entry_gate": company_result.get("entry_gate", {}),
             "market_regime_gate": company_result.get("market_regime_gate", {}),
             "reason": company_result.get("reason"),
+            # The executor's champion guard reads these top-level fields, so a research
+            # identity must survive every conversion rather than being dropped here.
+            "research_run_id": company_result.get("research_run_id"),
+            "research_strategy": company_result.get("research_strategy"),
         }
 
     def build(self, agent_result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -96,6 +114,7 @@ class OrderCandidateBuilder:
 
             option_symbol = str(candidate.get("selected_option_symbol") or "").strip().upper()
             if option_symbol in seen_option_symbols:
+                self._record_ineligible(company_result, "duplicate_contract_in_batch")
                 continue
 
             seen_option_symbols.add(option_symbol)
@@ -108,6 +127,10 @@ class OrderCandidateBuilder:
         company = dict(manager_result.get("company") or {})
         recommendation = dict(manager_result.get("recommendation") or {})
         company_result = {
+            "candidate_id": manager_result.get("candidate_id"),
+            "candidate_context": manager_result.get("candidate_context"),
+            "market_context": manager_result.get("market_context", {}),
+            "manager_decision_history_id": manager_result.get("manager_decision_history_id"),
             "company_id": company.get("company_id"),
             "symbol": company.get("symbol"),
             "name": company.get("name"),
@@ -123,5 +146,7 @@ class OrderCandidateBuilder:
             "market_regime_gate": manager_result.get("market_regime_gate", {}),
             "selected_option": manager_result.get("selected_option"),
             "reason": recommendation.get("reason"),
+            "research_run_id": manager_result.get("research_run_id"),
+            "research_strategy": manager_result.get("research_strategy"),
         }
         return self._build_candidate(company_result)

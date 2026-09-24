@@ -28,6 +28,16 @@ CREATE TABLE IF NOT EXISTS news_articles (
     article_key TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     normalized_title TEXT,
+    source_type TEXT,
+    primary_ticker TEXT,
+    catalyst_id TEXT,
+    root_event_id TEXT,
+    root_source_id TEXT,
+    syndication_parent_id INTEGER,
+    primary_source_url TEXT,
+    event_time TEXT,
+    first_seen_time TEXT,
+
     summary TEXT,
     body TEXT,
     normalized_url TEXT,
@@ -244,6 +254,7 @@ CREATE TABLE IF NOT EXISTS failed_urls (
 
 CREATE TABLE IF NOT EXISTS strategist_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id TEXT,
     company_id INTEGER NOT NULL,
     model TEXT NOT NULL,
     prompt_version TEXT NOT NULL,
@@ -439,3 +450,6 @@ CREATE INDEX IF NOT EXISTS idx_failed_urls_normalized_url
 
 CREATE INDEX IF NOT EXISTS idx_failed_urls_stage
     ON failed_urls (stage);
+
+CREATE INDEX IF NOT EXISTS idx_news_provenance_ticker_time ON news_articles(primary_ticker, event_time);
+CREATE INDEX IF NOT EXISTS idx_news_provenance_catalyst ON news_articles(catalyst_id);

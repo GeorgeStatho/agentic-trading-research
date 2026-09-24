@@ -450,6 +450,7 @@ def _build_option_market_snapshot(
         reference_stock_price=reference_stock_price,
         per_type_limit=contract_limit_per_type,
     )
+    from services.option_hurdle_gate import select_atm_research_contracts
     payload = {
         "available": True,
         "underlying_symbol": company_symbol,
@@ -467,6 +468,7 @@ def _build_option_market_snapshot(
         "available_expirations": sorted(expiration_values),
         "available_strikes": sorted(strike_values),
         "contracts": selected_contracts,
+        "pricing_contracts": select_atm_research_contracts(serialized_contracts, reference_stock_price),
         "volatility_summary": summarize_option_iv(
             serialized_contracts,
             reference_stock_price,

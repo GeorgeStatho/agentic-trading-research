@@ -1,4 +1,16 @@
-import { useEffect, useState } from 'react';
+import { fetchPolledJson } from './api';
+import {
+  MISSING_VALUE_PLACEHOLDER,
+  formatCurrency,
+  formatDecimal,
+  formatNumber,
+  formatPercent,
+  formatRate,
+  formatSignedCurrency,
+  formatSignedPercent,
+  formatToken,
+} from './format';
+import { usePolledResource } from './useRemoteResource';
 import './kpi.css';
 
 type DashboardKpiPayload = {
@@ -89,72 +101,12 @@ type KpiCardConfig = {
   compactValue?: boolean;
 };
 
-const KPI_POLL_INTERVAL_MS = 60_000;
-
-async function getDashboardKpis(): Promise<DashboardKpiPayload> {
-  const response = await fetch(`/api/dashboard-kpis?ts=${Date.now()}`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to load KPI cards: ${response.status}`);
-  }
-
-  return response.json() as Promise<DashboardKpiPayload>;
-}
-
-function formatCurrency(value: number | null, options?: Intl.NumberFormatOptions): string {
-  if (value === null || Number.isNaN(value)) {
-    return 'N/A';
-  }
-
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-    ...options,
-  }).format(value);
-}
-
-function formatSignedCurrency(value: number | null): string {
-  if (value === null || Number.isNaN(value)) {
-    return 'N/A';
-  }
-
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-    signDisplay: 'always',
-  }).format(value);
-}
-
-function formatPercent(value: number | null): string {
-  if (value === null || Number.isNaN(value)) {
-    return 'N/A';
-  }
-
-  return `${value.toFixed(2)}%`;
+function getDashboardKpis(): Promise<DashboardKpiPayload> {
+  return fetchPolledJson<DashboardKpiPayload>('/api/dashboard-kpis', 'KPI cards');
 }
 
 function formatInteger(value: number | null): string {
-  if (value === null || Number.isNaN(value)) {
-    return 'N/A';
-  }
-
-  return new Intl.NumberFormat().format(value);
-}
-
-function formatRankingScore(value: number | null): string {
-  if (value === null || Number.isNaN(value)) {
-    return 'N/A';
-  }
-  return value.toFixed(2);
-}
-
-function formatRatio(value: number | null, digits = 2): string {
-  if (value === null || Number.isNaN(value)) {
-    return 'N/A';
-  }
-  return value.toFixed(digits);
+  return formatNumber(value, { digits: 0 });
 }
 
 function getDayPlTone(dayPl: number | null): KpiCardConfig['tone'] {
@@ -173,6 +125,23 @@ function getDayPlTone(dayPl: number | null): KpiCardConfig['tone'] {
 
 function getStatusState(state: string): string {
   return state.trim().toLowerCase().replace(/\s+/g, '-');
+}
+
+const TRENDING_REGIME_STATES = ['trend_up', 'trend_down'];
+
+function buildMarketRegimeCard(regime: DashboardKpiPayload['market_regime']): KpiCardConfig {
+  const isTrending = TRENDING_REGIME_STATES.includes(regime.state);
+  const freshness = regime.input_freshness;
+  return {
+    title: 'Market Regime',
+    value: formatToken(regime.state, { placeholder: 'Unknown' }),
+    detail: regime.macro_event_window?.active
+      ? `Macro blackout: ${regime.macro_event_window.next_event || 'active'}`
+      : `Data ${freshness?.market_data_age_seconds ?? MISSING_VALUE_PLACEHOLDER}s · calendar ${freshness?.macro_calendar_age_minutes ?? MISSING_VALUE_PLACEHOLDER}m`,
+    tone: isTrending ? 'status' : 'negative',
+    state: isTrending ? 'healthy' : 'warning',
+    compactValue: true,
+  };
 }
 
 function buildCards(payload: DashboardKpiPayload): KpiCardConfig[] {
@@ -208,30 +177,27 @@ function buildCards(payload: DashboardKpiPayload): KpiCardConfig[] {
     },
     {
       title: 'Option Take-Profit',
-      value: payload.option_exit_rules.take_profit_summary || 'N/A',
+      value: payload.option_exit_rules.take_profit_summary || MISSING_VALUE_PLACEHOLDER,
       detail:
         payload.option_exit_rules.fallback_take_profit_pct === null
           ? 'Legacy fallback target unavailable'
-          : `Fallback target outside DTE buckets: +${payload.option_exit_rules.fallback_take_profit_pct.toFixed(0)}%`,
+          : `Fallback target outside DTE buckets: ${formatSignedPercent(payload.option_exit_rules.fallback_take_profit_pct, { digits: 0 })}`,
       tone: 'positive',
       compactValue: true,
     },
     {
       title: 'Option Stop-Loss',
-      value: payload.option_exit_rules.stop_loss_summary || 'N/A',
+      value: payload.option_exit_rules.stop_loss_summary || MISSING_VALUE_PLACEHOLDER,
       detail:
         payload.option_exit_rules.fallback_stop_loss_pct === null
           ? 'Legacy fallback floor unavailable'
-          : `Fallback floor outside DTE buckets: ${payload.option_exit_rules.fallback_stop_loss_pct.toFixed(0)}%`,
+          : `Fallback floor outside DTE buckets: ${formatPercent(payload.option_exit_rules.fallback_stop_loss_pct, { digits: 0 })}`,
       tone: 'negative',
       compactValue: true,
     },
     {
       title: 'Win Rate',
-      value:
-        payload.win_rate.win_rate_pct === null
-          ? 'N/A'
-          : `${payload.win_rate.win_rate_pct.toFixed(1)}%`,
+      value: formatPercent(payload.win_rate.win_rate_pct, { digits: 1 }),
       detail:
         payload.win_rate.closed_trades === 0
           ? 'No closed fills yet'
@@ -252,8 +218,8 @@ function buildCards(payload: DashboardKpiPayload): KpiCardConfig[] {
     },
     {
       title: 'Performance Metrics',
-      value: `Sharpe ${formatRatio(payload.performance_summary.annualized_sharpe)} / Sortino ${formatRatio(payload.performance_summary.annualized_sortino)}`,
-      detail: `Total return ${formatPercent(payload.performance_summary.total_return_pct)} / Avg trade ${formatPercent(payload.performance_summary.average_trade_return_pct)} / Profit factor ${formatRatio(payload.performance_summary.profit_factor)}`,
+      value: `Sharpe ${formatDecimal(payload.performance_summary.annualized_sharpe)} / Sortino ${formatDecimal(payload.performance_summary.annualized_sortino)}`,
+      detail: `Total return ${formatPercent(payload.performance_summary.total_return_pct)} / Avg trade ${formatPercent(payload.performance_summary.average_trade_return_pct)} / Profit factor ${formatDecimal(payload.performance_summary.profit_factor)}`,
       compactValue: true,
     },
     {
@@ -279,28 +245,12 @@ function buildCards(payload: DashboardKpiPayload): KpiCardConfig[] {
       state: getStatusState(payload.market_status.state),
     },
     buildThesisValidatorCard(payload.thesis_validator),
-    {
-      title: 'Market Regime',
-      value: payload.market_regime.state.replaceAll('_', ' ') || 'Unknown',
-      detail: payload.market_regime.macro_event_window?.active
-        ? `Macro blackout: ${payload.market_regime.macro_event_window.next_event || 'active'}`
-        : `Data ${payload.market_regime.input_freshness?.market_data_age_seconds ?? 'N/A'}s · calendar ${payload.market_regime.input_freshness?.macro_calendar_age_minutes ?? 'N/A'}m`,
-      tone: payload.market_regime.state === 'trend_up' || payload.market_regime.state === 'trend_down' ? 'status' : 'negative',
-      state: payload.market_regime.state === 'trend_up' || payload.market_regime.state === 'trend_down' ? 'healthy' : 'warning',
-      compactValue: true,
-    },
+    buildMarketRegimeCard(payload.market_regime),
   ];
 }
 
-function formatRate(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return 'N/A';
-  }
-  return `${(value * 100).toFixed(0)}%`;
-}
-
 function buildThesisValidatorCard(validator: DashboardKpiPayload['thesis_validator']): KpiCardConfig {
-  const mode = (validator?.mode || 'shadow').replaceAll('_', ' ');
+  const mode = formatToken(validator?.mode, { placeholder: 'shadow' });
   if (!validator?.available) {
     return {
       title: 'Thesis Validator',
@@ -321,39 +271,9 @@ function buildThesisValidatorCard(validator: DashboardKpiPayload['thesis_validat
 }
 
 function DashboardKpis() {
-  const [payload, setPayload] = useState<DashboardKpiPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadKpis = () => {
-      getDashboardKpis()
-        .then((nextPayload) => {
-          if (!isMounted) {
-            return;
-          }
-
-          setPayload(nextPayload);
-          setError(null);
-        })
-        .catch((err: unknown) => {
-          if (!isMounted) {
-            return;
-          }
-
-          setError(err instanceof Error ? err.message : 'Failed to load dashboard KPIs.');
-        });
-    };
-
-    loadKpis();
-    const intervalId = window.setInterval(loadKpis, KPI_POLL_INTERVAL_MS);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(intervalId);
-    };
-  }, []);
+  const { payload, error } = usePolledResource(getDashboardKpis, {
+    errorMessage: 'Failed to load dashboard KPIs.',
+  });
 
   if (error) {
     return (
@@ -443,7 +363,7 @@ function DashboardKpis() {
                     </p>
                     <p className="kpi-ranking-item__meta">{sector.sector_key}</p>
                   </div>
-                  <span className="kpi-ranking-item__score">{formatRankingScore(sector.score)}</span>
+                  <span className="kpi-ranking-item__score">{formatDecimal(sector.score)}</span>
                 </div>
               ))
             ) : (
@@ -467,7 +387,7 @@ function DashboardKpis() {
                             <span className="kpi-ranking-subitem__label">
                               {index + 1}. {industry.label}
                             </span>
-                            <span className="kpi-ranking-subitem__score">{formatRankingScore(industry.score)}</span>
+                            <span className="kpi-ranking-subitem__score">{formatDecimal(industry.score)}</span>
                           </div>
                         ))
                       ) : (

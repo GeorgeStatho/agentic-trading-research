@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { fetchPolledJson } from './api';
+import { usePolledResource } from './useRemoteResource';
 import './riskControls.css';
 
 type RiskControl = {
@@ -12,52 +13,14 @@ type RiskControlsPayload = {
   controls: RiskControl[];
 };
 
-const RISK_CONTROLS_POLL_INTERVAL_MS = 60_000;
-
-async function getRiskControls(): Promise<RiskControlsPayload> {
-  const response = await fetch(`/api/risk-controls?ts=${Date.now()}`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to load risk controls: ${response.status}`);
-  }
-
-  return response.json() as Promise<RiskControlsPayload>;
+function getRiskControls(): Promise<RiskControlsPayload> {
+  return fetchPolledJson<RiskControlsPayload>('/api/risk-controls', 'risk controls');
 }
 
 function RiskControlsPanel() {
-  const [payload, setPayload] = useState<RiskControlsPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadControls = () => {
-      getRiskControls()
-        .then((nextPayload) => {
-          if (!isMounted) {
-            return;
-          }
-
-          setPayload(nextPayload);
-          setError(null);
-        })
-        .catch((err: unknown) => {
-          if (!isMounted) {
-            return;
-          }
-
-          setError(err instanceof Error ? err.message : 'Failed to load risk controls.');
-        });
-    };
-
-    loadControls();
-    const intervalId = window.setInterval(loadControls, RISK_CONTROLS_POLL_INTERVAL_MS);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(intervalId);
-    };
-  }, []);
+  const { payload, error } = usePolledResource(getRiskControls, {
+    errorMessage: 'Failed to load risk controls.',
+  });
 
   if (error) {
     return (

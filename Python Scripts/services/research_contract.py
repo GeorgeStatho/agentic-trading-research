@@ -1,0 +1,92 @@
+"""Shared point-in-time contract for Part 6 features, labels and experiments."""
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from hashlib import sha256
+import json
+import math
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+
+def fingerprint(value):
+    return sha256(canonical(value).encode()).hexdigest()
+
+
+def utc(value):
+    result = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    return result.replace(tzinfo=timezone.utc) if result.tzinfo is None else result.astimezone(timezone.utc)
+
+
+def assert_information_cutoff(timestamps, information_cutoff_time):
+    """Require both observation and availability timestamps, supplied by adapters."""
+    cutoff = utc(information_cutoff_time)
+    for value in timestamps:
+        if value is None or utc(value) > cutoff:
+            raise ValueError('Missing or future research input timestamp')
+    return cutoff.isoformat()
+
+
+def number(value):
+    try:
+        result = float(value)
+        return result if math.isfinite(result) else None
+    except (TypeError, ValueError):
+        return None
+
+
+@dataclass(frozen=True)
+class ResearchPolicy:
+    version: str = 'counterfactual-daily-v1'
+    holding_days: float = 5
+    stop_loss: float = .30
+    take_profit: float = .50
+    trailing_drawdown: float = .20
+    fee_per_contract_side: float = .65
+    entry_quote_age_seconds: float = 900
+    maximum_mark_gap_days: float = 4
+    minimum_promotion_samples: int = 100
+    relative_volume_threshold: float = 1.25
+    benchmark_cost_bps: float = 1
+
+    def __post_init__(self):
+        values = asdict(self)
+        for key, value in values.items():
+            if key != 'version' and (number(value) is None or value < 0):
+                raise ValueError('Research policy values must be finite and nonnegative')
+        if (self.holding_days <= 0 or self.entry_quote_age_seconds <= 0
+                or self.maximum_mark_gap_days <= 0 or not 100 <= self.minimum_promotion_samples <= 200
+                or not 0 < self.stop_loss < 1 or not 0 < self.trailing_drawdown < 1):
+            raise ValueError('Invalid research horizon, risk limit or promotion sample size')
+
+
+STRATEGIES = ('sentiment_volume', 'sentiment_trend', 'taxonomy_expectancy',
+              'strategist_only', 'strategist_manager', 'full_v2')
+
+
+def direction(value):
+    return {'call': 'call', 'bullish': 'call', 'positive': 'call', 'buy': 'call',
+            'put': 'put', 'bearish': 'put', 'negative': 'put', 'sell': 'put',
+            'neither': 'skip', 'hold': 'skip', 'neutral': 'skip', 'watchlist': 'skip'}.get(value)
+
+
+def strategy_decisions(features, policy):
+    """None means unavailable; skip is an observed decision to hold cash."""
+    sentiment = direction(features.get('sentiment'))
+    strategist = direction(features.get('strategist_direction'))
+    manager = direction(features.get('manager_direction'))
+    volume, expectancy = number(features.get('relative_volume')), number(features.get('historical_expectancy'))
+    trend = direction(features.get('trend'))
+    taxonomy = direction(features.get('catalyst_direction'))
+    production_allowed = features.get('production_allowed')
+    full_v2 = None if production_allowed is None else manager if production_allowed else 'skip'
+    return {
+        'sentiment_volume': None if sentiment is None or volume is None else sentiment if volume >= policy.relative_volume_threshold else 'skip',
+        'sentiment_trend': None if sentiment is None or trend is None else sentiment if sentiment == trend else 'skip',
+        'taxonomy_expectancy': None if taxonomy is None or expectancy is None else taxonomy if (
+            (taxonomy == 'call' and expectancy > 0) or (taxonomy == 'put' and expectancy < 0)) else 'skip',
+        'strategist_only': strategist,
+        'strategist_manager': None if strategist is None or manager is None else manager if strategist == manager else 'skip',
+        'full_v2': full_v2,
+    }

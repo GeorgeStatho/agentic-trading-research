@@ -54,6 +54,11 @@ def build_manager_prompt(
         "The recommendation object must contain: decision, confidence, target_dte_bucket, technical_confirmation, entry_quality, recommended_action_adjustment, and reason. "
         "decision must be one of: call, put, neither. "
         "confidence must be one of: high, medium, low. "
+        "Also provide thesis_confidence, timing_confidence and execution_confidence, each high, medium or low. "
+        "These are ordinal judgments, not probabilities: thesis is evidence for direction, timing is whether "
+        "the move remains ahead, and execution is current option tradability. Keep the three assessments distinct. "
+        "Use supplied root counts, evidence scores, price absorption, IV percentiles and relative volume "
+        "directly when present; do not invent or estimate missing mechanical measurements. "
         f"target_dte_bucket must be one of: {TARGET_DTE_BUCKET_CHOICES_TEXT}. "
         "technical_confirmation must be one of: strong, moderate, mixed, weak, overextended. "
         "entry_quality must be one of: excellent, good, acceptable, poor, chase. "
@@ -82,6 +87,9 @@ def build_manager_prompt(
             "recommendation": {
                 "decision": "call|put|neither",
                 "confidence": "high|medium|low",
+                "thesis_confidence": "high|medium|low",
+                "timing_confidence": "high|medium|low",
+                "execution_confidence": "high|medium|low",
                 "target_dte_bucket": TARGET_DTE_BUCKET_CHOICES_TEXT,
                 "technical_confirmation": "strong|moderate|mixed|weak|overextended",
                 "entry_quality": "excellent|good|acceptable|poor|chase",

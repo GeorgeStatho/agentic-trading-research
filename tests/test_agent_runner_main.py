@@ -247,7 +247,7 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
 
         self.assertEqual(allowed_symbols, ["AAPL"])
         self.assertEqual(
-            skipped_companies,
+            [{k: v for k, v in row.items() if k != "candidate_id"} for row in skipped_companies],
             [
                 {
                     "symbol": "MSFT",
@@ -327,7 +327,8 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
 
         self.assertEqual(result["company_symbols"], ["AAPL"])
         self.assertEqual(
-            result["skipped_companies_before_strategist_manager"],
+            [{k: v for k, v in row.items() if k != "candidate_id"}
+             for row in result["skipped_companies_before_strategist_manager"]],
             [
                 {
                     "symbol": "MSFT",

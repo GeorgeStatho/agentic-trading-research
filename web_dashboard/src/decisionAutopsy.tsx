@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
+
+import { formatDateTime } from './format'
 import './decisionAutopsy.css'
 
 type Article = { article_id: number; title: string; source: string; published_at: string; article_scope: string }
 type Claim = { claim_type?: string; claim?: string; evidence_article_ids?: number[] }
 type ExecutionMode = 'paper' | 'live' | 'unlinked'
+type V2Verdict = { stage: string; label: string; reason_code: string; shadow: boolean; occurred_at: string }
 type Record = {
   id: number
   symbol: string
@@ -16,14 +19,15 @@ type Record = {
   outcome: { trade_executed: boolean; order_id: string; pnl_pct: number | null; pnl_updated_at: string; resolved_outcome_label: string }
   execution?: { record_id: number | null; mode: ExecutionMode; paper: boolean | null; status: string; option_symbol: string; underlying_symbol: string; quantity: number | null; side: string; submitted_at: string }
   review: { status: string; headline: string; what_proved_us_wrong: string }
+  /** Absent from the seeded demo payload, which records no candidate lifecycle. */
+  v2_verdicts?: V2Verdict[]
 }
 
-type Payload = { as_of: string; count: number; records: Record[]; read_only: boolean; no_trade_executed_by_feature: boolean }
+type Payload = { as_of: string; count: number; records: Record[]; read_only: boolean; no_trade_executed_by_feature: boolean; v2_verdicts_available?: boolean }
 type DemoScenario = { demo_mode: true; disclaimer: string; autopsy: Payload }
 
 function formatDate(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'Unknown time' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+  return formatDateTime(value, { placeholder: 'Unknown time' })
 }
 
 function tone(value: string): string {
@@ -50,6 +54,29 @@ async function getDemoAutopsies(): Promise<Payload> {
   if (!response.ok) throw new Error(`Failed to load demo mode: ${response.status}`)
   const payload = await response.json() as DemoScenario
   return payload.autopsy
+}
+
+/**
+ * What the V2 gates made of this candidate.
+ *
+ * A ledger that cannot be read and a candidate no gate objected to produce the
+ * same empty list, so the two are stated apart. A shadow verdict is one the
+ * gate recorded without acting on it: the trade went ahead anyway.
+ */
+export function V2VerdictList({ available, verdicts }: { available: boolean; verdicts?: V2Verdict[] }) {
+  return <section className="autopsy-verdicts">
+    <p className="autopsy-eyebrow">V2 Gate Verdicts</p>
+    <h3>What the V2 gates made of this candidate</h3>
+    {!available
+      ? <p>V2 verdicts are not available for this ledger, so nothing here says whether a V2 gate objected.</p>
+      : verdicts?.length
+        ? <ul>{verdicts.map((verdict) => <li key={`${verdict.stage}-${verdict.reason_code}`}>
+            <b>{verdict.label}</b>
+            <span>{verdict.reason_code.replaceAll('_', ' ')}</span>
+            <i className={`autopsy-verdict autopsy-verdict--${verdict.shadow ? 'shadow' : 'enforced'}`}>{verdict.shadow ? 'would have blocked' : 'blocked'}</i>
+          </li>)}</ul>
+        : <p>No V2 gate recorded a verdict against this candidate.</p>}
+  </section>
 }
 
 function DecisionAutopsyPage({ demoMode = false }: { demoMode?: boolean }) {
@@ -95,6 +122,7 @@ function DecisionAutopsyPage({ demoMode = false }: { demoMode?: boolean }) {
             <article><p className="autopsy-eyebrow">Manager Permission</p><h3>{selected.manager.decision || 'No trade'}</h3><p>{selected.manager.reason || 'No manager reason was preserved.'}</p><dl><div><dt>Confidence</dt><dd>{selected.manager.confidence || 'N/A'}</dd></div><div><dt>Target DTE</dt><dd>{selected.constraints.target_dte_bucket || 'N/A'}</dd></div><div><dt>Contract</dt><dd>{selected.constraints.selected_option_symbol || selected.constraints.selected_option_id || 'None selected'}</dd></div><div><dt>Source</dt><dd>{selected.constraints.selected_option_source || 'N/A'}</dd></div><div><dt>Spread</dt><dd>{selected.constraints.selection_debug?.selected_option_snapshot?.spread_pct === undefined || selected.constraints.selection_debug?.selected_option_snapshot?.spread_pct === null ? 'N/A' : `${(selected.constraints.selection_debug.selected_option_snapshot.spread_pct * 100).toFixed(2)}%`}</dd></div><div><dt>Open interest</dt><dd>{selected.constraints.selection_debug?.selected_option_snapshot?.open_interest ?? 'N/A'}</dd></div><div><dt>Continuation</dt><dd>{selected.constraints.entry_gate?.allowed === true ? 'Allowed' : selected.constraints.entry_gate?.allowed === false ? 'Blocked' : 'Not recorded'}</dd></div><div><dt>Regime</dt><dd>{selected.constraints.market_regime_gate?.regime_state || selected.constraints.market_regime?.state || 'Not recorded'}</dd></div><div><dt>Regime gate</dt><dd>{selected.constraints.market_regime_gate?.allowed === true ? 'Allowed' : selected.constraints.market_regime_gate?.allowed === false ? 'Blocked' : 'Not recorded'}</dd></div></dl>{selected.constraints.market_regime_gate?.reason_codes?.length ? <p>Regime reasons: {selected.constraints.market_regime_gate.reason_codes.join(', ')}</p> : selected.constraints.entry_gate?.reason_codes?.length ? <p>Gate reasons: {selected.constraints.entry_gate.reason_codes.join(', ')}</p> : null}</article>
           </div>
           <section className="autopsy-evidence"><p className="autopsy-eyebrow">Grounded Evidence</p><h3>Inputs available at decision time</h3>{selected.evidence.length ? <ul>{selected.evidence.map((article) => <li key={article.article_id}><b>{article.title || `Article ${article.article_id}`}</b><span>{[article.source, article.article_scope, article.published_at ? formatDate(article.published_at) : ''].filter(Boolean).join(' · ')}</span></li>)}</ul> : <p>No compact article references were preserved for this decision.</p>}</section>
+          <V2VerdictList available={payload.v2_verdicts_available === true} verdicts={selected.v2_verdicts} />
         </> : <p className="autopsy-empty">No decision records are available yet.</p>}
       </section>
       <aside className="autopsy-review">{selected ? <><div className="autopsy-review__safety">Read-only review. No order is executed here.</div><p className="autopsy-eyebrow">Outcome & Review</p><h2>{selected.review.headline}</h2><section><h3>What proved us wrong?</h3><p>{selected.review.what_proved_us_wrong}</p></section><section><h3>Recorded outcome</h3><dl><div><dt>Executed</dt><dd>{selected.outcome.trade_executed ? 'Yes' : 'No'}</dd></div><div><dt>Environment</dt><dd>{executionModeLabel(selected.execution?.mode ?? 'unlinked')}</dd></div><div><dt>P/L</dt><dd>{selected.outcome.pnl_pct === null ? 'Pending' : `${selected.outcome.pnl_pct.toFixed(2)}%`}</dd></div><div><dt>Outcome</dt><dd>{selected.outcome.resolved_outcome_label || 'Pending'}</dd></div><div><dt>Order</dt><dd>{selected.outcome.order_id || 'None'}</dd></div><div><dt>Status</dt><dd>{selected.execution?.status || 'Unavailable'}</dd></div><div><dt>Contract</dt><dd>{selected.execution?.option_symbol || selected.constraints.selected_option_symbol || 'Unavailable'}</dd></div><div><dt>Submitted</dt><dd>{selected.execution?.submitted_at ? formatDate(selected.execution.submitted_at) : 'Unavailable'}</dd></div></dl></section><section><h3>Pre-trade risks</h3>{selected.strategist.risks.length ? <ul>{selected.strategist.risks.map((risk) => <li key={risk}>{risk}</li>)}</ul> : <p>No risks were preserved.</p>}</section></> : null}</aside>

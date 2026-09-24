@@ -15,10 +15,35 @@ DB_PATH = Path(os.getenv("DB_PATH", str(DEFAULT_DB_PATH))).expanduser()
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# Several containers (worker, news_collector, option_manager, api) plus the scrape
+# subprocesses all write to this one database file, so a connection has to be willing
+# to wait its turn instead of failing straight away with "database is locked".
+DB_TIMEOUT_SECONDS = float(os.getenv("DB_TIMEOUT_SECONDS", "30"))
+_WAL_ENABLED_PATHS: set[str] = set()
+
+
+def _enable_wal(conn: sqlite3.Connection, db_key: str) -> None:
+    # WAL is stored in the database header, so this only has to win once per file.
+    if db_key in _WAL_ENABLED_PATHS:
+        return
+    try:
+        row = conn.execute("PRAGMA journal_mode = WAL").fetchone()
+    except sqlite3.OperationalError:
+        return
+    if row is not None and str(row[0]).lower() == "wal":
+        _WAL_ENABLED_PATHS.add(db_key)
+
 
 def get_connection(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=DB_TIMEOUT_SECONDS)
     conn.row_factory = sqlite3.Row
+    # Writes here always read before they insert, so a deferred transaction would have to
+    # upgrade its lock mid-flight and can lose that race outright rather than waiting out
+    # the busy timeout. IMMEDIATE takes the write lock up front. Python only emits BEGIN
+    # ahead of DML, so read-only callers still never take a write lock.
+    conn.isolation_level = "IMMEDIATE"
+    _enable_wal(conn, str(db_path))
+    conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 

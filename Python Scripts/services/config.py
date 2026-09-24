@@ -137,12 +137,31 @@ class FrontMainSettings:
     manager_decision_pnl_retention_days: int
     max_deployable_buying_power_pct: float
     per_order_sizing_buying_power_pct: float
+    max_premium_per_trade_pct: float
+    max_premium_per_trade_dollars: float
     max_option_order_qty_multiplier: int
     max_concurrent_option_positions: int
     max_option_sector_exposure_pct: float
     daily_option_loss_limit_dollars: float
+    max_symbol_entries_per_window: int
+    symbol_entry_window_days: int
+    symbol_stop_loss_cooldown_days: int
     alpaca_paper: bool
     cold_start_sanity_check_enabled: bool
+
+    def resolve_max_premium_per_trade(self, available_buying_power: float) -> float:
+        """Return the hard premium ceiling for one entry, or 0.0 when uncapped.
+
+        Both limits are optional; when both are set the tighter one wins. The
+        absolute limit keeps the ceiling stable on a small account whose buying
+        power swings as positions open and close.
+        """
+        limits = []
+        if self.max_premium_per_trade_pct > 0:
+            limits.append(available_buying_power * self.max_premium_per_trade_pct / 100.0)
+        if self.max_premium_per_trade_dollars > 0:
+            limits.append(self.max_premium_per_trade_dollars)
+        return min(limits) if limits else 0.0
 
     @property
     def max_deployable_buying_power_ratio(self) -> float:
@@ -151,6 +170,10 @@ class FrontMainSettings:
     @property
     def per_order_sizing_buying_power_ratio(self) -> float:
         return self.per_order_sizing_buying_power_pct / 100.0
+
+    @property
+    def max_premium_per_trade_ratio(self) -> float:
+        return self.max_premium_per_trade_pct / 100.0
 
     @classmethod
     def from_env(cls) -> FrontMainSettings:
@@ -211,8 +234,13 @@ class FrontMainSettings:
                 "OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD",
                 0.10,
             ),
-            option_trail_protection_trigger_pct=_env_float("OPTION_TRAIL_PROTECTION_TRIGGER_PCT", 0.40),
-            option_trail_initial_floor_pct=_env_float("OPTION_TRAIL_INITIAL_FLOOR_PCT", 0.10),
+            # Arm profit protection once the position's tracked peak reaches +20%,
+            # with the floor just above breakeven. Live May-Sep 2026 exits showed
+            # good outcomes peaking in the +20..+50% band and retracing to stops;
+            # floors ratchet up and never cap runners, so this harvests the band
+            # without giving up the occasional +100%+ winner.
+            option_trail_protection_trigger_pct=_env_float("OPTION_TRAIL_PROTECTION_TRIGGER_PCT", 0.20),
+            option_trail_initial_floor_pct=_env_float("OPTION_TRAIL_INITIAL_FLOOR_PCT", 0.05),
             option_trail_first_scale_out_trigger_pct=_env_float(
                 "OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT",
                 0.55,
@@ -241,10 +269,26 @@ class FrontMainSettings:
             ),
             max_deployable_buying_power_pct=env_percentage("MAX_DEPLOYABLE_BUYING_POWER_PCT", 30.0),
             per_order_sizing_buying_power_pct=env_percentage("PER_ORDER_SIZING_BUYING_POWER_PCT", 30.0),
+            # Hard ceiling on total premium (qty x contract cost) for one new entry.
+            # Both limits are optional and the tighter one wins; 0 disables that
+            # limit. Unlike the per-order sizing budget, this cap also refuses the
+            # trade outright when even a single contract costs more than it allows.
+            max_premium_per_trade_pct=env_percentage("MAX_PREMIUM_PER_TRADE_PCT", 55.0),
+            max_premium_per_trade_dollars=max(0.0, _env_float("MAX_PREMIUM_PER_TRADE_DOLLARS", 800.0)),
             max_option_order_qty_multiplier=env_positive_int("MAX_OPTION_ORDER_QTY_MULTIPLIER", 50),
             max_concurrent_option_positions=env_positive_int("MAX_CONCURRENT_OPTION_POSITIONS", 5),
             max_option_sector_exposure_pct=max(0.01, env_percentage("MAX_OPTION_SECTOR_EXPOSURE_PCT", 50.0)),
             daily_option_loss_limit_dollars=max(1.0, _env_float("DAILY_OPTION_LOSS_LIMIT_DOLLARS", 2000.0)),
+            # Per-underlying churn brakes: at most N submitted buys per rolling
+            # window, plus a re-entry cooldown after a stop-loss exit in the same
+            # underlying. Both windows are calendar days and 0 disables that brake.
+            # Default off: replayed against the live May-Sep 2026 record these lose
+            # money. Re-entries within 7 days of a stop averaged -$8 (40% win rate)
+            # against -$24 (35%) for fresh entries, so the rules mostly block the
+            # same-name follow-ups that produced the two largest winners.
+            max_symbol_entries_per_window=env_non_negative_int("MAX_OPTION_ENTRIES_PER_SYMBOL_PER_WINDOW", 0),
+            symbol_entry_window_days=env_positive_int("OPTION_SYMBOL_ENTRY_WINDOW_DAYS", 7),
+            symbol_stop_loss_cooldown_days=env_non_negative_int("OPTION_SYMBOL_STOP_LOSS_COOLDOWN_DAYS", 0),
             alpaca_paper=env_flag("ALPACA_PAPER", True),
             cold_start_sanity_check_enabled=env_flag("COLD_START_SANITY_CHECK", True),
         )
@@ -356,10 +400,15 @@ class ApiSettings:
     analyzed_company_news_max_page_size: int
     max_deployable_buying_power_pct: float
     per_order_sizing_buying_power_pct: float
+    max_premium_per_trade_pct: float
+    max_premium_per_trade_dollars: float
     max_option_order_qty_multiplier: int
     max_concurrent_option_positions: int
     max_option_sector_exposure_pct: float
     daily_option_loss_limit_dollars: float
+    max_symbol_entries_per_window: int
+    symbol_entry_window_days: int
+    symbol_stop_loss_cooldown_days: int
 
     @classmethod
     def from_env(cls) -> ApiSettings:
@@ -374,10 +423,15 @@ class ApiSettings:
             ),
             max_deployable_buying_power_pct=env_percentage("MAX_DEPLOYABLE_BUYING_POWER_PCT", 30.0),
             per_order_sizing_buying_power_pct=env_percentage("PER_ORDER_SIZING_BUYING_POWER_PCT", 30.0),
+            max_premium_per_trade_pct=env_percentage("MAX_PREMIUM_PER_TRADE_PCT", 55.0),
+            max_premium_per_trade_dollars=max(0.0, _env_float("MAX_PREMIUM_PER_TRADE_DOLLARS", 800.0)),
             max_option_order_qty_multiplier=env_positive_int("MAX_OPTION_ORDER_QTY_MULTIPLIER", 50),
             max_concurrent_option_positions=env_positive_int("MAX_CONCURRENT_OPTION_POSITIONS", 5),
             max_option_sector_exposure_pct=max(0.01, env_percentage("MAX_OPTION_SECTOR_EXPOSURE_PCT", 50.0)),
             daily_option_loss_limit_dollars=max(1.0, _env_float("DAILY_OPTION_LOSS_LIMIT_DOLLARS", 2000.0)),
+            max_symbol_entries_per_window=env_non_negative_int("MAX_OPTION_ENTRIES_PER_SYMBOL_PER_WINDOW", 0),
+            symbol_entry_window_days=env_positive_int("OPTION_SYMBOL_ENTRY_WINDOW_DAYS", 7),
+            symbol_stop_loss_cooldown_days=env_non_negative_int("OPTION_SYMBOL_STOP_LOSS_COOLDOWN_DAYS", 0),
         )
 
 

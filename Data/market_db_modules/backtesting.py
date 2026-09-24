@@ -619,9 +619,15 @@ def run_backtest(
             if end_at:
                 query += " AND history.decision_run_at <= ?"
                 parameters.append(normalize_timestamp(end_at))
-            query += " ORDER BY history.decision_run_at ASC, history.id ASC LIMIT ?"
-            parameters.append(max(1, min(int(limit), 1000)))
+            available_decision_count = conn.execute(
+                f"SELECT COUNT(*) FROM ({query})", tuple(parameters)
+            ).fetchone()[0]
+            decision_limit = max(1, min(int(limit), 1000))
+            # Limit the recent window first, then simulate it in chronological order.
+            query += " ORDER BY history.decision_run_at DESC, history.id DESC LIMIT ?"
+            parameters.append(decision_limit)
             decisions = [dict(row) for row in conn.execute(query, tuple(parameters)).fetchall()]
+            decisions.reverse()
             events: list[dict[str, Any]] = []
             for decision in decisions:
                 snapshot = ensure_decision_evidence_snapshot(decision, conn=conn)
@@ -632,6 +638,11 @@ def run_backtest(
                 _store_event(conn, run_id, event)
             metrics = _metrics(events)
             metrics["decision_count"] = len(decisions)
+            metrics["available_decision_count"] = available_decision_count
+            metrics["decision_limit"] = decision_limit
+            metrics["omitted_older_decision_count"] = available_decision_count - len(decisions)
+            metrics["decision_start_at"] = decisions[0]["decision_run_at"] if decisions else None
+            metrics["decision_end_at"] = decisions[-1]["decision_run_at"] if decisions else None
             metrics["snapshot_count"] = len({event.get("evidence_snapshot_id") for event in events})
             completed_at = datetime.now(timezone.utc).isoformat()
             conn.execute(

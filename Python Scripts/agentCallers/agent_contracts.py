@@ -208,6 +208,12 @@ class CompanyScopePayload(TypedDict):
 
 
 class AgentSignalPayload(TypedDict):
+    catalyst_id: NotRequired[str]
+    catalyst_family: NotRequired[str]
+    catalyst_type: NotRequired[str]
+    mechanism: NotRequired[str]
+    root_event_ids: NotRequired[list[str]]
+    expected_horizon: NotRequired[str]
     layer: str
     article_id: int
     confidence: str
@@ -244,6 +250,13 @@ class StrategistViewsPayload(TypedDict):
 
 
 class SupportingArticleSummaryPayload(TypedDict):
+    evidence_score: NotRequired[float | None]
+    root_event_id: NotRequired[str | None]
+    root_source_id: NotRequired[str | None]
+    primary_ticker: NotRequired[str | None]
+    catalyst_id: NotRequired[str | None]
+    source_type: NotRequired[str | None]
+    independent_source_count: NotRequired[int | None]
     article_id: int
     title: str
     summary: str

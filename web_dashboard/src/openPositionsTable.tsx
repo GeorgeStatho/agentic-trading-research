@@ -1,4 +1,13 @@
-import { useEffect, useState } from 'react';
+import { fetchPolledJson } from './api';
+import {
+  MISSING_VALUE_PLACEHOLDER,
+  formatCurrency,
+  formatNumber,
+  formatPercent,
+  formatSignedPercent,
+  formatToken,
+} from './format';
+import { usePolledResource } from './useRemoteResource';
 import './positions.css';
 
 type OpenPosition = {
@@ -47,57 +56,23 @@ type OpenPositionsPayload = {
   positions: OpenPosition[];
 };
 
-const POSITIONS_POLL_INTERVAL_MS = 60_000;
+const POSITION_PERCENT_DIGITS = 1;
 
-async function getOpenPositions(): Promise<OpenPositionsPayload> {
-  const response = await fetch(`/api/open-positions?ts=${Date.now()}`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to load open positions: ${response.status}`);
-  }
-
-  return response.json() as Promise<OpenPositionsPayload>;
+function getOpenPositions(): Promise<OpenPositionsPayload> {
+  return fetchPolledJson<OpenPositionsPayload>('/api/open-positions', 'open positions');
 }
 
-function formatCurrency(value: number | null): string {
-  if (value === null || Number.isNaN(value)) {
-    return 'N/A';
-  }
-
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  }).format(value);
+function formatPositionPercent(value: number | null): string {
+  return formatPercent(value, { digits: POSITION_PERCENT_DIGITS });
 }
 
-function formatNumber(value: number | null): string {
-  if (value === null || Number.isNaN(value)) {
-    return 'N/A';
-  }
-
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
-}
-
-function formatPercent(value: number | null): string {
-  if (value === null || Number.isNaN(value)) {
-    return 'N/A';
-  }
-
-  return `${value.toFixed(1)}%`;
-}
-
-function formatSignedPercent(value: number | null): string {
-  if (value === null || Number.isNaN(value)) {
-    return 'N/A';
-  }
-
-  return `${value > 0 ? '+' : ''}${value.toFixed(1)}% P/L`;
+function formatProfitLossPercent(value: number | null): string {
+  return formatSignedPercent(value, { digits: POSITION_PERCENT_DIGITS, suffix: ' P/L' });
 }
 
 function formatBidAsk(position: OpenPosition): string {
   if (position.current_bid === null && position.current_ask === null) {
-    return 'N/A';
+    return MISSING_VALUE_PLACEHOLDER;
   }
 
   return `${formatCurrency(position.current_bid)} / ${formatCurrency(position.current_ask)}`;
@@ -130,9 +105,6 @@ function getThesisTone(state: string): string {
   }
 }
 
-function formatThesisState(state: string): string {
-  return state.replaceAll('_', ' ');
-}
 
 function buildThesisTooltip(verdict: NonNullable<OpenPosition['thesis_verdict']>): string {
   const parts = [
@@ -155,39 +127,9 @@ function getFloorLabel(position: OpenPosition): string {
 }
 
 function OpenPositionsTable() {
-  const [payload, setPayload] = useState<OpenPositionsPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadPositions = () => {
-      getOpenPositions()
-        .then((nextPayload) => {
-          if (!isMounted) {
-            return;
-          }
-
-          setPayload(nextPayload);
-          setError(null);
-        })
-        .catch((err: unknown) => {
-          if (!isMounted) {
-            return;
-          }
-
-          setError(err instanceof Error ? err.message : 'Failed to load open positions.');
-        });
-    };
-
-    loadPositions();
-    const intervalId = window.setInterval(loadPositions, POSITIONS_POLL_INTERVAL_MS);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(intervalId);
-    };
-  }, []);
+  const { payload, error } = usePolledResource(getOpenPositions, {
+    errorMessage: 'Failed to load open positions.',
+  });
 
   if (error) {
     return (
@@ -265,28 +207,28 @@ function OpenPositionsTable() {
                     </div>
                   </td>
                   <td>{position.type}</td>
-                  <td>{position.strike === null ? 'N/A' : formatNumber(position.strike)}</td>
-                  <td>{position.expiration || 'N/A'}</td>
+                  <td>{formatNumber(position.strike)}</td>
+                  <td>{position.expiration || MISSING_VALUE_PLACEHOLDER}</td>
                   <td>{formatNumber(position.quantity)}</td>
                   <td>{formatCurrency(position.entry_price)}</td>
                   <td>{formatBidAsk(position)}</td>
                   <td>{formatCurrency(position.mark_price)}</td>
                   <td>{formatCurrency(position.mid_price)}</td>
                   <td className={position.unrealized_pl_pct !== null && position.unrealized_pl_pct < 0 ? 'positions-table__negative' : position.unrealized_pl_pct !== null && position.unrealized_pl_pct > 0 ? 'positions-table__positive' : ''}>
-                    {formatPercent(position.unrealized_pl_pct)}
+                    {formatPositionPercent(position.unrealized_pl_pct)}
                   </td>
                   <td>
                     <div className={`positions-table__protection${position.profit_protection?.trailing_profit_armed ? ' positions-table__protection--armed' : ''}`}>
                       <span className="positions-table__protection-label">{getFloorLabel(position)}</span>
                       <strong>{formatCurrency(position.profit_protection?.floor_mark_price ?? null)}</strong>
-                      <span>{formatSignedPercent(position.profit_protection?.floor_profit_pct ?? null)}</span>
+                      <span>{formatProfitLossPercent(position.profit_protection?.floor_profit_pct ?? null)}</span>
                     </div>
                   </td>
                   <td>
                     <div className="positions-table__protection">
                       <span className="positions-table__protection-label">High-water mark</span>
                       <strong>{formatCurrency(position.profit_protection?.high_water_mark_price ?? null)}</strong>
-                      <span>{formatSignedPercent(position.profit_protection?.high_water_profit_pct ?? null)}</span>
+                      <span>{formatProfitLossPercent(position.profit_protection?.high_water_profit_pct ?? null)}</span>
                     </div>
                   </td>
                   <td>{position.days_to_expiration === null ? 'N/A' : formatNumber(position.days_to_expiration)}</td>
@@ -305,12 +247,12 @@ function OpenPositionsTable() {
                           className={`positions-table__badge positions-table__badge--${getThesisTone(position.thesis_verdict.thesis_state)}`}
                           title={buildThesisTooltip(position.thesis_verdict)}
                         >
-                          {formatThesisState(position.thesis_verdict.thesis_state)}
+                          {formatToken(position.thesis_verdict.thesis_state)}
                         </span>
                         {position.thesis_verdict.arbiter_action && position.thesis_verdict.arbiter_action !== 'none' ? (
                           <p className="positions-table__reason">
                             {position.thesis_verdict.executed ? '' : 'shadow: '}
-                            {position.thesis_verdict.arbiter_action.replaceAll('_', ' ')}
+                            {formatToken(position.thesis_verdict.arbiter_action)}
                           </p>
                         ) : null}
                       </>
@@ -319,7 +261,7 @@ function OpenPositionsTable() {
                         not checked
                       </span>
                     ) : (
-                      'N/A'
+                      MISSING_VALUE_PLACEHOLDER
                     )}
                   </td>
                 </tr>

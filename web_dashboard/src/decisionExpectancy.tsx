@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
+
+import { formatDate, formatDecimal, formatSignedPercent } from './format'
 import './decisionExpectancy.css'
+
+/** This page prints an em dash rather than "N/A" for cohorts with no samples. */
+const NO_SAMPLES_PLACEHOLDER = '—'
 
 type Basis = 'marked' | 'closed'
 type GroupBy = 'confidence' | 'dte_bucket' | 'selector_mode' | 'sector' | 'time_of_day' | 'confidence_x_dte_bucket' | 'confidence_x_selector_mode' | 'entry_gate' | 'market_regime' | 'evidence_count_bucket' | 'trend_state' | 'relative_strength_state' | 'volume_state'
@@ -35,14 +40,12 @@ type Payload = {
   read_only: boolean
 }
 
-function formatPercent(value: number | null): string {
-  if (value === null || Number.isNaN(value)) return '—'
-  return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
+function formatCohortPercent(value: number | null): string {
+  return formatSignedPercent(value, { placeholder: NO_SAMPLES_PLACEHOLDER })
 }
 
-function formatDate(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'Unknown' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
+function formatCohortDate(value: string): string {
+  return formatDate(value, { placeholder: 'Unknown' })
 }
 
 async function getExpectancy(filters: { basis: Basis; groupBy: GroupBy; withinDays: number; minSamples: number; decision: string; confidence: string; sector: string }): Promise<Payload> {
@@ -111,7 +114,7 @@ function DecisionExpectancyPage() {
   return <main className="decision-expectancy">
     <section className="decision-expectancy__hero">
       <div><p>Decision Expectancy</p><h1>Deterministic Outcome Cohorts</h1><span>Read-only analytics from manager decisions and stored outcomes. This feature never submits an order.</span></div>
-      {payload ? <small>As of {formatDate(payload.as_of)}</small> : null}
+      {payload ? <small>As of {formatCohortDate(payload.as_of)}</small> : null}
     </section>
 
     <section className="decision-expectancy__controls" aria-label="Decision expectancy filters">
@@ -145,9 +148,9 @@ function DecisionExpectancyPage() {
           <th>Median</th><th>Avg win</th><th>Avg loss</th><th>Profit factor</th><th>Latest</th>
         </tr></thead><tbody>{cohorts.map((cohort) => <tr key={cohort.key} className={cohort.insufficient_sample ? 'decision-expectancy__muted' : ''}>
           <td><strong>{cohort.label}</strong>{cohort.insufficient_sample ? <small>Below sample guardrail</small> : null}</td>
-          <td>{cohort.trade_count}<small>{cohort.unresolved_count} unresolved</small></td><td>{cohort.pnl_sample_count}</td><td>{formatPercent(cohort.win_rate_pct)}</td>
-          <td className={cohort.expectancy_pct !== null && cohort.expectancy_pct < 0 ? 'decision-expectancy__negative' : 'decision-expectancy__positive'}>{formatPercent(cohort.expectancy_pct)}</td>
-          <td>{formatPercent(cohort.median_pnl_pct)}</td><td>{formatPercent(cohort.avg_win_pct)}</td><td>{formatPercent(cohort.avg_loss_pct)}</td><td>{cohort.profit_factor_like?.toFixed(2) ?? '—'}</td><td>{formatDate(cohort.latest_decision_at)}</td>
+          <td>{cohort.trade_count}<small>{cohort.unresolved_count} unresolved</small></td><td>{cohort.pnl_sample_count}</td><td>{formatCohortPercent(cohort.win_rate_pct)}</td>
+          <td className={cohort.expectancy_pct !== null && cohort.expectancy_pct < 0 ? 'decision-expectancy__negative' : 'decision-expectancy__positive'}>{formatCohortPercent(cohort.expectancy_pct)}</td>
+          <td>{formatCohortPercent(cohort.median_pnl_pct)}</td><td>{formatCohortPercent(cohort.avg_win_pct)}</td><td>{formatCohortPercent(cohort.avg_loss_pct)}</td><td>{formatDecimal(cohort.profit_factor_like, { placeholder: NO_SAMPLES_PLACEHOLDER })}</td><td>{formatCohortDate(cohort.latest_decision_at)}</td>
         </tr>)}</tbody></table></div>
         {!cohorts.length ? <p className="decision-expectancy__empty">No executed decisions match these filters.</p> : null}
       </section>

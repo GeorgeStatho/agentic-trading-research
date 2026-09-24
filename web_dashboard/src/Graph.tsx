@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import {
   CartesianGrid,
   Legend,
@@ -11,6 +10,7 @@ import {
 } from 'recharts';
 
 import { getGraphData } from './displayPreviousorder';
+import { usePolledResource } from './useRemoteResource';
 import './graph.css';
 
 type GraphPoint = {
@@ -19,42 +19,11 @@ type GraphPoint = {
   rawTimestamp: string | number;
 };
 
-const GRAPH_POLL_INTERVAL_MS = 60_000;
-
 function Graph() {
-  const [data, setData] = useState<GraphPoint[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadGraphData = () => {
-      getGraphData()
-        .then((points) => {
-          if (!isMounted) {
-            return;
-          }
-
-          setData(points);
-          setError(null);
-        })
-        .catch((err: unknown) => {
-          if (!isMounted) {
-            return;
-          }
-
-          setError(err instanceof Error ? err.message : 'Failed to load chart data.');
-        });
-    };
-
-    loadGraphData();
-    const intervalId = window.setInterval(loadGraphData, GRAPH_POLL_INTERVAL_MS);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(intervalId);
-    };
-  }, []);
+  const { payload, error } = usePolledResource<GraphPoint[]>(getGraphData, {
+    errorMessage: 'Failed to load chart data.',
+  });
+  const data = payload ?? [];
 
   if (error) {
     return (

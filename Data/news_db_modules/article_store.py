@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from db_common import DB_PATH, get_connection, json_text
+from .provenance import update_article_provenance
 from .shared import (
     build_content_hash,
     coerce_float,
@@ -125,12 +126,11 @@ def add_news_article(
         SELECT id
         FROM news_articles
         WHERE normalized_url = ?
-           OR (content_hash != '' AND content_hash = ?)
-           OR (normalized_title != '' AND normalized_title = ? AND published_at IS ?)
+           OR article_key = ?
         ORDER BY id
         LIMIT 1
         """,
-        (normalized_url, content_hash, normalized_title, published_at),
+        (normalized_url, article_key),
     )
     existing_row = cursor.fetchone()
     if existing_row is not None:
@@ -162,6 +162,7 @@ def add_news_article(
             """,
             values + (article_id,),
         )
+        update_article_provenance(article_id, conn=conn)
         return article_id
 
     cursor = conn.execute(
@@ -198,4 +199,6 @@ def add_news_article(
         """,
         values,
     )
-    return cursor.fetchone()["id"]
+    article_id = cursor.fetchone()["id"]
+    update_article_provenance(article_id, conn=conn)
+    return article_id

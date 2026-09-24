@@ -20,7 +20,7 @@ VALID_OPPORTUNIST_IMPACT_MAGNITUDES = {"major", "moderate", "modest", "minimal"}
 VALID_OPPORTUNIST_MATERIALITY_LEVELS = {"high", "medium", "low"}
 VALID_OPPORTUNIST_TIME_HORIZONS = {"immediate", "short_term", "medium_term", "unclear"}
 VALID_OPPORTUNIST_EFFECT_TYPES = {"direct", "indirect"}
-CURRENT_OPPORTUNIST_SCHEMA_VERSION = 2
+CURRENT_OPPORTUNIST_SCHEMA_VERSION = 3
 SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS: tuple[str, ...] = (
     "confidence",
     "impact_direction",
@@ -31,7 +31,13 @@ SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS: tuple[str, ...] = (
     "reason",
 )
 
+from catalyst_models import CATALYST_TYPES, HORIZONS
+
 _BASE_SHARED_IMPACT_PROPERTIES: dict[str, Any] = {
+    "catalyst_type": {"type": "string", "enum": list(CATALYST_TYPES)},
+    "mechanism": {"type": "string"},
+    "root_event_ids": {"type": "array", "items": {"type": "string", "pattern": "^root:"}},
+    "expected_horizon": {"type": "string", "enum": list(HORIZONS)},
     "confidence": {"type": "string", "enum": sorted(VALID_OPPORTUNIST_CONFIDENCE_LEVELS)},
     "impact_direction": {"type": "string", "enum": sorted(VALID_OPPORTUNIST_IMPACT_DIRECTIONS)},
     "impact_magnitude": {"type": "string", "enum": sorted(VALID_OPPORTUNIST_IMPACT_MAGNITUDES)},
@@ -181,7 +187,16 @@ def normalize_shared_opportunist_impact_fields(impact: dict[str, Any]) -> dict[s
     if not reason:
         return None
 
+    catalyst_fields = {key: impact[key] for key in ('catalyst_type', 'mechanism', 'root_event_ids', 'expected_horizon') if key in impact}
+    if 'catalyst_type' in catalyst_fields and catalyst_fields['catalyst_type'] not in CATALYST_TYPES:
+        return None
+    if 'expected_horizon' in catalyst_fields and catalyst_fields['expected_horizon'] not in HORIZONS:
+        return None
+    if 'root_event_ids' in catalyst_fields and (not isinstance(catalyst_fields['root_event_ids'], list) or
+            any(not isinstance(root, str) or not root.startswith('root:') for root in catalyst_fields['root_event_ids'])):
+        return None
     return {
+        **catalyst_fields,
         "confidence": confidence,
         "impact_direction": impact_direction,
         "impact_magnitude": impact_magnitude,
@@ -195,6 +210,8 @@ def normalize_shared_opportunist_impact_fields(impact: dict[str, Any]) -> dict[s
 def build_base_article_record(article: dict[str, Any], *, article_scope: str, sector_source: str) -> dict[str, Any]:
     """Normalize a sector-linked article into the common opportunist shape."""
     return {
+        "catalyst_id": article.get('catalyst_id'),
+        "root_event_ids": [article['root_event_id']] if article.get('root_event_id') else [],
         "article_id": int(article["article_id"]),
         "title": article.get("title") or "",
         "summary": article.get("summary") or "",

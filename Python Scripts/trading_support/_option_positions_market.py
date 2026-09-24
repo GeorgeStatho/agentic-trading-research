@@ -79,6 +79,8 @@ def _get_latest_option_quote(
             "symbol": normalized_symbol,
             "bid_price": bid_price,
             "ask_price": ask_price,
+            "bid_size": safe_float(getattr(quote, "bid_size", None)),
+            "ask_size": safe_float(getattr(quote, "ask_size", None)),
             "mid_price": mid_price(bid_price, ask_price),
             "timestamp": str(
                 getattr(quote, "timestamp", None)
