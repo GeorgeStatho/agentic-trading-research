@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote as url_quote
+from zoneinfo import ZoneInfo
 
 try:
     import requests
@@ -24,6 +26,8 @@ MARKETDATA_PROVIDER = "marketdata_app"
 MARKETDATA_EOD_PRICING_SOURCE = "marketdata_eod"
 DEFAULT_ENTRY_DELAY_MINUTES = 1_440
 DEFAULT_MAX_HOLD_HOURS = 168
+MARKET_TIMEZONE = ZoneInfo("America/New_York")
+CACHE_POLICY = "requested-window-v2"
 
 
 def _decision_rows(
@@ -31,7 +35,7 @@ def _decision_rows(
     *,
     start_at: str | None,
     end_at: str | None,
-    limit: int,
+    limit: int | None,
 ) -> list[dict[str, Any]]:
     clauses = ["LOWER(COALESCE(manager_decision, '')) IN ('call', 'put')", "TRIM(COALESCE(selected_option_symbol, '')) != ''"]
     params: list[Any] = []
@@ -41,19 +45,25 @@ def _decision_rows(
     if end_at:
         clauses.append("decision_run_at <= ?")
         params.append(end_at)
-    params.append(limit)
+    limit_clause = ""
+    if limit is not None:
+        params.append(limit)
+        limit_clause = "LIMIT ?"
     rows = conn.execute(
         f"""
         SELECT id, symbol, decision_run_at, selected_option_symbol
         FROM manager_decision_history
         WHERE {' AND '.join(clauses)}
-        ORDER BY decision_run_at DESC, id DESC
-        LIMIT ?
+        ORDER BY COALESCE((
+            SELECT MAX(coverage.id) FROM historical_option_quote_coverage AS coverage
+            WHERE coverage.manager_decision_history_id = manager_decision_history.id
+        ), 0) ASC, decision_run_at DESC, id DESC
+        {limit_clause}
         """,
         params,
     ).fetchall()
-    # Fetch the recent window, retaining chronological order within that window.
-    return [dict(row) for row in reversed(rows)]
+    # Unattempted decisions first; retry failures only after other windows get a turn.
+    return [dict(row) for row in rows]
 
 
 def _cached_quote_count(conn: sqlite3.Connection, option_symbol: str, start_at: str, end_at: str) -> int:
@@ -70,6 +80,29 @@ def _cached_quote_count(conn: sqlite3.Connection, option_symbol: str, start_at: 
         (option_symbol, start_at, end_at),
     ).fetchone()
     return int(row["count"] or 0) if row is not None else 0
+
+
+def _cached_window_complete(conn: sqlite3.Connection, option_symbol: str, start_at: str, end_at: str) -> bool:
+    """Require a full-range request with an observed quote reaching the window end.
+
+    Two arbitrary rows, or an earlier fetch of a still-open window, cannot establish
+    coverage. Missing final-day data remains retryable, including holiday windows.
+    """
+    rows = conn.execute(
+        """SELECT coverage.response_metadata_json
+           FROM historical_option_quote_coverage AS coverage
+           JOIN historical_option_quote_fetch_runs AS run ON run.id = coverage.fetch_run_id
+           WHERE coverage.option_symbol = ? AND coverage.status = 'fetched'
+             AND run.provider = ?
+             AND coverage.requested_start_at <= ? AND coverage.requested_end_at >= ?
+           ORDER BY coverage.id DESC""",
+        (option_symbol, MARKETDATA_PROVIDER, start_at, end_at),
+    ).fetchall()
+    for row in rows:
+        metadata = json.loads(row["response_metadata_json"] or "{}")
+        if metadata.get("cache_policy") == CACHE_POLICY and metadata.get("window_complete") is True:
+            return _cached_quote_count(conn, option_symbol, start_at, end_at) >= 2
+    return False
 
 
 def _store_quote_batch(conn: sqlite3.Connection, quotes: list[dict[str, Any]]) -> int:
@@ -156,6 +189,9 @@ def _marketdata_quotes(option_symbol: str, payload: dict[str, Any]) -> tuple[lis
             invalid_count += 1
             continue
         returned_symbol = _normalized_option_symbol(_array_value(payload, "optionSymbol", index)) or option_symbol
+        if returned_symbol != option_symbol:
+            invalid_count += 1
+            continue
         quotes.append(
             {
                 "option_symbol": returned_symbol,
@@ -195,7 +231,11 @@ def _request_marketdata_quotes(
     response = request_get(
         f"{MARKETDATA_OPTION_QUOTES_URL}/{url_quote(option_symbol, safe='')}/",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-        params={"from": start_at[:10], "to": end_at[:10]},
+        # MarketData's `to` is exclusive; include the final required market date.
+        params={
+            "from": _parse_timestamp(start_at).astimezone(MARKET_TIMEZONE).date().isoformat(),
+            "to": (_parse_timestamp(end_at).astimezone(MARKET_TIMEZONE).date() + timedelta(days=1)).isoformat(),
+        },
         timeout=timeout_seconds,
     )
     response.raise_for_status()
@@ -228,6 +268,8 @@ def fetch_marketdata_eod_option_quotes(
     This operation reads manager history, writes quote/cache coverage only, and never
     calls a brokerage or order endpoint. Quotes are explicitly marked
     ``marketdata_eod`` so the backtest remains distinguishable from intraday data.
+    ``limit`` bounds uncached windows attempted in one batch. Repeated calls give
+    unattempted windows priority, then retry the least recently attempted windows.
     """
     if limit < 1:
         raise ValueError("limit must be at least 1.")
@@ -252,7 +294,7 @@ def fetch_marketdata_eod_option_quotes(
         "start_at": normalized_start,
         "end_at": normalized_end,
         "limit": limit,
-        "decision_selection": "latest",
+        "decision_selection": "uncached_least_recently_attempted",
         "entry_delay_minutes": entry_delay_minutes,
         "max_hold_hours": max_hold_hours,
         "timeout_seconds": timeout_seconds,
@@ -267,7 +309,22 @@ def fetch_marketdata_eod_option_quotes(
             """,
             (MARKETDATA_PROVIDER, json_text(config) or "{}", datetime.now(timezone.utc).isoformat()),
         ).lastrowid)
-        decisions = _decision_rows(conn, start_at=normalized_start, end_at=normalized_end, limit=limit)
+        eligible = _decision_rows(conn, start_at=normalized_start, end_at=normalized_end, limit=None)
+        decisions = []
+        already_cached_count = 0
+        pending_count = 0
+        for decision in eligible:
+            decision_at = _parse_timestamp(decision.get("decision_run_at"))
+            option_symbol = _normalized_option_symbol(decision.get("selected_option_symbol"))
+            if decision_at and option_symbol:
+                window_end = (decision_at + timedelta(minutes=entry_delay_minutes, hours=max_hold_hours)).isoformat()
+                if not force and _cached_window_complete(conn, option_symbol, decision_at.isoformat(), window_end):
+                    already_cached_count += 1
+                    continue
+            pending_count += 1
+            if len(decisions) < limit:
+                decisions.append(decision)
+        decisions.sort(key=lambda decision: (decision["decision_run_at"], decision["id"]))
 
     result: dict[str, Any] = {
         "fetch_run_id": fetch_run_id,
@@ -275,8 +332,15 @@ def fetch_marketdata_eod_option_quotes(
         "pricing_source": MARKETDATA_EOD_PRICING_SOURCE,
         "read_only_trading": True,
         "source_decision_count": len(decisions),
+        "eligible_decision_count": len(eligible),
+        "remaining_decision_count": pending_count - len(decisions),
+        "latest_contract_decision_at": max((row["decision_run_at"] for row in eligible), default=None),
+        "selected_start_at": min((row["decision_run_at"] for row in decisions), default=None),
+        "selected_end_at": max((row["decision_run_at"] for row in decisions), default=None),
+        "returned_quote_start_at": None,
+        "returned_quote_end_at": None,
         "fetched_count": 0,
-        "already_cached_count": 0,
+        "already_cached_count": already_cached_count,
         "no_data_count": 0,
         "unavailable_count": 0,
         "error_count": 0,
@@ -303,7 +367,7 @@ def fetch_marketdata_eod_option_quotes(
             requested_start = decision_at.isoformat()
             requested_end = (decision_at + timedelta(minutes=entry_delay_minutes, hours=max_hold_hours)).isoformat()
             cached_count = _cached_quote_count(conn, option_symbol, requested_start, requested_end)
-            if cached_count >= 2 and not force:
+            if not force and _cached_window_complete(conn, option_symbol, requested_start, requested_end):
                 result["already_cached_count"] += 1
                 _record_coverage(
                     conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
@@ -329,6 +393,11 @@ def fetch_marketdata_eod_option_quotes(
                 if response_status == "error":
                     raise ValueError(str(payload.get("errmsg") or "MarketData.app returned an error response."))
                 quotes, invalid_count = _marketdata_quotes(option_symbol, payload)
+                quote_times = [quote["quote_at"] for quote in quotes]
+                if quote_times:
+                    result["returned_quote_start_at"] = min(quote_times + ([result["returned_quote_start_at"]] if result["returned_quote_start_at"] else []))
+                    result["returned_quote_end_at"] = max(quote_times + ([result["returned_quote_end_at"]] if result["returned_quote_end_at"] else []))
+                window_complete = any(_parse_timestamp(at) >= _parse_timestamp(requested_end) for at in quote_times)
                 result["invalid_quote_count"] += invalid_count
                 inserted_count = _store_quote_batch(conn, quotes)
                 result["inserted_quote_count"] += inserted_count
@@ -338,7 +407,9 @@ def fetch_marketdata_eod_option_quotes(
                         conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
                         requested_start_at=requested_start, requested_end_at=requested_end, status="fetched",
                         quote_count=len(quotes), page_count=1,
-                        metadata={**metadata, "inserted_quote_count": inserted_count, "invalid_quote_count": invalid_count, "pricing_source": MARKETDATA_EOD_PRICING_SOURCE},
+                        metadata={**metadata, "inserted_quote_count": inserted_count, "invalid_quote_count": invalid_count,
+                                  "pricing_source": MARKETDATA_EOD_PRICING_SOURCE, "cache_policy": CACHE_POLICY,
+                                  "window_complete": window_complete},
                     )
                 else:
                     result["no_data_count"] += 1

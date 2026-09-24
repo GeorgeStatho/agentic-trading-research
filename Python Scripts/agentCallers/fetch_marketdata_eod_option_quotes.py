@@ -25,11 +25,11 @@ def main() -> None:
     )
     parser.add_argument("--start-at", default="", help="Inclusive ISO-8601 manager-decision cutoff.")
     parser.add_argument("--end-at", default="", help="Inclusive ISO-8601 manager-decision cutoff.")
-    parser.add_argument("--limit", type=int, default=100, help="Latest stored manager decisions with contracts to inspect within the date range.")
+    parser.add_argument("--limit", type=int, default=100, help="Maximum uncached contract windows to attempt per batch; repeated runs advance through history.")
     parser.add_argument("--entry-delay-minutes", type=int, default=1_440)
     parser.add_argument("--max-hold-hours", type=int, default=168)
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
-    parser.add_argument("--force", action="store_true", help="Fetch even when two valid quotes are already cached for a decision window.")
+    parser.add_argument("--force", action="store_true", help="Refetch completed cached windows as well as missing windows.")
     args = parser.parse_args()
     result = fetch_marketdata_eod_option_quotes(
         start_at=args.start_at or None,
