@@ -230,6 +230,10 @@
 
 .dashboard-section { scroll-margin-top: 88px; }
 
+/* Holds a panel that renders sibling sections of its own; a flex column keeps
+   their margins from collapsing into each other. */
+.dashboard-section--group { display: flex; flex-direction: column; }
+
 .dashboard-hero {
   display: flex;
   align-items: center;

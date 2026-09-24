@@ -253,7 +253,7 @@ def _stage_status(reading: _Reading, stage: str, policy, feature: dict) -> dict:
     measured_on_candidates = feature.get("activity_basis", "candidates") == "candidates"
     return {
         "stage": stage,
-        "enforcement_allowed": _enforcement_allowed(stage, policy, reading.db_path),
+        "enforcement_allowed": _enforcement_allowed(reading, stage, policy),
         "proof": matching,
         "superseded_proofs": len(proofs) - (1 if matching else 0),
         "activity": _activity_for(reading.activity, stage) if measured_on_candidates else None,
@@ -265,12 +265,16 @@ def _activity_for(activity: dict | None, stage: str) -> dict | None:
     return None if activity is None else activity.get(stage, EMPTY_ACTIVITY)
 
 
-def _enforcement_allowed(stage: str, policy, db_path: Any) -> bool:
-    """research_promotion.approved is the authority; never re-derive its rule."""
+def _enforcement_allowed(reading: _Reading, stage: str, policy) -> bool:
+    """research_promotion.approved is the authority; never re-derive its rule.
+
+    The reading's code hash is passed through so one payload hashes the sources
+    once instead of once per stage.
+    """
     from services.research_promotion import approved
 
     try:
-        return bool(approved(stage, policy, db_path=db_path))
+        return bool(approved(stage, policy, db_path=reading.db_path, code_hash=reading.code_hash))
     except Exception as exc:
         logger.warning("Promotion proof lookup failed for %s: %s", stage, exc)
         return False

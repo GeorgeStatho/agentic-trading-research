@@ -18,7 +18,10 @@ It currently shows:
 
 ## Main Files
 
-- [src/App.tsx](src/App.tsx): top-level layout
+- [src/App.tsx](src/App.tsx): the shell — top nav, per-page sidebar, active page
+- [src/routes.tsx](src/routes.tsx): the page table, hash routing and demo-mode rules
+- [src/dashboardHome.tsx](src/dashboardHome.tsx): the Overview page
+- [src/dashboardSections.ts](src/dashboardSections.ts): Overview's sidebar anchors
 - [src/scriptStatus.tsx](src/scriptStatus.tsx): status indicator
 - [src/Graph.tsx](src/Graph.tsx): portfolio-history chart
 - [src/orderCard.tsx](src/orderCard.tsx): trade execution cards

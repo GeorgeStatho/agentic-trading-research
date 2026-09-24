@@ -37,21 +37,26 @@ def policy_hash(stage, policy, code_hash):
     return fingerprint({'stage': stage, 'policy': values, 'code_hash': code_hash})
 
 
-def approved(stage, policy, *, db_path=DB_PATH):
+def approved(stage, policy, *, db_path=DB_PATH, code_hash=None):
+    """`code_hash` lets a caller checking several stages hash the sources once."""
     try:
         with closing(sqlite3.connect(f'file:{Path(db_path).resolve()}?mode=ro', uri=True)) as conn:
             row = conn.execute('SELECT 1 FROM research_gate_promotions WHERE stage=? AND policy_hash=? AND gate_value>0 AND sample_size>=100',
-                               (stage, policy_hash(stage, policy, source_hash()))).fetchone()
+                               (stage, policy_hash(stage, policy, code_hash or source_hash()))).fetchone()
             return row is not None
     except sqlite3.Error:
         return False
 
 
 def guard_policy(policy, stages, *, db_path=DB_PATH):
+    enforcing = {field: (required,) if isinstance(required, str) else required
+                 for field, required in stages.items() if getattr(policy, field) == 'enforce'}
+    if not enforcing:
+        return policy
+    code_hash = source_hash()
     changes = {}
-    for field, required in stages.items():
-        required = (required,) if isinstance(required, str) else required
-        if getattr(policy, field) == 'enforce' and not all(approved(stage, policy, db_path=db_path) for stage in required):
+    for field, required in enforcing.items():
+        if not all(approved(stage, policy, db_path=db_path, code_hash=code_hash) for stage in required):
             logging.getLogger(__name__).warning('%s stays shadow: no matching counterfactual promotion proof', ', '.join(required))
             changes[field] = 'shadow'
     return replace(policy, **changes) if changes else policy
