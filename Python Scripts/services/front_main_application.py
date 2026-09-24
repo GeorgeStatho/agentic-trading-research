@@ -546,6 +546,7 @@ class FrontMainApplication:
             self._run_cold_start_sanity_check()
 
         trading_client = self._trading_gateway.create_client()
+        self._position_manager.reconcile_outcomes(trading_client=trading_client)
         next_trading_cycle_at = datetime.now()
         next_option_management_at = datetime.now()
         loop_start_ping_sent = self._send_worker_telemetry_ping(reason="main_loop_start")
@@ -625,6 +626,7 @@ class FrontMainApplication:
         # This lighter loop exists for deployments that only need position
         # management; it never opens new trades and wakes on its own schedule.
         trading_client = self._trading_gateway.create_client()
+        self._position_manager.reconcile_outcomes(trading_client=trading_client)
         next_option_management_at = datetime.now()
 
         self._logger.info(

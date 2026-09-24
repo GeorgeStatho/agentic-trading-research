@@ -135,6 +135,8 @@ def _pick_matching_contract(
 
 def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict[str, Any]:
     """Attach a concrete option contract to a manager result when rules allow it."""
+    from services.liquidity_gate import filter_liquid_contracts
+    manager_result = filter_liquid_contracts(manager_result)
     recommendation = dict(manager_result.get("recommendation") or {})
     market_context = dict(manager_result.get("market_context") or {})
     strategist_recommendation = dict(manager_result.get("strategist_recommendation") or {})

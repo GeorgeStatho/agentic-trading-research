@@ -23,8 +23,8 @@ def _payload(*, relative_volume: float = 1.5, sector_state: str = "outperforming
         "grounding": {"article_ids": [1, 2]},
         "supporting_articles": {
             "article_summaries": [
-                {"article_id": 1, "source": "Reuters", "evidence_score": 0.82},
-                {"article_id": 2, "source": "Bloomberg", "evidence_score": 0.74},
+                {"article_id": 1, "source": "Reuters", "root_event_id": "root:reuters", "root_source_id": "wire:reuters", "evidence_score": 0.82},
+                {"article_id": 2, "source": "Bloomberg", "root_event_id": "root:bloomberg", "root_source_id": "publisher:bloomberg", "evidence_score": 0.74},
             ]
         },
         "market_context": {
@@ -59,6 +59,7 @@ class EvidenceContinuationGateTests(unittest.TestCase):
             recommendation={"decision": "call", "confidence": "high"},
             payload=payload,
             market_context=payload["market_context"],
+            policy=EvidenceContinuationPolicy(enforcement_mode="enforce"),
         )
 
     def test_allows_grounded_bullish_daily_continuation(self) -> None:
@@ -121,6 +122,7 @@ class EvidenceContinuationGateTests(unittest.TestCase):
             recommendation={"decision": "put", "confidence": "high"},
             payload=payload,
             market_context=payload["market_context"],
+            policy=EvidenceContinuationPolicy(enforcement_mode="enforce"),
         )
 
         self.assertTrue(result["allowed"])

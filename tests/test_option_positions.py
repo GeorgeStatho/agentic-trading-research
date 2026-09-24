@@ -1953,6 +1953,76 @@ class OptionPositionTests(VerboseTestCase):
         self.assertEqual(updated_state["last_decision_reason"], "trailing_profit_stop")
         self.log_pass("trailing profit stop sold after gains gave back through the protected floor")
 
+    def _early_floor_exit_action(self, *, protection_trigger_pct: float, initial_floor_pct: float):
+        # A position that peaked at +25% and has retraced to +4%: the common live
+        # path where a good trade decayed back into a stop-loss before protection
+        # ever armed.
+        return self.option_positions._structured_exit_action(
+            option_symbol=OPTION_SYMBOL,
+            quantity=1,
+            unrealized_pl_pct_ratio=0.04,
+            days_to_expiration=30,
+            hours_to_expiration=720.0,
+            exit_thresholds=self.option_positions.ExitThresholds(
+                dte_rule_label="30-45 DTE",
+                take_profit_pct=70.0,
+                stop_loss_pct=-35.0,
+                force_exit_days_to_expiration=18,
+                exit_hours_to_expiration=432.0,
+                is_default_rule=False,
+            ),
+            position_state={"max_pnl_pct": 0.25},
+            critical_errors=[],
+            context_notes=[],
+            enable_trailing_profit=True,
+            trailing_profit_config=_make_trailing_profit_config(
+                self.option_positions,
+                protection_trigger_pct=protection_trigger_pct,
+                initial_floor_pct=initial_floor_pct,
+            ),
+            momentum_history_config=_make_momentum_history_config(self.option_positions),
+            momentum_status=MOMENTUM_GOOD,
+            momentum_reasons=[],
+            recently_filled_order=False,
+        )
+
+    def test_early_protection_trigger_banks_a_modest_peak_before_it_round_trips(self) -> None:
+        exit_action, updated_state = self._early_floor_exit_action(
+            protection_trigger_pct=0.20,
+            initial_floor_pct=0.05,
+        )
+
+        self.assertEqual(exit_action["action"], "sell_full")
+        self.assertEqual(exit_action["reason"], "trailing_profit_stop")
+        self.assertAlmostEqual(exit_action["protected_profit_floor_pct"], 0.05, places=6)
+        self.assertEqual(updated_state["last_decision_reason"], "trailing_profit_stop")
+        self.log_pass("a +25% peak retracing to +4% exited at the protected floor instead of riding toward the stop")
+
+    def test_late_protection_trigger_leaves_a_modest_peak_unprotected(self) -> None:
+        # Contrast case documenting why the trigger moved: with the old arming
+        # threshold the same position stays open all the way down to the stop.
+        exit_action, _ = self._early_floor_exit_action(
+            protection_trigger_pct=0.55,
+            initial_floor_pct=0.20,
+        )
+
+        self.assertEqual(exit_action["action"], "hold")
+        self.assertIsNone(exit_action["protected_profit_floor_pct"])
+        self.log_pass("the old arming threshold left the same +25% peak unprotected")
+
+    def test_trailing_profit_defaults_arm_early_with_a_near_breakeven_floor(self) -> None:
+        self.assertAlmostEqual(
+            self.option_positions.DEFAULT_OPTION_TRAIL_PROTECTION_TRIGGER_PCT,
+            0.20,
+            places=6,
+        )
+        self.assertAlmostEqual(
+            self.option_positions.DEFAULT_OPTION_TRAIL_INITIAL_FLOOR_PCT,
+            0.05,
+            places=6,
+        )
+        self.log_pass("shipped trailing-profit defaults arm at a +20% peak with a near-breakeven floor")
+
     def test_build_option_position_snapshot_persists_momentum_history_after_threshold(self) -> None:
         with TemporaryDirectory() as temp_dir:
             state_path = Path(temp_dir) / "option_state.json"

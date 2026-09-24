@@ -94,12 +94,14 @@ def list_decision_autopsy_ledger(
         where_clauses.extend(
             [
                 "history.trade_executed = 1",
-                "history.latest_trade_pnl_pct IS NOT NULL",
+                "history.outcome_status = 'closed'",
+                "history.realized_pnl_pct IS NOT NULL",
+                "history.closed_at IS NOT NULL",
                 "history.resolved_outcome_label IS NOT NULL",
             ]
         )
         if as_of_timestamp is not None:
-            where_clauses.append("history.latest_trade_pnl_updated_at <= ?")
+            where_clauses.append("history.closed_at <= ?")
             parameters.append(as_of_timestamp)
     if within_days is not None and int(within_days) > 0:
         where_clauses.append("ledger.decision_run_at >= ?")
@@ -127,8 +129,12 @@ def list_decision_autopsy_ledger(
                 history.trade_executed,
                 history.trade_execution_order_id,
                 history.trade_execution_record_id,
-                history.latest_trade_pnl_pct,
-                history.latest_trade_pnl_updated_at,
+                CASE WHEN history.outcome_status = 'closed' THEN history.realized_pnl_pct
+                     ELSE history.latest_trade_pnl_pct END AS latest_trade_pnl_pct,
+                history.realized_pnl_pct, history.closed_at, history.outcome_status,
+                history.exit_reason, history.closing_order_ids_json,
+                CASE WHEN history.outcome_status = 'closed' THEN history.closed_at
+                     ELSE history.latest_trade_pnl_updated_at END AS latest_trade_pnl_updated_at,
                 history.resolved_outcome_label,
                 execution.paper AS execution_paper,
                 execution.order_status AS execution_order_status,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -119,6 +120,12 @@ def record_manager_decision_history(
         values,
     )
     decision_history_id = int(cursor.lastrowid)
+    conn.execute("UPDATE manager_decision_history SET candidate_id=?, pipeline_version_json=? WHERE id=?",
+                 (history.get("candidate_id"), json_text(history.get("pipeline_version")), decision_history_id))
+    from catalyst_schema import stamp_candidate_catalyst
+    stamp_candidate_catalyst(conn, 'manager_decision_history', decision_history_id, history.get('candidate_id'))
+    from .shadow_gates import record_decision_gate_verdicts
+    record_decision_gate_verdicts(decision_history_id, history.get("manager_output_json"), conn=conn)
     snapshot = {
         "version": "decision-autopsy-v1",
         "company_id": company_id,
@@ -204,7 +211,7 @@ def update_manager_decision_latest_pnl(
                 ELSE 'open'
             END,
             updated_at = ?
-        WHERE id = ?
+        WHERE id = ? AND COALESCE(outcome_status, '') != 'closed'
         """,
         (
             coerce_float(latest_trade_pnl_pct),
@@ -226,6 +233,8 @@ def record_manager_decision_closed_outcome(
     closed_at: Any,
     resolved_outcome_label: str | None = None,
     broker_confirmed: bool = False,
+    closing_order_ids: list[str] | None = None,
+    exit_reason: str | None = None,
     db_path: Path | str = DB_PATH,
     conn: sqlite3.Connection | None = None,
 ) -> bool:
@@ -233,6 +242,10 @@ def record_manager_decision_closed_outcome(
     normalized_id = coerce_int(decision_history_id)
     normalized_pnl = coerce_float(realized_pnl_pct)
     if normalized_id is None or normalized_pnl is None or not broker_confirmed:
+        return False
+    try:
+        datetime.fromisoformat(str(closed_at).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
         return False
     if conn is None:
         initialize_database(db_path=db_path)
@@ -243,23 +256,37 @@ def record_manager_decision_closed_outcome(
                 closed_at=closed_at,
                 resolved_outcome_label=resolved_outcome_label,
                 broker_confirmed=True,
+                closing_order_ids=closing_order_ids,
+                exit_reason=exit_reason,
                 conn=local_conn,
             )
 
     normalized_closed_at = normalize_timestamp(closed_at)
+    if not exit_reason and closing_order_ids:
+        exit_row = conn.execute(
+            "SELECT decision FROM option_trade_executions WHERE order_id = ?",
+            (closing_order_ids[-1],),
+        ).fetchone()
+        exit_reason = exit_row["decision"] if exit_row else "broker_close"
+
     cursor = conn.execute(
         """
         UPDATE manager_decision_history
         SET
             outcome_status = 'closed',
+            exit_reason = ?,
+            closing_order_ids_json = ?,
             realized_pnl_pct = ?,
             closed_at = ?,
             resolved_outcome_label = COALESCE(?, resolved_outcome_label),
             updated_at = ?
         WHERE id = ?
           AND trade_executed = 1
+          AND COALESCE(outcome_status, '') != 'closed'
         """,
         (
+            clean_text(exit_reason),
+            json_text(closing_order_ids or []),
             normalized_pnl,
             normalized_closed_at,
             clean_text(resolved_outcome_label),
@@ -267,7 +294,13 @@ def record_manager_decision_closed_outcome(
             normalized_id,
         ),
     )
-    return int(cursor.rowcount or 0) > 0
+    if int(cursor.rowcount or 0) > 0:
+        from .position_outcomes import close_position_outcome
+        close_position_outcome(normalized_id, realized_pnl_pct=normalized_pnl,
+                               closed_at=normalized_closed_at, exit_reason=exit_reason, conn=conn,
+                               closing_order_id=closing_order_ids[-1] if closing_order_ids else None)
+        return True
+    return False
 
 
 def expire_manager_decision_pnl(
@@ -297,3 +330,17 @@ def expire_manager_decision_pnl(
         (expiration_cutoff,),
     ).fetchone()
     return int((row["count"] if row is not None else 0) or 0)
+
+
+def list_unresolved_manager_decisions(*, db_path=DB_PATH) -> list[dict]:
+    initialize_database(db_path=db_path)
+    with get_connection(db_path) as conn:
+        return [dict(row) for row in conn.execute("""
+            SELECT id, selected_option_symbol, trade_execution_order_id, decision_run_at
+            FROM manager_decision_history
+            WHERE trade_executed = 1
+              AND COALESCE(outcome_status, '') != 'closed'
+              AND COALESCE(trade_execution_order_id, '') != ''
+              AND COALESCE(selected_option_symbol, '') != ''
+            ORDER BY decision_run_at, id
+        """).fetchall()]

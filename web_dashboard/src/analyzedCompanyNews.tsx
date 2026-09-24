@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+
+import { formatNumber, formatText } from './format';
 import './analyzedCompanyNews.css';
 
 type ConfidenceLevel = 'all' | 'high' | 'medium' | 'low';
@@ -153,6 +155,10 @@ async function getAnalyzedCompanyNews(
   return response.json() as Promise<CompanyNewsPayload>;
 }
 
+/**
+ * Article timestamps use a compact month/day/time style rather than the shared
+ * date format, so long article lists stay scannable in narrow columns.
+ */
 function formatDateTime(value: string): string {
   const timestamp = Date.parse(value);
   if (Number.isNaN(timestamp)) {
@@ -168,12 +174,11 @@ function formatDateTime(value: string): string {
 }
 
 function formatCount(value: number): string {
-  return new Intl.NumberFormat().format(value);
+  return formatNumber(value, { digits: 0 });
 }
 
 function formatLabel(value: string, fallback = 'Unknown'): string {
-  const normalized = value.trim();
-  return normalized || fallback;
+  return formatText(value, { placeholder: fallback });
 }
 
 function comparePublishedAtDescending(left: NewsArticle, right: NewsArticle): number {

@@ -71,6 +71,31 @@ CREATE TABLE IF NOT EXISTS company_price_snapshots (
 );
 
 CREATE TABLE IF NOT EXISTS option_trade_executions (
+    underlying_at_decision REAL,
+    option_bid_at_decision REAL,
+    option_ask_at_decision REAL,
+    option_mid_at_decision REAL,
+    submitted_price REAL,
+    fill_price REAL,
+    underlying_at_fill REAL,
+    slippage_vs_mid REAL,
+    slippage_vs_arrival REAL,
+    arrival_mid REAL,
+    arrival_spread REAL,
+    spread_paid_pct REAL,
+    seconds_to_fill REAL,
+    underlying_move_while_working REAL,
+    option_mid_move_while_working REAL,
+    filled_qty REAL,
+    fill_timestamp TEXT,
+    repricing_count INTEGER DEFAULT 0,
+    cancel_reason TEXT,
+    would_have_filled_later INTEGER,
+    candidate_id TEXT,
+    pipeline_version_json TEXT,
+    execution_version_json TEXT,
+    telemetry_json TEXT,
+    fill_observed_at TEXT,
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id INTEGER,
     order_id TEXT NOT NULL UNIQUE,
@@ -100,6 +125,8 @@ CREATE TABLE IF NOT EXISTS option_trade_executions (
 );
 
 CREATE TABLE IF NOT EXISTS manager_decision_history (
+    candidate_id TEXT,
+    pipeline_version_json TEXT,
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id INTEGER,
     symbol TEXT,
@@ -128,6 +155,8 @@ CREATE TABLE IF NOT EXISTS manager_decision_history (
     outcome_status TEXT,
     realized_pnl_pct REAL,
     closed_at TEXT,
+    exit_reason TEXT,
+    closing_order_ids_json TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
@@ -321,6 +350,8 @@ CREATE TABLE IF NOT EXISTS backtest_events (
 );
 
 CREATE TABLE IF NOT EXISTS position_theses (
+    candidate_id TEXT,
+    pipeline_version_json TEXT,
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     manager_decision_history_id INTEGER,
     trade_execution_order_id TEXT,
@@ -505,3 +536,58 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_installations_project
 
 CREATE INDEX IF NOT EXISTS idx_telemetry_installations_last_seen_at
     ON telemetry_installations (last_seen_at);
+
+CREATE TABLE IF NOT EXISTS decision_gate_verdicts (
+    manager_decision_history_id INTEGER NOT NULL,
+    gate_name TEXT NOT NULL,
+    would_allow INTEGER NOT NULL CHECK (would_allow IN (0, 1)),
+    mode TEXT NOT NULL,
+    policy_version TEXT,
+    verdict_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (manager_decision_history_id, gate_name),
+    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS candidates (
+    candidate_id TEXT PRIMARY KEY, symbol TEXT NOT NULL, created_at TEXT NOT NULL,
+    catalyst_ids_json TEXT NOT NULL, article_ids_json TEXT NOT NULL, pipeline_version_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS candidate_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),
+    stage TEXT NOT NULL, captured_at TEXT NOT NULL, information_cutoff_time TEXT NOT NULL,
+    pipeline_version TEXT NOT NULL, snapshot_version TEXT NOT NULL, snapshot_hash TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL, UNIQUE(candidate_id, stage)
+);
+CREATE TABLE IF NOT EXISTS candidate_rejections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),
+    symbol TEXT, stage TEXT NOT NULL, reason_code TEXT NOT NULL,
+    metrics_json TEXT NOT NULL DEFAULT '{}', thresholds_json TEXT NOT NULL DEFAULT '{}',
+    config_version TEXT, occurred_at TEXT NOT NULL, shadow INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(candidate_id, stage, reason_code, shadow)
+);
+CREATE INDEX IF NOT EXISTS idx_candidates_created ON candidates(created_at);
+CREATE TABLE IF NOT EXISTS position_outcomes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    option_symbol TEXT NOT NULL, underlying_symbol TEXT, sector_symbol TEXT,
+    candidate_id TEXT, thesis_id INTEGER, manager_decision_history_id INTEGER UNIQUE,
+    entry_order_id TEXT UNIQUE NOT NULL, opened_at TEXT NOT NULL, closed_at TEXT,
+    entry_option_price REAL, entry_underlying_price REAL, entry_spy_price REAL, entry_sector_price REAL,
+    mfe_option REAL, mae_option REAL, mfe_underlying REAL, mae_underlying REAL,
+    time_to_mfe_minutes REAL, time_to_mae_minutes REAL,
+    primary_exit_reason TEXT, coactive_exit_reasons_json TEXT NOT NULL DEFAULT '[]',
+    return_1d_after_exit REAL, return_3d_after_exit REAL,
+    iv_at_entry REAL, iv_at_exit REAL, underlying_move REAL, residual_move REAL,
+    spy_return REAL, sector_return REAL, underlying_at_exit REAL,
+    realized_pnl_pct REAL, last_observed_at TEXT, observation_count INTEGER NOT NULL DEFAULT 0,
+    pipeline_version_json TEXT, exit_pipeline_version_json TEXT, benchmark_json TEXT
+);
+CREATE TABLE IF NOT EXISTS position_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, position_outcome_id INTEGER NOT NULL REFERENCES position_outcomes(id),
+    observed_at TEXT NOT NULL, option_pnl_pct REAL, underlying_pnl_pct REAL,
+    snapshot_json TEXT NOT NULL, UNIQUE(position_outcome_id, observed_at)
+);
+CREATE TABLE IF NOT EXISTS post_exit_checks (
+    position_outcome_id INTEGER NOT NULL REFERENCES position_outcomes(id),
+    checked_on TEXT NOT NULL, status TEXT NOT NULL, PRIMARY KEY(position_outcome_id, checked_on)
+);

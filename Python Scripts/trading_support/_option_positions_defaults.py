@@ -177,7 +177,11 @@ DEFAULT_OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD = env_float(
     "OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD",
     0.10,
 )
-DEFAULT_OPTION_TRAIL_PROTECTION_TRIGGER_PCT = env_float("OPTION_TRAIL_PROTECTION_TRIGGER_PCT", 0.40)
+# Arm profit protection at a +20% tracked peak with the floor just above
+# breakeven. Floors only ratchet upward (they never cap upside), so this
+# converts the common "peaked +20..+50%, retraced to a stop" path into a small
+# win while leaving runners untouched.
+DEFAULT_OPTION_TRAIL_PROTECTION_TRIGGER_PCT = env_float("OPTION_TRAIL_PROTECTION_TRIGGER_PCT", 0.20)
 DEFAULT_OPTION_TRAIL_INITIAL_FLOOR_PCT = env_float("OPTION_TRAIL_INITIAL_FLOOR_PCT", 0.05)
 DEFAULT_OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT = env_float(
     "OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT",

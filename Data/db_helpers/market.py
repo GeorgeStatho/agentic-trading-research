@@ -8,6 +8,12 @@ from datetime import datetime, timedelta, timezone
 from db_common import DB_PATH, get_connection
 from market_db import initialize_database as initialize_market_database
 from market_db import (
+    record_catalyst_gate_observation, freshness_outcome_report,
+    ensure_position_outcome, record_position_observation, list_post_exit_positions, resolve_post_exit_returns, exit_attribution_report, resolve_position_benchmarks, position_entry_context,
+    store_execution_telemetry, pending_execution_telemetry, execution_telemetry_report,
+    record_candidate, record_candidate_snapshot, record_candidate_rejection, load_candidate_lifecycle, candidate_funnel,
+    store_regime_bars, load_regime_bars,
+    backfill_gate_verdicts, list_shadow_gate_outcomes,
     expire_manager_decision_pnl,
     add_company_price_snapshot,
     close_position_thesis,
@@ -26,7 +32,9 @@ from market_db import (
     get_latest_market_regime_snapshot,
     get_backtest_run,
     fetch_marketdata_eod_option_quotes,
+    count_option_entry_executions_since,
     get_company_sector_key,
+    get_latest_stop_loss_exit_at,
     import_alpaca_option_quote_csv,
     get_latest_linked_manager_decision_for_option_symbol,
     get_latest_open_manager_decision_for_trade_link,
@@ -52,6 +60,7 @@ from market_db import (
     record_historical_option_quote,
     record_historical_underlying_bar,
     record_manager_decision_closed_outcome,
+    list_unresolved_manager_decisions,
     record_manager_replay_result,
     record_option_trade_execution,
     record_telemetry_installation,

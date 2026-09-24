@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+
+import { formatTimeOfDay } from './format';
 import './status.css';
 
 type ScriptState = 'starting' | 'running' | 'paused' | 'error';
@@ -20,12 +22,7 @@ const POLL_INTERVAL_MS = 5_000;
 const DOWN_THRESHOLD_MS = 90_000;
 
 function formatUpdatedAt(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return 'unknown';
-  }
-
-  return date.toLocaleTimeString();
+  return formatTimeOfDay(value, { placeholder: 'unknown' });
 }
 
 function formatStage(value?: string): string | null {

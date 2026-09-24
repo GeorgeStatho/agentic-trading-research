@@ -28,7 +28,9 @@ from api_routes.exposure_map import register_exposure_map_routes
 from api_routes.health import register_health_routes
 from api_routes.news import register_news_routes
 from api_routes.telemetry import register_telemetry_routes
+from api_routes.thesis_validator import register_thesis_validator_routes
 from api_routes.trades import register_trade_routes
+from api_routes.v2_status import register_v2_status_routes
 from services.telemetry import send_startup_ping_async
 
 
@@ -53,6 +55,8 @@ register_trade_routes(app)
 register_news_routes(app)
 register_exposure_map_routes(app)
 register_telemetry_routes(app)
+register_thesis_validator_routes(app)
+register_v2_status_routes(app)
 
 
 if __name__ == "__main__":

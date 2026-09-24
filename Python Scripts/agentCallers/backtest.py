@@ -23,7 +23,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run a deterministic, read-only historical option backtest.")
     parser.add_argument("--start-at", default="", help="Inclusive ISO-8601 decision timestamp.")
     parser.add_argument("--end-at", default="", help="Inclusive ISO-8601 decision timestamp.")
-    parser.add_argument("--limit", type=int, default=250, help="Maximum stored manager decisions to simulate.")
+    parser.add_argument("--limit", type=int, default=250, help="Latest stored manager decisions to simulate within the date range (maximum 1000).")
     parser.add_argument("--entry-slippage-bps", type=float, default=25.0)
     parser.add_argument("--exit-slippage-bps", type=float, default=25.0)
     parser.add_argument("--commission-per-contract", type=float, default=0.65)

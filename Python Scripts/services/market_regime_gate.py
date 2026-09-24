@@ -4,18 +4,22 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+REGIME_RELEVANCE = {'systemic': 1.00, 'sector': .60, 'idiosyncratic': .25}
+
 
 @dataclass(frozen=True)
 class MarketRegimePolicy:
-    policy_version: str = "market-regime-v1"
-    mode: str = "enforce"
+    policy_version: str = "market-regime-v2-scope"
+    mode: str = "shadow"
+    maximum_opposition: float = .75
 
     @classmethod
     def from_env(cls) -> "MarketRegimePolicy":
-        mode = str(os.getenv("MARKET_REGIME_GATE_MODE", "enforce")).strip().lower()
+        mode = str(os.getenv("MARKET_REGIME_GATE_MODE", "shadow")).strip().lower()
         if mode not in {"observe", "shadow", "enforce"}:
-            mode = "enforce"
-        return cls(mode=mode)
+            mode = "shadow"
+        from services.research_promotion import guard_policy
+        return guard_policy(cls(mode=mode), {'mode': 'REGIME'})
 
 
 def evaluate_market_regime_gate(
@@ -24,6 +28,7 @@ def evaluate_market_regime_gate(
     manager_confidence: str,
     regime: dict[str, Any],
     policy: MarketRegimePolicy | None = None,
+    catalyst_scope: str | None = None,
 ) -> dict[str, Any]:
     """Map a deterministic regime state to an auditable execution permission."""
     active_policy = policy or MarketRegimePolicy.from_env()
@@ -72,6 +77,21 @@ def evaluate_market_regime_gate(
         would_allow = False
         reasons.append("regime_state_unrecognized")
 
+    legacy_would_allow = would_allow
+    legacy_reasons = list(reasons)
+    scope = str(catalyst_scope or 'unknown').lower()
+    relevance = REGIME_RELEVANCE.get(scope, 1.0)
+    opposition = (2.0 if state == 'stressed' else 1.0 if state == 'range' or
+                  (state == 'trend_up' and decision == 'put') or
+                  (state == 'trend_down' and decision == 'call') else 0.0)
+    penalty = opposition * relevance
+    # Missing regime/scope data never grants an exception. Blackout and the
+    # existing confidence requirements remain independent of scope weighting.
+    if (decision in {'call', 'put'} and not macro_active and opposition > 0
+            and scope in REGIME_RELEVANCE):
+        would_allow = penalty < active_policy.maximum_opposition
+        reasons = ['regime_scope_opposition_pass' if would_allow else 'regime_scope_opposition_block']
+
     allowed = would_allow or active_policy.mode in {"observe", "shadow"}
     return {
         "allowed": allowed,
@@ -85,6 +105,14 @@ def evaluate_market_regime_gate(
         "macro_event_window": macro_window if isinstance(macro_window, dict) else {},
         "policy_version": active_policy.policy_version,
         "enforcement_mode": active_policy.mode,
+        "catalyst_scope": scope,
+        "regime_relevance_score": relevance,
+        "base_opposition": opposition,
+        "regime_opposition_penalty": penalty,
+        "maximum_opposition": active_policy.maximum_opposition,
+        "legacy_would_allow": legacy_would_allow,
+        "legacy_reason_codes": legacy_reasons,
+        "scope_changed_verdict": would_allow != legacy_would_allow,
     }
 
 
@@ -93,9 +121,14 @@ def apply_market_regime_gate_to_manager_result(manager_result: dict[str, Any]) -
     recommendation = result.get("recommendation") if isinstance(result.get("recommendation"), dict) else {}
     market_context = result.get("market_context") if isinstance(result.get("market_context"), dict) else {}
     regime = market_context.get("market_regime") if isinstance(market_context.get("market_regime"), dict) else {}
+    catalysts = (result.get('candidate_context') or {}).get('catalysts') or []
+    # For mixed-scope evidence retain the strongest relevant regime constraint.
+    scope = max((state.get('catalyst_scope', 'unknown') for state in catalysts),
+                key=lambda value: REGIME_RELEVANCE.get(value, 1.0), default='unknown')
     result["market_regime_gate"] = evaluate_market_regime_gate(
         proposed_decision=str(recommendation.get("decision") or ""),
         manager_confidence=str(recommendation.get("confidence") or ""),
         regime=regime,
+        catalyst_scope=scope,
     )
     return result

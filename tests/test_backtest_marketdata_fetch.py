@@ -56,6 +56,38 @@ class MarketDataEodQuoteFetchTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
+    def test_limited_fetch_reaches_recent_contracts_and_respects_date_bounds(self) -> None:
+        with get_connection(self.db_path) as conn:
+            conn.executemany(
+                "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision, selected_option_symbol) VALUES (?, ?, ?, ?)",
+                [
+                    ("NVDA", "2026-09-20T10:00:00+00:00", "call", "NVDA261016C00200000"),
+                    ("AMD", "2026-09-20T10:00:00+00:00", "call", "AMD261016C00200000"),
+                    ("MU", "2026-09-21T10:00:00+00:00", "call", None),
+                    ("IBM", "2026-09-21T10:00:00+00:00", "neither", "IBM261016C00200000"),
+                ],
+            )
+        requested = []
+
+        def fake_get(url, **kwargs):
+            requested.append(url)
+            return _FakeResponse({"s": "no_data", "updated": []})
+
+        result = fetch_marketdata_eod_option_quotes(
+            limit=1, db_path=self.db_path, token="token", request_get=fake_get,
+        )
+        self.assertEqual(result["source_decision_count"], 1)
+        self.assertEqual(len(requested), 1)
+        self.assertIn("AMD261016C00200000", requested[0])
+
+        requested.clear()
+        fetch_marketdata_eod_option_quotes(
+            start_at="2026-01-01T10:00:00+00:00", end_at="2026-01-01T10:00:00+00:00",
+            limit=1, db_path=self.db_path, token="token", request_get=fake_get,
+        )
+        self.assertEqual(len(requested), 1)
+        self.assertIn("AAPL260117P00200000", requested[0])
+
     def test_imports_marketdata_parallel_quote_arrays_and_labels_backtest_events(self) -> None:
         requested: list[tuple[str, dict]] = []
 

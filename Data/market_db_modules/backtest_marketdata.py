@@ -47,12 +47,13 @@ def _decision_rows(
         SELECT id, symbol, decision_run_at, selected_option_symbol
         FROM manager_decision_history
         WHERE {' AND '.join(clauses)}
-        ORDER BY decision_run_at ASC, id ASC
+        ORDER BY decision_run_at DESC, id DESC
         LIMIT ?
         """,
         params,
     ).fetchall()
-    return [dict(row) for row in rows]
+    # Fetch the recent window, retaining chronological order within that window.
+    return [dict(row) for row in reversed(rows)]
 
 
 def _cached_quote_count(conn: sqlite3.Connection, option_symbol: str, start_at: str, end_at: str) -> int:
@@ -251,6 +252,7 @@ def fetch_marketdata_eod_option_quotes(
         "start_at": normalized_start,
         "end_at": normalized_end,
         "limit": limit,
+        "decision_selection": "latest",
         "entry_delay_minutes": entry_delay_minutes,
         "max_hold_hours": max_hold_hours,
         "timeout_seconds": timeout_seconds,

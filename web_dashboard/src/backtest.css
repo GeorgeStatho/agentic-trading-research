@@ -35,6 +35,7 @@
 .backtest-page__metrics article { display: grid; gap: 4px; padding: 12px; }
 .backtest-page__metrics span, .backtest-page__metrics small { color: var(--text-dim); font-size: .72rem; }
 .backtest-page__metrics b { color: var(--text-h); font-size: 1.15rem; }
+.backtest-page .backtest-page__coverage { color: var(--text-dim); font-size: .78rem; font-weight: 400; letter-spacing: normal; text-transform: none; line-height: 1.5; margin-top: 16px; }
 .backtest-page__equity, .backtest-page__events { margin-top: 16px; padding: 14px; }
 .backtest-page__equity h3, .backtest-page__events h3 { font-size: .95rem; }
 .backtest-page__bars { height: 130px; display: flex; align-items: end; gap: 3px; margin-top: 14px; border-bottom: 1px solid var(--border); }

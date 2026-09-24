@@ -25,7 +25,7 @@ def main() -> None:
     )
     parser.add_argument("--start-at", default="", help="Inclusive ISO-8601 manager-decision cutoff.")
     parser.add_argument("--end-at", default="", help="Inclusive ISO-8601 manager-decision cutoff.")
-    parser.add_argument("--limit", type=int, default=100, help="Maximum stored manager decisions to inspect.")
+    parser.add_argument("--limit", type=int, default=100, help="Latest stored manager decisions with contracts to inspect within the date range.")
     parser.add_argument("--entry-delay-minutes", type=int, default=1_440)
     parser.add_argument("--max-hold-hours", type=int, default=168)
     parser.add_argument("--timeout-seconds", type=float, default=30.0)

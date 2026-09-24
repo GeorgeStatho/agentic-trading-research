@@ -170,6 +170,20 @@ class OptionPositionManagerService:
             self._logger.exception("Thesis validator cycle failed: %s", exc)
             return {"error": str(exc)}
 
+    def reconcile_outcomes(self, *, trading_client, refresh_fills=True):
+        from services.outcome_reconciliation import reconcile_closed_outcomes
+        try:
+            from services.execution_telemetry import reconcile_execution_telemetry
+            from services.position_telemetry import ensure_tracked_positions
+            from services.candidate_lifecycle import observe
+            if refresh_fills:
+                observe(reconcile_execution_telemetry, gateway=self._trading_gateway, trading_client=trading_client)
+                observe(ensure_tracked_positions)
+            return reconcile_closed_outcomes(gateway=self._trading_gateway, trading_client=trading_client)
+        except Exception as exc:
+            self._logger.exception("Outcome reconciliation failed: %s", exc)
+            return {"error": str(exc)}
+
     def run_cycle(self, *, trading_client: TradingClient) -> dict[str, Any]:
         from Trading import ManageCurrentOptionPositions
 
@@ -245,6 +259,31 @@ class OptionPositionManagerService:
             else []
         )
 
+        from services.candidate_lifecycle import observe
+        from services.execution_telemetry import reconcile_execution_telemetry
+        from services.position_telemetry import ensure_tracked_positions, refresh_post_exit_returns
+        from services.pipeline_version import build_pipeline_version
+        from db_helpers.market import record_position_observation
+        from db_helpers.market import position_entry_context
+        management_result["execution_telemetry"] = observe(
+            reconcile_execution_telemetry, gateway=self._trading_gateway, trading_client=trading_client)
+        observe(ensure_tracked_positions)
+        version = observe(build_pipeline_version, settings=self._settings)
+        for position in positions:
+            if isinstance(position, dict):
+                if position.get('close_submitted'):
+                    position['implied_volatility'] = observe(
+                        getattr(self._trading_gateway, 'get_position_exit_iv', lambda _: None), position)
+                    position['iv_observed_at'] = datetime.now(timezone.utc).isoformat()
+                observe(record_position_observation, position, version=version)
+                from market_db_modules.contract_research import record_observation
+                observed_at = datetime.now(timezone.utc).isoformat()
+                comparison = position.get('v2_exit_comparison') or {}
+                observe(record_observation, 'exit:' + str(position.get('symbol')) + ':' + observed_at,
+                        'POSITION_EXIT_V2', comparison, observed_at=observed_at,
+                        candidate_id=(comparison.get('inputs') or {}).get('candidate_id'))
+                position['candidate_context'] = observe(position_entry_context, position.get('symbol'))
+                position['execution_version'] = version
         self._record_submitted_exits(positions)
         self._refresh_manager_decision_history_pnl(positions)
 
@@ -254,6 +293,9 @@ class OptionPositionManagerService:
         )
         if thesis_validation_result is not None:
             management_result["thesis_validator"] = thesis_validation_result
+
+        management_result["outcome_reconciliation"] = self.reconcile_outcomes(trading_client=trading_client, refresh_fills=False)
+        management_result["post_exit_returns"] = observe(refresh_post_exit_returns)
 
         JsonFileWriter.write(self._paths.option_position_management_output_path, management_result)
         self._logger.info(

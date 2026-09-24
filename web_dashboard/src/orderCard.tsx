@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { fetchPolledJson } from './api';
+import { useFetchedResource } from './useRemoteResource';
 import './card.css';
 
 type ExecutedTrade = {
@@ -19,14 +20,8 @@ type ExecutedTradesResponse = {
   trades: ExecutedTrade[];
 };
 
-async function getExecutedTrades(): Promise<ExecutedTradesResponse> {
-  const response = await fetch(`/api/executed-trades?ts=${Date.now()}`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to load executed trades: ${response.status}`);
-  }
-
-  return response.json() as Promise<ExecutedTradesResponse>;
+function getExecutedTrades(): Promise<ExecutedTradesResponse> {
+  return fetchPolledJson<ExecutedTradesResponse>('/api/executed-trades', 'executed trades');
 }
 
 function getExecutedTradeRows(payload: ExecutedTradesResponse): ExecutedTrade[] {
@@ -63,39 +58,10 @@ function OrderCard({ trade }: { trade: ExecutedTrade }) {
 }
 
 function OrderCardList() {
-  const [trades, setTrades] = useState<ExecutedTrade[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    getExecutedTrades()
-      .then((payload) => {
-        if (!isMounted) {
-          return;
-        }
-
-        setTrades(getExecutedTradeRows(payload));
-        setError(null);
-      })
-      .catch((err: unknown) => {
-        if (!isMounted) {
-          return;
-        }
-
-        setError(err instanceof Error ? err.message : 'Failed to load executed trades.');
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const { payload, error, isLoading } = useFetchedResource(getExecutedTrades, {
+    errorMessage: 'Failed to load executed trades.',
+  });
+  const trades = payload ? getExecutedTradeRows(payload) : [];
 
   if (isLoading) {
     return <section className="order-card-list order-card-list--empty"><p>Loading executed trades…</p></section>;

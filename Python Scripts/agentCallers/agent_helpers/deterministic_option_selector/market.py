@@ -1,12 +1,27 @@
 from __future__ import annotations
 
 import math
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime
 from typing import Any
 
 from .config import MAX_TARGET_OTM_DOLLARS, MIN_TARGET_OTM_DOLLARS
 from .normalize import _coerce_float
 from services.option_dte_buckets import get_bucket_target_otm_pct, normalize_target_dte_bucket
+
+
+_SELECTION_DATE = ContextVar('selection_date', default=None)
+
+
+@contextmanager
+def selection_date(as_of):
+    """Scope historical DTE calculations without changing the live clock."""
+    token = _SELECTION_DATE.set(as_of.date())
+    try:
+        yield
+    finally:
+        _SELECTION_DATE.reset(token)
 
 
 def _resolve_target_otm_distance(
@@ -98,7 +113,7 @@ def _get_dte(contract: dict[str, Any]) -> int | None:
         expiration = datetime.strptime(expiration_text, "%Y-%m-%d").date()
     except ValueError:
         return None
-    return (expiration - date.today()).days
+    return (expiration - (_SELECTION_DATE.get() or date.today())).days
 
 
 def _normalize_percentile(value: Any) -> float | None:

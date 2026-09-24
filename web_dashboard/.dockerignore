@@ -1,0 +1,13 @@
+# The image runs `npm install` and `npm run build` itself, so both of these are
+# produced inside it. Copying the host's in adds ~160MB to the build context and
+# can drop a developer machine's native binaries (rolldown, esbuild) into
+# node:20-alpine, which cannot execute them.
+node_modules
+dist
+dist-ssr
+
+# Local noise that never belongs in an image.
+*.log
+*.local
+.vscode
+.DS_Store

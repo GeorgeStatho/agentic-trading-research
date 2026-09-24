@@ -114,6 +114,10 @@ def normalize_recommendation(
         "selected_option_source": "manager_decision_only",
         "reason": reason,
     }
+    for component in ('thesis_confidence', 'timing_confidence', 'execution_confidence'):
+        value = str(recommendation.get(component) or '').strip().lower()
+        normalized_recommendation[component] = value if value in VALID_CONFIDENCE_LEVELS else None
+    normalized_recommendation['confidence_basis'] = 'uncalibrated_ordinal'
     technical_confirmation = _normalize_choice(
         recommendation.get("technical_confirmation"),
         VALID_TECHNICAL_CONFIRMATION,

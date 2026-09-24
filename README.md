@@ -260,6 +260,7 @@ The Flask service in [api.py](api.py) exposes:
 - `POST /api/exposure-map/runs`
 - `GET /api/decision-autopsies`
 - `GET /api/demo-mode`
+- `GET /api/v2-status`
 - `POST /api/telemetry/startup`
 - `GET /api/telemetry/summary`
 

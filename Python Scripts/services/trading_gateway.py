@@ -126,6 +126,7 @@ class AlpacaTradingGateway:
             "time_in_force": getattr(order, "time_in_force", ""),
             "status": getattr(order, "status", ""),
             "submitted_at": str(getattr(order, "submitted_at", "")),
+            "limit_price": str(getattr(order, "limit_price", "")),
         })
 
     def submit_option_sell_market_order(
@@ -289,3 +290,51 @@ class AlpacaTradingGateway:
             raise RuntimeError("Trading client does not expose an order-cancel method.")
 
         return self.get_order_status_summary(trading_client, order_id=normalized_order_id)
+
+    def get_option_order_history(self, trading_client, *, option_symbol: str) -> list[dict]:
+        """Read all order pages, overlapping boundaries so tied timestamps survive."""
+        from datetime import timedelta
+        from alpaca.trading.requests import GetOrdersRequest
+        from services.outcome_reconciliation import parse_timestamp
+
+        orders = {}
+        after = None
+        while True:
+            batch = trading_client.get_orders(filter=GetOrdersRequest(
+                status="all", symbols=[option_symbol], limit=500,
+                direction="asc", after=after,
+            ))
+            new_count = 0
+            for order in batch:
+                summary = self._serialize_order_summary(order=order, symbol=option_symbol, qty=0)
+                for field in ("filled_qty", "filled_avg_price", "filled_at"):
+                    summary[field] = str(getattr(order, field, "") or "")
+                if summary["id"] not in orders:
+                    new_count += 1
+                orders[summary["id"]] = summary
+            if len(batch) < 500:
+                return list(orders.values())
+            cursor = parse_timestamp(getattr(batch[-1], "submitted_at", None))
+            if cursor is None or new_count == 0:
+                raise RuntimeError("Order history pagination did not advance; refusing incomplete history")
+            after = cursor - timedelta(microseconds=1)
+
+    def get_execution_market_snapshot(self, *, option_symbol, underlying_symbol):
+        from trading_support._option_positions_market import _get_latest_option_quote, _get_latest_stock_price
+        from trading_support.clients import get_option_history_client, get_stock_history_client
+        return {"option": _get_latest_option_quote(option_symbol, get_option_history_client),
+                "underlying": _get_latest_stock_price(underlying_symbol, get_stock_history_client)}
+
+    def get_position_exit_iv(self, position):
+        """Read the existing chain snapshot adapter for one expiration and strike."""
+        from agent_helpers.market_context.option_chain import (
+            OptionChainRequest, _get_alpaca_clients, _normalize_option_snapshot_map, _get_field, _safe_float,
+        )
+        clients = _get_alpaca_clients()
+        if clients is None or OptionChainRequest is None:
+            return None
+        chain = clients['option'].get_option_chain(OptionChainRequest(
+            underlying_symbol=position['underlying_symbol'], expiration_date=position['expiration_date'],
+            strike_price_gte=position['strike'], strike_price_lte=position['strike']))
+        snapshot = _normalize_option_snapshot_map(chain).get(position['symbol'])
+        return _safe_float(_get_field(snapshot, 'implied_volatility')) if snapshot is not None else None

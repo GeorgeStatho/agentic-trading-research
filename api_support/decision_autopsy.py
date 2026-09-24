@@ -5,6 +5,7 @@ from typing import Any
 
 from api_support.common import safe_float, safe_json_loads
 from api_support.context import DB_PATH, initialize_market_database
+from api_support.v2_verdicts import shadow_verdicts_for_decisions
 from db_helpers.market import backfill_decision_autopsy_ledger, list_decision_autopsy_ledger
 
 
@@ -120,6 +121,10 @@ def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
             "trade_executed": bool(row.get("trade_executed")),
             "order_id": str(row.get("trade_execution_order_id") or "").strip(),
             "pnl_pct": safe_float(row.get("latest_trade_pnl_pct")),
+            "realized_pnl_pct": safe_float(row.get("realized_pnl_pct")),
+            "closed_at": row.get("closed_at"),
+            "outcome_status": row.get("outcome_status"),
+            "exit_reason": row.get("exit_reason"),
             "pnl_updated_at": str(row.get("latest_trade_pnl_updated_at") or "").strip(),
             "resolved_outcome_label": str(row.get("resolved_outcome_label") or "").strip(),
         },
@@ -142,10 +147,19 @@ def build_decision_autopsy_payload(*, limit: int = 100) -> dict[str, Any]:
     initialize_market_database(db_path=DB_PATH)
     backfill_decision_autopsy_ledger(db_path=DB_PATH)
     records = [_serialize_ledger_row(row) for row in list_decision_autopsy_ledger(limit=limit, db_path=DB_PATH)]
+    # One query for the page, not one per record. None means the lifecycle
+    # tables cannot be read, which a reader must not mistake for "nothing
+    # objected to this decision".
+    verdicts = shadow_verdicts_for_decisions(
+        (record["manager_decision_history_id"] for record in records), db_path=DB_PATH
+    )
+    for record in records:
+        record["v2_verdicts"] = (verdicts or {}).get(record["manager_decision_history_id"], [])
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
         "count": len(records),
         "records": records,
         "read_only": True,
         "no_trade_executed_by_feature": True,
+        "v2_verdicts_available": verdicts is not None,
     }

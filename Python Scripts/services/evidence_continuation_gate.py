@@ -13,7 +13,7 @@ import os
 from typing import Any
 
 
-POLICY_VERSION = "evidence-continuation-v1"
+POLICY_VERSION = "evidence-continuation-v2-provenance"
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ class EvidenceContinuationPolicy:
     allowed_call_entry_quality: frozenset[str] = frozenset({"good", "excellent"})
     allowed_put_entry_quality: frozenset[str] = frozenset({"good", "excellent"})
     fail_closed_on_missing_data: bool = True
-    enforcement_mode: str = "enforce"
+    enforcement_mode: str = "shadow"
     policy_version: str = POLICY_VERSION
 
     @classmethod
@@ -54,8 +54,8 @@ class EvidenceContinuationPolicy:
             return frozenset(value for value in values if value) or default
 
         max_overextension = _text(os.getenv("EVIDENCE_CONTINUATION_MAX_OVEREXTENSION", "medium"))
-        enforcement_mode = _text(os.getenv("EVIDENCE_CONTINUATION_MODE", "enforce"))
-        return cls(
+        enforcement_mode = _text(os.getenv("EVIDENCE_CONTINUATION_MODE", "shadow"))
+        policy = cls(
             enabled=flag("EVIDENCE_CONTINUATION_ENABLED", True),
             required_evidence_count=positive_int("EVIDENCE_CONTINUATION_REQUIRED_EVIDENCE_COUNT", 2),
             required_independent_sources=positive_int("EVIDENCE_CONTINUATION_REQUIRED_INDEPENDENT_SOURCES", 2),
@@ -67,8 +67,10 @@ class EvidenceContinuationPolicy:
             allowed_call_entry_quality=qualities("EVIDENCE_CONTINUATION_ALLOWED_CALL_QUALITIES", frozenset({"good", "excellent"})),
             allowed_put_entry_quality=qualities("EVIDENCE_CONTINUATION_ALLOWED_PUT_QUALITIES", frozenset({"good", "excellent"})),
             fail_closed_on_missing_data=flag("EVIDENCE_CONTINUATION_FAIL_CLOSED_ON_MISSING_DATA", True),
-            enforcement_mode=enforcement_mode if enforcement_mode in {"enforce", "shadow"} else "enforce",
+            enforcement_mode=enforcement_mode if enforcement_mode in {"enforce", "shadow"} else "shadow",
         )
+        from services.research_promotion import guard_policy
+        return guard_policy(policy, {"enforcement_mode": "CONTINUATION"})
 
 
 def _float(value: Any) -> float | None:
@@ -100,6 +102,7 @@ def _evidence_snapshot(payload: dict[str, Any], policy: EvidenceContinuationPoli
     }
     eligible_articles: list[dict[str, Any]] = []
     invalid_grounding = False
+    seen_article_ids = set()
     for article in _supporting_articles(payload):
         article_id = article.get("article_id")
         score = _float(article.get("evidence_score"))
@@ -108,18 +111,28 @@ def _evidence_snapshot(payload: dict[str, Any], policy: EvidenceContinuationPoli
             continue
         if score is None or score < policy.min_evidence_score:
             continue
-        eligible_articles.append(article)
+        if article_id not in seen_article_ids:
+            eligible_articles.append(article)
+            seen_article_ids.add(article_id)
 
-    sources = {
-        _text(article.get("source"))
-        for article in eligible_articles
-        if _text(article.get("source"))
-    }
+    from catalyst_models import PRIMARY_SOURCE_TYPES
+    roots_by_catalyst = {}
+    primary_exception = False
+    for article in eligible_articles:
+        root = _text(article.get('root_event_id'))
+        origin = _text(article.get('root_source_id'))
+        if root and origin and origin != 'unverified':
+            group = article.get('catalyst_id') or 'legacy_unclassified'
+            roots_by_catalyst.setdefault(group, set()).add(root if article.get('primary_ticker') else origin)
+            if article.get('source_type') in PRIMARY_SOURCE_TYPES and (_float(article.get('evidence_score')) or 0) >= .75:
+                primary_exception = True
+    independent_count = max((len(roots) for roots in roots_by_catalyst.values()), default=0)
     scores = [_float(article.get("evidence_score")) for article in eligible_articles]
     valid_grounding = bool(allowed_ids) and not invalid_grounding and len(eligible_articles) > 0
     return {
         "citation_count": len(eligible_articles),
-        "independent_source_count": len(sources),
+        "independent_source_count": independent_count,
+        "primary_source_exception": primary_exception,
         "minimum_evidence_score": round(min(score for score in scores if score is not None), 4) if scores else None,
         "valid_grounding": valid_grounding,
     }
@@ -184,9 +197,9 @@ def evaluate_evidence_continuation_gate(
         reasons.append("manager_not_directional")
     if not evidence["valid_grounding"]:
         reasons.append("invalid_or_missing_grounded_evidence")
-    if evidence["citation_count"] < policy.required_evidence_count:
+    if evidence["citation_count"] < policy.required_evidence_count and not evidence["primary_source_exception"]:
         reasons.append("insufficient_evidence_count")
-    if evidence["independent_source_count"] < policy.required_independent_sources:
+    if evidence["independent_source_count"] < policy.required_independent_sources and not evidence["primary_source_exception"]:
         reasons.append("insufficient_independent_sources")
     if evidence["minimum_evidence_score"] is None:
         reasons.append("missing_evidence_score")

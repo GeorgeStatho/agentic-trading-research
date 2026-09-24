@@ -26,6 +26,19 @@ def _upsert_related_record(
                 conn=local_conn,
             )
 
+    from catalyst_schema import IMPACT_TABLES
+    if table_name in IMPACT_TABLES:
+        from .catalysts import enrich_impact
+        import json
+        record = dict(zip((*key_columns, *payload_columns), values))
+        raw = json.loads(record.get('raw_json') or '{}')
+        data = enrich_impact(raw if isinstance(raw, dict) else {}, record['article_id'], conn=conn)
+        record['raw_json'] = json_text(data)
+        extras = ('catalyst_id', 'catalyst_family', 'catalyst_type', 'mechanism', 'root_event_ids_json', 'expected_horizon')
+        record.update({key: data.get(key) for key in extras})
+        record['root_event_ids_json'] = json_text(data['root_event_ids'])
+        payload_columns = (*payload_columns, *extras)
+        values = tuple(record[key] for key in (*key_columns, *payload_columns))
     all_columns = [*key_columns, *payload_columns]
     columns_sql = ", ".join(all_columns)
     placeholders = ", ".join("?" for _ in all_columns)

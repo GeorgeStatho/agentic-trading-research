@@ -24,7 +24,7 @@ def _match_domain(url: str) -> tuple[str | None, dict]:
     config = _load_source_config()
     sources = config.get("domains") or config.get("sources") or {}
     hostname = (urlsplit(url).hostname or "").lower()
-    for domain, metadata in sources.items():
+    for domain, metadata in sorted(sources.items(), key=lambda item: len(item[0]), reverse=True):
         normalized_domain = domain.lower()
         if hostname == normalized_domain or hostname.endswith(f".{normalized_domain}"):
             return domain, metadata

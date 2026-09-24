@@ -23,7 +23,7 @@ DEFAULT_MAX_ARTICLE_AGE_DAYS = 5
 HIGH_CONFIDENCE = "high"
 MEDIUM_CONFIDENCE = "medium"
 ACCEPTED_CONFIDENCE_LEVELS = (HIGH_CONFIDENCE, MEDIUM_CONFIDENCE)
-RSS_SOURCE = "demo_rss"
+CNBC_SOURCE = "newswire.example.com"
 
 __all__ = [
     "ACCEPTED_CONFIDENCE_LEVELS",
@@ -63,6 +63,13 @@ def _load_sector_rss_rows(sector_id: int) -> list[dict[str, Any]]:
                 na.body,
                 na.source,
                 na.source_url,
+                na.evidence_score,
+                na.root_event_id,
+                na.root_source_id,
+                na.primary_ticker,
+                na.catalyst_id,
+                na.source_type,
+                na.independent_source_count,
                 na.published_at
             FROM sector_news_articles AS sna
             JOIN news_articles AS na ON na.id = sna.article_id
@@ -76,9 +83,9 @@ def _load_sector_rss_rows(sector_id: int) -> list[dict[str, Any]]:
             """,
             (
                 sector_id,
-                RSS_SOURCE,
-                "%example.com%",
-                "%example.com%",
+                CNBC_SOURCE,
+                "%newswire.example.com%",
+                "%newswire.example.com%",
             ),
         ).fetchall()
     return [dict(row) for row in rows]
@@ -92,6 +99,13 @@ def _row_to_sector_rss_article(row: dict[str, Any]) -> dict[str, Any]:
         "body": row["body"] or "",
         "source": row["source"] or "",
         "source_url": row["source_url"] or "",
+        "evidence_score": row.get("evidence_score"),
+        "root_event_id": row.get("root_event_id"),
+        "root_source_id": row.get("root_source_id"),
+        "primary_ticker": row.get("primary_ticker"),
+        "catalyst_id": row.get("catalyst_id"),
+        "source_type": row.get("source_type"),
+        "independent_source_count": row.get("independent_source_count"),
         "source_page_url": row["source_page_url"] or "",
         "published_at": row["published_at"] or "",
         "linked_at": row["linked_at"] or "",
@@ -121,6 +135,7 @@ def get_sector_rss_news(
 
     results: list[dict[str, Any]] = []
     for row in rows:
+        row = dict(row)
         if not published_at_in_window(
             row["published_at"],
             start_time=normalized_start,
@@ -167,6 +182,13 @@ def get_high_confidence_macro_news_for_sector(
                 combined.body,
                 combined.source,
                 combined.source_url,
+                combined.evidence_score,
+                combined.root_event_id,
+                combined.root_source_id,
+                combined.primary_ticker,
+                combined.catalyst_id,
+                combined.source_type,
+                combined.independent_source_count,
                 combined.published_at
             FROM (
                 SELECT
@@ -182,6 +204,13 @@ def get_high_confidence_macro_news_for_sector(
                     na.body,
                     na.source,
                     na.source_url,
+                    na.evidence_score,
+                    na.root_event_id,
+                    na.root_source_id,
+                    na.primary_ticker,
+                    na.catalyst_id,
+                    na.source_type,
+                    na.independent_source_count,
                     na.published_at,
                     wsi.sector_id
                 FROM world_news_sector_impacts AS wsi
@@ -203,6 +232,13 @@ def get_high_confidence_macro_news_for_sector(
                     na.body,
                     na.source,
                     na.source_url,
+                    na.evidence_score,
+                    na.root_event_id,
+                    na.root_source_id,
+                    na.primary_ticker,
+                    na.catalyst_id,
+                    na.source_type,
+                    na.independent_source_count,
                     na.published_at,
                     usi.sector_id
                 FROM us_news_sector_impacts AS usi
@@ -218,6 +254,7 @@ def get_high_confidence_macro_news_for_sector(
 
     results: list[dict[str, Any]] = []
     for row in rows:
+        row = dict(row)
         if not published_at_in_window(
             row["published_at"],
             start_time=normalized_start,
@@ -239,6 +276,13 @@ def get_high_confidence_macro_news_for_sector(
                 "body": row["body"] or "",
                 "source": row["source"] or "",
                 "source_url": row["source_url"] or "",
+                "evidence_score": row.get("evidence_score"),
+                "root_event_id": row.get("root_event_id"),
+                "root_source_id": row.get("root_source_id"),
+                "primary_ticker": row.get("primary_ticker"),
+                "catalyst_id": row.get("catalyst_id"),
+                "source_type": row.get("source_type"),
+                "independent_source_count": row.get("independent_source_count"),
                 "published_at": row["published_at"] or "",
             }
         )

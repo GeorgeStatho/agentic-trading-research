@@ -38,6 +38,11 @@ from api_support.context import (
     DEFAULT_OPTION_ORDER_QTY,
     DAILY_OPTION_LOSS_LIMIT_DOLLARS,
     MAX_CONCURRENT_OPTION_POSITIONS,
+    MAX_OPTION_ENTRIES_PER_SYMBOL_PER_WINDOW,
+    MAX_PREMIUM_PER_TRADE_DOLLARS,
+    MAX_PREMIUM_PER_TRADE_PCT,
+    OPTION_SYMBOL_ENTRY_WINDOW_DAYS,
+    OPTION_SYMBOL_STOP_LOSS_COOLDOWN_DAYS,
     MAX_DEPLOYABLE_BUYING_POWER_PCT,
     MAX_OPTION_ORDER_QTY_MULTIPLIER,
     MAX_OPTION_SECTOR_EXPOSURE_PCT,
@@ -1350,6 +1355,57 @@ def build_risk_controls_payload() -> dict:
                     "subject to contract-price math and the AGENT_OPTION_ORDER_QTY baseline."
                 ),
                 "status": "configured",
+            },
+            {
+                "label": "Premium cap per trade",
+                "value": (
+                    " or ".join(
+                        limit
+                        for limit in (
+                            f"{MAX_PREMIUM_PER_TRADE_PCT:.0f}% of account buying power"
+                            if MAX_PREMIUM_PER_TRADE_PCT > 0
+                            else "",
+                            f"${MAX_PREMIUM_PER_TRADE_DOLLARS:,.0f}"
+                            if MAX_PREMIUM_PER_TRADE_DOLLARS > 0
+                            else "",
+                        )
+                        if limit
+                    )
+                    + ", whichever is tighter"
+                    if MAX_PREMIUM_PER_TRADE_PCT > 0 or MAX_PREMIUM_PER_TRADE_DOLLARS > 0
+                    else "disabled"
+                ),
+                "detail": (
+                    "Hard ceiling on the premium of one new entry. The order is shrunk to fit, and rejected "
+                    "outright when a single contract already costs more than the allowance."
+                ),
+                "status": (
+                    "configured"
+                    if MAX_PREMIUM_PER_TRADE_PCT > 0 or MAX_PREMIUM_PER_TRADE_DOLLARS > 0
+                    else "disabled"
+                ),
+            },
+            {
+                "label": "Per-symbol entry limits",
+                "value": (
+                    f"{MAX_OPTION_ENTRIES_PER_SYMBOL_PER_WINDOW} entries per {OPTION_SYMBOL_ENTRY_WINDOW_DAYS}d"
+                    if MAX_OPTION_ENTRIES_PER_SYMBOL_PER_WINDOW > 0
+                    else "no attempt cap"
+                )
+                + (
+                    f"; {OPTION_SYMBOL_STOP_LOSS_COOLDOWN_DAYS}d cooldown after a stop-loss exit"
+                    if OPTION_SYMBOL_STOP_LOSS_COOLDOWN_DAYS > 0
+                    else ""
+                ),
+                "detail": (
+                    "New entries in one underlying are rejected once the rolling attempt cap is reached, "
+                    "or while the post-stop-loss cooldown for that underlying is still active."
+                ),
+                "status": (
+                    "configured"
+                    if MAX_OPTION_ENTRIES_PER_SYMBOL_PER_WINDOW > 0 or OPTION_SYMBOL_STOP_LOSS_COOLDOWN_DAYS > 0
+                    else "disabled"
+                ),
             },
             {
                 "label": "Max open contracts",

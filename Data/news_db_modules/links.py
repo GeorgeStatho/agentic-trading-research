@@ -35,7 +35,11 @@ def _upsert_link(
         """,
         values,
     )
-    return cursor.fetchone()["id"]
+    link_id = cursor.fetchone()["id"]
+    if table_name == "company_news_articles":
+        from .provenance import update_article_provenance
+        update_article_provenance(int(values[1]), conn=conn)
+    return link_id
 
 
 def link_industry_to_article(

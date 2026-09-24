@@ -46,6 +46,12 @@ def _serialize_signal(item: dict[str, Any], *, layer: str) -> AgentSignalPayload
         signal["industry_name"] = item["industry_name"]
     if item.get("company_name"):
         signal["company_name"] = item["company_name"]
+    import json
+    for key in ('catalyst_id', 'catalyst_family', 'catalyst_type', 'mechanism', 'expected_horizon'):
+        if item.get(key):
+            signal[key] = item[key]
+    if item.get('root_event_ids_json'):
+        signal['root_event_ids'] = json.loads(item['root_event_ids_json'])
     return signal
 
 
@@ -83,6 +89,13 @@ def _upsert_supporting_article(
             "published_at": item.get("published_at") or "",
             "article_scope": item.get("article_scope") or "",
             "evidence_score": item.get("evidence_score"),
+            "root_event_id": item.get("root_event_id"),
+            "root_source_id": item.get("root_source_id"),
+            "primary_ticker": item.get("primary_ticker"),
+            "catalyst_id": item.get("catalyst_id"),
+            "source_type": item.get("source_type"),
+            "independent_source_count": item.get("independent_source_count"),
+
             "evidence_layers": [],
             "agent_signals": [],
         },
@@ -147,6 +160,13 @@ def _build_supporting_articles(
             "published_at": article["published_at"],
             "article_scope": article["article_scope"],
             "evidence_score": article.get("evidence_score"),
+            "root_event_id": article.get("root_event_id"),
+            "root_source_id": article.get("root_source_id"),
+            "primary_ticker": article.get("primary_ticker"),
+            "catalyst_id": article.get("catalyst_id"),
+            "source_type": article.get("source_type"),
+            "independent_source_count": article.get("independent_source_count"),
+
             "evidence_layers": article["evidence_layers"],
             "agent_signals": article["agent_signals"],
         }
@@ -164,6 +184,13 @@ def _build_supporting_articles(
             "published_at": article["published_at"],
             "article_scope": article["article_scope"],
             "evidence_score": article.get("evidence_score"),
+            "root_event_id": article.get("root_event_id"),
+            "root_source_id": article.get("root_source_id"),
+            "primary_ticker": article.get("primary_ticker"),
+            "catalyst_id": article.get("catalyst_id"),
+            "source_type": article.get("source_type"),
+            "independent_source_count": article.get("independent_source_count"),
+
             "evidence_layers": article["evidence_layers"],
             "agent_signals": article["agent_signals"],
         }

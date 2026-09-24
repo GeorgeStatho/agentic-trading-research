@@ -85,6 +85,14 @@ def _build_processed_article_record(
         "processed_at": row["processed_at"] or "",
         "model": row["model"] or "",
         "evidence_score": row.get("evidence_score"),
+        "root_event_id": row.get("root_event_id"),
+        "root_source_id": row.get("root_source_id"),
+        "primary_ticker": row.get("primary_ticker"),
+        "catalyst_id": row.get("catalyst_id"),
+        **{key: row.get(key) for key in ("catalyst_family", "catalyst_type", "mechanism", "root_event_ids_json", "expected_horizon")},
+        "source_type": row.get("source_type"),
+        "independent_source_count": row.get("independent_source_count"),
+
         "title": row["title"] or "",
         "summary": row["summary"] or "",
         "body": row["body"] or "",
@@ -163,6 +171,8 @@ def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
                 soi.impact_direction,
                 soi.impact_magnitude,
                 soi.reason,
+                soi.catalyst_family, soi.catalyst_type, soi.mechanism,
+                soi.root_event_ids_json, soi.expected_horizon,
                 soi.raw_json AS impact_raw_json,
                 soi.created_at AS impact_created_at,
                 sop.processed_at,
@@ -173,6 +183,9 @@ def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
                 na.source,
                 na.source_url,
                 na.evidence_score,
+                na.root_event_id, na.root_source_id, na.catalyst_id, na.source_type,
+                na.primary_ticker,
+                na.independent_source_count,
                 na.published_at
             FROM sector_opportunist_impacts AS soi
             JOIN sectors AS s ON s.id = soi.sector_id
@@ -229,6 +242,8 @@ def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]
                 ioi.impact_direction,
                 ioi.impact_magnitude,
                 ioi.reason,
+                ioi.catalyst_family, ioi.catalyst_type, ioi.mechanism,
+                ioi.root_event_ids_json, ioi.expected_horizon,
                 ioi.raw_json AS impact_raw_json,
                 ioi.created_at AS impact_created_at,
                 iop.processed_at,
@@ -239,6 +254,9 @@ def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]
                 na.source,
                 na.source_url,
                 na.evidence_score,
+                na.root_event_id, na.root_source_id, na.catalyst_id, na.source_type,
+                na.primary_ticker,
+                na.independent_source_count,
                 na.published_at
             FROM industry_opportunist_impacts AS ioi
             JOIN industries AS i ON i.id = ioi.industry_id
@@ -295,6 +313,8 @@ def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
                 coi.impact_direction,
                 coi.impact_magnitude,
                 coi.reason,
+                coi.catalyst_family, coi.catalyst_type, coi.mechanism,
+                coi.root_event_ids_json, coi.expected_horizon,
                 coi.raw_json AS impact_raw_json,
                 coi.created_at AS impact_created_at,
                 cop.processed_at,
@@ -305,6 +325,9 @@ def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
                 na.source,
                 na.source_url,
                 na.evidence_score,
+                na.root_event_id, na.root_source_id, na.catalyst_id, na.source_type,
+                na.primary_ticker,
+                na.independent_source_count,
                 na.published_at
             FROM company_opportunist_impacts AS coi
             JOIN companies AS c ON c.id = coi.company_id

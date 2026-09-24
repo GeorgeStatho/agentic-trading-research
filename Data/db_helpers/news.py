@@ -1,5 +1,7 @@
 from news_db import initialize_database as initialize_news_database
 from news_db import (
+    backfill_catalysts, catalyst_family_report,
+    backfill_news_provenance,
     add_company_news_article,
     add_company_opportunist_impact,
     add_industry_news_article,

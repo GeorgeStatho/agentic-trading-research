@@ -192,7 +192,7 @@ def classify_market_regime(
     ema_slope = ((ema_20 - prior_ema_20) / prior_ema_20 * 100.0) if ema_20 and prior_ema_20 else None
     trend_strength = (abs(ema_20 - sma_50) / latest_price * 100.0) if latest_price and ema_20 and sma_50 else None
     realized_volatility = compute_realized_volatility(valid_closes, 20) if len(valid_closes) >= 21 else None
-    vix_percentile = _percentile_rank(vix_values[-252:], vix_values[-1] if vix_values else None)
+    vix_percentile = _percentile_rank(vix_values[-252:], vix_values[-1] if len(vix_values) >= 252 else None)
     daily_move_pct = ((valid_closes[-1] - valid_closes[-2]) / valid_closes[-2] * 100.0) if len(valid_closes) >= 2 and valid_closes[-2] else None
 
     reason_codes: list[str] = []
@@ -349,31 +349,8 @@ def refresh_macro_calendar_for_market_regime() -> dict[str, Any]:
 
 
 def _fetch_closes(symbol: str) -> tuple[list[float], str | None]:
-    bars, error = _fetch_daily_stock_bars(symbol)
-    if not error and bars:
-        closes = [close for close in (_extract_bar_close(bar) for bar in bars) if close is not None and close > 0]
-        last_timestamp = _extract_bar_timestamp(bars[-1]) if bars else None
-        if closes:
-            return closes, last_timestamp
-
-    if yf is None or REQUEST_HANDLER is None:
-        LOGGER.warning("Unable to fetch %s regime bars: %s", symbol, error or "no market bars returned")
-        return [], None
-    yfinance_symbol = "^VIX" if symbol.upper() == "VIX" else symbol.upper()
-    try:
-        ticker = REQUEST_HANDLER.run(yf.Ticker, yfinance_symbol, _context=f"Ticker({yfinance_symbol})")
-        history = REQUEST_HANDLER.run(
-            lambda: ticker.history(period="1y", interval="1d", auto_adjust=False, prepost=False),
-            _context=f"history({yfinance_symbol},1y,1d)",
-        )
-        if history is None or getattr(history, "empty", True):
-            return [], None
-        closes = [float(value) for value in history["Close"].tolist() if value is not None and float(value) > 0]
-        timestamp = str(history.index[-1]) if len(history.index) else None
-        return closes, timestamp
-    except Exception as exc:  # pragma: no cover - provider failures fail closed through classification
-        LOGGER.warning("Unable to fetch %s regime bars from yfinance: %s", symbol, exc)
-        return [], None
+    from services.regime_history import refresh_regime_history
+    return refresh_regime_history(symbol)
 
 
 def build_market_regime_snapshot(
@@ -402,7 +379,11 @@ def build_market_regime_snapshot(
             "skipped_reason": "macro_calendar_already_fresh" if calendar_is_fresh else "refresh_disabled",
         }
     spy_closes, spy_timestamp = _fetch_closes("SPY")
-    vix_closes, _ = _fetch_closes("VIX")
+    vix_closes, vix_timestamp = _fetch_closes("VIX")
+    vix_at = _parse_datetime(vix_timestamp)
+    vix_fresh = vix_at is not None and 0 <= (now - vix_at).total_seconds() <= active_policy.max_market_data_age_seconds
+    if not vix_fresh:
+        vix_closes = []
     snapshot = classify_market_regime(
         spy_closes=spy_closes,
         spy_last_timestamp=spy_timestamp,
@@ -412,6 +393,10 @@ def build_market_regime_snapshot(
         as_of=now,
         policy=active_policy,
     )
+    snapshot["input_freshness"]["vix_last_timestamp"] = vix_timestamp
+    snapshot["input_freshness"]["vix_history_count"] = len(vix_closes)
+    if not vix_fresh or len(vix_closes) < 252:
+        snapshot["reason_codes"].append("vix_history_missing_stale_or_insufficient")
     snapshot["macro_calendar_refresh"] = macro_refresh
     refresh_reason = macro_refresh.get("reason_code")
     if refresh_reason:
