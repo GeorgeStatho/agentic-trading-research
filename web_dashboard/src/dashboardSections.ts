@@ -20,6 +20,7 @@ export const DASHBOARD_SECTIONS: readonly DashboardSection[] = [
   { id: 'dashboard-top', label: 'Overview', icon: 'dashboard' },
   { id: 'account-snapshot', label: 'Account Snapshot', icon: 'chart' },
   { id: 'risk-management', label: 'Risk Controls', icon: 'shield' },
+  { id: 'safeguards', label: 'V2 Safeguards', icon: 'lock' },
   { id: 'live-feed', label: 'Main Script', icon: 'feed' },
   { id: 'decision-context', label: 'Why It Traded', icon: 'note' },
   { id: 'portfolio-history', label: 'Equity History', icon: 'trend' },

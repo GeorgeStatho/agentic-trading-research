@@ -1,5 +1,5 @@
 .v2-status { width: min(1540px, 96vw); display: grid; gap: 16px; }
-.v2-status__hero, .v2-status__summary article, .v2-status__card { border: 1px solid var(--border); border-radius: 18px; background: color-mix(in srgb, var(--bg) 96%, #172033); box-shadow: var(--shadow); }
+.v2-status__hero, .v2-status__card { border: 1px solid var(--border); border-radius: 18px; background: color-mix(in srgb, var(--bg) 96%, #172033); box-shadow: var(--shadow); }
 .v2-status__hero { display: flex; justify-content: space-between; align-items: end; gap: 18px; padding: 24px; background: radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 15%, transparent), transparent 45%), color-mix(in srgb, var(--bg) 96%, #172033); }
 .v2-status__hero p, .v2-status__card header p { margin: 0 0 6px; color: var(--accent); font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .v2-status h1, .v2-status h2 { margin: 0; color: var(--text-h); }
@@ -7,13 +7,8 @@
 .v2-status__hero span, .v2-status__hero small { color: var(--text-dim); }
 .v2-status__hero span { display: block; margin-top: 8px; max-width: 78ch; font-size: .86rem; line-height: 1.5; }
 
-.v2-status__summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.v2-status__summary article { display: grid; gap: 5px; padding: 15px; }
-.v2-status__summary span { color: var(--text-dim); font-size: .75rem; }
-.v2-status__summary b { color: var(--text-h); font-size: 1.45rem; }
-.v2-status__summary--warn { border-color: color-mix(in srgb, #e5a94f 45%, var(--border)); }
 
-.v2-status__notice, .v2-status__empty { padding: 13px 16px; border: 1px solid #e5a94f; border-radius: 12px; color: #ffcf87; background: color-mix(in srgb, #e5a94f 8%, transparent); }
+.v2-status__empty { padding: 13px 16px; border: 1px solid #e5a94f; border-radius: 12px; color: #ffcf87; background: color-mix(in srgb, #e5a94f 8%, transparent); }
 .v2-status__empty { color: var(--text-dim); border-color: var(--border); }
 
 .v2-status__card { min-width: 0; overflow: hidden; }
@@ -73,11 +68,9 @@
 
 @media (max-width: 900px) {
   .v2-status__hero { align-items: start; flex-direction: column; }
-  .v2-status__summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .v2-status__card header { align-items: start; flex-direction: column; }
   .v2-status__run header { align-items: start; flex-direction: column; }
 }
 
 @media (max-width: 560px) {
-  .v2-status__summary { grid-template-columns: 1fr; }
 }

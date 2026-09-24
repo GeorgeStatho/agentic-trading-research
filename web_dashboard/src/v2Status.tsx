@@ -1,134 +1,18 @@
-import { fetchPolledJson } from './api';
 import { formatCurrency, formatDate } from './format';
 import { usePolledResource } from './useRemoteResource';
+import { V2SafeguardCounts, V2SafeguardNotices } from './v2Safeguards.tsx';
+import { getV2Status } from './v2StatusApi';
+import type { Activity, Feature, Run, Stage, V2StatusPayload } from './v2StatusApi';
 import './v2Status.css';
 
 /**
  * What the V2 architecture is actually doing right now.
  *
- * The distinction this page exists for: asking for `enforce` does not make a
+ * The distinction this view exists for: asking for `enforce` does not make a
  * gate enforce. A control only takes effect once its stages carry a promotion
  * proof bound to the current thresholds and source, so every row shows the
  * requested mode, the effective mode, and the evidence still outstanding.
  */
-
-type Activity = {
-  observed_candidates: number;
-  shadow_blocks: number;
-  enforced_blocks: number;
-};
-
-type Proof = {
-  policy_hash: string;
-  report_id: string;
-  information_cutoff_time: string;
-  sample_size: number;
-  gate_value: number;
-};
-
-type Stage = {
-  stage: string;
-  enforcement_allowed: boolean;
-  proof: Proof | null;
-  superseded_proofs: number;
-  activity: Activity | null;
-};
-
-type ScenarioDetail = {
-  observations: number;
-  scored: number;
-  different_contract: number;
-  basis: string;
-};
-
-type Feature = {
-  key: string;
-  label: string;
-  description: string;
-  env_var: string;
-  requested_mode: string;
-  effective_mode: string | null;
-  downgraded: boolean;
-  activity_basis: string;
-  stages: Stage[];
-  detail: ScenarioDetail | null;
-  configuration_error?: string;
-};
-
-type ShadowOnlyFeature = {
-  key: string;
-  label: string;
-  stage: string;
-  description: string;
-  reason: string;
-  activity: Activity | null;
-};
-
-type GateReadiness = {
-  stage: string;
-  n_seen: number | null;
-  n_evaluable: number | null;
-  n_passed: number | null;
-  n_rejected: number | null;
-  n_missing_outcomes: number | null;
-  regimes: string[];
-  gate_value: number | null;
-  losses_avoided: number | null;
-  profits_sacrificed: number | null;
-  blocking_reasons: string[];
-};
-
-type CohortReport = {
-  report_id: string;
-  information_cutoff_time: string;
-  n_observed: number | null;
-  covers_whole_cohort: boolean;
-  paired_regimes: string[];
-  gates: GateReadiness[];
-};
-
-type Run = {
-  run_id: string;
-  kind: string;
-  status: string;
-  started_at: string;
-  target_candidates: number;
-  enrolled_candidates: number;
-  promotion_sample_floor: number | null;
-  code_hash_matches: boolean;
-  latest_full_cohort_report: CohortReport | null;
-};
-
-type Research = {
-  available: boolean;
-  reason?: string;
-  runs: Run[];
-  champion: { strategy: string; run_id: string | null; information_cutoff_time: string } | null;
-};
-
-type Prerequisite = {
-  key: string;
-  label: string;
-  status: string;
-  value: string;
-  detail: string;
-};
-
-type Payload = {
-  as_of: string;
-  window_days: number;
-  source_hash: string | null;
-  mode_summary: { enforcing: number; shadow: number; disabled: number; downgraded: number; misconfigured: number };
-  activity_available: boolean;
-  features: Feature[];
-  shadow_only_features: ShadowOnlyFeature[];
-  research: Research;
-  prerequisites: Prerequisite[];
-};
-
-function getV2Status(): Promise<Payload> {
-  return fetchPolledJson<Payload>('/api/v2-status', 'V2 rollout status');
-}
 
 function ModeBadge({ mode, downgraded }: { mode: string | null; downgraded: boolean }) {
   const label = mode ?? 'unreadable';
@@ -304,7 +188,7 @@ function RunCard({ run }: { run: Run }) {
 }
 
 function V2StatusPage() {
-  const { payload, error } = usePolledResource(getV2Status, { errorMessage: 'Failed to load V2 rollout status.' });
+  const { payload, error } = usePolledResource<V2StatusPayload>(getV2Status, { errorMessage: 'Failed to load V2 rollout status.' });
 
   return (
     <main className="v2-status">
@@ -325,43 +209,8 @@ function V2StatusPage() {
 
       {payload ? (
         <>
-          <section className="v2-status__summary">
-            <article>
-              <span>Enforcing</span>
-              <b>{payload.mode_summary.enforcing}</b>
-            </article>
-            <article>
-              <span>Shadow</span>
-              <b>{payload.mode_summary.shadow}</b>
-            </article>
-            <article>
-              <span>Disabled</span>
-              <b>{payload.mode_summary.disabled}</b>
-            </article>
-            <article className={payload.mode_summary.downgraded ? 'v2-status__summary--warn' : ''}>
-              <span>Downgraded</span>
-              <b>{payload.mode_summary.downgraded}</b>
-            </article>
-          </section>
-
-          {payload.mode_summary.downgraded > 0 ? (
-            <section className="v2-status__notice">
-              {payload.mode_summary.downgraded} control{payload.mode_summary.downgraded === 1 ? ' is' : 's are'} set to
-              enforce but running in shadow: no promotion proof matches the current thresholds and source.
-            </section>
-          ) : null}
-          {payload.mode_summary.misconfigured > 0 ? (
-            <section className="v2-status__notice">
-              {payload.mode_summary.misconfigured} control{payload.mode_summary.misconfigured === 1 ? '' : 's'} could not
-              be read. The same value raises in the trading pipeline, so fix the variable before the next run.
-            </section>
-          ) : null}
-          {payload.activity_available ? null : (
-            <section className="v2-status__notice">
-              No candidate lifecycle tables in this database, so shadow verdicts cannot be counted. The zeroes below are
-              absent readings, not quiet gates.
-            </section>
-          )}
+          <V2SafeguardCounts modes={payload.mode_summary} />
+          <V2SafeguardNotices payload={payload} />
 
           <section className="v2-status__card">
             <header>

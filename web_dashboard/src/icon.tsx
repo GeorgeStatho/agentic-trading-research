@@ -14,6 +14,7 @@ export type IconName =
   | 'dashboard'
   | 'chart'
   | 'shield'
+  | 'lock'
   | 'feed'
   | 'note'
   | 'trend'
@@ -27,6 +28,7 @@ const PATHS: Record<IconName, ReactNode> = {
   dashboard: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
   chart: <><path d="M3 21h18" /><rect x="5" y="11" width="3.5" height="7" rx="1" /><rect x="10.25" y="5" width="3.5" height="13" rx="1" /><rect x="15.5" y="14" width="3.5" height="4" rx="1" /></>,
   shield: <path d="M12 3 20 6v5c0 5.3-3.4 8.9-8 10-4.6-1.1-8-4.7-8-10V6l8-3Z" />,
+  lock: <><rect x="4" y="10" width="16" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /><path d="M12 14v3" /></>,
   feed: <><path d="M4 11a9 9 0 0 1 9 9" /><path d="M4 4a16 16 0 0 1 16 16" /><circle cx="5" cy="19" r="1" /></>,
   note: <><path d="M5 3h12l3 3v15H5z" /><path d="M9 11h6M9 15h6M9 7h2" /></>,
   trend: <><path d="M3 17l5.5-5.5 3.5 3.5L21 6" /><path d="M15 6h6v6" /></>,

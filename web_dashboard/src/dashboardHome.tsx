@@ -4,6 +4,7 @@ import OpenPositionsTable from './openPositionsTable.tsx'
 import OrderCardList from './orderCard.tsx'
 import RiskControlsPanel from './riskControls.tsx'
 import ScriptStatusIndicator from './scriptStatus.tsx'
+import V2SafeguardsPanel from './v2Safeguards.tsx'
 import WhyBotTradedPanel from './whyBotTraded.tsx'
 
 /** The Overview page. Its anchors are listed in `dashboardSections.ts`. */
@@ -21,6 +22,7 @@ function DashboardHome() {
           margins between them. */}
       <div id="account-snapshot" className="dashboard-section dashboard-section--group"><DashboardKpis /></div>
       <div id="risk-management" className="dashboard-section"><RiskControlsPanel /></div>
+      <div id="safeguards" className="dashboard-section"><V2SafeguardsPanel /></div>
       <div id="live-feed" className="dashboard-section"><ScriptStatusIndicator /></div>
       <div id="decision-context" className="dashboard-section"><WhyBotTradedPanel /></div>
       <div id="portfolio-history" className="dashboard-section"><Graph /></div>
