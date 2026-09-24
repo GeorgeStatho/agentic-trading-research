@@ -20,6 +20,12 @@ enforce, so the counts there say how many controls are actually in force and
 name any that were silently downgraded. The proofs behind them are one click
 away on `#/research/rollout`.
 
+The Autopsy view carries the other half of that picture: for each decision it
+lists the V2 gates that recorded a verdict against that candidate, and whether
+the verdict was shadow (recorded, but the trade went ahead) or enforced. Where
+the candidate lifecycle tables are absent it says so, because an unreadable
+ledger and a candidate nothing objected to are not the same thing.
+
 Demo Mode seeds a static, read-only walkthrough; the Autopsy and Exposure Map
 views render it.
 
