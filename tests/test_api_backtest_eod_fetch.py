@@ -15,7 +15,7 @@ for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
     if normalized not in sys.path:
         sys.path.insert(0, normalized)
 
-from api_support.backtest import fetch_backtest_eod_quotes  # noqa: E402
+from api_support.backtest import create_backtest_run, fetch_backtest_eod_quotes  # noqa: E402
 
 try:
     from flask import Flask
@@ -26,6 +26,24 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific te
     if exc.name != "flask":
         raise
     FLASK_AVAILABLE = False
+
+
+class BacktestRunSupportTests(unittest.TestCase):
+    def test_all_history_passes_no_limit_and_preserves_date_filters(self) -> None:
+        with patch("api_support.backtest.run_backtest", return_value={"events": []}) as runner:
+            create_backtest_run({"limit": None, "start_at": "2026-01-01", "end_at": "2026-09-24"})
+        runner.assert_called_once_with(config=None, start_at="2026-01-01", end_at="2026-09-24", limit=None)
+
+    def test_numeric_limit_and_legacy_default_remain_available(self) -> None:
+        for payload, expected in (({}, 250), ({"limit": 700}, 700)):
+            with patch("api_support.backtest.run_backtest", return_value={"events": []}) as runner:
+                create_backtest_run(payload)
+            self.assertEqual(runner.call_args.kwargs["limit"], expected)
+
+    def test_invalid_limits_are_rejected(self) -> None:
+        for limit in (0, -1, 1001, "all", []):
+            with self.assertRaises(ValueError):
+                create_backtest_run({"limit": limit})
 
 
 class BacktestEodFetchSupportTests(unittest.TestCase):
@@ -82,4 +100,3 @@ class BacktestEodFetchRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {"fetch_run_id": 4, "read_only": True})
-

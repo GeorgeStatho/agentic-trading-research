@@ -26,12 +26,15 @@ def create_backtest_run(payload: dict[str, Any]) -> dict[str, Any]:
     config = payload.get("config")
     if config is not None and not isinstance(config, dict):
         raise ValueError("config must be an object.")
-    try:
-        limit = int(payload.get("limit", 250))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("limit must be an integer.") from exc
-    if limit < 1 or limit > 1000:
-        raise ValueError("limit must be between 1 and 1000.")
+    raw_limit = payload.get("limit", 250)
+    limit = None
+    if raw_limit is not None:
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("limit must be an integer or null for all decisions.") from exc
+        if limit < 1 or limit > 1000:
+            raise ValueError("limit must be between 1 and 1000, or null for all decisions.")
     return run_backtest(
         config=config,
         start_at=str(payload.get("start_at") or "") or None,

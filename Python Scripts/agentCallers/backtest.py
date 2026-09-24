@@ -24,6 +24,7 @@ def main() -> None:
     parser.add_argument("--start-at", default="", help="Inclusive ISO-8601 decision timestamp.")
     parser.add_argument("--end-at", default="", help="Inclusive ISO-8601 decision timestamp.")
     parser.add_argument("--limit", type=int, default=250, help="Latest stored manager decisions to simulate within the date range (maximum 1000).")
+    parser.add_argument("--all", action="store_true", help="Simulate all decisions within the date range, overriding --limit.")
     parser.add_argument("--entry-slippage-bps", type=float, default=25.0)
     parser.add_argument("--exit-slippage-bps", type=float, default=25.0)
     parser.add_argument("--commission-per-contract", type=float, default=0.65)
@@ -38,7 +39,7 @@ def main() -> None:
         },
         start_at=args.start_at or None,
         end_at=args.end_at or None,
-        limit=args.limit,
+        limit=None if args.all else args.limit,
     )
     print(json.dumps(result, indent=2, default=str))
 

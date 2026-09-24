@@ -580,7 +580,7 @@ def run_backtest(
     config: dict[str, Any] | None = None,
     start_at: str | None = None,
     end_at: str | None = None,
-    limit: int = 250,
+    limit: int | None = 250,
     db_path: Path | str = DB_PATH,
 ) -> dict[str, Any]:
     initialize_database(db_path=db_path)
@@ -622,12 +622,16 @@ def run_backtest(
             available_decision_count = conn.execute(
                 f"SELECT COUNT(*) FROM ({query})", tuple(parameters)
             ).fetchone()[0]
-            decision_limit = max(1, min(int(limit), 1000))
-            # Limit the recent window first, then simulate it in chronological order.
-            query += " ORDER BY history.decision_run_at DESC, history.id DESC LIMIT ?"
-            parameters.append(decision_limit)
+            decision_limit = max(1, min(int(limit), 1000)) if limit is not None else None
+            if decision_limit is None:
+                query += " ORDER BY history.decision_run_at ASC, history.id ASC"
+            else:
+                # Limit the recent window first, then simulate it in chronological order.
+                query += " ORDER BY history.decision_run_at DESC, history.id DESC LIMIT ?"
+                parameters.append(decision_limit)
             decisions = [dict(row) for row in conn.execute(query, tuple(parameters)).fetchall()]
-            decisions.reverse()
+            if decision_limit is not None:
+                decisions.reverse()
             events: list[dict[str, Any]] = []
             for decision in decisions:
                 snapshot = ensure_decision_evidence_snapshot(decision, conn=conn)
