@@ -38,6 +38,7 @@ def _decision_rows(
     start_at: str | None,
     end_at: str | None,
     limit: int | None,
+    retry_before_at: str | None = None,
 ) -> list[dict[str, Any]]:
     clauses = ["LOWER(COALESCE(manager_decision, '')) IN ('call', 'put')", "TRIM(COALESCE(selected_option_symbol, '')) != ''"]
     params: list[Any] = []
@@ -47,6 +48,15 @@ def _decision_rows(
     if end_at:
         clauses.append("decision_run_at <= ?")
         params.append(end_at)
+    if retry_before_at:
+        clauses.append("""NOT EXISTS (
+            SELECT 1 FROM historical_option_quote_coverage AS coverage
+            JOIN historical_option_quote_fetch_runs AS run ON run.id = coverage.fetch_run_id
+            WHERE coverage.manager_decision_history_id = manager_decision_history.id
+              AND run.provider = ? AND run.started_at > ?
+              AND coverage.status IN ('fetched', 'no_data')
+        )""")
+        params.extend((MARKETDATA_PROVIDER, retry_before_at))
     limit_clause = ""
     if limit is not None:
         params.append(limit)
@@ -264,6 +274,7 @@ def fetch_marketdata_eod_option_quotes(
     force: bool = False,
     token: str | None = None,
     request_get: Callable[..., Any] | None = None,
+    retry_before_at: str | None = None,
 ) -> dict[str, Any]:
     """Fetch MarketData.app historical end-of-day option quotes for stored decisions.
 
@@ -272,6 +283,7 @@ def fetch_marketdata_eod_option_quotes(
     ``marketdata_eod`` so the backtest remains distinguishable from intraday data.
     ``limit`` bounds uncached windows attempted in one batch. Repeated calls give
     unattempted windows priority, then retry the least recently attempted windows.
+    Scheduled callers can exclude recently attempted windows with ``retry_before_at``.
     """
     if limit < 1:
         raise ValueError("limit must be at least 1.")
@@ -287,6 +299,9 @@ def fetch_marketdata_eod_option_quotes(
         raise ValueError("end_at must be an ISO-8601 timestamp.")
     if normalized_start and normalized_end and normalized_start > normalized_end:
         raise ValueError("start_at cannot be after end_at.")
+    normalized_retry_before = _normalized_timestamp(retry_before_at) if retry_before_at else None
+    if retry_before_at and normalized_retry_before is None:
+        raise ValueError("retry_before_at must be an ISO-8601 timestamp.")
 
     token_value = os.getenv("MARKETDATA_TOKEN") if token is None else token
     resolved_token = str(token_value or "").strip()
@@ -304,6 +319,7 @@ def fetch_marketdata_eod_option_quotes(
         "force": force,
         "pricing_source": MARKETDATA_EOD_PRICING_SOURCE,
         "daily_credit_budget": budget.limit,
+        "retry_before_at": normalized_retry_before,
     }
     with closing(get_connection(db_path)) as conn, conn:
         fetch_run_id = int(conn.execute(
@@ -313,7 +329,8 @@ def fetch_marketdata_eod_option_quotes(
             """,
             (MARKETDATA_PROVIDER, json_text(config) or "{}", datetime.now(timezone.utc).isoformat()),
         ).lastrowid)
-        eligible = _decision_rows(conn, start_at=normalized_start, end_at=normalized_end, limit=None)
+        eligible = _decision_rows(conn, start_at=normalized_start, end_at=normalized_end, limit=None,
+                                  retry_before_at=normalized_retry_before)
         decisions = []
         already_cached_count = 0
         pending_count = 0

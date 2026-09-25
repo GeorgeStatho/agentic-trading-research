@@ -21,6 +21,7 @@ RUNTIME_ENTRYPOINTS = {
     "worker": ROOT_DIR / "Python Scripts" / "main.py",
     "news": ROOT_DIR / "Python Scripts" / "news_collector_main.py",
     "option-manager": ROOT_DIR / "Python Scripts" / "option_manager_main.py",
+    "eod-sync": ROOT_DIR / "Python Scripts" / "marketdata_eod_sync_main.py",
     "offline-evaluation": ROOT_DIR / "Python Scripts" / "agentCallers" / "offline_manager_evaluation.py",
 }
 

@@ -158,12 +158,48 @@ zero remaining credits stops the batch; subsequent calls stay paused until
 `Retry-After` / the provider reset permits retrying. Without usable headers,
 the next local daily reset is used. The dashboard shows the pause reason,
 retry time, and allowance used. Quotes already imported remain usable, and
-unattempted windows remain queued. Fetching resumes on your next request
-after the pause; no automatic retry loop is started.
+unattempted windows remain queued. Manual fetching resumes on your next request
+after the pause. The optional scheduler below runs separately.
 
 The local counter starts when this protection is installed; it cannot reconstruct
 prior usage or track requests made by other applications/databases. Provider
 headers still trigger a pause if that outside usage exhausts the account.
+
+The `marketdata_eod_sync` Docker service automatically refreshes only the quote
+cache once daily at **10:00 America/New_York**. It starts with the normal Compose
+stack and shares the API's database and daily allowance. Set
+`MARKETDATA_AUTO_FETCH_ENABLED=false` to disable it. Start or update it separately:
+
+```bash
+docker compose up -d --build marketdata_eod_sync
+docker compose logs --tail=100 marketdata_eod_sync
+```
+
+The default batch size is 100. Each run fetches decisions whose complete entry
+and holding windows ended at least 24 hours ago (about nine-day-old decisions
+with the default 1,440-minute entry allowance and 168-hour hold). Match
+`MARKETDATA_AUTO_FETCH_MAX_HOLD_HOURS` to the holding horizon you want cached.
+Provider publication delays or holidays can still leave gaps; unresolved windows
+are retried no sooner than seven days later, controlled by
+`MARKETDATA_AUTO_FETCH_RETRY_DAYS`. Unattempted windows keep priority.
+
+The daily claim is saved in `marketdata_eod_sync_runs`, preventing duplicate
+batches across restarts or simultaneous schedulers sharing the database. Starting
+after 10:00 runs today's batch immediately if it has not already been claimed.
+A failed/interrupted or rate-limited daily batch resumes through the normal queue
+on a subsequent day's run, subject to the provider cooldown and shared budget.
+No catch-up loop spends multiple days' allowances at startup. The service creates
+no backtests and places no trades; run a new backtest when you want updated results.
+
+Without Docker, keep this process running under your existing process supervisor:
+
+```bash
+python "Python Scripts/marketdata_eod_sync_main.py"
+```
+
+Add `--once` to check the schedule once and exit; it still respects the daily claim
+and 10:00 schedule. The service logs fetch summaries and pause reasons. Missing
+`MARKETDATA_TOKEN` causes it to wait without making provider requests.
 
 ### 2. Run with Docker
 

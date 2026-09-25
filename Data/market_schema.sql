@@ -283,6 +283,16 @@ CREATE TABLE IF NOT EXISTS marketdata_request_budget (
     block_reason TEXT
 );
 
+CREATE TABLE IF NOT EXISTS marketdata_eod_sync_runs (
+    schedule_date TEXT PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    status TEXT NOT NULL,
+    fetch_run_id INTEGER,
+    summary_json TEXT,
+    error_text TEXT
+);
+
 CREATE TABLE IF NOT EXISTS historical_option_quote_fetch_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     provider TEXT NOT NULL,

@@ -109,6 +109,19 @@ services:
       - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
     command: ["python", "Python Scripts/option_manager_main.py"]
 
+  marketdata_eod_sync:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /var/lib/stock-experiment/stock_experiment.db
+    volumes:
+      - db_data:/var/lib/stock-experiment
+    command: ["python", "Python Scripts/marketdata_eod_sync_main.py"]
+
   api:
     build:
       context: .
