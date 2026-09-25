@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -19,6 +20,7 @@ from db_common import DB_PATH, coerce_float, get_connection, json_text
 from .backtest_imports import _normalized_option_symbol, _normalized_timestamp
 from .backtesting import _parse_timestamp
 from .bootstrap import initialize_database
+from .marketdata_budget import MarketDataBudget
 
 
 MARKETDATA_OPTION_QUOTES_URL = "https://api.marketdata.app/v1/options/quotes"
@@ -289,6 +291,7 @@ def fetch_marketdata_eod_option_quotes(
     token_value = os.getenv("MARKETDATA_TOKEN") if token is None else token
     resolved_token = str(token_value or "").strip()
     resolved_request_get = request_get or (requests.get if requests is not None else None)
+    budget = MarketDataBudget(db_path)
     initialize_database(db_path=db_path)
     config = {
         "start_at": normalized_start,
@@ -300,8 +303,9 @@ def fetch_marketdata_eod_option_quotes(
         "timeout_seconds": timeout_seconds,
         "force": force,
         "pricing_source": MARKETDATA_EOD_PRICING_SOURCE,
+        "daily_credit_budget": budget.limit,
     }
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         fetch_run_id = int(conn.execute(
             """
             INSERT INTO historical_option_quote_fetch_runs (provider, feed, config_json, started_at, status)
@@ -347,12 +351,18 @@ def fetch_marketdata_eod_option_quotes(
         "inserted_quote_count": 0,
         "invalid_quote_count": 0,
         "coverage_gaps": [],
+        "rate_limited_count": 0,
+        "deferred_decision_count": 0,
+        "stop_reason": None,
+        "resume_at": None,
     }
     credentials_error = "missing_marketdata_token" if not resolved_token else ""
     client_error = "requests_dependency_unavailable" if resolved_request_get is None else ""
 
-    with get_connection(db_path) as conn:
-        for decision in decisions:
+    with closing(get_connection(db_path)) as conn, conn:
+        for index, decision in enumerate(decisions):
+            # Never hold a write transaction during provider I/O or budget accounting.
+            conn.commit()
             option_symbol = _normalized_option_symbol(decision.get("selected_option_symbol")) or ""
             decision_at = _parse_timestamp(decision.get("decision_run_at"))
             if not option_symbol or decision_at is None:
@@ -384,10 +394,24 @@ def fetch_marketdata_eod_option_quotes(
                     requested_start_at=requested_start, requested_end_at=requested_end, status="unavailable", error_text=reason,
                 )
                 continue
+            reservation, allowance = budget.reserve()
+            if reservation is None:
+                result.update(stop_reason=allowance["stop_reason"], resume_at=allowance["resume_at"])
+                result["deferred_decision_count"] = len(decisions) - index
+                break
+
+            response_metadata = {}
+
+            def budgeted_get(*args, **kwargs):
+                response = resolved_request_get(*args, **kwargs)
+                allowance = budget.observe(reservation, response)
+                response_metadata.update(http_status=getattr(response, "status_code", None), budget=allowance)
+                return response
+
             try:
                 payload, metadata = _request_marketdata_quotes(
                     option_symbol=option_symbol, start_at=requested_start, end_at=requested_end,
-                    token=resolved_token, timeout_seconds=timeout_seconds, request_get=resolved_request_get,
+                    token=resolved_token, timeout_seconds=timeout_seconds, request_get=budgeted_get,
                 )
                 response_status = str(payload.get("s") or "").lower()
                 if response_status == "error":
@@ -421,22 +445,34 @@ def fetch_marketdata_eod_option_quotes(
                         error_text=gap["reason"], metadata={**metadata, "marketdata_status": response_status or None},
                     )
             except Exception as exc:
-                status_code = getattr(getattr(exc, "response", None), "status_code", None)
-                status = "unavailable" if status_code in {401, 403} else "no_data" if status_code == 404 else "error"
+                status_code = response_metadata.get("http_status") or getattr(getattr(exc, "response", None), "status_code", None)
+                status = "rate_limited" if status_code == 429 else "unavailable" if status_code in {401, 403} else "no_data" if status_code == 404 else "error"
                 result[f"{status}_count"] += 1
                 reason = f"marketdata_request_failed:{type(exc).__name__}:{exc}"
                 result["coverage_gaps"].append({"decision_id": decision["id"], "option_symbol": option_symbol, "reason": reason})
                 _record_coverage(
                     conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
                     requested_start_at=requested_start, requested_end_at=requested_end, status=status, error_text=reason,
-                    metadata={"pricing_source": MARKETDATA_EOD_PRICING_SOURCE},
+                    metadata={"pricing_source": MARKETDATA_EOD_PRICING_SOURCE, **response_metadata},
                 )
+                if status == "rate_limited":
+                    result["remaining_decision_count"] += 1
 
+            conn.commit()
+            allowance = budget.snapshot()
+            if allowance["stop_reason"]:
+                result.update(stop_reason=allowance["stop_reason"], resume_at=allowance["resume_at"])
+                result["deferred_decision_count"] = len(decisions) - index - 1
+                break
+
+        conn.commit()
+        result["budget"] = budget.snapshot()
+        result["remaining_decision_count"] += result["deferred_decision_count"]
         completed_at = datetime.now(timezone.utc).isoformat()
-        final_status = "completed" if not (result["no_data_count"] or result["unavailable_count"] or result["error_count"]) else "completed_with_gaps"
+        final_status = "paused" if result["stop_reason"] else "completed" if not (result["no_data_count"] or result["unavailable_count"] or result["error_count"]) else "completed_with_gaps"
+        result["status"] = final_status
         conn.execute(
             "UPDATE historical_option_quote_fetch_runs SET completed_at = ?, status = ?, summary_json = ? WHERE id = ?",
             (completed_at, final_status, json_text(result) or "{}", fetch_run_id),
         )
-    result["status"] = final_status
     return result

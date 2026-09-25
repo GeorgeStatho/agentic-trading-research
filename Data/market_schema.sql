@@ -274,6 +274,15 @@ CREATE TABLE IF NOT EXISTS historical_option_quotes (
     UNIQUE (option_symbol, quote_at, provider)
 );
 
+CREATE TABLE IF NOT EXISTS marketdata_request_budget (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    credits_used INTEGER NOT NULL DEFAULT 0,
+    blocked_until TEXT,
+    block_reason TEXT
+);
+
 CREATE TABLE IF NOT EXISTS historical_option_quote_fetch_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     provider TEXT NOT NULL,

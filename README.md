@@ -142,6 +142,29 @@ Then fill in at minimum:
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_CLOUD_LOCATION`
 
+For historical option-quote fetching, set `MARKETDATA_TOKEN`. The optional
+`MARKETDATA_DAILY_CREDIT_BUDGET` defaults to `100`; set it to `0` to disable
+outbound EOD requests. This is a conservative local allowance: every attempt
+uses at least one unit, including failures and free responses, and larger
+provider-reported credit costs are counted. Cached windows use no allowance.
+The daily window resets at 09:30 America/New_York, including daylight saving
+changes. See [MarketData rate limits](https://www.marketdata.app/docs/api/rate-limiting/)
+and [credit resets](https://www.marketdata.app/docs/api/troubleshooting/running-out-of-credits/).
+
+Allowance and provider cooldowns persist in SQLite and are shared by the
+Research dashboard and EOD CLI when they use the same database. `force` only
+bypasses the quote cache, never the budget. HTTP 429 or a response reporting
+zero remaining credits stops the batch; subsequent calls stay paused until
+`Retry-After` / the provider reset permits retrying. Without usable headers,
+the next local daily reset is used. The dashboard shows the pause reason,
+retry time, and allowance used. Quotes already imported remain usable, and
+unattempted windows remain queued. Fetching resumes on your next request
+after the pause; no automatic retry loop is started.
+
+The local counter starts when this protection is installed; it cannot reconstruct
+prior usage or track requests made by other applications/databases. Provider
+headers still trigger a pause if that outside usage exhausts the account.
+
 ### 2. Run with Docker
 
 Default cloud-friendly startup:
