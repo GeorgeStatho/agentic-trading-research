@@ -48,4 +48,4 @@ def _discard_superseded_requests(at, db_path):
     obsolete = [row['request_id'] for row in requests if research_event_superseded(row['queue_id'], db_path=db_path)]
     with closing(get_connection(db_path)) as conn, conn:
         conn.executemany('''UPDATE company_evidence_requests SET status='unavailable',reason='event_superseded',completed_at=?
-            WHERE request_id=? AND status='pending'''', [(at, identity) for identity in obsolete])
+            WHERE request_id=? AND status='pending' ''', [(at, identity) for identity in obsolete])
