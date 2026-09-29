@@ -1,8 +1,9 @@
 # Evidence, discovery, and trade decision implementation plan
 
-Status: Phases 0–1 implemented; Phases 2–7 remain proposed. See
+Status: Phases 0–2 implemented; Phases 3–7 remain proposed. See
 [Phase 0 implementation and operating notes](RESEARCH_PHASE0.md) and
-[Phase 1 implementation, coverage limits, and setup](RESEARCH_PHASE1.md).
+[Phase 1 implementation, coverage limits, and setup](RESEARCH_PHASE1.md), plus
+[Phase 2 queue and shadow discovery operating notes](RESEARCH_PHASE2.md).
 
 ## Objective
 
@@ -161,14 +162,14 @@ Proposed modules: `services/event_discovery.py`, `services/discovery_queue.py`, 
 
 Tasks:
 
-- [ ] Run a bounded, rotating discovery scan over the configured tradable company universe independently of the current top-sector list. Prioritize scheduled earnings and incoming company-linked events.
-- [ ] Reuse existing catalyst/root-event provenance. Distinguish correction, repetition, and substantive new evidence.
-- [ ] Merge sector candidates, direct company events, watchlist updates, and existing-position reviews into the queue.
-- [ ] Store explainable priority components: materiality, novelty, source reliability, freshness, review urgency, and waiting time. Support bullish and bearish events symmetrically.
-- [ ] Reserve configurable processing capacity for direct events and open-position reviews; add aging so low-volume companies are not indefinitely starved.
-- [ ] Implement atomic lease/claim, expiry recovery, bounded retries, backoff, stale-item expiry, and terminal statuses (`completed`, `deferred`, `expired`, `failed`). Do not hold a database transaction during model or network calls.
-- [ ] Adapt `existing_db_view.py`, target selection, company context assembly, and `main.py` admission together. Allow supported primary-event evidence to satisfy admission without requiring the legacy opportunist path, while retaining evidence-quality checks.
-- [ ] Run the new discovery route in shadow initially. Persist candidates it would add without forwarding them to broker execution.
+- [x] Run a bounded, rotating discovery scan over the configured tradable company universe independently of the current top-sector list. Prioritize scheduled earnings and incoming company-linked events.
+- [x] Reuse existing catalyst/root-event provenance. Distinguish correction, repetition, and substantive new evidence.
+- [x] Merge sector candidates, direct company events, watchlist updates, and existing-position reviews into the queue.
+- [x] Store explainable priority components: materiality, novelty, source reliability, freshness, review urgency, and waiting time. Support bullish and bearish events symmetrically.
+- [x] Reserve configurable processing capacity for direct events and open-position reviews; add aging so low-volume companies are not indefinitely starved.
+- [x] Implement atomic lease/claim, expiry recovery, bounded retries, backoff, stale-item expiry, and terminal statuses (`completed`, `deferred`, `expired`, `failed`). Do not hold a database transaction during model or network calls.
+- [x] Adapt `existing_db_view.py`, target selection, company context assembly, and `main.py` admission together. Allow supported primary-event evidence to satisfy admission without requiring the legacy opportunist path, while retaining evidence-quality checks.
+- [x] Run the new discovery route in shadow initially. Persist candidates it would add without forwarding them to broker execution.
 
 Acceptance: a fixture company outside the top sectors reaches research; ten syndicated copies produce one event item; a new guidance revision produces a new item; two workers cannot process the same lease concurrently; a crashed worker's item becomes claimable again.
 

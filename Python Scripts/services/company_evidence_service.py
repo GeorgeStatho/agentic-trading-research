@@ -64,21 +64,32 @@ def collect_company_evidence(*, db_path=DB_PATH, policy=None, clock=utc_now, con
         return {'status': 'configuration_required', 'reason': 'SEC_USER_AGENT must identify the operator and contact email'}
     initialize_database(db_path=db_path)
     config = issuer_configuration()
+    from services.discovery_policy import DiscoveryPolicy
+    from market_db_modules.discovery_sources import select_discovery_companies, mark_discovery_scanned
+    discovery_policy = DiscoveryPolicy.from_env()
     symbols = {s.strip().upper() for s in os.getenv('COMPANY_EVIDENCE_SYMBOLS', '').split(',') if s.strip()} | set(config)
+    if discovery_policy.mode == 'shadow':
+        symbols = set(discovery_policy.symbols)
     if not symbols:
         return {'status': 'configuration_required', 'reason': 'Set COMPANY_EVIDENCE_SYMBOLS or an issuer configuration file'}
     with closing(get_connection(db_path)) as conn:
         companies = [dict(row) for row in conn.execute('SELECT id,symbol,name FROM companies ORDER BY id')
                      if row['symbol'].upper() in symbols]
+    if discovery_policy.mode == 'shadow':
+        companies = select_discovery_companies(discovery_policy, at=clock().isoformat(), lane='collection',
+                                               limit=policy.companies_per_cycle, db_path=db_path)
     sec = SECAdapter(EvidenceHTTP('sec', ('www.sec.gov', 'data.sec.gov'), policy, db_path, user_agent, clock=clock), policy)
     try:
         mapping = sec.issuer_map()
     except Exception as exc:
         return {'status': 'provider_unavailable', 'reason': f'sec_issuer_map:{type(exc).__name__}', 'companies': []}
-    position = collection_state('collector', 'company_cursor', db_path=db_path).get('position', 0)
+    position = (0 if discovery_policy.mode == 'shadow' else
+                collection_state('collector', 'company_cursor', db_path=db_path).get('position', 0))
     outcomes = []
     for offset in range(min(policy.companies_per_cycle, len(companies))):
         company = companies[(position + offset) % len(companies)]
+        if discovery_policy.mode == 'shadow':
+            mark_discovery_scanned(company['id'], at=clock().isoformat(), lane='collection', db_path=db_path)
         settings = config.get(company['symbol'].upper(), {})
         cik = settings.get('cik') or mapping.get(company['symbol'].upper().replace('.', '-'))
         if not cik:

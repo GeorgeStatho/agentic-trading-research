@@ -525,3 +525,7 @@ If you’re working on similar systems, have feedback, or are interested in coll
 Company earnings/guidance ingestion, immutable evidence packages, and offline replay
 are described in [Research Phase 1](docs/RESEARCH_PHASE1.md). Provider coverage and
 limits are listed in [the capability matrix](docs/COMPANY_EVIDENCE_PROVIDERS.md).
+
+The rotating company-event scan, durable queue, and shadow research intake are
+documented in [Research Phase 2](docs/RESEARCH_PHASE2.md). Discovery is disabled by
+default and does not forward candidates to broker execution.

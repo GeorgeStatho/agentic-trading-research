@@ -101,6 +101,10 @@ def _build_company_context_by_symbol(
                     "industry_name": industry_name,
                 }
 
+    for company in pipeline_result.get("discovery_targets", []):
+        symbol = str(company.get("symbol") or "").upper()
+        if symbol and symbol not in contexts:
+            contexts[symbol] = {**company, "company_name": company.get("name"), "discovery_shadow": True}
     return contexts
 
 
@@ -127,15 +131,21 @@ def _emit_progress(
     on_progress(payload)
 
 
+def evaluate_primary_event_admission(event, evidence, *, at, policy):
+    from services.discovery_admission import evaluate_discovery_admission
+    return evaluate_discovery_admission(event, evidence, at=at, policy=policy)
+
+
 def _filter_company_symbols_by_high_confidence_support(
     company_symbols: list[str],
     *,
     minimum_high_confidence_articles: int,
     max_age_days: int | None,
     candidate_context_by_symbol: dict[str, dict[str, Any]] | None = None,
+    discovery_context_by_symbol: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     normalized_symbols = _normalize_company_symbols(company_symbols)
-    if minimum_high_confidence_articles <= 0:
+    if minimum_high_confidence_articles <= 0 and not discovery_context_by_symbol:
         return normalized_symbols, []
 
     allowed_symbols: list[str] = []
@@ -146,6 +156,15 @@ def _filter_company_symbols_by_high_confidence_support(
     version = observe(build_pipeline_version)
     contexts = candidate_context_by_symbol if candidate_context_by_symbol is not None else {}
     for symbol in normalized_symbols:
+        discovery_context = (discovery_context_by_symbol or {}).get(symbol)
+        if discovery_context:
+            admission = evaluate_primary_event_admission(**discovery_context)
+            contexts[symbol] = {'discovery_shadow': True, 'admission': admission}
+            if admission['allowed']:
+                allowed_symbols.append(symbol)
+            else:
+                skipped_companies.append({'symbol': symbol, 'skip_reason': admission['reason'], 'shadow': True})
+            continue
         context = observe(begin_candidate, symbol, version=version)
         contexts[symbol] = context
         try:
@@ -202,6 +221,8 @@ def _filter_company_symbols_by_high_confidence_support(
     if skipped_companies:
         for skipped in skipped_companies:
             context = contexts.get(skipped["symbol"])
+            if (context or {}).get('discovery_shadow'):
+                continue
             skipped["candidate_id"] = (context or {}).get("candidate_id")
             reject(context, "SUPPORT", skipped["skip_reason"], metrics=skipped,
                    thresholds={"minimum_high_confidence_articles": minimum_high_confidence_articles,
@@ -422,6 +443,11 @@ def _run_strategist_and_manager(
     from services.pipeline_version import build_pipeline_version
     cycle_version = observe(build_pipeline_version)
     for symbol in company_symbols:
+        route_context = (company_context_by_symbol or {}).get(symbol) or {}
+        recorded_context = (candidate_context_by_symbol or {}).get(symbol) or {}
+        if (route_context.get("discovery_shadow") or recorded_context.get("discovery_shadow")
+                or str(recorded_context.get('candidate_id', '')).startswith('discovery:')):
+            continue
         candidate_context = (candidate_context_by_symbol or {}).get(symbol) or observe(begin_candidate, symbol, version=cycle_version)
         from services.catalyst_gates import catalyst_admission_allowed
         if not catalyst_admission_allowed(candidate_context):
@@ -554,6 +580,10 @@ def run_full_agent_stack(
     pipeline_result = run_agent_pipeline(on_progress=on_progress)
     LOGGER.info("Finished agent pipeline stage")
 
+    from services.discovery_queue import run_discovery_shadow_cycle
+    from services.candidate_lifecycle import observe
+    pipeline_result["discovery_shadow"] = observe(
+        run_discovery_shadow_cycle, sector_symbols=_dedupe_company_symbols(pipeline_result))
     pipeline_settings = AgentPipelineSettings.from_env()
     company_context_by_symbol = _build_company_context_by_symbol(pipeline_result)
     candidate_contexts = {}
@@ -600,6 +630,10 @@ def run_full_agent_stack_from_existing_data(
     pipeline_result = run_agent_pipeline_from_existing_data(on_progress=on_progress)
     LOGGER.info("Finished agent pipeline stage using existing DB data")
 
+    from services.discovery_queue import run_discovery_shadow_cycle
+    from services.candidate_lifecycle import observe
+    pipeline_result["discovery_shadow"] = observe(
+        run_discovery_shadow_cycle, sector_symbols=_dedupe_company_symbols(pipeline_result))
     pipeline_settings = AgentPipelineSettings.from_env()
     company_context_by_symbol = _build_company_context_by_symbol(pipeline_result)
     candidate_contexts = {}

@@ -20,6 +20,11 @@ from agent_pipeline.ranking import (
 )
 
 
+def _discovery_targets():
+    from services.discovery_queue import discovery_targets
+    return discovery_targets()
+
+
 def _slice_companies(companies: list[CompanySummary], limit: int) -> list[CompanySummary]:
     return companies[: max(0, int(limit))]
 
@@ -156,4 +161,5 @@ def get_current_pipeline_targets(
         "selected_companies": selected_companies,
         "selected_company_ids": selected_company_ids,
         "selected_company_symbols": _dedupe_preserving_order(selected_company_symbols),
+        "discovery_companies": _discovery_targets(),
     }

@@ -27,6 +27,10 @@ class OrderCandidateBuilder:
         return decision if decision in {"trade_candidate", "watchlist", "do_not_trade"} else ""
 
     def _is_trade_eligible(self, company_result: dict[str, Any]) -> bool:
+        context = company_result.get('candidate_context') or {}
+        identity = str(company_result.get('candidate_id') or context.get('candidate_id') or '')
+        if company_result.get('discovery_shadow') or context.get('discovery_shadow') or identity.startswith('discovery:'):
+            return False
         decision = str(company_result.get("decision") or "").strip().lower()
         confidence = str(company_result.get("confidence") or "").strip().lower()
         strategist_recommendation = company_result.get("strategist_recommendation") or {}

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from db_common import DB_PATH, DATA_DIR
+from market_db_modules.discovery_queue import (
+    enqueue_discovery_event, claim_discovery_batch, preview_discovery_queue, renew_discovery_lease, finish_discovery_item, discovery_queue_status,
+)
 from market_db_modules.company_evidence import (
     record_evidence_document,
     record_company_fact,
@@ -107,6 +110,13 @@ from market_db_modules.thesis_validator import (
 from market_db_modules.trade_executions import record_option_trade_execution
 
 __all__ = [
+    "enqueue_discovery_event",
+    "claim_discovery_batch",
+    "preview_discovery_queue",
+    "renew_discovery_lease",
+    "finish_discovery_item",
+    "discovery_queue_status",
+
     "record_evidence_document",
     "record_company_fact",
     "record_evidence_package",

@@ -182,6 +182,8 @@ def run_news_collection_cycle() -> dict[str, Any]:
     result['catalyst_response_refresh'] = observe(collect_catalyst_responses)
     from services.company_evidence_service import collect_company_evidence
     result['company_evidence_refresh'] = observe(collect_company_evidence)
+    from services.event_discovery import discover_company_events
+    result['event_discovery'] = observe(discover_company_events)
     JsonFileWriter.write(SETTINGS.output_path, result)
     LOGGER.info("Saved news collection output to %s", SETTINGS.output_path)
     return result

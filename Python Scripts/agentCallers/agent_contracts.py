@@ -79,6 +79,7 @@ class PipelineTargetsPayload(TypedDict):
     selected_companies: list[SelectedCompany]
     selected_company_ids: list[int]
     selected_company_symbols: list[str]
+    discovery_companies: NotRequired[list[dict[str, Any]]]
 
 
 class PipelineIndustryResult(TypedDict):
@@ -117,6 +118,8 @@ class PipelineRunResult(TypedDict):
     scrape_results: ScrapeResultsPayload
     rankings: PipelineRunRankingsPayload
     sectors: list[PipelineSectorResult]
+    discovery_targets: NotRequired[list[dict[str, Any]]]
+    discovery_shadow: NotRequired[dict[str, Any]]
 
 
 class PayloadFilters(TypedDict):

@@ -44,10 +44,15 @@ def foundation_manifest():
     sources.extend((ROOT / "Python Scripts/services").glob("company_evidence*.py"))
     sources.extend((ROOT / "Data/market_db_modules").glob("company_collection*.*"))
     sources.append(ROOT / "Python Scripts/agentCallers/agent_builders/company_evidence_payload.py")
+    sources.extend((ROOT / "Data/market_db_modules").glob("discovery*.*"))
+    sources.extend((ROOT / "Python Scripts/services").glob("discovery*.py"))
+    sources.append(ROOT / "Python Scripts/services/event_discovery.py")
     hashes = {str(path.relative_to(ROOT)): sha256(path.read_bytes()).hexdigest()
               for path in sorted(sources) if path.is_file()}
     from services.company_evidence_policy import provider_manifest
     provider_config = {**provider_manifest(), "adapters": [str(p.relative_to(ROOT)) for p in adapters]}
+    from services.discovery_policy import DiscoveryPolicy
+    provider_config["discovery"] = DiscoveryPolicy.from_env().manifest()
     budgets = asdict(EvidenceResearchPolicy.from_env())
     economics = {"pricing": asdict(PricingPolicy.from_env()), "contracts": asdict(ContractPolicy.from_env())}
     return {"schema_version": SCHEMA_VERSION, "observation_protocol": OBSERVATION_PROTOCOL,
