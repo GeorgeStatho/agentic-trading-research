@@ -10,6 +10,7 @@ from services.research_contract import STRATEGIES, canonical, direction, fingerp
 from services.research_promotion import GATE_BLOCKS, policy_hash, source_hash
 from services.shadow_portfolio import evaluate_gate, expectancy
 from .research_runs import read_run
+from .research_observations import paired_champion_results, validate_strategy_evaluation
 
 
 def calibration_table(rows):
@@ -74,6 +75,7 @@ def monthly_report(run_id, month, *, as_of=None, db_path=DB_PATH):
     with closing(get_connection(db_path)) as conn, conn:
         run = read_run(conn, run_id)
         rows = []
+        observation_results = []
         for saved in conn.execute('SELECT * FROM research_candidates WHERE run_id=?', (run_id,)):
             inputs = json.loads(saved['input_json'])
             if fingerprint(inputs) != saved['input_hash']:
@@ -93,6 +95,15 @@ def monthly_report(run_id, month, *, as_of=None, db_path=DB_PATH):
                          'gates': inputs['features'].get('gates', {}), 'positions': positions,
                          'result': positions.get('counterfactual', {'status': 'uncollected'}),
                          'residual_return': move, 'selection_source': inputs['selection_source']})
+            evaluation = validate_strategy_evaluation(conn, run, saved, inputs)
+            if evaluation:
+                position = positions.get('full_v2', {})
+                observation_results.append({
+                    'observation_id': evaluation['observation_id'], 'candidate_id': saved['candidate_id'],
+                    'evaluation_id': evaluation['evaluation_id'],
+                    'status': position.get('status', 'uncollected'),
+                    'hypothetical_pnl': position.get('hypothetical_pnl'),
+                })
         gates = []
         for stage in sorted({stage for row in rows for stage in row['gates']}):
             evaluation = evaluate_gate(rows, stage)
@@ -120,6 +131,11 @@ def monthly_report(run_id, month, *, as_of=None, db_path=DB_PATH):
                   'actual_closed_positions': len(actual), 'gates': gates, 'strategies': strategies,
                   'paired_regimes': sorted({row['features'].get('regime') for row in paired} - {None, 'unknown'}),
                   'calibration': calibration_table(rows)}
+        if run.get('evaluation_version'):
+            report.update(report_version='research-report-v2', evaluation_version=run['evaluation_version'],
+                          observation_results=sorted(observation_results, key=lambda item: item['observation_id']),
+                          n_shared_observations=len(observation_results),
+                          n_legacy_unpaired=len(rows) - len(observation_results))
         report_id = fingerprint(report)
         report['report_id'] = report_id
         conn.execute('INSERT INTO research_reports VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING',
@@ -160,7 +176,7 @@ def promote_gate(report_id, stage, *, db_path=DB_PATH):
     return {'stage': stage, 'report_id': report_id, 'sample_size': gate['n_evaluable'], 'gate_value': gate['gate_value']}
 
 
-def promote_champion(report_id, *, db_path=DB_PATH):
+def promote_champion(report_id, *, incumbent_report_id=None, db_path=DB_PATH):
     """Promote a tested production manifest; baseline models remain zero-capital."""
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('BEGIN IMMEDIATE')
@@ -172,16 +188,26 @@ def promote_champion(report_id, *, db_path=DB_PATH):
                 or strategy['paired_n'] != report['n_observed']
                 or not all(row['daily_coverage_complete'] for row in report['strategies'])):
             raise ValueError('Champion needs positive paired outperformance, complete coverage and multiple regimes')
-        incumbent = conn.execute('SELECT run_id FROM research_champion WHERE singleton=1').fetchone()
+        incumbent = conn.execute('SELECT run_id,report_id FROM research_champion WHERE singleton=1').fetchone()
         if incumbent and incumbent['run_id'] and incumbent['run_id'] != run['run_id']:
-            comparison = conn.execute('''SELECT old.result_json AS incumbent,new.result_json AS challenger
-                FROM research_shadow_positions old JOIN research_shadow_positions new
-                ON new.candidate_id=old.candidate_id AND new.strategy=old.strategy
-                WHERE old.run_id=? AND new.run_id=? AND old.strategy='full_v2'
-                AND old.status IN ('complete','cash') AND new.status IN ('complete','cash')''',
-                (incumbent['run_id'], run['run_id'])).fetchall()
-            if (len(comparison) != report['n_observed'] or sum(json.loads(row['challenger'])['hypothetical_pnl'] -
-                    json.loads(row['incumbent'])['hypothetical_pnl'] for row in comparison) <= 0):
+            incumbent_run = read_run(conn, incumbent['run_id'])
+            comparison_id = incumbent_report_id or incumbent['report_id']
+            comparison_row = conn.execute('SELECT report_json,run_id FROM research_reports WHERE report_id=?',
+                                          (comparison_id,)).fetchone()
+            if comparison_row is None:
+                raise ValueError('A persisted incumbent comparison report is required')
+            comparison_run = read_run(conn, comparison_row['run_id'])
+            comparison_report = json.loads(comparison_row['report_json'])
+            if comparison_run['manifest'] != incumbent_run['manifest']:
+                raise ValueError('Comparison report does not evaluate the incumbent manifest')
+            if comparison_run['kind'] != 'frozen_forward' or comparison_run['status'] != 'sealed':
+                raise ValueError('Incumbent comparison must be a completed forward cohort')
+            comparison_count = conn.execute('SELECT COUNT(*) FROM research_candidates WHERE run_id=?',
+                                            (comparison_run['run_id'],)).fetchone()[0]
+            if comparison_report['n_observed'] != comparison_count:
+                raise ValueError('Incumbent comparison must include its entire frozen cohort')
+            comparison = paired_champion_results(comparison_run, comparison_report, run, report)
+            if sum(comparison) <= 0:
                 raise ValueError('Replacement must also outperform the incumbent on the same complete candidate cohort')
         conn.execute('''UPDATE research_champion SET strategy='full_v2',run_id=?,report_id=?,information_cutoff_time=?
                         WHERE singleton=1''', (run['run_id'], report_id, report['information_cutoff_time']))

@@ -1,5 +1,18 @@
 from db_helpers.common import DB_PATH, DATA_DIR, get_connection, validate_sql_identifier
 from db_helpers.market import (
+    record_evidence_document,
+    record_company_fact,
+    record_evidence_package,
+    get_evidence_package,
+    list_company_facts,
+    enqueue_discovery,
+    get_discovery_item,
+    record_research_session,
+    get_research_session,
+    record_trade_economics_report,
+    get_trade_economics_report,
+    record_research_observation,
+    get_research_observation,
     count_option_entry_executions_since,
     expire_manager_decision_pnl,
     get_backtest_run,

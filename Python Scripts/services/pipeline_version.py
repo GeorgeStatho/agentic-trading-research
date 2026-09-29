@@ -41,6 +41,7 @@ def settings_values(settings):
 
 
 def build_pipeline_version(*, settings=None):
+    from services.evidence_research_policy import foundation_manifest
     from services.config import FrontMainSettings, OptionPositionSettings, AgentPipelineSettings
     from services.evidence_continuation_gate import DEFAULT_EVIDENCE_CONTINUATION_POLICY
     from services.market_regime_gate import MarketRegimePolicy
@@ -97,6 +98,7 @@ def build_pipeline_version(*, settings=None):
         'contract_selector_version': SELECTOR_VERSION,
         'exit_engine_version': 'option-exits-v2-shadow-priors', 'exit_config': serializable(OptionPositionSettings.from_env()),
         'dte_buckets': serializable(OPTION_DTE_BUCKETS), 'source_hashes': source_hashes,
+        'research_foundation': foundation_manifest(),
     }
     manifest['pipeline_version'] = 'v2:' + digest(manifest)
     return manifest

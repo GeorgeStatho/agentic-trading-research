@@ -1,6 +1,25 @@
 from __future__ import annotations
 
 from db_common import DB_PATH, DATA_DIR
+from market_db_modules.company_evidence import (
+    record_evidence_document,
+    record_company_fact,
+    record_evidence_package,
+    get_evidence_package,
+    list_company_facts,
+)
+from market_db_modules.research_foundation import (
+    enqueue_discovery,
+    get_discovery_item,
+    record_research_session,
+    get_research_session,
+    record_trade_economics_report,
+    get_trade_economics_report,
+)
+from market_db_modules.research_observations import (
+    record_research_observation,
+    get_research_observation,
+)
 from market_db_modules.catalyst_research import record_catalyst_gate_observation, freshness_outcome_report
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.position_outcomes import (ensure_position_outcome, record_position_observation, list_post_exit_positions, resolve_post_exit_returns, exit_attribution_report, resolve_position_benchmarks, position_entry_context)
@@ -84,6 +103,20 @@ from market_db_modules.thesis_validator import (
 from market_db_modules.trade_executions import record_option_trade_execution
 
 __all__ = [
+    "record_evidence_document",
+    "record_company_fact",
+    "record_evidence_package",
+    "get_evidence_package",
+    "list_company_facts",
+    "enqueue_discovery",
+    "get_discovery_item",
+    "record_research_session",
+    "get_research_session",
+    "record_trade_economics_report",
+    "get_trade_economics_report",
+    "record_research_observation",
+    "get_research_observation",
+
     "record_catalyst_gate_observation", "freshness_outcome_report",
     "resolve_position_benchmarks", "position_entry_context",
     "ensure_position_outcome",

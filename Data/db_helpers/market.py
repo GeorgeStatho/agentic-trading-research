@@ -8,6 +8,19 @@ from datetime import datetime, timedelta, timezone
 from db_common import DB_PATH, get_connection
 from market_db import initialize_database as initialize_market_database
 from market_db import (
+    record_evidence_document,
+    record_company_fact,
+    record_evidence_package,
+    get_evidence_package,
+    list_company_facts,
+    enqueue_discovery,
+    get_discovery_item,
+    record_research_session,
+    get_research_session,
+    record_trade_economics_report,
+    get_trade_economics_report,
+    record_research_observation,
+    get_research_observation,
     record_catalyst_gate_observation, freshness_outcome_report,
     ensure_position_outcome, record_position_observation, list_post_exit_positions, resolve_post_exit_returns, exit_attribution_report, resolve_position_benchmarks, position_entry_context,
     store_execution_telemetry, pending_execution_telemetry, execution_telemetry_report,

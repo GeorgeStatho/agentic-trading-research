@@ -425,9 +425,9 @@ class ResearchDatabaseTests(unittest.TestCase):
         self.candidate(1)
         self.assertEqual(collect_run(run_id, as_of=END, db_path=self.db)['candidates'], 1)
 
-    def test_changed_source_cannot_continue_experiment(self):
+    def test_changed_evaluator_source_cannot_continue_experiment(self):
         run_id = self.run_fixture()
-        with patch('market_db_modules.research_runs.source_hash', return_value='changed'), self.assertRaises(ValueError):
+        with patch('services.research_versions.evaluator_source_hash', return_value='changed'), self.assertRaises(ValueError):
             collect_run(run_id, as_of=END, db_path=self.db)
 
     def test_changed_frozen_configuration_is_rejected(self):

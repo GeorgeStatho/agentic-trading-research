@@ -110,10 +110,10 @@ function RunCard({ run }: { run: Run }) {
             {run.run_id} · started {formatDate(run.started_at, { placeholder: 'unknown' })} · {run.status}
           </small>
         </div>
-        {run.code_hash_matches ? (
-          <span className="v2-status__pill v2-status__pill--ok">source unchanged</span>
+        {(run.collection_version_matches ?? run.code_hash_matches) ? (
+          <span className="v2-status__pill v2-status__pill--ok">evaluation compatible</span>
         ) : (
-          <span className="v2-status__pill v2-status__pill--warn">source changed — needs a new challenger</span>
+          <span className="v2-status__pill v2-status__pill--warn">evaluation changed — needs a new run</span>
         )}
       </header>
 

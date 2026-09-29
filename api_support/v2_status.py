@@ -381,8 +381,8 @@ def _research_status(conn, code_hash: str | None, run_limit: int) -> dict:
 def _run_status(conn, run: dict, code_hash: str | None) -> dict:
     """A run's enrollment progress and its latest full-cohort report.
 
-    `code_hash_matches` is the one that surprises people: an edit anywhere under
-    the hashed source trees ends the experiment and collection refuses to go on.
+    Broad source identity still governs promotion proofs. New runs separately
+    freeze evaluator identity so a strategy change need not stop collection.
     """
     enrolled = conn.execute(
         "SELECT COUNT(*) FROM research_candidates WHERE run_id=?", (run["run_id"],)
@@ -398,8 +398,23 @@ def _run_status(conn, run: dict, code_hash: str | None) -> dict:
         "enrolled_candidates": enrolled,
         "promotion_sample_floor": policy.get("minimum_promotion_samples"),
         "code_hash_matches": bool(code_hash) and run["code_hash"] == code_hash,
+        "collection_version_matches": _collection_version_matches(conn, run, code_hash),
         "latest_full_cohort_report": _latest_report(conn, run["run_id"], enrolled, policy),
     }
+
+
+def _collection_version_matches(conn, run: dict, code_hash: str | None) -> bool:
+    if not str(run.get("config_hash", "")).startswith("research-v2:"):
+        return bool(code_hash) and run["code_hash"] == code_hash
+    if not _table_exists(conn, "research_run_versions"):
+        return False
+    from market_db_modules.research_runs import read_run
+    from services.research_versions import require_current_evaluator
+    try:
+        require_current_evaluator(read_run(conn, run["run_id"]), code_hash)
+    except (ValueError, TypeError, KeyError):
+        return False
+    return True
 
 
 def _latest_report(conn, run_id: str, cohort_size: int, policy: dict) -> dict | None:

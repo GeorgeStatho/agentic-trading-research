@@ -11,6 +11,12 @@ from services.research_contract import (ResearchPolicy, STRATEGIES, canonical, f
                                         strategy_decisions, utc)
 from services.research_inputs import baseline_contract, load_inputs, replay_missing_selection
 from services.research_promotion import source_hash
+from services.research_versions import evaluation_version, require_current_evaluator
+from research_foundation_contracts import OBSERVATION_PROTOCOL
+from .research_observations import (
+    candidate_observation, enroll_strategy_evaluation, validate_candidate_observation,
+    validate_strategy_evaluation,
+)
 from services.shadow_portfolio import simulate_option
 
 
@@ -19,7 +25,7 @@ def migrate_research(conn):
 
 
 def start_run(manifest, *, kind='frozen_forward', target_candidates=200, policy=None,
-              db_path=DB_PATH, now=None):
+              db_path=DB_PATH, now=None, observation_protocol=OBSERVATION_PROTOCOL):
     from .bootstrap import initialize_database
     initialize_database(db_path=db_path)
     policy = policy or ResearchPolicy()
@@ -30,13 +36,21 @@ def start_run(manifest, *, kind='frozen_forward', target_candidates=200, policy=
     at = utc(now or datetime.now(timezone.utc)).isoformat()
     run_id = str(uuid4())
     code = source_hash()
-    config_hash = fingerprint({'manifest': manifest, 'policy': asdict(policy), 'code_hash': code,
-                               'kind': kind, 'started_at': at, 'target_candidates': target_candidates})
+    if not observation_protocol or not isinstance(observation_protocol, str):
+        raise ValueError('An observation protocol is required')
+    evaluator = evaluation_version(observation_protocol)
+    config_hash = 'research-v2:' + fingerprint({
+        'manifest': manifest, 'policy': asdict(policy), 'code_hash': code,
+        'kind': kind, 'started_at': at, 'target_candidates': target_candidates,
+        'evaluation_version': evaluator})
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('''INSERT INTO research_runs
             (run_id,kind,started_at,information_cutoff_time,target_candidates,manifest_json,policy_json,config_hash,code_hash)
             VALUES (?,?,?,?,?,?,?,?,?)''',
             (run_id, kind, at, at, target_candidates, canonical(manifest), canonical(asdict(policy)), config_hash, code))
+        conn.execute('INSERT INTO research_run_versions VALUES (?,?,?,?,?)',
+                     (run_id, evaluator['version'], evaluator['evaluator_hash'],
+                      evaluator['protocol_version'], fingerprint(evaluator)))
         conn.execute('''INSERT INTO research_champion(singleton,strategy,information_cutoff_time)
                         VALUES (1,'production',?) ON CONFLICT DO NOTHING''', (at,))
     return {'run_id': run_id, 'kind': kind, 'config_hash': config_hash, 'information_cutoff_time': at}
@@ -49,8 +63,20 @@ def read_run(conn, run_id):
     run = dict(row)
     run['manifest'] = json.loads(run['manifest_json'])
     run['policy'] = ResearchPolicy(**json.loads(run['policy_json']))
-    expected = fingerprint({'manifest': run['manifest'], 'policy': asdict(run['policy']), 'code_hash': run['code_hash'],
-                            'kind': run['kind'], 'started_at': run['started_at'], 'target_candidates': run['target_candidates']})
+    configuration = {'manifest': run['manifest'], 'policy': asdict(run['policy']), 'code_hash': run['code_hash'],
+                     'kind': run['kind'], 'started_at': run['started_at'], 'target_candidates': run['target_candidates']}
+    if run['config_hash'].startswith('research-v2:'):
+        version = conn.execute('SELECT * FROM research_run_versions WHERE run_id=?', (run_id,)).fetchone()
+        if version is None:
+            raise ValueError('Frozen evaluator identity is missing')
+        evaluator = {key: version[key] for key in ('version', 'evaluator_hash', 'protocol_version')}
+        if fingerprint(evaluator) != version['version_hash']:
+            raise ValueError('Frozen evaluator identity changed')
+        run['evaluation_version'] = evaluator
+        configuration['evaluation_version'] = evaluator
+        expected = 'research-v2:' + fingerprint(configuration)
+    else:
+        expected = fingerprint(configuration)
     if expected != run['config_hash']:
         raise ValueError('Frozen run configuration hash mismatch')
     return run
@@ -168,10 +194,13 @@ def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
         # Serialize enrollment and its N-candidate boundary across collectors.
         conn.execute('BEGIN IMMEDIATE')
         run = read_run(conn, run_id)
-        if run['code_hash'] != source_hash():
-            raise ValueError('Research implementation changed; open a new challenger')
+        current_source = source_hash()
+        require_current_evaluator(run, current_source)
         count = conn.execute('SELECT COUNT(*) FROM research_candidates WHERE run_id=?', (run_id,)).fetchone()[0]
         skipped_versions = 0
+        skipped_observations = 0
+        enrolled_observations = {row[0] for row in conn.execute(
+            'SELECT observation_id FROM strategy_evaluations WHERE run_id=?', (run_id,))}
         if run['status'] == 'open':
             candidates = conn.execute('''SELECT * FROM candidates WHERE candidate_id NOT IN
                 (SELECT candidate_id FROM research_candidates WHERE run_id=?) ORDER BY julianday(created_at),candidate_id''', (run_id,)).fetchall()
@@ -187,23 +216,43 @@ def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
                     if json.loads(candidate['pipeline_version_json']) != run['manifest']:
                         skipped_versions += 1
                         continue
+                observation = candidate_observation(conn, candidate['candidate_id'])
+                if observation:
+                    evaluator = run.get('evaluation_version')
+                    if (not evaluator or observation['protocol_version'] != evaluator['protocol_version']
+                            or observation['observation_id'] in enrolled_observations
+                            or (run['kind'] == 'frozen_forward' and
+                                utc(observation['information_cutoff_time']) < utc(run['started_at']))):
+                        skipped_observations += 1
+                        continue
+                    validate_candidate_observation(conn, candidate['candidate_id'], observation)
                 finished = candidate_finished(conn, candidate['candidate_id'], at)
                 if run['kind'] == 'frozen_forward' and not finished and utc(at) - utc(candidate['created_at']) < timedelta(days=1):
                     continue
                 inputs = load_inputs(conn, candidate, at) if finished or run['kind'] != 'frozen_forward' else None
-                if inputs and run['kind'] == 'frozen_forward':
+                # Never run today's selector as if it were an older strategy's code.
+                # Recorded selections remain evaluable under an unchanged evaluator.
+                if inputs and run['kind'] == 'frozen_forward' and run['code_hash'] == current_source:
                     inputs = replay_missing_selection(inputs)
                 if inputs is None:
                     rejected_by = [row['stage'] for row in conn.execute('''SELECT DISTINCT stage FROM candidate_rejections
                         WHERE candidate_id=? AND julianday(occurred_at)<=julianday(?) ORDER BY stage''',
                         (candidate['candidate_id'], at))]
+                    input_cutoff = observation['information_cutoff_time'] if observation else candidate['created_at']
                     inputs = {'candidate_id': candidate['candidate_id'], 'symbol': candidate['symbol'],
-                              'created_at': candidate['created_at'], 'information_cutoff_time': candidate['created_at'],
+                              'created_at': candidate['created_at'], 'information_cutoff_time': input_cutoff,
                               'features': {'gates': {stage: False for stage in rejected_by}}, 'contracts': [],
                               'selected_contract': None, 'rejected_by': rejected_by,
                               'snapshot_hashes': {}, 'selection_source': 'missing_or_unfinished_snapshots'}
+                if observation:
+                    if utc(inputs['information_cutoff_time']) != utc(observation['information_cutoff_time']):
+                        raise ValueError('Evaluation cutoff differs from the shared observation')
+                    inputs['observation_id'] = observation['observation_id']
                 conn.execute('INSERT INTO research_candidates VALUES (?,?,?,?,?)',
                              (run_id, candidate['candidate_id'], inputs['information_cutoff_time'], fingerprint(inputs), canonical(inputs)))
+                if observation:
+                    enroll_strategy_evaluation(conn, run, candidate['candidate_id'], inputs, observation)
+                    enrolled_observations.add(observation['observation_id'])
                 count += 1
             if count >= run['target_candidates']:
                 conn.execute("UPDATE research_runs SET status='sealed' WHERE run_id=?", (run_id,))
@@ -213,6 +262,7 @@ def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
             inputs = json.loads(row['input_json'])
             if fingerprint(inputs) != row['input_hash']:
                 raise ValueError('Frozen research inputs changed')
+            validate_strategy_evaluation(conn, run, row, inputs)
             decisions = strategy_decisions(inputs['features'], run['policy'])
             from services.research_contract import direction
             decisions['counterfactual'] = direction(inputs['features'].get('manager_direction'))
@@ -231,6 +281,7 @@ def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
                     outcome_cutoff_time=excluded.outcome_cutoff_time,status=excluded.status,result_json=excluded.result_json''',
                     (run_id, row['candidate_id'], strategy, row['information_cutoff_time'], at, result['status'], canonical(result)))
     return {'run_id': run_id, 'candidates': count, 'skipped_manifest_mismatches': skipped_versions,
+            'skipped_observation_duplicates_or_mismatches': skipped_observations,
             'information_cutoff_time': at, 'capital_deployed': 0}
 
 

@@ -28,9 +28,10 @@ def observe(function, *args, **kwargs):
         return None
 
 
-def begin_candidate(symbol, *, version=None):
-    context = record_candidate(symbol, version or build_pipeline_version())
-    record_candidate_snapshot(context, 'candidate_created', context, cutoff=context['created_at'])
+def begin_candidate(symbol, *, version=None, observation_id=None):
+    context = record_candidate(symbol, version or build_pipeline_version(), observation_id=observation_id)
+    record_candidate_snapshot(context, 'candidate_created', context,
+                              cutoff=context.get('observation_cutoff') or context['created_at'])
     from services.catalyst_gates import record_catalyst_gates
     context['catalyst_gates'] = record_catalyst_gates(context)
     from services.pricing_gates import record_candidate_price_response

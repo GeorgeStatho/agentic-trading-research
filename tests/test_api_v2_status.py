@@ -211,6 +211,13 @@ class V2StatusTests(unittest.TestCase):
         self.assertEqual(run["enrolled_candidates"], 0)
         self.assertEqual(run["target_candidates"], 100)
 
+    def test_strategy_change_does_not_mark_new_evaluator_as_stale(self) -> None:
+        from market_db_modules.research_runs import start_run
+        start_run({"pipeline_version": "fixture"}, db_path=self.db)
+        with patch("api_support.v2_status._source_hash", return_value="changed-strategy"):
+            run = self._payload()["research"]["runs"][0]
+        self.assertEqual((run["code_hash_matches"], run["collection_version_matches"]), (False, True))
+
     def test_report_covering_less_than_the_cohort_is_flagged(self) -> None:
         self._record_candidate("candidate-recent", "CONTINUATION", occurred_at=RECENT)
         self._record_report("report-1", [], cohort=1)

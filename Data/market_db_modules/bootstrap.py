@@ -108,3 +108,5 @@ def initialize_database(
         from .contract_research import migrate_contract_research
         migrate_contract_research(conn)
         conn.executescript(Path(__file__).with_name('research_schema.sql').read_text(encoding='utf-8'))
+        from .research_foundation import migrate_research_foundation
+        migrate_research_foundation(conn)

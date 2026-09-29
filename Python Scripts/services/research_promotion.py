@@ -26,7 +26,9 @@ def source_hash():
         paths.extend((ROOT / folder).rglob('*.py'))
     paths.extend((ROOT / 'Data/market_db_modules').glob('*.sql'))
     paths.extend(ROOT / name for name in ('config/risk_clusters.csv', 'config/source.json',
-                                        'Data/catalyst_models.py', 'Data/catalyst_schema.sql', 'Data/sector_etfs.json'))
+                                        'Data/catalyst_models.py', 'Data/catalyst_schema.sql', 'Data/sector_etfs.json',
+                                        'Data/research_foundation_contracts.py'))
+    paths.extend((ROOT / 'Python Scripts/Webscraping/company_evidence').rglob('*.py'))
     return fingerprint({str(p.relative_to(ROOT)): sha256(p.read_bytes()).hexdigest() for p in sorted(paths)})
 
 

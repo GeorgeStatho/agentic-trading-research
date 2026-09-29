@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from contextlib import closing
 from hashlib import sha256
 import json
 from uuid import uuid4
@@ -16,10 +17,18 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def record_candidate(symbol, version, *, evidence=None, db_path=DB_PATH):
+def record_candidate(symbol, version, *, evidence=None, observation_id=None, db_path=DB_PATH):
     initialize_database(db_path=db_path)
     candidate_id, created_at = str(uuid4()), now_iso()
-    with get_connection(db_path) as conn:
+    observation = None
+    with closing(get_connection(db_path)) as conn, conn:
+        if observation_id:
+            from .research_observations import read_observation
+            observation = read_observation(conn, observation_id)
+            source_evidence = observation['source_snapshot'].get('evidence', [])
+            if evidence is not None and evidence != source_evidence:
+                raise ValueError('Candidate evidence differs from its frozen observation')
+            evidence = source_evidence
         if evidence is None:
             has_news = conn.execute("SELECT 1 FROM sqlite_master WHERE name='news_articles'").fetchone()
             evidence = [dict(row) for row in conn.execute('''
@@ -33,25 +42,42 @@ def record_candidate(symbol, version, *, evidence=None, db_path=DB_PATH):
         catalyst_ids = sorted({row['catalyst_id'] for row in evidence if row.get('catalyst_id')})
         conn.execute('INSERT INTO candidates (candidate_id, symbol, created_at, catalyst_ids_json, article_ids_json, pipeline_version_json) VALUES (?, ?, ?, ?, ?, ?)',
                      (candidate_id, symbol.upper(), created_at, json_text(catalyst_ids), json_text(article_ids), json_text(version)))
-        from news_db_modules.catalysts import attach_candidate_catalysts
-        states = attach_candidate_catalysts(candidate_id, symbol, evidence, cutoff=created_at, conn=conn)
+        if observation:
+            states = observation['source_snapshot']['catalysts']
+            for index, state in enumerate(states):
+                conn.execute('INSERT INTO candidate_catalysts VALUES (?,?,?,?,?)',
+                             (candidate_id, state['catalyst_id'], state['catalyst_family'],
+                              index == 0, json_text(state)))
+            conn.execute('UPDATE candidates SET catalyst_ids_json=? WHERE candidate_id=?',
+                         (json_text([state['catalyst_id'] for state in states]), candidate_id))
+        else:
+            from news_db_modules.catalysts import attach_candidate_catalysts
+            states = attach_candidate_catalysts(candidate_id, symbol, evidence, cutoff=created_at, conn=conn)
         catalyst_ids = [state['catalyst_id'] for state in states]
+        if observation:
+            from .research_observations import bind_candidate_observation
+            bind_candidate_observation(conn, candidate_id, observation_id)
     return {'candidate_id': candidate_id, 'symbol': symbol.upper(), 'created_at': created_at,
             'catalyst_ids': catalyst_ids, 'article_ids': article_ids, 'pipeline_version': version,
             'evidence': evidence, 'catalysts': states, 'catalyst_id': states[0]['catalyst_id'],
-            'catalyst_family': states[0]['catalyst_family']}
+            'catalyst_family': states[0]['catalyst_family'],
+            **({'observation_id': observation_id,
+                'observation_cutoff': observation['information_cutoff_time'],
+                'source_snapshot': observation['source_snapshot']} if observation else {})}
 
 
 def record_candidate_snapshot(context, stage, payload, *, cutoff=None, db_path=DB_PATH):
     initialize_database(db_path=db_path)
     captured = now_iso()
-    cutoff = cutoff or captured
+    cutoff = cutoff or context.get('observation_cutoff') or captured
     version = context['pipeline_version']
     envelope = {'candidate_id': context['candidate_id'], 'stage': stage, 'snapshot_version': SNAPSHOT_VERSION,
                 'information_cutoff_time': cutoff, 'pipeline_version': version, 'payload': payload}
+    if context.get('observation_id'):
+        envelope['observation_id'] = context['observation_id']
     serialized = json.dumps(envelope, sort_keys=True, separators=(',', ':'), allow_nan=False)
     snapshot_hash = sha256(serialized.encode()).hexdigest()
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         conn.execute('''INSERT INTO candidate_snapshots
             (candidate_id, stage, captured_at, information_cutoff_time, pipeline_version,
              snapshot_version, snapshot_hash, snapshot_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)

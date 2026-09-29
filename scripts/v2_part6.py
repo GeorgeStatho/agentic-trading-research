@@ -29,6 +29,7 @@ def main():
     gate.add_argument('stage')
     champion = commands.add_parser('promote-champion')
     champion.add_argument('report_id')
+    champion.add_argument('--incumbent-report', help='Incumbent re-evaluation on the challenger observation cohort')
     commands.add_parser('status')
     args = parser.parse_args()
     if args.db:
@@ -54,7 +55,7 @@ def main():
     elif args.command == 'promote-gate':
         result = promote_gate(args.report_id, args.stage)
     elif args.command == 'promote-champion':
-        result = promote_champion(args.report_id)
+        result = promote_champion(args.report_id, incumbent_report_id=args.incumbent_report)
     else:
         with get_connection() as conn:
             result = {'runs': [dict(row) for row in conn.execute('SELECT run_id,kind,started_at,status,target_candidates,config_hash FROM research_runs')],
