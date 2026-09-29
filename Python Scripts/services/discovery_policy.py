@@ -6,7 +6,8 @@ import os
 @dataclass(frozen=True)
 class DiscoveryPolicy:
     mode: str = 'disabled'
-    symbols: tuple[str, ...] = ()
+    symbols: tuple[str, ...] = ()  # Legacy constructor compatibility; never selects companies.
+    rescan_seconds: int = 300
     scan_limit: int = 20
     batch_size: int = 6
     direct_slots: int = 2
@@ -21,7 +22,7 @@ class DiscoveryPolicy:
     def __post_init__(self):
         if self.mode not in {'disabled', 'shadow'}:
             raise ValueError('Discovery supports only disabled or shadow mode')
-        if min(self.scan_limit, self.batch_size, self.lease_seconds, self.max_attempts,
+        if min(self.rescan_seconds, self.scan_limit, self.batch_size, self.lease_seconds, self.max_attempts,
                self.retry_seconds, self.stale_seconds) < 1:
             raise ValueError('Discovery limits must be positive')
         if min(self.direct_slots, self.review_slots) < 0 or self.direct_slots + self.review_slots >= self.batch_size:
@@ -31,8 +32,8 @@ class DiscoveryPolicy:
 
     @classmethod
     def from_env(cls):
-        symbols = tuple(sorted({s.strip().upper() for s in os.getenv('DISCOVERY_SYMBOLS', '').split(',') if s.strip()}))
-        return cls(mode=os.getenv('DISCOVERY_MODE', 'disabled').lower(), symbols=symbols,
+        return cls(mode=os.getenv('DISCOVERY_MODE', 'disabled').lower(),
+                   rescan_seconds=int(os.getenv('DISCOVERY_RESCAN_SECONDS', '300')),
                    scan_limit=int(os.getenv('DISCOVERY_SCAN_LIMIT', '20')),
                    batch_size=int(os.getenv('DISCOVERY_BATCH_SIZE', '6')),
                    direct_slots=int(os.getenv('DISCOVERY_DIRECT_SLOTS', '2')),

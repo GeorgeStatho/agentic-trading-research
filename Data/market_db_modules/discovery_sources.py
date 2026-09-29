@@ -46,10 +46,10 @@ def company_event_articles(company_id, *, at, stale_seconds, db_path=DB_PATH):
 def select_discovery_companies(policy, *, at, lane='events', limit=None, db_path=DB_PATH):
     """Reserve half the scan for least-recently-seen companies; prioritize the rest."""
     positions, watchlist = review_company_ids(at=at, db_path=db_path)
-    from .evidence_refresh import recent_interest_company_ids
+    from .company_interest import active_company_ids
     with closing(get_connection(db_path)) as conn:
-        interested = recent_interest_company_ids(conn, at=at, stale_seconds=policy.stale_seconds)
-    companies = discovery_companies(policy.symbols, company_ids=interested | positions | watchlist, db_path=db_path)
+        interested = active_company_ids(conn, at=at)
+    companies = discovery_companies((), company_ids=interested, db_path=db_path)
     limit = min(limit or policy.scan_limit, policy.scan_limit)
     if not companies:
         return []

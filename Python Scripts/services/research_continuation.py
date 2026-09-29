@@ -75,6 +75,7 @@ def _prepare_continuation(request, db_path):
     lineage = {'parent_session_id': parent['session_id'], 'refresh_request_id': request['request_id'],
                'previous_observation_id': progress['initial_input']['observation_id']}
     payload['research_continuation'] = lineage
+    payload['research_predecessor_revision'] = item['evidence_revision']
     observation_id = record_research_observation(ResearchObservation(
         company_id=item['company_id'], symbol=progress['initial_input']['symbol'],
         catalyst_id=item['catalyst_id'], event_revision=item['evidence_revision'],
@@ -91,6 +92,11 @@ def _prepare_continuation(request, db_path):
         if conn.execute('SELECT 1 FROM research_evidence_continuations WHERE request_id=?',
                         (request['request_id'],)).fetchone():
             return None
+        from market_db_modules.research_work import claim_research_work
+        owner = claim_research_work(conn, candidate, item['company_id'], item['catalyst_id'], identity, at=cutoff)
+        if owner != identity:
+            return 'research_already_scheduled:' + owner
+        candidate.update(research_owner_session_id=owner, research_reused=False)
         conn.execute('''INSERT INTO candidates
             (candidate_id,symbol,created_at,catalyst_ids_json,article_ids_json,pipeline_version_json)
             VALUES (?,?,?,?,?,?)''', (candidate_id, candidate['symbol'], cutoff, canonical([item['catalyst_id']]),

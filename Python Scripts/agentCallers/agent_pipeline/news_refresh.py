@@ -237,7 +237,8 @@ def run_news_collection_pipeline(
             )
 
             from services.company_evidence_demand import request_pipeline_evidence
-            request_pipeline_evidence(c['symbol'] for c in company_selection['selected_companies'])
+            request_pipeline_evidence((c['symbol'] for c in company_selection['selected_companies']),
+                                      scope='industry:' + industry_key)
 
             company_results: list[dict[str, Any]] = []
             for company in company_selection["selected_companies"]:

@@ -61,6 +61,11 @@ def build_company_package(company, document_ids, at, policy, *, db_path, gaps=()
                                     else 'fresh' if age <= policy.stale_seconds else 'stale'))
     package = EvidencePackage(package_id='package:' + digest(fields), **fields)
     record_evidence_package(package, db_path=db_path)
+    from contextlib import closing
+    from db_common import get_connection
+    from market_db_modules.company_interest import signal_discovery
+    with closing(get_connection(db_path)) as conn, conn:
+        signal_discovery(conn, company['id'], 'primary_evidence', revision, at=at)
     return package.package_id
 
 

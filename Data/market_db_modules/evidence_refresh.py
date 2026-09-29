@@ -8,6 +8,11 @@ from .foundation_store import digest
 
 
 def enqueue_refresh(conn, company_id, source, source_key, *, at, parent_session_id=None):
+    if source not in {'discovery', 'active_interest', 'pipeline_selection'}:
+        from .company_interest import register_interest
+        from services.company_evidence_policy import CompanyEvidencePolicy
+        register_interest(conn, company_id, source, 'current' if source == 'pipeline_selection' else source_key,
+                          at=at, lifetime_seconds=CompanyEvidencePolicy.from_env().stale_seconds)
     identity = 'refresh:' + digest([company_id, source, source_key])
     conn.execute('''INSERT OR IGNORE INTO company_evidence_requests
         (request_id,company_id,source,source_key,parent_session_id,requested_at,next_attempt_at)
@@ -25,8 +30,10 @@ def due_refresh_companies(*, at, limit, db_path=DB_PATH):
     with closing(get_connection(db_path)) as conn:
         return [dict(row) for row in conn.execute('''SELECT c.id,c.symbol,c.name FROM companies c
             JOIN company_evidence_requests r ON r.company_id=c.id
-            WHERE r.status='pending' AND julianday(r.next_attempt_at)<=julianday(?) GROUP BY c.id
-            ORDER BY MAX(r.parent_session_id IS NOT NULL) DESC,MIN(r.requested_at),c.id LIMIT ?''', (at, limit))]
+            WHERE r.status='pending' AND julianday(r.next_attempt_at)<=julianday(?) AND EXISTS (
+                SELECT 1 FROM company_interest i WHERE i.company_id=c.id
+                AND julianday(i.selected_at)<=julianday(?) AND julianday(i.expires_at)>julianday(?)) GROUP BY c.id
+            ORDER BY MAX(r.parent_session_id IS NOT NULL) DESC,MIN(r.requested_at),c.id LIMIT ?''', (at, at, at, limit))]
 
 
 def due_refresh_requests(company_id, *, at, db_path=DB_PATH):
@@ -46,9 +53,7 @@ def finish_refresh_requests(requests, *, at, package_id=None, reason=None, retry
                 reason=?,next_attempt_at=?,completed_at=? WHERE request_id=? AND status='pending' ''',
                          (status, attempts, package_id, reason, next_at, at if status != 'pending' else None,
                           request['request_id']))
-
-
-def recent_interest_company_ids(conn, *, at, stale_seconds):
-    return {row[0] for row in conn.execute('''SELECT DISTINCT company_id FROM company_evidence_requests
-        WHERE julianday(requested_at)<=julianday(?) AND (status='pending' OR julianday(requested_at) BETWEEN julianday(?)-?/86400.0 AND julianday(?))''',
-                                          (at, at, stale_seconds, at))}
+            if status in {'completed', 'unavailable'}:
+                from .company_interest import signal_discovery
+                signal_discovery(conn, request['company_id'], 'collection:' + request['request_id'],
+                                 package_id or reason or status, at=at)

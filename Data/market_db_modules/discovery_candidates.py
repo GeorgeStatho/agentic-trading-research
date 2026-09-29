@@ -28,6 +28,10 @@ def persist_discovery_candidate(item, payload, admission, version, *, at, db_pat
             if digest(stored) != existing['payload_hash']:
                 raise ValueError('Corrupt discovery candidate')
             return stored
+        from .research_work import claim_research_work
+        session_id = 'research:' + digest(item['queue_id'])
+        owner = claim_research_work(conn, result, item['company_id'], item['catalyst_id'], session_id, at=at)
+        result.update(research_owner_session_id=owner, research_reused=owner != session_id)
         conn.execute('''INSERT INTO candidates
             (candidate_id,symbol,created_at,catalyst_ids_json,article_ids_json,pipeline_version_json)
             VALUES (?,?,?,?,?,?)''', (candidate_id, event['company']['symbol'], at, canonical([item['catalyst_id']]),

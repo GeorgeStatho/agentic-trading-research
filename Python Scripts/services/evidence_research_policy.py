@@ -53,11 +53,14 @@ def foundation_manifest():
     sources.extend((ROOT / "Data/market_db_modules").glob("*foundation*.*"))
     sources.extend(ROOT / name for name in (
         "Data/market_db_modules/company_evidence.py", "Data/market_db_modules/research_observations.py",
-        "Data/market_db_modules/evidence_refresh.py", "Data/news_db_modules/impacts.py"))
+        "Data/market_db_modules/evidence_refresh.py", "Data/news_db_modules/impacts.py",
+        "Data/market_db_modules/research_work.py", "Data/news_db_modules/provenance.py",
+        "Python Scripts/services/company_interest.py"))
     adapters = sorted((ROOT / "Python Scripts/Webscraping/company_evidence").rglob("*.py"))
     sources.extend(adapters)
     sources.extend((ROOT / "Python Scripts/services").glob("company_evidence*.py"))
     sources.extend((ROOT / "Data/market_db_modules").glob("company_collection*.*"))
+    sources.extend((ROOT / "Data/market_db_modules").glob("company_interest*.*"))
     sources.append(ROOT / "Python Scripts/agentCallers/agent_builders/company_evidence_payload.py")
     sources.extend((ROOT / "Data/market_db_modules").glob("discovery*.*"))
     sources.extend((ROOT / "Python Scripts/services").glob("discovery*.py"))

@@ -83,7 +83,8 @@ def pending_research_candidates(*, limit, db_path=DB_PATH):
             SELECT c.payload_json,c.payload_hash,c.created_at FROM discovery_shadow_candidates c
             LEFT JOIN research_sessions s ON s.queue_id=c.queue_id
                 AND s.session_id NOT IN (SELECT session_id FROM research_evidence_continuations)
-            WHERE s.session_id IS NULL OR s.status IN ('pending','running')
+            WHERE (s.session_id IS NULL OR s.status IN ('pending','running'))
+                AND COALESCE(json_extract(c.payload_json,'$.research_reused'),0)=0
             UNION ALL
             SELECT c.payload_json,c.payload_hash,c.created_at FROM research_evidence_continuations c
             LEFT JOIN research_sessions s ON s.session_id=c.session_id
@@ -98,10 +99,19 @@ def pending_research_candidates(*, limit, db_path=DB_PATH):
         return results
 
 
-def research_event_superseded(queue_id, *, db_path=DB_PATH):
+def research_event_superseded(queue_id, *, session_id=None, db_path=DB_PATH):
     with closing(get_connection(db_path)) as conn:
         item = read_record(conn, 'discovery_queue', 'queue_id', queue_id)
-        latest = conn.execute('''SELECT evidence_revision FROM discovery_events
+        latest = conn.execute('''SELECT evidence_revision,payload_json,payload_hash FROM discovery_events
             WHERE company_id=? AND catalyst_id=? ORDER BY observed_at DESC,rowid DESC LIMIT 1''',
                               (item['company_id'], item['catalyst_id'])).fetchone()
-        return latest is not None and latest['evidence_revision'] != item['evidence_revision']
+        if latest is None or latest['evidence_revision'] == item['evidence_revision']:
+            return False
+        if session_id:
+            from .research_work import session_covers_event
+            event = json.loads(latest['payload_json'])
+            if digest(event) != latest['payload_hash']:
+                raise ValueError('Corrupt discovery event')
+            if session_covers_event(conn, session_id, event, item['purpose']):
+                return False
+        return True

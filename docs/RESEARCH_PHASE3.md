@@ -110,3 +110,13 @@ Replay reads only saved input, journal and evidence snapshots. It does not call 
 `tests/test_research_orchestrator.py` covers retrieval for missing guidance, company/period/source validation, unavailable consensus, contradictory evidence, call/deadline limits, daily reservations, repeated/no-progress requests, supersession, interrupted planner/results recovery, uncertain in-flight work, worker exclusion, journal immutability, offline replay and shadow integration. Phase 1 and Phase 2 tests provide ingestion, provenance and execution-boundary regression coverage.
 
 `tests/test_research_vertex.py` covers provider inheritance, ADC/project resolution, SDK request controls, retry/deadline limits, paid reservations, thinking-token usage, unknown costs, overage handling and interrupted retries. Its optional real-SDK tests use an in-memory HTTP transport and fixture credentials; they make no network or paid model calls.
+
+`tests/test_evidence_refresh.py` covers pipeline-driven requests, transactional
+opportunist handoff, collection limits/cache/retries, concurrent workers, new-cutoff
+continuations, unchanged parent replay, supersession and shared daily budgets.
+
+Discovery intake and collection-driven successors share atomic research ownership
+for the same event transition, purpose and evidence snapshot. A candidate with
+`research_reused=true` points to `research_owner_session_id` and does not dispatch
+another planner. A successor stays valid when discovery subsequently records its
+already-covered snapshot; a materially different revision still supersedes it.

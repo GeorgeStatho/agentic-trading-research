@@ -1,8 +1,8 @@
 # Phase 2: event discovery and shadow research intake
 
-Phase 2 adds a rotating company scan, event revision tracking, a durable queue,
-and frozen research candidates. It prepares inputs for the investigative loop in
-Phase 3. It does not run a new model loop, submit orders, or trigger position exits.
+Phase 2 checks for meaningful changes among companies currently of interest to the
+pipeline. It consumes durable notifications, tracks event revisions, and prepares
+frozen research candidates for Phase 3. Discovery and research remain shadow-only.
 
 ## Enable the shadow route
 
@@ -10,8 +10,8 @@ Configure the collector and worker with:
 
 ```dotenv
 DISCOVERY_MODE=shadow
-DISCOVERY_SYMBOLS=AAPL,MSFT,NVDA
 DISCOVERY_SCAN_LIMIT=20
+DISCOVERY_RESCAN_SECONDS=300
 DISCOVERY_BATCH_SIZE=6
 DISCOVERY_DIRECT_SLOTS=2
 DISCOVERY_REVIEW_SLOTS=2
@@ -21,19 +21,52 @@ DISCOVERY_RETRY_SECONDS=60
 DISCOVERY_STALE_SECONDS=604800
 ```
 
-Default mode is `disabled`; the only enabled mode is `shadow`. There is no live
-discovery switch. Current pipeline interest, open positions and watchlists are
-included automatically. `DISCOVERY_SYMBOLS` adds optional targets for the local
-archive/news scan; `*` includes all existing company records in that scan. Neither
-setting directly triggers provider collection. Discovery does not independently
-certify broker tradability or option availability.
+`DISCOVERY_SYMBOLS` is obsolete and ignored, including `*`. No manual universe is
+required. Company selection comes from the same `company_interest` records used by
+Phase 1: actual pipeline selections, opportunist findings, active investigations,
+open positions, and watchlists. A news item about an unrelated database company
+does not enroll that company. Collection completion does not renew interest.
 
-For fresh primary-source documents, enable the Phase 1 collector and supply its
-SEC contact as described in [Phase 1](RESEARCH_PHASE1.md). Collection follows actual
-pipeline selections and explicit investigation requests, with existing provider
-quotas, cache policy, retry limits and the company-per-cycle cap. A company selected
-by the shadow discovery consumer requests collection even when it lacks primary
-evidence; later collection can resolve that gap.
+Selections have a source, scope, selection time, and expiry. Updating a selection
+replaces membership within that scope, including an empty selection. Independent
+manager/industry selections and managed positions remain independent reasons for
+interest. Recent opportunist/research interest expires after
+`COMPANY_EVIDENCE_STALE_SECONDS` without renewal; active managed interest is
+reconciled each cycle. Pre-upgrade explicit collection requests are adopted once
+with their original age. Collection-generated requests never bootstrap interest.
+
+Enable Phase 1 and provide its SEC contact to fetch missing primary evidence.
+Phase 2 itself reads the archive; it never performs provider or model calls.
+Discovery admission still does not certify broker tradability or option availability.
+
+## Notifications and missing evidence
+
+`discovery_checks` holds one coalesced check per company. New interest, changed
+company-linked news, changed primary evidence, and watchlist changes wake it.
+Repeated notifications for the same source version do not create more work.
+`DISCOVERY_SCAN_LIMIT` bounds each batch. Periodic checks of active companies run
+no more frequently than `DISCOVERY_RESCAN_SECONDS` when there is no new signal,
+recovering missed notifications and checking scheduled review context. Waiting
+checks are processed oldest first; normal research admission retains its urgency
+priorities and reserved slots.
+
+A missing or stale primary package creates or reuses a Phase 1 refresh request.
+The check records `waiting_for_evidence` and the request ID. A refresh request is
+not a fabricated market event. Existing news-backed events can still enter research
+with explicit evidence gaps. Collection completion or failure wakes the check;
+unchanged evidence does not create a new event revision or model run.
+
+A process lock excludes concurrent check workers on one host/database. Generation
+checks prevent an acknowledgement from erasing a newer notification. A crash leaves
+work recoverable, and individual check failures retry after `DISCOVERY_RETRY_SECONDS`.
+All provider TTLs, quotas, and collection retry limits remain owned by Phase 1.
+
+Discovery candidates and collection-driven research continuations atomically claim
+a shared research owner for the event transition, purpose, and immutable source
+snapshot. Whichever route arrives second records the existing owner. This prevents
+one collection update from launching two investigations, in either ordering.
+A genuinely new revision, including a reversion, can start new research. Original
+observations, candidate snapshots, and parent journals remain unchanged.
 
 The collector persists events after its evidence refresh. Both full agent-stack
 entrypoints scan and consume the queue alongside the existing sector route.
@@ -43,11 +76,9 @@ Results appear under `pipeline.discovery_shadow`; they never enter the live
 
 ## Discovery, provenance and revisions
 
-At least half of each bounded scan visits the least recently scanned companies.
-The remaining capacity favors incoming company-linked news, confirmed earnings
-events in the next seven days, open positions and watchlisted names. Event scanning
-retains its rotation state; provider collection services the evidence request queue. A bad company
-record is reported and does not prevent the rest of the scan from progressing.
+Checks operate only on active interest. A bad company record is reported without
+blocking the rest of the batch. Local event comparison retains normalized primary
+text, financial facts, news roots, and schedules as revision inputs.
 
 News uses existing company links, catalyst IDs and syndication roots. Copies of
 the same root use its canonical article rather than increasing independent support
@@ -172,3 +203,14 @@ regression run also exercised the Phase 0 observation/comparison contracts. When
 running execution tests separately, initialize their `DB_PATH` first; the existing
 champion guard deliberately rejects an unreadable/missing database. Include `tests`
 on `PYTHONPATH` for the existing V2 tests that import sibling test modules directly.
+
+Inspect shared interest and pending/deferred checks without invoking providers:
+
+```bash
+python3 scripts/discovery.py --db /path/to/database.db interest
+python3 scripts/discovery.py --db /path/to/database.db checks
+```
+
+`tests/test_discovery_interest.py` covers selection replacement and expiry,
+notifications, periodic recovery, collection dependencies, worker exclusion,
+immutable replay, and discovery/continuation ownership in both arrival orders.

@@ -31,10 +31,18 @@ def later(seconds, at=ENTRY):
 
 
 class DiscoveryFixture(unittest.TestCase):
+    interested_symbols = ('NVDA', 'OTHER')
+
     def setUp(self):
         self.db = database(self)
         initialize_news(db_path=self.db)
         self.policy = DiscoveryPolicy(mode='shadow', symbols=('NVDA', 'OTHER'))
+        from market_db_modules.company_interest import register_interest
+        with closing(get_connection(self.db)) as conn, conn:
+            for row in conn.execute('SELECT id,symbol FROM companies').fetchall():
+                if row['symbol'] in self.interested_symbols:
+                    register_interest(conn, row['id'], 'fixture', 'selection', at=START, lifetime_seconds=604800)
+
 
     def package(self, low=100, *, at=START, company=None):
         company = company or COMPANY
@@ -53,6 +61,9 @@ class DiscoveryFixture(unittest.TestCase):
                           'url:https://issuer.test/release', 'company_release' if primary else 'wire_service', .9,
                           None if index == 1 else 1))
             conn.execute('INSERT INTO company_news_articles(company_id,article_id) VALUES (1,?)', (index,))
+            from market_db_modules.company_interest import signal_discovery
+            signal_discovery(conn, 1, 'news:' + str(index), body, at=START)
+
 
     def discover(self, *, at=ENTRY, sector_symbols=()):
         return discover_company_events(policy=self.policy, at=at, sector_symbols=sector_symbols, db_path=self.db)
@@ -202,6 +213,8 @@ class DiscoveryAcceptanceTests(DiscoveryFixture):
         self.discover()
         with closing(get_connection(self.db)) as conn, conn:
             conn.execute("UPDATE news_articles SET title='Corrected earnings guidance',body='Guidance is 90 million.' WHERE id=1")
+            from market_db_modules.company_interest import signal_company_news
+            signal_company_news(conn, 1, at=later(1))
         self.discover(at=later(1))
         self.assertEqual(self.claim(at=later(2))[0]['event']['change_kind'], 'correction')
 
@@ -337,6 +350,8 @@ class DiscoveryScanTests(DiscoveryFixture):
     def test_scheduled_earnings_get_priority_scan_capacity(self):
         with closing(get_connection(self.db)) as conn, conn:
             conn.execute("INSERT INTO companies(id,industry_id,symbol,name) VALUES (3,1,'SCHEDULED','Scheduled')")
+            from market_db_modules.company_interest import register_interest
+            register_interest(conn, 3, 'fixture', 'selection', at=START, lifetime_seconds=604800)
         source = replace(guidance(), scheduled_events=({'scheduled_at': later(86400), 'confirmed': True},))
         company = {**COMPANY, 'id': 3, 'symbol': 'SCHEDULED'}
         doc, _ = ingest_source(company, source, START, db_path=self.db)
@@ -345,6 +360,8 @@ class DiscoveryScanTests(DiscoveryFixture):
         self.assertEqual([c['symbol'] for c in select_discovery_companies(policy, at=ENTRY, db_path=self.db)], ['NVDA', 'SCHEDULED'])
 
     def test_discovery_universe_does_not_trigger_unselected_company_collection(self):
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute('DELETE FROM company_interest')
         from services.company_evidence_service import collect_company_evidence
         adapter = Mock()
         with patch('services.discovery_policy.DiscoveryPolicy.from_env', return_value=replace(self.policy, symbols=('*',))), \
@@ -361,6 +378,8 @@ class DiscoveryScanTests(DiscoveryFixture):
         self.assertEqual(select_discovery_companies(policy, at=later(1), db_path=self.db)[0]['symbol'], 'OTHER')
 
     def test_unconfigured_universe_is_not_assumed_tradable(self):
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute('DELETE FROM company_interest')
         self.assertEqual(select_discovery_companies(replace(self.policy, symbols=()), at=ENTRY, db_path=self.db), [])
 
     def test_live_mode_is_not_available(self):

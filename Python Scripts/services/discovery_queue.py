@@ -36,7 +36,8 @@ def build_discovery_research_input(item, *, db_path=DB_PATH):
                  'root_event_id': article.get('root_event_id')} for article in event['articles']]
     return {'company': {**event['company'], 'company_id': item['company_id']},
             'company_evidence': evidence, 'evidence': articles, 'catalysts': [event['catalyst']],
-            'watchlist_context': event.get('watchlist', {})}
+            'watchlist_context': event.get('watchlist', {}),
+            'research_predecessor_revision': event.get('predecessor_revision')}
 
 
 def process_discovery_queue(*, policy=None, owner=None, clock=utc_now, version=None, db_path=DB_PATH):
@@ -57,8 +58,8 @@ def process_discovery_queue(*, policy=None, owner=None, clock=utc_now, version=N
             admission = evaluate_discovery_admission(item['event'], payload['company_evidence'], at=clock(), policy=policy)
             result = persist_discovery_candidate(item, payload, admission, version, at=clock(), db_path=db_path)
             finish_discovery_item(item['queue_id'], item['lease_token'],
-                                  status='completed' if result['admission']['allowed'] else 'deferred',
-                                  reason=result['admission']['reason'], at=clock(), policy=policy, db_path=db_path)
+                                  status='completed' if result['admission']['allowed'] or result.get('research_reused') else 'deferred',
+                                  reason='covered_by_existing_research' if result.get('research_reused') else result['admission']['reason'], at=clock(), policy=policy, db_path=db_path)
             results.append(result)
         except Exception as exc:
             failures.append({'queue_id': item['queue_id'], 'reason': type(exc).__name__})

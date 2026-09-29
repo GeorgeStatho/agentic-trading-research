@@ -19,8 +19,8 @@ company opportunist findings and selected shadow research candidates also queue
 refreshes. The collector services those requests, plus current open positions and
 watchlist companies; it does not scan every company in the database.
 
-`COMPANY_EVIDENCE_SYMBOLS` is obsolete and ignored. `DISCOVERY_SYMBOLS` controls
-local event discovery, not the provider collection universe. Issuer configuration
+`COMPANY_EVIDENCE_SYMBOLS` is obsolete and ignored. `DISCOVERY_SYMBOLS` is also
+obsolete. Both phases use the shared `company_interest` registry. Issuer configuration
 supplies source settings and identity overrides only; its keys do not select targets.
 Company identities must already exist in `companies`. SEC ticker-to-CIK mappings
 refresh daily and persist locally. The default collection cap is five companies
@@ -33,7 +33,8 @@ call. No paid API or model is needed for collection.
 
 ### Demand and investigation handoff
 
-Requests persist in `company_evidence_requests`. Repeated selections within a
+Requests persist in `company_evidence_requests`; interest is stored independently
+in `company_interest`, so completing collection does not remove an active company. Repeated selections within a
 refresh window deduplicate, and requests for the same company share a fetch.
 Missing/stale-evidence investigations take priority; remaining requests run oldest
 first. A process lock prevents overlapping collectors on the same host/database.

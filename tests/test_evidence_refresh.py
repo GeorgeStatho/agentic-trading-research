@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 from tests.test_research_orchestrator import ResearchFixture, FakePlanner
 from tests.test_event_discovery import DiscoveryFixture, later
-from tests.test_company_evidence import COMPANY, guidance
+from tests.test_company_evidence import COMPANY, actuals, guidance
 from tests.research_foundation_fixtures import ENTRY, START
 from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database
@@ -45,6 +45,8 @@ class CollectorMixin:
 
 
 class EvidenceDemandTests(CollectorMixin, DiscoveryFixture):
+    interested_symbols = ()
+
     def test_no_interest_means_no_provider_call_even_with_database_companies(self):
         result = self.collector()
         self.assertEqual((result['status'], self.adapter.issuer_map.call_count), ('idle', 0))
@@ -88,6 +90,11 @@ class EvidenceDemandTests(CollectorMixin, DiscoveryFixture):
         with ThreadPoolExecutor(max_workers=2) as pool:
             identities = list(pool.map(submit, range(4)))
         self.assertEqual((len(set(identities)), len(self.requests())), (1, 1))
+
+    def test_company_limit_bounds_provider_targets(self):
+        for identity in (1, 2):
+            request_company_evidence(identity, 'fixture', str(identity), at=ENTRY, db_path=self.db)
+        self.assertEqual(len(due_refresh_companies(at=ENTRY, limit=1, db_path=self.db)), 1)
 
     def test_queue_survives_bootstrap_and_restart(self):
         request_pipeline_evidence(['NVDA'], at=ENTRY, db_path=self.db)
@@ -199,9 +206,10 @@ class ResearchRefreshTests(CollectorMixin, ResearchFixture):
 
     def test_incomplete_followup_does_not_create_unbounded_refresh_chain(self):
         self.run_research()
-        self.collector(at=later(10), sources=[guidance(120, 130, at=later(10))])
-        self.continue_research()
-        self.assertEqual(len([r for r in self.requests() if r['source'] == 'research_gap']), 1)
+        self.collector(at=later(10), sources=[actuals(120, at=later(10))])
+        result = self.continue_research()['sessions'][0]
+        self.assertEqual((result['status'], len([r for r in self.requests() if r['source'] == 'research_gap'])),
+                         ('deferred_missing_evidence', 1))
 
     def test_stale_input_requests_refresh_before_using_planner(self):
         self.candidate['research_input']['company_evidence']['freshness_at_read'] = 'stale'

@@ -163,7 +163,7 @@ Proposed modules: `services/event_discovery.py`, `services/discovery_queue.py`, 
 
 Tasks:
 
-- [x] Run a bounded, rotating discovery scan over the configured tradable company universe independently of the current top-sector list. Prioritize scheduled earnings and incoming company-linked events.
+- [x] Consume bounded discovery notifications for the shared current-interest registry, with periodic recovery checks. Manual symbol universes are obsolete; keep research queue urgency and review reservations.
 - [x] Reuse existing catalyst/root-event provenance. Distinguish correction, repetition, and substantive new evidence.
 - [x] Merge sector candidates, direct company events, watchlist updates, and existing-position reviews into the queue.
 - [x] Store explainable priority components: materiality, novelty, source reliability, freshness, review urgency, and waiting time. Support bullish and bearish events symmetrically.
@@ -173,6 +173,10 @@ Tasks:
 - [x] Run the new discovery route in shadow initially. Persist candidates it would add without forwarding them to broker execution.
 
 Acceptance: a fixture company outside the top sectors reaches research; ten syndicated copies produce one event item; a new guidance revision produces a new item; two workers cannot process the same lease concurrently; a crashed worker's item becomes claimable again.
+
+The Phase 1/2 handoff now uses shared company interest, durable coalesced discovery
+checks, explicit collection dependencies, and one research owner per event
+transition/purpose/source snapshot across discovery and continuation routes.
 
 ### Phase 3 — Implement bounded investigative research
 

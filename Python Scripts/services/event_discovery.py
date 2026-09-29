@@ -14,7 +14,7 @@ from market_db_modules.company_evidence import (
 from market_db_modules.discovery_queue import enqueue_discovery_event
 from market_db_modules.discovery_sources import (
     company_event_articles, get_catalyst, latest_discovery_event, mark_discovery_scanned,
-    review_company_ids, select_discovery_companies, sector_support_articles, watchlist_snapshot,
+    review_company_ids, sector_support_articles, watchlist_snapshot,
 )
 from market_db_modules.foundation_store import digest
 from research_foundation_contracts import DiscoveryQueueItem, EvidencePackage, timestamp
@@ -36,6 +36,14 @@ def _event_revision(company_id, catalyst_id, signature, db_path):
     if json.loads(prior['payload_json']).get('signature') == signature:
         return prior['evidence_revision'], prior
     return digest({'content': signature, 'supersedes': prior['evidence_revision']}), prior
+
+
+def _predecessor_revision(prior, revision):
+    if prior is None:
+        return None
+    if prior['evidence_revision'] != revision:
+        return prior['evidence_revision']
+    return json.loads(prior['payload_json']).get('predecessor_revision')
 
 
 def _url_key(url):
@@ -143,7 +151,8 @@ def company_discovery_events(company, *, at, policy, db_path=DB_PATH):
                        'package_id': event_package['package_id'] if event_package else None,
                        'articles': roots, 'root_event_ids': root_ids,
                        'catalyst': catalyst, 'published_at': timestamp(public_at), 'observed_at': at,
-                       'change_kind': change, 'signature': signature})
+                       'change_kind': change, 'signature': signature,
+                       'predecessor_revision': _predecessor_revision(prior, revision)})
     return events
 
 
@@ -191,33 +200,80 @@ def _sector_event(company, *, at, policy, db_path):
             'evidence_revision': revision, 'signature': signature,
             'package_id': None, 'articles': articles, 'catalyst': catalyst, 'root_event_ids': [],
             'observed_at': at, 'published_at': max((a['event_time'] for a in articles), default=source_time or at),
-            'watchlist': watchlist_content,
+            'watchlist': watchlist_content, 'predecessor_revision': _predecessor_revision(prior, revision),
             'change_kind': 'material' if prior else 'initial', 'legacy_high_confidence_articles': len(articles),
             'minimum_legacy_articles': max(1, AgentPipelineSettings.from_env().minimum_high_confidence_company_articles)}
 
 
-def discover_company_events(*, sector_symbols=(), policy=None, at=None, db_path=DB_PATH):
+def discover_company_events(*, sector_symbols=None, policy=None, at=None, db_path=DB_PATH):
     policy, at = policy or DiscoveryPolicy.from_env(), timestamp(at or utc_now())
     if policy.mode == 'disabled':
         return {'status': 'disabled', 'queue_ids': []}
     initialize_database(db_path=db_path)
-    positions, watchlist = review_company_ids(at=at, db_path=db_path)
-    companies = select_discovery_companies(policy, at=at, db_path=db_path)
-    sector_symbols = {symbol.upper() for symbol in sector_symbols}
-    queued, errors = [], []
+    from services.research_lock import research_session_lock, ResearchSessionBusy
+    try:
+        with research_session_lock(db_path, 'company-discovery'):
+            return _discover_interested_companies(sector_symbols, policy, at, db_path)
+    except ResearchSessionBusy:
+        return {'status': 'busy', 'queue_ids': [], 'scanned_company_ids': []}
+
+
+def _discover_interested_companies(sector_symbols, policy, at, db_path):
+    from services.company_interest import reconcile_company_interest
+    from services.company_evidence_policy import CompanyEvidencePolicy
+    from services.company_evidence_demand import request_pipeline_evidence
+    from market_db_modules.company_interest import due_discovery_checks, finish_discovery_check
+    if sector_symbols is not None:
+        request_pipeline_evidence(sector_symbols, scope='discovery_pipeline', at=at, db_path=db_path)
+    sector_symbols = sector_symbols or ()
+    positions, watchlist = reconcile_company_interest(
+        at=at, lifetime_seconds=CompanyEvidencePolicy.from_env().stale_seconds, db_path=db_path)
+    companies = due_discovery_checks(at=at, limit=policy.scan_limit, db_path=db_path)
+    with closing(get_connection(db_path)) as conn:
+        pipeline_ids = {r[0] for r in conn.execute('''SELECT company_id FROM company_interest
+            WHERE source IN ('pipeline_selection','opportunist') AND julianday(selected_at)<=julianday(?)
+            AND julianday(expires_at)>julianday(?)''', (at, at))}
+    sector_symbols = {c['symbol'] for c in companies if c['id'] in pipeline_ids} | {s.upper() for s in sector_symbols}
+    queued, errors, waiting = [], [], []
     for company in companies:
+        next_at = (datetime.fromisoformat(at) + timedelta(seconds=policy.rescan_seconds)).isoformat()
+        dependency, reason = None, 'inputs_checked'
         try:
             events = company_discovery_events(company, at=at, policy=policy, db_path=db_path)
-            if (company['symbol'] in sector_symbols or company['id'] in watchlist) and not events:
-                events = [_sector_event(company, at=at, policy=policy, db_path=db_path)]
+            if not events and (company['symbol'] in sector_symbols or company['id'] in watchlist):
+                articles = sector_support_articles(company['id'], at=at, stale_seconds=policy.stale_seconds, db_path=db_path)
+                if articles or company['id'] in watchlist:
+                    events = [_sector_event(company, at=at, policy=policy, db_path=db_path)]
+            dependency = _collection_dependency(company, at, db_path)
+            if dependency:
+                waiting.append({'company_id': company['id'], 'refresh_request_id': dependency})
+                reason = 'missing_or_stale_primary_evidence'
             for event in events:
                 queued.extend(_enqueue_routes(event, positions, watchlist, sector_symbols, at, policy, db_path))
         except Exception as exc:
+            reason = 'discovery_error:' + type(exc).__name__
             errors.append({'company_id': company['id'], 'reason': type(exc).__name__})
-        finally:
-            mark_discovery_scanned(company['id'], at=at, db_path=db_path)
-    return {'status': 'shadow', 'queue_ids': sorted(set(queued)),
+            next_at = (datetime.fromisoformat(at) + timedelta(seconds=policy.retry_seconds)).isoformat()
+        finish_discovery_check(company, at=at, next_at=next_at, reason=reason, dependency=dependency, db_path=db_path)
+        mark_discovery_scanned(company['id'], at=at, lane='events', db_path=db_path)
+    return {'status': 'shadow', 'queue_ids': sorted(set(queued)), 'waiting_for_evidence': waiting,
             'scanned_company_ids': [c['id'] for c in companies], 'errors': errors}
+
+
+def _collection_dependency(company, at, db_path):
+    from agent_builders.company_evidence_payload import build_company_evidence_payload
+    from market_db_modules.evidence_refresh import enqueue_refresh
+    payload = build_company_evidence_payload(company['id'], as_of=at, db_path=db_path)
+    if payload.get('freshness_at_read') == 'fresh' and payload.get('coverage_status') != 'unavailable':
+        return None
+    with closing(get_connection(db_path)) as conn, conn:
+        row = conn.execute('''SELECT request_id FROM company_evidence_requests
+            WHERE company_id=? AND status='pending' AND julianday(requested_at)<=julianday(?)
+            ORDER BY requested_at LIMIT 1''', (company['id'], at)).fetchone()
+        if row:
+            return row[0]
+        version = digest([payload.get('document_ids', []), payload.get('freshness_at_read', 'missing')])
+        return enqueue_refresh(conn, company['id'], 'discovery', version, at=at)
 
 
 def _enqueue_routes(event, positions, watchlist, sector_symbols, at, policy, db_path):

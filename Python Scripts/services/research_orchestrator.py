@@ -59,6 +59,9 @@ class ResearchOrchestrator:
     def run(self, candidate):
         if self.policy.mode == 'disabled':
             return {'status': 'disabled', 'shadow': True}
+        if candidate.get('research_reused'):
+            return {'status': 'covered_by_existing_research', 'shadow': True,
+                    'session_id': candidate['research_owner_session_id']}
         identity = candidate.get('research_session_id') or 'research:' + digest(candidate['queue_id'])
         with research_session_lock(self.db_path, identity):
             return self._run_locked(candidate, identity)
@@ -131,7 +134,7 @@ class ResearchOrchestrator:
         return min(wall, monotonic)
 
     def check_stop(self):
-        if research_event_superseded(self.session['queue_id'], db_path=self.db_path):
+        if research_event_superseded(self.session['queue_id'], session_id=self.session['session_id'], db_path=self.db_path):
             return self.finish('superseded', 'newer_event_revision')
         if self.remaining() <= 0:
             return self.finish('budget_exhausted', 'deadline_exhausted')
@@ -329,7 +332,7 @@ class ResearchOrchestrator:
 
     def finish(self, status, reason):
         # Supersession takes precedence even when it occurs during a provider call.
-        if status != 'superseded' and research_event_superseded(self.session['queue_id'], db_path=self.db_path):
+        if status != 'superseded' and research_event_superseded(self.session['queue_id'], session_id=self.session['session_id'], db_path=self.db_path):
             status, reason = 'superseded', 'newer_event_revision'
         if status == 'ready' and self.remaining() <= 0:
             status, reason = 'budget_exhausted', 'deadline_exhausted'

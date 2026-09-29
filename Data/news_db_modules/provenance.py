@@ -156,6 +156,9 @@ def update_article_provenance(article_id: int, *, conn) -> None:
         from .catalysts import refresh_catalyst
         refresh_catalyst(cluster, conn=conn)
 
+    from market_db_modules.company_interest import signal_company_news
+    signal_company_news(conn, article_id, at=datetime.now(timezone.utc).isoformat())
+
 
 def _refresh_cluster_scores(catalyst, *, conn):
     members = conn.execute("SELECT * FROM news_articles WHERE catalyst_id = ? ORDER BY id", (catalyst,)).fetchall()
