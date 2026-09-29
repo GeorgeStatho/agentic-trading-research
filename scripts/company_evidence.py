@@ -1,4 +1,4 @@
-"""Collect configured company evidence or replay a frozen package offline."""
+"""Collect requested company evidence or replay a frozen package offline."""
 import argparse
 import json
 from pathlib import Path

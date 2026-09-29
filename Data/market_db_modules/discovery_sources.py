@@ -11,13 +11,13 @@ def table_exists(conn, name):
     return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
 
 
-def discovery_companies(symbols, *, db_path=DB_PATH):
-    if not symbols:
+def discovery_companies(symbols, *, company_ids=(), db_path=DB_PATH):
+    if not symbols and not company_ids:
         return []
     with closing(get_connection(db_path)) as conn:
         rows = conn.execute('''SELECT c.id,c.symbol,c.name,i.industry_key,i.name AS industry_name,s.sector_key
             FROM companies c JOIN industries i ON i.id=c.industry_id JOIN sectors s ON s.id=i.sector_id ORDER BY c.id''')
-        return [dict(row) for row in rows if '*' in symbols or row['symbol'].upper() in symbols]
+        return [dict(row) for row in rows if '*' in symbols or row['symbol'].upper() in symbols or row['id'] in company_ids]
 
 
 def review_company_ids(*, at, db_path=DB_PATH):
@@ -45,17 +45,21 @@ def company_event_articles(company_id, *, at, stale_seconds, db_path=DB_PATH):
 
 def select_discovery_companies(policy, *, at, lane='events', limit=None, db_path=DB_PATH):
     """Reserve half the scan for least-recently-seen companies; prioritize the rest."""
-    companies = discovery_companies(policy.symbols, db_path=db_path)
+    positions, watchlist = review_company_ids(at=at, db_path=db_path)
+    from .evidence_refresh import recent_interest_company_ids
+    with closing(get_connection(db_path)) as conn:
+        interested = recent_interest_company_ids(conn, at=at, stale_seconds=policy.stale_seconds)
+    companies = discovery_companies(policy.symbols, company_ids=interested | positions | watchlist, db_path=db_path)
     limit = min(limit or policy.scan_limit, policy.scan_limit)
     if not companies:
         return []
-    positions, watchlist = review_company_ids(at=at, db_path=db_path)
     with closing(get_connection(db_path)) as conn:
         seen = {row['company_id']: row['scanned_at'] for row in conn.execute('SELECT * FROM discovery_scan_state WHERE lane=?', (lane,))}
         schedules = {row[0]: json.loads(row[1] or '[]') for row in conn.execute('''WITH dated AS (
             SELECT company_id,record_json,ROW_NUMBER() OVER (PARTITION BY company_id
                 ORDER BY julianday(information_cutoff_time) DESC,rowid DESC) AS position
-            FROM evidence_packages WHERE julianday(information_cutoff_time)<=julianday(?))
+            FROM evidence_packages WHERE package_id NOT GLOB 'package:research*'
+            AND julianday(information_cutoff_time)<=julianday(?))
             SELECT company_id,json_extract(record_json,'$.scheduled_events') FROM dated WHERE position=1''', (at,))}
         news = {}
         if table_exists(conn, 'company_news_articles'):

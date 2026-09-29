@@ -1,9 +1,10 @@
 # Evidence, discovery, and trade decision implementation plan
 
-Status: Phases 0–2 implemented; Phases 3–7 remain proposed. See
+Status: Phases 0–3 implemented; Phases 4–7 remain proposed. See
 [Phase 0 implementation and operating notes](RESEARCH_PHASE0.md) and
 [Phase 1 implementation, coverage limits, and setup](RESEARCH_PHASE1.md), plus
-[Phase 2 queue and shadow discovery operating notes](RESEARCH_PHASE2.md).
+[Phase 2 queue and shadow discovery operating notes](RESEARCH_PHASE2.md), and
+[Phase 3 bounded research operating notes and retrieval limits](RESEARCH_PHASE3.md).
 
 ## Objective
 
@@ -175,9 +176,9 @@ Acceptance: a fixture company outside the top sectors reaches research; ten synd
 
 ### Phase 3 — Implement bounded investigative research
 
-Proposed modules: `services/research_orchestrator.py`, `services/research_tools.py`, and `agent_stages/research_planner.py`.
+Implemented modules: `services/research_orchestrator.py`, `services/research_tools.py`, and `agent_stages/research_planner.py`.
 
-Expose typed operations, for example:
+Approved archive operations (new external collection remains in Phase 1):
 
 ```text
 get_event_documents(company_id, event_id)
@@ -192,13 +193,15 @@ The model proposes a research question and operation. Python validates arguments
 
 Tasks:
 
-- [ ] Build the initial evidence package and ask which unresolved questions could materially change the thesis.
-- [ ] Validate structured tool requests and retrieve through approved adapters; reuse cached evidence.
-- [ ] Normalize and verify returned numbers, company identity, periods, and source support before adding them to the package.
-- [ ] Preserve contradictions instead of silently choosing the favorable source.
-- [ ] Stop on sufficient evidence, repeated/no-progress requests, budget/deadline exhaustion, provider failure, or event supersession.
-- [ ] Return `ready`, `deferred_missing_evidence`, `conflicting_evidence`, `budget_exhausted`, `superseded`, or `failed`, with a stored reason.
-- [ ] Resume safely after interruption without paying for or repeating completed operations unnecessarily.
+- [x] Build the initial evidence package and ask which unresolved questions could materially change the thesis.
+- [x] Validate structured tool requests and retrieve through approved adapters; reuse cached evidence.
+- [x] Normalize and verify returned numbers, company identity, periods, and source support before adding them to the package.
+- [x] Preserve contradictions instead of silently choosing the favorable source.
+- [x] Stop on sufficient evidence, repeated/no-progress requests, budget/deadline exhaustion, provider failure, or event supersession.
+- [x] Return `ready`, `deferred_missing_evidence`, `conflicting_evidence`, `budget_exhausted`, `superseded`, or `failed`, with a stored reason.
+- [x] Resume safely after interruption without paying for or repeating completed operations unnecessarily.
+- [x] Queue primary-evidence refreshes from the actual pipeline company selection and missing/stale research evidence; do not require a manual collection universe.
+- [x] Continue after changed evidence arrives using a linked, newly dated observation/session, preserving the original replay and daily budgets. Bound automatic continuation to one successor per investigation.
 
 Initial configurable engineering budgets: at most two planner rounds, six retrieval calls, and 90 seconds per candidate. These are starting limits, not validated optimal values. Include every provider retry in the applicable budget and maintain daily provider/model allowances.
 

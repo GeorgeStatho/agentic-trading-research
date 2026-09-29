@@ -112,3 +112,4 @@ def initialize_database(
         migrate_research_foundation(conn)
         conn.executescript(Path(__file__).with_name('company_collection_schema.sql').read_text(encoding='utf-8'))
         conn.executescript(Path(__file__).with_name('discovery_schema.sql').read_text(encoding='utf-8'))
+        conn.executescript(Path(__file__).with_name('research_runtime_schema.sql').read_text(encoding='utf-8'))

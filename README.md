@@ -529,3 +529,7 @@ limits are listed in [the capability matrix](docs/COMPANY_EVIDENCE_PROVIDERS.md)
 The rotating company-event scan, durable queue, and shadow research intake are
 documented in [Research Phase 2](docs/RESEARCH_PHASE2.md). Discovery is disabled by
 default and does not forward candidates to broker execution.
+
+Phase 3 adds bounded shadow investigation with typed archive retrieval, durable
+sessions, daily allowances and offline replay. It is disabled by default. See
+[Research Phase 3](docs/RESEARCH_PHASE3.md) and `scripts/research.py`.

@@ -23,3 +23,6 @@ __pycache__/
 # Local scraping/debug artifacts
 html_pages/
 Data/logs/
+
+# Process locks for bounded shadow research sessions.
+.research-locks/

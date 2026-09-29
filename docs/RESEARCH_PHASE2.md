@@ -22,17 +22,18 @@ DISCOVERY_STALE_SECONDS=604800
 ```
 
 Default mode is `disabled`; the only enabled mode is `shadow`. There is no live
-discovery switch. An empty universe scans nothing. `DISCOVERY_SYMBOLS=*` explicitly
-selects all existing company records; use that only when this table represents
-your intended tradable universe. Discovery does not independently certify broker
-tradability or option availability.
+discovery switch. Current pipeline interest, open positions and watchlists are
+included automatically. `DISCOVERY_SYMBOLS` adds optional targets for the local
+archive/news scan; `*` includes all existing company records in that scan. Neither
+setting directly triggers provider collection. Discovery does not independently
+certify broker tradability or option availability.
 
-For fresh primary-source documents, also enable the Phase 1 collector and supply
-its SEC contact as described in [Phase 1](RESEARCH_PHASE1.md). In shadow discovery
-mode, `DISCOVERY_SYMBOLS` supplies the collection universe independently of sector
-rankings and the narrower `COMPANY_EVIDENCE_SYMBOLS` list. Existing provider quotas,
-cache policy, retry limits and contact requirements still apply. Provider collection
-uses the smaller of its company-per-cycle limit and the discovery scan limit.
+For fresh primary-source documents, enable the Phase 1 collector and supply its
+SEC contact as described in [Phase 1](RESEARCH_PHASE1.md). Collection follows actual
+pipeline selections and explicit investigation requests, with existing provider
+quotas, cache policy, retry limits and the company-per-cycle cap. A company selected
+by the shadow discovery consumer requests collection even when it lacks primary
+evidence; later collection can resolve that gap.
 
 The collector persists events after its evidence refresh. Both full agent-stack
 entrypoints scan and consume the queue alongside the existing sector route.
@@ -44,8 +45,8 @@ Results appear under `pipeline.discovery_shadow`; they never enter the live
 
 At least half of each bounded scan visits the least recently scanned companies.
 The remaining capacity favors incoming company-linked news, confirmed earnings
-events in the next seven days, open positions and watchlisted names. Collection
-and event scanning maintain separate persisted rotation state. A bad company
+events in the next seven days, open positions and watchlisted names. Event scanning
+retains its rotation state; provider collection services the evidence request queue. A bad company
 record is reported and does not prevent the rest of the scan from progressing.
 
 News uses existing company links, catalyst IDs and syndication roots. Copies of

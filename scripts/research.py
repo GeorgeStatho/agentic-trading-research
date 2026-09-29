@@ -1,0 +1,35 @@
+"""Consume shadow research or replay recorded sessions without provider access."""
+import argparse
+import json
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+for folder in ('Data', 'Python Scripts', 'Python Scripts/agentCallers'):
+    sys.path.insert(0, str(ROOT / folder))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--db')
+    subparsers = parser.add_subparsers(dest='command', required=True)
+    consume = subparsers.add_parser('consume')
+    consume.add_argument('--limit', type=int, default=6)
+    replay = subparsers.add_parser('replay')
+    replay.add_argument('session_id')
+    args = parser.parse_args()
+    from db_common import DB_PATH
+    db_path = args.db or DB_PATH
+    if args.command == 'replay':
+        from market_db_modules.research_runtime import replay_research_session
+        result = replay_research_session(args.session_id, db_path=db_path)
+    else:
+        if not 1 <= args.limit <= 100:
+            parser.error('--limit must be between 1 and 100')
+        from services.research_orchestrator import process_research_queue
+        result = process_research_queue(limit=args.limit, db_path=db_path)
+    print(json.dumps(result, indent=2, allow_nan=False))
+
+
+if __name__ == '__main__':
+    main()

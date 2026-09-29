@@ -236,6 +236,9 @@ def run_news_collection_pipeline(
                 top_company_count=top_company_count,
             )
 
+            from services.company_evidence_demand import request_pipeline_evidence
+            request_pipeline_evidence(c['symbol'] for c in company_selection['selected_companies'])
+
             company_results: list[dict[str, Any]] = []
             for company in company_selection["selected_companies"]:
                 _emit_progress(

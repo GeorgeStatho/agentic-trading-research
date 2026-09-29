@@ -11,18 +11,50 @@ Set these environment variables for the news collector:
 ```dotenv
 COMPANY_EVIDENCE_ENABLED=true
 SEC_USER_AGENT=YourApplication operator@your-real-domain.com
-COMPANY_EVIDENCE_SYMBOLS=AAPL,MSFT,NVDA
 ```
 
-The symbols must already exist in `companies`. SEC ticker-to-CIK mappings refresh
-daily and persist locally. Collection rotates through the configured symbols,
-five per cycle by default. This is evidence collection, not the broad event
-discovery/admission queue planned for Phase 2. The trading worker never retrieves
-these documents during payload construction.
+No symbol list is required. The pipeline queues its actual selected companies before
+company opportunist processing and before the strategist/manager stages. Saved
+company opportunist findings and selected shadow research candidates also queue
+refreshes. The collector services those requests, plus current open positions and
+watchlist companies; it does not scan every company in the database.
+
+`COMPANY_EVIDENCE_SYMBOLS` is obsolete and ignored. `DISCOVERY_SYMBOLS` controls
+local event discovery, not the provider collection universe. Issuer configuration
+supplies source settings and identity overrides only; its keys do not select targets.
+Company identities must already exist in `companies`. SEC ticker-to-CIK mappings
+refresh daily and persist locally. The default collection cap is five companies
+per cycle, shared across request sources.
 
 The existing `news_collector_main.py` cycle records `company_evidence_refresh` in
-its output. Collection is disabled by default. Missing contact or universe settings
-produce a configuration diagnostic. No paid API or model is needed.
+its output. Collection is disabled by default. A missing SEC contact produces a
+configuration diagnostic. With no due requests it returns `idle` without a provider
+call. No paid API or model is needed for collection.
+
+### Demand and investigation handoff
+
+Requests persist in `company_evidence_requests`. Repeated selections within a
+refresh window deduplicate, and requests for the same company share a fetch.
+Missing/stale-evidence investigations take priority; remaining requests run oldest
+first. A process lock prevents overlapping collectors on the same host/database.
+Demand older than `COMPANY_EVIDENCE_STALE_SECONDS` expires, and superseded investigations are removed before collection; current
+positions and watchlists receive new periodic requests.
+
+A deferred investigation records its refresh request atomically with its final
+journal entry. The collector resolves the issuer, reuses provider caches, and
+fetches when due under existing quotas. Research requests wait through provider
+cache TTLs without consuming queue retry attempts. Provider failures preserve the
+request with backoff, up to three collection attempts (each still subject to the
+provider's own bounded HTTP retries). Failed identity/source configuration is
+reported instead of substituting another issuer.
+
+On the next research cycle, newly collected evidence creates a linked successor
+session and observation with a later cutoff. Original inputs, evidence packages,
+and journals remain unchanged. Identical evidence does not trigger another model
+run. Each investigation gets at most one automatic collection-driven successor;
+unresolved gaps remain explicit after that, and a newly discovered event can start
+another investigation. Superseding events use the normal new-event research route.
+See [Phase 3](RESEARCH_PHASE3.md) for replay and model budgets.
 
 For a single collection cycle, export the variables above in your shell and run:
 
@@ -121,7 +153,7 @@ remain in force; primary evidence alone does not yet create an entry candidate.
 ## Reliability and replay
 
 The collector persists per-provider/company cursors, next-attempt times, failures,
-and the rotating company position. Each attempted HTTP call, including retries,
+and the persistent request queue. Each attempted HTTP call, including retries,
 reserves daily quota before dispatch. SEC requests default to one per second,
 500/day, a 20-second socket timeout, and two retries. SQLite serializes reservations
 across collectors sharing that database; operators with separate databases must

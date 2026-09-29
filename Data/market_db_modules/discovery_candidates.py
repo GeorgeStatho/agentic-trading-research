@@ -43,6 +43,8 @@ def persist_discovery_candidate(item, payload, admission, version, *, at, db_pat
             (candidate_id,stage,captured_at,information_cutoff_time,pipeline_version,snapshot_version,snapshot_hash,snapshot_json)
             VALUES (?,?,?,?,?,?,?,?)''', (candidate_id, envelope['stage'], at, event['observed_at'],
                                        version['pipeline_version'], envelope['snapshot_version'], digest(envelope), canonical(envelope)))
+        from .evidence_refresh import enqueue_refresh
+        enqueue_refresh(conn, item['company_id'], 'research_candidate', candidate_id, at=at)
         conn.execute('''INSERT INTO discovery_shadow_candidates VALUES (?,?,?,?,?,?,?,?,1)''',
                      (item['queue_id'], candidate_id, observation_id, 'ready' if admission['allowed'] else 'deferred',
                       admission['reason'], canonical(result), digest(result), at))

@@ -344,21 +344,15 @@ class DiscoveryScanTests(DiscoveryFixture):
         policy = replace(self.policy, symbols=('*',), scan_limit=2)
         self.assertEqual([c['symbol'] for c in select_discovery_companies(policy, at=ENTRY, db_path=self.db)], ['NVDA', 'SCHEDULED'])
 
-    def test_broad_collection_rotates_outside_phase1_symbol_list(self):
+    def test_discovery_universe_does_not_trigger_unselected_company_collection(self):
         from services.company_evidence_service import collect_company_evidence
-        from Webscraping.company_evidence.models import CollectionResult
         adapter = Mock()
-        adapter.name = 'sec'
-        adapter.issuer_map.return_value = {'NVDA': COMPANY['cik'], 'OTHER': COMPANY['cik']}
-        adapter.collect.return_value = CollectionResult((guidance(),), {})
-        with patch('services.discovery_policy.DiscoveryPolicy.from_env', return_value=replace(self.policy, scan_limit=1)), \
+        with patch('services.discovery_policy.DiscoveryPolicy.from_env', return_value=replace(self.policy, symbols=('*',))), \
              patch('services.company_evidence_service.SECAdapter', return_value=adapter), \
              patch.dict('os.environ', {'SEC_USER_AGENT': 'Fixture operator@example.test', 'COMPANY_EVIDENCE_SYMBOLS': 'NVDA'}):
-            collect_company_evidence(policy=CompanyEvidencePolicy(enabled=True, companies_per_cycle=1),
-                                     clock=lambda: datetime.fromisoformat(ENTRY), db_path=self.db)
             result = collect_company_evidence(policy=CompanyEvidencePolicy(enabled=True, companies_per_cycle=1),
-                                              clock=lambda: datetime.fromisoformat(later(1)), db_path=self.db)
-        self.assertEqual(result['companies'][0]['symbol'], 'OTHER')
+                                              clock=lambda: datetime.fromisoformat(ENTRY), db_path=self.db)
+        self.assertEqual((result['status'], adapter.issuer_map.call_count), ('idle', 0))
 
     def test_rotating_scan_visits_low_priority_company(self):
         policy = replace(self.policy, scan_limit=1)

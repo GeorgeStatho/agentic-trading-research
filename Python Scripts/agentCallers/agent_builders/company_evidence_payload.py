@@ -37,8 +37,8 @@ def build_company_evidence_payload(company_id, *, as_of=None, package_id=None, d
     included = {fact['fact_id'] for fact in selected}
     def visible_claims(items):
         return [item for item in items if set(item.get('fact_ids', [])) <= included]
-    newest = max(doc['published_at'] for doc in documents.values())
-    age = (datetime.fromisoformat(cutoff) - datetime.fromisoformat(newest)).total_seconds()
+    newest = max((doc['published_at'] for doc in documents.values()), default=None)
+    age = (datetime.fromisoformat(cutoff) - datetime.fromisoformat(newest)).total_seconds() if newest else 0
     return {**package, 'facts': visible,
             'documents': [{key: doc[key] for key in ('document_id', 'source_url', 'publisher', 'document_type',
                                                     'published_at', 'first_observed_at', 'ingested_at', 'metadata') if key in doc}

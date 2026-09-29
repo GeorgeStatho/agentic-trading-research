@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from db_common import DB_PATH, get_connection
 from market_db import initialize_database as initialize_market_database
 from market_db import (
+    replay_research_session, load_research_progress,
     enqueue_discovery_event, claim_discovery_batch, preview_discovery_queue, renew_discovery_lease, finish_discovery_item, discovery_queue_status,
     record_evidence_document,
     record_company_fact,

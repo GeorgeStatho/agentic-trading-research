@@ -440,6 +440,8 @@ def _run_strategist_and_manager(
     )
 
     from services.candidate_lifecycle import begin_candidate, checkpoint, reject, record_gate, observe
+    from services.company_evidence_demand import request_pipeline_evidence
+    request_pipeline_evidence(company_symbols)
     from services.pipeline_version import build_pipeline_version
     cycle_version = observe(build_pipeline_version)
     for symbol in company_symbols:

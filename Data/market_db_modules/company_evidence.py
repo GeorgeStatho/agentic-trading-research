@@ -94,7 +94,9 @@ def latest_evidence_package(company_id, *, as_of, db_path=DB_PATH):
     with closing(get_connection(db_path)) as conn:
         if conn.execute("SELECT 1 FROM sqlite_master WHERE name='evidence_packages' AND type='table'").fetchone() is None:
             return None
+        # The reserved package:research* namespace is shadow-only.
         row = conn.execute('''SELECT package_id FROM evidence_packages WHERE company_id=?
+            AND package_id NOT GLOB 'package:research*'
             AND julianday(information_cutoff_time)<=julianday(?)
             ORDER BY julianday(information_cutoff_time) DESC,rowid DESC LIMIT 1''',
                            (company_id, timestamp(as_of))).fetchone()
@@ -106,6 +108,7 @@ def list_company_documents(company_id, *, as_of, db_path=DB_PATH):
         rows = conn.execute('''SELECT DISTINCT d.document_id FROM evidence_documents d
             JOIN evidence_package_documents pd USING(document_id)
             JOIN evidence_packages p USING(package_id) WHERE p.company_id=?
+            AND p.package_id NOT GLOB 'package:research*'
             AND julianday(p.information_cutoff_time)<=julianday(?)''', (company_id, timestamp(as_of)))
         return [read_record(conn, 'evidence_documents', 'document_id', row['document_id']) for row in rows]
 

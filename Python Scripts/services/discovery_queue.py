@@ -77,4 +77,7 @@ def run_discovery_shadow_cycle(*, sector_symbols=(), policy=None, clock=utc_now,
     if policy.mode == 'disabled':
         return {'status': 'disabled', 'candidates': []}
     discovery = discover_company_events(sector_symbols=sector_symbols, policy=policy, at=clock(), db_path=db_path)
-    return {**process_discovery_queue(policy=policy, clock=clock, db_path=db_path), 'discovery': discovery}
+    result = {**process_discovery_queue(policy=policy, clock=clock, db_path=db_path), 'discovery': discovery}
+    from services.research_orchestrator import process_research_queue
+    result['research'] = process_research_queue(clock=clock, limit=policy.batch_size, db_path=db_path)
+    return result
