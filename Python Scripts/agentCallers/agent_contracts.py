@@ -285,6 +285,7 @@ class StrategistInputPayload(TypedDict):
     views: StrategistViewsPayload
     supporting_articles: SupportingArticlesPayload
     grounding: dict[str, Any]
+    company_evidence: NotRequired[dict[str, Any]]
 
 
 class ManagerInputPayload(StrategistInputPayload):

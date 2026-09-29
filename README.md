@@ -20,6 +20,11 @@ For maintainers adding features, start with [docs/ARCHITECTURE.md](docs/ARCHITEC
 
 ## Current Architecture
 
+The evidence/discovery research foundation is documented in
+[Research Phase 0](docs/RESEARCH_PHASE0.md). It adds immutable evidence records,
+shared observations for strategy comparisons, and additive storage contracts.
+New provider retrieval and event-driven trading remain later implementation phases.
+
 The current runtime stack is:
 
 ```text
@@ -516,3 +521,7 @@ If you’re working on similar systems, have feedback, or are interested in coll
 
 
  
+
+Company earnings/guidance ingestion, immutable evidence packages, and offline replay
+are described in [Research Phase 1](docs/RESEARCH_PHASE1.md). Provider coverage and
+limits are listed in [the capability matrix](docs/COMPANY_EVIDENCE_PROVIDERS.md).

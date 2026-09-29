@@ -173,6 +173,11 @@ def build_strategist_input(
             full_article_limit=full_article_limit,
         ),
     }
+    from agent_builders.company_evidence_payload import build_company_evidence_payload
+    payload["company_evidence"] = build_company_evidence_payload(
+        serialized_company["company_id"],
+        as_of=end_time.astimezone(timezone.utc).isoformat() if end_time else None,
+    )
     payload["grounding"] = build_strategist_grounding(payload)
     return payload
 

@@ -28,7 +28,7 @@ DEFAULT_MODEL = os.getenv(
     os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "world-news-sectors")),
 )
 MANAGER_STAGE_VERSION = "decision-only-v3"
-MANAGER_PROMPT_VERSION = "manager-prompt-v2-ordinal-components"
+MANAGER_PROMPT_VERSION = "manager-prompt-v3-company-evidence"
 
 VALID_DECISIONS = {"call", "put", "neither"}
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}

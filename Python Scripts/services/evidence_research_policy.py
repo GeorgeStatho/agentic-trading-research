@@ -41,11 +41,13 @@ def foundation_manifest():
         "Data/market_db_modules/company_evidence.py", "Data/market_db_modules/research_observations.py"))
     adapters = sorted((ROOT / "Python Scripts/Webscraping/company_evidence").rglob("*.py"))
     sources.extend(adapters)
+    sources.extend((ROOT / "Python Scripts/services").glob("company_evidence*.py"))
+    sources.extend((ROOT / "Data/market_db_modules").glob("company_collection*.*"))
+    sources.append(ROOT / "Python Scripts/agentCallers/agent_builders/company_evidence_payload.py")
     hashes = {str(path.relative_to(ROOT)): sha256(path.read_bytes()).hexdigest()
               for path in sorted(sources) if path.is_file()}
-    # No adapters ship in Phase 0. Provider-specific non-secret configuration belongs
-    # in this explicit block when an adapter is added, never in an environment dump.
-    provider_config = {"enabled_providers": [], "adapters": [str(p.relative_to(ROOT)) for p in adapters]}
+    from services.company_evidence_policy import provider_manifest
+    provider_config = {**provider_manifest(), "adapters": [str(p.relative_to(ROOT)) for p in adapters]}
     budgets = asdict(EvidenceResearchPolicy.from_env())
     economics = {"pricing": asdict(PricingPolicy.from_env()), "contracts": asdict(ContractPolicy.from_env())}
     return {"schema_version": SCHEMA_VERSION, "observation_protocol": OBSERVATION_PROTOCOL,

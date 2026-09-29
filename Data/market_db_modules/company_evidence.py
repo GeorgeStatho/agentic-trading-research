@@ -50,6 +50,12 @@ def record_evidence_package(package: EvidencePackage, *, db_path=DB_PATH):
     data = record_data(package)
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
+        for event in package.scheduled_events:
+            if event.get('document_id') not in package.document_ids:
+                raise ValueError('Scheduled event references an omitted document')
+        for claim in (*package.supporting_claims, *package.opposing_claims):
+            if not set(claim.get('fact_ids', ())).issubset(package.fact_ids):
+                raise ValueError('Evidence claim references an omitted fact')
         for identity in package.document_ids:
             document = read_record(conn, "evidence_documents", "document_id", identity)
             if document["ingested_at"] > data["information_cutoff_time"]:
@@ -74,6 +80,34 @@ def record_evidence_package(package: EvidencePackage, *, db_path=DB_PATH):
 
 def get_evidence_package(package_id, *, db_path=DB_PATH):
     return load_record(db_path, "evidence_packages", "package_id", package_id)
+
+
+def get_evidence_document(document_id, *, db_path=DB_PATH):
+    return load_record(db_path, "evidence_documents", "document_id", document_id)
+
+
+def get_company_fact(fact_id, *, db_path=DB_PATH):
+    return load_record(db_path, "company_facts", "fact_id", fact_id)
+
+
+def latest_evidence_package(company_id, *, as_of, db_path=DB_PATH):
+    with closing(get_connection(db_path)) as conn:
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='evidence_packages' AND type='table'").fetchone() is None:
+            return None
+        row = conn.execute('''SELECT package_id FROM evidence_packages WHERE company_id=?
+            AND julianday(information_cutoff_time)<=julianday(?)
+            ORDER BY julianday(information_cutoff_time) DESC,rowid DESC LIMIT 1''',
+                           (company_id, timestamp(as_of))).fetchone()
+        return read_record(conn, 'evidence_packages', 'package_id', row['package_id']) if row else None
+
+
+def list_company_documents(company_id, *, as_of, db_path=DB_PATH):
+    with closing(get_connection(db_path)) as conn:
+        rows = conn.execute('''SELECT DISTINCT d.document_id FROM evidence_documents d
+            JOIN evidence_package_documents pd USING(document_id)
+            JOIN evidence_packages p USING(package_id) WHERE p.company_id=?
+            AND julianday(p.information_cutoff_time)<=julianday(?)''', (company_id, timestamp(as_of)))
+        return [read_record(conn, 'evidence_documents', 'document_id', row['document_id']) for row in rows]
 
 
 def list_company_facts(company_id, *, as_of, db_path=DB_PATH):

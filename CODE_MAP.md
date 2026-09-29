@@ -1,6 +1,8 @@
 # Code Syntax Tree And Map
 
 This file is a high-level map of the repository as it exists now.
+For an incoming agent, start with [AGENT_HANDOFF.md](AGENT_HANDOFF.md) for the
+current V2 delivery state, operating assumptions, validation and remaining work.
 It is meant to answer two questions quickly:
 
 1. What is in this repo?
@@ -14,6 +16,12 @@ includes compatibility modules that new features should not target directly.
 
 ## 1. Syntax Tree
 
+Research foundation additions are mapped in [Research Phase 0](docs/RESEARCH_PHASE0.md):
+`Data/research_foundation_contracts.py`, the `company_evidence`, `research_foundation`,
+and `research_observations` database modules, and the `research_versions` and
+`evidence_research_policy` services. These supply Phase 0 persistence and comparison
+identity; discovery workers and provider adapters are not yet implemented.
+
 ```text
 Stock-trading-experiment/
 ├── README.md
@@ -21,7 +29,10 @@ Stock-trading-experiment/
 ├── requirements.txt
 ├── config/
 │   └── Modelfile
-├── Data/
+├── Data/nd evidence checks
+Strategist thesis
+Trade economics
+Manager a
 │   ├── db.py
 │   ├── db_common.py
 │   ├── market_db.py
@@ -535,5 +546,36 @@ That split explains why the repo feels mixed: it contains both the older trading
   in the existing risk/expiration/trailing ladder and coactive attribution.
 - `scripts/v2_part5.py`: baseline and observation/mapping coverage reports.
 - `tests/test_v2_part5.py`: numerical, state-machine, migration and runtime tests.
+
+## V2 Part 6 research infrastructure
+
+- `services/research_contract.py`: common cutoff assertions, research policy and six
+  deterministic strategy decisions. Paths here and below are under `Python Scripts/`.
+- `services/research_inputs.py`: verified T2 snapshot adapters, mechanical features,
+  gate observations and frozen contract selection. The selector's scoped clock in
+  `agentCallers/agent_helpers/deterministic_option_selector/market.py` keeps historical
+  DTE calculations independent of the current date.
+- `services/shadow_portfolio.py`: ask-entry/bid-exit daily counterfactuals, fees,
+  coactive exit reasons, gate matrices and three expectancy denominators.
+- `Data/market_db_modules/research_schema.sql`, `research_runs.py`: additive run,
+  frozen-input, shadow-position, report, promotion and champion storage; exact-N
+  enrollment, quote availability checks and same-capital SMH/QQQ comparisons.
+- `Data/market_db_modules/research_reports.py`: monthly/full-cohort rankings,
+  confidence calibration, cited reports and evidence-qualified promotions.
+- `services/research_promotion.py`: policy/source-bound gate approvals and the
+  singleton champion's capital guard. Runtime policy factories use this guard.
+- `services/catalyst_response_collector.py`: refreshes eligible research runs after
+  the existing catalyst/forward-return collection. `agentCallers/main.py` records
+  candidate completion before research enrollment.
+- `agentCallers/agent_stages/manager_prompt.py`, `manager_normalization.py`,
+  `manager_shared.py`: versioned ordinal thesis, timing and execution confidence.
+- `scripts/v2_part6.py`: start, collect, report, status and explicit promotion commands.
+- `tests/test_v2_part6.py`: cutoff, quote-path, denominator, calibration, freeze,
+  coverage and promotion tests. See `TRADINGBOT_V2_PART6_CHANGES.md` for assumptions
+  and the distinction between implementation and live evidence acceptance.
 - [TRADINGBOT_V2_PART5_CHANGES.md](TRADINGBOT_V2_PART5_CHANGES.md): implementation
   rationale, configuration, validation and explicit E1/live-thesis deferrals.
+
+Company earnings/guidance ingestion, immutable evidence packages, and offline replay
+are described in [Research Phase 1](docs/RESEARCH_PHASE1.md). Provider coverage and
+limits are listed in [the capability matrix](docs/COMPANY_EVIDENCE_PROVIDERS.md).

@@ -6,6 +6,10 @@ from market_db_modules.company_evidence import (
     record_company_fact,
     record_evidence_package,
     get_evidence_package,
+    get_evidence_document,
+    get_company_fact,
+    latest_evidence_package,
+    list_company_documents,
     list_company_facts,
 )
 from market_db_modules.research_foundation import (
@@ -107,6 +111,10 @@ __all__ = [
     "record_company_fact",
     "record_evidence_package",
     "get_evidence_package",
+    "get_evidence_document",
+    "get_company_fact",
+    "latest_evidence_package",
+    "list_company_documents",
     "list_company_facts",
     "enqueue_discovery",
     "get_discovery_item",

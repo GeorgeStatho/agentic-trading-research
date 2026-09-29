@@ -38,7 +38,7 @@ DEFAULT_MODEL = os.getenv(
 )
 
 _strategist_client: Client | None = None
-STRATEGIST_PROMPT_VERSION = "grounded-strategist-v1"
+STRATEGIST_PROMPT_VERSION = "grounded-strategist-v2-company-evidence"
 
 
 def _build_manager_evidence_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -53,6 +53,7 @@ def _build_manager_evidence_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "views",
                 "supporting_articles",
                 "grounding",
+                "company_evidence",
             )
         }
     )

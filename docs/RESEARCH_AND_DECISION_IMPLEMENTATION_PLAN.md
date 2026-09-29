@@ -1,7 +1,8 @@
 # Evidence, discovery, and trade decision implementation plan
 
-Status: Phase 0 implemented; Phases 1–7 remain proposed. See
-[Phase 0 implementation and operating notes](RESEARCH_PHASE0.md).
+Status: Phases 0–1 implemented; Phases 2–7 remain proposed. See
+[Phase 0 implementation and operating notes](RESEARCH_PHASE0.md) and
+[Phase 1 implementation, coverage limits, and setup](RESEARCH_PHASE1.md).
 
 ## Objective
 
@@ -143,14 +144,14 @@ Proposed modules:
 
 Tasks:
 
-- [ ] Start with issuer releases and regulatory filings for earnings/guidance; establish a maintained company-to-issuer identifier map.
-- [ ] Add a provider capability matrix before implementation: supported universe, timestamp quality, historical revisions, cost, quotas, permitted storage, and supported metrics. Verify current provider documentation at implementation time.
-- [ ] Treat paid consensus as an optional adapter. Core ingestion must operate without it and expose its absence.
-- [ ] Collect revenue, earnings with accounting basis, margins, cash flow, cash/debt where available, and previous/current guidance ranges with fiscal periods.
-- [ ] Capture scheduled event times where available, recording uncertainty and whether the date is confirmed.
-- [ ] Cache immutable documents; use provider-specific retry/backoff, quota accounting, timeouts, and a persisted collection cursor.
-- [ ] Preserve source excerpts for extracted facts. Use deterministic parsing where practical and structured extraction with numeric/entity validation otherwise.
-- [ ] Build a compact evidence package with known facts, derived changes, opposing evidence, and unresolved gaps. Fetch asynchronously through the collector, not inside payload builders.
+- [x] Start with issuer releases and regulatory filings for earnings/guidance; establish a maintained company-to-issuer identifier map.
+- [x] Add a provider capability matrix before implementation: supported universe, timestamp quality, historical revisions, cost, quotas, permitted storage, and supported metrics. Verify current provider documentation at implementation time.
+- [x] Treat paid consensus as an optional adapter. Core ingestion must operate without it and expose its absence.
+- [x] Collect revenue, earnings with accounting basis, margins, cash flow, cash/debt where available, and previous/current guidance ranges with fiscal periods.
+- [x] Capture scheduled event times where available, recording uncertainty and whether the date is confirmed.
+- [x] Cache immutable documents; use provider-specific retry/backoff, quota accounting, timeouts, and a persisted collection cursor.
+- [x] Preserve source excerpts for extracted facts. Use deterministic parsing where practical and structured extraction with numeric/entity validation otherwise.
+- [x] Build a compact evidence package with known facts, derived changes, opposing evidence, and unresolved gaps. Fetch asynchronously through the collector, not inside payload builders.
 
 Acceptance: reconstruct an earlier package after a later restatement; demonstrate correct handling of a missing consensus feed, conflicting fiscal periods, and revised guidance. No network access is needed to replay a saved package.
 

@@ -40,6 +40,7 @@ class EvidenceDocument:
     first_observed_at: str
     ingested_at: str
     supersedes_document_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     schema_version: str = SCHEMA_VERSION
 
     def __post_init__(self):
@@ -114,6 +115,7 @@ class EvidencePackage:
     gaps: tuple[str, ...] = ()
     coverage_status: Literal["complete", "partial", "unavailable"] = "partial"
     freshness_status: Literal["fresh", "stale", "unknown"] = "unknown"
+    scheduled_events: tuple[dict[str, Any], ...] = ()
     schema_version: str = SCHEMA_VERSION
 
     def __post_init__(self):

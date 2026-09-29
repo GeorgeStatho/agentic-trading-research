@@ -113,7 +113,7 @@ def validate_candidate_observation(conn, candidate_id, observation):
         source = observation["source_snapshot"]
         payload = envelope.get("payload")
         if isinstance(payload, dict):
-            for key in ("market_context", "supporting_articles", "grounding", "company", "opportunist_rollup"):
+            for key in ("market_context", "supporting_articles", "grounding", "company", "opportunist_rollup", "company_evidence"):
                 if key in source and key in payload and source[key] != payload[key]:
                     raise ValueError("Candidate inputs differ from the shared source snapshot")
         if row["stage"] == "observation_input":

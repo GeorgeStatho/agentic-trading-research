@@ -64,7 +64,7 @@ def _apply_manager_evidence_payload(
     if not isinstance(supporting_articles, dict) or not isinstance(grounding, dict):
         return False
 
-    for key in ("filters", "opportunist_rollup", "views", "supporting_articles", "grounding"):
+    for key in ("filters", "opportunist_rollup", "views", "supporting_articles", "grounding", "company_evidence"):
         value = manager_evidence_payload.get(key)
         if value is not None:
             payload[key] = copy.deepcopy(value)
@@ -389,6 +389,7 @@ def decide_company_option_position(
         "context_snapshot": context_snapshot,
         "market_context": market_context,
         "supporting_articles": payload.get("supporting_articles", {}),
+        "company_evidence": payload.get("company_evidence", {}),
         "recent_manager_decision_history": payload.get("recent_manager_decision_history", []),
         "resolved_autopsy_insights": payload.get("resolved_autopsy_insights", []),
         "strategist_recommendation": payload.get("strategist_recommendation", {}),
