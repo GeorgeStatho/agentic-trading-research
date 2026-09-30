@@ -3,6 +3,7 @@ from __future__ import annotations
 from db_common import DB_PATH, DATA_DIR
 from market_db_modules.research_runtime import replay_research_session, load_research_progress
 from market_db_modules.evidence_thesis import record_evidence_thesis, get_evidence_thesis
+from market_db_modules.evidence_thesis_report import evidence_thesis_report
 from market_db_modules.discovery_queue import (
     enqueue_discovery_event, claim_discovery_batch, preview_discovery_queue, renew_discovery_lease, finish_discovery_item, discovery_queue_status,
 )
@@ -116,6 +117,7 @@ __all__ = [
     "load_research_progress",
     "record_evidence_thesis",
     "get_evidence_thesis",
+    "evidence_thesis_report",
     "enqueue_discovery_event",
     "claim_discovery_batch",
     "preview_discovery_queue",

@@ -4,6 +4,7 @@ Offline only: isolated SQLite databases, fixture documents and fake model respon
 """
 import copy
 from contextlib import closing
+from datetime import datetime, timezone
 from functools import partial
 import json
 import sqlite3
@@ -18,11 +19,13 @@ from agent_stages.manager_strategist_context import _build_manager_visible_strat
 from agent_stages.strategist_schema import strategist_recommendation_schema
 from db_common import get_connection
 from market_db_modules.evidence_thesis import get_evidence_thesis
+from market_db_modules.evidence_thesis_report import evidence_thesis_report
 from services.company_evidence_extraction import ingest_source
 from services.company_evidence_packages import build_company_package
 from services.company_evidence_policy import CompanyEvidencePolicy
 from services.evidence_thesis import (
-    check_evidence_thesis, compact_thesis_check, evaluate_evidence_thesis_gate, persist_thesis_check,
+    check_evidence_thesis, compact_thesis_check, evaluate_evidence_thesis_gate, not_requested_check,
+    persist_thesis_check,
 )
 from services.evidence_thesis_numbers import stated_numbers
 from services.evidence_thesis_policy import EvidenceThesisPolicy
@@ -321,6 +324,59 @@ class PersistenceAndHandoffTests(ThesisFixture):
         manager_payload["company_evidence"]["package_id"] = "package:other"
         visible = _build_manager_visible_strategist_context(manager_payload)
         self.assertEqual((visible.get("evidence_thesis"), visible["evidence_thesis_handoff"]), (None, "package_mismatch"))
+
+
+class ReportTests(ThesisFixture):
+    NOW = datetime(2026, 9, 3, 12, tzinfo=timezone.utc)
+
+    def setUp(self):
+        super().setUp()
+        payload = self.payload()
+        invented = self.guidance_claim(payload, "Guidance midpoint rose by $35 million")
+        broken = {key: value for key, value in self.thesis(payload).items() if key != "horizon"}
+        for thesis in (self.thesis(payload), self.thesis(payload, supporting=[invented]), broken):
+            persist_thesis_check(self.check(thesis, payload), company_id=1, db_path=self.db)
+        persist_thesis_check(not_requested_check(payload, "no_evidence", route="legacy_strategist", policy=self.policy),
+                             company_id=1, db_path=self.db)
+
+    def decision(self, *, would_allow, executed=False, pnl=None, run_at="2026-09-03T10:00:00", other_gates=True):
+        output = {"evidence_thesis_gate": {"allowed": True, "would_allow": would_allow, "proposed_decision": "call",
+                                           "enforcement_mode": "shadow",
+                                           "reason_codes": [] if would_allow else ["thesis_deferred"]},
+                  "entry_gate": {"allowed": other_gates}, "market_regime_gate": {"allowed": True},
+                  "selected_option": {"symbol": "NVDA260918C00100000"}}
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute("""INSERT INTO manager_decision_history
+                (decision_run_at,manager_decision,trade_executed,realized_pnl_pct,manager_output_json)
+                VALUES (?,?,?,?,?)""", (run_at, "call", int(executed), pnl, json.dumps(output)))
+
+    def report(self, **kwargs):
+        return evidence_thesis_report(now=self.NOW, db_path=self.db, **kwargs)
+
+    def test_statuses_and_rates_exclude_not_requested(self):
+        checks = self.report()["checks"]
+        self.assertEqual((checks["total"], checks["requested"], checks["invalid_output_rate"]), (4, 3, 0.3333))
+
+    def test_claim_failures_are_grouped_by_code(self):
+        self.assertEqual(self.report()["checks"]["claim_failures"], {"unsupported_number": 1})
+
+    def test_shape_errors_are_listed(self):
+        self.assertEqual(self.report()["checks"]["shape_errors"][0][1], 1)
+
+    def test_gate_counts_what_enforcement_would_remove(self):
+        self.decision(would_allow=True, executed=True, pnl=12.0)
+        self.decision(would_allow=False, executed=True, pnl=-30.0)
+        self.decision(would_allow=False, other_gates=False)
+        gate = self.report()["entry_gate"]
+        self.assertEqual((gate["would_block"], gate["would_block_otherwise_eligible"], gate["executed_while_would_block"],
+                          gate["descriptive_outcomes"]["would_block"]["mean_realized_pnl_pct"]), (2, 1, 1, -30.0))
+
+    def test_window_excludes_older_decisions(self):
+        self.decision(would_allow=False, run_at="2026-08-01T10:00:00")
+        self.assertEqual(self.report(days=7)["entry_gate"]["evaluated"], 0)
+
+    def test_route_filter_applies_to_checks(self):
+        self.assertEqual(self.report(route="research_shadow")["checks"]["total"], 0)
 
 
 class GateTests(unittest.TestCase):

@@ -37,6 +37,52 @@ python3 scripts/research.py --db /path/to/market.db theses --limit 6
 python3 scripts/research.py --db /path/to/market.db thesis 'thesis:research:HASH'
 ```
 
+### Shadow-period report
+
+```bash
+python3 scripts/research.py --db /path/to/market.db thesis-report --days 7
+python3 scripts/research.py --db /path/to/market.db thesis-report --days 0 --route legacy_strategist
+```
+
+The read-only report covers the last `--days` days, or all history when `--days` is `0`.
+`--route` filters the check statistics only.
+
+- **`checks`**: status counts and shares. Invalid-output and deferral rates are computed over
+  checks where a thesis was requested. Also: why theses were not requested, thesis-level
+  failure codes, claim failure codes grouped by prefix (`unsupported_number`,
+  `quote_not_in_source`, ...), the most common shape errors, thesis directions, and semantic
+  review status.
+- **`entry_gate`**: legacy-route `EVIDENCE_THESIS` verdicts from `manager_decision_history`.
+  Includes the would-block rate among directional decisions and its reason codes. Also counts
+  would-block entries that passed every other gate and had a contract (what enforcement would
+  actually remove), and executed trades the gate would have blocked.
+- **`descriptive_outcomes`**: mean realized P&L of closed trades, split by gate verdict. This
+  is monitoring only; promotion still requires the Part 6 counterfactual reports.
+- **`research_route`**: finished research sessions still awaiting a thesis, and any unresolved
+  reservations.
+
+In the first shadow weeks, watch `invalid_output_rate` and the top claim failures. A high rate
+means the model is not producing checkable theses, and the prompt needs tuning before the gate
+data is meaningful.
+
+## Cycle failure isolation
+
+A larger strategist response makes an individual model failure more likely, so a failure in
+one company's strategist, manager or contract-selection stage no longer ends the cycle. The
+failure is:
+
+- recorded as a `stage_error` candidate rejection (terminal for research enrollment)
+- logged with its traceback
+- emitted as a `company_failed` progress event
+- listed under `failed_companies` in the agent result (`symbol`, `candidate_id`, `stage`, `error_type`, truncated `error`)
+
+A failed company never reaches the execution callback, and the remaining companies continue.
+Three consecutive company failures usually indicate a shared outage, such as the model
+provider being down. After three in a row the cycle stops early, and the remaining companies
+are recorded with stage `NOT_RUN`. Companies that completed earlier keep their results, so
+the batch path still builds orders for them. Exceptions raised by the execution callback
+itself are not isolated and still end the cycle.
+
 The writer is configured like the strategist and manager stages:
 
 | Setting | Resolution |
@@ -175,8 +221,9 @@ linked `strategist_runs.input_payload`.
   eligibility. The manager still runs in every mode, so shadow comparisons stay complete.
 - **Promotion-guarded enforcement**: enforcement only removes entries, but the continuation
   gate, also restrict-only, is guarded too. Consistency and measurable counterfactuals won.
-- **Thesis failures never fail the strategist**: shape or check errors become statuses. A
-  strategist exception aborts the whole cycle, and Phase 4 must not add new ways to do that.
+- **Thesis failures never fail the strategist**: shape or check errors become statuses, not
+  exceptions. A strategist that fails for other reasons, such as unparseable legacy fields,
+  is isolated to its company (see "Cycle failure isolation").
 - **Articles-only baselines are unknown**: an article reporting "raised guidance from X"
   is not a verified baseline. `supported_comparison` requires comparable package facts.
 - **Research theses reuse planner infrastructure, not planner configuration**: the writer
@@ -214,8 +261,8 @@ linked `strategist_runs.input_payload`.
 | Policy | `Python Scripts/services/evidence_thesis_policy.py` |
 | Strategist/manager integration | `strategist_runner.py`, `strategist_prompt.py`, `strategist_schema.py`, `manager_strategist_context.py`, `manager_prompt.py`, `agentCallers/main.py`, `services/order_candidates.py` |
 | Research shadow route | `agent_stages/research_thesis_writer.py`, `services/research_thesis.py` |
-| Storage | `Data/market_db_modules/evidence_thesis.py`, `evidence_thesis_schema.sql` |
-| Tests | `tests/test_thesis_evidence_contract.py`, `tests/test_research_thesis.py` |
+| Storage and report | `Data/market_db_modules/evidence_thesis.py`, `evidence_thesis_schema.sql`, `evidence_thesis_report.py` |
+| Tests | `tests/test_thesis_evidence_contract.py`, `tests/test_research_thesis.py`, `tests/test_agent_runner_main.py` (failure isolation) |
 
 ```bash
 DB_PATH=/tmp/phase4.db TELEMETRY_ENABLED=false PYTHONPATH=tests \
@@ -224,13 +271,14 @@ DB_PATH=/tmp/phase4.db TELEMETRY_ENABLED=false PYTHONPATH=tests \
 
 Implementation verification:
 
-- The 61 Phase 4 tests pass. They cover the plan's acceptance cases: a valid article ID with
-  an unsupported number fails, opposing evidence survives the manager handoff, a missing
-  expectation baseline must be explicitly unknown, and legacy payload/prompt tests pass. They
-  also cover spans, scaling and rounding, incompatible periods and bases, surprise assertions,
+- The 67 Phase 4 tests and 7 cycle failure-isolation tests pass. They cover the plan's
+  acceptance cases: a valid article ID with an unsupported number fails, opposing evidence
+  survives the manager handoff, a missing expectation baseline must be explicitly unknown,
+  and legacy payload/prompt tests pass. They also cover spans, scaling and rounding, incompatible periods and bases, surprise assertions,
   package opposing evidence, the semantic hook, immutability, the gate in all modes, order
   eligibility, `off`-mode legacy behaviour, one-thesis-per-session, unknown-outcome recovery,
-  the shared daily budgets, and the writer's strategist-style model/host/rate resolution.
+  the shared daily budgets, the writer's strategist-style model/host/rate resolution, and the
+  shadow-period report.
 - The strategist/manager, research, discovery, evidence, execution and V2 Parts 1–6 suites pass.
 - The full discovery run: 947 tests, 2 failures, 2 errors, 30 skips. The errors are the
   pre-existing Flask-stub interaction noted in Phase 0; Flask is not installed here. The

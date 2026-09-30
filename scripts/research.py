@@ -21,6 +21,9 @@ def main():
     theses.add_argument('--limit', type=int, default=6)
     thesis = subparsers.add_parser('thesis', help='show one recorded evidence thesis check')
     thesis.add_argument('evaluation_id')
+    report = subparsers.add_parser('thesis-report', help='summarise thesis checks and gate verdicts (read-only)')
+    report.add_argument('--days', type=int, default=7, help='look-back window in days; 0 for all history')
+    report.add_argument('--route', choices=('legacy_strategist', 'research_shadow'))
     args = parser.parse_args()
     from db_common import DB_PATH
     db_path = args.db or DB_PATH
@@ -30,6 +33,11 @@ def main():
     elif args.command == 'thesis':
         from market_db_modules.evidence_thesis import get_evidence_thesis
         result = get_evidence_thesis(args.evaluation_id, db_path=db_path)
+    elif args.command == 'thesis-report':
+        if args.days < 0:
+            parser.error('--days must be 0 or positive')
+        from market_db_modules.evidence_thesis_report import evidence_thesis_report
+        result = evidence_thesis_report(days=args.days, route=args.route, db_path=db_path)
     elif args.command == 'theses':
         if not 1 <= args.limit <= 100:
             parser.error('--limit must be between 1 and 100')
