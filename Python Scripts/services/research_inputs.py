@@ -4,6 +4,12 @@ import json
 from statistics import mean
 
 from services.research_contract import assert_information_cutoff, direction, number, utc
+from services.entry_gates import ENTRY_GATES
+from agent_helpers.deterministic_option_selector import _pick_matching_contract
+from agent_helpers.deterministic_option_selector import config
+from agent_helpers.deterministic_option_selector.market import selection_date
+from services.contract_policy import ContractPolicy
+from services.pipeline_version import serializable
 
 
 FEATURE_TIME_KEYS = {'timestamp', 'published_at', 'available_at', 'as_of', 'quote_at',
@@ -72,11 +78,10 @@ def load_inputs(conn, candidate, as_of):
         if rejection['stage'] != 'LIQUIDITY':
             gates[rejection['stage']] = False
     # Canonical entry_gate snapshots exist even when record_gate was not reached.
-    for name, key in (('CONTINUATION', 'entry_gate'), ('REGIME', 'market_regime_gate'),
-                      ('EVIDENCE_THESIS', 'evidence_thesis_gate')):
-        gate = payload.get(key) or {}
-        if isinstance(gate.get('would_allow'), bool):
-            gates.setdefault(name, gate['would_allow'])
+    for entry_gate in ENTRY_GATES:
+        verdict = entry_gate.verdict(payload) or {}
+        if isinstance(verdict.get('would_allow'), bool):
+            gates.setdefault(entry_gate.name, verdict['would_allow'])
     strategist = payload.get('strategist_recommendation') or snapshots.get('post_strategist', (None, {}))[1].get('recommendation') or {}
     confidence = {key: manager.get(key) for key in ('thesis_confidence', 'timing_confidence', 'execution_confidence')}
     selected = payload.get('selected_option')
@@ -126,11 +131,6 @@ def replay_missing_selection(inputs):
     side = direction(inputs['features'].get('manager_direction'))
     if inputs['selected_contract'] or not inputs['contracts'] or side not in {'call', 'put'}:
         return inputs
-    from agent_helpers.deterministic_option_selector import _pick_matching_contract
-    from agent_helpers.deterministic_option_selector import config
-    from agent_helpers.deterministic_option_selector.market import selection_date
-    from services.pipeline_version import serializable
-    from services.contract_policy import ContractPolicy
     current_config = {key: serializable(value) for key, value in vars(config).items()
                       if key.isupper() and isinstance(value, (str, int, float, bool, dict, list, tuple, set, frozenset))}
     manifest = inputs['pipeline_version']

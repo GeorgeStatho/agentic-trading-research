@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +14,7 @@ from agent_helpers.market_context.underlying_indicators import (
     _compute_simple_moving_average,
 )
 from agent_helpers.volatility import compute_realized_volatility
+from services.regime_history import refresh_regime_history
 
 
 LOGGER = logging.getLogger("market_regime")
@@ -324,8 +324,6 @@ def refresh_macro_calendar_for_market_regime() -> dict[str, Any]:
     """
     webscraping_dir = Path(__file__).resolve().parents[1] / "Webscraping"
     normalized_webscraping_dir = str(webscraping_dir)
-    if normalized_webscraping_dir not in sys.path:
-        sys.path.append(normalized_webscraping_dir)
 
     try:
         from pipelines.macroNewsPipeline import ingest_macro_and_news
@@ -349,7 +347,6 @@ def refresh_macro_calendar_for_market_regime() -> dict[str, Any]:
 
 
 def _fetch_closes(symbol: str) -> tuple[list[float], str | None]:
-    from services.regime_history import refresh_regime_history
     return refresh_regime_history(symbol)
 
 

@@ -8,10 +8,6 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-ROOT = Path(__file__).resolve().parents[1]
-for path in (ROOT / "Data", ROOT / "Python Scripts", ROOT / "Python Scripts" / "agentCallers"):
-    sys.path.insert(0, str(path))
-
 from db_common import get_connection
 from market_db import (
     initialize_database, record_manager_decision_history, list_decision_autopsy_ledger,

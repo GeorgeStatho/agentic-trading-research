@@ -17,7 +17,7 @@ The code in this folder is responsible for:
 
 ## Files
 
-### [CommonPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/core/CommonPipeline.py)
+### [CommonPipeline.py](CommonPipeline.py)
 
 This is the main shared utility module for the news pipelines.
 
@@ -56,7 +56,7 @@ Important constants:
 - `MAX_ARTICLES_PER_SEARCH_PAGE = 10`
 - `MAX_ARTICLE_AGE_DAYS = 14`
 
-### [scrape_logging.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/core/scrape_logging.py)
+### [scrape_logging.py](scrape_logging.py)
 
 This module creates the shared file logger used by the scraper.
 
@@ -69,7 +69,7 @@ Important behavior:
 
 This is why the logs from source-page crawl, article-page crawl, and pipeline decisions all land in the same session log.
 
-### [__init__.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/core/__init__.py)
+### [__init__.py](__init__.py)
 
 Package marker for the folder.
 

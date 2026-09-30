@@ -78,7 +78,7 @@ There is also a simpler RSS-first flow used by the sector, U.S., and world pipel
 
 ## Files
 
-### [companyNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/companyNewsPipeline.py)
+### [companyNewsPipeline.py](companyNewsPipeline.py)
 
 This is the company news entrypoint layer.
 
@@ -117,7 +117,7 @@ What is no longer owned directly by this file:
 
 Those moved into `_article_follow.py`, `_orchestration.py`, and `_entity_adapters.py`.
 
-### [industryNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/industryNewsPipeline.py)
+### [industryNewsPipeline.py](industryNewsPipeline.py)
 
 This is the industry news entrypoint layer.
 
@@ -151,7 +151,7 @@ Why this pipeline still looks a little larger than the company pipeline:
 
 Even so, the actual crawl orchestration is now shared through `run_mixed_job_orchestration(...)`.
 
-### [sectorNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/sectorNewsPipeline.py)
+### [sectorNewsPipeline.py](sectorNewsPipeline.py)
 
 This is the sector news entrypoint layer.
 
@@ -178,7 +178,7 @@ Important internal pieces:
 
 This pipeline is RSS-first. It does not crawl search pages. Instead it builds direct article jobs from CNBC RSS output, then batches those article URLs into one shared `crawl_article_pages(...)` pass.
 
-### [USNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/USNewsPipeline.py)
+### [USNewsPipeline.py](USNewsPipeline.py)
 
 This is the U.S. macro/business news pipeline.
 
@@ -196,7 +196,7 @@ What it is responsible for:
 
 This pipeline is intentionally thin. Most of its behavior is delegated into `_regionNewsPipeline.py`.
 
-### [worldNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/worldNewsPipeline.py)
+### [worldNewsPipeline.py](worldNewsPipeline.py)
 
 This is the world macro/business news pipeline.
 
@@ -214,7 +214,7 @@ What it is responsible for:
 
 Like the U.S. pipeline, it is intentionally thin and delegates most of its behavior into `_regionNewsPipeline.py`.
 
-### [_article_follow.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_article_follow.py)
+### [_article_follow.py](_article_follow.py)
 
 This module contains the low-level article follow/save mechanics shared by all entity pipelines.
 
@@ -250,7 +250,7 @@ This module is intentionally generic. It does not know whether it is saving comp
 - the raw JSON builder
 - optional link inclusion rules
 
-### [_orchestration.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_orchestration.py)
+### [_orchestration.py](_orchestration.py)
 
 This module contains the shared workflow runner for turning jobs into saved articles.
 
@@ -291,7 +291,7 @@ What each helper does:
 
 This is the main reason the pipelines are easier to refactor now. The crawl flow lives here instead of being duplicated in each entity file.
 
-### [_entity_adapters.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_entity_adapters.py)
+### [_entity_adapters.py](_entity_adapters.py)
 
 This module builds the entity-specific adapter functions that plug company, industry, and sector logic into the shared orchestration layer.
 
@@ -318,7 +318,7 @@ What these adapters do:
 
 This module is what keeps the pipelines thin without hiding entity-specific behavior. The entity file still decides what makes a link relevant and what payload should be saved, but the repeated plumbing is centralized here.
 
-### [_sector_rss.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_sector_rss.py)
+### [_sector_rss.py](_sector_rss.py)
 
 This module contains CNBC RSS-specific helpers used by the sector pipeline.
 
@@ -339,7 +339,7 @@ What it does:
 
 This keeps RSS parsing and feed resolution out of the sector pipeline entrypoint file.
 
-### [_regionNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_regionNewsPipeline.py)
+### [_regionNewsPipeline.py](_regionNewsPipeline.py)
 
 This module is a small shared base for fixed-feed CNBC region pipelines such as U.S. News and World News.
 
@@ -353,7 +353,7 @@ It handles:
 
 The U.S. and world pipeline files are mostly just configuration wrappers around this module.
 
-### [job_builder.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/job_builder.py)
+### [job_builder.py](job_builder.py)
 
 This module creates structured jobs instead of having each pipeline build source URLs inline.
 
@@ -377,7 +377,7 @@ What these functions do:
 
 This keeps the pipeline files from having to know how URLs are assembled.
 
-### [_shared.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_shared.py)
+### [_shared.py](_shared.py)
 
 This module is the compatibility and convenience layer that most pipelines import from.
 
@@ -391,7 +391,7 @@ It pulls together:
 
 The goal is not business logic. The goal is to give the pipeline layer one stable import surface for common dependencies.
 
-### [_internal.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_internal.py)
+### [_internal.py](_internal.py)
 
 This module contains shared pipeline helper logic that is internal to the pipeline layer.
 
@@ -403,7 +403,7 @@ Examples include:
 
 This is where small reusable pieces live when they are too pipeline-specific for `_shared.py` but too common to duplicate in every entity pipeline.
 
-### [_constants.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_constants.py)
+### [_constants.py](_constants.py)
 
 This module contains pipeline-specific constants such as:
 
@@ -412,7 +412,7 @@ This module contains pipeline-specific constants such as:
 
 These constants are used by the entity match-variant builders.
 
-### [macroNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/macroNewsPipeline.py)
+### [macroNewsPipeline.py](macroNewsPipeline.py)
 
 This is the macro/economic data pipeline.
 

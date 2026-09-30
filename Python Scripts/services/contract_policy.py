@@ -3,6 +3,8 @@ from dataclasses import dataclass
 import math
 import os
 
+from services.research_promotion import guard_policy
+
 
 def mode(name):
     value = os.getenv(name, 'shadow').lower().strip()
@@ -53,6 +55,5 @@ class ContractPolicy:
                    maximum_cluster_positions=int(os.getenv('V2_MAX_CLUSTER_POSITIONS', '1')),
                    maximum_cluster_exposure_fraction=float(os.getenv('V2_MAX_CLUSTER_EXPOSURE_FRACTION', '.25')),
                    scenario_iv_change=float(os.getenv('V2_SCENARIO_IV_CHANGE', '-.05')))
-        from services.research_promotion import guard_policy
         return guard_policy(policy, {'liquidity_mode': ('LIQUIDITY', 'EXECUTION_LIQUIDITY'), 'cluster_mode': 'RISK_CLUSTER',
                                      'scenario_mode': 'SCENARIO_SELECTION', 'exit_mode': 'POSITION_EXIT_V2'})

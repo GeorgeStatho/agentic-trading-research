@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup, Tag, NavigableString
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from apihelper import (
+from APIs.apihelper import (
     ArticleContent,
     ArticleResponse,
     _extract_article_date,

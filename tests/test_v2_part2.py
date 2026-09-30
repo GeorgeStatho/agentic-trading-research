@@ -11,10 +11,6 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-ROOT = Path(__file__).resolve().parents[1]
-for folder in ('Data', 'Python Scripts', 'Python Scripts/agentCallers'):
-    sys.path.insert(0, str(ROOT / folder))
-
 from db_common import get_connection
 from market_db import initialize_database, record_option_trade_execution, record_manager_decision_history
 from market_db_modules.candidate_lifecycle import (record_candidate, record_candidate_snapshot,
@@ -332,7 +328,7 @@ class VersionAndGateTests(unittest.TestCase):
             self.assertFalse(writer.call_args.kwargs['shadow'])
 
     def test_coactive_exit_collection_preserves_priority_and_state(self):
-        from test_option_positions import _load_option_positions_module, _make_trailing_profit_config, _make_momentum_history_config
+        from tests.test_option_positions import _load_option_positions_module, _make_trailing_profit_config, _make_momentum_history_config
         module = _load_option_positions_module()
         strategy = sys.modules['_test_trading_support._option_positions_strategy']
         state = {'max_pnl_pct': 1.1, 'profit_protection_active': True, 'protected_profit_floor_pct': .4}

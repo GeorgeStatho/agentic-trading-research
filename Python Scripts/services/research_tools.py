@@ -8,7 +8,8 @@ from db_common import get_connection
 from market_db_modules.company_evidence import get_company_fact, get_evidence_document
 from market_db_modules.foundation_store import digest, read_record
 from research_foundation_contracts import CompanyFact, EvidenceDocument, timestamp
-from services.company_evidence_extraction import comparison_key, validate_extracted_fact
+from services.company_evidence_extraction import comparison_key, guidance_midpoint, validate_extracted_fact
+from dataclasses import asdict
 
 MAX_RESULT_FACTS = 240
 MAX_RESULT_DOCUMENTS = 24
@@ -111,8 +112,7 @@ def guidance_comparisons(facts):
         if len({(f['value'], f.get('range_high')) for f in prior}) != 1:
             continue
         baseline = prior[0]
-        midpoint = lambda f: f['value'] / 2 + (f.get('range_high') if f.get('range_high') is not None else f['value']) / 2
-        change = midpoint(current) - midpoint(baseline)
+        change = guidance_midpoint(current) - guidance_midpoint(baseline)
         if not math.isfinite(change):
             raise ValueError('Guidance comparison is not finite')
         comparisons.append({'type': 'guidance_midpoint_change', 'fact_ids': [baseline['fact_id'], current['fact_id']],
@@ -154,7 +154,6 @@ class ResearchTools:
         if timeout <= 0:
             raise TimeoutError('Research deadline')
         # Revalidate even programmatically constructed requests at the adapter boundary.
-        from dataclasses import asdict
         request = self.parse(asdict(request))
         if request.operation == 'get_event_price_response':
             return self._prices()

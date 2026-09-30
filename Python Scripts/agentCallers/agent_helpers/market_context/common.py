@@ -2,23 +2,16 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any
 
-if __package__ in {None, ""}:
-    AGENT_CALLERS_DIR = Path(__file__).resolve().parents[1]
-    if str(AGENT_CALLERS_DIR) not in sys.path:
-        sys.path.append(str(AGENT_CALLERS_DIR))
-
-from _paths import DATA_DIR, ROOT_DIR, bootstrap_agent_callers, load_project_env
+from services.runtime_paths import DATA_DIR
+from services.settings import load_process_settings
 
 
 if __name__ == "__main__":
-    load_project_env()
+    load_process_settings()
 
-bootstrap_agent_callers(include_webscraping=True)
 
 try:
     from alpaca.data import OptionHistoricalDataClient, StockHistoricalDataClient
@@ -55,7 +48,7 @@ except ImportError:  # pragma: no cover - optional dependency
     yf = None
 
 try:
-    from yfinance_client import REQUEST_HANDLER
+    from market_data.yfinance_client import REQUEST_HANDLER
 except ImportError:  # pragma: no cover - optional dependency
     REQUEST_HANDLER = None
 
@@ -66,9 +59,6 @@ from agent_helpers.volatility import (
 )
 
 
-DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE = max(1, int(os.getenv("MANAGER_OPTION_CHAIN_LIMIT_PER_TYPE", "6")))
-DEFAULT_OPTION_CHAIN_FETCH_MULTIPLIER = max(2, int(os.getenv("MANAGER_OPTION_CHAIN_FETCH_MULTIPLIER", "6")))
-DEFAULT_OPTION_FETCH_MIN = max(100, int(os.getenv("MANAGER_OPTION_FETCH_MIN", "500")))
 PREFERRED_OTM_DISTANCE = 0.75
 OPTION_SYMBOL_TEMPLATE = r"\d{6}[CP]\d{8}$"
 MARKET_INDEX_DEFINITIONS: tuple[tuple[str, str, str], ...] = (
@@ -79,32 +69,6 @@ MARKET_INDEX_DEFINITIONS: tuple[tuple[str, str, str], ...] = (
 SECTOR_ETF_FILE = DATA_DIR / "sector_etfs.json"
 CLOSEST_EXPIRATION_GTE = 1
 FARTHEST_EXPIRATION_LTE = 8
-UNDERLYING_HISTORY_LOOKBACK_CALENDAR_DAYS = max(
-    90,
-    int(os.getenv("MANAGER_UNDERLYING_HISTORY_LOOKBACK_DAYS", "120")),
-)
-UNDERLYING_HV_SHORT_WINDOW_DAYS = max(
-    20,
-    int(os.getenv("MANAGER_UNDERLYING_HV_SHORT_WINDOW_DAYS", "20")),
-)
-UNDERLYING_HV_LONG_WINDOW_DAYS = max(
-    UNDERLYING_HV_SHORT_WINDOW_DAYS,
-    int(os.getenv("MANAGER_UNDERLYING_HV_LONG_WINDOW_DAYS", "60")),
-)
-OPTION_IV_HISTORY_PATH = Path(
-    os.getenv(
-        "OPTION_IV_HISTORY_PATH",
-        str(ROOT_DIR / "shared" / "option_iv_history.json"),
-    )
-)
-OPTION_IV_HISTORY_MAX_ENTRIES = max(
-    30,
-    int(os.getenv("OPTION_IV_HISTORY_MAX_ENTRIES", "252")),
-)
-OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES = max(
-    1,
-    int(os.getenv("OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES", "20")),
-)
 IV_PERCENTILE_DTE_BUCKETS: tuple[tuple[str, int, int], ...] = (
     ("1_3", 1, 3),
     ("4_7", 4, 7),

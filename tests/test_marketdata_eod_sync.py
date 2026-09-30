@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -9,10 +8,6 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
-
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "Data"))
 
 from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database

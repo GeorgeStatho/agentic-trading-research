@@ -8,6 +8,7 @@ them, so legacy imports and Docker commands remain compatible.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 from pathlib import Path
 import subprocess
 import sys
@@ -53,11 +54,15 @@ def main() -> int:
     if args.command == "run":
         return _run([PYTHON, str(RUNTIME_ENTRYPOINTS[args.target]), *args.args])
     if args.command == "test":
+        if importlib.util.find_spec("db_common") is None:
+            print("The project is not installed. Run: pip install -e .", file=sys.stderr)
+            return 2
+        # Tests import as the `tests` package, whose __init__ isolates the environment first.
         command = [PYTHON, "-m", "unittest"]
         if args.modules:
             command.extend(args.modules)
         else:
-            command.extend(["discover", "-s", "tests", "-p", "test_*.py", "-v"])
+            command.extend(["discover", "-s", "tests", "-t", ".", "-p", "test_*.py"])
         return _run(command)
     if args.command == "dashboard":
         return _run(["npm", "run", args.target], cwd=ROOT_DIR / "web_dashboard")

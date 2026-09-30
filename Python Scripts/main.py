@@ -11,23 +11,13 @@ Implementation lives in ``Python Scripts/services``.
 """
 
 import logging
-import sys
 from typing import Any
 
-try:
-    from dotenv import load_dotenv
-except ImportError:  # pragma: no cover - optional dependency
-    load_dotenv = None
+from services.settings import load_process_settings
 
-from services.runtime_paths import AGENT_CALLERS_DIR, DATA_DIR, ENV_PATH, PYTHON_SCRIPTS_DIR, ROOT_DIR
-
-for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.append(normalized)
-
-if load_dotenv is not None:
-    load_dotenv(ENV_PATH)
+# Entrypoint only: importers (the option-manager entrypoint, tests) must not load .env.
+if __name__ == "__main__":
+    load_process_settings()
 
 from services.cold_start import ColdStartSanityChecker
 from services.config import FrontMainPaths, FrontMainSettings

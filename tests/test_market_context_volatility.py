@@ -1,31 +1,24 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
-
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
-
-from _paths import load_project_env  # noqa: E402
-
-load_project_env()
 
 import agent_helpers.market_context as market_context  # noqa: E402
 from agent_helpers.market_context import underlying as underlying_module  # noqa: E402
 from agent_helpers.market_context import underlying_bars as underlying_bars_module  # noqa: E402
 from agent_helpers.market_context import common as market_context_common  # noqa: E402
 from agent_stages.manager_payload_context import _build_manager_visible_market_context  # noqa: E402
+from services.settings import get_settings, use_settings
+
+
+def iv_history_settings(**changes):
+    """Run with a temporary IV-history location and thresholds."""
+    return use_settings(manager_context=replace(get_settings().manager_context, **changes))
 
 
 class MarketContextVolatilityTests(unittest.TestCase):
@@ -244,7 +237,7 @@ class MarketContextVolatilityTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             history_path = Path(temp_dir) / "option_iv_history.json"
-            with patch.object(market_context, "OPTION_IV_HISTORY_PATH", history_path):
+            with iv_history_settings(iv_history_path=history_path):
                 with patch.object(market_context, "datetime", FirstSnapshotDatetime):
                     first_result = market_context._enrich_with_alpaca_iv_percentiles("AAPL", dict(first_summary))
                 with patch.object(market_context, "datetime", SecondSnapshotDatetime):
@@ -327,22 +320,21 @@ class MarketContextVolatilityTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             history_path = Path(temp_dir) / "option_iv_history.json"
-            with patch.object(market_context, "OPTION_IV_HISTORY_PATH", history_path):
-                with patch.object(market_context, "OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES", 1):
-                    with patch.object(market_context, "datetime", FirstSnapshotDatetime):
-                        market_context._enrich_with_alpaca_iv_percentiles(
-                            "AAPL",
-                            dict(first_summary),
-                            contracts=first_contracts,
-                            reference_stock_price=100.0,
-                        )
-                    with patch.object(market_context, "datetime", SecondSnapshotDatetime):
-                        second_result = market_context._enrich_with_alpaca_iv_percentiles(
-                            "AAPL",
-                            dict(second_summary),
-                            contracts=second_contracts,
-                            reference_stock_price=100.0,
-                        )
+            with iv_history_settings(iv_history_path=history_path, iv_bucket_min_history_samples=1):
+                with patch.object(market_context, "datetime", FirstSnapshotDatetime):
+                    market_context._enrich_with_alpaca_iv_percentiles(
+                        "AAPL",
+                        dict(first_summary),
+                        contracts=first_contracts,
+                        reference_stock_price=100.0,
+                    )
+                with patch.object(market_context, "datetime", SecondSnapshotDatetime):
+                    second_result = market_context._enrich_with_alpaca_iv_percentiles(
+                        "AAPL",
+                        dict(second_summary),
+                        contracts=second_contracts,
+                        reference_stock_price=100.0,
+                    )
 
         self.assertEqual(
             second_result["dte_bucket_iv_percentiles"]["1_3"],

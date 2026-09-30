@@ -19,6 +19,15 @@ from market_db_modules.discovery_sources import (
 from market_db_modules.foundation_store import digest
 from research_foundation_contracts import DiscoveryQueueItem, EvidencePackage, timestamp
 from services.discovery_policy import DiscoveryPolicy
+from catalyst_models import PRIMARY_SOURCE_TYPES
+from market_db_modules.company_interest import due_discovery_checks, finish_discovery_check
+from market_db_modules.evidence_refresh import enqueue_refresh
+from news_db_modules.catalysts import build_catalyst_state, store_catalyst_state
+from services.company_evidence_demand import request_pipeline_evidence
+from services.company_evidence_policy import CompanyEvidencePolicy
+from services.company_interest import reconcile_company_interest
+from services.config import AgentPipelineSettings
+from services.research_lock import research_session_lock, ResearchSessionBusy
 
 
 def utc_now():
@@ -166,7 +175,6 @@ def _event_package(package, catalyst_id, revision, db_path):
 
 def priority_components(event, purpose, *, at):
     catalyst = event['catalyst']
-    from catalyst_models import PRIMARY_SOURCE_TYPES
     primary = (bool(event['package_id']) or catalyst.get('primary_source_present', False)
                or any(article.get('source_type') in PRIMARY_SOURCE_TYPES for article in event.get('articles', [])))
     age_hours = max(0, (datetime.fromisoformat(at) - datetime.fromisoformat(event['published_at'])).total_seconds() / 3600)
@@ -177,8 +185,6 @@ def priority_components(event, purpose, *, at):
 
 
 def _sector_event(company, *, at, policy, db_path):
-    from news_db_modules.catalysts import build_catalyst_state, store_catalyst_state
-    from services.config import AgentPipelineSettings
     articles = sector_support_articles(company['id'], at=at, stale_seconds=policy.stale_seconds, db_path=db_path)
     catalyst_id = 'catalyst:sector-discovery:' + str(company['id'])
     catalyst = build_catalyst_state(catalyst_id, [], ticker=company['symbol'])
@@ -210,7 +216,6 @@ def discover_company_events(*, sector_symbols=None, policy=None, at=None, db_pat
     if policy.mode == 'disabled':
         return {'status': 'disabled', 'queue_ids': []}
     initialize_database(db_path=db_path)
-    from services.research_lock import research_session_lock, ResearchSessionBusy
     try:
         with research_session_lock(db_path, 'company-discovery'):
             return _discover_interested_companies(sector_symbols, policy, at, db_path)
@@ -219,10 +224,6 @@ def discover_company_events(*, sector_symbols=None, policy=None, at=None, db_pat
 
 
 def _discover_interested_companies(sector_symbols, policy, at, db_path):
-    from services.company_interest import reconcile_company_interest
-    from services.company_evidence_policy import CompanyEvidencePolicy
-    from services.company_evidence_demand import request_pipeline_evidence
-    from market_db_modules.company_interest import due_discovery_checks, finish_discovery_check
     if sector_symbols is not None:
         request_pipeline_evidence(sector_symbols, scope='discovery_pipeline', at=at, db_path=db_path)
     sector_symbols = sector_symbols or ()
@@ -262,7 +263,6 @@ def _discover_interested_companies(sector_symbols, policy, at, db_path):
 
 def _collection_dependency(company, at, db_path):
     from agent_builders.company_evidence_payload import build_company_evidence_payload
-    from market_db_modules.evidence_refresh import enqueue_refresh
     payload = build_company_evidence_payload(company['id'], as_of=at, db_path=db_path)
     if payload.get('freshness_at_read') == 'fresh' and payload.get('coverage_status') != 'unavailable':
         return None

@@ -4,19 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
-from pathlib import Path
-import sys
 from typing import Any
-
-if __package__ in {None, ""}:
-    AGENT_CALLERS_DIR = Path(__file__).resolve().parents[1]
-    if str(AGENT_CALLERS_DIR) not in sys.path:
-        sys.path.append(str(AGENT_CALLERS_DIR))
-
-from _paths import bootstrap_agent_callers
-
-
-bootstrap_agent_callers()
 
 from agent_builders.company_opportunity import get_company_linked_articles, get_industry_company_groups
 from agent_helpers.shared import normalize_time_window, published_at_in_window

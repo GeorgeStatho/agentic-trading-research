@@ -18,6 +18,10 @@ from .research_observations import (
     validate_strategy_evaluation,
 )
 from services.shadow_portfolio import simulate_option
+from .bootstrap import initialize_database
+from services.price_response import completed_at
+from services.research_contract import direction
+import logging
 
 
 def migrate_research(conn):
@@ -26,7 +30,6 @@ def migrate_research(conn):
 
 def start_run(manifest, *, kind='frozen_forward', target_candidates=200, policy=None,
               db_path=DB_PATH, now=None, observation_protocol=OBSERVATION_PROTOCOL):
-    from .bootstrap import initialize_database
     initialize_database(db_path=db_path)
     policy = policy or ResearchPolicy()
     if kind not in {'frozen_forward', 'leakage_checked_backtest'} or target_candidates < 1:
@@ -100,7 +103,6 @@ def option_quotes(conn, contract, cutoff, as_of):
 
 def observed_sessions(conn, as_of):
     """Completed, already-published SPY sessions: the evidence a daily mark is checked against."""
-    from services.price_response import completed_at
     sessions = []
     for row in conn.execute("SELECT * FROM historical_underlying_bars WHERE symbol='SPY' AND timeframe='1d'"):
         bar = dict(row)
@@ -128,7 +130,6 @@ def _position(conn, inputs, decision, strategy, run, as_of, sessions):
 
 def benchmark_position(conn, symbol, reference, inputs, run, as_of):
     """Buy and hold fractional shares for the same capital and holding window."""
-    from services.price_response import completed_at
     base = {'information_cutoff_time': inputs['information_cutoff_time'], 'outcome_cutoff_time': as_of,
             'status': 'missing_benchmark_prices', 'hypothetical_pnl': None, 'deployed_dollar_days': None,
             'basis': 'same-capital buy-and-hold from the first session close at or after the '
@@ -264,7 +265,6 @@ def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
                 raise ValueError('Frozen research inputs changed')
             validate_strategy_evaluation(conn, run, row, inputs)
             decisions = strategy_decisions(inputs['features'], run['policy'])
-            from services.research_contract import direction
             decisions['counterfactual'] = direction(inputs['features'].get('manager_direction'))
             results = {}
             for strategy in ('counterfactual', *STRATEGIES, 'SMH', 'QQQ'):
@@ -287,7 +287,6 @@ def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
 
 def collect_active_runs(*, as_of=None, db_path=DB_PATH):
     """Called by the existing periodic response collector; stale runs stay frozen."""
-    import logging
     with closing(get_connection(db_path)) as conn, conn:
         run_ids = [row[0] for row in conn.execute('''SELECT run_id FROM research_runs
             WHERE status='open' OR EXISTS(SELECT 1 FROM research_shadow_positions p

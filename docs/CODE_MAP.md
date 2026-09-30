@@ -1,22 +1,22 @@
 # Code Syntax Tree And Map
 
 This file is a high-level map of the repository as it exists now.
-For an incoming agent, start with [AGENT_HANDOFF.md](AGENT_HANDOFF.md) for the
-current V2 delivery state, operating assumptions, validation and remaining work.
+Start with the [documentation index](README.md), which separates current documents
+from archived snapshots.
 It is meant to answer two questions quickly:
 
 1. What is in this repo?
 2. How do the main pieces connect?
 
 For the supported extension boundaries and the feature checklist, use
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
-[docs/FEATURE_PLAYBOOK.md](docs/FEATURE_PLAYBOOK.md). This map intentionally
-includes compatibility modules that new features should not target directly.
+[docs/ARCHITECTURE.md](ARCHITECTURE.md) and
+[docs/FEATURE_PLAYBOOK.md](FEATURE_PLAYBOOK.md). This map intentionally
+reflects the canonical packages; the old top-level compatibility wrappers were removed.
 
 
 ## 1. Syntax Tree
 
-Research foundation additions are mapped in [Research Phase 0](docs/RESEARCH_PHASE0.md):
+Research foundation additions are mapped in [Research Phase 0](RESEARCH_PHASE0.md):
 `Data/research_foundation_contracts.py`, the `company_evidence`, `research_foundation`,
 and `research_observations` database modules, and the `research_versions` and
 `evidence_research_policy` services. These supply Phase 0 persistence and comparison
@@ -66,18 +66,6 @@ Manager a
 │   │   └── stringtoJson.py
 │   ├── Webscraping/
 │   │   ├── README.md
-│   │   ├── article_scraper.py
-│   │   ├── article_extraction.py
-│   │   ├── companyNewsPipeline.py
-│   │   ├── industryNewsPipeline.py
-│   │   ├── sectorNewsPipeline.py
-│   │   ├── macroNewsPipeline.py
-│   │   ├── USNewsPipeline.py
-│   │   ├── worldNewsPipeline.py
-│   │   ├── source_config.py
-│   │   ├── urlFactories.py
-│   │   ├── news_normalization.py
-│   │   ├── scoring.py
 │   │   ├── engine/
 │   │   │   ├── article_scraper.py
 │   │   │   ├── article_extraction.py
@@ -121,25 +109,6 @@ Manager a
 │   │       └── urllist.py
 │   └── agentCallers/
 │       ├── README.md
-│       ├── agentMain.py
-│       ├── _paths.py
-│       ├── _shared.py
-│       ├── _macro_news_helpers.py
-│       ├── _opportunist_payload_helpers.py
-│       ├── _sector_opportunist_helpers.py
-│       ├── _industry_opportunist_helpers.py
-│       ├── _company_opportunist_helpers.py
-│       ├── _strategist_helpers.py
-│       ├── MacroNewsToSectors.py
-│       ├── SectorOppurtunist.py
-│       ├── IndustryOppuruntinst.py
-│       ├── CompanyOppurtunist.py
-│       ├── Strategist.py
-│       ├── WorldNewsToSectors.py
-│       ├── marketHealth.py
-│       ├── researcher.py
-│       ├── industryIntrest.py
-│       ├── sectorIntrest.py
 │       ├── agent_analysis/
 │       │   ├── industry_interest.py
 │       │   └── sector_interest.py
@@ -157,7 +126,6 @@ Manager a
 │       │   └── manager.py
 │       ├── agent_stages/
 │       │   ├── macro_news_to_sectors.py
-│       │   ├── world_news_to_sectors.py
 │       │   ├── sector_opportunist.py
 │       │   ├── industry_opportunist.py
 │       │   ├── company_opportunist.py
@@ -256,8 +224,7 @@ Data/news_db.py
 
 Important note:
 
-- The top-level files like `Webscraping/companyNewsPipeline.py` are mostly compatibility wrappers.
-- The real implementation now lives in `Webscraping/pipelines/`.
+- The implementation lives in `Webscraping/pipelines/`; the old top-level wrappers were removed.
 
 
 ### Agent Research System
@@ -275,15 +242,14 @@ This is the staged LLM research and decision-support pipeline.
 - `agent_pipeline/main.py`
   - Higher-level orchestration for running multiple stages in sequence.
 - Top-level files in `agentCallers/`
-  - Mostly compatibility wrappers for older imports and direct script execution.
+  - Entrypoints only: `main.py` (strategist/manager runner), the offline evaluator and quote/backtest CLIs.
 
 Current stage flow:
 
 ```text
 macro/world news
         ↓
-macro_news_to_sectors.py
-world_news_to_sectors.py
+macro_news_to_sectors.py (macro and world news)
         ↓
 sector_opportunist.py
         ↓
@@ -376,8 +342,6 @@ db_helpers/__init__.py
 ### `Python Scripts/Webscraping/`
 
 ```text
-top-level wrappers
-  ↓
 pipelines/*
   ↓
 engine/*
@@ -390,7 +354,7 @@ Data/news_db.py
 ### `Python Scripts/agentCallers/`
 
 ```text
-compatibility wrappers
+main.py (entrypoint)
   ↓
 agent_pipeline/*
   ↓
@@ -457,7 +421,7 @@ That split explains why the repo feels mixed: it contains both the older trading
 - `Data/market_db_modules/shadow_gates.py`: immutable decision-time gate verdicts
   and their joins to realized outcomes.
 - `scripts/v2_part1.py`: outcome, provenance, regime, and gate maintenance commands.
-- [TRADINGBOT_V2_PART1_CHANGES.md](TRADINGBOT_V2_PART1_CHANGES.md): implementation
+- [TRADINGBOT_V2_PART1_CHANGES.md](v2/TRADINGBOT_V2_PART1_CHANGES.md): implementation
   rationale, validation results, and outstanding deployment checks.
 
 ## V2 Part 2 telemetry foundations
@@ -476,7 +440,7 @@ That split explains why the repo feels mixed: it contains both the older trading
 - `Data/market_db_modules/telemetry_schema.py`: additive legacy schema migration.
 - `scripts/v2_part2.py`: execution, funnel, lifecycle, exits, fills and post-exit CLI.
 - `tests/test_v2_part2.py`: telemetry invariants and handoff coverage.
-- [TRADINGBOT_V2_PART2_CHANGES.md](TRADINGBOT_V2_PART2_CHANGES.md): choices,
+- [TRADINGBOT_V2_PART2_CHANGES.md](v2/TRADINGBOT_V2_PART2_CHANGES.md): choices,
   measurement definitions, commands, validation and deployment acceptance.
 
 ## V2 Part 3 provenance and catalysts
@@ -495,7 +459,7 @@ That split explains why the repo feels mixed: it contains both the older trading
   executed-outcome coverage by catalyst-age quartile.
 - `scripts/v2_part3.py`: catalyst backfill, family and freshness reports.
 - `tests/test_v2_part3.py`: Part 3 invariants and integration tests.
-- [TRADINGBOT_V2_PART3_CHANGES.md](TRADINGBOT_V2_PART3_CHANGES.md): implementation
+- [TRADINGBOT_V2_PART3_CHANGES.md](v2/TRADINGBOT_V2_PART3_CHANGES.md): implementation
   decisions, clock semantics, configuration, validation and acceptance limits.
 
 ## V2 Part 4 pricing gates
@@ -519,7 +483,7 @@ That split explains why the repo feels mixed: it contains both the older trading
   veto semantics and legacy-versus-weighted verdicts.
 - `scripts/v2_part4.py`: collection budgets, family statistics and absorption reports.
 - `tests/test_v2_part4.py`: numerical, timing, quote, migration and integration tests.
-- [TRADINGBOT_V2_PART4_CHANGES.md](TRADINGBOT_V2_PART4_CHANGES.md): choices,
+- [TRADINGBOT_V2_PART4_CHANGES.md](v2/TRADINGBOT_V2_PART4_CHANGES.md): choices,
   configuration, validation and operational acceptance limits.
 
 ## V2 Part 5 contracts and execution
@@ -573,9 +537,27 @@ That split explains why the repo feels mixed: it contains both the older trading
 - `tests/test_v2_part6.py`: cutoff, quote-path, denominator, calibration, freeze,
   coverage and promotion tests. See `TRADINGBOT_V2_PART6_CHANGES.md` for assumptions
   and the distinction between implementation and live evidence acceptance.
-- [TRADINGBOT_V2_PART5_CHANGES.md](TRADINGBOT_V2_PART5_CHANGES.md): implementation
+- [TRADINGBOT_V2_PART5_CHANGES.md](v2/TRADINGBOT_V2_PART5_CHANGES.md): implementation
   rationale, configuration, validation and explicit E1/live-thesis deferrals.
 
 Company earnings/guidance ingestion, immutable evidence packages, and offline replay
-are described in [Research Phase 1](docs/RESEARCH_PHASE1.md). Provider coverage and
-limits are listed in [the capability matrix](docs/COMPANY_EVIDENCE_PROVIDERS.md).
+are described in [Research Phase 1](RESEARCH_PHASE1.md). Provider coverage and
+limits are listed in [the capability matrix](COMPANY_EVIDENCE_PROVIDERS.md).
+
+The rotating company-event scan, durable queue, and shadow research intake are
+documented in [Research Phase 2](RESEARCH_PHASE2.md). Discovery is disabled by
+default and does not forward candidates to broker execution.
+
+Phase 3 adds bounded shadow investigation with typed archive retrieval, durable
+sessions, daily allowances and offline replay. It is disabled by default. See
+[Research Phase 3](RESEARCH_PHASE3.md) and `scripts/research.py`.
+
+Cross-cutting infrastructure: `pyproject.toml` declares the import roots (`pip install -e .`);
+`services/settings.py` is the one typed settings object, loaded at process start;
+`services/entry_gates.py` is the entry-gate registry; `agentCallers/agent_contracts.py` holds the
+typed pipeline objects. See [DEVELOPMENT.md](DEVELOPMENT.md).
+
+Phase 4 adds a versioned `evidence_thesis` to the strategist output, deterministic claim checks
+(`services/evidence_thesis*.py`), the `EVIDENCE_THESIS` entry gate, manager handoff of the same
+checked thesis, and shadow theses for finished research sessions (`services/research_thesis.py`).
+Checks persist in `evidence_thesis_checks`. See [Research Phase 4](RESEARCH_PHASE4.md).

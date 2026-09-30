@@ -8,6 +8,8 @@ from statistics import median
 
 from db_common import DB_PATH, get_connection, json_text
 from .bootstrap import initialize_database
+from catalyst_schema import stamp_candidate_catalyst
+from zoneinfo import ZoneInfo
 
 
 def _number(value):
@@ -58,7 +60,6 @@ def ensure_position_outcome(order_id, *, db_path=DB_PATH):
             close_position_outcome(row['decision_id'], realized_pnl_pct=row['decision_realized_pnl_pct'],
                                    closed_at=row['decision_closed_at'], exit_reason=row['exit_reason'], conn=conn)
         outcome_id = conn.execute('SELECT id FROM position_outcomes WHERE entry_order_id=?', (order_id,)).fetchone()['id']
-        from catalyst_schema import stamp_candidate_catalyst
         stamp_candidate_catalyst(conn, 'position_outcomes', outcome_id, row['candidate_id'])
         return outcome_id
 
@@ -150,7 +151,6 @@ def resolve_post_exit_returns(position_id, bars, *, checked_on, sessions=None, d
         row = conn.execute('SELECT * FROM position_outcomes WHERE id=?', (position_id,)).fetchone()
         if not row or not row['closed_at']:
             return False
-        from zoneinfo import ZoneInfo
         exit_date = _time(row['closed_at']).astimezone(ZoneInfo('America/New_York')).date().isoformat()
         closes = {str(bar['session']): float(bar['close']) for bar in bars
                   if _number(bar.get('close')) is not None and float(bar['close']) > 0 and str(bar['session']) < checked_on}
@@ -193,7 +193,6 @@ def resolve_position_benchmarks(position_id, histories, *, checked_on, db_path=D
     Residual is underlying minus sector (or SPY when no sector is mapped), not
     beta-adjusted alpha. These are session-close proxies, never fill-time prices.
     """
-    from zoneinfo import ZoneInfo
     with get_connection(db_path) as conn:
         row = conn.execute('SELECT * FROM position_outcomes WHERE id=?', (position_id,)).fetchone()
         if not row or not row['closed_at']:

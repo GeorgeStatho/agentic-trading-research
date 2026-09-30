@@ -1,18 +1,7 @@
 from __future__ import annotations
 
 import json
-import sys
 import unittest
-from pathlib import Path
-
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from agent_helpers.shared import build_model_response_diagnostic
 from agent_stages.manager_normalization import normalize_recommendation

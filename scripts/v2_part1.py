@@ -7,10 +7,6 @@ import json
 import logging
 import os
 from pathlib import Path
-import sys
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
@@ -29,8 +25,6 @@ def main():
     load_env_file()
     if args.db:
         os.environ["DB_PATH"] = str(Path(args.db).resolve())
-    for path in (ROOT / "Data", ROOT / "Python Scripts", ROOT / "Python Scripts" / "agentCallers"):
-        sys.path.insert(0, str(path))
     logging.basicConfig(level=logging.INFO)
     if args.command == "outcomes":
         from db_helpers.market import list_unresolved_manager_decisions

@@ -4,6 +4,7 @@ from contextlib import closing
 
 from db_common import DB_PATH, get_connection
 from research_foundation_contracts import timestamp
+from .foundation_store import digest
 
 
 def active_company_ids(conn, *, at):
@@ -66,7 +67,6 @@ def finish_discovery_check(company, *, at, next_at, reason, dependency=None, db_
 def signal_company_news(conn, article_id, *, at):
     if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='company_interest'").fetchone():
         return
-    from .foundation_store import digest
     article = conn.execute('SELECT title,body,summary,content_hash,primary_ticker,catalyst_id,root_event_id,source_type FROM news_articles WHERE id=?', (article_id,)).fetchone()
     if article is None:
         return

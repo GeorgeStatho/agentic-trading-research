@@ -8,6 +8,7 @@ from typing import Any
 from db_common import DB_PATH, clean_text, coerce_float, get_connection, json_text
 from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
+from catalyst_schema import stamp_candidate_catalyst
 
 
 def _parse_json_column(value: Any, default: Any) -> Any:
@@ -109,7 +110,6 @@ def record_position_thesis(
     thesis_id = int(cursor.lastrowid)
     conn.execute("UPDATE position_theses SET candidate_id=?, pipeline_version_json=? WHERE id=?",
                  (thesis.get("candidate_id"), json_text(thesis.get("pipeline_version")), thesis_id))
-    from catalyst_schema import stamp_candidate_catalyst
     stamp_candidate_catalyst(conn, 'position_theses', thesis_id, thesis.get('candidate_id'))
     return thesis_id
 

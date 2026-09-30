@@ -7,6 +7,8 @@ import os
 
 from catalyst_models import timestamp, DECAY_BASIS
 from processing.scoring import recency_score
+from db_helpers.market import record_catalyst_gate_observation
+from services.research_promotion import guard_policy
 
 
 @dataclass(frozen=True)
@@ -25,7 +27,6 @@ class CatalystGatePolicy:
             if value not in {'shadow', 'enforce', 'disabled'}:
                 raise ValueError(f'{name} must be shadow, enforce, or disabled')
             return value
-        from services.research_promotion import guard_policy
         return guard_policy(cls(provenance_mode=mode('V2_PROVENANCE_MODE'), freshness_mode=mode('V2_FRESHNESS_MODE')),
                             {'provenance_mode': 'PROVENANCE', 'freshness_mode': 'FRESHNESS'})
 
@@ -69,7 +70,6 @@ def evaluate_catalyst_gates(state, *, as_of=None, policy=None):
 
 def record_catalyst_gates(context):
     from services.candidate_lifecycle import checkpoint, reject, observe
-    from db_helpers.market import record_catalyst_gate_observation
     gates = evaluate_catalyst_gates(context['catalysts'][0], as_of=timestamp(context['created_at']))
     for stage, gate in gates.items():
         checkpoint(context, stage, gate)

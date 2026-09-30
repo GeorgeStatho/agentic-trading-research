@@ -18,7 +18,7 @@ The code in this folder is responsible for:
 
 ## Files
 
-### [yfinance_client.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/market_data/yfinance_client.py)
+### [yfinance_client.py](yfinance_client.py)
 
 This is the request wrapper around `yfinance`.
 
@@ -38,7 +38,7 @@ Important helpers:
 
 This file is important because it centralizes the Yahoo request behavior instead of scattering raw `yfinance` calls everywhere.
 
-### [yFinanceData.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/market_data/yFinanceData.py)
+### [yFinanceData.py](yFinanceData.py)
 
 This is the main sector/industry/company ingestion script.
 
@@ -59,7 +59,7 @@ Important entrypoints:
 - `GetSectorInfo(sector, ...)`
 - `saveSectors(...)`
 
-### [yFinanceRealTime.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/market_data/yFinanceRealTime.py)
+### [yFinanceRealTime.py](yFinanceRealTime.py)
 
 This module handles streaming price updates.
 
@@ -72,7 +72,7 @@ Important behavior:
 
 This is the "live price stream" side of the Yahoo integration.
 
-### [yFinanceNews.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/market_data/yFinanceNews.py)
+### [yFinanceNews.py](yFinanceNews.py)
 
 This is a very small Yahoo news helper.
 
@@ -86,11 +86,11 @@ This helper does not save articles itself.
 
 It feeds extra article URLs into the company news pipeline.
 
-### [urllist.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/market_data/urllist.py)
+### [urllist.py](urllist.py)
 
 Auxiliary URL-list or constant holder used by the market-data side.
 
-### [__init__.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/market_data/__init__.py)
+### [__init__.py](__init__.py)
 
 Package marker for the folder.
 

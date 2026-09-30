@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,11 +8,6 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "Data"
-AGENT_CALLERS_DIR = ROOT_DIR / "Python Scripts" / "agentCallers"
-for path in (ROOT_DIR, DATA_DIR, AGENT_CALLERS_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from db_common import get_connection  # noqa: E402
 from market_db import (  # noqa: E402

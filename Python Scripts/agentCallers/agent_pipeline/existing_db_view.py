@@ -18,13 +18,13 @@ from agent_pipeline.ranking import (
     resolve_ranking_max_age_days,
 )
 from agent_pipeline.target_selection import collect_ranked_companies_for_industry
+from services.discovery_queue import discovery_targets
 
 
 ProgressCallback = Callable[[dict[str, Any]], None]
 
 
 def _discovery_targets():
-    from services.discovery_queue import discovery_targets
     return discovery_targets()
 
 

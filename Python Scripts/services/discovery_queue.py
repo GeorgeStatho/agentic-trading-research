@@ -8,6 +8,11 @@ from market_db_modules.discovery_queue import claim_discovery_batch, finish_disc
 from research_foundation_contracts import timestamp
 from services.discovery_admission import evaluate_discovery_admission
 from services.discovery_policy import DiscoveryPolicy
+from market_db_modules.bootstrap import initialize_database
+from services.event_discovery import discover_company_events
+from services.pipeline_version import build_pipeline_version
+from services.research_orchestrator import process_research_queue
+from services.research_thesis import process_research_theses
 
 
 def utc_now():
@@ -44,11 +49,9 @@ def process_discovery_queue(*, policy=None, owner=None, clock=utc_now, version=N
     policy = policy or DiscoveryPolicy.from_env()
     if policy.mode == 'disabled':
         return {'status': 'disabled', 'candidates': []}
-    from market_db_modules.bootstrap import initialize_database
     initialize_database(db_path=db_path)
     owner = owner or 'discovery-worker:' + uuid4().hex
     if version is None:
-        from services.pipeline_version import build_pipeline_version
         version = build_pipeline_version()
     items = claim_discovery_batch(owner, at=clock(), policy=policy, db_path=db_path)
     results, failures = [], []
@@ -73,14 +76,11 @@ def process_discovery_queue(*, policy=None, owner=None, clock=utc_now, version=N
 
 
 def run_discovery_shadow_cycle(*, sector_symbols=(), policy=None, clock=utc_now, db_path=DB_PATH):
-    from services.event_discovery import discover_company_events
     policy = policy or DiscoveryPolicy.from_env()
     if policy.mode == 'disabled':
         return {'status': 'disabled', 'candidates': []}
     discovery = discover_company_events(sector_symbols=sector_symbols, policy=policy, at=clock(), db_path=db_path)
     result = {**process_discovery_queue(policy=policy, clock=clock, db_path=db_path), 'discovery': discovery}
-    from services.research_orchestrator import process_research_queue
     result['research'] = process_research_queue(clock=clock, limit=policy.batch_size, db_path=db_path)
-    from services.research_thesis import process_research_theses
     result['theses'] = process_research_theses(clock=clock, limit=policy.batch_size, db_path=db_path)
     return result

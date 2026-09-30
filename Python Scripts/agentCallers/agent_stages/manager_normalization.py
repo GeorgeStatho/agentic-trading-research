@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from agent_contracts import ManagerRecommendation
+
 from .manager_shared import (
     DEFAULT_MANAGER_TARGET_DTE_BUCKET,
     MANAGER_REASON_MAX_CHARS,
@@ -70,7 +72,7 @@ def normalize_recommendation(
     recommendation: dict[str, Any] | None,
     *,
     strategist_recommendation: dict[str, Any] | None = None,
-) -> dict[str, Any] | None:
+) -> ManagerRecommendation | None:
     if not isinstance(recommendation, dict):
         return None
 

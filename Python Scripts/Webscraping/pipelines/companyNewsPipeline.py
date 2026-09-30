@@ -1,21 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
-import sys
 from typing import Any
-
-if __package__ in {None, ""}:
-    WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
-    if str(WEBSCRAPING_DIR) not in sys.path:
-        sys.path.append(str(WEBSCRAPING_DIR))
-
-AGENT_CALLERS_DIR = Path(__file__).resolve().parents[2] / "agentCallers"
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
-
-API_DIR = Path(__file__).resolve().parents[1] / "APIs"
-if str(API_DIR) not in sys.path:
-    sys.path.append(str(API_DIR))
 
 from pipelines._shared import (
     MAX_ARTICLES_PER_SEARCH_PAGE,
@@ -43,10 +28,10 @@ from pipelines.job_builder import (
     group_jobs_by_url,
     unique_job_urls,
 )
-from foolAPI import get_stock_data as get_fool_stock_data
-from gurufocusAPI import get_stock_data as get_gurufocus_stock_data
+from APIs.foolAPI import get_stock_data as get_fool_stock_data
+from APIs.gurufocusAPI import get_stock_data as get_gurufocus_stock_data
 from market_data.yFinanceNews import extract_title_and_url, get_company_news_items
-from morningStarAPI import get_stock_data as get_morningstar_stock_data
+from APIs.morningStarAPI import get_stock_data as get_morningstar_stock_data
 
 from db_helpers import (
     add_company_news_article,

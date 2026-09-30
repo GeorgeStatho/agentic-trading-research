@@ -1,18 +1,6 @@
 from __future__ import annotations
 
 import logging
-import sys
-from pathlib import Path
-
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-DATA_DIR = ROOT_DIR / "Data"
-for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.append(normalized)
 
 from db_helpers import DB_PATH, get_connection, initialize_market_database, list_option_trade_executions
 from services.config import AlpacaSettings, ApiPaths, ApiSettings, OptionPositionSettings

@@ -183,7 +183,7 @@ def _load_policies() -> dict:
     """
     from services.catalyst_gates import CatalystGatePolicy
     from services.contract_policy import ContractPolicy
-    from services.evidence_continuation_gate import EvidenceContinuationPolicy
+    from services.evidence_continuation_policy import EvidenceContinuationPolicy
     from services.market_regime_gate import MarketRegimePolicy
 
     loaders = {

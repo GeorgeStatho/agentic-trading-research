@@ -12,6 +12,11 @@ from market_db_modules.pricing_research import (
 )
 from services.price_response import completed_at, measure_response, positive
 from services.pricing_policy import PricingPolicy, RESPONSE_HORIZONS
+from agent_helpers.market_context.common import REQUEST_HANDLER, yf
+from market_db_modules.research_runs import collect_active_runs
+from services.candidate_lifecycle import observe
+from services.price_response import residual
+from services.regime_history import fetch_regime_history
 
 LOGGER = logging.getLogger(__name__)
 EVENT_BUDGET = 250
@@ -19,10 +24,8 @@ FORWARD_BUDGET = 250
 
 
 def fetch_response_history(symbol, timeframe):
-    from services.regime_history import fetch_regime_history
     if timeframe == '1d':
         return fetch_regime_history(symbol)
-    from agent_helpers.market_context.common import REQUEST_HANDLER, yf
     if yf is None or REQUEST_HANDLER is None:
         raise RuntimeError('No hourly history provider available')
     ticker = REQUEST_HANDLER.run(yf.Ticker, symbol, _context=f'Ticker({symbol})')
@@ -112,7 +115,6 @@ def capture_forward_returns(*, as_of, db_path):
             continue
         # Use the exact prices frozen at the decision, even if newer hourly history
         # would now give a different baseline than the original daily proxy.
-        from services.price_response import residual
         move = residual(response['endpoint_prices'], metrics['endpoint_prices'], metrics['betas'])['residual_return']
         # Keep both: the raw residual is the stock's own move, the adjusted one folds in
         # the catalyst direction. Consumers that apply direction themselves need the raw field.
@@ -129,8 +131,6 @@ def collect_catalyst_responses(*, as_of=None, policy=None, fetcher=fetch_respons
     budget = refresh_universe_history(as_of=now, policy=policy, fetcher=fetcher, db_path=db_path) if refresh else {}
     processed = capture_responses(as_of=now, policy=policy, db_path=db_path)
     capture_forward_returns(as_of=now, db_path=db_path)
-    from market_db_modules.research_runs import collect_active_runs
-    from services.candidate_lifecycle import observe
     research_runs = observe(collect_active_runs, as_of=now, db_path=db_path)
     return {'collection': {**budget, 'processed_events': processed, 'event_budget': EVENT_BUDGET},
             'research_runs': research_runs,

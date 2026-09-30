@@ -17,6 +17,7 @@ from services.evidence_research_policy import EvidenceResearchPolicy
 from services.evidence_thesis import check_evidence_thesis, not_requested_check, persist_thesis_check
 from services.evidence_thesis_policy import EvidenceThesisPolicy
 from services.research_lock import ResearchSessionBusy, research_session_lock
+from agent_stages.research_thesis_writer import ResearchThesisWriter
 
 
 ROUTE = "research_shadow"
@@ -132,7 +133,6 @@ def process_research_theses(*, policy=None, research_policy=None, writer=None, c
     def writer_factory():
         if writer is not None:
             return writer
-        from agent_stages.research_thesis_writer import ResearchThesisWriter
         return ResearchThesisWriter()
 
     results, failures, status = [], [], "shadow"

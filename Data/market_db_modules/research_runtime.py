@@ -4,6 +4,8 @@ import json
 
 from db_common import DB_PATH, get_connection
 from .foundation_store import canonical, digest, read_record
+from .evidence_refresh import enqueue_refresh
+from .research_work import session_covers_event
 
 
 class ResearchBudgetExceeded(ValueError):
@@ -56,7 +58,6 @@ def research_checkpoint(session, progress, event, *, at, allowance=None, cost_ad
             conn.execute("UPDATE research_daily_allowances SET reserved_cost=reserved_cost+? WHERE day=? AND kind='planner'",
                          (extra, day))
         if refresh_request:
-            from .evidence_refresh import enqueue_refresh
             enqueue_refresh(conn, refresh_request['company_id'], 'research_gap', session['session_id'],
                             at=at, parent_session_id=session['session_id'])
         number = conn.execute('SELECT COALESCE(MAX(step_number),-1)+1 FROM research_steps WHERE session_id=?',
@@ -117,7 +118,6 @@ def research_event_superseded(queue_id, *, session_id=None, db_path=DB_PATH):
         if latest is None or latest['evidence_revision'] == item['evidence_revision']:
             return False
         if session_id:
-            from .research_work import session_covers_event
             event = json.loads(latest['payload_json'])
             if digest(event) != latest['payload_hash']:
                 raise ValueError('Corrupt discovery event')

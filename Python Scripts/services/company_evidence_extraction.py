@@ -17,6 +17,12 @@ def comparison_key(fact):
     return tuple(fact.get(key) for key in COMPARISON_FIELDS)
 
 
+def guidance_midpoint(fact):
+    """Midpoint of a single value or a range: the one formula every guidance comparison uses."""
+    high = fact.get('range_high')
+    return (fact['value'] + (high if high is not None else fact['value'])) / 2
+
+
 def validate_extracted_fact(proposal, text, company):
     proposal = dict(proposal)
     supplied_company = proposal.pop('company_id', company['id'])

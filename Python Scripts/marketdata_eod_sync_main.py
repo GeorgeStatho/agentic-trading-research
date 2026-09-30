@@ -4,20 +4,14 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-from pathlib import Path
-import sys
 from threading import Event
 import signal
 
+from services.settings import load_process_settings
 
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent / "agentCallers"
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
-
-from _paths import bootstrap_agent_callers, load_project_env
-
-bootstrap_agent_callers()
-load_project_env()
+if __name__ == "__main__":
+    # Before importing modules that read configuration at import time.
+    load_process_settings()
 
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.marketdata_sync import EodSyncSettings, run_due_eod_sync

@@ -2,6 +2,8 @@
 from dataclasses import dataclass
 import os
 
+from services.research_promotion import guard_policy
+
 
 POLICY_VERSION = "evidence-thesis-v1"
 MODES = {"off", "shadow", "enforce"}
@@ -29,5 +31,4 @@ class EvidenceThesisPolicy:
     def from_env(cls):
         policy = cls(mode=os.getenv("EVIDENCE_THESIS_MODE", "shadow").strip().lower(),
                      daily_research_thesis_calls=int(os.getenv("RESEARCH_DAILY_THESIS_CALLS", "50")))
-        from services.research_promotion import guard_policy
         return guard_policy(policy, {"mode": "EVIDENCE_THESIS"})

@@ -5,19 +5,19 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from services.settings import get_settings
 from .common import (
     IV_PERCENTILE_DTE_BUCKETS,
     LOGGER,
-    OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES,
-    OPTION_IV_HISTORY_MAX_ENTRIES,
-    OPTION_IV_HISTORY_PATH,
     _safe_float,
     _serialize_scalar,
     compute_percentile_rank,
 )
 
 
-def _load_option_iv_history_store(path: Path = OPTION_IV_HISTORY_PATH) -> dict[str, Any]:
+def _load_option_iv_history_store(path: Path | None = None) -> dict[str, Any]:
+    if path is None:
+        path = get_settings().manager_context.iv_history_path
     if not path.exists():
         return {"version": 1, "underlyings": {}}
     try:
@@ -33,7 +33,9 @@ def _load_option_iv_history_store(path: Path = OPTION_IV_HISTORY_PATH) -> dict[s
     }
 
 
-def _save_option_iv_history_store(store: dict[str, Any], path: Path = OPTION_IV_HISTORY_PATH) -> None:
+def _save_option_iv_history_store(store: dict[str, Any], path: Path | None = None) -> None:
+    if path is None:
+        path = get_settings().manager_context.iv_history_path
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(store, ensure_ascii=True, indent=2), encoding="utf-8")
@@ -44,8 +46,10 @@ def _save_option_iv_history_store(store: dict[str, Any], path: Path = OPTION_IV_
 def _normalize_iv_history_entries(
     entries: Any,
     *,
-    max_entries: int = OPTION_IV_HISTORY_MAX_ENTRIES,
+    max_entries: int | None = None,
 ) -> list[dict[str, Any]]:
+    if max_entries is None:
+        max_entries = get_settings().manager_context.iv_history_max_entries
     if not isinstance(entries, list):
         return []
     normalized_entries: list[dict[str, Any]] = []
@@ -66,8 +70,10 @@ def _upsert_iv_history_entry(
     *,
     recorded_at: str,
     value: float,
-    max_entries: int = OPTION_IV_HISTORY_MAX_ENTRIES,
+    max_entries: int | None = None,
 ) -> list[dict[str, Any]]:
+    if max_entries is None:
+        max_entries = get_settings().manager_context.iv_history_max_entries
     normalized_entries = _normalize_iv_history_entries(entries, max_entries=max_entries)
     for entry in normalized_entries:
         if str(entry.get("recorded_at") or "").strip() == str(recorded_at).strip():
@@ -147,8 +153,10 @@ def _annotate_contract_iv_percentiles(
     *,
     bucket_percentiles: dict[str, float | None],
     bucket_history_counts: dict[str, int],
-    min_samples: int = OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES,
+    min_samples: int | None = None,
 ) -> None:
+    if min_samples is None:
+        min_samples = get_settings().manager_context.iv_bucket_min_history_samples
     for contract in contracts:
         days_to_expiration = contract.get("days_to_expiration")
         if days_to_expiration is None:
@@ -179,8 +187,10 @@ def _annotate_contract_iv_percentiles(
 def _historical_values_from_iv_entries(
     entries: list[dict[str, Any]],
     *,
-    max_entries: int = OPTION_IV_HISTORY_MAX_ENTRIES,
+    max_entries: int | None = None,
 ) -> list[float]:
+    if max_entries is None:
+        max_entries = get_settings().manager_context.iv_history_max_entries
     return [
         float(entry["value"])
         for entry in _normalize_iv_history_entries(entries, max_entries=max_entries)
@@ -196,9 +206,13 @@ def _record_option_iv_history(
     longer_term_atm_iv: float | None,
     bucket_atm_ivs: dict[str, float] | None,
     recorded_at: str,
-    path: Path = OPTION_IV_HISTORY_PATH,
-    max_entries: int = OPTION_IV_HISTORY_MAX_ENTRIES,
+    path: Path | None = None,
+    max_entries: int | None = None,
 ) -> dict[str, Any]:
+    if path is None:
+        path = get_settings().manager_context.iv_history_path
+    if max_entries is None:
+        max_entries = get_settings().manager_context.iv_history_max_entries
     store = _load_option_iv_history_store(path)
     underlyings = store.setdefault("underlyings", {})
     symbol_key = str(underlying_symbol or "").strip().upper()
@@ -244,11 +258,17 @@ def _enrich_with_alpaca_iv_percentiles(
     *,
     contracts: list[dict[str, Any]] | None = None,
     reference_stock_price: float | None = None,
-    path: Path = OPTION_IV_HISTORY_PATH,
-    max_entries: int = OPTION_IV_HISTORY_MAX_ENTRIES,
-    min_samples: int = OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES,
+    path: Path | None = None,
+    max_entries: int | None = None,
+    min_samples: int | None = None,
     current_datetime: type[datetime] = datetime,
 ) -> dict[str, Any]:
+    if path is None:
+        path = get_settings().manager_context.iv_history_path
+    if max_entries is None:
+        max_entries = get_settings().manager_context.iv_history_max_entries
+    if min_samples is None:
+        min_samples = get_settings().manager_context.iv_bucket_min_history_samples
     if not isinstance(volatility_summary, dict):
         return {}
 

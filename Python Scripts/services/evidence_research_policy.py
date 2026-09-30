@@ -6,6 +6,12 @@ from pathlib import Path
 
 from research_foundation_contracts import OBSERVATION_PROTOCOL, SCHEMA_VERSION, nonnegative
 from services.research_contract import fingerprint
+from services.company_evidence_policy import provider_manifest
+from services.contract_policy import ContractPolicy
+from services.discovery_policy import DiscoveryPolicy
+from services.pricing_policy import PricingPolicy
+from services.research_model_policy import planner_manifest, thesis_writer_manifest
+from services.research_versions import evaluation_version
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,9 +52,6 @@ class EvidenceResearchPolicy:
 
 
 def foundation_manifest():
-    from services.contract_policy import ContractPolicy
-    from services.pricing_policy import PricingPolicy
-    from services.research_versions import evaluation_version
     sources = [ROOT / "Data/research_foundation_contracts.py"]
     sources.extend((ROOT / "Data/market_db_modules").glob("*foundation*.*"))
     sources.extend(ROOT / name for name in (
@@ -73,11 +76,8 @@ def foundation_manifest():
     sources.extend((ROOT / "Python Scripts/agentCallers/agent_stages").glob("research_planner*.py"))
     hashes = {str(path.relative_to(ROOT)): sha256(path.read_bytes()).hexdigest()
               for path in sorted(sources) if path.is_file()}
-    from services.company_evidence_policy import provider_manifest
     provider_config = {**provider_manifest(), "adapters": [str(p.relative_to(ROOT)) for p in adapters]}
-    from services.discovery_policy import DiscoveryPolicy
     provider_config["discovery"] = DiscoveryPolicy.from_env().manifest()
-    from services.research_model_policy import planner_manifest, thesis_writer_manifest
     provider_config["research_planner"] = planner_manifest()
     provider_config["research_thesis_writer"] = thesis_writer_manifest()
     budgets = asdict(EvidenceResearchPolicy.from_env())

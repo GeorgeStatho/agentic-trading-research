@@ -4,8 +4,6 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Callable
 from urllib.parse import urlsplit
-from pathlib import Path
-import sys
 
 from pipelines._shared import (
     ArticleExtractionResult,
@@ -25,14 +23,11 @@ from pipelines._shared import (
     cast,
 )
 
-API_DIR = Path(__file__).resolve().parents[1] / "APIs"
-if str(API_DIR) not in sys.path:
-    sys.path.append(str(API_DIR))
 
-from foolAPI import get_article_content as get_fool_article_content
-from gurufocusAPI import get_article_content as get_gurufocus_article_content
-from InvestingAPI import get_article_content as get_investing_article_content
-from morningStarAPI import get_article_content as get_morningstar_article_content
+from APIs.foolAPI import get_article_content as get_fool_article_content
+from APIs.gurufocusAPI import get_article_content as get_gurufocus_article_content
+from APIs.InvestingAPI import get_article_content as get_investing_article_content
+from APIs.morningStarAPI import get_article_content as get_morningstar_article_content
 
 CNBc_URL_DATE_RE = re.compile(r"/(?P<year>\d{4})/(?P<month>\d{2})/(?P<day>\d{2})/")
 

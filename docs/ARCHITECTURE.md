@@ -1,6 +1,6 @@
 # Architecture
 
-This document is the current source of truth for where new code belongs. The repository retains older compatibility wrappers, but new feature code should use the boundaries below.
+This document is the current source of truth for where new code belongs.
 
 ```text
 React dashboard ──> Flask routes ──> API support ──> SQLite helpers/schemas
@@ -39,7 +39,12 @@ Docker Compose remains the source of truth for the integrated production-like st
 
 ## Compatibility Policy
 
-Older top-level modules in `Python Scripts/Webscraping/` and `Python Scripts/agentCallers/` may be import-compatible facades. Do not add new business logic there. Add it to the named package boundary above, then preserve old imports with a thin wrapper only when needed.
+Import roots are declared once in `pyproject.toml` (see [DEVELOPMENT.md](DEVELOPMENT.md)); modules never edit `sys.path`. Put code in the package boundary above and import it from there. Do not add re-export wrappers: move callers to the canonical module instead. `Python Scripts/Trading.py` remains a facade for the legacy trading runtime.
+
+## Configuration
+
+Read settings through `services.settings.get_settings()` at call time; never read the
+environment when a module is imported. See [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Safety Boundaries
 

@@ -11,10 +11,6 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-ROOT = Path(__file__).resolve().parents[1]
-for folder in ('Data', 'Python Scripts', 'Python Scripts/agentCallers', 'Python Scripts/Webscraping', 'tests'):
-    sys.path.insert(0, str(ROOT / folder))
-
 from db_common import get_connection
 from market_db import initialize_database
 from market_db_modules.contract_research import execution_baseline, get_risk_cluster, record_observation, contract_report
@@ -196,7 +192,7 @@ class ClusterTests(unittest.TestCase):
         self.assertEqual(reason, 'portfolio_risk_cluster_limit')
 
     def test_executor_refreshes_liquidity_before_any_broker_submission(self):
-        from test_trade_executor_portfolio_guardrails import OptionTradeExecutorPortfolioGuardrailTests
+        from tests.test_trade_executor_portfolio_guardrails import OptionTradeExecutorPortfolioGuardrailTests
         fixture = OptionTradeExecutorPortfolioGuardrailTests()
         fixture.setUp()
         stale = {**option()['latest_quote'], 'timestamp': (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()}
@@ -282,7 +278,7 @@ class PositionRungTests(unittest.TestCase):
         self.assertEqual(shadow_exit_comparison({'reason': 'pending_exit_order'}, context)['would_exit_reason'], 'pending_exit_order')
 
     def test_exit_ladder_enforces_time_before_expiration_and_retains_coactive_rules(self):
-        from test_option_positions import _load_option_positions_module, _make_trailing_profit_config, _make_momentum_history_config
+        from tests.test_option_positions import _load_option_positions_module, _make_trailing_profit_config, _make_momentum_history_config
         module = _load_option_positions_module()
         strategy = sys.modules['_test_trading_support._option_positions_strategy']
         context = evaluate_position_rungs(self.inputs(), as_of=NOW, policy=ContractPolicy(exit_mode='enforce'))
@@ -383,7 +379,7 @@ class ContractDatabaseTests(unittest.TestCase):
         fetcher.assert_not_called()
 
     def test_catalyst_horizon_replaces_contract_dte_and_preserves_intraday_fraction(self):
-        from test_thesis_validator import _sample_execution
+        from tests.test_thesis_validator import _sample_execution
         from services.thesis_capture import build_position_thesis_record
         from market_db_modules.thesis_validator import record_position_thesis
         execution = _sample_execution()
@@ -400,7 +396,7 @@ class ContractDatabaseTests(unittest.TestCase):
     def test_empirical_scenarios_exclude_future_capture_and_current_catalyst(self):
         from market_db_modules.pricing_research import catalyst_return_distribution
         # Reuse the provenance fixture to create a real linked research event.
-        from test_v2_part4 import PricingDatabaseTests
+        from tests.test_v2_part4 import PricingDatabaseTests
         fixture = PricingDatabaseTests()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)

@@ -1,19 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
-import sys
 from typing import Any, Callable
-
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT_DIR / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
-
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
 
 from agent_helpers.shared import parse_published_at
 from db_helpers import DB_PATH, get_all_sectors, get_connection

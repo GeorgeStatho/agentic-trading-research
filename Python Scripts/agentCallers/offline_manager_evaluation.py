@@ -7,27 +7,16 @@ import copy
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-import sys
 from typing import Any, Callable
 
+from services.settings import get_settings
+from services.settings import load_process_settings
 
-if __package__ in {None, ""}:
-    AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-    if str(AGENT_CALLERS_DIR) not in sys.path:
-        sys.path.append(str(AGENT_CALLERS_DIR))
-
-from _paths import bootstrap_agent_callers, load_project_env
-
-bootstrap_agent_callers()
-
-from agent_helpers.manager import (  # noqa: E402
-    DEFAULT_RESOLVED_AUTOPSY_LIMIT,
-    DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS,
+from agent_helpers.manager import (
     build_resolved_autopsy_insights,
 )
 from agent_helpers.shared import Client  # noqa: E402
 from agent_stages.manager import (  # noqa: E402
-    DEFAULT_MODEL,
     MANAGER_PROMPT_VERSION,
     replay_manager_decision_from_payload,
 )
@@ -402,16 +391,21 @@ def run_historical_outcome_audit(
 
 def run_legacy_partial_replay(
     *,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     limit: int = 100,
-    autopsy_limit: int = DEFAULT_RESOLVED_AUTOPSY_LIMIT,
-    autopsy_max_age_days: int = DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS,
+    autopsy_limit: int | None = None,
+    autopsy_max_age_days: int | None = None,
     client: Client | None = None,
     db_path: Path | str = DB_PATH,
     persist: bool = True,
     replay_decider: ReplayDecider | None = None,
 ) -> dict[str, Any]:
     """Run a separately reported approximation for legacy snapshot records."""
+    model = model or get_settings().models.manager.model
+    if autopsy_limit is None:
+        autopsy_limit = get_settings().manager_context.resolved_autopsy_limit
+    if autopsy_max_age_days is None:
+        autopsy_max_age_days = get_settings().manager_context.resolved_autopsy_max_age_days
     source_rows = [dict(row) for row in list_replayable_manager_decisions(limit=limit, db_path=db_path)]
     evaluation_id = None
     if persist:
@@ -524,10 +518,10 @@ def run_legacy_partial_replay(
 
 def run_offline_manager_evaluation(
     *,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     limit: int = 100,
-    autopsy_limit: int = DEFAULT_RESOLVED_AUTOPSY_LIMIT,
-    autopsy_max_age_days: int = DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS,
+    autopsy_limit: int | None = None,
+    autopsy_max_age_days: int | None = None,
     client: Client | None = None,
     db_path: Path | str = DB_PATH,
     persist: bool = True,
@@ -538,6 +532,11 @@ def run_offline_manager_evaluation(
     The function calls only the manager's LLM prompt path. It never refreshes
     market data, invokes deterministic option selection, or submits an order.
     """
+    model = model or get_settings().models.manager.model
+    if autopsy_limit is None:
+        autopsy_limit = get_settings().manager_context.resolved_autopsy_limit
+    if autopsy_max_age_days is None:
+        autopsy_max_age_days = get_settings().manager_context.resolved_autopsy_max_age_days
     source_rows = [dict(row) for row in list_replayable_manager_decisions(limit=limit, db_path=db_path)]
     evaluation_id = None
     if persist:
@@ -634,9 +633,9 @@ def run_offline_manager_evaluation(
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Offline A/B manager replay with resolved autopsy feedback.")
     parser.add_argument("--limit", type=int, default=100, help="Maximum resolved historical decisions to replay.")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Configured provider model to replay.")
-    parser.add_argument("--autopsy-limit", type=int, default=DEFAULT_RESOLVED_AUTOPSY_LIMIT)
-    parser.add_argument("--autopsy-max-age-days", type=int, default=DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS)
+    parser.add_argument("--model", default=get_settings().models.manager.model, help="Configured provider model to replay.")
+    parser.add_argument("--autopsy-limit", type=int, default=get_settings().manager_context.resolved_autopsy_limit)
+    parser.add_argument("--autopsy-max-age-days", type=int, default=get_settings().manager_context.resolved_autopsy_max_age_days)
     parser.add_argument("--db-path", type=Path, default=DB_PATH)
     parser.add_argument("--no-persist", action="store_true", help="Print results without writing evaluation records.")
     mode_group = parser.add_mutually_exclusive_group()
@@ -654,7 +653,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    load_project_env()
+    load_process_settings()
     args = _parse_args()
     if args.historical_outcome_audit:
         result = run_historical_outcome_audit(

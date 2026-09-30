@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timezone
-import os
 from typing import Any
 
+from services.settings import StageModel, get_settings
 from agent_builders.strategist_payload import (
     DEFAULT_FULL_ARTICLE_LIMIT,
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
@@ -25,6 +25,7 @@ from agent_stages.strategist_prompt import (
     build_strategist_prompt,
     payload_has_evidence,
 )
+from agent_contracts import StrategistResult
 from agent_stages.strategist_schema import strategist_recommendation_schema
 from services.evidence_thesis import (
     check_evidence_thesis,
@@ -35,14 +36,9 @@ from services.evidence_thesis import (
 from services.evidence_thesis_policy import EvidenceThesisPolicy
 
 
-OLLAMA_HOST = os.getenv(
-    "STRATEGIST_OLLAMA_HOST",
-    os.getenv("MACRO_NEWS_OLLAMA_HOST", os.getenv("WORLD_NEWS_OLLAMA_HOST", "http://127.0.0.1:11434")),
-)
-DEFAULT_MODEL = os.getenv(
-    "STRATEGIST_MODEL",
-    os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "world-news-sectors")),
-)
+def _stage_model() -> StageModel:
+    return get_settings().models.strategist
+
 
 _strategist_client: Client | None = None
 STRATEGIST_PROMPT_VERSION = "grounded-strategist-v3-evidence-thesis"
@@ -75,7 +71,7 @@ def _build_manager_evidence_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def get_default_client() -> Client:
     global _strategist_client
     if _strategist_client is None:
-        _strategist_client = get_model_client(OLLAMA_HOST)
+        _strategist_client = get_model_client(_stage_model().ollama_host)
     return _strategist_client
 
 
@@ -93,7 +89,7 @@ def ask_model(
         system_prompt,
         user_prompt,
         temperature=0,
-        host_label=OLLAMA_HOST,
+        host_label=_stage_model().ollama_host,
         response_schema=strategist_recommendation_schema(include_thesis=include_thesis),
     )
 
@@ -198,7 +194,7 @@ def decide_company_purchase(
     company_identifier: str,
     *,
     client: Client | None = None,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     system_prompt_override: str | None = None,
     task_override: str | None = None,
     start_time: datetime | None = None,
@@ -209,8 +205,9 @@ def decide_company_purchase(
     market_regime: dict[str, Any] | None = None,
     candidate_context: dict[str, Any] | None = None,
     thesis_policy: EvidenceThesisPolicy | None = None,
-) -> dict[str, Any]:
+) -> StrategistResult:
     # Run the strategist stage end to end, including no-evidence short circuits and text fallback parsing.
+    model = model or _stage_model().model
     client = client or get_default_client()
     thesis_policy = thesis_policy or EvidenceThesisPolicy.from_env()
     include_thesis = thesis_policy.requests_thesis

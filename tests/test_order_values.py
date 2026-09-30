@@ -1,15 +1,7 @@
 from __future__ import annotations
 
-import sys
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
-
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-if str(PYTHON_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(PYTHON_SCRIPTS_DIR))
 
 from services.order_values import normalize_order_summary
 from services.trading_gateway import AlpacaTradingGateway

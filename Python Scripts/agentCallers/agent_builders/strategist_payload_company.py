@@ -5,7 +5,7 @@ from typing import Any
 
 from agent_contracts import CompanyScopePayload
 from db_helpers import get_all_companies
-from strategist_payload_price import _build_company_price_context
+from agent_builders.strategist_payload_price import _build_company_price_context
 
 
 def _serialize_company_scope(company: dict[str, Any]) -> CompanyScopePayload:

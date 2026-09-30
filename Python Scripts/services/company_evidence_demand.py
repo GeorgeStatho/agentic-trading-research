@@ -7,6 +7,9 @@ from services.company_interest import reconcile_company_interest
 from market_db_modules.company_interest import active_company_ids, register_interest
 from market_db_modules.evidence_refresh import enqueue_refresh
 from research_foundation_contracts import timestamp
+from market_db_modules.bootstrap import initialize_database
+from market_db_modules.research_runtime import research_event_superseded
+from services.company_evidence_policy import CompanyEvidencePolicy
 
 
 def enqueue_company_interest(*, at, policy, db_path):
@@ -29,8 +32,6 @@ def enqueue_company_interest(*, at, policy, db_path):
 
 def request_pipeline_evidence(symbols, *, scope='pipeline', at=None, db_path=DB_PATH):
     """Use the actual selection, including caller overrides, rather than reranking it."""
-    from market_db_modules.bootstrap import initialize_database
-    from services.company_evidence_policy import CompanyEvidencePolicy
     at = timestamp(at or datetime.now(timezone.utc).isoformat())
     policy = CompanyEvidencePolicy.from_env()
     period = int(datetime.fromisoformat(at).timestamp()) // policy.refresh_seconds
@@ -56,7 +57,6 @@ def request_pipeline_evidence(symbols, *, scope='pipeline', at=None, db_path=DB_
 
 
 def _discard_superseded_requests(at, db_path):
-    from market_db_modules.research_runtime import research_event_superseded
     with closing(get_connection(db_path)) as conn:
         requests = conn.execute('''SELECT r.request_id,s.queue_id FROM company_evidence_requests r
             JOIN research_sessions s ON s.session_id=r.parent_session_id WHERE r.status='pending' ''').fetchall()

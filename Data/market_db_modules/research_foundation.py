@@ -5,6 +5,7 @@ from pathlib import Path
 from db_common import DB_PATH, get_connection
 from research_foundation_contracts import DiscoveryQueueItem, ResearchSession, TradeEconomicsReport
 from .foundation_store import digest, insert_record, load_record, read_record, record_data
+from .bootstrap import initialize_database
 
 
 def migrate_research_foundation(conn):
@@ -20,7 +21,6 @@ def migrate_research_foundation(conn):
 
 
 def enqueue_discovery(item: DiscoveryQueueItem, *, db_path=DB_PATH):
-    from .bootstrap import initialize_database
     initialize_database(db_path=db_path)
     data = record_data(item)
     identity_fields = ("company_id", "catalyst_id", "evidence_revision", "purpose")
@@ -43,7 +43,6 @@ def get_discovery_item(queue_id, *, db_path=DB_PATH):
 
 
 def record_research_session(session: ResearchSession, *, db_path=DB_PATH):
-    from .bootstrap import initialize_database
     initialize_database(db_path=db_path)
     data = record_data(session)
     with closing(get_connection(db_path)) as conn, conn:
@@ -67,7 +66,6 @@ def get_research_session(session_id, *, db_path=DB_PATH):
 
 
 def record_trade_economics_report(report: TradeEconomicsReport, *, db_path=DB_PATH):
-    from .bootstrap import initialize_database
     initialize_database(db_path=db_path)
     data = record_data(report)
     with closing(get_connection(db_path)) as conn, conn:

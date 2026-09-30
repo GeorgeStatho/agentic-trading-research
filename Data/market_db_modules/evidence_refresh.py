@@ -5,12 +5,13 @@ from datetime import datetime, timedelta
 from db_common import DB_PATH, get_connection
 from research_foundation_contracts import timestamp
 from .foundation_store import digest
+from .company_interest import register_interest
+from .company_interest import signal_discovery
+from services.company_evidence_policy import CompanyEvidencePolicy
 
 
 def enqueue_refresh(conn, company_id, source, source_key, *, at, parent_session_id=None):
     if source not in {'discovery', 'active_interest', 'pipeline_selection'}:
-        from .company_interest import register_interest
-        from services.company_evidence_policy import CompanyEvidencePolicy
         register_interest(conn, company_id, source, 'current' if source == 'pipeline_selection' else source_key,
                           at=at, lifetime_seconds=CompanyEvidencePolicy.from_env().stale_seconds)
     identity = 'refresh:' + digest([company_id, source, source_key])
@@ -54,6 +55,5 @@ def finish_refresh_requests(requests, *, at, package_id=None, reason=None, retry
                          (status, attempts, package_id, reason, next_at, at if status != 'pending' else None,
                           request['request_id']))
             if status in {'completed', 'unavailable'}:
-                from .company_interest import signal_discovery
                 signal_discovery(conn, request['company_id'], 'collection:' + request['request_id'],
                                  package_id or reason or status, at=at)

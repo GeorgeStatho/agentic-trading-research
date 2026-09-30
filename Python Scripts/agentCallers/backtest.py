@@ -2,19 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
-import sys
 
+from services.settings import load_process_settings
 
-if __package__ in {None, ""}:
-    AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-    if str(AGENT_CALLERS_DIR) not in sys.path:
-        sys.path.append(str(AGENT_CALLERS_DIR))
-
-from _paths import bootstrap_agent_callers, load_project_env
-
-bootstrap_agent_callers()
-load_project_env()
+if __name__ == "__main__":
+    # Before importing modules that read configuration at import time.
+    load_process_settings()
 
 from db_helpers.market import run_backtest  # noqa: E402
 

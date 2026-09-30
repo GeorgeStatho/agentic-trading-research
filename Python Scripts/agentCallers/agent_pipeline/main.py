@@ -2,20 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
-import sys
 
-if __package__ in {None, ""}:
-    AGENT_CALLERS_DIR = Path(__file__).resolve().parents[1]
-    if str(AGENT_CALLERS_DIR) not in sys.path:
-        sys.path.append(str(AGENT_CALLERS_DIR))
-
-from _paths import DATA_DIR, bootstrap_agent_callers, load_project_env
+from services.runtime_paths import DATA_DIR
+from services.settings import load_process_settings
 
 if __name__ == "__main__":
-    load_project_env()
+    load_process_settings()
 
-bootstrap_agent_callers(include_webscraping=True)
 
 from agent_pipeline.cleanup import clear_current_pipeline_targets
 from agent_pipeline.existing_db_view import run_agent_pipeline_from_existing_data

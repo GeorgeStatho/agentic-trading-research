@@ -5,6 +5,7 @@ import json
 
 from db_common import DB_PATH, get_connection
 from .company_evidence import latest_evidence_package
+from .company_interest import active_company_ids
 
 
 def table_exists(conn, name):
@@ -46,7 +47,6 @@ def company_event_articles(company_id, *, at, stale_seconds, db_path=DB_PATH):
 def select_discovery_companies(policy, *, at, lane='events', limit=None, db_path=DB_PATH):
     """Reserve half the scan for least-recently-seen companies; prioritize the rest."""
     positions, watchlist = review_company_ids(at=at, db_path=db_path)
-    from .company_interest import active_company_ids
     with closing(get_connection(db_path)) as conn:
         interested = active_company_ids(conn, at=at)
     companies = discovery_companies((), company_ids=interested, db_path=db_path)

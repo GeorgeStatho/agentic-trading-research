@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from db_common import DB_PATH, get_connection, json_text
+from catalyst_schema import stamp_candidate_catalyst
 
 
 def record_strategist_run(
@@ -58,6 +59,5 @@ def record_strategist_run(
         ),
     )
     record_id = int(cursor.lastrowid)
-    from catalyst_schema import stamp_candidate_catalyst
     stamp_candidate_catalyst(conn, 'strategist_runs', record_id, input_payload.get('candidate_id'))
     return record_id

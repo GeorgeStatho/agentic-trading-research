@@ -5,6 +5,7 @@ from typing import Any
 
 from db_common import DB_PATH, get_connection, json_text
 from .bootstrap import initialize_database
+import json
 
 
 def record_market_regime_snapshot(snapshot: dict[str, Any], db_path: Path | str = DB_PATH) -> int:
@@ -35,7 +36,6 @@ def get_latest_market_regime_snapshot(db_path: Path | str = DB_PATH) -> dict[str
         ).fetchone()
     if row is None:
         return None
-    import json
 
     record = dict(row)
     try:

@@ -15,6 +15,10 @@ from services.company_evidence_policy import CompanyEvidencePolicy, issuer_confi
 from Webscraping.company_evidence.issuer import IssuerReleaseAdapter
 from Webscraping.company_evidence.sec import SECAdapter
 from Webscraping.company_evidence.transport import EvidenceHTTP, utc_now
+from market_db_modules.evidence_refresh import due_refresh_companies, due_refresh_requests, finish_refresh_requests
+from market_db_modules.evidence_refresh import finish_refresh_requests
+from services.company_evidence_demand import enqueue_company_interest
+from services.research_lock import ResearchSessionBusy, research_session_lock
 
 
 def collect_company(company, adapters, policy, *, db_path=DB_PATH, clock=utc_now):
@@ -59,7 +63,6 @@ def collect_company_evidence(*, db_path=DB_PATH, policy=None, clock=utc_now, con
     policy = policy or CompanyEvidencePolicy.from_env()
     if not policy.enabled:
         return {'status': 'disabled', 'companies': []}
-    from services.research_lock import ResearchSessionBusy, research_session_lock
     try:
         with research_session_lock(db_path, 'company-evidence-collector'):
             return _collect_requested_evidence(db_path, policy, clock, consensus_adapter)
@@ -68,8 +71,6 @@ def collect_company_evidence(*, db_path=DB_PATH, policy=None, clock=utc_now, con
 
 
 def _collect_requested_evidence(db_path, policy, clock, consensus_adapter):
-    from market_db_modules.evidence_refresh import due_refresh_companies, due_refresh_requests, finish_refresh_requests
-    from services.company_evidence_demand import enqueue_company_interest
     user_agent = os.getenv('SEC_USER_AGENT', '').strip()
     if '@' not in user_agent:
         return {'status': 'configuration_required', 'reason': 'SEC_USER_AGENT must identify the operator and contact email'}
@@ -122,7 +123,6 @@ def _collect_resolved_company(company, config, mapping, sec, policy, user_agent,
 
 
 def _complete_company_requests(requests, result, company, clock, db_path):
-    from market_db_modules.evidence_refresh import finish_refresh_requests
     at = clock().isoformat()
     states = [collection_state(provider, str(company['id']), db_path=db_path) for provider in result.get('providers', {})]
     failures = [state for state in states if state.get('failures', 0)]

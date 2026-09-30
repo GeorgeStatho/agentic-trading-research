@@ -5,13 +5,8 @@ from datetime import datetime, timedelta, timezone
 import json
 import math
 from pathlib import Path
-import sys
 import tempfile
 import unittest
-
-ROOT = Path(__file__).resolve().parents[1]
-for folder in ('Data', 'Python Scripts', 'Python Scripts/agentCallers', 'Python Scripts/Webscraping'):
-    sys.path.insert(0, str(ROOT / folder))
 
 from db_common import get_connection
 from market_db import initialize_database

@@ -19,6 +19,14 @@ from services.research_evidence import (
 )
 from services.research_lock import ResearchSessionBusy, research_session_lock
 from services.research_tools import OPERATIONS, ResearchTools
+from agent_stages.research_planner import ResearchPlanner
+from agent_stages.research_planner import ResearchProviderError
+from agent_stages.research_planner import validate_plan
+from market_db_modules.bootstrap import initialize_database
+from market_db_modules.foundation_store import canonical
+from market_db_modules.research_observations import get_research_observation
+from research_foundation_contracts import nonnegative
+from services.research_continuation import prepare_research_continuations
 
 
 def utc_now():
@@ -26,7 +34,6 @@ def utc_now():
 
 
 def _initial_package(candidate, item, db_path):
-    from market_db_modules.research_observations import get_research_observation
     observation = get_research_observation(candidate['observation_id'], db_path=db_path)
     cutoff = observation['information_cutoff_time']
     supplied = candidate['research_input']['company_evidence'].get('package_id')
@@ -50,7 +57,6 @@ def _initial_package(candidate, item, db_path):
 
 class ResearchOrchestrator:
     def __init__(self, *, planner=None, policy=None, db_path=DB_PATH, clock=utc_now, monotonic=time.monotonic, sleep=time.sleep):
-        from agent_stages.research_planner import ResearchPlanner
         self.planner = planner or ResearchPlanner()
         self.policy = policy or EvidenceResearchPolicy.from_env()
         self.db_path, self.clock, self.monotonic = db_path, clock, monotonic
@@ -155,7 +161,6 @@ class ResearchOrchestrator:
             field, limit, daily = 'retrieval_calls', self.policy.max_tool_calls, self.policy.daily_retrieval_calls
         if self.progress[field] >= limit:
             raise ResearchBudgetExceeded(kind + '_call_budget')
-        from research_foundation_contracts import nonnegative
         nonnegative(cost)
         if self.remaining() <= 0:
             raise TimeoutError('Research deadline exhausted')
@@ -189,7 +194,6 @@ class ResearchOrchestrator:
                 'remaining_retrieval_calls': self.policy.max_tool_calls - self.progress['retrieval_calls']}
 
     def plan(self):
-        from agent_stages.research_planner import ResearchProviderError
         retry = self.progress.get('planner_retry')
         if retry:
             delay = max(0, (datetime.fromisoformat(retry['not_before']) -
@@ -239,7 +243,6 @@ class ResearchOrchestrator:
             self.record_planner_usage(reservation, day)
             raise
         self.record_planner_usage(reservation, day)
-        from market_db_modules.foundation_store import canonical
         canonical(raw)
         self.progress['pending'] = None
         self.progress['planner_retry'] = None
@@ -266,7 +269,6 @@ class ResearchOrchestrator:
             raise ResearchBudgetExceeded('provider_usage_exceeded_reservation')
 
     def apply_plan(self):
-        from agent_stages.research_planner import validate_plan
         plan = validate_plan(self.progress['raw_plan'])
         required = required_requests(self.progress['evidence'], self.tools, self.progress['completed'])
         requested = [self.tools.parse(r) for r in plan['requests']]
@@ -361,9 +363,7 @@ def process_research_queue(*, policy=None, planner=None, clock=utc_now, limit=6,
         return {'status': 'disabled', 'sessions': []}
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError('Research batch limit must be between 1 and 100')
-    from market_db_modules.bootstrap import initialize_database
     initialize_database(db_path=db_path)
-    from services.research_continuation import prepare_research_continuations
     failures = prepare_research_continuations(limit=limit, db_path=db_path)
     results = []
     for candidate in pending_research_candidates(limit=limit, db_path=db_path):

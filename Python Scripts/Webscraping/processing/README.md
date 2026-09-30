@@ -15,7 +15,7 @@ The code in this folder is responsible for:
 
 ## Files
 
-### [news_normalization.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/processing/news_normalization.py)
+### [news_normalization.py](news_normalization.py)
 
 This file normalizes the pieces used for deduplication and storage consistency.
 
@@ -35,7 +35,7 @@ Important helpers:
 
 These helpers are used when checking whether an article is already known and when storing normalized metadata in `raw_json`.
 
-### [scoring.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/processing/scoring.py)
+### [scoring.py](scoring.py)
 
 This file contains the deterministic evidence-scoring formulas.
 
@@ -57,7 +57,7 @@ How the scoring works:
 
 This is rules-based scoring, not model-based scoring.
 
-### [__init__.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/processing/__init__.py)
+### [__init__.py](__init__.py)
 
 Package marker for the folder.
 

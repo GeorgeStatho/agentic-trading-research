@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from html import unescape
@@ -10,14 +9,9 @@ from pathlib import Path
 
 import requests
 
-WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
-if str(WEBSCRAPING_DIR) not in sys.path:
-    sys.path.append(str(WEBSCRAPING_DIR))
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 DATA_DIR = PROJECT_DIR / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
 
 from db_helpers import load_macro_events
 

@@ -7,11 +7,11 @@ from typing import Any
 from agent_helpers.manager import (
     DEFAULT_FULL_ARTICLE_LIMIT,
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
-    DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
     DEFAULT_SUMMARY_ARTICLE_LIMIT,
     build_manager_input,
     build_market_context,
 )
+from agent_contracts import ManagerResult
 from agent_helpers.shared import Client, build_model_response_diagnostic, extract_json_value
 from services.evidence_continuation_gate import evaluate_evidence_continuation_gate
 from .manager_payload_context import (
@@ -25,8 +25,8 @@ from .manager_normalization import (
     normalize_recommendation,
 )
 from .manager_prompt import build_manager_prompt
+from services.settings import get_settings
 from .manager_shared import (
-    DEFAULT_MODEL,
     LOGGER,
     MANAGER_PROMPT_VERSION,
     MANAGER_STAGE_VERSION,
@@ -184,7 +184,7 @@ def replay_manager_decision_from_payload(
     payload: dict[str, Any],
     *,
     client: Client | None = None,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Re-run only the manager LLM against a frozen decision-time payload.
 
@@ -193,6 +193,7 @@ def replay_manager_decision_from_payload(
     """
     if not isinstance(payload, dict) or not isinstance(payload.get("company"), dict):
         raise ValueError("A frozen manager replay payload with company context is required.")
+    model = model or get_settings().models.manager.model
 
     replay_payload = copy.deepcopy(payload)
     if not payload_has_evidence(replay_payload):
@@ -232,7 +233,7 @@ def decide_company_option_position(
     company_identifier: str,
     *,
     client: Client | None = None,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     strategist_recommendation: dict[str, Any] | None = None,
     system_prompt_override: str | None = None,
     task_override: str | None = None,
@@ -246,12 +247,15 @@ def decide_company_option_position(
     option_expiration_date_lte: str | None = None,
     option_strike_price_gte: float | None = None,
     option_strike_price_lte: float | None = None,
-    option_contract_limit_per_type: int = DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
+    option_contract_limit_per_type: int | None = None,
     market_regime: dict[str, Any] | None = None,
     manager_evidence_payload: dict[str, Any] | None = None,
     candidate_context: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> ManagerResult:
+    if option_contract_limit_per_type is None:
+        option_contract_limit_per_type = get_settings().manager_context.option_chain_limit_per_type
     client = client or get_default_client()
+    model = model or get_settings().models.manager.model
     payload = build_manager_input(
         company_identifier,
         start_time=start_time,

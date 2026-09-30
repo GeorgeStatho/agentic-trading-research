@@ -2,41 +2,25 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-from pathlib import Path
-import sys
-
-
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
-
-PROJECT_DIR = Path(__file__).resolve().parents[3]
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT_DIR / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
-WEBSCRAPING_MARKET_DATA_DIR = PROJECT_DIR / "Python Scripts" / "Webscraping" / "market_data"
-if str(WEBSCRAPING_MARKET_DATA_DIR) not in sys.path:
-    sys.path.append(str(WEBSCRAPING_MARKET_DATA_DIR))
 
 from agent_contracts import PayloadFilters, StrategistInputPayload, StrategistViewsPayload
 from agent_helpers.strategist import DEFAULT_MAX_ARTICLE_AGE_DAYS, build_strategist_evidence_sections
 from db_helpers import initialize_news_database
 
-from strategist_payload_articles import (
+from agent_builders.strategist_payload_articles import (
     _build_supporting_articles,
     _build_view,
     _serialize_signal,
 )
 from agent_stages.strategist_grounding import build_strategist_grounding
-import strategist_payload_company as _company_helpers
-from strategist_payload_company import (
+from agent_builders import strategist_payload_company as _company_helpers
+from agent_builders.strategist_payload_company import (
     _build_company_price_context,
     _deserialize_company_raw_json,
     _get_company_market_record,
     _serialize_company_scope,
 )
-from strategist_payload_price import (
+from agent_builders.strategist_payload_price import (
     _build_company_historical_price_data,
     _empty_historical_snapshot,
     _empty_trend_quality_payload,
@@ -53,12 +37,12 @@ from strategist_payload_price import (
     HISTORICAL_PERIOD_CONFIG,
     TREND_QUALITY_WINDOW_CONFIG,
 )
-from strategist_payload_rollup import (
+from agent_builders.strategist_payload_rollup import (
     _build_grouped_rollups,
     _build_opportunist_rollup,
     _build_rollup_section,
 )
-from strategist_payload_rollup_common import (
+from agent_builders.strategist_payload_rollup_common import (
     _build_empty_count_map,
     _build_empty_weight_map,
     _build_top_reasons,

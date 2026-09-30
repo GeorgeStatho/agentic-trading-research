@@ -8,6 +8,10 @@ from typing import Any
 from db_common import DB_PATH, clean_text, coerce_float, get_connection, json_text
 from .bootstrap import initialize_database
 from .shared import coerce_int, find_company_row_by_symbol, normalize_bool_to_int, normalize_timestamp
+from .backtesting import ensure_decision_evidence_snapshot
+from .position_outcomes import close_position_outcome
+from .shadow_gates import record_decision_gate_verdicts
+from catalyst_schema import stamp_candidate_catalyst
 
 
 def record_manager_decision_history(
@@ -122,9 +126,7 @@ def record_manager_decision_history(
     decision_history_id = int(cursor.lastrowid)
     conn.execute("UPDATE manager_decision_history SET candidate_id=?, pipeline_version_json=? WHERE id=?",
                  (history.get("candidate_id"), json_text(history.get("pipeline_version")), decision_history_id))
-    from catalyst_schema import stamp_candidate_catalyst
     stamp_candidate_catalyst(conn, 'manager_decision_history', decision_history_id, history.get('candidate_id'))
-    from .shadow_gates import record_decision_gate_verdicts
     record_decision_gate_verdicts(decision_history_id, history.get("manager_output_json"), conn=conn)
     snapshot = {
         "version": "decision-autopsy-v1",
@@ -156,7 +158,6 @@ def record_manager_decision_history(
         """,
         (decision_history_id, symbol, decision_run_at, json_text(snapshot), decision_run_at),
     )
-    from .backtesting import ensure_decision_evidence_snapshot
 
     ensure_decision_evidence_snapshot(
         {
@@ -295,7 +296,6 @@ def record_manager_decision_closed_outcome(
         ),
     )
     if int(cursor.rowcount or 0) > 0:
-        from .position_outcomes import close_position_outcome
         close_position_outcome(normalized_id, realized_pnl_pct=normalized_pnl,
                                closed_at=normalized_closed_at, exit_reason=exit_reason, conn=conn,
                                closing_order_id=closing_order_ids[-1] if closing_order_ids else None)

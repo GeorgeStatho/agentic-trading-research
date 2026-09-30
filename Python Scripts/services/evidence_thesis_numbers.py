@@ -11,7 +11,7 @@ from itertools import permutations
 import math
 import re
 
-from services.company_evidence_extraction import COMPARISON_FIELDS
+from services.company_evidence_extraction import COMPARISON_FIELDS, guidance_midpoint
 
 
 _NUMBER = re.compile(
@@ -54,13 +54,8 @@ def stated_numbers(statement: str) -> list[StatedNumber]:
     return numbers
 
 
-def _midpoint(fact):
-    high = fact.get("range_high")
-    return fact["value"] if high is None else (fact["value"] + high) / 2
-
-
 def _fact_values(fact):
-    values = [fact["value"], _midpoint(fact)]
+    values = [fact["value"], guidance_midpoint(fact)]
     if fact.get("range_high") is not None:
         values.append(fact["range_high"])
     return values
@@ -93,11 +88,11 @@ class NumberSupport:
         for first, second in permutations([f for f in known if f["kind"] != "derived"], 2):
             if not _compatible_for_calculation(first, second):
                 continue
-            change = _midpoint(first) - _midpoint(second)
+            change = guidance_midpoint(first) - guidance_midpoint(second)
             bucket = self.percents if first.get("unit") == "percent" else self.amounts
             bucket.append((change, first.get("scale") or 1))
-            if _midpoint(second):
-                self.percent_changes.append(change / abs(_midpoint(second)) * 100)
+            if guidance_midpoint(second):
+                self.percent_changes.append(change / abs(guidance_midpoint(second)) * 100)
         cited = {fact["fact_id"] for fact in facts}
         for claim in package_claims:
             if isinstance(claim.get("value"), (int, float)) and set(claim.get("fact_ids", [])) <= cited:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from strategist_payload_rollup_common import (
+from agent_builders.strategist_payload_rollup_common import (
     _build_empty_count_map,
     _build_empty_weight_map,
     _build_top_reasons,

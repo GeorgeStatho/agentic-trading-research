@@ -43,19 +43,20 @@ def settings_values(settings):
 def build_pipeline_version(*, settings=None):
     from services.evidence_research_policy import foundation_manifest
     from services.config import FrontMainSettings, OptionPositionSettings, AgentPipelineSettings
-    from services.evidence_continuation_gate import DEFAULT_EVIDENCE_CONTINUATION_POLICY
+    from services.settings import get_settings
     from services.market_regime_gate import MarketRegimePolicy
     from services.market_regime import MarketRegimeSnapshotPolicy
     from services.option_dte_buckets import OPTION_DTE_BUCKETS
-    from agent_stages.strategist_runner import strategist_prompt_version, DEFAULT_MODEL as strategist_model
+    from agent_stages.strategist_runner import strategist_prompt_version
     from services.evidence_thesis_policy import EvidenceThesisPolicy
-    from agent_stages.manager_runner import MANAGER_PROMPT_VERSION, DEFAULT_MODEL as manager_model
+    from agent_stages.manager_runner import MANAGER_PROMPT_VERSION
     from agent_helpers.deterministic_option_selector import SELECTOR_VERSION, config
     from agent_helpers.shared import _normalize_provider, _resolve_model_name
     from agent_stages.strategist_runner import decide_company_purchase
     from agent_stages.manager_runner import decide_company_option_position
 
     effective_settings = settings or FrontMainSettings.from_env()
+    process_settings = get_settings()
     settings_block = settings_values(effective_settings)
     from services.catalyst_gates import CatalystGatePolicy
     from services.pricing_policy import PricingPolicy, HORIZON_DAYS, RESPONSE_HORIZONS
@@ -64,7 +65,7 @@ def build_pipeline_version(*, settings=None):
     thesis_policy = EvidenceThesisPolicy.from_env()
     gates = serializable({'thesis': thesis_policy,'contracts': ContractPolicy.from_env(), 'pricing': PricingPolicy.from_env(), 'pricing_horizons': HORIZON_DAYS,
                           'response_horizons': RESPONSE_HORIZONS,
-                          'catalyst_decay_priors': HALF_LIFE_MINUTES, 'catalyst': CatalystGatePolicy.from_env(), 'continuation': DEFAULT_EVIDENCE_CONTINUATION_POLICY,
+                          'catalyst_decay_priors': HALF_LIFE_MINUTES, 'catalyst': CatalystGatePolicy.from_env(), 'continuation': process_settings.evidence_continuation,
                           'regime': MarketRegimePolicy.from_env(),
                           'regime_snapshot': MarketRegimeSnapshotPolicy.from_env()})
     def constants(module):
@@ -87,7 +88,8 @@ def build_pipeline_version(*, settings=None):
         'manager_prompt_version': MANAGER_PROMPT_VERSION,
         'model_provider': _normalize_provider(),
         'model_names': {stage: _resolve_model_name(_normalize_provider(), model)
-                        for stage, model in (('strategist', strategist_model), ('manager', manager_model))},
+                        for stage, model in (('strategist', process_settings.models.strategist.model),
+                                             ('manager', process_settings.models.manager.model))},
         'stage_defaults': {stage: {key: value.default for key, value in inspect.signature(function).parameters.items()
                                   if value.default is None or isinstance(value.default, (str, int, float, bool))}
                            for stage, function in (('strategist', decide_company_purchase), ('manager', decide_company_option_position))},
@@ -101,6 +103,8 @@ def build_pipeline_version(*, settings=None):
         'exit_engine_version': 'option-exits-v2-shadow-priors', 'exit_config': serializable(OptionPositionSettings.from_env()),
         'dte_buckets': serializable(OPTION_DTE_BUCKETS), 'source_hashes': source_hashes,
         'research_foundation': foundation_manifest(),
+        # The one settings object this process loaded; see services/settings.py.
+        'process_settings': serializable(process_settings),
     }
     manifest['pipeline_version'] = 'v2:' + digest(manifest)
     return manifest

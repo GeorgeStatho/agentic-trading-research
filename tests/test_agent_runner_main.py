@@ -1,21 +1,10 @@
 from __future__ import annotations
 
-import sys
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
-
-import main as agent_runner_main  # noqa: E402
+from agentCallers import main as agent_runner_main  # noqa: E402
 
 
 class AgentRunnerCompanyFilterTests(unittest.TestCase):
@@ -364,6 +353,8 @@ class CompanyFailureIsolationTests(unittest.TestCase):
             "decide_company_purchase": {"side_effect": self.strategist},
             "decide_company_option_position": {"side_effect": self.manager},
             "apply_deterministic_option_selection": {"side_effect": lambda result: result},
+            # The failures are deliberate; keep their tracebacks out of the test output.
+            "LOGGER": {},
         }
         for name, options in patches.items():
             patcher = patch.object(agent_runner_main, name, **options)

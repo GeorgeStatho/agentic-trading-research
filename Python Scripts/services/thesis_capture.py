@@ -18,6 +18,9 @@ from services.option_dte_buckets import (
     TIME_HORIZON_TO_DTE_BUCKET,
     resolve_dte_bucket_for_days,
 )
+from db_helpers.market import close_position_thesis
+from db_helpers.market import record_position_thesis
+from services.pricing_policy import HORIZON_DAYS
 
 
 LOGGER = logging.getLogger(__name__)
@@ -167,7 +170,6 @@ def build_position_thesis_record(execution: dict[str, Any]) -> dict[str, Any] | 
         time_horizon=strategist.get("time_horizon"),
     )
     horizon_source = 'legacy_dte_bucket_fallback'
-    from services.pricing_policy import HORIZON_DAYS
     state = ((execution.get('candidate_context') or {}).get('catalysts') or [{}])[0]
     if state.get('classification_status') == 'classified' and state.get('expected_horizon') in HORIZON_DAYS:
         expected_horizon_days = HORIZON_DAYS[state['expected_horizon']]
@@ -219,7 +221,6 @@ class PositionThesisJournal:
         thesis = build_position_thesis_record(execution)
         if thesis is None:
             return None
-        from db_helpers.market import record_position_thesis
 
         thesis_id = record_position_thesis(thesis)
         if thesis_id is not None:
@@ -238,7 +239,6 @@ class PositionThesisJournal:
         option_symbol = str(position_summary.get("symbol") or "").strip().upper()
         if not option_symbol:
             return False
-        from db_helpers.market import close_position_thesis
 
         closed = close_position_thesis(
             option_symbol,

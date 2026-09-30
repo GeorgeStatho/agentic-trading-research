@@ -27,7 +27,7 @@ That consistency is intentional. It keeps the engine code simple.
 
 ## Files
 
-### [marketwatch.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/extractors/marketwatch.py)
+### [marketwatch.py](marketwatch.py)
 
 Handles MarketWatch.
 
@@ -40,7 +40,7 @@ Important behavior:
 
 This module is a good example of "prefer embedded structured data, then fall back to CSS selectors."
 
-### [cnbc.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/extractors/cnbc.py)
+### [cnbc.py](cnbc.py)
 
 Handles CNBC.
 
@@ -52,7 +52,7 @@ Important behavior:
 - can parse article content from embedded `window.__s_data`
 - falls back to selector-based extraction if the state object is not available
 
-### [barrons.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/extractors/barrons.py)
+### [barrons.py](barrons.py)
 
 Handles Barrons.
 
@@ -66,7 +66,7 @@ Important behavior:
 
 This file is important because Barrons is one of the more fragile sources from an anti-bot perspective.
 
-### [investing.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/extractors/investing.py)
+### [investing.py](investing.py)
 
 Handles Investing.com.
 
@@ -77,7 +77,7 @@ Important behavior:
 - restricts article URLs to expected `news` and `analysis` paths
 - extracts article content from article-specific containers and falls back to summary metadata
 
-### [fool.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/extractors/fool.py)
+### [fool.py](fool.py)
 
 Handles Motley Fool.
 
@@ -90,7 +90,7 @@ Important behavior:
 
 This is the extractor that supports the company-specific Fool quote-page source strategy.
 
-### [yahoo.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/extractors/yahoo.py)
+### [yahoo.py](yahoo.py)
 
 Handles Yahoo Finance article pages.
 
@@ -106,7 +106,7 @@ Current note:
 - Yahoo is now mostly used as a discovery input for article URLs from supported external sources
 - this extractor still exists as support code for direct Yahoo article responses when encountered
 
-### [__init__.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/extractors/__init__.py)
+### [__init__.py](__init__.py)
 
 Re-exports the extractor functions so the rest of the system can import them from one place.
 

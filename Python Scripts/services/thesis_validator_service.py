@@ -216,7 +216,7 @@ class ThesisValidatorService:
     ) -> dict[str, Any] | None:
         """Run Phases 1-3 and fold the gated verdict into the run record."""
         try:
-            from services.thesis_adjudicator import DEFAULT_THESIS_VALIDATOR_MODEL, adjudicate_thesis
+            from services.thesis_adjudicator import adjudicate_thesis
             from services.thesis_evidence_pack import build_thesis_evidence_pack
 
             evidence_pack = build_thesis_evidence_pack(
@@ -227,7 +227,7 @@ class ThesisValidatorService:
             run_record["evidence_pack"] = evidence_pack
             verdict = adjudicate_thesis(
                 evidence_pack,
-                model=self._settings.model or DEFAULT_THESIS_VALIDATOR_MODEL,
+                model=self._settings.model or None,
                 samples=self._settings.samples,
                 temperature=self._settings.temperature,
             )

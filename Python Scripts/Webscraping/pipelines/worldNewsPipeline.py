@@ -1,13 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-import sys
-
-if __package__ in {None, ""}:
-    WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
-    if str(WEBSCRAPING_DIR) not in sys.path:
-        sys.path.append(str(WEBSCRAPING_DIR))
-
 from pipelines._regionNewsPipeline import DEFAULT_RSS_MAX_AGE_DAYS, make_region_pipeline
 from pipelines._shared import get_log_file_path
 

@@ -3,12 +3,11 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from services.settings import get_settings
 from .common import (
     ALPACA_IMPORT_ERROR,
     CLOSEST_EXPIRATION_GTE,
     ContractType,
-    DEFAULT_OPTION_CHAIN_FETCH_MULTIPLIER,
-    DEFAULT_OPTION_FETCH_MIN,
     FARTHEST_EXPIRATION_LTE,
     GetOptionContractsRequest,
     LOGGER,
@@ -26,6 +25,7 @@ from .iv_history import (
     _enrich_with_alpaca_iv_percentiles,
     _resolve_iv_percentile_dte_bucket,
 )
+from services.option_hurdle_gate import select_atm_research_contracts
 
 
 def _extract_contract_items(contracts_response: Any) -> list[Any]:
@@ -299,7 +299,7 @@ def _build_option_market_snapshot(
         return unavailable
 
     try:
-        raw_fetch_limit = max(contract_limit_per_type * DEFAULT_OPTION_CHAIN_FETCH_MULTIPLIER, DEFAULT_OPTION_FETCH_MIN)
+        raw_fetch_limit = max(contract_limit_per_type * get_settings().manager_context.option_chain_fetch_multiplier, get_settings().manager_context.option_fetch_min)
         effective_strike_price_gte = strike_price_gte if strike_price_gte is not None else (
             max(0.0, reference_stock_price - 25.0) if reference_stock_price is not None else None
         )
@@ -450,7 +450,6 @@ def _build_option_market_snapshot(
         reference_stock_price=reference_stock_price,
         per_type_limit=contract_limit_per_type,
     )
-    from services.option_hurdle_gate import select_atm_research_contracts
     payload = {
         "available": True,
         "underlying_symbol": company_symbol,

@@ -37,6 +37,8 @@ from ._option_positions_strategy import (
     _structured_exit_action,
 )
 from .utils import safe_float
+from services.candidate_lifecycle import observe
+from services.position_exit_policy import build_position_exit_context
 
 _TRUSTED_ENTRY_UNDERLYING_PRICE_SOURCES = {
     "broker_fill",
@@ -205,8 +207,6 @@ def _build_option_position_snapshot(
             take_profit_pct=round(exit_thresholds.take_profit_pct * volatility_scale, 4),
         )
     effective_stop_loss_underlying_move_pct = round(stop_loss_underlying_move_pct * volatility_scale, 6)
-    from services.candidate_lifecycle import observe
-    from services.position_exit_policy import build_position_exit_context
     v2_exit_context = observe(build_position_exit_context, option_symbol, parsed_symbol, stock_quote) or {}
     exit_action, updated_state = _structured_exit_action(
         v2_exit_context=v2_exit_context,

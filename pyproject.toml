@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling", "hatch-requirements-txt"]
+build-backend = "hatchling.build"
+
+[project]
+name = "stock-trading-experiment"
+version = "0.1.0"
+description = "Agentic news-to-options research and trading pipeline."
+readme = "README.md"
+requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[tool.hatch.metadata.hooks.requirements_txt]
+files = ["requirements.txt"]
+
+# This is an application run from its checkout, so install it editable:
+#     pip install -e .
+# Development mode adds the import roots below to sys.path through a .pth file.
+# They are the only import roots; modules must not edit sys.path themselves.
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
+dev-mode-dirs = [
+    ".",
+    "Data",
+    "Python Scripts",
+    "Python Scripts/agentCallers",
+    "Python Scripts/Webscraping",
+]

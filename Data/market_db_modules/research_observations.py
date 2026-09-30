@@ -5,6 +5,7 @@ import json
 from db_common import DB_PATH, get_connection
 from research_foundation_contracts import ResearchObservation, timestamp
 from .foundation_store import canonical, digest, insert_record, read_record, record_data
+from .bootstrap import initialize_database
 
 
 SOURCE_TIME_KEYS = {
@@ -28,7 +29,6 @@ def validate_source_times(value, cutoff):
 
 
 def record_research_observation(observation: ResearchObservation, *, db_path=DB_PATH):
-    from .bootstrap import initialize_database
     initialize_database(db_path=db_path)
     data = record_data(observation)
     with closing(get_connection(db_path)) as conn, conn:

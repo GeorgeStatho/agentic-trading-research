@@ -1,15 +1,9 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
 from urllib.parse import quote_plus
-
-DATA_DIR = Path(__file__).resolve().parents[3] / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
 
 from db_common import get_connection
 from news_db import add_failed_url, get_failed_url, remove_failed_url

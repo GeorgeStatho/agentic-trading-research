@@ -5,6 +5,8 @@ import json
 import math
 import os
 
+from market_db_modules.research_runtime import ResearchBudgetExceeded
+
 
 PLANNER_PREFIX = 'RESEARCH_PLANNER'
 THESIS_PREFIX = 'RESEARCH_THESIS'
@@ -86,7 +88,6 @@ class ResearchModelPolicy:
                    output_usd_per_million=float(setting('OUTPUT_USD_PER_MILLION', '0')))
 
     def reservation(self, provider, messages, schema):
-        from market_db_modules.research_runtime import ResearchBudgetExceeded
         # Text-only UTF-8 bytes plus serialization/schema overhead deliberately overreserve
         # compared with normal tokenization; this is not a provider token-count measurement.
         input_bound = len(json.dumps({'messages': messages, 'schema': schema}, ensure_ascii=False).encode()) + 1024

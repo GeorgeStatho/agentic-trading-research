@@ -54,6 +54,8 @@ from api_support.context import (
 )
 from api_support.thesis_validator import load_latest_thesis_verdicts
 from api_support.trades import build_trade_explanation_payload
+from api_support.context import logger
+import os
 
 
 def _build_empty_company_decisions_payload() -> dict:
@@ -1471,9 +1473,7 @@ def build_risk_controls_payload() -> dict:
 def _build_thesis_validator_kpi_payload() -> dict:
     """Shadow-mode health summary for the KPI card; fail-soft so the KPI
     endpoint never breaks over validator data."""
-    import os
 
-    from api_support.context import logger
 
     mode = str(os.getenv("THESIS_VALIDATOR_MODE", "shadow")).strip().lower() or "shadow"
     try:

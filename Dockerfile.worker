@@ -34,6 +34,9 @@ RUN playwright install --with-deps chromium
 
 COPY . .
 
-RUN python -m unittest discover -s tests -p "test_*.py" -v
+# Registers the import roots declared in pyproject.toml; dependencies are already installed.
+RUN pip install --no-deps -e .
+
+RUN python scripts/project.py test
 
 CMD ["python", "Python Scripts/main.py"]

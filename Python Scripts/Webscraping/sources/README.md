@@ -16,7 +16,7 @@ The code in this folder is responsible for:
 
 ## Files
 
-### [urlFactories.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/sources/urlFactories.py)
+### [urlFactories.py](urlFactories.py)
 
 This file defines the source templates used to build jobs.
 
@@ -41,7 +41,7 @@ This file does not perform crawling itself.
 
 It defines where the pipelines should start.
 
-### [source_config.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/sources/source_config.py)
+### [source_config.py](source_config.py)
 
 This file maps a URL to source metadata from `config/source.json`.
 
@@ -61,7 +61,7 @@ Important behavior:
 
 This file is central to understanding why a link is allowed, rejected, or treated differently from another source.
 
-### [__init__.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/sources/__init__.py)
+### [__init__.py](__init__.py)
 
 Package marker and export surface for the folder.
 

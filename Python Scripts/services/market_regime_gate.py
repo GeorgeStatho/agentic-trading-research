@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from services.research_promotion import guard_policy
+
 REGIME_RELEVANCE = {'systemic': 1.00, 'sector': .60, 'idiosyncratic': .25}
 
 
@@ -18,7 +20,6 @@ class MarketRegimePolicy:
         mode = str(os.getenv("MARKET_REGIME_GATE_MODE", "shadow")).strip().lower()
         if mode not in {"observe", "shadow", "enforce"}:
             mode = "shadow"
-        from services.research_promotion import guard_policy
         return guard_policy(cls(mode=mode), {'mode': 'REGIME'})
 
 

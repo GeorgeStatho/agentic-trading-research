@@ -9,7 +9,7 @@ from market_db_modules.company_evidence import (
 )
 from market_db_modules.foundation_store import digest
 from research_foundation_contracts import CompanyFact, EvidencePackage
-from services.company_evidence_extraction import comparison_key
+from services.company_evidence_extraction import comparison_key, guidance_midpoint
 
 
 MAX_DOCUMENTS = 24
@@ -111,8 +111,7 @@ def _comparisons(facts, active, at, db_path):
                              'fact_ids': [current['fact_id']] + [f['fact_id'] for f in compatible]})
             continue
         prior = sorted(compatible, key=lambda f: (f['available_at'], f['fact_id']))[-1]
-        midpoint = lambda f: (f['value'] + (f['range_high'] if f.get('range_high') is not None else f['value'])) / 2
-        difference = midpoint(current) - midpoint(prior)
+        difference = guidance_midpoint(current) - guidance_midpoint(prior)
         computed = _derived(current, current['metric'] + '_guidance_midpoint_change', difference,
                             '(current_low + current_high)/2 - (prior_low + prior_high)/2',
                             [current, prior], at, db_path)

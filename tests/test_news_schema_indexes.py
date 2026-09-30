@@ -1,15 +1,8 @@
 from __future__ import annotations
 
-import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT_DIR / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.insert(0, str(DATA_DIR))
 
 from db_common import get_connection
 from market_db import initialize_database as initialize_market_database

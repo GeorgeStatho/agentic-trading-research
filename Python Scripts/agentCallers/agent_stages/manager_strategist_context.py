@@ -3,29 +3,19 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from agent_stages.strategist_normalization import (
+    normalize_quality,
+    normalize_string_list,
+    normalize_timing_clarity,
+)
+
 from .manager_shared import (
-    VALID_QUALITY_LEVELS,
     VALID_STRATEGIST_DECISIONS,
-    VALID_TIMING_CLARITY,
     coerce_bool,
     normalize_confidence,
     normalize_decision,
     normalize_time_horizon,
 )
-
-
-def _normalize_string_list(value: Any) -> list[str]:
-    if isinstance(value, str):
-        text = value.strip()
-        return [text] if text else []
-    if not isinstance(value, list):
-        return []
-    cleaned: list[str] = []
-    for item in value:
-        text = str(item or "").strip()
-        if text:
-            cleaned.append(text)
-    return cleaned
 
 
 def _normalize_strategist_decision(value: Any) -> str:
@@ -51,39 +41,15 @@ def _normalize_strategist_decision(value: Any) -> str:
     return decision if decision in VALID_STRATEGIST_DECISIONS else ""
 
 
-def _normalize_quality(value: Any) -> str:
-    quality = str(value or "").strip().lower()
-    replacements = {
-        "high": "strong",
-        "medium": "moderate",
-        "low": "weak",
-    }
-    quality = replacements.get(quality, quality)
-    return quality if quality in VALID_QUALITY_LEVELS else ""
-
-
-def _normalize_timing_clarity(value: Any) -> str:
-    timing = str(value or "").strip().lower()
-    replacements = {
-        "timely": "clear",
-        "actionable": "clear",
-        "good": "clear",
-        "bad": "unclear",
-        "mixed": "unclear",
-    }
-    timing = replacements.get(timing, timing)
-    return timing if timing in VALID_TIMING_CLARITY else ""
-
-
 def _normalize_strategist_recommendation(recommendation: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(recommendation, dict):
         return {}
 
     decision = _normalize_strategist_decision(recommendation.get("decision"))
     confidence = normalize_confidence(recommendation.get("confidence"))
-    evidence_quality = _normalize_quality(recommendation.get("evidence_quality"))
-    setup_quality = _normalize_quality(recommendation.get("setup_quality"))
-    timing_clarity = _normalize_timing_clarity(recommendation.get("timing_clarity"))
+    evidence_quality = normalize_quality(recommendation.get("evidence_quality"))
+    setup_quality = normalize_quality(recommendation.get("setup_quality"))
+    timing_clarity = normalize_timing_clarity(recommendation.get("timing_clarity"))
     preferred_option_direction = normalize_decision(
         recommendation.get("preferred_option_direction")
         or recommendation.get("option_direction")
@@ -118,9 +84,9 @@ def _normalize_strategist_recommendation(recommendation: dict[str, Any] | None) 
         or ""
     ).strip()
     summary = str(recommendation.get("summary") or recommendation.get("reason") or "").strip()
-    catalyst = _normalize_string_list(recommendation.get("catalyst"))
-    thesis = _normalize_string_list(recommendation.get("thesis"))
-    risks = _normalize_string_list(recommendation.get("risks"))
+    catalyst = normalize_string_list(recommendation.get("catalyst"))
+    thesis = normalize_string_list(recommendation.get("thesis"))
+    risks = normalize_string_list(recommendation.get("risks"))
     contradictions_present = coerce_bool(recommendation.get("contradictions_present"))
     watchlist_reason = str(recommendation.get("watchlist_reason") or "").strip()
 

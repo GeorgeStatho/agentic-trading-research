@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 from typing import Any
 
+from services.settings import StageModel, get_settings
 from agent_helpers.shared import Client, ask_llm_model, get_model_client
 from services.option_dte_buckets import (
     DEFAULT_MANAGER_TARGET_DTE_BUCKET,
@@ -19,14 +19,8 @@ from services.option_dte_buckets import (
 )
 
 
-MODEL_BACKEND_LABEL = os.getenv(
-    "MANAGER_OLLAMA_HOST",
-    os.getenv("MACRO_NEWS_OLLAMA_HOST", os.getenv("WORLD_NEWS_OLLAMA_HOST", "http://127.0.0.1:11434")),
-)
-DEFAULT_MODEL = os.getenv(
-    "MANAGER_MODEL",
-    os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "world-news-sectors")),
-)
+def _stage_model() -> StageModel:
+    return get_settings().models.manager
 MANAGER_STAGE_VERSION = "decision-only-v3"
 MANAGER_PROMPT_VERSION = "manager-prompt-v4-evidence-thesis"
 
@@ -86,7 +80,7 @@ _manager_client: Client | None = None
 def get_default_client() -> Client:
     global _manager_client
     if _manager_client is None:
-        _manager_client = get_model_client(MODEL_BACKEND_LABEL)
+        _manager_client = get_model_client(_stage_model().ollama_host)
     return _manager_client
 
 
@@ -104,7 +98,7 @@ def ask_model(
         system_prompt,
         user_prompt,
         temperature=0,
-        host_label=MODEL_BACKEND_LABEL,
+        host_label=_stage_model().ollama_host,
         response_schema=MANAGER_RECOMMENDATION_SCHEMA,
         response_diagnostic=response_diagnostic,
     )

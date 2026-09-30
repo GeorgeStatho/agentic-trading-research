@@ -4,9 +4,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import sys
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
@@ -34,8 +31,6 @@ def main():
     args = parser.parse_args()
     if args.db:
         os.environ['DB_PATH'] = str(Path(args.db).resolve())
-    for folder in ('Data', 'Python Scripts', 'Python Scripts/agentCallers', 'Python Scripts/Webscraping'):
-        sys.path.insert(0, str(ROOT / folder))
     from market_db_modules.bootstrap import initialize_database
     from market_db_modules.research_runs import collect_run, start_run
     from market_db_modules.research_reports import monthly_report, promote_champion, promote_gate

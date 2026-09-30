@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from services.research_tools import OPERATIONS
 from services.research_model_policy import ResearchModelPolicy, configured_model, configured_provider
+from dataclasses import asdict
 
 PROMPT_VERSION = 'bounded-research-planner-v2-providers'
 SYSTEM_PROMPT = '''Identify unresolved questions that could materially change the company thesis.
@@ -89,7 +90,6 @@ class ResearchPlanner:
 
     @property
     def identity(self):
-        from dataclasses import asdict
         return {'provider': self.provider, 'model': self.model, 'prompt_version': self.prompt_version,
                 'endpoint_hash': sha256(self.host.encode()).hexdigest() if self.provider == 'ollama' else None,
                 'project': self.project if self.provider == 'vertex' else None,

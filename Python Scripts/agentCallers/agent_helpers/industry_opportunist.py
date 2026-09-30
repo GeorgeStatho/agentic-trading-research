@@ -3,19 +3,7 @@ from __future__ import annotations
 """Persistence and normalization helpers for the industry opportunist stage."""
 
 from datetime import datetime
-from pathlib import Path
-import sys
 from typing import Any
-
-if __package__ in {None, ""}:
-    AGENT_CALLERS_DIR = Path(__file__).resolve().parents[1]
-    if str(AGENT_CALLERS_DIR) not in sys.path:
-        sys.path.append(str(AGENT_CALLERS_DIR))
-
-from _paths import bootstrap_agent_callers
-
-
-bootstrap_agent_callers()
 
 from agent_builders.opportunist_payload import build_opportunist_input
 from db_helpers import (

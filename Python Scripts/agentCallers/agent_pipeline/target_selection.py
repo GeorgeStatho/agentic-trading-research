@@ -18,10 +18,10 @@ from agent_pipeline.ranking import (
     get_current_rankings,
     resolve_ranking_max_age_days,
 )
+from services.discovery_queue import discovery_targets
 
 
 def _discovery_targets():
-    from services.discovery_queue import discovery_targets
     return discovery_targets()
 
 

@@ -10,6 +10,7 @@ from ._option_positions_state import (
     _evaluate_momentum_history_exit,
 )
 from .utils import safe_float
+from services.position_exit_policy import shadow_exit_comparison
 
 
 def _deterministic_option_exit_decision(
@@ -586,6 +587,5 @@ def _structured_exit_action(**kwargs):
         probe, _ = _structured_exit_action_impl(**kwargs, ignored_exit_reasons=frozenset(coactive))
     action["coactive_exit_reasons"] = coactive
     if kwargs.get('v2_exit_context') is not None:
-        from services.position_exit_policy import shadow_exit_comparison
         action['v2_exit_comparison'] = shadow_exit_comparison(action, kwargs['v2_exit_context'])
     return action, state

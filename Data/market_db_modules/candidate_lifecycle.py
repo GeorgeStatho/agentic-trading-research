@@ -8,6 +8,10 @@ from uuid import uuid4
 
 from db_common import DB_PATH, get_connection, json_text
 from .bootstrap import initialize_database
+from .research_observations import bind_candidate_observation
+from .research_observations import read_observation
+from catalyst_schema import stamp_candidate_catalyst
+from news_db_modules.catalysts import attach_candidate_catalysts
 
 
 SNAPSHOT_VERSION = 'candidate-snapshot-v1'
@@ -23,7 +27,6 @@ def record_candidate(symbol, version, *, evidence=None, observation_id=None, db_
     observation = None
     with closing(get_connection(db_path)) as conn, conn:
         if observation_id:
-            from .research_observations import read_observation
             observation = read_observation(conn, observation_id)
             source_evidence = observation['source_snapshot'].get('evidence', [])
             if evidence is not None and evidence != source_evidence:
@@ -51,11 +54,9 @@ def record_candidate(symbol, version, *, evidence=None, observation_id=None, db_
             conn.execute('UPDATE candidates SET catalyst_ids_json=? WHERE candidate_id=?',
                          (json_text([state['catalyst_id'] for state in states]), candidate_id))
         else:
-            from news_db_modules.catalysts import attach_candidate_catalysts
             states = attach_candidate_catalysts(candidate_id, symbol, evidence, cutoff=created_at, conn=conn)
         catalyst_ids = [state['catalyst_id'] for state in states]
         if observation:
-            from .research_observations import bind_candidate_observation
             bind_candidate_observation(conn, candidate_id, observation_id)
     return {'candidate_id': candidate_id, 'symbol': symbol.upper(), 'created_at': created_at,
             'catalyst_ids': catalyst_ids, 'article_ids': article_ids, 'pipeline_version': version,
@@ -97,7 +98,6 @@ def record_candidate_rejection(context, result, *, shadow=False, db_path=DB_PATH
             (context['candidate_id'], context.get('symbol'), result.stage, result.reason_code,
              json_text(result.metrics), json_text(result.thresholds),
              context['pipeline_version']['pipeline_version'], now_iso(), int(shadow)))
-        from catalyst_schema import stamp_candidate_catalyst
         rejection = conn.execute('SELECT id FROM candidate_rejections WHERE candidate_id=? AND stage=? AND reason_code=? AND shadow=?',
                                  (context['candidate_id'], result.stage, result.reason_code, int(shadow))).fetchone()
         if rejection:

@@ -2,13 +2,8 @@
 from contextlib import closing
 from dataclasses import asdict
 from pathlib import Path
-import sys
 import tempfile
 from unittest.mock import patch
-
-ROOT = Path(__file__).resolve().parents[1]
-for folder in ("Data", "Python Scripts", "Python Scripts/agentCallers", "Python Scripts/Webscraping"):
-    sys.path.insert(0, str(ROOT / folder))
 
 from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database

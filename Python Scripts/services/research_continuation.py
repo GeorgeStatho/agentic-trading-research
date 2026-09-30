@@ -10,6 +10,9 @@ from market_db_modules.research_foundation import get_discovery_item, get_resear
 from market_db_modules.research_observations import bind_candidate_observation, record_research_observation
 from market_db_modules.research_runtime import load_research_progress, research_event_superseded
 from research_foundation_contracts import EvidencePackage, ResearchObservation
+from market_db_modules.research_work import claim_research_work
+from services.discovery_admission import evaluate_discovery_admission
+from services.discovery_policy import DiscoveryPolicy
 
 
 def prepare_research_continuations(*, limit, db_path=DB_PATH):
@@ -66,8 +69,6 @@ def _prepare_continuation(request, db_path):
     package_id = 'package:research-refresh:' + digest(fields)
     record_evidence_package(EvidencePackage(package_id=package_id, **fields), db_path=db_path)
     from agent_builders.company_evidence_payload import build_company_evidence_payload
-    from services.discovery_admission import evaluate_discovery_admission
-    from services.discovery_policy import DiscoveryPolicy
     payload = deepcopy(progress['initial_input']['research_input'])
     cutoff = package['information_cutoff_time']
     payload['company_evidence'] = build_company_evidence_payload(item['company_id'], package_id=package_id,
@@ -92,7 +93,6 @@ def _prepare_continuation(request, db_path):
         if conn.execute('SELECT 1 FROM research_evidence_continuations WHERE request_id=?',
                         (request['request_id'],)).fetchone():
             return None
-        from market_db_modules.research_work import claim_research_work
         owner = claim_research_work(conn, candidate, item['company_id'], item['catalyst_id'], identity, at=cutoff)
         if owner != identity:
             return 'research_already_scheduled:' + owner

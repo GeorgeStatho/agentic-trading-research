@@ -4,14 +4,10 @@ from datetime import datetime, timedelta, timezone
 from dataclasses import replace
 import json
 from pathlib import Path
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-for folder in ('Data', 'Python Scripts', 'Python Scripts/agentCallers', 'Python Scripts/Webscraping'):
-    sys.path.insert(0, str(ROOT/folder))
 from db_common import get_connection
 from market_db import initialize_database, record_manager_decision_history, record_option_trade_execution
 from news_db import initialize_database as initialize_news, add_company_news_article, add_company_opportunist_impact
@@ -272,7 +268,7 @@ class GateTests(unittest.TestCase):
         self.assertTrue(result['primary_source_exception'])
 
     def test_primary_source_exception_replaces_legacy_article_count_only_when_enforced(self):
-        from test_agent_runner_main import agent_runner_main
+        from tests.test_agent_runner_main import agent_runner_main
         for mode, expected in (('shadow', []), ('enforce', ['NVDA'])):
             context = {'candidate_id': 'fixture', 'catalyst_gates': {'PROVENANCE': {
                 'allowed': True, 'would_allow': True, 'enforcement_mode': mode,
@@ -286,7 +282,7 @@ class GateTests(unittest.TestCase):
             self.assertEqual(allowed, expected)
 
     def test_provenance_rejection_blocks_even_when_legacy_article_count_passes(self):
-        from test_agent_runner_main import agent_runner_main
+        from tests.test_agent_runner_main import agent_runner_main
         context = {'candidate_id': 'fixture', 'catalyst_gates': {'PROVENANCE': {
             'allowed': False, 'would_allow': False, 'enforcement_mode': 'enforce'}}}
         with patch('services.candidate_lifecycle.begin_candidate', return_value=context), \

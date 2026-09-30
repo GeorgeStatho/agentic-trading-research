@@ -11,8 +11,12 @@ Includes:
 
 It is still an experiment, not production trading software.
 
-Preferred import paths and compatibility-wrapper guidance live in
-[INTERFACE_GUIDE.md](INTERFACE_GUIDE.md).
+All project documentation is indexed in [docs/README.md](docs/README.md), which
+separates current documents from archived ones. To install the project and run the
+tests, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+Preferred import paths live in
+[INTERFACE_GUIDE.md](docs/INTERFACE_GUIDE.md).
 
 For maintainers adding features, start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
 [docs/FEATURE_PLAYBOOK.md](docs/FEATURE_PLAYBOOK.md), and
@@ -462,7 +466,7 @@ added:
   without live market data, model credentials, or trade execution.
 
 The full feature and validation notes are in
-[HACKATHON_SUBMISSION.md](HACKATHON_SUBMISSION.md).
+[HACKATHON_SUBMISSION.md](docs/archive/HACKATHON_SUBMISSION.md).
 
 ### Run and demo
 

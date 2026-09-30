@@ -27,12 +27,6 @@ Recommended model tier:
 
 - `gemini-2.5-flash-lite`
 
-### `world_news_to_sectors.py`
-
-Purpose:
-
-- thin world-news-specific wrapper around the macro-news-to-sectors stage
-
 ### `sector_opportunist.py`
 
 Purpose:

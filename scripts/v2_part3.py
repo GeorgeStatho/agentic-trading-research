@@ -6,9 +6,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import sys
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
@@ -25,8 +22,6 @@ def main():
     load_env_file()
     if args.db:
         os.environ['DB_PATH'] = str(Path(args.db).resolve())
-    for folder in ('Data', 'Python Scripts', 'Python Scripts/agentCallers'):
-        sys.path.insert(0, str(ROOT/folder))
     from market_db import initialize_database, freshness_outcome_report
     from news_db import initialize_database as initialize_news, backfill_catalysts, catalyst_family_report
     initialize_database()

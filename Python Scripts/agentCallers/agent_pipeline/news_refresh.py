@@ -23,13 +23,10 @@ from agent_stages.company_opportunist import classify_company_articles
 from agent_stages.industry_opportunist import classify_sector_articles_to_industries
 from agent_stages.macro_news_to_sectors import classify_macro_news_to_sectors
 from agent_stages.sector_opportunist import classify_sector_articles
+from services.company_evidence_demand import request_pipeline_evidence
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-SUBPROCESS_IMPORT_PATHS = [
-    str(PROJECT_ROOT / "Python Scripts" / "Webscraping"),
-    str(PROJECT_ROOT / "Python Scripts" / "agentCallers"),
-]
 SCRAPE_RESULT_MARKER = "__SCRAPE_RESULT__="
 ProgressCallback = Callable[[dict[str, Any]], None]
 
@@ -51,7 +48,6 @@ def _run_scrape_subprocess(
 ) -> int:
     # Run the scraper as a subprocess and stream its output so long-running scrape failures surface immediately.
     runner_payload = {
-        "paths": SUBPROCESS_IMPORT_PATHS,
         "module": module_name,
         "function": function_name,
         "args": list(args),
@@ -63,10 +59,6 @@ import json
 import sys
 
 payload = json.loads(sys.argv[1])
-for path in payload.get("paths", []):
-    if path and path not in sys.path:
-        sys.path.insert(0, path)
-
 module = importlib.import_module(payload["module"])
 function = getattr(module, payload["function"])
 result = function(*payload.get("args", []), **payload.get("kwargs", {}))
@@ -236,7 +228,6 @@ def run_news_collection_pipeline(
                 top_company_count=top_company_count,
             )
 
-            from services.company_evidence_demand import request_pipeline_evidence
             request_pipeline_evidence((c['symbol'] for c in company_selection['selected_companies']),
                                       scope='industry:' + industry_key)
 

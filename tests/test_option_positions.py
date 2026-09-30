@@ -15,8 +15,6 @@ PYTHON_SCRIPTS_DIR = REPO_ROOT / "Python Scripts"
 TRADING_SUPPORT_DIR = PYTHON_SCRIPTS_DIR / "trading_support"
 OPTION_SYMBOL = "AAPL240621C00150000"
 
-if str(PYTHON_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(PYTHON_SCRIPTS_DIR))
 
 from services.option_momentum import MOMENTUM_GOOD, MOMENTUM_UNKNOWN, evaluate_option_momentum
 

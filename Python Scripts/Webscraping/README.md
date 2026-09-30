@@ -35,39 +35,26 @@ There is also a Yahoo news helper now, but it is only used as an extra article d
 
 The most important current files are:
 
-- [pipelines/companyNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/companyNewsPipeline.py)
-- [pipelines/industryNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/industryNewsPipeline.py)
-- [pipelines/sectorNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/sectorNewsPipeline.py)
-- [pipelines/USNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/USNewsPipeline.py)
-- [pipelines/worldNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/worldNewsPipeline.py)
-- [pipelines/macroNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/macroNewsPipeline.py)
-- [pipelines/job_builder.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/job_builder.py)
-- [pipelines/_sector_rss.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_sector_rss.py)
-- [pipelines/_regionNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_regionNewsPipeline.py)
-- [pipelines/_shared.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_shared.py)
-- [pipelines/_internal.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_internal.py)
-- [pipelines/_constants.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_constants.py)
-- [engine/article_scraper.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/engine/article_scraper.py)
-- [engine/article_extraction.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/engine/article_extraction.py)
-- [market_data/yFinanceNews.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/market_data/yFinanceNews.py)
+- [pipelines/companyNewsPipeline.py](pipelines/companyNewsPipeline.py)
+- [pipelines/industryNewsPipeline.py](pipelines/industryNewsPipeline.py)
+- [pipelines/sectorNewsPipeline.py](pipelines/sectorNewsPipeline.py)
+- [pipelines/USNewsPipeline.py](pipelines/USNewsPipeline.py)
+- [pipelines/worldNewsPipeline.py](pipelines/worldNewsPipeline.py)
+- [pipelines/macroNewsPipeline.py](pipelines/macroNewsPipeline.py)
+- [pipelines/job_builder.py](pipelines/job_builder.py)
+- [pipelines/_sector_rss.py](pipelines/_sector_rss.py)
+- [pipelines/_regionNewsPipeline.py](pipelines/_regionNewsPipeline.py)
+- [pipelines/_shared.py](pipelines/_shared.py)
+- [pipelines/_internal.py](pipelines/_internal.py)
+- [pipelines/_constants.py](pipelines/_constants.py)
+- [engine/article_scraper.py](engine/article_scraper.py)
+- [engine/article_extraction.py](engine/article_extraction.py)
+- [market_data/yFinanceNews.py](market_data/yFinanceNews.py)
 
-There are also top-level compatibility wrappers that keep older imports working:
-
-- [companyNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/companyNewsPipeline.py)
-- [industryNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/industryNewsPipeline.py)
-- [sectorNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/sectorNewsPipeline.py)
-- [USNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/USNewsPipeline.py)
-- [worldNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/worldNewsPipeline.py)
-- [macroNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/macroNewsPipeline.py)
-- [article_scraper.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/article_scraper.py)
-- [Normalization.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/Normalization.py)
-
-Those wrappers matter because some older modules still import the old names.
-
-For new code, prefer the canonical modules under `pipelines/`, `engine/`,
-`processing/`, `extractors/`, and `sources/`. The root-level files are
-compatibility wrappers only. The full preferred import map lives in
-[INTERFACE_GUIDE.md](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/INTERFACE_GUIDE.md).
+Import the canonical modules under `pipelines/`, `engine/`, `processing/`,
+`extractors/`, `sources/`, `market_data/` and `APIs/`. The old root-level
+compatibility wrappers were removed. The full preferred import map lives in
+[INTERFACE_GUIDE.md](../../docs/INTERFACE_GUIDE.md).
 
 ## Core Mental Model
 
@@ -87,7 +74,7 @@ Extraction and persistence decide which results are worth keeping, normalize the
 
 The planning layer now builds explicit job dictionaries instead of having each pipeline assemble URLs ad hoc.
 
-Job building lives in [pipelines/job_builder.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/job_builder.py).
+Job building lives in [pipelines/job_builder.py](pipelines/job_builder.py).
 
 Important helpers:
 
@@ -120,7 +107,7 @@ The sector, U.S., and world pipelines now use the `article` path heavily because
 
 ## Shared Helpers
 
-[pipelines/_shared.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_shared.py) is mostly a stable import surface. It re-exports the helpers the pipelines rely on, including:
+[pipelines/_shared.py](pipelines/_shared.py) is mostly a stable import surface. It re-exports the helpers the pipelines rely on, including:
 
 - `crawl_articles(...)`
 - `crawl_article_pages(...)`
@@ -132,13 +119,13 @@ The sector, U.S., and world pipelines now use the `article` path heavily because
 - `supports_source_type(...)`
 - `get_source_metadata(...)`
 
-[pipelines/_internal.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_internal.py) contains small pipeline-only helpers such as:
+[pipelines/_internal.py](pipelines/_internal.py) contains small pipeline-only helpers such as:
 
 - company and industry match normalization
 - CNBC blacklist checks
 - "does this link text or URL actually mention the target thing?" logic
 
-[pipelines/_constants.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_constants.py) holds shared constants such as company suffixes and industry stopwords.
+[pipelines/_constants.py](pipelines/_constants.py) holds shared constants such as company suffixes and industry stopwords.
 
 ## Company Pipeline Flow
 
@@ -147,7 +134,7 @@ The main entrypoints are:
 - `get_company_news(company_identifier)`
 - `get_all_company_news()`
 
-Both live in [pipelines/companyNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/companyNewsPipeline.py).
+Both live in [pipelines/companyNewsPipeline.py](pipelines/companyNewsPipeline.py).
 
 ### Step 1: Load company records
 
@@ -200,7 +187,7 @@ If there are search jobs, the pipeline groups them by URL and crawls all source 
 
 - `crawl_articles(urls)`
 
-This happens in [engine/article_scraper.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/engine/article_scraper.py).
+This happens in [engine/article_scraper.py](engine/article_scraper.py).
 
 This source-page crawl returns one structured result per crawled page, including:
 
@@ -288,7 +275,7 @@ The main entrypoint is:
 
 - `get_all_industry_news()`
 
-This lives in [pipelines/industryNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/industryNewsPipeline.py).
+This lives in [pipelines/industryNewsPipeline.py](pipelines/industryNewsPipeline.py).
 
 The industry pipeline is similar to the company pipeline, but it is not identical.
 
@@ -325,7 +312,7 @@ It also uses the CNBC blacklist helper from `_internal.py`.
 
 ## Macro Pipeline Flow
 
-[pipelines/macroNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/macroNewsPipeline.py) is a separate workflow.
+[pipelines/macroNewsPipeline.py](pipelines/macroNewsPipeline.py) is a separate workflow.
 
 It is not the same "search page -> candidate links -> article follow" pattern.
 
@@ -335,7 +322,7 @@ So if you are trying to understand the article scraping architecture, the compan
 
 ## Scraping Engine
 
-[engine/article_scraper.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/engine/article_scraper.py) is the crawling engine.
+[engine/article_scraper.py](engine/article_scraper.py) is the crawling engine.
 
 It provides two public helpers:
 
@@ -374,7 +361,7 @@ That means even source pages go through the same normalization layer, but the pi
 
 ## Extraction Layer
 
-[engine/article_extraction.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/engine/article_extraction.py) is responsible for turning an HTML response into:
+[engine/article_extraction.py](engine/article_extraction.py) is responsible for turning an HTML response into:
 
 ```python
 ArticleExtractionResult(
@@ -401,7 +388,7 @@ Current site-specific extractors include:
 - Fool
 - Yahoo
 
-Those extractor modules live under [extractors/](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/extractors).
+Those extractor modules live under [extractors/](extractors).
 
 ## Source-Specific Search Extractors
 
@@ -420,8 +407,8 @@ These help produce cleaner candidate links than a fully generic "grab every anch
 
 The allowed-source and source-metadata rules come from:
 
-- [source_config.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/source_config.py)
-- [config/source.json](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/config/source.json)
+- [sources/source_config.py](sources/source_config.py)
+- [config/source.json](../../config/source.json)
 
 This configuration controls things like:
 
@@ -460,7 +447,7 @@ Logs are written under:
 
 The main logging helper is:
 
-- [core/scrape_logging.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/core/scrape_logging.py)
+- [core/scrape_logging.py](core/scrape_logging.py)
 
 In practice, the logs show:
 
@@ -475,7 +462,7 @@ If you are debugging runtime behavior, the logs are usually the fastest way to c
 
 ## Yahoo News Helper
 
-[market_data/yFinanceNews.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/market_data/yFinanceNews.py) is intentionally small.
+[market_data/yFinanceNews.py](market_data/yFinanceNews.py) is intentionally small.
 
 Its job is:
 
@@ -493,9 +480,9 @@ The market-data system lives nearby but is separate from the article pipeline.
 
 Important files include:
 
-- [market_data/yFinanceData.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/market_data/yFinanceData.py)
-- [market_data/yfinance_client.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/market_data/yfinance_client.py)
-- [market_data/yFinanceRealTime.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/market_data/yFinanceRealTime.py)
+- [market_data/yFinanceData.py](market_data/yFinanceData.py)
+- [market_data/yfinance_client.py](market_data/yfinance_client.py)
+- [market_data/yFinanceRealTime.py](market_data/yFinanceRealTime.py)
 
 That code is responsible for:
 
@@ -514,7 +501,6 @@ If the code feels a little uneven, that is a fair read. Right now:
 - the company pipeline is the most recently reworked pipeline
 - the company pipeline uses explicit jobs and a shared article crawl batch
 - the industry pipeline still follows the older pattern in some places
-- the top-level wrappers still exist for compatibility
 - Yahoo news is only a discovery input, not a first-class standalone scraping pipeline
 
 That means "the pipeline" is not one perfectly uniform thing yet. It is a shared architecture with a few paths at different levels of refactor maturity.
@@ -538,12 +524,12 @@ If you want one concrete path to keep in your head, this is the current company 
 
 If you want to understand the system with the least confusion, read the files in this order:
 
-1. [pipelines/companyNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/companyNewsPipeline.py)
-2. [pipelines/job_builder.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/job_builder.py)
-3. [pipelines/_shared.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_shared.py)
-4. [pipelines/_internal.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/_internal.py)
-5. [engine/article_scraper.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/engine/article_scraper.py)
-6. [engine/article_extraction.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/engine/article_extraction.py)
-7. [pipelines/industryNewsPipeline.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/pipelines/industryNewsPipeline.py)
+1. [pipelines/companyNewsPipeline.py](pipelines/companyNewsPipeline.py)
+2. [pipelines/job_builder.py](pipelines/job_builder.py)
+3. [pipelines/_shared.py](pipelines/_shared.py)
+4. [pipelines/_internal.py](pipelines/_internal.py)
+5. [engine/article_scraper.py](engine/article_scraper.py)
+6. [engine/article_extraction.py](engine/article_extraction.py)
+7. [pipelines/industryNewsPipeline.py](pipelines/industryNewsPipeline.py)
 
 That order gives you the current "happy path" first, then the shared machinery, then the older parallel pipeline.

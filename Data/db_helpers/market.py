@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
 import logging
-import sys
 from datetime import datetime, timedelta, timezone
 
 from db_common import DB_PATH, get_connection
@@ -89,13 +87,8 @@ from market_db import (
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MARKET_DATA_DIR = PROJECT_ROOT / "Python Scripts" / "Webscraping" / "market_data"
-if str(MARKET_DATA_DIR) not in sys.path:
-    sys.path.append(str(MARKET_DATA_DIR))
-
 try:
-    from yFinanceData import load_industry_from_yfinance, load_sector_from_yfinance
+    from market_data.yFinanceData import load_industry_from_yfinance, load_sector_from_yfinance
 except ImportError:  # pragma: no cover - optional runtime integration
     load_industry_from_yfinance = None
     load_sector_from_yfinance = None

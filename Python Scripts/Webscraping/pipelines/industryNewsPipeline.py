@@ -1,13 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-import sys
-
-if __package__ in {None, ""}:
-    WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
-    if str(WEBSCRAPING_DIR) not in sys.path:
-        sys.path.append(str(WEBSCRAPING_DIR))
-
 from pipelines._shared import (
     MAX_ARTICLES_PER_SEARCH_PAGE,
     MAX_ARTICLE_AGE_DAYS,

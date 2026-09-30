@@ -16,7 +16,7 @@ The code in this folder is responsible for:
 
 ## Files
 
-### [article_scraper.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/engine/article_scraper.py)
+### [article_scraper.py](article_scraper.py)
 
 This is the main crawl runner.
 
@@ -54,7 +54,7 @@ Important behavior to know:
 - the difference is in how the pipeline interprets the results
 - article-page crawling is isolated into a subprocess so it can be called safely after other crawling work
 
-### [article_extraction.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/engine/article_extraction.py)
+### [article_extraction.py](article_extraction.py)
 
 This module converts a Scrapy `Response` into a normalized article result.
 
@@ -96,7 +96,7 @@ Current site-specific extraction dispatch includes:
 - Fool
 - Yahoo
 
-### [listing_page_helper.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/engine/listing_page_helper.py)
+### [listing_page_helper.py](listing_page_helper.py)
 
 This file contains `extract_listing_article_links(...)`.
 
@@ -108,11 +108,11 @@ It:
 - enforces article URL patterns
 - matches topic text against link text or URL
 
-### [Normalization.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/engine/Normalization.py)
+### [Normalization.py](Normalization.py)
 
 Compatibility shim for older imports that still expect the old module path.
 
-### [__init__.py](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python%20Scripts/Webscraping/engine/__init__.py)
+### [__init__.py](__init__.py)
 
 Package marker for the folder.
 
