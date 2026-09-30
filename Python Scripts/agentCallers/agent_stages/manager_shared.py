@@ -28,7 +28,7 @@ DEFAULT_MODEL = os.getenv(
     os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "world-news-sectors")),
 )
 MANAGER_STAGE_VERSION = "decision-only-v3"
-MANAGER_PROMPT_VERSION = "manager-prompt-v3-company-evidence"
+MANAGER_PROMPT_VERSION = "manager-prompt-v4-evidence-thesis"
 
 VALID_DECISIONS = {"call", "put", "neither"}
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
@@ -58,6 +58,10 @@ MANAGER_RECOMMENDATION_SCHEMA: dict[str, Any] = {
             "properties": {
                 "decision": {"type": "string", "enum": ["call", "put", "neither"]},
                 "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                # Requested by the prompt; the closed schema previously made them unreachable.
+                "thesis_confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                "timing_confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                "execution_confidence": {"type": "string", "enum": ["high", "medium", "low"]},
                 "target_dte_bucket": {"type": "string", "enum": list(ORDERED_OPTION_DTE_BUCKET_KEYS_WITH_NONE)},
                 "technical_confirmation": {"type": "string", "enum": ["strong", "moderate", "mixed", "weak", "overextended"]},
                 "entry_quality": {"type": "string", "enum": ["excellent", "good", "acceptable", "poor", "chase"]},

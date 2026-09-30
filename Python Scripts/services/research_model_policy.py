@@ -6,13 +6,38 @@ import math
 import os
 
 
+PLANNER_PREFIX = 'RESEARCH_PLANNER'
+THESIS_PREFIX = 'RESEARCH_THESIS'
+# Like the other agent stages, research models fall back to the strategist's configuration.
+STAGE_MODEL_FALLBACKS = ('STRATEGIST_MODEL', 'MACRO_NEWS_MODEL', 'WORLD_NEWS_MODEL')
+STAGE_HOST_FALLBACKS = ('STRATEGIST_OLLAMA_HOST', 'MACRO_NEWS_OLLAMA_HOST', 'WORLD_NEWS_OLLAMA_HOST')
+DEFAULT_OLLAMA_HOST = 'http://127.0.0.1:11434'
+THESIS_RATE_SETTINGS = ('INPUT_USD_PER_MILLION', 'OUTPUT_USD_PER_MILLION')
+
+
+def _first_setting(names, default=None):
+    return next((os.getenv(name) for name in names if os.getenv(name)), default)
+
+
 def configured_provider():
     return (os.getenv('RESEARCH_PLANNER_PROVIDER') or os.getenv('LLM_PROVIDER', 'ollama')).strip().lower()
 
 
-def configured_model(provider):
-    configured = (os.getenv('RESEARCH_PLANNER_MODEL') or os.getenv('STRATEGIST_MODEL')
-                  or os.getenv('MACRO_NEWS_MODEL') or os.getenv('WORLD_NEWS_MODEL'))
+def thesis_provider():
+    """The thesis writer follows the strategist/manager convention: one global LLM_PROVIDER."""
+    return os.getenv('LLM_PROVIDER', 'ollama').strip().lower()
+
+
+def thesis_host():
+    return _first_setting(('RESEARCH_THESIS_OLLAMA_HOST', *STAGE_HOST_FALLBACKS), DEFAULT_OLLAMA_HOST)
+
+
+def thesis_rates_configured():
+    return any(os.getenv(f'{THESIS_PREFIX}_{name}') for name in THESIS_RATE_SETTINGS)
+
+
+def configured_model(provider, override='RESEARCH_PLANNER_MODEL'):
+    configured = _first_setting((override, *STAGE_MODEL_FALLBACKS))
     if provider == 'vertex':
         if not configured or configured in {'llama3.1', 'world-news-sectors'}:
             return os.getenv('VERTEX_DEFAULT_MODEL', 'gemini-2.5-flash')
@@ -44,14 +69,21 @@ class ResearchModelPolicy:
                 raise ValueError('Research token rates must be finite and nonnegative')
 
     @classmethod
-    def from_env(cls):
-        return cls(max_input_tokens=int(os.getenv('RESEARCH_PLANNER_MAX_INPUT_TOKENS', '131072')),
-                   max_output_tokens=int(os.getenv('RESEARCH_PLANNER_MAX_OUTPUT_TOKENS', '4096')),
-                   thinking_budget=int(os.getenv('RESEARCH_PLANNER_THINKING_BUDGET', '1024')),
-                   thinking_level=os.getenv('RESEARCH_PLANNER_THINKING_LEVEL', '').strip().lower(),
-                   thinking_token_reservation=int(os.getenv('RESEARCH_PLANNER_THINKING_TOKEN_RESERVATION', '32768')),
-                   input_usd_per_million=float(os.getenv('RESEARCH_PLANNER_INPUT_USD_PER_MILLION', '0')),
-                   output_usd_per_million=float(os.getenv('RESEARCH_PLANNER_OUTPUT_USD_PER_MILLION', '0')))
+    def from_env(cls, prefix=PLANNER_PREFIX):
+        """Read one stage's limits; a non-planner stage falls back to each planner setting."""
+        def setting(name, default):
+            own = os.getenv(f'{prefix}_{name}')
+            if prefix != PLANNER_PREFIX and own:
+                return own
+            return os.getenv(f'{PLANNER_PREFIX}_{name}', default)
+
+        return cls(max_input_tokens=int(setting('MAX_INPUT_TOKENS', '131072')),
+                   max_output_tokens=int(setting('MAX_OUTPUT_TOKENS', '4096')),
+                   thinking_budget=int(setting('THINKING_BUDGET', '1024')),
+                   thinking_level=setting('THINKING_LEVEL', '').strip().lower(),
+                   thinking_token_reservation=int(setting('THINKING_TOKEN_RESERVATION', '32768')),
+                   input_usd_per_million=float(setting('INPUT_USD_PER_MILLION', '0')),
+                   output_usd_per_million=float(setting('OUTPUT_USD_PER_MILLION', '0')))
 
     def reservation(self, provider, messages, schema):
         from market_db_modules.research_runtime import ResearchBudgetExceeded
@@ -87,3 +119,12 @@ def planner_manifest():
             'location': os.getenv('GOOGLE_CLOUD_LOCATION') or os.getenv('VERTEX_LOCATION', 'global'),
             'endpoint_hash': sha256(os.getenv('RESEARCH_PLANNER_HOST', 'http://localhost:11434').encode()).hexdigest(),
             'limits_and_rates': asdict(ResearchModelPolicy.from_env())}
+
+
+def thesis_writer_manifest():
+    provider = thesis_provider()
+    return {'provider': provider, 'model': configured_model(provider, override='RESEARCH_THESIS_MODEL'),
+            'project': os.getenv('GOOGLE_CLOUD_PROJECT') or os.getenv('VERTEX_PROJECT') or os.getenv('GCP_PROJECT'),
+            'location': os.getenv('GOOGLE_CLOUD_LOCATION') or os.getenv('VERTEX_LOCATION', 'global'),
+            'endpoint_hash': sha256(thesis_host().encode()).hexdigest(),
+            'limits_and_rates': asdict(ResearchModelPolicy.from_env(THESIS_PREFIX))}

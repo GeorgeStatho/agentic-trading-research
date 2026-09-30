@@ -123,3 +123,18 @@ STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
     "required": ["recommendation"],
     "additionalProperties": False,
 }
+
+
+def strategist_recommendation_schema(*, include_thesis: bool) -> dict[str, Any]:
+    """The legacy schema, optionally extended with the versioned evidence thesis."""
+    if not include_thesis:
+        return STRATEGIST_RECOMMENDATION_SCHEMA
+    from agent_stages.evidence_thesis_contract import EVIDENCE_THESIS_SCHEMA
+
+    legacy = STRATEGIST_RECOMMENDATION_SCHEMA["properties"]["recommendation"]
+    recommendation = {
+        **legacy,
+        "properties": {**legacy["properties"], "evidence_thesis": EVIDENCE_THESIS_SCHEMA},
+        "required": [*legacy["required"], "evidence_thesis"],
+    }
+    return {**STRATEGIST_RECOMMENDATION_SCHEMA, "properties": {"recommendation": recommendation}}

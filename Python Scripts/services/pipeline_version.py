@@ -47,7 +47,8 @@ def build_pipeline_version(*, settings=None):
     from services.market_regime_gate import MarketRegimePolicy
     from services.market_regime import MarketRegimeSnapshotPolicy
     from services.option_dte_buckets import OPTION_DTE_BUCKETS
-    from agent_stages.strategist_runner import STRATEGIST_PROMPT_VERSION, DEFAULT_MODEL as strategist_model
+    from agent_stages.strategist_runner import strategist_prompt_version, DEFAULT_MODEL as strategist_model
+    from services.evidence_thesis_policy import EvidenceThesisPolicy
     from agent_stages.manager_runner import MANAGER_PROMPT_VERSION, DEFAULT_MODEL as manager_model
     from agent_helpers.deterministic_option_selector import SELECTOR_VERSION, config
     from agent_helpers.shared import _normalize_provider, _resolve_model_name
@@ -60,7 +61,8 @@ def build_pipeline_version(*, settings=None):
     from services.pricing_policy import PricingPolicy, HORIZON_DAYS, RESPONSE_HORIZONS
     from services.contract_policy import ContractPolicy
     from catalyst_models import HALF_LIFE_MINUTES, CLASSIFICATION_VERSION, DECAY_BASIS
-    gates = serializable({'contracts': ContractPolicy.from_env(), 'pricing': PricingPolicy.from_env(), 'pricing_horizons': HORIZON_DAYS,
+    thesis_policy = EvidenceThesisPolicy.from_env()
+    gates = serializable({'thesis': thesis_policy,'contracts': ContractPolicy.from_env(), 'pricing': PricingPolicy.from_env(), 'pricing_horizons': HORIZON_DAYS,
                           'response_horizons': RESPONSE_HORIZONS,
                           'catalyst_decay_priors': HALF_LIFE_MINUTES, 'catalyst': CatalystGatePolicy.from_env(), 'continuation': DEFAULT_EVIDENCE_CONTINUATION_POLICY,
                           'regime': MarketRegimePolicy.from_env(),
@@ -81,7 +83,7 @@ def build_pipeline_version(*, settings=None):
     source_hashes = {str(p.relative_to(ROOT)): sha256(p.read_bytes()).hexdigest() for p in sorted(source_files)}
     manifest = {
         'manifest_version': 'pipeline-manifest-v1',
-        'strategist_prompt_version': STRATEGIST_PROMPT_VERSION,
+        'strategist_prompt_version': strategist_prompt_version(thesis_policy),
         'manager_prompt_version': MANAGER_PROMPT_VERSION,
         'model_provider': _normalize_provider(),
         'model_names': {stage: _resolve_model_name(_normalize_provider(), model)

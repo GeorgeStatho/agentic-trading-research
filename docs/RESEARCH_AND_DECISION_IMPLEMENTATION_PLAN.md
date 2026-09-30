@@ -1,10 +1,11 @@
 # Evidence, discovery, and trade decision implementation plan
 
-Status: Phases 0–3 implemented; Phases 4–7 remain proposed. See
+Status: Phases 0–4 implemented; Phases 5–7 remain proposed. See
 [Phase 0 implementation and operating notes](RESEARCH_PHASE0.md) and
 [Phase 1 implementation, coverage limits, and setup](RESEARCH_PHASE1.md), plus
-[Phase 2 queue and shadow discovery operating notes](RESEARCH_PHASE2.md), and
-[Phase 3 bounded research operating notes and retrieval limits](RESEARCH_PHASE3.md).
+[Phase 2 queue and shadow discovery operating notes](RESEARCH_PHASE2.md),
+[Phase 3 bounded research operating notes and retrieval limits](RESEARCH_PHASE3.md), and
+[Phase 4 structured thesis, claim checks, and design decisions](RESEARCH_PHASE4.md).
 
 ## Objective
 
@@ -232,12 +233,18 @@ Extend strategist schemas, prompts, normalization, grounding, and manager eviden
 
 The horizon numbers above illustrate shape, not a required forecast. Validate bounds and units. Each claim must reference supplied fact/document IDs and source spans, with its type identified as observed fact, calculation, or inference. Invalidation conditions should specify an observable trigger, data source, and review timing where possible.
 
-- [ ] Check exact IDs, excerpts/spans, numeric consistency, fiscal periods, and required evidence coverage deterministically.
-- [ ] Add optional semantic claim checking for conclusions that deterministic validation cannot assess. A second model's agreement is a review signal, not independent evidence or proof.
-- [ ] Defer recommendations whose central factual claims fail validation. Preserve the failed claim and reason for review.
-- [ ] Separate evidence quality, forecast uncertainty, and execution suitability. Do not translate ordinal confidence into an invented probability.
-- [ ] Persist complete input/output packages, prompt/model versions, provider diagnostics, and validation decisions.
-- [ ] Ensure the manager receives the same validated thesis/package rather than a fresh, inconsistent summary.
+- [x] Check exact IDs, excerpts/spans, numeric consistency, fiscal periods, and required evidence coverage deterministically.
+- [x] Add optional semantic claim checking for conclusions that deterministic validation cannot assess. A second model's agreement is a review signal, not independent evidence or proof.
+- [x] Defer recommendations whose central factual claims fail validation. Preserve the failed claim and reason for review.
+- [x] Separate evidence quality, forecast uncertainty, and execution suitability. Do not translate ordinal confidence into an invented probability.
+- [x] Persist complete input/output packages, prompt/model versions, provider diagnostics, and validation decisions.
+- [x] Ensure the manager receives the same validated thesis/package rather than a fresh, inconsistent summary.
+
+Implementation note: the object is `evidence_thesis` because the legacy `thesis` field is a
+list of strings. Deferral is an `EVIDENCE_THESIS` entry gate, shadow by default and
+promotion-guarded when enforced. The semantic reviewer is an injectable hook with no default
+model call. Phase 3 research sessions also receive shadow theses. See
+[Phase 4](RESEARCH_PHASE4.md).
 
 Acceptance: a valid article ID with an unsupported numerical claim fails; opposing evidence survives handoff; a missing expectation baseline is explicitly unknown; existing legacy payload tests still pass.
 

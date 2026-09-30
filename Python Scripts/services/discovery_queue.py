@@ -81,4 +81,6 @@ def run_discovery_shadow_cycle(*, sector_symbols=(), policy=None, clock=utc_now,
     result = {**process_discovery_queue(policy=policy, clock=clock, db_path=db_path), 'discovery': discovery}
     from services.research_orchestrator import process_research_queue
     result['research'] = process_research_queue(clock=clock, limit=policy.batch_size, db_path=db_path)
+    from services.research_thesis import process_research_theses
+    result['theses'] = process_research_theses(clock=clock, limit=policy.batch_size, db_path=db_path)
     return result

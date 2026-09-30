@@ -57,7 +57,7 @@ def record_gate(context, name, gate):
         return
     checkpoint(context, name, gate)
     if gate.get('would_allow', gate.get('allowed')) is False:
-        config = context['pipeline_version']['gate_config'].get(
-            'continuation' if name == 'CONTINUATION' else 'regime', {})
+        from services.research_promotion import GATE_BLOCKS
+        config = context['pipeline_version']['gate_config'].get(GATE_BLOCKS.get(name, 'regime'), {})
         for reason in gate.get('reason_codes') or ['gate_rejected']:
             reject(context, name, reason, metrics=gate, thresholds=config, shadow=gate.get('allowed') is True)

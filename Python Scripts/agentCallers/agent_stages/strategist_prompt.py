@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from agent_stages.evidence_thesis_contract import REQUIRED_OUTPUT_EXAMPLE, THESIS_INSTRUCTIONS
 from services.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET, get_dte_bucket
 
 
@@ -57,6 +58,7 @@ def build_strategist_prompt(
     *,
     system_prompt_override: str | None = None,
     task_override: str | None = None,
+    include_thesis: bool = False,
 ) -> tuple[str, str]:
     # Build the strategist prompt by weaving together company context, evidence summaries, and decision instructions.
     time_horizon_bucket_guidance = _build_time_horizon_bucket_guidance_text()
@@ -99,6 +101,11 @@ def build_strategist_prompt(
         "Return only valid JSON with a top-level key named recommendation. "
         "Do not include markdown fences, explanations, or extra keys."
     )
+    if include_thesis:
+        default_system_prompt += (
+            " evidence_claims still cite only grounding.article_ids; evidence_thesis claims may also cite "
+            "company_evidence fact_id and document_id values. " + THESIS_INSTRUCTIONS
+        )
     system_prompt = str(system_prompt_override or default_system_prompt)
     task_prompt = (
         "Evaluate the company using the provided structured context and return JSON matching the required schema.\n"
@@ -176,6 +183,8 @@ def build_strategist_prompt(
             }
         },
     }
+    if include_thesis:
+        user_payload["required_output"]["recommendation"]["evidence_thesis"] = REQUIRED_OUTPUT_EXAMPLE
     return system_prompt, json.dumps(user_payload, ensure_ascii=True)
 
 

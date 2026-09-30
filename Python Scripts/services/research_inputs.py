@@ -72,7 +72,8 @@ def load_inputs(conn, candidate, as_of):
         if rejection['stage'] != 'LIQUIDITY':
             gates[rejection['stage']] = False
     # Canonical entry_gate snapshots exist even when record_gate was not reached.
-    for name, key in (('CONTINUATION', 'entry_gate'), ('REGIME', 'market_regime_gate')):
+    for name, key in (('CONTINUATION', 'entry_gate'), ('REGIME', 'market_regime_gate'),
+                      ('EVIDENCE_THESIS', 'evidence_thesis_gate')):
         gate = payload.get(key) or {}
         if isinstance(gate.get('would_allow'), bool):
             gates.setdefault(name, gate['would_allow'])

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from .manager_shared import (
@@ -286,9 +287,31 @@ def _valid_grounded_fields(recommendation: dict[str, Any], payload: dict[str, An
     return result
 
 
+def _evidence_thesis_fields(recommendation: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Pass the strategist's checked thesis through unchanged, or flag why it cannot be.
+
+    The thesis is only meaningful against the exact package it was checked with, so a
+    package that differs from the manager's frozen company_evidence is never shown.
+    """
+    check = recommendation.get("evidence_thesis_check")
+    if not isinstance(check, dict):
+        # Idempotent: the prompt builder re-projects an already projected context.
+        mismatch = recommendation.get("evidence_thesis_handoff") == "package_mismatch"
+        return {"evidence_thesis_handoff": "package_mismatch"} if mismatch else {}
+    evidence = payload.get("company_evidence") if isinstance(payload.get("company_evidence"), dict) else {}
+    if check.get("package_id") != evidence.get("package_id"):
+        return {"evidence_thesis_handoff": "package_mismatch"}
+    return {
+        "evidence_thesis": copy.deepcopy(recommendation.get("evidence_thesis")),
+        "evidence_thesis_check": copy.deepcopy(check),
+        "evidence_thesis_handoff": "same_package",
+    }
+
+
 def _build_manager_visible_strategist_context(payload: dict[str, Any]) -> dict[str, Any]:
     recommendation = payload.get("strategist_recommendation", {})
     normalized = _normalize_strategist_recommendation(recommendation)
     if not isinstance(recommendation, dict):
         return normalized
-    return {**normalized, **_valid_grounded_fields(recommendation, payload)}
+    return {**normalized, **_valid_grounded_fields(recommendation, payload),
+            **_evidence_thesis_fields(recommendation, payload)}

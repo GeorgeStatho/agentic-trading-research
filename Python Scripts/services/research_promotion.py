@@ -16,7 +16,8 @@ MODE_KEYS = {'mode', 'enforcement_mode', 'provenance_mode', 'freshness_mode',
 GATE_BLOCKS = {'PROVENANCE': 'catalyst', 'FRESHNESS': 'catalyst', 'CONTINUATION': 'continuation',
                'REGIME': 'regime', 'LIQUIDITY': 'contracts', 'RISK_CLUSTER': 'contracts',
                'EXECUTION_LIQUIDITY': 'contracts',
-               'SCENARIO_SELECTION': 'contracts', 'POSITION_EXIT_V2': 'contracts'}
+               'SCENARIO_SELECTION': 'contracts', 'POSITION_EXIT_V2': 'contracts',
+               'EVIDENCE_THESIS': 'thesis'}
 
 
 def source_hash():

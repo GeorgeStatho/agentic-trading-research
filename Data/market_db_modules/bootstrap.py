@@ -114,3 +114,4 @@ def initialize_database(
         conn.executescript(Path(__file__).with_name('company_interest_schema.sql').read_text(encoding='utf-8'))
         conn.executescript(Path(__file__).with_name('discovery_schema.sql').read_text(encoding='utf-8'))
         conn.executescript(Path(__file__).with_name('research_runtime_schema.sql').read_text(encoding='utf-8'))
+        conn.executescript(Path(__file__).with_name('evidence_thesis_schema.sql').read_text(encoding='utf-8'))

@@ -66,6 +66,9 @@ def foundation_manifest():
     sources.extend((ROOT / "Python Scripts/services").glob("discovery*.py"))
     sources.append(ROOT / "Python Scripts/services/event_discovery.py")
     sources.extend((ROOT / "Data/market_db_modules").glob("research_runtime*.*"))
+    sources.extend((ROOT / "Data/market_db_modules").glob("evidence_thesis*.*"))
+    sources.extend((ROOT / "Python Scripts/services").glob("evidence_thesis*.py"))
+    sources.extend((ROOT / "Python Scripts/agentCallers/agent_stages").glob("*thesis*.py"))
     sources.extend((ROOT / "Python Scripts/services").glob("research_*.py"))
     sources.extend((ROOT / "Python Scripts/agentCallers/agent_stages").glob("research_planner*.py"))
     hashes = {str(path.relative_to(ROOT)): sha256(path.read_bytes()).hexdigest()
@@ -74,8 +77,9 @@ def foundation_manifest():
     provider_config = {**provider_manifest(), "adapters": [str(p.relative_to(ROOT)) for p in adapters]}
     from services.discovery_policy import DiscoveryPolicy
     provider_config["discovery"] = DiscoveryPolicy.from_env().manifest()
-    from services.research_model_policy import planner_manifest
+    from services.research_model_policy import planner_manifest, thesis_writer_manifest
     provider_config["research_planner"] = planner_manifest()
+    provider_config["research_thesis_writer"] = thesis_writer_manifest()
     budgets = asdict(EvidenceResearchPolicy.from_env())
     economics = {"pricing": asdict(PricingPolicy.from_env()), "contracts": asdict(ContractPolicy.from_env())}
     return {"schema_version": SCHEMA_VERSION, "observation_protocol": OBSERVATION_PROTOCOL,

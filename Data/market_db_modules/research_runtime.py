@@ -15,6 +15,16 @@ def _write(conn, table, data):
                  (canonical(data), digest(data), data['session_id']))
 
 
+def daily_reserved_cost(conn, day):
+    """Planner, retrieval and thesis reservations share one daily cost budget."""
+    research = conn.execute('SELECT COALESCE(SUM(reserved_cost),0) FROM research_daily_allowances WHERE day=?',
+                            (day,)).fetchone()[0]
+    has_thesis = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='research_thesis_allowances'").fetchone()
+    thesis = conn.execute('SELECT COALESCE(SUM(reserved_cost),0) FROM research_thesis_allowances WHERE day=?',
+                          (day,)).fetchone()[0] if has_thesis else 0
+    return research + thesis
+
+
 def load_research_progress(session_id, *, db_path=DB_PATH):
     with closing(get_connection(db_path)) as conn:
         return read_record(conn, 'research_session_progress', 'session_id', session_id)
@@ -35,8 +45,7 @@ def research_checkpoint(session, progress, event, *, at, allowance=None, cost_ad
             day = at[:10]
             row = conn.execute('SELECT calls FROM research_daily_allowances WHERE day=? AND kind=?',
                                (day, kind)).fetchone()
-            spent = conn.execute('SELECT COALESCE(SUM(reserved_cost),0) FROM research_daily_allowances WHERE day=?',
-                                 (day,)).fetchone()[0]
+            spent = daily_reserved_cost(conn, day)
             if (row and row['calls'] >= limit) or spent + cost > daily_budget:
                 raise ResearchBudgetExceeded('daily_' + kind + '_allowance')
             conn.execute('''INSERT INTO research_daily_allowances VALUES (?,?,1,?)

@@ -17,12 +17,24 @@ def main():
     consume.add_argument('--limit', type=int, default=6)
     replay = subparsers.add_parser('replay')
     replay.add_argument('session_id')
+    theses = subparsers.add_parser('theses', help='write shadow evidence theses for finished research sessions')
+    theses.add_argument('--limit', type=int, default=6)
+    thesis = subparsers.add_parser('thesis', help='show one recorded evidence thesis check')
+    thesis.add_argument('evaluation_id')
     args = parser.parse_args()
     from db_common import DB_PATH
     db_path = args.db or DB_PATH
     if args.command == 'replay':
         from market_db_modules.research_runtime import replay_research_session
         result = replay_research_session(args.session_id, db_path=db_path)
+    elif args.command == 'thesis':
+        from market_db_modules.evidence_thesis import get_evidence_thesis
+        result = get_evidence_thesis(args.evaluation_id, db_path=db_path)
+    elif args.command == 'theses':
+        if not 1 <= args.limit <= 100:
+            parser.error('--limit must be between 1 and 100')
+        from services.research_thesis import process_research_theses
+        result = process_research_theses(limit=args.limit, db_path=db_path)
     else:
         if not 1 <= args.limit <= 100:
             parser.error('--limit must be between 1 and 100')

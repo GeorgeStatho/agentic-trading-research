@@ -55,6 +55,10 @@ class OrderCandidateBuilder:
             return False
         if not isinstance(market_regime_gate, dict) or market_regime_gate.get("allowed") is not True:
             return False
+        # Absent only when evidence theses are off; a present gate must allow the entry.
+        thesis_gate = company_result.get("evidence_thesis_gate")
+        if thesis_gate is not None and (not isinstance(thesis_gate, dict) or thesis_gate.get("allowed") is not True):
+            return False
         return True
 
     def _record_ineligible(self, company_result, reason):
@@ -96,6 +100,7 @@ class OrderCandidateBuilder:
             "strategist_recommendation": company_result.get("strategist_recommendation", {}),
             "entry_gate": company_result.get("entry_gate", {}),
             "market_regime_gate": company_result.get("market_regime_gate", {}),
+            "evidence_thesis_gate": company_result.get("evidence_thesis_gate"),
             "reason": company_result.get("reason"),
             # The executor's champion guard reads these top-level fields, so a research
             # identity must survive every conversion rather than being dropped here.
@@ -148,6 +153,7 @@ class OrderCandidateBuilder:
             "strategist_recommendation": manager_result.get("strategist_recommendation", {}),
             "entry_gate": manager_result.get("entry_gate", {}),
             "market_regime_gate": manager_result.get("market_regime_gate", {}),
+            "evidence_thesis_gate": manager_result.get("evidence_thesis_gate"),
             "selected_option": manager_result.get("selected_option"),
             "reason": recommendation.get("reason"),
             "research_run_id": manager_result.get("research_run_id"),

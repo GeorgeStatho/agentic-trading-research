@@ -30,6 +30,8 @@ from db_helpers.market import record_manager_decision_history
 from services.config import AgentPipelineSettings
 from services.market_regime import build_market_regime_snapshot
 from services.market_regime_gate import apply_market_regime_gate_to_manager_result
+from services.evidence_thesis import evaluate_evidence_thesis_gate
+from services.evidence_thesis_policy import EvidenceThesisPolicy
 
 
 LOGGER = logging.getLogger("agent_runner")
@@ -272,6 +274,7 @@ def _build_selected_option_output(
                 "strategist_recommendation": manager_result.get("strategist_recommendation", {}),
                 "entry_gate": manager_result.get("entry_gate", {}),
                 "market_regime_gate": manager_result.get("market_regime_gate", {}),
+                "evidence_thesis_gate": manager_result.get("evidence_thesis_gate"),
                 "selected_option": manager_result.get("selected_option"),
                 "reason": recommendation.get("reason"),
             }
@@ -413,6 +416,7 @@ def _record_manager_decision_history_for_result(manager_result: dict[str, Any]) 
             "selected_option": selected_option,
             "entry_gate": manager_result.get("entry_gate", {}),
             "market_regime_gate": manager_result.get("market_regime_gate", {}),
+            "evidence_thesis_gate": manager_result.get("evidence_thesis_gate"),
         },
     }
     return record_manager_decision_history(history_payload)
@@ -444,6 +448,8 @@ def _run_strategist_and_manager(
     request_pipeline_evidence(company_symbols, scope='manager')
     from services.pipeline_version import build_pipeline_version
     cycle_version = observe(build_pipeline_version)
+    # One policy per cycle: the strategist request and the entry gate must agree on the mode.
+    thesis_policy = EvidenceThesisPolicy.from_env()
     for symbol in company_symbols:
         route_context = (company_context_by_symbol or {}).get(symbol) or {}
         recorded_context = (candidate_context_by_symbol or {}).get(symbol) or {}
@@ -476,7 +482,8 @@ def _run_strategist_and_manager(
         LOGGER.info("Running strategist for %s", symbol)
         try:
             strategist_result = decide_company_purchase(symbol, market_regime=cycle_market_regime,
-                                                        candidate_context=candidate_context)
+                                                        candidate_context=candidate_context,
+                                                        thesis_policy=thesis_policy)
         except Exception as exc:
             reject(candidate_context, "STRATEGIST", "stage_error", metrics={"error": str(exc)})
             raise
@@ -529,6 +536,14 @@ def _run_strategist_and_manager(
         checkpoint(candidate_context, "pre_regime_gate", manager_result)
         manager_result = apply_market_regime_gate_to_manager_result(manager_result)
         record_gate(candidate_context, "REGIME", manager_result.get("market_regime_gate"))
+        thesis_gate = evaluate_evidence_thesis_gate(
+            manager_result.get("strategist_recommendation"),
+            manager_result.get("recommendation", {}).get("decision"),
+            policy=thesis_policy,
+        )
+        if thesis_gate is not None:
+            manager_result["evidence_thesis_gate"] = thesis_gate
+            record_gate(candidate_context, "EVIDENCE_THESIS", thesis_gate)
         if not manager_result.get("selected_option"):
             reject(candidate_context, "CONTRACT_SELECTION",
                    manager_result.get("recommendation", {}).get("selected_option_source") or "no_contract",

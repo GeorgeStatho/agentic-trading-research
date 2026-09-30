@@ -66,6 +66,8 @@ class ResearchProviderError(RuntimeError):
 class ResearchPlanner:
     """One provider attempt per invocation; the orchestrator owns reservations and retries."""
     prompt_version = PROMPT_VERSION
+    system_prompt = SYSTEM_PROMPT
+    response_schema = PLAN_SCHEMA
 
     def __init__(self, *, model=None, host=None, provider=None, policy=None):
         self.provider = provider or configured_provider()
@@ -94,20 +96,23 @@ class ResearchPlanner:
                 'location': self.location if self.provider == 'vertex' else None, 'policy': asdict(self.policy)}
 
     def messages(self, context):
-        return [{'role': 'system', 'content': SYSTEM_PROMPT},
+        return [{'role': 'system', 'content': self.system_prompt},
                 {'role': 'user', 'content': json.dumps(context, allow_nan=False)}]
 
     def reservation(self, context):
-        return self.policy.reservation(self.provider, self.messages(context), PLAN_SCHEMA)
+        return self.policy.reservation(self.provider, self.messages(context), self.response_schema)
 
     def plan(self, context, *, timeout):
+        return self.generate(context, timeout=timeout)
+
+    def generate(self, context, *, timeout):
         self.last_response = {}
         if timeout <= 0:
             raise TimeoutError('Research planner deadline exhausted')
         if not self.model:
             raise ValueError('A configured research planner model is required')
         payload = {'provider': self.provider, 'host': self.host, 'model': self.model, 'timeout': timeout,
-                   'project': self.project, 'location': self.location, 'format': PLAN_SCHEMA,
+                   'project': self.project, 'location': self.location, 'format': self.response_schema,
                    'max_output_tokens': self.policy.max_output_tokens, 'thinking_budget': self.policy.thinking_budget,
                    'thinking_level': self.policy.thinking_level,
                    'messages': self.messages(context)}
