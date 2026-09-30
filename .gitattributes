@@ -1,0 +1,18 @@
+# This checkout is shared by Windows tools, WSL and Linux containers. Store and check out
+# text with LF so line-ending conversion never appears as a content change, and shell
+# scripts keep working inside Docker.
+* text=auto eol=lf
+
+# Binary files: never convert or diff as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.db binary
+*.db-shm binary
+*.db-wal binary
+*.sqlite binary
+*.sqlite3 binary
