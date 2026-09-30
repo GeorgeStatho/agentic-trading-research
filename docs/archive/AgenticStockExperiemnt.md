@@ -37,7 +37,7 @@ Dashboard + API outputs
 
 ### 1. Worker loop
 
-The main loop lives in [Python Scripts/main.py](Python%20Scripts/main.py).
+The main loop lives in [Python Scripts/main.py](../../Python%20Scripts/main.py).
 
 Responsibilities:
 
@@ -51,7 +51,7 @@ It currently runs as a long-lived process.
 
 ### 2. Agent stack
 
-The orchestrator lives in [Python Scripts/agentCallers/main.py](Python%20Scripts/agentCallers/main.py).
+The orchestrator lives in [Python Scripts/agentCallers/main.py](../../Python%20Scripts/agentCallers/main.py).
 
 Current responsibilities:
 
@@ -64,7 +64,7 @@ Current responsibilities:
 
 ### 3. Strategist stage
 
-File: [Python Scripts/agentCallers/agent_stages/strategist.py](Python%20Scripts/agentCallers/agent_stages/strategist.py)
+File: [Python Scripts/agentCallers/agent_stages/strategist.py](../../Python%20Scripts/agentCallers/agent_stages/strategist.py)
 
 Purpose:
 
@@ -74,7 +74,7 @@ Purpose:
 
 ### 4. Manager stage
 
-File: [Python Scripts/agentCallers/agent_stages/manager.py](Python%20Scripts/agentCallers/agent_stages/manager.py)
+File: [Python Scripts/agentCallers/agent_stages/manager.py](../../Python%20Scripts/agentCallers/agent_stages/manager.py)
 
 Purpose:
 
@@ -100,7 +100,7 @@ The project now supports two LLM backends:
 - `vertex`
 - `ollama`
 
-The provider abstraction lives in [Python Scripts/agentCallers/agent_helpers/shared.py](Python%20Scripts/agentCallers/agent_helpers/shared.py).
+The provider abstraction lives in [Python Scripts/agentCallers/agent_helpers/shared.py](../../Python%20Scripts/agentCallers/agent_helpers/shared.py).
 
 Recommended current Vertex split:
 
@@ -112,11 +112,11 @@ Recommended current Vertex split:
 - strategist: `gemini-2.5-flash`
 - manager: `gemini-2.5-pro`
 
-This split is also captured in [.env.example](.env.example).
+This split is also captured in [.env.example](../../.env.example).
 
 ## Dashboard / Monitoring
 
-The dashboard lives in [web_dashboard](web_dashboard).
+The dashboard lives in [web_dashboard](../../web_dashboard).
 
 It currently shows:
 
@@ -124,7 +124,7 @@ It currently shows:
 - portfolio history graph
 - trade execution results
 
-The API bridge is [api.py](api.py), which serves:
+The API bridge is [api.py](../../api.py), which serves:
 
 - `/api/health`
 - `/api/portfolio-history`
