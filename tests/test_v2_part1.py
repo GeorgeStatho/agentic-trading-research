@@ -206,6 +206,7 @@ class DatabaseTests(unittest.TestCase):
                 conn.execute(f"ALTER TABLE news_articles DROP COLUMN {column}")
             for column in ("exit_reason", "closing_order_ids_json"):
                 conn.execute(f"ALTER TABLE manager_decision_history DROP COLUMN {column}")
+            conn.execute("DELETE FROM schema_bootstrap")  # older code set this database up
         for _ in range(2):
             initialize_database(db_path=self.db)
             initialize_news(db_path=self.db)

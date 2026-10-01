@@ -17,7 +17,7 @@ News ingestion ──> agent pipeline ──> strategist/manager ──> determi
 | API use case | `api_support/<feature>.py` | Read/shape data here; no Flask objects. |
 | Market persistence | `Data/market_db_modules/` | Export through `Data/market_db.py` and `Data/db_helpers/market.py`. |
 | News persistence | `Data/news_db_modules/` | Export through `Data/news_db.py` and `Data/db_helpers/news.py`. |
-| Database schema | `Data/market_schema.sql`, `Data/news_schema.sql` | Use additive, idempotent `CREATE ... IF NOT EXISTS` migrations. |
+| Database schema | `Data/market_schema.sql`, `Data/news_schema.sql` | Use additive, idempotent `CREATE ... IF NOT EXISTS` migrations. The market setup stamps the database with a hash of its files (`Data/*.py`, `Data/*.sql`, `Data/market_db_modules/`, `config/risk_clusters.csv`) and reruns only when that hash changes, so a new migration must live in those files. |
 | Agent input builders | `Python Scripts/agentCallers/agent_builders/` | Deterministic payload construction only. |
 | Agent stage | `Python Scripts/agentCallers/agent_stages/` | Prompt, structured model response, and validation. |
 | Agent data helper | `Python Scripts/agentCallers/agent_helpers/` | Database and market-context loading. |

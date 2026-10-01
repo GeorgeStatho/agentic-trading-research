@@ -19,6 +19,7 @@
 *.bin
 *.pyc
 __pycache__/
+.pytest_cache/
 
 # Local scraping/debug artifacts
 html_pages/

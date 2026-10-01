@@ -34,7 +34,8 @@ def get_risk_cluster(symbol, *, db_path=DB_PATH):
         row = conn.execute('SELECT risk_cluster_id FROM companies WHERE symbol=?', (symbol,)).fetchone()
     if row and row['risk_cluster_id']:
         return row['risk_cluster_id']
-    # Broker-held companies may not yet be present in the news universe.
+    # The seed file covers broker-held companies outside the news universe, and companies
+    # added after the database setup last copied seed assignments into `companies`.
     return next((row['risk_cluster_id'] for row in cluster_mapping_rows() if row['symbol'] == symbol), None)
 
 

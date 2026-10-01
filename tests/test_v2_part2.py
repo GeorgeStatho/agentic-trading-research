@@ -136,6 +136,7 @@ class TelemetryDatabaseTests(unittest.TestCase):
         with closing(get_connection(self.db)) as conn, conn:
             conn.execute('ALTER TABLE option_trade_executions DROP COLUMN underlying_move_while_working')
             conn.execute('ALTER TABLE manager_decision_history DROP COLUMN pipeline_version_json')
+            conn.execute('DELETE FROM schema_bootstrap')  # older code set this database up
         initialize_database(db_path=self.db)
         initialize_database(db_path=self.db)
         self.assertEqual(self.row('option_trade_executions')['order_id'], 'entry')

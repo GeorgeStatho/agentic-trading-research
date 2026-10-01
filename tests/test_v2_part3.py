@@ -183,6 +183,7 @@ class CatalystTests(unittest.TestCase):
         record_manager_decision_history({'symbol': 'NVDA'}, db_path=self.db)
         with closing(get_connection(self.db)) as conn, conn:
             conn.execute('ALTER TABLE manager_decision_history DROP COLUMN catalyst_family')
+            conn.execute('DELETE FROM schema_bootstrap')  # older code set this database up
         initialize_database(db_path=self.db)
         initialize_database(db_path=self.db)
         with closing(get_connection(self.db)) as conn, conn:
