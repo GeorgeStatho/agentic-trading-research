@@ -1,6 +1,7 @@
 # Generated data files
 *.json
 *.db
+*.db.gz
 *.sqlite
 *.sqlite3
 

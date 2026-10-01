@@ -5,9 +5,12 @@ from contextlib import closing
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
+import logging
 
 from catalyst_models import CatalystState, HALF_LIFE_MINUTES, PRIMARY_SOURCE_TYPES, classify_catalyst, timestamp
 from db_common import DB_PATH, get_connection, json_text
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _earliest(rows, key):
@@ -148,13 +151,18 @@ def enrich_impact(impact, article_id, *, conn):
         from .provenance import update_article_provenance
         update_article_provenance(article_id, conn=conn)
         row = conn.execute('SELECT * FROM news_articles WHERE id=?', (article_id,)).fetchone()
-    requested = impact.get('root_event_ids')
-    if requested is not None and (not isinstance(requested, list) or any(
-            not isinstance(root, str) or not root.startswith('root:') or root != row['root_event_id'] for root in requested)):
-        raise ValueError('root_event_ids must be provenance roots of the cited article, not article IDs')
     state = json.loads(conn.execute('SELECT state_json FROM catalysts WHERE catalyst_id=?', (row['catalyst_id'],)).fetchone()[0])
-    return {**impact, **{key: state[key] for key in ('catalyst_id', 'catalyst_family', 'catalyst_type', 'mechanism', 'expected_horizon')},
-            'root_event_ids': [row['root_event_id']]}
+    enriched = {**impact, **{key: state[key] for key in ('catalyst_id', 'catalyst_family', 'catalyst_type', 'mechanism', 'expected_horizon')},
+                'root_event_ids': [row['root_event_id']]}
+    requested = impact.get('root_event_ids')
+    if requested is not None and not (isinstance(requested, list) and all(root == row['root_event_id'] for root in requested)):
+        # Provenance always comes from the article. A model claiming another root, or an article ID,
+        # is a model error kept for audit; raising here aborted the whole news collection cycle,
+        # because the root is often assigned only now, after the model saw the article.
+        LOGGER.warning('Discarded root_event_ids %s claimed for article %s; its root is %s',
+                       requested, article_id, row['root_event_id'])
+        enriched['rejected_root_event_ids'] = requested
+    return enriched
 
 
 def backfill_catalysts(*, db_path=DB_PATH):

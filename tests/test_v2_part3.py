@@ -151,10 +151,30 @@ class CatalystTests(unittest.TestCase):
         with closing(get_connection(self.db)) as conn, conn:
             row = conn.execute('SELECT * FROM company_opportunist_impacts WHERE id=?', (impact_id,)).fetchone()
             self.assertEqual(row['catalyst_family'], 'guidance_raise')
-            self.assertTrue(json.loads(row['root_event_ids_json'])[0].startswith('root:'))
-            for roots in ([str(article_id)], ['root:invented'], [article_id]):
-                with self.assertRaises(ValueError):
-                    enrich_impact({'root_event_ids': roots}, article_id, conn=conn)
+            root = json.loads(row['root_event_ids_json'])[0]
+            self.assertTrue(root.startswith('root:'))
+            for roots in ([str(article_id)], ['root:invented'], [article_id], 'root:not-a-list'):
+                with self.subTest(roots=roots), self.assertLogs('news_db_modules.catalysts', 'WARNING'):
+                    enriched = enrich_impact({'root_event_ids': roots}, article_id, conn=conn)
+                    self.assertEqual((enriched['root_event_ids'], enriched['rejected_root_event_ids']), ([root], roots))
+
+    def test_matching_or_empty_root_claims_are_accepted_silently(self):
+        article_id = self.article(1)
+        add_company_opportunist_impact(article_id, 1, raw_json={'reason': 'Forward expectations'}, db_path=self.db)
+        with closing(get_connection(self.db)) as conn, conn:
+            root = conn.execute('SELECT root_event_id FROM news_articles WHERE id=?', (article_id,)).fetchone()[0]
+            for roots in ([root], []):
+                with self.subTest(roots=roots):
+                    self.assertNotIn('rejected_root_event_ids', enrich_impact({'root_event_ids': roots}, article_id, conn=conn))
+
+    def test_a_wrong_root_claim_no_longer_aborts_saving_the_impact(self):
+        article_id = self.article(1)
+        with self.assertLogs('news_db_modules.catalysts', 'WARNING'):
+            impact_id = add_company_opportunist_impact(article_id, 1, raw_json={'reason': 'Forward expectations',
+                                                                                'root_event_ids': ['root:invented']}, db_path=self.db)
+        with closing(get_connection(self.db)) as conn:
+            stored = json.loads(conn.execute('SELECT raw_json FROM company_opportunist_impacts WHERE id=?', (impact_id,)).fetchone()[0])
+        self.assertEqual(stored['rejected_root_event_ids'], ['root:invented'])
 
     def test_candidate_catalyst_stamps_decision_rejection_and_order(self):
         self.article(1)
