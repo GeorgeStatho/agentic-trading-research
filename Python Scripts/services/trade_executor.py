@@ -26,6 +26,7 @@ from services.execution_telemetry import capture_execution_context
 from services.execution_telemetry import fill_metrics
 from services.limit_entry import observe_entry_plan
 from services.liquidity_gate import evaluate_liquidity
+from services.trade_economics import recheck_trade_economics
 from services.pipeline_version import build_pipeline_version, serializable
 
 
@@ -553,6 +554,20 @@ class OptionTradeExecutor:
                 error='Fresh quote failed V2 liquidity checks.', portfolio_guardrail='execution_liquidity_blocked')
             session.executions.append(execution)
             return execution
+        economics = recheck_trade_economics(candidate, arrival)
+        if economics is not None:
+            candidate['trade_economics_recheck'] = economics
+            checkpoint(candidate.get('candidate_context'), 'TRADE_ECONOMICS_SUBMISSION', economics)
+            for reason in economics['reason_codes']:
+                reject(candidate.get('candidate_context'), 'TRADE_ECONOMICS_SUBMISSION', reason,
+                       metrics=economics['metrics'], shadow=economics['allowed'])
+            if not economics['allowed']:
+                execution = self._build_execution(candidate=candidate, session=session, order_qty=calculated_order_qty,
+                    submitted=False, order=None, estimated_order_cost=estimated_order_cost,
+                    error='Trade-economics report failed its submission recheck.',
+                    portfolio_guardrail='economics_recheck_failed')
+                session.executions.append(execution)
+                return execution
         candidate['limit_entry_shadow'] = observe(observe_entry_plan, candidate, arrival,
                                                   quantity=calculated_order_qty, paper=self._settings.alpaca_paper)
         record_contract_observation(candidate.get('candidate_context'), 'LIMIT_ENTRY_SHADOW', candidate['limit_entry_shadow'])

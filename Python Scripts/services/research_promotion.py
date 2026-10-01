@@ -17,7 +17,8 @@ GATE_BLOCKS = {'PROVENANCE': 'catalyst', 'FRESHNESS': 'catalyst', 'CONTINUATION'
                'REGIME': 'regime', 'LIQUIDITY': 'contracts', 'RISK_CLUSTER': 'contracts',
                'EXECUTION_LIQUIDITY': 'contracts',
                'SCENARIO_SELECTION': 'contracts', 'POSITION_EXIT_V2': 'contracts',
-               'EVIDENCE_THESIS': 'thesis'}
+               'EVIDENCE_THESIS': 'thesis', 'TRADE_ECONOMICS': 'economics',
+               'TRADE_ECONOMICS_SUBMISSION': 'economics'}
 
 
 def source_hash():

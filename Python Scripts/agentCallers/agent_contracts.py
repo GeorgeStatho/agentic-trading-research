@@ -319,6 +319,13 @@ class GateVerdict(TypedDict, total=False):
     technical: dict[str, Any]
     evaluation_id: str | None
     thesis_status: str | None
+    stage: str
+    report_id: str | None
+    package_id: str | None
+    valid_until: str
+    selected_option_symbol: str | None
+    outcome: str
+    summary: str
 
 
 class EvidenceClaim(TypedDict):
@@ -402,6 +409,7 @@ class ManagerResult(TypedDict):
     strategist_recommendation: NotRequired[StrategistRecommendation]
     market_regime_gate: NotRequired[GateVerdict]
     evidence_thesis_gate: NotRequired[GateVerdict]
+    trade_economics_gate: NotRequired[GateVerdict]
     candidate_context: NotRequired[dict[str, Any] | None]
     candidate_id: NotRequired[str | None]
     manager_decision_history_id: NotRequired[int]
@@ -436,6 +444,7 @@ class OrderCandidate(TypedDict):
     entry_gate: GateVerdict
     market_regime_gate: GateVerdict
     evidence_thesis_gate: GateVerdict | None
+    trade_economics_gate: GateVerdict | None
     reason: str | None
     research_run_id: str | None
     research_strategy: str | None

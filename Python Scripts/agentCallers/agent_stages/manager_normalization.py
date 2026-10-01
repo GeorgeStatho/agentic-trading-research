@@ -96,13 +96,11 @@ def normalize_recommendation(
         return None
     if confidence not in VALID_CONFIDENCE_LEVELS:
         return None
-    if not target_dte_bucket:
-        if decision in {"call", "put"} and strategist_time_horizon_bucket:
-            target_dte_bucket = strategist_time_horizon_bucket
-        elif decision in {"call", "put"}:
-            target_dte_bucket = DEFAULT_MANAGER_TARGET_DTE_BUCKET
-        else:
-            target_dte_bucket = "none"
+    if decision in {"call", "put"} and target_dte_bucket in {"", "none"}:
+        # A trade always needs a bucket: its contracts and its exit rule both come from it.
+        target_dte_bucket = strategist_time_horizon_bucket or DEFAULT_MANAGER_TARGET_DTE_BUCKET
+    elif not target_dte_bucket:
+        target_dte_bucket = "none"
     if not reason:
         return None
 

@@ -9,6 +9,7 @@ from market_db import initialize_database as initialize_market_database
 from market_db import (
     replay_research_session, load_research_progress,
     record_evidence_thesis, get_evidence_thesis, evidence_thesis_report,
+    record_candidate_economics_report, get_candidate_economics_report, trade_economics_summary,
     enqueue_discovery_event, claim_discovery_batch, preview_discovery_queue, renew_discovery_lease, finish_discovery_item, discovery_queue_status,
     record_evidence_document,
     record_company_fact,
@@ -23,8 +24,6 @@ from market_db import (
     get_discovery_item,
     record_research_session,
     get_research_session,
-    record_trade_economics_report,
-    get_trade_economics_report,
     record_research_observation,
     get_research_observation,
     record_catalyst_gate_observation, freshness_outcome_report,

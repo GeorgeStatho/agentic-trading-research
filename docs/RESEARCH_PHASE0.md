@@ -4,10 +4,10 @@ Phase 0 adds persistence and comparison contracts. It does not enable new data p
 
 ## Implemented boundaries
 
-- `Data/research_foundation_contracts.py` defines versioned dataclasses for source documents, company facts, evidence packages, discovery items, research sessions, economics reports, and shared observations.
+- `Data/research_foundation_contracts.py` defines versioned dataclasses for source documents, company facts, evidence packages, discovery items, research sessions, and shared observations. (An economics-report contract was removed in Phase 5, which stores reports in `candidate_economics_reports`.)
 - `Data/market_db_modules/research_foundation_schema.sql` adds tables, indexes, and foreign keys without modifying historical candidate IDs, snapshot JSON, report JSON, or run configuration hashes.
 - `company_evidence.py` stores immutable documents/facts/packages and supports dated fact lookup. Revisions get new identities. Facts retain units, accounting basis, fiscal period, source span, and availability time. Unknown numeric values require a reason.
-- `research_foundation.py` supplies queue insertion/deduplication, session creation, and economics-report persistence. Leasing, retries, session progress, retrieval steps, and report generation are reserved for later phases; their schema fields are available now.
+- `research_foundation.py` supplies queue insertion/deduplication and session creation. Leasing, retries, session progress, retrieval steps, and report generation are reserved for later phases; their schema fields are available now.
 - `research_observations.py` records frozen source observations and their links to independently produced strategy candidates. A candidate must be linked at creation, before decision snapshots exist.
 - `services/research_versions.py` hashes evaluator implementation separately from a strategy's manifest. New runs carry an immutable evaluator identity; legacy runs retain their existing broad source checks.
 - `services/evidence_research_policy.py` records non-secret research budgets, provider/adapter inventory, foundation source hashes, and economics assumptions in pipeline manifests. No provider adapters are enabled in Phase 0.

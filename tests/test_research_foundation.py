@@ -9,7 +9,7 @@ from tests import research_foundation_fixtures as fixtures
 from db_common import get_connection
 from research_foundation_contracts import (
     CompanyFact, DiscoveryQueueItem, EvidenceDocument, EvidencePackage,
-    ResearchSession, TradeEconomicsReport,
+    ResearchSession,
 )
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.company_evidence import (
@@ -18,7 +18,7 @@ from market_db_modules.company_evidence import (
 )
 from market_db_modules.research_foundation import (
     enqueue_discovery, get_discovery_item, record_research_session,
-    get_research_session, record_trade_economics_report, get_trade_economics_report,
+    get_research_session, migrate_research_foundation,
 )
 from services.evidence_research_policy import foundation_manifest
 from services.research_contract import canonical, fingerprint
@@ -140,15 +140,18 @@ class EvidenceStorageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "future document"):
             record_evidence_package(replace(self.package, document_ids=("doc:late",), fact_ids=()), db_path=self.db)
 
-    def test_economics_round_trip(self):
-        record_evidence_package(self.package, db_path=self.db)
-        context = fixtures.candidate(self.db, fixtures.manifest())
-        report = TradeEconomicsReport(report_id="economics:1", candidate_id=context["candidate_id"],
-            package_id="package:1", created_at=fixtures.ENTRY, valid_until=fixtures.END,
-            forecast_version="v1", quote_snapshot={}, contract_outcomes=(), costs={},
-            validity_conditions={}, coverage_status="unavailable")
-        record_trade_economics_report(report, db_path=self.db)
-        self.assertEqual(get_trade_economics_report("economics:1", db_path=self.db)["coverage_status"], "unavailable")
+    def retired_economics_table_after_migration(self, *rows):
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute("CREATE TABLE trade_economics_reports (report_id TEXT PRIMARY KEY)")
+            conn.executemany("INSERT INTO trade_economics_reports VALUES (?)", [(row,) for row in rows])
+            migrate_research_foundation(conn)
+            return conn.execute("SELECT name FROM sqlite_master WHERE name='trade_economics_reports'").fetchone()
+
+    def test_migration_drops_the_empty_retired_economics_table(self):
+        self.assertIsNone(self.retired_economics_table_after_migration())
+
+    def test_migration_keeps_a_retired_economics_table_holding_data(self):
+        self.assertIsNotNone(self.retired_economics_table_after_migration("economics:1"))
 
     def test_repeated_migration_has_no_foreign_key_errors(self):
         record_evidence_package(self.package, db_path=self.db)

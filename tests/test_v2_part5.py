@@ -84,28 +84,39 @@ class LiquidityTests(unittest.TestCase):
 
 
 class ScenarioTests(unittest.TestCase):
-    def test_greek_units_spread_and_costs_are_separate(self):
-        score = score_contract(option(), spot=100, moves=[.02], horizon_days=5)
-        # dS=2; delta=1, gamma=.04, vega=-.5, theta=-.05, roundtrip spread=.1.
-        self.assertAlmostEqual(score['expected_pnl'], 39)
-        self.assertAlmostEqual(score['spread_cost'], 10)
-        self.assertAlmostEqual(score['theta_cost'], 5)
-        self.assertAlmostEqual(score['expected_iv_cost'], 50)
-        self.assertAlmostEqual(score['expected_return'], 39 / 305)
+    def score(self, contract=None, *, moves=(.02,), horizon_days=5):
+        return score_contract(contract or option(), spot=100, moves=list(moves), horizon_days=horizon_days,
+                              as_of=NOW, policy=ContractPolicy())
+
+    def test_costs_are_separate_and_measured_at_an_unchanged_spot(self):
+        score = self.score()
+        self.assertEqual((round(score['spread_cost'], 9), score['theta_cost'] > 0, score['expected_iv_cost'] > 0),
+                         (10.0, True, True))
+
+    def test_expected_return_is_expected_pnl_over_premium(self):
+        score = self.score()
+        self.assertAlmostEqual(score['expected_return'], score['expected_pnl'] / 305)
+
+    def test_a_crash_is_a_full_premium_loss_for_a_call(self):
+        # The former Greek expansion scored this as a large gain: its gamma term grows with the square of the move.
+        self.assertAlmostEqual(self.score(moves=(-.6,))['expected_pnl'], -305)
 
     def test_long_premium_loss_is_bounded_by_entry_cost(self):
-        score = score_contract(option(), spot=100, moves=[-.5], horizon_days=500)
-        self.assertGreaterEqual(score['pnl_p10'], -305)
+        self.assertGreaterEqual(self.score(moves=(-.5,), horizon_days=20)['pnl_p10'], -305)
 
-    def test_put_direction_changes_delta_component(self):
-        put = option(contract_type='put', greeks={'delta': -.5, 'gamma': .02, 'vega': .1, 'theta': -.01})
-        down = score_contract(put, spot=100, moves=[-.02], horizon_days=5)
-        up = score_contract(put, spot=100, moves=[.02], horizon_days=5)
-        self.assertGreater(down['expected_pnl'], up['expected_pnl'])
+    def test_put_gains_when_the_stock_falls(self):
+        put = option(symbol='NVDA261016P00099000', contract_type='put', strike_price=99)
+        self.assertGreater(self.score(put, moves=(-.02,))['expected_pnl'], self.score(put, moves=(.02,))['expected_pnl'])
 
-    def test_missing_greeks_are_unknown_not_zero(self):
-        score = score_contract(option(greeks={'delta': .5}), spot=100, moves=[.02], horizon_days=5)
-        self.assertEqual(score['status'], 'missing_scenario_inputs')
+    def test_greeks_are_not_required(self):
+        self.assertEqual(self.score(option(greeks={}))['status'], 'complete')
+
+    def test_missing_quote_is_unknown_not_zero(self):
+        self.assertEqual(self.score(option(latest_quote={}))['status'], 'missing_scenario_inputs')
+
+    def test_quote_below_intrinsic_value_cannot_be_calibrated(self):
+        deep = option(strike_price=80, latest_quote={'bid_price': 9.9, 'ask_price': 10.1})
+        self.assertEqual(self.score(deep)['status'], 'iv_calibration_failed')
 
     def test_short_expiry_cannot_win_long_horizon(self):
         selected, scores = rank_contracts([option(expiration_date='2026-09-22')], spot=100,
@@ -114,13 +125,14 @@ class ScenarioTests(unittest.TestCase):
         self.assertEqual(scores[0]['status'], 'expiry_before_horizon')
 
     def test_quantiles_and_tail_penalty_are_auditable(self):
-        score = score_contract(option(), spot=100, moves=[-.02, 0, .02], horizon_days=5)
+        score = self.score(moves=(-.02, 0, .02))
         self.assertLess(score['pnl_p10'], score['pnl_p50'])
         self.assertLess(score['pnl_p50'], score['pnl_p90'])
         self.assertAlmostEqual(score['total_score'], score['expected_return'] - .25 * score['tail_cost'])
 
     def test_shadow_challenger_does_not_replace_baseline(self):
-        pool = [option(), option(symbol='second', greeks={'delta': .8, 'gamma': .02, 'vega': .01, 'theta': -.001})]
+        cheaper = {**option()['latest_quote'], 'bid_price': 2.45, 'ask_price': 2.55}
+        pool = [option(), option(symbol='second', latest_quote=cheaper)]
         context = {'_v2_scenario_distribution': {'returns': [.02] * 30, 'sample_size': 30,
                                                 'minimum_samples': 30, 'horizon_days': 5, 'as_of': NOW.isoformat()}}
         selected, comparison = select_with_scenarios(pool, context, spot=100)
@@ -284,7 +296,7 @@ class PositionRungTests(unittest.TestCase):
         strategy = sys.modules['_test_trading_support._option_positions_strategy']
         context = evaluate_position_rungs(self.inputs(), as_of=NOW, policy=ContractPolicy(exit_mode='enforce'))
         kwargs = dict(option_symbol='NVDA261016C00101000', quantity=2, unrealized_pl_pct_ratio=.1,
-            broker_unrealized_pl_pct_ratio=.1, days_to_expiration=1, hours_to_expiration=2,
+            broker_unrealized_pl_pct_ratio=.1, exit_rule_days_to_expiration=1, hours_to_expiration=2,
             exit_thresholds=module.ExitThresholds(dte_rule_label='fixture', take_profit_pct=60, stop_loss_pct=-35,
                 force_exit_days_to_expiration=1, exit_hours_to_expiration=24, is_default_rule=False),
             position_state={}, critical_errors=[], context_notes=[], enable_trailing_profit=True,

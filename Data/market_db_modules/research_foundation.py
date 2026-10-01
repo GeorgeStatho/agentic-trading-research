@@ -3,7 +3,7 @@ from contextlib import closing
 from pathlib import Path
 
 from db_common import DB_PATH, get_connection
-from research_foundation_contracts import DiscoveryQueueItem, ResearchSession, TradeEconomicsReport
+from research_foundation_contracts import DiscoveryQueueItem, ResearchSession
 from .foundation_store import digest, insert_record, load_record, read_record, record_data
 from .bootstrap import initialize_database
 
@@ -13,11 +13,23 @@ def migrate_research_foundation(conn):
     # These records are append-only. Queue/session progress gets its own mutable state.
     for table in ("evidence_documents", "company_facts", "evidence_packages",
                   "research_observations", "candidate_observations", "research_run_versions",
-                  "strategy_evaluations", "trade_economics_reports", "research_steps"):
+                  "strategy_evaluations", "research_steps"):
         for operation in ("UPDATE", "DELETE"):
             conn.execute(f"""CREATE TRIGGER IF NOT EXISTS immutable_{table}_{operation.lower()}
                 BEFORE {operation} ON {table} BEGIN
                 SELECT RAISE(ABORT, 'Immutable research record'); END""")
+    drop_unused_economics_table(conn)
+
+
+def drop_unused_economics_table(conn):
+    """Phase 0's package-bound economics table was never written; candidate_economics_reports replaced it.
+
+    Dropped only while empty, so no recorded data can be lost.
+    """
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='trade_economics_reports'").fetchone():
+        return
+    if conn.execute("SELECT COUNT(*) FROM trade_economics_reports").fetchone()[0] == 0:
+        conn.execute("DROP TABLE trade_economics_reports")
 
 
 def enqueue_discovery(item: DiscoveryQueueItem, *, db_path=DB_PATH):
@@ -63,29 +75,3 @@ def record_research_session(session: ResearchSession, *, db_path=DB_PATH):
 
 def get_research_session(session_id, *, db_path=DB_PATH):
     return load_record(db_path, "research_sessions", "session_id", session_id)
-
-
-def record_trade_economics_report(report: TradeEconomicsReport, *, db_path=DB_PATH):
-    initialize_database(db_path=db_path)
-    data = record_data(report)
-    with closing(get_connection(db_path)) as conn, conn:
-        package = read_record(conn, "evidence_packages", "package_id", report.package_id)
-        candidate = conn.execute("SELECT symbol FROM candidates WHERE candidate_id=?", (report.candidate_id,)).fetchone()
-        company = conn.execute("SELECT symbol FROM companies WHERE id=?", (package["company_id"],)).fetchone()
-        if candidate is None or company is None or candidate["symbol"] != company["symbol"]:
-            raise ValueError("Economics report candidate and package do not match")
-        if package["information_cutoff_time"] > data["created_at"]:
-            raise ValueError("Economics report includes future evidence")
-        if report.evaluation_id:
-            evaluation = conn.execute("SELECT candidate_id FROM strategy_evaluations WHERE evaluation_id=?",
-                                      (report.evaluation_id,)).fetchone()
-            if evaluation is None or evaluation["candidate_id"] != report.candidate_id:
-                raise ValueError("Economics evaluation does not match its candidate")
-        return insert_record(conn, "trade_economics_reports", "report_id", data, {
-            "candidate_id": report.candidate_id, "package_id": report.package_id,
-            "evaluation_id": report.evaluation_id, "created_at": data["created_at"],
-        })
-
-
-def get_trade_economics_report(report_id, *, db_path=DB_PATH):
-    return load_record(db_path, "trade_economics_reports", "report_id", report_id)

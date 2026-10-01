@@ -120,6 +120,25 @@ def catalyst_return_distribution(family, horizon_days, *, as_of, exclude_catalys
     return [dict(row) for row in rows]
 
 
+def catalyst_return_scenarios(family, horizon_days, *, as_of, exclude_catalyst_id=None, db_path=DB_PATH):
+    """Total and residual responses per catalyst, under the distribution's availability rules.
+
+    Rows written before total returns were stored keep a null `stock_return`; the caller
+    counts them as missing rather than substituting the residual.
+    """
+    with closing(get_connection(db_path)) as conn, conn:
+        rows = conn.execute('''SELECT r.catalyst_id, e.ticker, e.event_at, r.residual_return,
+            json_extract(r.metrics_json, '$.stock_return') AS stock_return FROM catalyst_responses r
+            JOIN catalyst_response_events e USING(catalyst_id)
+            WHERE e.catalyst_family=? AND r.horizon_days=? AND r.status='complete'
+            AND r.residual_return IS NOT NULL AND julianday(r.outcome_at)<=julianday(?)
+            AND julianday(r.recorded_at)<=julianday(?) AND julianday(e.registered_at)<=julianday(?)
+            AND (? IS NULL OR e.catalyst_id!=?) ORDER BY r.catalyst_id''',
+            (family, horizon_days, as_of.isoformat(), as_of.isoformat(), as_of.isoformat(),
+             exclude_catalyst_id, exclude_catalyst_id)).fetchall()
+    return [dict(row) for row in rows]
+
+
 def catalyst_stats(family, horizon_days, *, as_of, minimum_samples=30, exclude_catalyst_id=None, db_path=DB_PATH):
     with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute('''SELECT e.direction, r.residual_return, r.metrics_json

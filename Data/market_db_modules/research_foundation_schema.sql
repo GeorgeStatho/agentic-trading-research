@@ -129,14 +129,3 @@ CREATE TABLE IF NOT EXISTS strategy_evaluations (
 );
 CREATE INDEX IF NOT EXISTS idx_strategy_evaluations_observation
     ON strategy_evaluations(observation_id, strategy);
-CREATE TABLE IF NOT EXISTS trade_economics_reports (
-    report_id TEXT PRIMARY KEY,
-    candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),
-    package_id TEXT NOT NULL REFERENCES evidence_packages(package_id),
-    evaluation_id TEXT REFERENCES strategy_evaluations(evaluation_id),
-    created_at TEXT NOT NULL,
-    record_hash TEXT NOT NULL,
-    record_json TEXT NOT NULL CHECK(json_valid(record_json))
-);
-CREATE INDEX IF NOT EXISTS idx_trade_economics_candidate
-    ON trade_economics_reports(candidate_id, created_at);

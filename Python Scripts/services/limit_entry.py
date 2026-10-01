@@ -99,8 +99,8 @@ def observe_entry_plan(candidate, arrival, *, quantity, paper, as_of=None, db_pa
     current = number((arrival.get('underlying') or {}).get('price'))
     score = {}
     if len(distribution.get('returns') or []) >= PricingPolicy.from_env().minimum_samples:
-        score = score_contract({**selected, 'latest_quote': quote}, spot=current,
-                               moves=distribution['returns'], horizon_days=distribution['horizon_days'], policy=policy)
+        score = score_contract({**selected, 'latest_quote': quote}, spot=current, moves=distribution['returns'],
+                               horizon_days=distribution['horizon_days'], as_of=now, policy=policy)
     bid, ask, mid, _ = quote_values(quote)
     expected_value = ask + score['expected_pnl'] / 100 if score.get('status') == 'complete' and ask else None
     ceiling = min(ask, expected_value) if ask and expected_value and expected_value > 0 else None

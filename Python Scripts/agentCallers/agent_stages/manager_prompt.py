@@ -87,7 +87,7 @@ def build_manager_prompt(
         "unless the full context strongly supports immediate action anyway. "
         f"Map time_horizon to target_dte_bucket explicitly when a trade is supported using this shared mapping: {TIME_HORIZON_DTE_MAPPING_TEXT}. "
         f"Prefer the default bucket {DEFAULT_MANAGER_TARGET_DTE_BUCKET} when the setup looks actionable but there is no strong reason to force a shorter bucket. "
-        "If no trade should be opened, or no clear horizon applies, use none. "
+        "Use none only when no trade should be opened; a call or put always needs a bucket. "
         "Return only valid JSON with a top-level key named 'recommendation'. "
         "The recommendation object must contain: decision, confidence, target_dte_bucket, technical_confirmation, entry_quality, recommended_action_adjustment, and reason. "
         "decision must be one of: call, put, neither. "
@@ -101,7 +101,7 @@ def build_manager_prompt(
         "technical_confirmation must be one of: strong, moderate, mixed, weak, overextended. "
         "entry_quality must be one of: excellent, good, acceptable, poor, chase. "
         "recommended_action_adjustment must be one of: approve, approve_with_normal_size, reduce_confidence, reduce_size, wait, skip. "
-        "Use 'none' when no options trade should be opened or when no DTE preference should be expressed. "
+        "Use 'none' only when no options trade should be opened. "
         f"reason must be a single short paragraph of at most {MANAGER_REASON_MAX_CHARS} characters explaining the main drivers of the decision. "
         "Also include these optional but preferred fields when supported by the context: overextension_risk, options_pricing_risk, technical_summary, and risk_summary."
     )

@@ -15,8 +15,6 @@ from db_helpers.market import (
     get_discovery_item,
     record_research_session,
     get_research_session,
-    record_trade_economics_report,
-    get_trade_economics_report,
     record_research_observation,
     get_research_observation,
     count_option_entry_executions_since,

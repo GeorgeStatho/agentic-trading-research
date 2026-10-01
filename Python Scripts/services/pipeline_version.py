@@ -62,8 +62,9 @@ def build_pipeline_version(*, settings=None):
     from services.pricing_policy import PricingPolicy, HORIZON_DAYS, RESPONSE_HORIZONS
     from services.contract_policy import ContractPolicy
     from catalyst_models import HALF_LIFE_MINUTES, CLASSIFICATION_VERSION, DECAY_BASIS
+    from services.trade_economics_policy import TradeEconomicsPolicy
     thesis_policy = EvidenceThesisPolicy.from_env()
-    gates = serializable({'thesis': thesis_policy,'contracts': ContractPolicy.from_env(), 'pricing': PricingPolicy.from_env(), 'pricing_horizons': HORIZON_DAYS,
+    gates = serializable({'thesis': thesis_policy, 'economics': TradeEconomicsPolicy.from_env(),'contracts': ContractPolicy.from_env(), 'pricing': PricingPolicy.from_env(), 'pricing_horizons': HORIZON_DAYS,
                           'response_horizons': RESPONSE_HORIZONS,
                           'catalyst_decay_priors': HALF_LIFE_MINUTES, 'catalyst': CatalystGatePolicy.from_env(), 'continuation': process_settings.evidence_continuation,
                           'regime': MarketRegimePolicy.from_env(),
@@ -77,6 +78,7 @@ def build_pipeline_version(*, settings=None):
         'Data/catalyst_schema.sql', 'Data/news_db_modules/provenance.py', 'Data/news_db_modules/catalysts.py',
         'Data/market_db_modules/pricing_research.py', 'Data/market_db_modules/pricing_schema.sql',
         'Data/market_db_modules/contract_research.py', 'config/risk_clusters.csv',
+        'Data/market_db_modules/trade_economics.py', 'Data/market_db_modules/trade_economics_schema.sql',
         'Data/market_db_modules/research_runs.py', 'Data/market_db_modules/research_reports.py',
         'Data/market_db_modules/research_schema.sql',
         'Data/market_db_modules/thesis_validator.py',

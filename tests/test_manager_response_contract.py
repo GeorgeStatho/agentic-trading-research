@@ -7,6 +7,7 @@ from agent_helpers.shared import build_model_response_diagnostic
 from agent_stages.manager_normalization import normalize_recommendation
 from agent_stages.manager_prompt import build_manager_prompt
 from agent_stages.manager_shared import MANAGER_REASON_MAX_CHARS, MANAGER_RECOMMENDATION_SCHEMA
+from services.option_dte_buckets import DEFAULT_MANAGER_TARGET_DTE_BUCKET, TIME_HORIZON_TO_DTE_BUCKET
 
 
 class ManagerResponseContractTests(unittest.TestCase):
@@ -44,6 +45,23 @@ class ManagerResponseContractTests(unittest.TestCase):
 
         self.assertIsNotNone(normalized)
         self.assertEqual(len(normalized["reason"]), MANAGER_REASON_MAX_CHARS)
+
+    def test_a_trade_with_bucket_none_gets_the_strategist_bucket(self) -> None:
+        normalized = normalize_recommendation(
+            {"decision": "call", "confidence": "high", "target_dte_bucket": "none", "reason": "Strong setup"},
+            strategist_recommendation={"time_horizon": "short_term"},
+        )
+        self.assertEqual(normalized["target_dte_bucket"], TIME_HORIZON_TO_DTE_BUCKET["short_term"])
+
+    def test_a_trade_with_bucket_none_and_no_horizon_gets_the_default_bucket(self) -> None:
+        normalized = normalize_recommendation(
+            {"decision": "put", "confidence": "high", "target_dte_bucket": "none", "reason": "Strong setup"})
+        self.assertEqual(normalized["target_dte_bucket"], DEFAULT_MANAGER_TARGET_DTE_BUCKET)
+
+    def test_no_trade_keeps_bucket_none(self) -> None:
+        normalized = normalize_recommendation(
+            {"decision": "neither", "confidence": "low", "target_dte_bucket": "none", "reason": "Weak setup"})
+        self.assertEqual(normalized["target_dte_bucket"], "none")
 
     def test_invalid_json_diagnostic_includes_parse_and_provider_metadata(self) -> None:
         diagnostic = build_model_response_diagnostic(

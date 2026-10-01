@@ -35,16 +35,31 @@ python3 scripts/project.py test
 python3 scripts/project.py test tests.test_thesis_evidence_contract   # selected modules
 ```
 
+With the dev extras installed (`pip install -e ".[dev]"`), the whole suite runs in
+parallel through `pytest -n auto`; without them it runs one test at a time through
+`unittest`. Selected modules always run through `unittest`. Tests are written as
+`unittest` test cases either way.
+
+Keep the checkout on the Linux filesystem when you work in WSL (for example under
+`~/code`, not `/mnt/c` or `/mnt/e`). Every file access on a Windows drive goes through a
+slow file-sharing layer, and the suite runs about five times slower there.
+
 Tests are hermetic. `tests/__init__.py` runs before any test module and:
 
 - removes every setting listed in `.env.example` from the environment, so tests use
   code defaults whatever your shell or `.env` contains;
-- points `DB_PATH` at a throwaway database, initialized once per run;
+- points `DB_PATH` at a throwaway database, initialized once per run (once per worker
+  process in a parallel run);
 - disables telemetry.
 
 Test modules must not load `.env`, stub installed packages in `sys.modules`, or rely on
 another test having run first. Import shared fixtures as `from tests.<module> import ...`.
-The worker Docker image runs the same command during `docker build`.
+The worker Docker image runs the same command during `docker build`, without the dev
+extras.
+
+A test that simulates a database left by older code must also clear `schema_bootstrap`.
+Otherwise the market setup sees its own version stamp and skips the migrations (see
+[ARCHITECTURE.md](ARCHITECTURE.md)).
 
 ## Configuration
 

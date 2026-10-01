@@ -1,11 +1,12 @@
 # Evidence, discovery, and trade decision implementation plan
 
-Status: Phases 0–4 implemented; Phases 5–7 remain proposed. See
+Status: Phases 0–5 implemented; Phases 6–7 remain proposed. See
 [Phase 0 implementation and operating notes](RESEARCH_PHASE0.md) and
 [Phase 1 implementation, coverage limits, and setup](RESEARCH_PHASE1.md), plus
 [Phase 2 queue and shadow discovery operating notes](RESEARCH_PHASE2.md),
 [Phase 3 bounded research operating notes and retrieval limits](RESEARCH_PHASE3.md), and
-[Phase 4 structured thesis, claim checks, and design decisions](RESEARCH_PHASE4.md).
+[Phase 4 structured thesis, claim checks, and design decisions](RESEARCH_PHASE4.md), and
+[Phase 5 trade economics, finalization, and submission rechecks](RESEARCH_PHASE5.md).
 
 ## Objective
 
@@ -104,7 +105,7 @@ Unknown values are null plus a reason, never zero. If consensus is unavailable, 
 | `discovery_queue` | Company, catalyst, evidence revision, purpose, origin, priority components, status, attempts, next-attempt time, lease owner/expiry, completion/deferral reason |
 | `research_observations` | Strategy-independent observation ID, company/event revision, frozen source snapshot, information cutoff, evaluation protocol version, content hash |
 | `strategy_evaluations` | Observation ID, strategy/run/manifest ID, strategy-specific candidate ID, input/output hashes, status including explicit abstention or unavailable evaluation |
-| `trade_economics_reports` | Candidate/evaluation ID, evidence package, quote snapshot, forecast/scenario version, contract-level outcomes, costs, coverage, validity conditions, report hash |
+| `candidate_economics_reports` | Candidate ID, optional evidence package, quote snapshot, forecast/scenario version, contract-level outcomes, costs, coverage, validity conditions, report hash |
 
 Queue idempotency key: company + catalyst + material evidence revision + review purpose. Retries reuse that item. New substantive evidence creates a new revision; syndicated copies do not.
 
@@ -127,7 +128,7 @@ An observation ID must not include a model, strategy configuration, or candidate
 Deliver this foundation before adding new model behavior.
 
 - [x] Add evidence/observation/queue schemas and database modules; test repeated initialization on empty and existing databases.
-- [x] Add typed contracts for facts, evidence packages, queue items, research sessions, and economics reports.
+- [x] Add typed contracts for facts, evidence packages, queue items, research sessions, and economics reports. (Phase 5 replaced the economics contract with `candidate_economics_reports`.)
 - [x] Add shared observation linkage to candidates/evaluations without rewriting existing candidate IDs or immutable snapshots.
 - [x] Update research enrollment and replacement comparison to use observation identity, not equality of strategy-specific candidate IDs.
 - [x] Separate evaluator/source version checks from strategy manifest checks. Each strategy's manifest stays frozen, while different strategies may evaluate the same observation.
@@ -254,16 +255,27 @@ Extend `pricing_gates.py`, `option_hurdle_gate.py`, `scenario_selector.py`, and 
 
 Tasks:
 
-- [ ] Keep manager direction/horizon selection as a proposal. Hydrate eligible contracts for that horizon, then compute economics before final permission and the streaming execution callback.
-- [ ] Use dated empirical scenarios or another explicitly versioned forecast source with coverage and uncertainty. Stratify where justified by catalyst, horizon, and market context; record effective independent sample size and avoid counting repeated coverage as separate events.
-- [ ] Distinguish residual company returns from total underlying returns. The existing residual-only model assumes zero systematic movement; add explicit market/sector scenarios or disclose that limitation and restrict use accordingly.
-- [ ] Model price movement, remaining time, and IV jointly through declared scenarios. Validate the existing local Greeks approximation against a suitable repricing method; define rejection/fallback rules for large moves, near-expiry contracts, missing inputs, and unsupported exercise/dividend assumptions.
-- [ ] Include bid/ask execution assumptions, fees, slippage, time decay, IV changes, expiration, and downside outcomes. Unknown costs or missing quote coverage are not zero.
-- [ ] Report expected net P&L only where scenario weights have a defensible basis. Otherwise report unweighted stress outcomes and mark expected value unavailable.
-- [ ] Return per-contract net-outcome estimates, quantiles where supported, capital at risk, sensitivity, sample coverage, assumptions, and a validity window.
-- [ ] Let the final manager explain the decision using the report, but enforce eligibility and hard constraints in Python. In enforce mode, an unavailable required estimate or invalidated report cannot authorize a new entry.
-- [ ] Carry report/package/quote identities through `order_candidates.py` into `trade_executor.py`; recheck quote age, event revision, underlying movement, and report validity at submission.
-- [ ] Record shadow economic rejection reasons distinctly from actual blocked orders.
+- [x] Keep manager direction/horizon selection as a proposal. Hydrate eligible contracts for that horizon, then compute economics before final permission and the streaming execution callback.
+- [x] Use dated empirical scenarios or another explicitly versioned forecast source with coverage and uncertainty. Stratify where justified by catalyst, horizon, and market context; record effective independent sample size and avoid counting repeated coverage as separate events.
+- [x] Distinguish residual company returns from total underlying returns. The existing residual-only model assumes zero systematic movement; add explicit market/sector scenarios or disclose that limitation and restrict use accordingly.
+- [x] Model price movement, remaining time, and IV jointly through declared scenarios. Validate the existing local Greeks approximation against a suitable repricing method; define rejection/fallback rules for large moves, near-expiry contracts, missing inputs, and unsupported exercise/dividend assumptions.
+- [x] Include bid/ask execution assumptions, fees, slippage, time decay, IV changes, expiration, and downside outcomes. Unknown costs or missing quote coverage are not zero.
+- [x] Report expected net P&L only where scenario weights have a defensible basis. Otherwise report unweighted stress outcomes and mark expected value unavailable.
+- [x] Return per-contract net-outcome estimates, quantiles where supported, capital at risk, sensitivity, sample coverage, assumptions, and a validity window.
+- [x] Let the final manager explain the decision using the report, but enforce eligibility and hard constraints in Python. In enforce mode, an unavailable required estimate or invalidated report cannot authorize a new entry.
+- [x] Carry report/package/quote identities through `order_candidates.py` into `trade_executor.py`; recheck quote age, event revision, underlying movement, and report validity at submission.
+- [x] Record shadow economic rejection reasons distinctly from actual blocked orders.
+
+Implementation note: the finalizer is deterministic Python; its explanation is generated from the report,
+with no second manager model call. Scenarios are total stock returns of past same-family catalysts.
+Each contract is held until its DTE bucket's forced exit, snapped down to a stored response horizon.
+Prices come from Black-Scholes repricing; the existing Greek approximation failed validation on large
+moves and the Part 5 scorer now uses the same repricing.
+Expected values require enough independent event clusters. Crossing the quoted spread is treated as the
+full execution cost, and measured slippage is not added. Market regime is not stratified.
+Reports live in `candidate_economics_reports`, which replaced the unused Phase 0 table that required an
+evidence package. `TRADE_ECONOMICS` is a promotion-guarded entry gate, and the executor rechecks validity
+at submission. The live limit-entry ladder remains a separate rollout. See [Phase 5](RESEARCH_PHASE5.md).
 
 Keep new economics in shadow until Phase 7 earns promotion. Do not bypass `PricingPolicy`'s shadow-only restriction or existing proof requirements. When enforcement is justified, add a new versioned policy with explicit approval evidence and tests.
 

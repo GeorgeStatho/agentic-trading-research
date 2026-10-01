@@ -492,7 +492,8 @@ That split explains why the repo feels mixed: it contains both the older trading
   thresholds for liquidity, scenario selection, risk clusters and exit rungs.
 - `Python Scripts/services/liquidity_gate.py`: size/age/spread verdicts, selector
   filtering, canonical reasons and execution-quote validation.
-- `Python Scripts/services/scenario_selector.py`: empirical Greek scenarios,
+- `Python Scripts/services/scenario_selector.py`: empirical scenarios repriced with Black-Scholes
+  (`services/option_pricing.py`),
   independent cost components, P&L quantiles and strict-hybrid-pool ranking.
 - `Python Scripts/services/limit_entry.py`: offline bounded entry state machine,
   partial-fill/cancellation rules, price caps and invalidation; no live broker loop.
@@ -561,3 +562,9 @@ Phase 4 adds a versioned `evidence_thesis` to the strategist output, determinist
 (`services/evidence_thesis*.py`), the `EVIDENCE_THESIS` entry gate, manager handoff of the same
 checked thesis, and shadow theses for finished research sessions (`services/research_thesis.py`).
 Checks persist in `evidence_thesis_checks`. See [Research Phase 4](RESEARCH_PHASE4.md).
+
+Phase 5 treats the manager's call/put and DTE bucket as a proposal. `services/trade_economics.py` reprices the
+side-matching contracts with Black-Scholes (`services/option_pricing.py`) on dated empirical catalyst scenarios
+and stores an immutable report in `candidate_economics_reports`. It records the promotion-guarded
+`TRADE_ECONOMICS` entry gate before the streaming callback, and rechecks the report at order submission.
+Policy: `services/trade_economics_policy.py`. See [Research Phase 5](RESEARCH_PHASE5.md).

@@ -260,7 +260,8 @@ flowchart TD
             sel["deterministic_option_selector<br/>filters → greeks → volatility →<br/>simple / hybrid ranking,<br/>liquidity_gate"]
             reg["market_regime_gate<br/>→ REGIME verdict"]
             thes["evaluate_evidence_thesis_gate<br/>→ EVIDENCE_THESIS verdict"]
-            hurdle --> scen --> sel --> reg --> thes
+            econ["trade_economics (finalizer)<br/>Black-Scholes on empirical catalyst scenarios<br/>→ immutable report + TRADE_ECONOMICS verdict"]
+            hurdle --> scen --> sel --> reg --> thes --> econ
         end
 
         gates --> hist["record_manager_decision_history"]
@@ -279,6 +280,7 @@ The gate registry is [services/entry_gates.py](../Python%20Scripts/services/entr
 | `CONTINUATION` | `entry_gate` | blocks |
 | `REGIME` | `market_regime_gate` | blocks |
 | `EVIDENCE_THESIS` | `evidence_thesis_gate` | allowed (optional gate) |
+| `TRADE_ECONOMICS` | `trade_economics_gate` | allowed (optional gate; attached to every directional result while on) |
 
 ---
 
@@ -301,7 +303,9 @@ flowchart TD
     port -->|hit| r3["skip: portfolio_&lt;guardrail&gt;"]
     port -->|ok| liq{"fresh quote passes<br/>V2 liquidity checks?"}
     liq -->|no| r4["skip: execution_liquidity_blocked"]
-    liq -->|yes| lim["limit_entry shadow plan (recorded only)"]
+    liq -->|yes| econ{"trade-economics report still valid?<br/>unexpired, event unchanged, spot within 0.5 ATR,<br/>repriced contract still positive"}
+    econ -->|no, enforced| r6["skip: economics_recheck_failed"]
+    econ -->|yes / shadow| lim["limit_entry shadow plan (recorded only)"]
     lim --> sub["AlpacaTradingGateway<br/>submit_option_market_order"]
     sub -->|error| r5["not submitted, error recorded"]
     sub -->|ok| rec["OptionTradeJournal → option_trade_executions<br/>PositionThesisJournal → entry thesis<br/>link manager decision history<br/>execution telemetry (quote, fill)"]
@@ -330,7 +334,7 @@ flowchart TD
         direction TB
         e0["data_invalid / no_position_qty /<br/>recent_fill_reconciliation / pending_exit_order → hold"]
         e1["stop_loss<br/>(with underlying-hold and pending-confirmation variants)"]
-        e2["near_expiration (DTE-aware)"]
+        e2["near_expiration<br/>(entry bucket's forced-exit DTE)"]
         e3["static_take_profit"]
         e4["trailing_profit_stop"]
         e5["first / second scale-out trigger<br/>(partial sells)"]

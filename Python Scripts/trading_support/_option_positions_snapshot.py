@@ -81,6 +81,16 @@ def _build_underlying_momentum_details(
     return evaluate_option_momentum_from_snapshot(momentum_snapshot)
 
 
+def _resolve_exit_rule_days_to_expiration(position_state: dict[str, Any] | None, days_to_expiration: int | None) -> int | None:
+    """The DTE a position's exit tuning is chosen from: when it was first managed, not today.
+
+    Re-resolving from the current DTE moved every position into a shorter bucket before its
+    own forced-exit DTE arrived, so bucket forced exits never fired.
+    """
+    entry_dte = _safe_int((position_state or {}).get("entry_dte"))
+    return entry_dte if entry_dte is not None else days_to_expiration
+
+
 def _build_option_position_snapshot(
     position: Any,
     *,
@@ -128,8 +138,10 @@ def _build_option_position_snapshot(
     unrealized_pl_pct = _normalize_unrealized_pl_pct(position, entry_price, current_mid_price)
     unrealized_pl_pct_ratio = _normalize_pct_ratio(unrealized_pl_pct)
     broker_unrealized_pl_pct_ratio = _normalize_pct_ratio(broker_unrealized_pl_pct)
+    position_state = position_state_override if position_state_override is not None else get_position_state(state_path, option_symbol)
+    exit_rule_days_to_expiration = _resolve_exit_rule_days_to_expiration(position_state, days_to_expiration)
     exit_thresholds = _resolve_option_exit_thresholds(
-        days_to_expiration=days_to_expiration,
+        days_to_expiration=exit_rule_days_to_expiration,
         default_take_profit_pct=take_profit_pct,
         default_stop_loss_pct=stop_loss_pct,
         default_exit_hours_to_expiration=exit_hours_to_expiration,
@@ -148,7 +160,6 @@ def _build_option_position_snapshot(
             )
     if stock_quote_error:
         context_notes.append("Underlying stock quote was unavailable; momentum was left informational only.")
-    position_state = position_state_override if position_state_override is not None else get_position_state(state_path, option_symbol)
     previous_max_pnl_pct = safe_float((position_state or {}).get("max_pnl_pct"))
     current_max_pnl_pct = previous_max_pnl_pct
     if unrealized_pl_pct_ratio is not None:
@@ -214,7 +225,7 @@ def _build_option_position_snapshot(
         quantity=broker_quantity,
         unrealized_pl_pct_ratio=unrealized_pl_pct_ratio,
         broker_unrealized_pl_pct_ratio=broker_unrealized_pl_pct_ratio,
-        days_to_expiration=days_to_expiration,
+        exit_rule_days_to_expiration=exit_rule_days_to_expiration,
         hours_to_expiration=hours_to_expiration,
         exit_thresholds=exit_thresholds,
         position_state=position_state,
@@ -326,6 +337,7 @@ def _build_option_position_snapshot(
         "broker_unrealized_pl_ratio": broker_unrealized_pl_pct_ratio,
         "days_to_expiration": days_to_expiration,
         "hours_to_expiration": hours_to_expiration,
+        "exit_rule_days_to_expiration": exit_rule_days_to_expiration,
         "dte_exit_rule": exit_thresholds.dte_rule_label,
         "take_profit_pct": exit_thresholds.take_profit_pct,
         "stop_loss_pct": exit_thresholds.stop_loss_pct,

@@ -12,6 +12,7 @@ from services.discovery_policy import DiscoveryPolicy
 from services.pricing_policy import PricingPolicy
 from services.research_model_policy import planner_manifest, thesis_writer_manifest
 from services.research_versions import evaluation_version
+from services.trade_economics_policy import TradeEconomicsPolicy
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -81,7 +82,8 @@ def foundation_manifest():
     provider_config["research_planner"] = planner_manifest()
     provider_config["research_thesis_writer"] = thesis_writer_manifest()
     budgets = asdict(EvidenceResearchPolicy.from_env())
-    economics = {"pricing": asdict(PricingPolicy.from_env()), "contracts": asdict(ContractPolicy.from_env())}
+    economics = {"pricing": asdict(PricingPolicy.from_env()), "contracts": asdict(ContractPolicy.from_env()),
+                 "trade_economics": TradeEconomicsPolicy.from_env().assumptions()}
     return {"schema_version": SCHEMA_VERSION, "observation_protocol": OBSERVATION_PROTOCOL,
             "evaluation_version": evaluation_version(),
             "source_hashes": hashes, "provider_config": provider_config,

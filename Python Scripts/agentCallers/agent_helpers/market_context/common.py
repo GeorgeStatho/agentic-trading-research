@@ -5,6 +5,7 @@ import os
 from datetime import date, datetime
 from typing import Any
 
+from services.option_dte_buckets import OPTION_DTE_BUCKETS
 from services.runtime_paths import DATA_DIR
 from services.settings import load_process_settings
 
@@ -67,8 +68,12 @@ MARKET_INDEX_DEFINITIONS: tuple[tuple[str, str, str], ...] = (
     ("vix", "^VIX", "CBOE Volatility Index"),
 )
 SECTOR_ETF_FILE = DATA_DIR / "sector_etfs.json"
-CLOSEST_EXPIRATION_GTE = 1
-FARTHEST_EXPIRATION_LTE = 8
+# The manager decides on the same expirations its DTE buckets can target; a narrower window
+# described contracts it could never select.
+CLOSEST_EXPIRATION_GTE = min(bucket.min_days for bucket in OPTION_DTE_BUCKETS)
+FARTHEST_EXPIRATION_LTE = max(bucket.max_days for bucket in OPTION_DTE_BUCKETS)
+# Alpaca pages contract lists; the cap bounds requests for names with very dense chains.
+MAXIMUM_CONTRACT_PAGES = 10
 IV_PERCENTILE_DTE_BUCKETS: tuple[tuple[str, int, int], ...] = (
     ("1_3", 1, 3),
     ("4_7", 4, 7),

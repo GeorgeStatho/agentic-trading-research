@@ -63,6 +63,17 @@ def store_catalyst_state(state, *, conn):
                  tuple(values.values()))
 
 
+CATALYST_REVISION_FIELDS = ('catalyst_family', 'direction', 'latest_root_event_time', 'independent_root_count')
+
+
+def get_catalyst_revision(catalyst_id, *, db_path=DB_PATH):
+    """The fields whose change makes earlier decision inputs out of date; None if unknown."""
+    with closing(get_connection(db_path)) as conn:
+        row = conn.execute(f"SELECT {', '.join(CATALYST_REVISION_FIELDS)} FROM catalysts WHERE catalyst_id=?",
+                           (catalyst_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def refresh_catalyst(catalyst_id, *, conn):
     rows = [dict(row) for row in conn.execute('''SELECT a.*, r.first_public_time AS root_first_public_time
         FROM news_articles a LEFT JOIN root_events r ON r.root_event_id=a.root_event_id WHERE a.catalyst_id=?''', (catalyst_id,))]

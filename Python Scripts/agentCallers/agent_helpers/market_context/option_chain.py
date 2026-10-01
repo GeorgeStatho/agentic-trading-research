@@ -11,6 +11,7 @@ from .common import (
     FARTHEST_EXPIRATION_LTE,
     GetOptionContractsRequest,
     LOGGER,
+    MAXIMUM_CONTRACT_PAGES,
     OptionChainRequest,
     PREFERRED_OTM_DISTANCE,
     _env_flag,
@@ -106,6 +107,7 @@ def _build_contract_request(
     strike_price_gte: float | None,
     strike_price_lte: float | None,
     limit: int,
+    page_token: str | None = None,
 ) -> Any:
     return GetOptionContractsRequest(
         underlying_symbols=[company_symbol],
@@ -117,6 +119,7 @@ def _build_contract_request(
         strike_price_gte=_format_strike_filter(strike_price_gte),
         strike_price_lte=_format_strike_filter(strike_price_lte),
         limit=limit,
+        page_token=page_token,
     )
 
 
@@ -234,22 +237,32 @@ def _fetch_option_contracts(
     strike_price_lte: float | None,
     limit: int,
 ) -> list[Any]:
+    """Follow Alpaca's page tokens so far expirations are not silently cut at one page."""
     clients = _get_alpaca_clients()
     if clients is None or GetOptionContractsRequest is None:
         return []
-    response = clients["trading"].get_option_contracts(
-        _build_contract_request(
-            company_symbol=company_symbol,
-            contract_type=contract_type,
-            expiration_date=expiration_date,
-            expiration_date_gte=expiration_date_gte,
-            expiration_date_lte=expiration_date_lte,
-            strike_price_gte=strike_price_gte,
-            strike_price_lte=strike_price_lte,
-            limit=limit,
+    contracts: list[Any] = []
+    page_token = None
+    for _ in range(MAXIMUM_CONTRACT_PAGES):
+        response = clients["trading"].get_option_contracts(
+            _build_contract_request(
+                company_symbol=company_symbol,
+                contract_type=contract_type,
+                expiration_date=expiration_date,
+                expiration_date_gte=expiration_date_gte,
+                expiration_date_lte=expiration_date_lte,
+                strike_price_gte=strike_price_gte,
+                strike_price_lte=strike_price_lte,
+                limit=limit,
+                page_token=page_token,
+            )
         )
-    )
-    return _extract_contract_items(response)
+        contracts.extend(_extract_contract_items(response))
+        page_token = _get_field(response, "next_page_token")
+        if not isinstance(page_token, str) or not page_token:
+            return contracts
+    LOGGER.warning("Option contracts for %s were truncated after %s pages", company_symbol, MAXIMUM_CONTRACT_PAGES)
+    return contracts
 
 
 def _normalize_option_snapshot_map(chain_response: Any) -> dict[str, Any]:

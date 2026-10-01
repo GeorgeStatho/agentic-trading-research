@@ -335,7 +335,7 @@ class VersionAndGateTests(unittest.TestCase):
         strategy = sys.modules['_test_trading_support._option_positions_strategy']
         state = {'max_pnl_pct': 1.1, 'profit_protection_active': True, 'protected_profit_floor_pct': .4}
         kwargs = dict(option_symbol=SYMBOL, quantity=3, unrealized_pl_pct_ratio=.58,
-                      days_to_expiration=1, hours_to_expiration=2,
+                      exit_rule_days_to_expiration=1, hours_to_expiration=2,
                       exit_thresholds=module.ExitThresholds(dte_rule_label='test', take_profit_pct=60,
                           stop_loss_pct=-35, force_exit_days_to_expiration=7, exit_hours_to_expiration=168, is_default_rule=False),
                       position_state=state, critical_errors=[], context_notes=[], enable_trailing_profit=True,

@@ -176,30 +176,6 @@ class ResearchSession:
 
 
 @dataclass(frozen=True, kw_only=True)
-class TradeEconomicsReport:
-    report_id: str
-    candidate_id: str
-    package_id: str
-    created_at: str
-    valid_until: str
-    forecast_version: str
-    quote_snapshot: dict[str, Any]
-    contract_outcomes: tuple[dict[str, Any], ...]
-    costs: dict[str, Any]
-    validity_conditions: dict[str, Any]
-    coverage_status: Literal["complete", "partial", "unavailable"]
-    evaluation_id: str | None = None
-    schema_version: str = SCHEMA_VERSION
-
-    def __post_init__(self):
-        require_text(self.report_id, self.candidate_id, self.package_id, self.forecast_version)
-        if timestamp(self.valid_until) < timestamp(self.created_at):
-            raise ValueError("Report validity precedes creation")
-        if self.coverage_status not in {"complete", "partial", "unavailable"}:
-            raise ValueError("Invalid economics coverage")
-
-
-@dataclass(frozen=True, kw_only=True)
 class ResearchObservation:
     company_id: int
     symbol: str

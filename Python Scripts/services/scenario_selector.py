@@ -1,78 +1,75 @@
-"""Auditable empirical Greek scenarios, after the existing hard filters."""
-from datetime import datetime, time, timezone
+"""Auditable empirical scenarios repriced with Black-Scholes, after the existing hard filters."""
+from datetime import datetime, timezone
 import math
 from statistics import mean
-from zoneinfo import ZoneInfo
 
 from catalyst_models import timestamp
 from services.contract_policy import ContractPolicy
 from services.execution_telemetry import number, quote_values
+from services.option_pricing import DAYS_PER_YEAR, CalibratedOption, days_until_expiration, option_side
 from services.pricing_policy import HORIZON_DAYS, PricingPolicy
 from market_db_modules.pricing_research import catalyst_return_distribution, quantile
 
+CONTRACT_MULTIPLIER = 100
 
-def score_contract(contract, *, spot, moves, horizon_days, policy=None):
+
+def score_contract(contract, *, spot, moves, horizon_days, as_of, policy=None):
+    """Buy at the ask, sell at the horizon at the repriced value less today's half-spread.
+
+    Each scenario is a full Black-Scholes repricing from an IV calibrated to the quote mid, so a
+    large move is valued correctly in either direction. A local Greek expansion is not: its
+    gamma term made a crash look like a gain on a call.
+    """
     policy = policy or ContractPolicy.from_env()
-    greeks = contract.get('greeks') or {}
-    delta, gamma, vega, theta = (number(greeks.get(key)) for key in ('delta', 'gamma', 'vega', 'theta'))
     bid, ask, mid, spread = quote_values(contract.get('latest_quote'))
-    spot, horizon_days = number(spot), number(horizon_days)
+    spot, horizon_days, strike = number(spot), number(horizon_days), number(contract.get('strike_price'))
+    days = days_until_expiration(contract.get('expiration_date'), as_of=as_of)
+    side = option_side(contract.get('contract_type'))
     missing = {'status': 'missing_scenario_inputs', 'option_symbol': contract.get('symbol')}
     if (not moves or not spot or spot <= 0 or not horizon_days or horizon_days <= 0 or mid is None
-            or any(value is None for value in (delta, gamma, vega, theta))):
+            or not strike or strike <= 0 or days is None or side not in {'call', 'put'}):
         return missing
-    expiry = str(contract.get('expiration_date') or '')
-    iv = number(contract.get('implied_volatility'))
-    if iv is None or iv <= 0 or iv + policy.scenario_iv_change <= 0:
+    if days < horizon_days:
+        return {**missing, 'status': 'expiry_before_horizon'}
+    if any(not math.isfinite(move) or move <= -1 for move in moves):
+        return {**missing, 'status': 'invalid_return_scenario'}
+    option = CalibratedOption.from_mid(side, mid, spot=spot, strike=strike, years=days / DAYS_PER_YEAR,
+                                       rate=policy.scenario_risk_free_rate)
+    if option is None:
+        return {**missing, 'status': 'iv_calibration_failed'}
+    if option.volatility + policy.scenario_iv_change <= 0:
         return {**missing, 'status': 'invalid_iv_scenario'}
     pnl = []
-    # Alpaca-style quoted theta is signed dollars/day and vega dollars per
-    # percentage point. IV values and configured shocks are decimal fractions.
-    theta_change = theta * horizon_days
-    iv_change = vega * policy.scenario_iv_change * 100
     for move in moves:
-        if not math.isfinite(move) or move <= -1:
-            return {**missing, 'status': 'invalid_return_scenario'}
-        ds = spot * move
-        future_mid = max(0.0, mid + delta * ds + .5 * gamma * ds * ds + iv_change + theta_change)
-        if not math.isfinite(future_mid):
-            return {**missing, 'status': 'nonfinite_scenario_price'}
-        # Buy at ask, sell at simulated mid less today's half-spread. Premium
-        # cannot become negative and a long option cannot lose more than cost.
-        proceeds = max(0.0, future_mid - spread / 2)
-        pnl.append((proceeds - ask) * 100)
+        exit_value = option.value_after(horizon_days, move=move, volatility_change=policy.scenario_iv_change)
+        # Premium cannot become negative, so a long option cannot lose more than its cost.
+        proceeds = max(0.0, exit_value - spread / 2)
+        pnl.append((proceeds - ask) * CONTRACT_MULTIPLIER)
+    decayed = option.value_after(horizon_days)
+    shifted = option.value_after(horizon_days, volatility_change=policy.scenario_iv_change)
     expected = mean(pnl)
-    capital = ask * 100
+    capital = ask * CONTRACT_MULTIPLIER
     p10, p50, p90 = (quantile(pnl, fraction) for fraction in (.1, .5, .9))
     expected_return = expected / capital
     tail_cost = max(0.0, -p10 / capital)
     return {'status': 'complete', 'option_symbol': contract.get('symbol'), 'option_id': contract.get('option_id'),
-            'expiration_date': expiry, 'sample_size': len(pnl), 'expected_pnl': expected,
-            'expected_return': expected_return, 'pnl_p10': p10, 'pnl_p50': p50, 'pnl_p90': p90,
-            'spread_cost': spread * 100, 'theta_cost': -theta_change * 100,
-            'expected_iv_cost': -iv_change * 100, 'tail_cost': tail_cost,
+            'expiration_date': str(contract.get('expiration_date') or ''), 'sample_size': len(pnl),
+            'expected_pnl': expected, 'expected_return': expected_return, 'pnl_p10': p10, 'pnl_p50': p50,
+            'pnl_p90': p90, 'spread_cost': spread * CONTRACT_MULTIPLIER,
+            'theta_cost': (mid - decayed) * CONTRACT_MULTIPLIER,
+            'expected_iv_cost': (decayed - shifted) * CONTRACT_MULTIPLIER, 'tail_cost': tail_cost,
             'total_score': expected_return - policy.scenario_tail_weight * tail_cost,
-            'scenario_pnl': pnl, 'iv_change_decimal': policy.scenario_iv_change,
+            'scenario_pnl': pnl, 'calibrated_iv': option.volatility, 'iv_change_decimal': policy.scenario_iv_change,
             'horizon_days': horizon_days, 'basis': 'per-contract dollars, 100 multiplier; residual return scenarios',
-            'model': 'local Greek approximation; signed theta/day; vega per IV percentage point',
+            'model': 'Black-Scholes repricing at the horizon; IV calibrated to the quote mid; European, no dividends',
             'market_sector_scenario': 'zero systematic return; not a total-stock forecast'}
 
 
 def rank_contracts(contracts, *, spot, distribution, horizon_days, policy=None, as_of=None):
     policy = policy or ContractPolicy.from_env()
     now = as_of or datetime.now(timezone.utc)
-    scores = []
-    for contract in contracts:
-        try:
-            expiry_at = datetime.combine(datetime.strptime(str(contract.get('expiration_date')), '%Y-%m-%d').date(),
-                                         time(16), ZoneInfo('America/New_York'))
-            dte = (expiry_at - now).total_seconds() / 86400
-        except ValueError:
-            dte = 0
-        if dte < horizon_days:
-            scores.append({'option_symbol': contract.get('symbol'), 'status': 'expiry_before_horizon'})
-            continue
-        scores.append(score_contract(contract, spot=spot, moves=distribution, horizon_days=horizon_days, policy=policy))
+    scores = [score_contract(contract, spot=spot, moves=distribution, horizon_days=horizon_days, as_of=now, policy=policy)
+              for contract in contracts]
     complete = [(contract, score) for contract, score in zip(contracts, scores) if score['status'] == 'complete']
     complete.sort(key=lambda pair: (-pair[1]['total_score'], str(pair[0].get('symbol'))))
     return (complete[0][0] if complete else None), scores

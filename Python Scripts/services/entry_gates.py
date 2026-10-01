@@ -36,6 +36,8 @@ ENTRY_GATES = (
     EntryGate("CONTINUATION", "entry_gate", verdict_required=True),
     EntryGate("REGIME", "market_regime_gate", verdict_required=True),
     EntryGate("EVIDENCE_THESIS", "evidence_thesis_gate", verdict_required=False),
+    # Attached to every directional result while trade economics are on; see services/trade_economics.py.
+    EntryGate("TRADE_ECONOMICS", "trade_economics_gate", verdict_required=False),
 )
 
 

@@ -1,4 +1,4 @@
-"""Consume shadow research or replay recorded sessions without provider access."""
+"""Consume shadow research, replay recorded sessions or inspect trade economics, without provider access."""
 import argparse
 import json
 
@@ -18,6 +18,11 @@ def main():
     report = subparsers.add_parser('thesis-report', help='summarise thesis checks and gate verdicts (read-only)')
     report.add_argument('--days', type=int, default=7, help='look-back window in days; 0 for all history')
     report.add_argument('--route', choices=('legacy_strategist', 'research_shadow'))
+    economics = subparsers.add_parser('economics', help='show one recorded trade-economics report')
+    economics.add_argument('report_id')
+    economics_report = subparsers.add_parser('economics-report',
+                                             help='summarise trade-economics reports and rejections (read-only)')
+    economics_report.add_argument('--days', type=int, default=7, help='look-back window in days; 0 for all history')
     args = parser.parse_args()
     from db_common import DB_PATH
     db_path = args.db or DB_PATH
@@ -32,6 +37,14 @@ def main():
             parser.error('--days must be 0 or positive')
         from market_db_modules.evidence_thesis_report import evidence_thesis_report
         result = evidence_thesis_report(days=args.days, route=args.route, db_path=db_path)
+    elif args.command == 'economics':
+        from market_db_modules.trade_economics import get_candidate_economics_report
+        result = get_candidate_economics_report(args.report_id, db_path=db_path)
+    elif args.command == 'economics-report':
+        if args.days < 0:
+            parser.error('--days must be 0 or positive')
+        from market_db_modules.trade_economics import trade_economics_summary
+        result = trade_economics_summary(days=args.days, db_path=db_path)
     elif args.command == 'theses':
         if not 1 <= args.limit <= 100:
             parser.error('--limit must be between 1 and 100')

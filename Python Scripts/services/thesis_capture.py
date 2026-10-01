@@ -91,14 +91,17 @@ def _expected_horizon_days(
 ) -> int | None:
     """Days in which the thesis should have played out.
 
-    Derived from the position's DTE bucket: the bucket's max DTE minus its
-    forced-exit buffer is the longest the rules layer will ever hold it.
+    Live exits keep the rule of the bucket the position entered in and force an exit at its
+    forced-exit DTE, so the entry DTE minus that buffer is the longest it will be held.
     """
     entry_dte = _days_until(selected_expiration_date, today=today)
-    bucket = resolve_dte_bucket_for_days(entry_dte) if entry_dte is not None else None
-    if bucket is None:
-        bucket_key = TIME_HORIZON_TO_DTE_BUCKET.get(str(time_horizon or "").strip().lower())
-        bucket = OPTION_DTE_BUCKET_BY_KEY.get(bucket_key or "")
+    # The same boundary preference the live exit rule uses.
+    bucket = resolve_dte_bucket_for_days(entry_dte, prefer_higher_boundary=True) if entry_dte is not None else None
+    if bucket is not None:
+        return max(1, entry_dte - (bucket.force_exit_days_to_expiration or 0))
+    # No bucket covers the entry DTE, or it is unknown: fall back to the strategist's horizon.
+    bucket_key = TIME_HORIZON_TO_DTE_BUCKET.get(str(time_horizon or "").strip().lower())
+    bucket = OPTION_DTE_BUCKET_BY_KEY.get(bucket_key or "")
     if bucket is None:
         return entry_dte if entry_dte is not None and entry_dte > 0 else None
     horizon = bucket.max_days - (bucket.force_exit_days_to_expiration or 0)

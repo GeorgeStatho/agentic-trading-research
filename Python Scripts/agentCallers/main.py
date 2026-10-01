@@ -37,6 +37,8 @@ from services.discovery_admission import evaluate_discovery_admission
 from services.pipeline_version import build_pipeline_version
 from services.pricing_gates import apply_option_hurdle_to_manager_result
 from services.scenario_selector import prepare_scenario_inputs
+from services.trade_economics import apply_trade_economics
+from services.trade_economics_policy import TradeEconomicsPolicy
 
 
 LOGGER = logging.getLogger("agent_runner")
@@ -446,8 +448,13 @@ def _apply_post_manager_gates(
     candidate_context: dict[str, Any] | None,
     cycle_version: dict[str, Any] | None,
     thesis_policy: EvidenceThesisPolicy,
+    economics_policy: TradeEconomicsPolicy,
 ) -> dict[str, Any]:
-    """Contract selection and deterministic gates. Nothing here grants execution by itself."""
+    """Contract selection, deterministic gates and finalization. Nothing here grants execution by itself.
+
+    The manager's direction and DTE bucket are a proposal until trade economics have priced the
+    selected contract; the streaming execution callback only ever sees the finalized result.
+    """
     from services.candidate_lifecycle import checkpoint, reject, record_gate, observe
     manager_result["candidate_context"] = candidate_context
     manager_result["candidate_id"] = (candidate_context or {}).get("candidate_id")
@@ -470,6 +477,8 @@ def _apply_post_manager_gates(
     if thesis_gate is not None:
         manager_result["evidence_thesis_gate"] = thesis_gate
         record_gate(candidate_context, "EVIDENCE_THESIS", thesis_gate)
+    manager_result = apply_trade_economics(manager_result, policy=economics_policy)
+    record_gate(candidate_context, "TRADE_ECONOMICS", manager_result.get("trade_economics_gate"))
     if not manager_result.get("selected_option"):
         reject(candidate_context, "CONTRACT_SELECTION",
                manager_result.get("recommendation", {}).get("selected_option_source") or "no_contract",
@@ -546,6 +555,7 @@ def _run_strategist_and_manager(
     cycle_version = observe(build_pipeline_version)
     # One policy per cycle: the strategist request and the entry gate must agree on the mode.
     thesis_policy = EvidenceThesisPolicy.from_env()
+    economics_policy = TradeEconomicsPolicy.from_env()
     def is_discovery_shadow(symbol: str) -> bool:
         route_context = (company_context_by_symbol or {}).get(symbol) or {}
         recorded_context = (candidate_context_by_symbol or {}).get(symbol) or {}
@@ -615,6 +625,7 @@ def _run_strategist_and_manager(
             manager_result = _run_company_stage(
                 "CONTRACT_SELECTION", _apply_post_manager_gates, manager_result,
                 candidate_context=candidate_context, cycle_version=cycle_version, thesis_policy=thesis_policy,
+                economics_policy=economics_policy,
             )
         except CompanyStageError as failure:
             failures.append(_record_company_failure(

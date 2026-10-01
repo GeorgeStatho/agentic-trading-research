@@ -22,7 +22,7 @@ from services.option_dte_buckets import (
 def _stage_model() -> StageModel:
     return get_settings().models.manager
 MANAGER_STAGE_VERSION = "decision-only-v3"
-MANAGER_PROMPT_VERSION = "manager-prompt-v4-evidence-thesis"
+MANAGER_PROMPT_VERSION = "manager-prompt-v5-bucket-required"
 
 VALID_DECISIONS = {"call", "put", "neither"}
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
