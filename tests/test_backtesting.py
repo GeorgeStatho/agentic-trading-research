@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import tempfile
 import unittest
@@ -27,7 +28,7 @@ class BacktestingTests(unittest.TestCase):
         self.db_path = Path(self.temp_dir.name) / "backtest.db"
         initialize_database(db_path=self.db_path, schema_path=DATA_DIR / "market_schema.sql")
         initialize_news_database(db_path=self.db_path, schema_path=DATA_DIR / "news_schema.sql")
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             self.article_id = conn.execute(
                 """
                 INSERT INTO news_articles (
@@ -68,7 +69,7 @@ class BacktestingTests(unittest.TestCase):
             )
         earlier = run_backtest(db_path=self.db_path)
         self.assertEqual(earlier["run"]["metrics"]["filled_count"], 1)
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             conn.executemany(
                 "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES ('NVDA', ?, 'call')",
                 [((datetime(2026, 9, 20, tzinfo=timezone.utc) + timedelta(minutes=i)).isoformat(),) for i in range(1001)],
@@ -90,7 +91,7 @@ class BacktestingTests(unittest.TestCase):
         old_run = run_backtest(db_path=self.db_path)
         start = datetime(2026, 9, 20, 10, tzinfo=timezone.utc)
         timestamps = [(start + timedelta(minutes=i)).isoformat() for i in range(251)]
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             conn.executemany(
                 "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES ('NVDA', ?, 'call')",
                 [(timestamp,) for timestamp in timestamps],
@@ -107,7 +108,7 @@ class BacktestingTests(unittest.TestCase):
 
     def test_latest_selection_respects_date_bounds_and_id_ties(self) -> None:
         timestamp = "2026-09-20T10:00:00+00:00"
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             ids = [conn.execute(
                 "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES (?, ?, 'call')",
                 (symbol, timestamp),
@@ -161,7 +162,7 @@ class BacktestingTests(unittest.TestCase):
         self.assertEqual(aapl_event["status"], "no_fill")
         self.assertEqual(result["run"]["metrics"]["filled_count"], 1)
         self.assertEqual(result["run"]["metrics"]["no_fill_count"], 1)
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             stored_quote = conn.execute("SELECT ask_price FROM historical_option_quotes WHERE id = ?", (first_quote_id,)).fetchone()
             snapshot = conn.execute("SELECT snapshot_json FROM decision_evidence_snapshots WHERE manager_decision_history_id = ?", (self.decision_id,)).fetchone()
             execution_count = conn.execute("SELECT COUNT(*) FROM option_trade_executions").fetchone()[0]

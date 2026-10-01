@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
@@ -141,7 +142,7 @@ def fetch_existing_article_by_url(url: str) -> dict | None:
     if not normalized:
         return None
 
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         row = conn.execute(
             """
             SELECT

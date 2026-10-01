@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Frozen research runs, counterfactual collection and cited reports. No broker calls."""
 import argparse
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -52,7 +53,7 @@ def main():
     elif args.command == 'promote-champion':
         result = promote_champion(args.report_id, incumbent_report_id=args.incumbent_report)
     else:
-        with get_connection() as conn:
+        with closing(get_connection()) as conn, conn:
             result = {'runs': [dict(row) for row in conn.execute('SELECT run_id,kind,started_at,status,target_candidates,config_hash FROM research_runs')],
                       'champion': [dict(row) for row in conn.execute('SELECT * FROM research_champion')],
                       'promotions': [dict(row) for row in conn.execute('SELECT * FROM research_gate_promotions')]}

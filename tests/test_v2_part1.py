@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
@@ -94,7 +95,7 @@ class DatabaseTests(unittest.TestCase):
         self.db = Path(self.temp.name) / "test.db"
         initialize_database(db_path=self.db)
         initialize_news(db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute("INSERT INTO sectors(id, sector_key, name) VALUES (1, 'tech', 'Technology')")
             conn.execute("INSERT INTO industries(id, sector_id, industry_key, name) VALUES (1, 1, 'chips', 'Chips')")
             conn.execute("INSERT INTO companies(id, industry_id, symbol, name) VALUES (1, 1, 'NVDA', 'Nvidia')")
@@ -152,7 +153,7 @@ class DatabaseTests(unittest.TestCase):
         )
 
     def rows(self):
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             return [dict(row) for row in conn.execute("SELECT * FROM news_articles ORDER BY id")]
 
     def test_wire_and_three_reposts_count_as_one_root(self):
@@ -197,7 +198,7 @@ class DatabaseTests(unittest.TestCase):
     def test_migrations_preserve_legacy_rows_and_are_repeatable(self):
         article_id = self.article(1)
         decision_id = self.decision()
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute("DROP INDEX idx_news_provenance_ticker_time")
             conn.execute("DROP INDEX idx_news_provenance_catalyst")
             for column in ("source_type", "primary_ticker", "catalyst_id", "root_event_id", "root_source_id",
@@ -209,7 +210,7 @@ class DatabaseTests(unittest.TestCase):
             initialize_database(db_path=self.db)
             initialize_news(db_path=self.db)
         self.assertEqual(self.rows()[0]["id"], article_id)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             self.assertEqual(conn.execute("SELECT id, exit_reason FROM manager_decision_history").fetchone()["id"], decision_id)
 
     def test_provenance_survives_supporting_article_payload(self):

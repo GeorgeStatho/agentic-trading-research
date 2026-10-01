@@ -1,4 +1,5 @@
 """Part 5 persisted mapping, shadow observations and execution readiness."""
+from contextlib import closing
 import csv
 import json
 from pathlib import Path
@@ -29,7 +30,7 @@ def get_risk_cluster(symbol, *, db_path=DB_PATH):
     from .bootstrap import initialize_database
     initialize_database(db_path=db_path)
     symbol = str(symbol or '').upper().strip()
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         row = conn.execute('SELECT risk_cluster_id FROM companies WHERE symbol=?', (symbol,)).fetchone()
     if row and row['risk_cluster_id']:
         return row['risk_cluster_id']
@@ -38,14 +39,14 @@ def get_risk_cluster(symbol, *, db_path=DB_PATH):
 
 
 def record_observation(observation_id, stage, payload, *, observed_at, candidate_id=None, db_path=DB_PATH):
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         conn.execute('''INSERT INTO contract_research_observations VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(observation_id) DO NOTHING''',
             (observation_id, candidate_id, stage, observed_at, 'contract-execution-v2', json_text(payload)))
 
 
 def execution_baseline(*, paper=True, regime_state=None, minimum_fills=30, db_path=DB_PATH):
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = [dict(row) for row in conn.execute('''SELECT * FROM option_trade_executions
             WHERE paper=? AND order_side='buy' AND LOWER(order_type)='market' ''', (int(paper),))]
     def regime(row):
@@ -67,7 +68,7 @@ def execution_baseline(*, paper=True, regime_state=None, minimum_fills=30, db_pa
 
 
 def contract_report(*, db_path=DB_PATH):
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         coverage = [dict(row) for row in conn.execute('SELECT stage, COUNT(*) AS observations FROM contract_research_observations GROUP BY stage')]
         mapping = [dict(row) for row in conn.execute('SELECT risk_cluster_id, COUNT(*) AS companies FROM companies GROUP BY risk_cluster_id')]
     return {'observations': coverage, 'cluster_coverage': mapping,

@@ -1,6 +1,7 @@
 """Deterministic, conservative provenance clustering at the ingestion boundary."""
 from __future__ import annotations
 
+from contextlib import closing
 import hashlib
 import json
 import re
@@ -184,7 +185,7 @@ def _refresh_cluster_scores(catalyst, *, conn):
 def backfill_news_provenance(*, db_path=DB_PATH) -> dict:
     from .bootstrap import initialize_database
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         ids = [row[0] for row in conn.execute("SELECT id FROM news_articles ORDER BY id")]
         for article_id in ids:
             update_article_provenance(article_id, conn=conn)

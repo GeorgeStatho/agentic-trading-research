@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime
 import json
 from typing import Any
@@ -147,7 +148,7 @@ def get_sector_news_for_company_sector(
 
 def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
     # Load the high confidence sector rows once so the downstream logic can stay focused on orchestration.
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -218,7 +219,7 @@ def get_high_confidence_sector_news(
 
 def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]]:
     # Load the high confidence industry rows once so the downstream logic can stay focused on orchestration.
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -289,7 +290,7 @@ def get_high_confidence_industry_news(
 
 def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
     # Load the high confidence company rows once so the downstream logic can stay focused on orchestration.
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT

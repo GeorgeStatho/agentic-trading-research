@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime
 from typing import Any
 
@@ -39,7 +40,7 @@ def find_sector(sector_identifier: str) -> dict[str, Any] | None:
 
 def _load_sector_rss_rows(sector_id: int) -> list[dict[str, Any]]:
     # Load the sector rss rows once so the downstream logic can stay focused on orchestration.
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -154,7 +155,7 @@ def get_high_confidence_macro_news_for_sector(
         max_age_days=max_age_days,
     )
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT

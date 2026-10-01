@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime
 from typing import Any
 
@@ -21,7 +22,7 @@ def get_processed_sector_interest(
         max_age_days=max_age_days,
     )
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT

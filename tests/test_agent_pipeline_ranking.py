@@ -32,6 +32,9 @@ class _FakeConnection:
     def __exit__(self, exc_type, exc, tb):
         return False
 
+    def close(self):
+        pass
+
 
 class VerboseTestCase(unittest.TestCase):
     def log_pass(self, message: str) -> None:

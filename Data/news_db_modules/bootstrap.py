@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from pathlib import Path
 
@@ -74,11 +75,11 @@ def initialize_database(
     db_path: Path | str = DB_PATH,
     schema_path: Path | str = SCHEMA_PATH,
 ) -> None:
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         _run_bootstrap_migrations(conn)
 
     initialize_schema(db_path, schema_path)
 
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         _run_bootstrap_migrations(conn)
         migrate_catalysts(conn)

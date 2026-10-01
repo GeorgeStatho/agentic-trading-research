@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,7 +16,7 @@ class ExecutedTradesTests(unittest.TestCase):
             db_path = Path(temp_dir) / "executed-trades.sqlite3"
             initialize_market_database(db_path=db_path)
             now = datetime.now(timezone.utc)
-            with get_connection(db_path) as conn:
+            with closing(get_connection(db_path)) as conn, conn:
                 conn.execute(
                     """
                     INSERT INTO option_trade_executions (

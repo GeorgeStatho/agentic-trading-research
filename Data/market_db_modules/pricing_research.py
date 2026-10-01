@@ -1,6 +1,7 @@
 """Candidate-universe response storage, point-in-time samples and coverage reports."""
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from pathlib import Path
 from statistics import mean, median, pstdev
@@ -29,7 +30,7 @@ def sector_symbol(state):
 
 
 def candidate_sector_symbol(ticker, *, db_path=DB_PATH):
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         row = conn.execute('''SELECT s.sector_key FROM companies c JOIN industries i ON c.industry_id=i.id
             JOIN sectors s ON i.sector_id=s.id WHERE c.symbol=?''', (ticker,)).fetchone()
     return sector_symbol({'sector': row['sector_key']}) if row else None
@@ -38,7 +39,7 @@ def candidate_sector_symbol(ticker, *, db_path=DB_PATH):
 def register_response_events(*, as_of, db_path=DB_PATH):
     """Freeze each classified catalyst once, independently of manager decisions."""
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute("SELECT * FROM catalysts WHERE classification_status='classified' AND ticker IS NOT NULL "
                             'AND julianday(first_public_time)<=julianday(?) AND julianday(first_seen_time)<=julianday(?)',
                             (as_of.isoformat(), as_of.isoformat())).fetchall()
@@ -52,7 +53,7 @@ def register_response_events(*, as_of, db_path=DB_PATH):
 
 def load_histories(ticker, sector, *, as_of, db_path=DB_PATH, captured_before=None):
     result = {}
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         for role, symbol in (('stock', ticker), ('market', 'SPY'), ('sector', sector)):
             rows = conn.execute('''SELECT * FROM historical_underlying_bars WHERE symbol=?
                 AND timeframe IN ('1d', '1h') AND julianday(bar_at)<=julianday(?) AND close_price>0
@@ -76,7 +77,7 @@ def load_histories(ticker, sector, *, as_of, db_path=DB_PATH, captured_before=No
 
 
 def store_history(symbol, bars, *, provider, timeframe, captured_at, db_path=DB_PATH):
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         conn.executemany('''INSERT INTO historical_underlying_bars
             (symbol, bar_at, timeframe, open_price, high_price, low_price, close_price, volume,
              provider, raw_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -87,7 +88,7 @@ def store_history(symbol, bars, *, provider, timeframe, captured_at, db_path=DB_
 
 
 def store_response(event, horizon, response, *, as_of, db_path=DB_PATH):
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         conn.execute('''INSERT INTO catalyst_responses VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(catalyst_id, horizon_days) DO UPDATE SET status=excluded.status,
             outcome_at=excluded.outcome_at, recorded_at=excluded.recorded_at,
@@ -107,7 +108,7 @@ def quantile(values, fraction):
 
 def catalyst_return_distribution(family, horizon_days, *, as_of, exclude_catalyst_id=None, db_path=DB_PATH):
     """Empirical scenarios use the same maturity/availability boundaries as stats."""
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute('''SELECT r.catalyst_id, r.residual_return FROM catalyst_responses r
             JOIN catalyst_response_events e USING(catalyst_id)
             WHERE e.catalyst_family=? AND r.horizon_days=? AND r.status='complete'
@@ -120,7 +121,7 @@ def catalyst_return_distribution(family, horizon_days, *, as_of, exclude_catalys
 
 
 def catalyst_stats(family, horizon_days, *, as_of, minimum_samples=30, exclude_catalyst_id=None, db_path=DB_PATH):
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute('''SELECT e.direction, r.residual_return, r.metrics_json
             FROM catalyst_response_events e JOIN catalyst_responses r USING(catalyst_id)
             WHERE e.catalyst_family=? AND r.horizon_days=? AND r.status='complete'
@@ -153,7 +154,7 @@ def record_price_observation(context, gate, *, db_path=DB_PATH):
     payload = {'gate': gate, 'ticker': context['symbol'],
                'sector_symbol': candidate_sector_symbol(context['symbol'], db_path=db_path),
                'direction': state.get('direction')}
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         conn.execute('''INSERT INTO candidate_price_observations
             (candidate_id, catalyst_id, observed_at, bucket, snapshot_json) VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(candidate_id) DO NOTHING''',
@@ -163,7 +164,7 @@ def record_price_observation(context, gate, *, db_path=DB_PATH):
 
 def pricing_report(*, db_path=DB_PATH):
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         coverage = [dict(row) for row in conn.execute('''SELECT horizon_days, status, COUNT(*) AS catalysts
             FROM catalyst_responses GROUP BY horizon_days, status ORDER BY horizon_days, status''')]
         buckets = [dict(row) for row in conn.execute('''SELECT bucket, COUNT(*) AS candidates,

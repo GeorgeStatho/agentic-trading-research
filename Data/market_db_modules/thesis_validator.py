@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import sqlite3
 from pathlib import Path
@@ -48,7 +49,7 @@ def record_position_thesis(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return record_position_thesis(thesis, conn=local_conn)
 
     option_symbol = clean_text(thesis.get("option_symbol"))
@@ -126,7 +127,7 @@ def get_open_position_thesis_for_option_symbol(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return get_open_position_thesis_for_option_symbol(normalized_symbol, conn=local_conn)
 
     row = conn.execute(
@@ -155,7 +156,7 @@ def close_position_thesis(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return close_position_thesis(normalized_symbol, closed_at=closed_at, conn=local_conn)
 
     cursor = conn.execute(
@@ -181,7 +182,7 @@ def record_thesis_validation_run(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return record_thesis_validation_run(run, conn=local_conn)
 
     thesis_id = coerce_int(run.get("thesis_id"))
@@ -267,7 +268,7 @@ def get_thesis_validation_run_for_date(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return get_thesis_validation_run_for_date(
                 thesis_id=normalized_id,
                 run_date=normalized_date,
@@ -293,7 +294,7 @@ def count_thesis_validator_exits_for_date(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return count_thesis_validator_exits_for_date(normalized_date, conn=local_conn)
 
     row = conn.execute(
@@ -317,7 +318,7 @@ def list_thesis_validation_runs(
 ) -> list[dict[str, Any]]:
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return list_thesis_validation_runs(limit=limit, conn=local_conn)
 
     rows = conn.execute(
@@ -340,7 +341,7 @@ def get_latest_thesis_validation_runs_by_option_symbol(
     """Latest run per option symbol, without the heavy evidence/sample blobs."""
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return get_latest_thesis_validation_runs_by_option_symbol(conn=local_conn)
 
     rows = conn.execute(
@@ -386,7 +387,7 @@ def summarize_thesis_validator_health(
     """Shadow-promotion health metrics: flip rate, action rate, grounding rate."""
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return summarize_thesis_validator_health(max_age_days=max_age_days, conn=local_conn)
 
     rows = conn.execute(

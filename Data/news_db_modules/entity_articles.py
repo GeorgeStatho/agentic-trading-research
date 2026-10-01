@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any, Callable
 
@@ -35,7 +36,7 @@ def _add_entity_news_article(
     conn=None,
 ) -> int:
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return _add_entity_news_article(
                 entity_id,
                 entity_key,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
@@ -239,7 +240,7 @@ class PricingDatabaseTests(unittest.TestCase):
         self.db = Path(self.temp.name) / 'test.db'
         initialize_database(db_path=self.db)
         initialize_news(db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute("INSERT INTO sectors(id, sector_key, name) VALUES (1, 'technology', 'Technology')")
             conn.execute("INSERT INTO industries(id, sector_id, industry_key, name) VALUES (1, 1, 'chips', 'Chips')")
             conn.execute("INSERT INTO companies(id, industry_id, symbol, name) VALUES (1, 1, 'NVDA', 'Nvidia')")
@@ -249,7 +250,7 @@ class PricingDatabaseTests(unittest.TestCase):
             published_at=(self.now - timedelta(days=3)).isoformat(), db_path=self.db)
         self.now = datetime.now(timezone.utc)
         register_response_events(as_of=self.now, db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             self.event = dict(conn.execute('SELECT * FROM catalyst_response_events').fetchone())
 
     def response(self, move=.03, **extra):
@@ -261,7 +262,7 @@ class PricingDatabaseTests(unittest.TestCase):
 
     def test_registration_does_not_depend_on_candidates_or_trades(self):
         register_response_events(as_of=self.now, db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             counts = [conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
                       for table in ('catalyst_response_events', 'candidates', 'option_trade_executions')]
         self.assertEqual(counts, [1, 0, 0])
@@ -274,7 +275,7 @@ class PricingDatabaseTests(unittest.TestCase):
 
     def test_family_statistics_absolute_mean_quantiles_and_direction(self):
         store_response(self.event, 5, self.response(.03), as_of=self.now, db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             catalyst = dict(conn.execute('SELECT * FROM catalysts').fetchone())
             catalyst['catalyst_id'] = 'catalyst:second'
             conn.execute('INSERT INTO catalysts (' + ','.join(catalyst) + ') VALUES (' + ','.join('?' for _ in catalyst) + ')',
@@ -309,7 +310,7 @@ class PricingDatabaseTests(unittest.TestCase):
         for day in (1, 3, 5, 10):
             add_point(data, event_at + timedelta(days=day), [prices[0] * (1 + .01 * day), *prices[1:]])
         self.store_fixture_history(data)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute('UPDATE catalyst_response_events SET event_at=?', (event_at.isoformat(),))
         result = collect_catalyst_responses(as_of=self.now, refresh=False, db_path=self.db)
         self.assertTrue(any(row['status'] == 'complete' for row in result['response_coverage']))
@@ -337,14 +338,14 @@ class PricingDatabaseTests(unittest.TestCase):
         context = self.candidate()
         context['catalysts'][0]['sector'] = 'energy'
         record_price_observation(context, {'metrics': {'bucket': 'unknown'}}, db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             snapshot = json.loads(conn.execute('SELECT snapshot_json FROM candidate_price_observations').fetchone()[0])
         self.assertEqual(snapshot['sector_symbol'], 'XLK')
 
     def test_future_outcome_and_future_capture_are_excluded(self):
         for field in ('outcome', 'recorded'):
             with self.subTest(field=field):
-                with get_connection(self.db) as conn:
+                with closing(get_connection(self.db)) as conn, conn:
                     conn.execute('DELETE FROM catalyst_responses')
                 later = self.now + timedelta(days=1)
                 response = self.response(outcome_at=(later if field == 'outcome' else self.now).isoformat())
@@ -394,7 +395,7 @@ class PricingDatabaseTests(unittest.TestCase):
         gate = record_candidate_price_response(context, db_path=self.db)
         self.assertTrue(gate['allowed'])
         self.assertIsNone(gate['metrics']['price_absorption_ratio'])
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             row = conn.execute("SELECT snapshot_hash, snapshot_json FROM candidate_snapshots WHERE stage='PRICE_ABSORPTION'").fetchone()
         from hashlib import sha256
         self.assertEqual(row['snapshot_hash'], sha256(row['snapshot_json'].encode()).hexdigest())
@@ -408,13 +409,13 @@ class PricingDatabaseTests(unittest.TestCase):
         output = apply_option_hurdle_to_manager_result(result, as_of=NOW, db_path=self.db)
         self.assertEqual(output['recommendation'], result['recommendation'])
         self.assertIsNone(output['option_hurdle_gate']['would_allow'])
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM candidate_snapshots WHERE stage='OPTION_HURDLE'").fetchone()[0], 1)
 
     def test_migration_is_repeatable_and_preserves_existing_articles(self):
         initialize_database(db_path=self.db)
         initialize_database(db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             self.assertEqual(conn.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
             self.assertEqual(conn.execute('PRAGMA foreign_key_check').fetchall(), [])
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM news_articles').fetchone()[0], 1)

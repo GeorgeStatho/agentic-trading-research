@@ -1,4 +1,5 @@
 """Offline acceptance coverage for Phase 1; no broker, model or live provider access."""
+from contextlib import closing
 from dataclasses import replace
 from datetime import datetime, timedelta
 import json
@@ -436,7 +437,7 @@ class AgentEvidenceIntegrationTests(unittest.TestCase):
 
     def test_unmigrated_database_returns_explicit_unavailable(self):
         legacy = self.db.with_name('legacy.db')
-        with sqlite3.connect(legacy) as conn:
+        with closing(sqlite3.connect(legacy)) as conn, conn:
             conn.execute('CREATE TABLE companies (id INTEGER PRIMARY KEY)')
         self.assertEqual(build_company_evidence_payload(1, as_of=ENTRY, db_path=legacy)['coverage_status'], 'unavailable')
 

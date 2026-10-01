@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
 import json
 import re
@@ -240,7 +241,7 @@ def _load_latest_strategist_run_statuses() -> dict[int, dict]:
     reads the already-persisted strategist run directly to show that failure.
     """
     try:
-        with get_connection(DB_PATH) as conn:
+        with closing(get_connection(DB_PATH)) as conn, conn:
             rows = conn.execute(
                 """
                 SELECT

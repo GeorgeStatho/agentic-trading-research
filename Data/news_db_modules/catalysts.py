@@ -1,6 +1,7 @@
 """First-class catalyst state derived from persisted articles, never model-invented roots."""
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
@@ -150,7 +151,7 @@ def backfill_catalysts(*, db_path=DB_PATH):
     from catalyst_schema import IMPACT_TABLES
     report = backfill_news_provenance(db_path=db_path)
     count = 0
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         for table in IMPACT_TABLES:
             for row in conn.execute(f'SELECT id, article_id, raw_json FROM {table}').fetchall():
                 raw = json.loads(row['raw_json'] or '{}')
@@ -171,7 +172,7 @@ def backfill_catalysts(*, db_path=DB_PATH):
 def catalyst_family_report(*, db_path=DB_PATH):
     from .bootstrap import initialize_database
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         return [dict(row) for row in conn.execute('''SELECT catalyst_family, COUNT(*) AS catalysts,
             SUM(article_count) AS articles, SUM(independent_root_count) AS independent_roots,
             SUM(CASE WHEN classification_status='needs_review' THEN 1 ELSE 0 END) AS needs_review

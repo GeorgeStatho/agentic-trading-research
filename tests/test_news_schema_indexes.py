@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -15,7 +16,7 @@ class NewsSchemaIndexTests(unittest.TestCase):
             db_path = Path(temp_dir) / "news-indexes.sqlite3"
             initialize_market_database(db_path=db_path)
             initialize_news_database(db_path=db_path)
-            with get_connection(db_path) as conn:
+            with closing(get_connection(db_path)) as conn, conn:
                 index_names = {
                     row["name"]
                     for table_name in (

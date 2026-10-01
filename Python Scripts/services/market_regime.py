@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import logging
 import os
 from dataclasses import dataclass
@@ -284,7 +285,7 @@ def _load_macro_calendar() -> tuple[list[dict[str, Any]], str | None]:
         from news_db import initialize_database as initialize_news_database
 
         initialize_news_database(db_path=DB_PATH)
-        with get_connection(DB_PATH) as conn:
+        with closing(get_connection(DB_PATH)) as conn, conn:
             rows = conn.execute(
                 """
                 SELECT event_name, event_date, event_time, country, currency, importance,

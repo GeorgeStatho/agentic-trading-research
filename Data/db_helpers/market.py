@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -100,7 +101,7 @@ INDUSTRY_TOP_COMPANIES_REFRESH_DAYS = 30
 
 def _ensure_sector_definitions_seeded() -> None:
     initialize_market_database(db_path=DB_PATH)
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         sector_count = conn.execute("SELECT COUNT(*) AS count FROM sectors").fetchone()["count"]
 
     if int(sector_count or 0) > 0:
@@ -118,7 +119,7 @@ def _find_sector_row(sector_identifier: str) -> dict | None:
     if not needle:
         return None
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT id, sector_key, name
@@ -142,7 +143,7 @@ def _find_industry_row(industry_identifier: str) -> dict | None:
     if not needle:
         return None
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT i.id, i.industry_key, i.name, i.sector_id, s.sector_key, s.name AS sector_name
@@ -206,7 +207,7 @@ def ensure_sector_market_data(sector_identifier: str) -> dict | None:
     if sector is None:
         return None
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         industry_row = conn.execute(
             """
             SELECT 1
@@ -249,7 +250,7 @@ def ensure_sector_market_data(sector_identifier: str) -> dict | None:
 
 def ensure_all_sector_market_data() -> list[dict]:
     _ensure_sector_definitions_seeded()
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         sector_rows = conn.execute(
             """
             SELECT id, sector_key, name
@@ -295,7 +296,7 @@ def ensure_industry_market_data(industry_identifier: str) -> dict | None:
     industry = _find_industry_row(industry_identifier)
     if industry is not None:
         industry_key = str(industry["industry_key"])
-        with get_connection(DB_PATH) as conn:
+        with closing(get_connection(DB_PATH)) as conn, conn:
             company_row = conn.execute(
                 """
                 SELECT 1

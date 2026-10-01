@@ -91,7 +91,7 @@ def record_candidate_rejection(context, result, *, shadow=False, db_path=DB_PATH
     if result.passed:
         return
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         conn.execute('''INSERT INTO candidate_rejections
             (candidate_id, symbol, stage, reason_code, metrics_json, thresholds_json, config_version, occurred_at, shadow)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING''',
@@ -106,7 +106,7 @@ def record_candidate_rejection(context, result, *, shadow=False, db_path=DB_PATH
 
 def load_candidate_lifecycle(candidate_id, *, db_path=DB_PATH):
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         snapshots = [dict(row) for row in conn.execute(
             'SELECT * FROM candidate_snapshots WHERE candidate_id=? ORDER BY id', (candidate_id,))]
         for snapshot in snapshots:
@@ -124,7 +124,7 @@ def load_candidate_lifecycle(candidate_id, *, db_path=DB_PATH):
 
 def candidate_funnel(*, date, db_path=DB_PATH):
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         stages = [dict(row) for row in conn.execute('''
             SELECT s.stage, COUNT(DISTINCT s.candidate_id) AS candidates,
                 (SELECT COUNT(DISTINCT r.candidate_id) FROM candidate_rejections r

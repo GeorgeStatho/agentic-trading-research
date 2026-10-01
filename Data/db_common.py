@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import math
 import os
@@ -50,7 +51,7 @@ def get_connection(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
 
 def initialize_schema(db_path: Path | str, schema_path: Path | str) -> None:
     schema = Path(schema_path).read_text(encoding="utf-8")
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         conn.executescript(schema)
 
 

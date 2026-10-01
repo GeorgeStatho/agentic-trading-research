@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from db_common import DB_PATH, get_connection
@@ -14,7 +15,7 @@ def _upsert_link(
     conn=None,
 ) -> int:
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return _upsert_link(
                 table_name,
                 conflict_columns,

@@ -41,7 +41,7 @@ class MarketDataEodQuoteFetchTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.temp_dir.name) / "marketdata_fetch.db"
         initialize_database(db_path=self.db_path, schema_path=DATA_DIR / "market_schema.sql")
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             conn.execute(
                 """
                 INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision, selected_option_symbol)
@@ -122,7 +122,7 @@ class MarketDataEodQuoteFetchTests(unittest.TestCase):
         self.assertEqual(requested, [{"from": "2026-01-01", "to": "2026-01-10"}])
 
     def test_fetch_adds_september_quotes_and_prices_recent_decision_in_all_history(self) -> None:
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             conn.execute(
                 "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision, selected_option_symbol) VALUES ('NVDA', '2026-09-10T14:00:00+00:00', 'call', 'NVDA261016C00200000')"
             )
@@ -139,7 +139,7 @@ class MarketDataEodQuoteFetchTests(unittest.TestCase):
         self.assertEqual(recent["pricing_source"], "marketdata_eod")
 
     def test_limited_fetch_reaches_recent_contracts_and_respects_date_bounds(self) -> None:
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             conn.executemany(
                 "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision, selected_option_symbol) VALUES (?, ?, ?, ?)",
                 [
@@ -212,7 +212,7 @@ class MarketDataEodQuoteFetchTests(unittest.TestCase):
         self.assertEqual(event["status"], "simulated_closed")
         self.assertEqual(event["pricing_source"], "marketdata_eod")
         self.assertEqual(event["quote_provider"], "marketdata_app")
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             stored = conn.execute("SELECT raw_json FROM historical_option_quotes WHERE option_symbol = 'MSFT260117C00400000' LIMIT 1").fetchone()
             coverage = conn.execute("SELECT status FROM historical_option_quote_coverage ORDER BY id").fetchall()
         self.assertEqual(json.loads(stored["raw_json"])["pricing_source"], "marketdata_eod")

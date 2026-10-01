@@ -16,7 +16,7 @@ The implementation lives primarily in:
 - [Python Scripts/trading_support/_option_positions_momentum.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/trading_support/_option_positions_momentum.py>)
 - [Python Scripts/services/position_manager.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/services/position_manager.py>)
 - [Python Scripts/services/config.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/services/config.py>)
-- [.env.example](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/.env.example>)
+- [.env.example](../../.env.example)
 
 ## Big Picture
 
@@ -81,7 +81,7 @@ So a `7_14` contract and a `45_60` contract can use different exit tuning.
 
 ## Core Trailing-Profit Settings
 
-These are the main trailing-profit settings in [`.env.example`](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/.env.example>):
+These are the main trailing-profit settings in [`.env.example`](../../.env.example):
 
 ```env
 OPTION_POSITION_ENABLE_TRAILING_PROFIT=false

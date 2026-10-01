@@ -1,6 +1,7 @@
 """Persist contemporaneous gate verdicts and join them to resolved trade outcomes."""
 from __future__ import annotations
 
+from contextlib import closing
 import json
 
 from db_common import DB_PATH, get_connection, json_text
@@ -31,7 +32,7 @@ def record_decision_gate_verdicts(decision_id, output, *, conn):
 
 def backfill_gate_verdicts(*, db_path=DB_PATH):
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         before = conn.total_changes
         for row in conn.execute("SELECT id, manager_output_json FROM manager_decision_history").fetchall():
             record_decision_gate_verdicts(row["id"], row["manager_output_json"], conn=conn)
@@ -45,7 +46,7 @@ def list_shadow_gate_outcomes(*, limit=100, db_path=DB_PATH):
     or counterfactual evidence about candidates that never traded.
     """
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         return [dict(row) for row in conn.execute("""
             WITH recent AS (
                 SELECT * FROM manager_decision_history WHERE trade_executed = 1

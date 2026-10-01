@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import os
 from datetime import date, datetime, timedelta, timezone
@@ -796,7 +797,7 @@ def create_exposure_run(article_id: int, *, force: bool = False, model: str | No
     selected_model = resolve_exposure_map_model(model)
     if not selected_model:
         raise ValueError("An exposure-map model is required.")
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         article = _load_article(conn, normalized_article_id)
         if article is None:
             raise LookupError("Article not found.")
@@ -826,7 +827,7 @@ def create_exposure_run(article_id: int, *, force: bool = False, model: str | No
             positions=positions,
         )
     except Exception as exc:
-        with get_connection(DB_PATH) as conn:
+        with closing(get_connection(DB_PATH)) as conn, conn:
             _store_failed_run(
                 conn,
                 article_id=normalized_article_id,
@@ -835,7 +836,7 @@ def create_exposure_run(article_id: int, *, force: bool = False, model: str | No
                 error=exc,
             )
         raise
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         run_id = _store_run(
             conn,
             article_id=normalized_article_id,
@@ -1026,7 +1027,7 @@ def list_recent_exposure_articles(
     _initialize_databases()
     reference_time = now or datetime.now(timezone.utc)
     cutoff = reference_time - timedelta(days=EXPOSURE_MAP_MAX_ARTICLE_AGE_DAYS)
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT id, title, summary, source, source_url, published_at, evidence_score

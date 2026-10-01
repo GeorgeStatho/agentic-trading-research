@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from typing import Any
 
 from pipelines._shared import (
@@ -411,7 +412,7 @@ def _get_top_processed_sector_keys(limit: int) -> list[str]:
 
     from db_helpers import DB_PATH, get_connection
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -452,7 +453,7 @@ def _get_top_processed_industry_keys_for_sector(sector_key: str, limit: int) -> 
 
     from db_helpers import DB_PATH, get_connection
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT

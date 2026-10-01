@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import tempfile
 import unittest
 import json
@@ -181,7 +182,7 @@ class ManagerDecisionHistoryTests(unittest.TestCase):
             },
             db_path=self.db_path,
         )
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             execution_id = conn.execute(
                 """
                 INSERT INTO option_trade_executions (

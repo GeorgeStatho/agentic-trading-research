@@ -1,4 +1,5 @@
 """Catalyst expiry and IV-collapse rungs, with explicit clocks and missing data."""
+from contextlib import closing
 from datetime import datetime, timezone
 
 from catalyst_models import timestamp
@@ -70,7 +71,7 @@ def build_position_exit_context(option_symbol, parsed, stock_quote, *, as_of=Non
     initialize_database(db_path=db_path)
     now = as_of or datetime.now(timezone.utc)
     policy = ContractPolicy.from_env()
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         thesis = conn.execute("SELECT * FROM position_theses WHERE option_symbol=? AND status='open' ORDER BY id DESC LIMIT 1",
                               (option_symbol,)).fetchone()
         if thesis is None:

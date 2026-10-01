@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -211,7 +212,7 @@ def record_historical_option_quote(
     if option_symbol is None or quote_at is None or normalized_provider is None:
         return None
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         cursor = conn.execute(
             """
             INSERT INTO historical_option_quotes (
@@ -252,7 +253,7 @@ def record_historical_underlying_bar(
     if symbol is None or bar_at is None or normalized_provider is None:
         return None
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         cursor = conn.execute(
             """
             INSERT INTO historical_underlying_bars (
@@ -291,7 +292,7 @@ def record_historical_option_contract(
     if option_symbol is None or underlying_symbol is None or captured_at is None or normalized_provider is None:
         return None
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         cursor = conn.execute(
             """
             INSERT INTO historical_option_contracts (
@@ -586,7 +587,7 @@ def run_backtest(
     initialize_database(db_path=db_path)
     resolved_config = _merged_config(config)
     started_at = datetime.now(timezone.utc).isoformat()
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         cursor = conn.execute(
             """
             INSERT INTO backtest_runs (
@@ -668,7 +669,7 @@ def run_backtest(
 
 def list_backtest_runs(*, limit: int = 25, db_path: Path | str = DB_PATH) -> list[dict[str, Any]]:
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
             "SELECT * FROM backtest_runs ORDER BY id DESC LIMIT ?",
             (max(1, min(int(limit), 100)),),
@@ -678,7 +679,7 @@ def list_backtest_runs(*, limit: int = 25, db_path: Path | str = DB_PATH) -> lis
 
 def get_backtest_run(run_id: int, *, db_path: Path | str = DB_PATH) -> dict[str, Any]:
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         run = conn.execute("SELECT * FROM backtest_runs WHERE id = ?", (int(run_id),)).fetchone()
         if run is None:
             raise LookupError("Backtest run not found.")

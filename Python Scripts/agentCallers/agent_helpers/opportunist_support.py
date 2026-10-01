@@ -7,6 +7,7 @@ merge macro context, and filter already-processed article ids. Centralizing the
 shared logic here keeps each stage helper focused on its own persistence rules.
 """
 
+from contextlib import closing
 from copy import deepcopy
 import json
 from typing import Any
@@ -349,7 +350,7 @@ def load_processed_article_ids(
         where_clauses.insert(0, "company_id = ?")
         parameters.insert(0, int(company_id))
 
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
             f"""
             SELECT article_id, raw_json

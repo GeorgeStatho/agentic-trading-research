@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -25,7 +26,7 @@ def record_manager_decision_history(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return record_manager_decision_history(history, conn=local_conn)
 
     company_id = coerce_int(history.get("company_id"))
@@ -187,7 +188,7 @@ def update_manager_decision_latest_pnl(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return update_manager_decision_latest_pnl(
                 decision_history_id=decision_history_id,
                 latest_trade_pnl_pct=latest_trade_pnl_pct,
@@ -250,7 +251,7 @@ def record_manager_decision_closed_outcome(
         return False
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return record_manager_decision_closed_outcome(
                 decision_history_id=normalized_id,
                 realized_pnl_pct=normalized_pnl,
@@ -312,7 +313,7 @@ def expire_manager_decision_pnl(
     expiration_cutoff = normalize_timestamp(now)
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return expire_manager_decision_pnl(now=now, conn=local_conn)
 
     row = conn.execute(
@@ -334,7 +335,7 @@ def expire_manager_decision_pnl(
 
 def list_unresolved_manager_decisions(*, db_path=DB_PATH) -> list[dict]:
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         return [dict(row) for row in conn.execute("""
             SELECT id, selected_option_symbol, trade_execution_order_id, decision_run_at
             FROM manager_decision_history

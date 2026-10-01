@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -36,7 +37,7 @@ def get_company_sector_key(
     initialize_database(db_path=db_path)
     where_clause = "company.id = ?" if normalized_company_id is not None else "company.symbol = ?"
     parameter = normalized_company_id if normalized_company_id is not None else normalized_symbol
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         row = conn.execute(
             f"""
             SELECT sector.sector_key
@@ -61,7 +62,7 @@ def get_realized_option_loss_since(
     if not normalized_start:
         return 0.0
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
             """
             SELECT history.realized_pnl_pct, execution.estimated_order_cost
@@ -101,7 +102,7 @@ def count_option_entry_executions_since(
     if normalized_symbol is None or boundary is None:
         return 0
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         row = conn.execute(
             """
             SELECT COUNT(*) AS entry_count
@@ -130,7 +131,7 @@ def get_latest_stop_loss_exit_at(
     if normalized_symbol is None:
         return None
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         row = conn.execute(
             """
             SELECT MAX(REPLACE(SUBSTR(recorded_at, 1, 19), 'T', ' ')) AS last_stop_exit_at

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
@@ -304,14 +305,14 @@ class ContractDatabaseTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.db = Path(self.temp.name) / 'test.db'
         initialize_database(db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute("INSERT INTO sectors(id, sector_key, name) VALUES (1, 'technology', 'Technology')")
             conn.execute("INSERT INTO industries(id, sector_id, industry_key, name) VALUES (1, 1, 'chips', 'Chips')")
             conn.execute("INSERT INTO companies(id, industry_id, symbol, name) VALUES (1, 1, 'NVDA', 'Nvidia')")
 
     def test_mapping_seed_and_manual_override_survive_migration(self):
         self.assertEqual(get_risk_cluster('NVDA', db_path=self.db), 'AI_semiconductors')
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute("UPDATE companies SET risk_cluster_id='manual' WHERE symbol='NVDA'")
         initialize_database(db_path=self.db)
         self.assertEqual(get_risk_cluster('NVDA', db_path=self.db), 'manual')
@@ -337,7 +338,7 @@ class ContractDatabaseTests(unittest.TestCase):
         self.assertEqual(plan['ladder'][3]['reason_codes'], ['expected_edge_exhausted'])
 
     def test_baseline_separates_paper_live_regime_and_order_type(self):
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             for key, paper, kind, state, filled, slippage in (
                 ('one', 1, 'market', 'range', 1, .02), ('two', 0, 'market', 'range', 1, .03),
                 ('three', 1, 'limit', 'range', 1, .01), ('four', 1, 'market', 'trend_up', 1, .04),
@@ -355,14 +356,14 @@ class ContractDatabaseTests(unittest.TestCase):
         for value in (1, 2):
             record_observation('fixture:LIQUIDITY', 'LIQUIDITY', {'value': value}, observed_at=NOW.isoformat(), db_path=self.db)
         initialize_database(db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             payload = json.loads(conn.execute('SELECT payload_json FROM contract_research_observations').fetchone()[0])
             self.assertEqual(payload, {'value': 1})
             self.assertEqual(conn.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
             self.assertEqual(conn.execute('PRAGMA foreign_key_check').fetchall(), [])
 
     def test_position_uses_filled_entry_baseline_and_dated_iv(self):
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute('''INSERT INTO position_theses (trade_execution_order_id, symbol, option_symbol, opened_at,
                 expected_horizon_days) VALUES ('one', 'NVDA', 'option', ?, 5)''', ((NOW - timedelta(days=10)).isoformat(),))
             conn.execute('''INSERT INTO position_outcomes (entry_order_id, option_symbol, opened_at, iv_at_entry,
@@ -388,7 +389,7 @@ class ContractDatabaseTests(unittest.TestCase):
         thesis['company_id'] = 1
         thesis['manager_decision_history_id'] = None
         record_position_thesis(thesis, db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             stored = conn.execute('SELECT expected_horizon_days FROM position_theses').fetchone()[0]
         self.assertAlmostEqual(stored, 1 / 24)
         self.assertEqual(thesis['raw_json']['expected_horizon_source'], 'classified_catalyst_calendar_prior')

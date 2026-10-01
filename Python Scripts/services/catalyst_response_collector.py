@@ -1,6 +1,7 @@
 """Bounded, restartable coverage for all classified catalysts, including rejects."""
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
 import json
 import logging
@@ -41,7 +42,7 @@ def fetch_response_history(symbol, timeframe):
 
 
 def refresh_universe_history(*, as_of, policy, fetcher, db_path):
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         universe = {row[0] for row in conn.execute('SELECT ticker FROM catalyst_response_events')}
         benchmarks = {row[0] for row in conn.execute('SELECT sector_symbol FROM catalyst_response_events WHERE sector_symbol IS NOT NULL')}
         universe.update(benchmarks)
@@ -67,7 +68,7 @@ def refresh_universe_history(*, as_of, policy, fetcher, db_path):
             except Exception as exc:
                 LOGGER.warning('Catalyst history unavailable for %s %s: %s', symbol, timeframe, exc)
                 details[timeframe] = {'status': 'error', 'error': str(exc)}
-        with get_connection(db_path) as conn:
+        with closing(get_connection(db_path)) as conn, conn:
             conn.execute('''INSERT INTO pricing_history_refreshes VALUES (?, ?, ?, ?)
                 ON CONFLICT(symbol) DO UPDATE SET attempted_at=excluded.attempted_at,
                 status=excluded.status, details_json=excluded.details_json''',
@@ -77,7 +78,7 @@ def refresh_universe_history(*, as_of, policy, fetcher, db_path):
 
 
 def capture_responses(*, as_of, policy, db_path):
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         events = [dict(row) for row in conn.execute('''SELECT e.* FROM catalyst_response_events e
             LEFT JOIN catalyst_responses r USING(catalyst_id) GROUP BY e.catalyst_id
             HAVING SUM(CASE WHEN r.status='complete' THEN 1 ELSE 0 END) < ?
@@ -93,14 +94,14 @@ def capture_responses(*, as_of, policy, db_path):
 
 
 def capture_forward_returns(*, as_of, db_path):
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = [dict(row) for row in conn.execute('''SELECT * FROM candidate_price_observations
             WHERE forward_at IS NULL AND julianday(observed_at)+5<=julianday(?)
             AND json_extract(snapshot_json, '$.gate.metrics.status')='complete'
             AND json_extract(snapshot_json, '$.direction') IN ('positive', 'negative')
             ORDER BY COALESCE(forward_checked_at, ''), observed_at LIMIT ?''', (as_of.isoformat(), FORWARD_BUDGET))]
     for row in rows:
-        with get_connection(db_path) as conn:
+        with closing(get_connection(db_path)) as conn, conn:
             conn.execute('UPDATE candidate_price_observations SET forward_checked_at=? WHERE candidate_id=?',
                          (as_of.isoformat(), row['candidate_id']))
         payload = json.loads(row['snapshot_json'])
@@ -118,7 +119,7 @@ def capture_forward_returns(*, as_of, db_path):
         move = residual(response['endpoint_prices'], metrics['endpoint_prices'], metrics['betas'])['residual_return']
         # Keep both: the raw residual is the stock's own move, the adjusted one folds in
         # the catalyst direction. Consumers that apply direction themselves need the raw field.
-        with get_connection(db_path) as conn:
+        with closing(get_connection(db_path)) as conn, conn:
             conn.execute('''UPDATE candidate_price_observations
                 SET forward_residual_return=?, forward_raw_residual_return=?, forward_at=? WHERE candidate_id=?''',
                          (move * sign, move, response['outcome_at'], row['candidate_id']))

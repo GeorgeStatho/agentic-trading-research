@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -52,7 +53,7 @@ class SymbolEntryAttemptLimitTests(unittest.TestCase):
         with TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
             db_path = Path(temp_dir) / "entry-attempts.sqlite3"
             initialize_market_database(db_path=db_path)
-            with get_connection(db_path) as conn:
+            with closing(get_connection(db_path)) as conn, conn:
                 _insert_execution(
                     conn,
                     order_id="recent-buy",
@@ -115,7 +116,7 @@ class SymbolEntryAttemptLimitTests(unittest.TestCase):
         with TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
             db_path = Path(temp_dir) / "entry-attempts-iso.sqlite3"
             initialize_market_database(db_path=db_path)
-            with get_connection(db_path) as conn:
+            with closing(get_connection(db_path)) as conn, conn:
                 _insert_execution(
                     conn,
                     order_id="iso-buy",
@@ -140,7 +141,7 @@ class SymbolEntryAttemptLimitTests(unittest.TestCase):
             db_path = Path(temp_dir) / "stop-cooldown.sqlite3"
             initialize_market_database(db_path=db_path)
             newest_stop = self._journal_timestamp(3)
-            with get_connection(db_path) as conn:
+            with closing(get_connection(db_path)) as conn, conn:
                 _insert_execution(
                     conn,
                     order_id="old-stop",
@@ -177,7 +178,7 @@ class SymbolEntryAttemptLimitTests(unittest.TestCase):
         with TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
             db_path = Path(temp_dir) / "stop-cooldown-empty.sqlite3"
             initialize_market_database(db_path=db_path)
-            with get_connection(db_path) as conn:
+            with closing(get_connection(db_path)) as conn, conn:
                 _insert_execution(
                     conn,
                     order_id="profit-exit",

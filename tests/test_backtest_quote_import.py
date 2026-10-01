@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,7 +28,7 @@ class AlpacaQuoteCsvImportTests(unittest.TestCase):
             "O:MSFT260117C00400000,2026-01-01T10:06:00Z,Q,0,10,Q,1.20,12,[R],C\n",
             encoding="utf-8",
         )
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             conn.execute(
                 """
                 INSERT INTO manager_decision_history (
@@ -62,7 +63,7 @@ class AlpacaQuoteCsvImportTests(unittest.TestCase):
 
     def test_dry_run_does_not_store_quotes(self) -> None:
         result = import_alpaca_option_quote_csv(self.csv_path, db_path=self.db_path, dry_run=True)
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             count = conn.execute("SELECT COUNT(*) FROM historical_option_quotes").fetchone()[0]
         self.assertEqual(result["valid_rows"], 3)
         self.assertEqual(result["inserted_rows"], 0)

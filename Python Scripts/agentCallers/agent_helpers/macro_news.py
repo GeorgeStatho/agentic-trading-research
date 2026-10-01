@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -48,7 +49,7 @@ def _load_unprocessed_macro_news_rows(news_scope: str) -> list[dict[str, Any]]:
     membership_table = config["membership_table"]
     processing_table = config["processing_table"]
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             f"""
             SELECT
@@ -137,7 +138,7 @@ def save_batch_results(
         article_id = int(pair["article_id"])
         batch_pairs_by_article.setdefault(article_id, []).append(pair)
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         for pair in pairs:
             impact_saver(
                 article_id=int(pair["article_id"]),
