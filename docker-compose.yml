@@ -4,6 +4,14 @@ x-google-cloud-env: &google-cloud-env
   GOOGLE_GENAI_USE_VERTEXAI: "true"
   LLM_PROVIDER: ${LLM_PROVIDER:-vertex}
 
+# The Python services run the same code with different commands. One named image means it is
+# built once and stored once, instead of one identical image per service.
+x-python-image: &python-image
+  build:
+    context: .
+    dockerfile: Dockerfile.worker
+  image: agentic-trading-python:local
+
 services:
   ollama:
     profiles: ["ollama"]
@@ -25,9 +33,7 @@ services:
       - ollama_data:/root/.ollama
 
   worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
+    <<: *python-image
     restart: unless-stopped
     env_file:
       - .env
@@ -55,9 +61,7 @@ services:
     command: ["python", "Python Scripts/main.py"]
 
   news_collector:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
+    <<: *python-image
     restart: unless-stopped
     env_file:
       - .env
@@ -81,9 +85,7 @@ services:
     command: ["python", "Python Scripts/news_collector_main.py"]
 
   option_manager:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
+    <<: *python-image
     restart: unless-stopped
     env_file:
       - .env
@@ -110,9 +112,7 @@ services:
     command: ["python", "Python Scripts/option_manager_main.py"]
 
   marketdata_eod_sync:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
+    <<: *python-image
     restart: unless-stopped
     env_file:
       - .env
@@ -123,9 +123,7 @@ services:
     command: ["python", "Python Scripts/marketdata_eod_sync_main.py"]
 
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
+    <<: *python-image
     restart: unless-stopped
     env_file:
       - .env
