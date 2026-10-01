@@ -22,6 +22,7 @@ history and are not updated when the code changes.
 | Document | Status |
 | --- | --- |
 | [RESEARCH_GUIDE.md](RESEARCH_GUIDE.md) | Operator guide: what runs where, turning phases on, watching them, known issues |
+| [RESEARCH_LIVE_SETUP.md](RESEARCH_LIVE_SETUP.md) | Checklist for enabling the research features on the live server |
 | [RESEARCH_AND_DECISION_IMPLEMENTATION_PLAN.md](RESEARCH_AND_DECISION_IMPLEMENTATION_PLAN.md) | The plan: Phases 0–7 implemented |
 | [RESEARCH_PHASE0.md](RESEARCH_PHASE0.md) | Evidence/observation contracts and comparison identity |
 | [RESEARCH_PHASE1.md](RESEARCH_PHASE1.md) | Earnings and guidance evidence ingestion |
