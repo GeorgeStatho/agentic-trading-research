@@ -18,6 +18,9 @@ from services.option_dte_buckets import (
     TIME_HORIZON_TO_DTE_BUCKET,
     resolve_dte_bucket_for_days,
 )
+from db_helpers.market import close_position_thesis
+from db_helpers.market import record_position_thesis
+from services.pricing_policy import HORIZON_DAYS
 
 
 LOGGER = logging.getLogger(__name__)
@@ -88,14 +91,17 @@ def _expected_horizon_days(
 ) -> int | None:
     """Days in which the thesis should have played out.
 
-    Derived from the position's DTE bucket: the bucket's max DTE minus its
-    forced-exit buffer is the longest the rules layer will ever hold it.
+    Live exits keep the rule of the bucket the position entered in and force an exit at its
+    forced-exit DTE, so the entry DTE minus that buffer is the longest it will be held.
     """
     entry_dte = _days_until(selected_expiration_date, today=today)
-    bucket = resolve_dte_bucket_for_days(entry_dte) if entry_dte is not None else None
-    if bucket is None:
-        bucket_key = TIME_HORIZON_TO_DTE_BUCKET.get(str(time_horizon or "").strip().lower())
-        bucket = OPTION_DTE_BUCKET_BY_KEY.get(bucket_key or "")
+    # The same boundary preference the live exit rule uses.
+    bucket = resolve_dte_bucket_for_days(entry_dte, prefer_higher_boundary=True) if entry_dte is not None else None
+    if bucket is not None:
+        return max(1, entry_dte - (bucket.force_exit_days_to_expiration or 0))
+    # No bucket covers the entry DTE, or it is unknown: fall back to the strategist's horizon.
+    bucket_key = TIME_HORIZON_TO_DTE_BUCKET.get(str(time_horizon or "").strip().lower())
+    bucket = OPTION_DTE_BUCKET_BY_KEY.get(bucket_key or "")
     if bucket is None:
         return entry_dte if entry_dte is not None and entry_dte > 0 else None
     horizon = bucket.max_days - (bucket.force_exit_days_to_expiration or 0)
@@ -167,7 +173,6 @@ def build_position_thesis_record(execution: dict[str, Any]) -> dict[str, Any] | 
         time_horizon=strategist.get("time_horizon"),
     )
     horizon_source = 'legacy_dte_bucket_fallback'
-    from services.pricing_policy import HORIZON_DAYS
     state = ((execution.get('candidate_context') or {}).get('catalysts') or [{}])[0]
     if state.get('classification_status') == 'classified' and state.get('expected_horizon') in HORIZON_DAYS:
         expected_horizon_days = HORIZON_DAYS[state['expected_horizon']]
@@ -219,7 +224,6 @@ class PositionThesisJournal:
         thesis = build_position_thesis_record(execution)
         if thesis is None:
             return None
-        from db_helpers.market import record_position_thesis
 
         thesis_id = record_position_thesis(thesis)
         if thesis_id is not None:
@@ -238,7 +242,6 @@ class PositionThesisJournal:
         option_symbol = str(position_summary.get("symbol") or "").strip().upper()
         if not option_symbol:
             return False
-        from db_helpers.market import close_position_thesis
 
         closed = close_position_thesis(
             option_symbol,

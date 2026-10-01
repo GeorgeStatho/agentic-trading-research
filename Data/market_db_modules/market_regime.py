@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 from db_common import DB_PATH, get_connection, json_text
 from .bootstrap import initialize_database
+import json
 
 
 def record_market_regime_snapshot(snapshot: dict[str, Any], db_path: Path | str = DB_PATH) -> int:
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         cursor = conn.execute(
             """
             INSERT INTO market_regime_runs (as_of, state, confidence, policy_version, snapshot_json)
@@ -29,13 +31,12 @@ def record_market_regime_snapshot(snapshot: dict[str, Any], db_path: Path | str 
 
 def get_latest_market_regime_snapshot(db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         row = conn.execute(
             "SELECT id, as_of, state, confidence, policy_version, snapshot_json, created_at FROM market_regime_runs ORDER BY id DESC LIMIT 1"
         ).fetchone()
     if row is None:
         return None
-    import json
 
     record = dict(row)
     try:
@@ -48,7 +49,7 @@ def get_latest_market_regime_snapshot(db_path: Path | str = DB_PATH) -> dict[str
 def store_regime_bars(symbol, bars, *, provider, db_path=DB_PATH):
     """Batch an entire lookback in one transaction; repeated refreshes are safe."""
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         conn.executemany("""
             INSERT INTO historical_underlying_bars
                 (symbol, bar_at, timeframe, open_price, high_price, low_price, close_price, volume, provider)
@@ -62,7 +63,7 @@ def store_regime_bars(symbol, bars, *, provider, db_path=DB_PATH):
 
 def load_regime_bars(symbol, *, as_of, db_path=DB_PATH):
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute("""
             SELECT bar_at, close_price, provider FROM historical_underlying_bars
             WHERE symbol = ? AND timeframe = '1d' AND close_price > 0

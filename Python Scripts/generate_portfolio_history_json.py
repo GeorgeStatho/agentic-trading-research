@@ -1,18 +1,13 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.append(str(ROOT_DIR))
-
-from portfolio_history_service import DEFAULT_OUTPUT_PATH, fetch_portfolio_history, load_env, write_output
+from portfolio_history_service import DEFAULT_OUTPUT_PATH, fetch_portfolio_history, write_output
+from services.settings import load_process_settings
 
 
 def main() -> int:
-    load_env()
+    load_process_settings()
     portfolio_history = fetch_portfolio_history()
     write_output(portfolio_history, DEFAULT_OUTPUT_PATH)
     print(f"Wrote portfolio history to {DEFAULT_OUTPUT_PATH}")

@@ -1,18 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from pathlib import Path
-import sys
 from typing import cast
-
-
-WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
-if str(WEBSCRAPING_DIR) not in sys.path:
-    sys.path.append(str(WEBSCRAPING_DIR))
-
-DATA_DIR = Path(__file__).resolve().parents[2] / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
 
 from core.CommonPipeline import (
     MAX_ARTICLES_PER_SEARCH_PAGE,

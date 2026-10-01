@@ -11,13 +11,7 @@ from unittest.mock import MagicMock, patch
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT_DIR / "Data"
 PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-for path in (ROOT_DIR, DATA_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from services.option_dte_buckets import OPTION_DTE_BUCKETS  # noqa: E402
 from services.position_manager import OptionPositionManagerService  # noqa: E402

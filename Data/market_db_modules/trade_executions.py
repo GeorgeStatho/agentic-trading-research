@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,8 @@ from typing import Any
 from db_common import DB_PATH, clean_text, coerce_float, get_connection, json_text
 from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
+from .execution_telemetry import store_execution_telemetry
+from catalyst_schema import stamp_candidate_catalyst
 
 
 def record_option_trade_execution(
@@ -36,7 +39,7 @@ def record_option_trade_execution(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return record_option_trade_execution(
                 execution,
                 paper=paper,
@@ -129,11 +132,9 @@ def record_option_trade_execution(
         values,
     )
     record_id = int(cursor.fetchone()["id"])
-    from .execution_telemetry import store_execution_telemetry
     store_execution_telemetry(order_id, execution.get("execution_telemetry") or {},
                               context=execution.get("candidate_context"),
                               execution_version=execution.get("execution_version"), conn=conn)
-    from catalyst_schema import stamp_candidate_catalyst
     stamp_candidate_catalyst(conn, 'option_trade_executions', record_id,
                             (execution.get('candidate_context') or {}).get('candidate_id'))
     return record_id

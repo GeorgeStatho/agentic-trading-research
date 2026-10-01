@@ -1,19 +1,8 @@
 from __future__ import annotations
 
-import sys
 import unittest
 from datetime import datetime, timezone
-from pathlib import Path
 from unittest.mock import patch
-
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from agent_analysis.industry_interest import (  # noqa: E402
     getIndustryScores,
@@ -42,6 +31,9 @@ class _FakeConnection:
 
     def __exit__(self, exc_type, exc, tb):
         return False
+
+    def close(self):
+        pass
 
 
 class VerboseTestCase(unittest.TestCase):

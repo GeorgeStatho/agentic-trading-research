@@ -10,36 +10,72 @@ from db_common import DB_PATH, get_connection
 from services.research_contract import (ResearchPolicy, STRATEGIES, canonical, fingerprint,
                                         strategy_decisions, utc)
 from services.research_inputs import baseline_contract, load_inputs, replay_missing_selection
-from services.research_promotion import source_hash
+from services.research_promotion import PAIRED_PREFIX, research_only_candidate, source_hash
+from services.research_versions import evaluation_version, require_current_evaluator
+from research_foundation_contracts import OBSERVATION_PROTOCOL
+from .research_observations import (
+    candidate_observation, enroll_strategy_evaluation, validate_candidate_observation,
+    validate_strategy_evaluation,
+)
 from services.shadow_portfolio import simulate_option
+from .bootstrap import initialize_database
+from services.price_response import completed_at
+from services.research_contract import direction
+import logging
 
 
 def migrate_research(conn):
     conn.executescript(Path(__file__).with_name('research_schema.sql').read_text())
 
 
-def start_run(manifest, *, kind='frozen_forward', target_candidates=200, policy=None,
-              db_path=DB_PATH, now=None):
-    from .bootstrap import initialize_database
-    initialize_database(db_path=db_path)
+def insert_run(conn, manifest, *, at, kind='frozen_forward', target_candidates=200, policy=None,
+               observation_protocol=OBSERVATION_PROTOCOL, code=None):
+    """Freeze a run inside the caller's transaction, so registered cohorts open atomically."""
     policy = policy or ResearchPolicy()
     if kind not in {'frozen_forward', 'leakage_checked_backtest'} or target_candidates < 1:
         raise ValueError('Invalid research run kind or target')
     if not manifest.get('pipeline_version'):
         raise ValueError('A pipeline manifest is required')
-    at = utc(now or datetime.now(timezone.utc)).isoformat()
+    if not observation_protocol or not isinstance(observation_protocol, str):
+        raise ValueError('An observation protocol is required')
     run_id = str(uuid4())
-    code = source_hash()
-    config_hash = fingerprint({'manifest': manifest, 'policy': asdict(policy), 'code_hash': code,
-                               'kind': kind, 'started_at': at, 'target_candidates': target_candidates})
-    with closing(get_connection(db_path)) as conn, conn:
-        conn.execute('''INSERT INTO research_runs
-            (run_id,kind,started_at,information_cutoff_time,target_candidates,manifest_json,policy_json,config_hash,code_hash)
-            VALUES (?,?,?,?,?,?,?,?,?)''',
-            (run_id, kind, at, at, target_candidates, canonical(manifest), canonical(asdict(policy)), config_hash, code))
-        conn.execute('''INSERT INTO research_champion(singleton,strategy,information_cutoff_time)
-                        VALUES (1,'production',?) ON CONFLICT DO NOTHING''', (at,))
+    code = code or source_hash()
+    evaluator = evaluation_version(observation_protocol)
+    config_hash = 'research-v2:' + fingerprint({
+        'manifest': manifest, 'policy': asdict(policy), 'code_hash': code,
+        'kind': kind, 'started_at': at, 'target_candidates': target_candidates,
+        'evaluation_version': evaluator})
+    conn.execute('''INSERT INTO research_runs
+        (run_id,kind,started_at,information_cutoff_time,target_candidates,manifest_json,policy_json,config_hash,code_hash)
+        VALUES (?,?,?,?,?,?,?,?,?)''',
+        (run_id, kind, at, at, target_candidates, canonical(manifest), canonical(asdict(policy)), config_hash, code))
+    conn.execute('INSERT INTO research_run_versions VALUES (?,?,?,?,?)',
+                 (run_id, evaluator['version'], evaluator['evaluator_hash'],
+                  evaluator['protocol_version'], fingerprint(evaluator)))
+    conn.execute('''INSERT INTO research_champion(singleton,strategy,information_cutoff_time)
+                    VALUES (1,'production',?) ON CONFLICT DO NOTHING''', (at,))
     return {'run_id': run_id, 'kind': kind, 'config_hash': config_hash, 'information_cutoff_time': at}
+
+
+def start_run(manifest, *, kind='frozen_forward', target_candidates=200, policy=None,
+              db_path=DB_PATH, now=None, observation_protocol=OBSERVATION_PROTOCOL):
+    initialize_database(db_path=db_path)
+    at = utc(now or datetime.now(timezone.utc)).isoformat()
+    with closing(get_connection(db_path)) as conn, conn:
+        return insert_run(conn, manifest, at=at, kind=kind, target_candidates=target_candidates,
+                          policy=policy, observation_protocol=observation_protocol)
+
+
+def run_registration(conn, run_id):
+    """A forward cohort's pre-registration; None for a manually started run."""
+    row = conn.execute('SELECT * FROM research_run_acceptance WHERE run_id=?', (run_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def enrolls_candidate(role, candidate_id):
+    """Production cohorts exclude research-only candidates; paired cohorts hold nothing else."""
+    paired = str(candidate_id).startswith(PAIRED_PREFIX)
+    return paired if role in {'incumbent', 'challenger'} else not research_only_candidate(candidate_id)
 
 
 def read_run(conn, run_id):
@@ -49,8 +85,20 @@ def read_run(conn, run_id):
     run = dict(row)
     run['manifest'] = json.loads(run['manifest_json'])
     run['policy'] = ResearchPolicy(**json.loads(run['policy_json']))
-    expected = fingerprint({'manifest': run['manifest'], 'policy': asdict(run['policy']), 'code_hash': run['code_hash'],
-                            'kind': run['kind'], 'started_at': run['started_at'], 'target_candidates': run['target_candidates']})
+    configuration = {'manifest': run['manifest'], 'policy': asdict(run['policy']), 'code_hash': run['code_hash'],
+                     'kind': run['kind'], 'started_at': run['started_at'], 'target_candidates': run['target_candidates']}
+    if run['config_hash'].startswith('research-v2:'):
+        version = conn.execute('SELECT * FROM research_run_versions WHERE run_id=?', (run_id,)).fetchone()
+        if version is None:
+            raise ValueError('Frozen evaluator identity is missing')
+        evaluator = {key: version[key] for key in ('version', 'evaluator_hash', 'protocol_version')}
+        if fingerprint(evaluator) != version['version_hash']:
+            raise ValueError('Frozen evaluator identity changed')
+        run['evaluation_version'] = evaluator
+        configuration['evaluation_version'] = evaluator
+        expected = 'research-v2:' + fingerprint(configuration)
+    else:
+        expected = fingerprint(configuration)
     if expected != run['config_hash']:
         raise ValueError('Frozen run configuration hash mismatch')
     return run
@@ -61,6 +109,26 @@ def _available_quote(row):
     raw = json.loads(result.get('raw_json') or '{}')
     result['available_at'] = raw.get('available_at') or result['created_at']
     return result
+
+
+DECISION_QUOTE_PROVIDER = 'alpaca'
+# Enrollment closes at the window end; in-flight candidates and challenger backlog get this long.
+ENROLLMENT_GRACE = timedelta(days=2)
+
+
+def decision_quote(contract, cutoff):
+    """The quote frozen with the decision is entry evidence that existed at the cutoff.
+
+    Closing marks come from the same vendor (see services/research_marks.py), so an entry and
+    its exit are never priced by different providers.
+    """
+    quote = (contract or {}).get('latest_quote') or {}
+    quoted = quote.get('timestamp')
+    if not quoted or utc(quoted) > utc(cutoff):
+        return None
+    return {'id': None, 'quote_at': utc(quoted).isoformat(), 'bid_price': quote.get('bid_price'),
+            'ask_price': quote.get('ask_price'), 'provider': DECISION_QUOTE_PROVIDER,
+            'available_at': cutoff, 'source': 'decision_snapshot'}
 
 
 def option_quotes(conn, contract, cutoff, as_of):
@@ -74,7 +142,6 @@ def option_quotes(conn, contract, cutoff, as_of):
 
 def observed_sessions(conn, as_of):
     """Completed, already-published SPY sessions: the evidence a daily mark is checked against."""
-    from services.price_response import completed_at
     sessions = []
     for row in conn.execute("SELECT * FROM historical_underlying_bars WHERE symbol='SPY' AND timeframe='1d'"):
         bar = dict(row)
@@ -96,13 +163,15 @@ def _position(conn, inputs, decision, strategy, run, as_of, sessions):
         return {**base, 'status': 'cash', 'hypothetical_pnl': 0, 'deployed_dollar_days': 0}
     contract = inputs['selected_contract'] if strategy in {'counterfactual', 'full_v2'} else baseline_contract(inputs, decision, run['policy'])
     quotes = option_quotes(conn, contract, inputs['information_cutoff_time'], as_of) if contract else []
+    entry = decision_quote(contract, inputs['information_cutoff_time'])
+    if entry and not any(q['provider'] == entry['provider'] and utc(q['quote_at']) == utc(entry['quote_at']) for q in quotes):
+        quotes = [entry, *quotes]
     return {**base, **simulate_option(contract, quotes, cutoff=inputs['information_cutoff_time'], as_of=as_of, policy=run['policy'], market_sessions=sessions),
             'selection_source': 'recorded_production' if strategy in {'counterfactual', 'full_v2'} else 'baseline_delta_selector'}
 
 
 def benchmark_position(conn, symbol, reference, inputs, run, as_of):
     """Buy and hold fractional shares for the same capital and holding window."""
-    from services.price_response import completed_at
     base = {'information_cutoff_time': inputs['information_cutoff_time'], 'outcome_cutoff_time': as_of,
             'status': 'missing_benchmark_prices', 'hypothetical_pnl': None, 'deployed_dollar_days': None,
             'basis': 'same-capital buy-and-hold from the first session close at or after the '
@@ -168,16 +237,24 @@ def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
         # Serialize enrollment and its N-candidate boundary across collectors.
         conn.execute('BEGIN IMMEDIATE')
         run = read_run(conn, run_id)
-        if run['code_hash'] != source_hash():
-            raise ValueError('Research implementation changed; open a new challenger')
+        current_source = source_hash()
+        require_current_evaluator(run, current_source)
         count = conn.execute('SELECT COUNT(*) FROM research_candidates WHERE run_id=?', (run_id,)).fetchone()[0]
         skipped_versions = 0
+        skipped_observations = 0
+        enrolled_observations = {row[0] for row in conn.execute(
+            'SELECT observation_id FROM strategy_evaluations WHERE run_id=?', (run_id,))}
+        registration = run_registration(conn, run_id)
+        role = registration['role'] if registration else 'production'
+        window_end = utc(registration['window_end']) if registration else None
         if run['status'] == 'open':
             candidates = conn.execute('''SELECT * FROM candidates WHERE candidate_id NOT IN
                 (SELECT candidate_id FROM research_candidates WHERE run_id=?) ORDER BY julianday(created_at),candidate_id''', (run_id,)).fetchall()
             for candidate in candidates:
                 if count >= run['target_candidates']:
                     break
+                if not enrolls_candidate(role, candidate['candidate_id']):
+                    continue
                 # Avoid freezing a candidate while its ordinary pipeline is still running.
                 if utc(candidate['created_at']) > utc(at) - timedelta(minutes=5):
                     continue
@@ -187,25 +264,50 @@ def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
                     if json.loads(candidate['pipeline_version_json']) != run['manifest']:
                         skipped_versions += 1
                         continue
+                observation = candidate_observation(conn, candidate['candidate_id'])
+                # A paired evaluation belongs to the window its decision was made in, however late it ran.
+                decided_at = utc(observation['information_cutoff_time'] if observation else candidate['created_at'])
+                if window_end and decided_at >= window_end:
+                    continue
+                if observation:
+                    evaluator = run.get('evaluation_version')
+                    if (not evaluator or observation['protocol_version'] != evaluator['protocol_version']
+                            or observation['observation_id'] in enrolled_observations
+                            or (run['kind'] == 'frozen_forward' and
+                                utc(observation['information_cutoff_time']) < utc(run['started_at']))):
+                        skipped_observations += 1
+                        continue
+                    validate_candidate_observation(conn, candidate['candidate_id'], observation)
                 finished = candidate_finished(conn, candidate['candidate_id'], at)
                 if run['kind'] == 'frozen_forward' and not finished and utc(at) - utc(candidate['created_at']) < timedelta(days=1):
                     continue
                 inputs = load_inputs(conn, candidate, at) if finished or run['kind'] != 'frozen_forward' else None
-                if inputs and run['kind'] == 'frozen_forward':
-                    inputs = replay_missing_selection(inputs)
+                # Never run today's selector as if it were an older strategy's code.
+                # Recorded selections remain evaluable under an unchanged evaluator.
+                # A paired evaluation already ran the picker on its frozen chain; no contract is its outcome.
+                if inputs and role == 'production' and run['kind'] == 'frozen_forward' and run['code_hash'] == current_source:
+                    inputs = replay_missing_selection(inputs, run['manifest'])
                 if inputs is None:
                     rejected_by = [row['stage'] for row in conn.execute('''SELECT DISTINCT stage FROM candidate_rejections
                         WHERE candidate_id=? AND julianday(occurred_at)<=julianday(?) ORDER BY stage''',
                         (candidate['candidate_id'], at))]
+                    input_cutoff = observation['information_cutoff_time'] if observation else candidate['created_at']
                     inputs = {'candidate_id': candidate['candidate_id'], 'symbol': candidate['symbol'],
-                              'created_at': candidate['created_at'], 'information_cutoff_time': candidate['created_at'],
+                              'created_at': candidate['created_at'], 'information_cutoff_time': input_cutoff,
                               'features': {'gates': {stage: False for stage in rejected_by}}, 'contracts': [],
                               'selected_contract': None, 'rejected_by': rejected_by,
                               'snapshot_hashes': {}, 'selection_source': 'missing_or_unfinished_snapshots'}
+                if observation:
+                    if utc(inputs['information_cutoff_time']) != utc(observation['information_cutoff_time']):
+                        raise ValueError('Evaluation cutoff differs from the shared observation')
+                    inputs['observation_id'] = observation['observation_id']
                 conn.execute('INSERT INTO research_candidates VALUES (?,?,?,?,?)',
                              (run_id, candidate['candidate_id'], inputs['information_cutoff_time'], fingerprint(inputs), canonical(inputs)))
+                if observation:
+                    enroll_strategy_evaluation(conn, run, candidate['candidate_id'], inputs, observation)
+                    enrolled_observations.add(observation['observation_id'])
                 count += 1
-            if count >= run['target_candidates']:
+            if count >= run['target_candidates'] or (window_end and utc(at) >= window_end + ENROLLMENT_GRACE):
                 conn.execute("UPDATE research_runs SET status='sealed' WHERE run_id=?", (run_id,))
         # One session read serves every strategy and candidate in this collection.
         sessions = observed_sessions(conn, at)
@@ -213,8 +315,8 @@ def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
             inputs = json.loads(row['input_json'])
             if fingerprint(inputs) != row['input_hash']:
                 raise ValueError('Frozen research inputs changed')
+            validate_strategy_evaluation(conn, run, row, inputs)
             decisions = strategy_decisions(inputs['features'], run['policy'])
-            from services.research_contract import direction
             decisions['counterfactual'] = direction(inputs['features'].get('manager_direction'))
             results = {}
             for strategy in ('counterfactual', *STRATEGIES, 'SMH', 'QQQ'):
@@ -231,12 +333,12 @@ def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
                     outcome_cutoff_time=excluded.outcome_cutoff_time,status=excluded.status,result_json=excluded.result_json''',
                     (run_id, row['candidate_id'], strategy, row['information_cutoff_time'], at, result['status'], canonical(result)))
     return {'run_id': run_id, 'candidates': count, 'skipped_manifest_mismatches': skipped_versions,
+            'skipped_observation_duplicates_or_mismatches': skipped_observations,
             'information_cutoff_time': at, 'capital_deployed': 0}
 
 
 def collect_active_runs(*, as_of=None, db_path=DB_PATH):
     """Called by the existing periodic response collector; stale runs stay frozen."""
-    import logging
     with closing(get_connection(db_path)) as conn, conn:
         run_ids = [row[0] for row in conn.execute('''SELECT run_id FROM research_runs
             WHERE status='open' OR EXISTS(SELECT 1 FROM research_shadow_positions p

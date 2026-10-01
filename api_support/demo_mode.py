@@ -106,4 +106,56 @@ def build_demo_mode_payload() -> dict[str, Any]:
         "read_only": True,
         "no_trade_executed_by_feature": True,
     }
-    return {"demo_mode": True, "disclaimer": "Seeded fictional walkthrough. No live news, position, order, or trade is created.", "exposure": {"articles": [article], "payload": exposure}, "autopsy": autopsy}
+    return {"demo_mode": True, "disclaimer": "Seeded fictional walkthrough. No live news, position, order, or trade is created.", "exposure": {"articles": [article], "payload": exposure}, "autopsy": autopsy,
+            "forward_evaluation": build_demo_forward_evaluation(now)}
+
+
+def build_demo_forward_evaluation(now: str) -> dict[str, Any]:
+    """A fictional interim incumbent/challenger comparison; no cohort or report exists behind it."""
+    def strategy(net_pnl: float, trades: int, drawdown: float) -> dict[str, Any]:
+        return {"observations": 48, "trades": trades, "cash": 48 - trades, "net_pnl": net_pnl, "capital_at_risk": trades * 210.0,
+                "net_return": net_pnl / (trades * 210.0), "win_rate": 0.52, "worst_trade": -151.3, "max_drawdown": drawdown,
+                "verified_daily_marks": True}
+
+    criteria = [("paired_observations", False), ("independent_clusters", False), ("regimes", True), ("coverage", True),
+                ("positive_paired_net_pnl", True), ("bootstrap_lower_bound", False), ("beats_every_baseline", False),
+                ("drawdown", True), ("verified_daily_marks", True)]
+    return {
+        "as_of": now, "available": True, "demo_data": True, "window_days": 30,
+        "settings": {"forward_evaluation": {"mode": "shadow"},
+                     "challenger": {"mode": "shadow", "strategist_model": "", "manager_model": "demo-challenger-model",
+                                    "daily_model_calls": 120}},
+        "cohorts": [{"cohort_id": "cohort:demo", "base_pipeline_version": "v2:demo-fixture-manifest", "challenger_id": "models:demo",
+                     "window_start": "2026-07-01T14:00:00+00:00", "window_end": "2026-08-30T14:00:00+00:00",
+                     "acceptance_hash": "demo",
+                     "runs": {"incumbent": {"run_id": "demo-incumbent", "status": "open", "enrolled": 51, "resolved": 48, "target_candidates": 10000},
+                              "challenger": {"run_id": "demo-challenger", "status": "open", "enrolled": 50, "resolved": 48, "target_candidates": 10000}}}],
+        "decision_observations": {"recorded": 53, "unavailable": 2},
+        "paired_evaluations": [{"role": "challenger", "status": "abstained", "n": 19, "model_calls": 19},
+                               {"role": "challenger", "status": "evaluated", "n": 31, "model_calls": 31},
+                               {"role": "incumbent", "status": "evaluated", "n": 51, "model_calls": 0}],
+        "mark_sessions": [{"session_date": "2026-07-24", "status": "complete", "summary": {"symbols": 22, "stored": 21, "missing": ["DEMO260821C00050000"]}}],
+        "comparisons": [{
+            "report_id": "comparison:demo-fixture-report", "cohort_id": "cohort:demo", "information_cutoff_time": "2026-07-24T22:00:00+00:00",
+            "window": {"start": "2026-07-01T14:00:00+00:00", "end": "2026-08-30T14:00:00+00:00"},
+            "challenger_definition": {"strategist_model": "", "manager_model": "demo-challenger-model", "challenger_id": "models:demo"},
+            "verdict": "interim", "final": False,
+            "observations": {"recorded": 53, "unavailable": 2,
+                             "pair_statuses": {"resolved": 48, "challenger_outcome_pending": 3, "incumbent_outcome_missing_daily_marks": 2}},
+            "n_paired": 48, "n_clusters": 17, "regimes": ["range", "trend_up"], "coverage": 0.87, "paired_difference": 412.6,
+            "mean_paired_difference": 8.6, "bootstrap": {"lower_bound": -3.1, "upper_bound": 19.8, "confidence": 0.9},
+            "incumbent": strategy(-96.4, 29, 388.0), "challenger": strategy(316.2, 21, 251.0),
+            "criteria": [{"criterion": name, "passed": passed, "value": None, "threshold": None} for name, passed in criteria],
+            "research_cost": {"challenger_model_calls": 50, "challenger_latency_seconds_median": 11.2}}],
+        "discovery": {"events_seen": 64, "admitted_union": 27,
+                      "route_status_counts": {"production": {"admitted": 19, "not_admitted": 41, "not_evaluated": 4},
+                                              "discovery": {"admitted": 12, "not_admitted": 9, "not_evaluated": 43}},
+                      "admission_latency_seconds_median": {"production": 30600.0, "discovery": 7200.0},
+                      "outcomes_by_admission": {"both": {"5d": {"events": 4, "resolved": 3, "mean_signed_residual_return": 0.011, "hit_rate": 0.67, "mean_absolute_residual_return": 0.024}},
+                                                "discovery_only": {"5d": {"events": 8, "resolved": 5, "mean_signed_residual_return": 0.006, "hit_rate": 0.6, "mean_absolute_residual_return": 0.019}},
+                                                "production_only": {"5d": {"events": 15, "resolved": 9, "mean_signed_residual_return": -0.002, "hit_rate": 0.44, "mean_absolute_residual_return": 0.015}}}},
+        "research_route": {"theses": 9, "outcomes_by_check_status": {"validated": {"theses": 5, "resolved": 3, "mean_signed_residual_return": 0.009, "hit_rate": 0.67},
+                                                                     "deferred": {"theses": 4, "resolved": 2, "mean_signed_residual_return": -0.004, "hit_rate": 0.5}},
+                           "research_cost": {"reserved_cost_usd": 1.84, "model_and_retrieval_calls": 61},
+                           "latency_seconds": {"session_to_thesis_median": 5400.0, "event_to_thesis_median": 19800.0}},
+    }

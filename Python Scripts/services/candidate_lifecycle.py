@@ -28,9 +28,14 @@ def observe(function, *args, **kwargs):
         return None
 
 
-def begin_candidate(symbol, *, version=None):
-    context = record_candidate(symbol, version or build_pipeline_version())
-    record_candidate_snapshot(context, 'candidate_created', context, cutoff=context['created_at'])
+def begin_candidate(symbol, *, version=None, observation_id=None):
+    version = version or build_pipeline_version()
+    # The forward cohort must exist before the candidate, so the cohort is frozen prospectively.
+    from services.forward_cohorts import ensure_production_cohort
+    observe(ensure_production_cohort, version)
+    context = record_candidate(symbol, version, observation_id=observation_id)
+    record_candidate_snapshot(context, 'candidate_created', context,
+                              cutoff=context.get('observation_cutoff') or context['created_at'])
     from services.catalyst_gates import record_catalyst_gates
     context['catalyst_gates'] = record_catalyst_gates(context)
     from services.pricing_gates import record_candidate_price_response
@@ -56,7 +61,7 @@ def record_gate(context, name, gate):
         return
     checkpoint(context, name, gate)
     if gate.get('would_allow', gate.get('allowed')) is False:
-        config = context['pipeline_version']['gate_config'].get(
-            'continuation' if name == 'CONTINUATION' else 'regime', {})
+        from services.research_promotion import GATE_BLOCKS
+        config = context['pipeline_version']['gate_config'].get(GATE_BLOCKS.get(name, 'regime'), {})
         for reason in gate.get('reason_codes') or ['gate_rejected']:
             reject(context, name, reason, metrics=gate, thresholds=config, shadow=gate.get('allowed') is True)

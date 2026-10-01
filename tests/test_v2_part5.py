@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
@@ -10,10 +11,6 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
-
-ROOT = Path(__file__).resolve().parents[1]
-for folder in ('Data', 'Python Scripts', 'Python Scripts/agentCallers', 'Python Scripts/Webscraping', 'tests'):
-    sys.path.insert(0, str(ROOT / folder))
 
 from db_common import get_connection
 from market_db import initialize_database
@@ -87,28 +84,39 @@ class LiquidityTests(unittest.TestCase):
 
 
 class ScenarioTests(unittest.TestCase):
-    def test_greek_units_spread_and_costs_are_separate(self):
-        score = score_contract(option(), spot=100, moves=[.02], horizon_days=5)
-        # dS=2; delta=1, gamma=.04, vega=-.5, theta=-.05, roundtrip spread=.1.
-        self.assertAlmostEqual(score['expected_pnl'], 39)
-        self.assertAlmostEqual(score['spread_cost'], 10)
-        self.assertAlmostEqual(score['theta_cost'], 5)
-        self.assertAlmostEqual(score['expected_iv_cost'], 50)
-        self.assertAlmostEqual(score['expected_return'], 39 / 305)
+    def score(self, contract=None, *, moves=(.02,), horizon_days=5):
+        return score_contract(contract or option(), spot=100, moves=list(moves), horizon_days=horizon_days,
+                              as_of=NOW, policy=ContractPolicy())
+
+    def test_costs_are_separate_and_measured_at_an_unchanged_spot(self):
+        score = self.score()
+        self.assertEqual((round(score['spread_cost'], 9), score['theta_cost'] > 0, score['expected_iv_cost'] > 0),
+                         (10.0, True, True))
+
+    def test_expected_return_is_expected_pnl_over_premium(self):
+        score = self.score()
+        self.assertAlmostEqual(score['expected_return'], score['expected_pnl'] / 305)
+
+    def test_a_crash_is_a_full_premium_loss_for_a_call(self):
+        # The former Greek expansion scored this as a large gain: its gamma term grows with the square of the move.
+        self.assertAlmostEqual(self.score(moves=(-.6,))['expected_pnl'], -305)
 
     def test_long_premium_loss_is_bounded_by_entry_cost(self):
-        score = score_contract(option(), spot=100, moves=[-.5], horizon_days=500)
-        self.assertGreaterEqual(score['pnl_p10'], -305)
+        self.assertGreaterEqual(self.score(moves=(-.5,), horizon_days=20)['pnl_p10'], -305)
 
-    def test_put_direction_changes_delta_component(self):
-        put = option(contract_type='put', greeks={'delta': -.5, 'gamma': .02, 'vega': .1, 'theta': -.01})
-        down = score_contract(put, spot=100, moves=[-.02], horizon_days=5)
-        up = score_contract(put, spot=100, moves=[.02], horizon_days=5)
-        self.assertGreater(down['expected_pnl'], up['expected_pnl'])
+    def test_put_gains_when_the_stock_falls(self):
+        put = option(symbol='NVDA261016P00099000', contract_type='put', strike_price=99)
+        self.assertGreater(self.score(put, moves=(-.02,))['expected_pnl'], self.score(put, moves=(.02,))['expected_pnl'])
 
-    def test_missing_greeks_are_unknown_not_zero(self):
-        score = score_contract(option(greeks={'delta': .5}), spot=100, moves=[.02], horizon_days=5)
-        self.assertEqual(score['status'], 'missing_scenario_inputs')
+    def test_greeks_are_not_required(self):
+        self.assertEqual(self.score(option(greeks={}))['status'], 'complete')
+
+    def test_missing_quote_is_unknown_not_zero(self):
+        self.assertEqual(self.score(option(latest_quote={}))['status'], 'missing_scenario_inputs')
+
+    def test_quote_below_intrinsic_value_cannot_be_calibrated(self):
+        deep = option(strike_price=80, latest_quote={'bid_price': 9.9, 'ask_price': 10.1})
+        self.assertEqual(self.score(deep)['status'], 'iv_calibration_failed')
 
     def test_short_expiry_cannot_win_long_horizon(self):
         selected, scores = rank_contracts([option(expiration_date='2026-09-22')], spot=100,
@@ -117,13 +125,14 @@ class ScenarioTests(unittest.TestCase):
         self.assertEqual(scores[0]['status'], 'expiry_before_horizon')
 
     def test_quantiles_and_tail_penalty_are_auditable(self):
-        score = score_contract(option(), spot=100, moves=[-.02, 0, .02], horizon_days=5)
+        score = self.score(moves=(-.02, 0, .02))
         self.assertLess(score['pnl_p10'], score['pnl_p50'])
         self.assertLess(score['pnl_p50'], score['pnl_p90'])
         self.assertAlmostEqual(score['total_score'], score['expected_return'] - .25 * score['tail_cost'])
 
     def test_shadow_challenger_does_not_replace_baseline(self):
-        pool = [option(), option(symbol='second', greeks={'delta': .8, 'gamma': .02, 'vega': .01, 'theta': -.001})]
+        cheaper = {**option()['latest_quote'], 'bid_price': 2.45, 'ask_price': 2.55}
+        pool = [option(), option(symbol='second', latest_quote=cheaper)]
         context = {'_v2_scenario_distribution': {'returns': [.02] * 30, 'sample_size': 30,
                                                 'minimum_samples': 30, 'horizon_days': 5, 'as_of': NOW.isoformat()}}
         selected, comparison = select_with_scenarios(pool, context, spot=100)
@@ -196,7 +205,7 @@ class ClusterTests(unittest.TestCase):
         self.assertEqual(reason, 'portfolio_risk_cluster_limit')
 
     def test_executor_refreshes_liquidity_before_any_broker_submission(self):
-        from test_trade_executor_portfolio_guardrails import OptionTradeExecutorPortfolioGuardrailTests
+        from tests.test_trade_executor_portfolio_guardrails import OptionTradeExecutorPortfolioGuardrailTests
         fixture = OptionTradeExecutorPortfolioGuardrailTests()
         fixture.setUp()
         stale = {**option()['latest_quote'], 'timestamp': (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()}
@@ -282,12 +291,12 @@ class PositionRungTests(unittest.TestCase):
         self.assertEqual(shadow_exit_comparison({'reason': 'pending_exit_order'}, context)['would_exit_reason'], 'pending_exit_order')
 
     def test_exit_ladder_enforces_time_before_expiration_and_retains_coactive_rules(self):
-        from test_option_positions import _load_option_positions_module, _make_trailing_profit_config, _make_momentum_history_config
+        from tests.test_option_positions import _load_option_positions_module, _make_trailing_profit_config, _make_momentum_history_config
         module = _load_option_positions_module()
         strategy = sys.modules['_test_trading_support._option_positions_strategy']
         context = evaluate_position_rungs(self.inputs(), as_of=NOW, policy=ContractPolicy(exit_mode='enforce'))
         kwargs = dict(option_symbol='NVDA261016C00101000', quantity=2, unrealized_pl_pct_ratio=.1,
-            broker_unrealized_pl_pct_ratio=.1, days_to_expiration=1, hours_to_expiration=2,
+            broker_unrealized_pl_pct_ratio=.1, exit_rule_days_to_expiration=1, hours_to_expiration=2,
             exit_thresholds=module.ExitThresholds(dte_rule_label='fixture', take_profit_pct=60, stop_loss_pct=-35,
                 force_exit_days_to_expiration=1, exit_hours_to_expiration=24, is_default_rule=False),
             position_state={}, critical_errors=[], context_notes=[], enable_trailing_profit=True,
@@ -308,14 +317,14 @@ class ContractDatabaseTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.db = Path(self.temp.name) / 'test.db'
         initialize_database(db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute("INSERT INTO sectors(id, sector_key, name) VALUES (1, 'technology', 'Technology')")
             conn.execute("INSERT INTO industries(id, sector_id, industry_key, name) VALUES (1, 1, 'chips', 'Chips')")
             conn.execute("INSERT INTO companies(id, industry_id, symbol, name) VALUES (1, 1, 'NVDA', 'Nvidia')")
 
     def test_mapping_seed_and_manual_override_survive_migration(self):
         self.assertEqual(get_risk_cluster('NVDA', db_path=self.db), 'AI_semiconductors')
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute("UPDATE companies SET risk_cluster_id='manual' WHERE symbol='NVDA'")
         initialize_database(db_path=self.db)
         self.assertEqual(get_risk_cluster('NVDA', db_path=self.db), 'manual')
@@ -341,7 +350,7 @@ class ContractDatabaseTests(unittest.TestCase):
         self.assertEqual(plan['ladder'][3]['reason_codes'], ['expected_edge_exhausted'])
 
     def test_baseline_separates_paper_live_regime_and_order_type(self):
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             for key, paper, kind, state, filled, slippage in (
                 ('one', 1, 'market', 'range', 1, .02), ('two', 0, 'market', 'range', 1, .03),
                 ('three', 1, 'limit', 'range', 1, .01), ('four', 1, 'market', 'trend_up', 1, .04),
@@ -359,14 +368,14 @@ class ContractDatabaseTests(unittest.TestCase):
         for value in (1, 2):
             record_observation('fixture:LIQUIDITY', 'LIQUIDITY', {'value': value}, observed_at=NOW.isoformat(), db_path=self.db)
         initialize_database(db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             payload = json.loads(conn.execute('SELECT payload_json FROM contract_research_observations').fetchone()[0])
             self.assertEqual(payload, {'value': 1})
             self.assertEqual(conn.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
             self.assertEqual(conn.execute('PRAGMA foreign_key_check').fetchall(), [])
 
     def test_position_uses_filled_entry_baseline_and_dated_iv(self):
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute('''INSERT INTO position_theses (trade_execution_order_id, symbol, option_symbol, opened_at,
                 expected_horizon_days) VALUES ('one', 'NVDA', 'option', ?, 5)''', ((NOW - timedelta(days=10)).isoformat(),))
             conn.execute('''INSERT INTO position_outcomes (entry_order_id, option_symbol, opened_at, iv_at_entry,
@@ -383,7 +392,7 @@ class ContractDatabaseTests(unittest.TestCase):
         fetcher.assert_not_called()
 
     def test_catalyst_horizon_replaces_contract_dte_and_preserves_intraday_fraction(self):
-        from test_thesis_validator import _sample_execution
+        from tests.test_thesis_validator import _sample_execution
         from services.thesis_capture import build_position_thesis_record
         from market_db_modules.thesis_validator import record_position_thesis
         execution = _sample_execution()
@@ -392,7 +401,7 @@ class ContractDatabaseTests(unittest.TestCase):
         thesis['company_id'] = 1
         thesis['manager_decision_history_id'] = None
         record_position_thesis(thesis, db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             stored = conn.execute('SELECT expected_horizon_days FROM position_theses').fetchone()[0]
         self.assertAlmostEqual(stored, 1 / 24)
         self.assertEqual(thesis['raw_json']['expected_horizon_source'], 'classified_catalyst_calendar_prior')
@@ -400,7 +409,7 @@ class ContractDatabaseTests(unittest.TestCase):
     def test_empirical_scenarios_exclude_future_capture_and_current_catalyst(self):
         from market_db_modules.pricing_research import catalyst_return_distribution
         # Reuse the provenance fixture to create a real linked research event.
-        from test_v2_part4 import PricingDatabaseTests
+        from tests.test_v2_part4 import PricingDatabaseTests
         fixture = PricingDatabaseTests()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)

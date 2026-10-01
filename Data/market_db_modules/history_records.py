@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +9,10 @@ from typing import Any
 from db_common import DB_PATH, clean_text, coerce_float, get_connection, json_text
 from .bootstrap import initialize_database
 from .shared import coerce_int, find_company_row_by_symbol, normalize_bool_to_int, normalize_timestamp
+from .backtesting import ensure_decision_evidence_snapshot
+from .position_outcomes import close_position_outcome
+from .shadow_gates import record_decision_gate_verdicts
+from catalyst_schema import stamp_candidate_catalyst
 
 
 def record_manager_decision_history(
@@ -21,7 +26,7 @@ def record_manager_decision_history(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return record_manager_decision_history(history, conn=local_conn)
 
     company_id = coerce_int(history.get("company_id"))
@@ -122,9 +127,7 @@ def record_manager_decision_history(
     decision_history_id = int(cursor.lastrowid)
     conn.execute("UPDATE manager_decision_history SET candidate_id=?, pipeline_version_json=? WHERE id=?",
                  (history.get("candidate_id"), json_text(history.get("pipeline_version")), decision_history_id))
-    from catalyst_schema import stamp_candidate_catalyst
     stamp_candidate_catalyst(conn, 'manager_decision_history', decision_history_id, history.get('candidate_id'))
-    from .shadow_gates import record_decision_gate_verdicts
     record_decision_gate_verdicts(decision_history_id, history.get("manager_output_json"), conn=conn)
     snapshot = {
         "version": "decision-autopsy-v1",
@@ -156,7 +159,6 @@ def record_manager_decision_history(
         """,
         (decision_history_id, symbol, decision_run_at, json_text(snapshot), decision_run_at),
     )
-    from .backtesting import ensure_decision_evidence_snapshot
 
     ensure_decision_evidence_snapshot(
         {
@@ -186,7 +188,7 @@ def update_manager_decision_latest_pnl(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return update_manager_decision_latest_pnl(
                 decision_history_id=decision_history_id,
                 latest_trade_pnl_pct=latest_trade_pnl_pct,
@@ -249,7 +251,7 @@ def record_manager_decision_closed_outcome(
         return False
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return record_manager_decision_closed_outcome(
                 decision_history_id=normalized_id,
                 realized_pnl_pct=normalized_pnl,
@@ -295,7 +297,6 @@ def record_manager_decision_closed_outcome(
         ),
     )
     if int(cursor.rowcount or 0) > 0:
-        from .position_outcomes import close_position_outcome
         close_position_outcome(normalized_id, realized_pnl_pct=normalized_pnl,
                                closed_at=normalized_closed_at, exit_reason=exit_reason, conn=conn,
                                closing_order_id=closing_order_ids[-1] if closing_order_ids else None)
@@ -312,7 +313,7 @@ def expire_manager_decision_pnl(
     expiration_cutoff = normalize_timestamp(now)
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return expire_manager_decision_pnl(now=now, conn=local_conn)
 
     row = conn.execute(
@@ -334,7 +335,7 @@ def expire_manager_decision_pnl(
 
 def list_unresolved_manager_decisions(*, db_path=DB_PATH) -> list[dict]:
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         return [dict(row) for row in conn.execute("""
             SELECT id, selected_option_symbol, trade_execution_order_id, decision_run_at
             FROM manager_decision_history

@@ -1,6 +1,7 @@
 """Bounded, restartable coverage for all classified catalysts, including rejects."""
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
 import json
 import logging
@@ -12,6 +13,12 @@ from market_db_modules.pricing_research import (
 )
 from services.price_response import completed_at, measure_response, positive
 from services.pricing_policy import PricingPolicy, RESPONSE_HORIZONS
+from agent_helpers.market_context.common import REQUEST_HANDLER, yf
+from market_db_modules.research_outcomes import research_outcome_symbols
+from market_db_modules.research_runs import collect_active_runs
+from services.candidate_lifecycle import observe
+from services.price_response import residual
+from services.regime_history import fetch_regime_history
 
 LOGGER = logging.getLogger(__name__)
 EVENT_BUDGET = 250
@@ -19,10 +26,8 @@ FORWARD_BUDGET = 250
 
 
 def fetch_response_history(symbol, timeframe):
-    from services.regime_history import fetch_regime_history
     if timeframe == '1d':
         return fetch_regime_history(symbol)
-    from agent_helpers.market_context.common import REQUEST_HANDLER, yf
     if yf is None or REQUEST_HANDLER is None:
         raise RuntimeError('No hourly history provider available')
     ticker = REQUEST_HANDLER.run(yf.Ticker, symbol, _context=f'Ticker({symbol})')
@@ -38,10 +43,12 @@ def fetch_response_history(symbol, timeframe):
 
 
 def refresh_universe_history(*, as_of, policy, fetcher, db_path):
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         universe = {row[0] for row in conn.execute('SELECT ticker FROM catalyst_response_events')}
         benchmarks = {row[0] for row in conn.execute('SELECT sector_symbol FROM catalyst_response_events WHERE sector_symbol IS NOT NULL')}
         universe.update(benchmarks)
+        # Research-route thesis outcomes are measured on the same cached history.
+        universe.update(research_outcome_symbols(db_path=db_path))
         if universe:
             universe.add('SPY')
             benchmarks.add('SPY')
@@ -64,7 +71,7 @@ def refresh_universe_history(*, as_of, policy, fetcher, db_path):
             except Exception as exc:
                 LOGGER.warning('Catalyst history unavailable for %s %s: %s', symbol, timeframe, exc)
                 details[timeframe] = {'status': 'error', 'error': str(exc)}
-        with get_connection(db_path) as conn:
+        with closing(get_connection(db_path)) as conn, conn:
             conn.execute('''INSERT INTO pricing_history_refreshes VALUES (?, ?, ?, ?)
                 ON CONFLICT(symbol) DO UPDATE SET attempted_at=excluded.attempted_at,
                 status=excluded.status, details_json=excluded.details_json''',
@@ -74,7 +81,7 @@ def refresh_universe_history(*, as_of, policy, fetcher, db_path):
 
 
 def capture_responses(*, as_of, policy, db_path):
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         events = [dict(row) for row in conn.execute('''SELECT e.* FROM catalyst_response_events e
             LEFT JOIN catalyst_responses r USING(catalyst_id) GROUP BY e.catalyst_id
             HAVING SUM(CASE WHEN r.status='complete' THEN 1 ELSE 0 END) < ?
@@ -90,14 +97,14 @@ def capture_responses(*, as_of, policy, db_path):
 
 
 def capture_forward_returns(*, as_of, db_path):
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = [dict(row) for row in conn.execute('''SELECT * FROM candidate_price_observations
             WHERE forward_at IS NULL AND julianday(observed_at)+5<=julianday(?)
             AND json_extract(snapshot_json, '$.gate.metrics.status')='complete'
             AND json_extract(snapshot_json, '$.direction') IN ('positive', 'negative')
             ORDER BY COALESCE(forward_checked_at, ''), observed_at LIMIT ?''', (as_of.isoformat(), FORWARD_BUDGET))]
     for row in rows:
-        with get_connection(db_path) as conn:
+        with closing(get_connection(db_path)) as conn, conn:
             conn.execute('UPDATE candidate_price_observations SET forward_checked_at=? WHERE candidate_id=?',
                          (as_of.isoformat(), row['candidate_id']))
         payload = json.loads(row['snapshot_json'])
@@ -112,11 +119,10 @@ def capture_forward_returns(*, as_of, db_path):
             continue
         # Use the exact prices frozen at the decision, even if newer hourly history
         # would now give a different baseline than the original daily proxy.
-        from services.price_response import residual
         move = residual(response['endpoint_prices'], metrics['endpoint_prices'], metrics['betas'])['residual_return']
         # Keep both: the raw residual is the stock's own move, the adjusted one folds in
         # the catalyst direction. Consumers that apply direction themselves need the raw field.
-        with get_connection(db_path) as conn:
+        with closing(get_connection(db_path)) as conn, conn:
             conn.execute('''UPDATE candidate_price_observations
                 SET forward_residual_return=?, forward_raw_residual_return=?, forward_at=? WHERE candidate_id=?''',
                          (move * sign, move, response['outcome_at'], row['candidate_id']))
@@ -129,8 +135,6 @@ def collect_catalyst_responses(*, as_of=None, policy=None, fetcher=fetch_respons
     budget = refresh_universe_history(as_of=now, policy=policy, fetcher=fetcher, db_path=db_path) if refresh else {}
     processed = capture_responses(as_of=now, policy=policy, db_path=db_path)
     capture_forward_returns(as_of=now, db_path=db_path)
-    from market_db_modules.research_runs import collect_active_runs
-    from services.candidate_lifecycle import observe
     research_runs = observe(collect_active_runs, as_of=now, db_path=db_path)
     return {'collection': {**budget, 'processed_events': processed, 'event_budget': EVENT_BUDGET},
             'research_runs': research_runs,

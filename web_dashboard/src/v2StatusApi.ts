@@ -91,6 +91,7 @@ export type Run = {
   enrolled_candidates: number;
   promotion_sample_floor: number | null;
   code_hash_matches: boolean;
+  collection_version_matches?: boolean;
   latest_full_cohort_report: CohortReport | null;
 };
 

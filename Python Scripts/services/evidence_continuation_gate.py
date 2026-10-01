@@ -8,69 +8,11 @@ has enough stored evidence and daily technical confirmation to continue to the
 deterministic option selector.
 """
 
-from dataclasses import dataclass
-import os
 from typing import Any
 
-
-POLICY_VERSION = "evidence-continuation-v2-provenance"
-
-
-@dataclass(frozen=True)
-class EvidenceContinuationPolicy:
-    enabled: bool = True
-    required_evidence_count: int = 2
-    required_independent_sources: int = 2
-    min_evidence_score: float = 0.65
-    require_sector_outperformance: bool = True
-    require_stock_relative_strength: bool = True
-    min_relative_volume: float = 1.25
-    max_overextension: str = "medium"
-    allowed_call_entry_quality: frozenset[str] = frozenset({"good", "excellent"})
-    allowed_put_entry_quality: frozenset[str] = frozenset({"good", "excellent"})
-    fail_closed_on_missing_data: bool = True
-    enforcement_mode: str = "shadow"
-    policy_version: str = POLICY_VERSION
-
-    @classmethod
-    def from_env(cls) -> "EvidenceContinuationPolicy":
-        def flag(name: str, default: bool) -> bool:
-            return str(os.getenv(name, str(default))).strip().lower() in {"1", "true", "yes", "on"}
-
-        def positive_int(name: str, default: int) -> int:
-            try:
-                return max(1, int(os.getenv(name, str(default))))
-            except ValueError:
-                return default
-
-        def positive_float(name: str, default: float) -> float:
-            try:
-                return max(0.0, float(os.getenv(name, str(default))))
-            except ValueError:
-                return default
-
-        def qualities(name: str, default: frozenset[str]) -> frozenset[str]:
-            values = {_text(value) for value in os.getenv(name, ",".join(sorted(default))).split(",")}
-            return frozenset(value for value in values if value) or default
-
-        max_overextension = _text(os.getenv("EVIDENCE_CONTINUATION_MAX_OVEREXTENSION", "medium"))
-        enforcement_mode = _text(os.getenv("EVIDENCE_CONTINUATION_MODE", "shadow"))
-        policy = cls(
-            enabled=flag("EVIDENCE_CONTINUATION_ENABLED", True),
-            required_evidence_count=positive_int("EVIDENCE_CONTINUATION_REQUIRED_EVIDENCE_COUNT", 2),
-            required_independent_sources=positive_int("EVIDENCE_CONTINUATION_REQUIRED_INDEPENDENT_SOURCES", 2),
-            min_evidence_score=positive_float("EVIDENCE_CONTINUATION_MIN_EVIDENCE_SCORE", 0.65),
-            require_sector_outperformance=flag("EVIDENCE_CONTINUATION_REQUIRE_SECTOR_OUTPERFORMANCE", True),
-            require_stock_relative_strength=flag("EVIDENCE_CONTINUATION_REQUIRE_STOCK_RELATIVE_STRENGTH", True),
-            min_relative_volume=positive_float("EVIDENCE_CONTINUATION_MIN_RELATIVE_VOLUME", 1.25),
-            max_overextension=max_overextension if max_overextension in {"low", "medium", "high"} else "medium",
-            allowed_call_entry_quality=qualities("EVIDENCE_CONTINUATION_ALLOWED_CALL_QUALITIES", frozenset({"good", "excellent"})),
-            allowed_put_entry_quality=qualities("EVIDENCE_CONTINUATION_ALLOWED_PUT_QUALITIES", frozenset({"good", "excellent"})),
-            fail_closed_on_missing_data=flag("EVIDENCE_CONTINUATION_FAIL_CLOSED_ON_MISSING_DATA", True),
-            enforcement_mode=enforcement_mode if enforcement_mode in {"enforce", "shadow"} else "shadow",
-        )
-        from services.research_promotion import guard_policy
-        return guard_policy(policy, {"enforcement_mode": "CONTINUATION"})
+from services.evidence_continuation_policy import EvidenceContinuationPolicy
+from services.settings import get_settings
+from catalyst_models import PRIMARY_SOURCE_TYPES
 
 
 def _float(value: Any) -> float | None:
@@ -82,9 +24,6 @@ def _float(value: Any) -> float | None:
 
 def _text(value: Any) -> str:
     return str(value or "").strip().lower()
-
-
-DEFAULT_EVIDENCE_CONTINUATION_POLICY = EvidenceContinuationPolicy.from_env()
 
 
 def _supporting_articles(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -115,7 +54,6 @@ def _evidence_snapshot(payload: dict[str, Any], policy: EvidenceContinuationPoli
             eligible_articles.append(article)
             seen_article_ids.add(article_id)
 
-    from catalyst_models import PRIMARY_SOURCE_TYPES
     roots_by_catalyst = {}
     primary_exception = False
     for article in eligible_articles:
@@ -154,9 +92,10 @@ def evaluate_evidence_continuation_gate(
     recommendation: dict[str, Any] | None,
     payload: dict[str, Any] | None,
     market_context: dict[str, Any] | None = None,
-    policy: EvidenceContinuationPolicy = DEFAULT_EVIDENCE_CONTINUATION_POLICY,
+    policy: EvidenceContinuationPolicy | None = None,
 ) -> dict[str, Any]:
     """Return an auditable, deterministic entry-eligibility decision."""
+    policy = policy or get_settings().evidence_continuation
     recommendation = recommendation if isinstance(recommendation, dict) else {}
     payload = payload if isinstance(payload, dict) else {}
     market_context = market_context if isinstance(market_context, dict) else payload.get("market_context", {})

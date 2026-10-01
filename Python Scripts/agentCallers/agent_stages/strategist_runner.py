@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timezone
-import os
 from typing import Any
 
+from services.settings import StageModel, get_settings
 from agent_builders.strategist_payload import (
     DEFAULT_FULL_ARTICLE_LIMIT,
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
@@ -25,20 +25,29 @@ from agent_stages.strategist_prompt import (
     build_strategist_prompt,
     payload_has_evidence,
 )
-from agent_stages.strategist_schema import STRATEGIST_RECOMMENDATION_SCHEMA
+from agent_contracts import StrategistResult
+from agent_stages.strategist_schema import strategist_recommendation_schema
+from services.evidence_thesis import (
+    check_evidence_thesis,
+    compact_thesis_check,
+    not_requested_check,
+    persist_thesis_check,
+)
+from services.evidence_thesis_policy import EvidenceThesisPolicy
 
 
-OLLAMA_HOST = os.getenv(
-    "STRATEGIST_OLLAMA_HOST",
-    os.getenv("MACRO_NEWS_OLLAMA_HOST", os.getenv("WORLD_NEWS_OLLAMA_HOST", "http://127.0.0.1:11434")),
-)
-DEFAULT_MODEL = os.getenv(
-    "STRATEGIST_MODEL",
-    os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "world-news-sectors")),
-)
+def _stage_model() -> StageModel:
+    return get_settings().models.strategist
+
 
 _strategist_client: Client | None = None
-STRATEGIST_PROMPT_VERSION = "grounded-strategist-v1"
+STRATEGIST_PROMPT_VERSION = "grounded-strategist-v3-evidence-thesis"
+LEGACY_STRATEGIST_PROMPT_VERSION = "grounded-strategist-v2-company-evidence"
+THESIS_ROUTE = "legacy_strategist"
+
+
+def strategist_prompt_version(policy: EvidenceThesisPolicy) -> str:
+    return STRATEGIST_PROMPT_VERSION if policy.requests_thesis else LEGACY_STRATEGIST_PROMPT_VERSION
 
 
 def _build_manager_evidence_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -53,6 +62,7 @@ def _build_manager_evidence_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "views",
                 "supporting_articles",
                 "grounding",
+                "company_evidence",
             )
         }
     )
@@ -61,20 +71,46 @@ def _build_manager_evidence_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def get_default_client() -> Client:
     global _strategist_client
     if _strategist_client is None:
-        _strategist_client = get_model_client(OLLAMA_HOST)
+        _strategist_client = get_model_client(_stage_model().ollama_host)
     return _strategist_client
 
 
-def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> str:
+def ask_model(
+    client: Client,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    include_thesis: bool = False,
+) -> str:
     return ask_llm_model(
         client,
         model,
         system_prompt,
         user_prompt,
         temperature=0,
-        host_label=OLLAMA_HOST,
-        response_schema=STRATEGIST_RECOMMENDATION_SCHEMA,
+        host_label=_stage_model().ollama_host,
+        response_schema=strategist_recommendation_schema(include_thesis=include_thesis),
     )
+
+
+def _attach_thesis_check(
+    recommendation: dict[str, Any],
+    check: dict[str, Any],
+    *,
+    company: dict[str, Any],
+    candidate_context: dict[str, Any] | None,
+    model: str,
+    prompt_version: str,
+) -> dict[str, Any]:
+    """Persist the full check and carry only the thesis plus a compact summary forward."""
+    evaluation_id = persist_thesis_check(
+        check,
+        company_id=int(company["company_id"]),
+        candidate_id=(candidate_context or {}).get("candidate_id"),
+        context={"model": model, "prompt_version": prompt_version},
+    )
+    return attach_thesis_check(recommendation, check, evaluation_id)
 
 
 def _save_strategist_summary(
@@ -84,6 +120,7 @@ def _save_strategist_summary(
     recommendation: dict[str, Any],
     model: str,
     input_payload: dict[str, Any],
+    prompt_version: str,
     raw_response: str | None = None,
 ) -> dict[str, Any]:
     # Persist the strategist summary and return a summary that callers can inspect.
@@ -99,7 +136,7 @@ def _save_strategist_summary(
     run_id = record_strategist_run(
         company_id=int(company["company_id"]),
         model=model,
-        prompt_version=STRATEGIST_PROMPT_VERSION,
+        prompt_version=prompt_version,
         input_article_ids=[int(article_id) for article_id in article_ids if isinstance(article_id, int)],
         input_payload=input_payload,
         output_payload={"raw_response": raw_response, "recommendation": recommendation},
@@ -119,7 +156,7 @@ def _save_strategist_summary(
     return {
         "id": run_id,
         "model": model,
-        "prompt_version": STRATEGIST_PROMPT_VERSION,
+        "prompt_version": prompt_version,
         "input_article_ids": [int(article_id) for article_id in article_ids if isinstance(article_id, int)],
         "created_at": created_at,
     }
@@ -130,6 +167,7 @@ def _record_failed_strategist_run(
     company: dict[str, Any],
     input_payload: dict[str, Any],
     model: str,
+    prompt_version: str,
     raw_response: str | None,
     error: Exception,
 ) -> None:
@@ -139,7 +177,7 @@ def _record_failed_strategist_run(
     record_strategist_run(
         company_id=int(company["company_id"]),
         model=model,
-        prompt_version=STRATEGIST_PROMPT_VERSION,
+        prompt_version=prompt_version,
         input_article_ids=[int(article_id) for article_id in article_ids if isinstance(article_id, int)],
         input_payload=input_payload,
         output_payload={"raw_response": raw_response} if raw_response is not None else None,
@@ -148,11 +186,63 @@ def _record_failed_strategist_run(
     )
 
 
+def _parse_strategist_response(raw_response: str, payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    parsed = extract_json_value(raw_response)
+    raw_recommendation = extract_recommendation(parsed)
+    recommendation = normalize_recommendation(raw_recommendation)
+    if recommendation is None:
+        recommendation = extract_recommendation_from_text(raw_response)
+    if recommendation is None:
+        raise RuntimeError(
+            "Strategist model returned an invalid response. "
+            "Expected a grounded JSON recommendation with evidence_claims. "
+            f"Raw response: {raw_response[:800]}"
+        )
+    return validate_grounded_recommendation(recommendation, grounding=payload.get("grounding", {})), raw_recommendation
+
+
+def replay_strategist_decision_from_payload(
+    payload: dict[str, Any],
+    *,
+    client: Client | None = None,
+    model: str | None = None,
+    thesis_policy: EvidenceThesisPolicy | None = None,
+) -> dict[str, Any]:
+    """Re-run only the strategist LLM against a frozen decision-time payload.
+
+    Nothing is saved: no strategist run, company summary or thesis check. A shadow evaluation
+    therefore cannot replace the latest summary production reads; the caller persists the check.
+    """
+    model = model or _stage_model().model
+    thesis_policy = thesis_policy or EvidenceThesisPolicy.from_env()
+    include_thesis = thesis_policy.requests_thesis
+    payload = copy.deepcopy(payload)
+    result = {"model": model, "prompt_version": strategist_prompt_version(thesis_policy), "thesis_check": None}
+    if not payload_has_evidence(payload):
+        no_evidence = build_no_evidence_result(payload["company"], context_snapshot=build_context_snapshot(payload))
+        if include_thesis:
+            result["thesis_check"] = not_requested_check(payload, "no_evidence", route=THESIS_ROUTE, policy=thesis_policy)
+        return {**result, "recommendation": no_evidence["recommendation"], "replay_skipped": "no_evidence"}
+    system_prompt, user_prompt = build_strategist_prompt(payload, include_thesis=include_thesis)
+    raw_response = ask_model(client=client or get_default_client(), model=model, system_prompt=system_prompt,
+                             user_prompt=user_prompt, include_thesis=include_thesis)
+    recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
+    if include_thesis:
+        result["thesis_check"] = check_evidence_thesis((raw_recommendation or {}).get("evidence_thesis"), payload,
+                                                       route=THESIS_ROUTE, policy=thesis_policy)
+    return {**result, "recommendation": recommendation}
+
+
+def attach_thesis_check(recommendation: dict[str, Any], check: dict[str, Any], evaluation_id: str | None) -> dict[str, Any]:
+    return {**recommendation, "evidence_thesis": check["thesis"],
+            "evidence_thesis_check": compact_thesis_check(check, evaluation_id)}
+
+
 def decide_company_purchase(
     company_identifier: str,
     *,
     client: Client | None = None,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     system_prompt_override: str | None = None,
     task_override: str | None = None,
     start_time: datetime | None = None,
@@ -162,9 +252,14 @@ def decide_company_purchase(
     full_article_limit: int = DEFAULT_FULL_ARTICLE_LIMIT,
     market_regime: dict[str, Any] | None = None,
     candidate_context: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    thesis_policy: EvidenceThesisPolicy | None = None,
+) -> StrategistResult:
     # Run the strategist stage end to end, including no-evidence short circuits and text fallback parsing.
+    model = model or _stage_model().model
     client = client or get_default_client()
+    thesis_policy = thesis_policy or EvidenceThesisPolicy.from_env()
+    include_thesis = thesis_policy.requests_thesis
+    prompt_version = strategist_prompt_version(thesis_policy)
     payload = build_strategist_input(
         company_identifier,
         start_time=start_time,
@@ -184,12 +279,19 @@ def decide_company_purchase(
 
     if not payload_has_evidence(payload):
         result = build_no_evidence_result(company, context_snapshot=context_snapshot)
+        if include_thesis:
+            result["recommendation"] = _attach_thesis_check(
+                result["recommendation"],
+                not_requested_check(payload, "no_evidence", route=THESIS_ROUTE, policy=thesis_policy),
+                company=company, candidate_context=candidate_context, model=model, prompt_version=prompt_version,
+            )
         strategist_run_reference = _save_strategist_summary(
             company=company,
             context_snapshot=context_snapshot,
             recommendation=result["recommendation"],
             model=model,
             input_payload=payload,
+            prompt_version=prompt_version,
         )
         return {
             **result,
@@ -202,8 +304,10 @@ def decide_company_purchase(
         payload,
         system_prompt_override=system_prompt_override,
         task_override=task_override,
+        include_thesis=include_thesis,
     )
     raw_response: str | None = None
+    raw_recommendation: dict[str, Any] | None = None
     checkpoint(candidate_context, "strategist_prompt", {"model": model,
                "system_prompt": system_prompt, "user_prompt": user_prompt})
     try:
@@ -212,32 +316,29 @@ def decide_company_purchase(
             model=model,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
+            include_thesis=include_thesis,
         )
 
-        parsed = extract_json_value(raw_response)
-        recommendation = normalize_recommendation(extract_recommendation(parsed))
-        if recommendation is None:
-            recommendation = extract_recommendation_from_text(raw_response)
-        if recommendation is None:
-            raise RuntimeError(
-                "Strategist model returned an invalid response. "
-                "Expected a grounded JSON recommendation with evidence_claims. "
-                f"Raw response: {raw_response[:800]}"
-            )
-        recommendation = validate_grounded_recommendation(
-            recommendation,
-            grounding=payload.get("grounding", {}),
-        )
+        recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
     except Exception as exc:
         _record_failed_strategist_run(
             company=company,
             input_payload=payload,
             model=model,
+            prompt_version=prompt_version,
             raw_response=raw_response,
             error=exc,
         )
         raise
 
+    if include_thesis:
+        # The legacy decision stands; the gate after the manager applies any deferral.
+        recommendation = _attach_thesis_check(
+            recommendation,
+            check_evidence_thesis((raw_recommendation or {}).get("evidence_thesis"), payload,
+                                  route=THESIS_ROUTE, policy=thesis_policy),
+            company=company, candidate_context=candidate_context, model=model, prompt_version=prompt_version,
+        )
     result = {
         "company": company,
         "context_snapshot": context_snapshot,
@@ -249,6 +350,7 @@ def decide_company_purchase(
         recommendation=recommendation,
         model=model,
         input_payload=payload,
+        prompt_version=prompt_version,
         raw_response=raw_response,
     )
     return {

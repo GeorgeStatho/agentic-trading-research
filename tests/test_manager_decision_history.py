@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import sys
+from contextlib import closing
 import tempfile
 import unittest
 import json
@@ -10,10 +10,6 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "Data"
-for path in (ROOT_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from market_db import (  # noqa: E402
     add_company,
@@ -186,7 +182,7 @@ class ManagerDecisionHistoryTests(unittest.TestCase):
             },
             db_path=self.db_path,
         )
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             execution_id = conn.execute(
                 """
                 INSERT INTO option_trade_executions (

@@ -3,13 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from services.settings import get_settings
 from .common import (
     ALPACA_IMPORT_ERROR,
     DataFeed,
     LOGGER,
     StockBarsRequest,
     TimeFrame,
-    UNDERLYING_HISTORY_LOOKBACK_CALENDAR_DAYS,
     _first_float,
     _get_alpaca_clients,
     _get_field,
@@ -72,8 +72,10 @@ def _normalize_stock_bars_response(response: Any, symbol: str) -> list[Any]:
 
 
 def _fetch_daily_stock_bars(
-    symbol: str, *, lookback_calendar_days: int = UNDERLYING_HISTORY_LOOKBACK_CALENDAR_DAYS,
+    symbol: str, *, lookback_calendar_days: int | None = None,
 ) -> tuple[list[Any], str]:
+    if lookback_calendar_days is None:
+        lookback_calendar_days = get_settings().manager_context.underlying_history_lookback_days
     normalized_symbol = str(symbol or "").strip().upper()
     if not normalized_symbol:
         return [], "Company symbol was missing."

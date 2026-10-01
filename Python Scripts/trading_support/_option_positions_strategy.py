@@ -10,6 +10,7 @@ from ._option_positions_state import (
     _evaluate_momentum_history_exit,
 )
 from .utils import safe_float
+from services.position_exit_policy import shadow_exit_comparison
 
 
 def _deterministic_option_exit_decision(
@@ -153,7 +154,7 @@ def _structured_exit_action_impl(
     option_symbol: str,
     quantity: int,
     unrealized_pl_pct_ratio: float | None,
-    days_to_expiration: int | None,
+    exit_rule_days_to_expiration: int | None,
     hours_to_expiration: float | None,
     exit_thresholds: ExitThresholds,
     position_state: dict[str, Any] | None,
@@ -436,7 +437,7 @@ def _structured_exit_action_impl(
         profit_protection_active = True
         protected_profit_floor_pct = max(protected_profit_floor_pct or 0.0, trailing_profit_config.initial_floor_pct)
         notes.append("Profit protection activated.")
-    trailing_giveback_pct = _resolve_trailing_giveback_pct(days_to_expiration, trailing_profit_config)
+    trailing_giveback_pct = _resolve_trailing_giveback_pct(exit_rule_days_to_expiration, trailing_profit_config)
     updated_state["trailing_giveback_pct"] = trailing_giveback_pct
     if (
         current_max_pnl_pct is not None
@@ -586,6 +587,5 @@ def _structured_exit_action(**kwargs):
         probe, _ = _structured_exit_action_impl(**kwargs, ignored_exit_reasons=frozenset(coactive))
     action["coactive_exit_reasons"] = coactive
     if kwargs.get('v2_exit_context') is not None:
-        from services.position_exit_policy import shadow_exit_comparison
         action['v2_exit_comparison'] = shadow_exit_comparison(action, kwargs['v2_exit_context'])
     return action, state

@@ -2,22 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-from pathlib import Path
-import sys
 import time
 from typing import Any
 
-AGENT_STAGES_DIR = Path(__file__).resolve().parent
-AGENT_CALLERS_DIR = AGENT_STAGES_DIR.parent
-PYTHON_SCRIPTS_DIR = AGENT_CALLERS_DIR.parent
-ROOT_DIR = PYTHON_SCRIPTS_DIR.parent
-DATA_DIR = ROOT_DIR / "Data"
-for path in (AGENT_CALLERS_DIR, PYTHON_SCRIPTS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.append(normalized)
-
+from services.settings import get_settings
+from services.settings import StageModel, get_settings
 from agent_helpers.macro_news import (
     get_recent_macro_news_articles,
     get_scope_config,
@@ -28,16 +17,13 @@ from agent_helpers.shared import Client, ask_llm_model, build_token_limited_batc
 from db_helpers import initialize_news_database
 
 
-OLLAMA_HOST = os.getenv("MACRO_NEWS_OLLAMA_HOST", os.getenv("WORLD_NEWS_OLLAMA_HOST", "http://127.0.0.1:11434"))
-DEFAULT_MODEL = os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "world-news-sectors"))
+def _stage_model() -> StageModel:
+    return get_settings().models.macro_news
+
 
 DEFAULT_MAX_ARTICLE_AGE_DAYS = 3
 DEFAULT_CONTEXT_LIMIT = 4096
 DEFAULT_PROMPT_OVERHEAD_TOKENS = 1200
-DEFAULT_BATCH_PAUSE_SECONDS = max(
-    0.0,
-    float(os.getenv("MACRO_NEWS_BATCH_PAUSE_SECONDS", "0.75")),
-)
 _macro_news_classifier_client: Client | None = None
 LOGGER = logging.getLogger(__name__)
 MACRO_SECTOR_PAIRS_SCHEMA: dict[str, Any] = {
@@ -71,7 +57,7 @@ MACRO_SECTOR_PAIRS_SCHEMA: dict[str, Any] = {
 def _get_default_client() -> Client:
     global _macro_news_classifier_client
     if _macro_news_classifier_client is None:
-        _macro_news_classifier_client = get_model_client(OLLAMA_HOST)
+        _macro_news_classifier_client = get_model_client(_stage_model().ollama_host)
     return _macro_news_classifier_client
 
 
@@ -90,7 +76,7 @@ def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) 
         system_prompt,
         user_prompt,
         temperature=0,
-        host_label=OLLAMA_HOST,
+        host_label=_stage_model().ollama_host,
         response_schema=MACRO_SECTOR_PAIRS_SCHEMA,
     )
 
@@ -298,9 +284,9 @@ def _collect_cleaned_pairs(
         if (
             batch_index > 0
             and client.provider == "vertex"
-            and DEFAULT_BATCH_PAUSE_SECONDS > 0
+            and get_settings().opportunists.macro_news_batch_pause_seconds > 0
         ):
-            time.sleep(DEFAULT_BATCH_PAUSE_SECONDS)
+            time.sleep(get_settings().opportunists.macro_news_batch_pause_seconds)
 
         raw_response, batch_pairs = _classify_article_batch(
             article_batch,
@@ -357,12 +343,13 @@ def classify_macro_news_to_sectors(
     *,
     news_scope: str,
     client: Client | None = None,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     max_age_days: int = DEFAULT_MAX_ARTICLE_AGE_DAYS,
     context_limit: int = DEFAULT_CONTEXT_LIMIT,
     prompt_overhead_tokens: int = DEFAULT_PROMPT_OVERHEAD_TOKENS,
 ) -> list[dict[str, Any]]:
     # Classify macro articles to sectors in batches and return cleaned sector pairs.
+    model = model or _stage_model().model
     client = client or _get_default_client()
     initialize_news_database()
     articles = get_recent_macro_news_articles(news_scope, max_age_days=max_age_days)

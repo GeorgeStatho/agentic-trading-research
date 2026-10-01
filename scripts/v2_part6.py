@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """Frozen research runs, counterfactual collection and cited reports. No broker calls."""
 import argparse
+from contextlib import closing
 import json
 import os
 from pathlib import Path
-import sys
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
@@ -29,12 +27,11 @@ def main():
     gate.add_argument('stage')
     champion = commands.add_parser('promote-champion')
     champion.add_argument('report_id')
+    champion.add_argument('--incumbent-report', help='Incumbent re-evaluation on the challenger observation cohort')
     commands.add_parser('status')
     args = parser.parse_args()
     if args.db:
         os.environ['DB_PATH'] = str(Path(args.db).resolve())
-    for folder in ('Data', 'Python Scripts', 'Python Scripts/agentCallers', 'Python Scripts/Webscraping'):
-        sys.path.insert(0, str(ROOT / folder))
     from market_db_modules.bootstrap import initialize_database
     from market_db_modules.research_runs import collect_run, start_run
     from market_db_modules.research_reports import monthly_report, promote_champion, promote_gate
@@ -54,9 +51,9 @@ def main():
     elif args.command == 'promote-gate':
         result = promote_gate(args.report_id, args.stage)
     elif args.command == 'promote-champion':
-        result = promote_champion(args.report_id)
+        result = promote_champion(args.report_id, incumbent_report_id=args.incumbent_report)
     else:
-        with get_connection() as conn:
+        with closing(get_connection()) as conn, conn:
             result = {'runs': [dict(row) for row in conn.execute('SELECT run_id,kind,started_at,status,target_candidates,config_hash FROM research_runs')],
                       'champion': [dict(row) for row in conn.execute('SELECT * FROM research_champion')],
                       'promotions': [dict(row) for row in conn.execute('SELECT * FROM research_gate_promotions')]}

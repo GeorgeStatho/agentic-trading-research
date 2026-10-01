@@ -3,6 +3,8 @@ from dataclasses import dataclass
 import math
 import os
 
+from services.research_promotion import guard_policy
+
 
 def mode(name):
     value = os.getenv(name, 'shadow').lower().strip()
@@ -13,7 +15,7 @@ def mode(name):
 
 @dataclass(frozen=True)
 class ContractPolicy:
-    version: str = 'contract-execution-v2'
+    version: str = 'contract-execution-v3-black-scholes'
     liquidity_mode: str = 'shadow'
     scenario_mode: str = 'shadow'
     cluster_mode: str = 'shadow'
@@ -24,6 +26,7 @@ class ContractPolicy:
     maximum_cluster_positions: int = 1
     maximum_cluster_exposure_fraction: float = .25
     scenario_iv_change: float = -.05
+    scenario_risk_free_rate: float = .04
     scenario_tail_weight: float = .25
     iv_collapse_fraction: float = .30
     underlying_stagnation_fraction: float = .01
@@ -43,6 +46,8 @@ class ContractPolicy:
                 raise ValueError('Part 5 limits must be finite and positive')
         if not math.isfinite(self.scenario_iv_change) or not math.isfinite(self.scenario_tail_weight) or self.scenario_tail_weight < 0:
             raise ValueError('Invalid scenario assumptions')
+        if not math.isfinite(self.scenario_risk_free_rate) or not -.05 <= self.scenario_risk_free_rate <= .25:
+            raise ValueError('Invalid scenario risk-free rate')
 
     @classmethod
     def from_env(cls):
@@ -52,7 +57,7 @@ class ContractPolicy:
                    maximum_spread_fraction=float(os.getenv('V2_MAX_SPREAD_FRACTION', '.06')),
                    maximum_cluster_positions=int(os.getenv('V2_MAX_CLUSTER_POSITIONS', '1')),
                    maximum_cluster_exposure_fraction=float(os.getenv('V2_MAX_CLUSTER_EXPOSURE_FRACTION', '.25')),
-                   scenario_iv_change=float(os.getenv('V2_SCENARIO_IV_CHANGE', '-.05')))
-        from services.research_promotion import guard_policy
+                   scenario_iv_change=float(os.getenv('V2_SCENARIO_IV_CHANGE', '-.05')),
+                   scenario_risk_free_rate=float(os.getenv('OPTION_RISK_FREE_RATE', '.04')))
         return guard_policy(policy, {'liquidity_mode': ('LIQUIDITY', 'EXECUTION_LIQUIDITY'), 'cluster_mode': 'RISK_CLUSTER',
                                      'scenario_mode': 'SCENARIO_SELECTION', 'exit_mode': 'POSITION_EXIT_V2'})

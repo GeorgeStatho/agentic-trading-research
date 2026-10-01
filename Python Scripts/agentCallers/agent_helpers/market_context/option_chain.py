@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
+from services.settings import get_settings
 from .common import (
     ALPACA_IMPORT_ERROR,
     CLOSEST_EXPIRATION_GTE,
     ContractType,
-    DEFAULT_OPTION_CHAIN_FETCH_MULTIPLIER,
-    DEFAULT_OPTION_FETCH_MIN,
     FARTHEST_EXPIRATION_LTE,
     GetOptionContractsRequest,
     LOGGER,
+    MAXIMUM_CONTRACT_PAGES,
     OptionChainRequest,
     PREFERRED_OTM_DISTANCE,
     _env_flag,
@@ -26,6 +26,8 @@ from .iv_history import (
     _enrich_with_alpaca_iv_percentiles,
     _resolve_iv_percentile_dte_bucket,
 )
+from services.option_dte_buckets import OPTION_DTE_BUCKETS
+from services.option_hurdle_gate import select_atm_research_contracts
 
 
 def _extract_contract_items(contracts_response: Any) -> list[Any]:
@@ -106,6 +108,7 @@ def _build_contract_request(
     strike_price_gte: float | None,
     strike_price_lte: float | None,
     limit: int,
+    page_token: str | None = None,
 ) -> Any:
     return GetOptionContractsRequest(
         underlying_symbols=[company_symbol],
@@ -117,6 +120,7 @@ def _build_contract_request(
         strike_price_gte=_format_strike_filter(strike_price_gte),
         strike_price_lte=_format_strike_filter(strike_price_lte),
         limit=limit,
+        page_token=page_token,
     )
 
 
@@ -234,22 +238,32 @@ def _fetch_option_contracts(
     strike_price_lte: float | None,
     limit: int,
 ) -> list[Any]:
+    """Follow Alpaca's page tokens so far expirations are not silently cut at one page."""
     clients = _get_alpaca_clients()
     if clients is None or GetOptionContractsRequest is None:
         return []
-    response = clients["trading"].get_option_contracts(
-        _build_contract_request(
-            company_symbol=company_symbol,
-            contract_type=contract_type,
-            expiration_date=expiration_date,
-            expiration_date_gte=expiration_date_gte,
-            expiration_date_lte=expiration_date_lte,
-            strike_price_gte=strike_price_gte,
-            strike_price_lte=strike_price_lte,
-            limit=limit,
+    contracts: list[Any] = []
+    page_token = None
+    for _ in range(MAXIMUM_CONTRACT_PAGES):
+        response = clients["trading"].get_option_contracts(
+            _build_contract_request(
+                company_symbol=company_symbol,
+                contract_type=contract_type,
+                expiration_date=expiration_date,
+                expiration_date_gte=expiration_date_gte,
+                expiration_date_lte=expiration_date_lte,
+                strike_price_gte=strike_price_gte,
+                strike_price_lte=strike_price_lte,
+                limit=limit,
+                page_token=page_token,
+            )
         )
-    )
-    return _extract_contract_items(response)
+        contracts.extend(_extract_contract_items(response))
+        page_token = _get_field(response, "next_page_token")
+        if not isinstance(page_token, str) or not page_token:
+            return contracts
+    LOGGER.warning("Option contracts for %s were truncated after %s pages", company_symbol, MAXIMUM_CONTRACT_PAGES)
+    return contracts
 
 
 def _normalize_option_snapshot_map(chain_response: Any) -> dict[str, Any]:
@@ -259,6 +273,86 @@ def _normalize_option_snapshot_map(chain_response: Any) -> dict[str, Any]:
         return {str(symbol): snapshot for symbol, snapshot in dict(chain_response).items()}
     except (TypeError, ValueError):
         return {}
+
+
+def _serialize_chain(contract_map: dict[str, Any], snapshots_by_symbol: dict[str, Any]) -> list[dict[str, Any]]:
+    """Contracts with their quote snapshots, numbered in expiry/strike order."""
+    serialized_contracts: list[dict[str, Any]] = []
+    for symbol, contract in contract_map.items():
+        serialized = _serialize_option_contract(contract)
+        snapshot = snapshots_by_symbol.get(symbol)
+        if snapshot is not None:
+            serialized["implied_volatility"] = _safe_float(_get_field(snapshot, "implied_volatility"))
+            serialized["greeks"] = _serialize_greeks(_get_field(snapshot, "greeks"))
+            serialized["latest_quote"] = _serialize_quote_snapshot(_get_field(snapshot, "latest_quote"))
+            serialized["latest_trade_price"] = _safe_float(_get_field(_get_field(snapshot, "latest_trade"), "price"))
+        else:
+            serialized["implied_volatility"] = None
+            serialized["greeks"] = _serialize_greeks(None)
+            serialized["latest_quote"] = _serialize_quote_snapshot(None)
+            serialized["latest_trade_price"] = None
+        serialized_contracts.append(serialized)
+    return _number_contracts(serialized_contracts)
+
+
+def _number_contracts(contracts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    contracts.sort(
+        key=lambda item: (
+            str(item.get("expiration_date") or ""),
+            float(item.get("strike_price") or 0),
+            str(item.get("contract_type") or ""),
+            str(item.get("symbol") or ""),
+        )
+    )
+    for index, contract in enumerate(contracts, start=1):
+        contract["option_id"] = index
+    return contracts
+
+
+def build_bucket_chains(
+    company_symbol: str,
+    *,
+    reference_stock_price: float | None,
+    per_type_limit: int,
+    today: date | None = None,
+) -> dict[str, Any]:
+    """Every DTE bucket's selectable contracts from one fetch, for a frozen decision observation.
+
+    Production fetches the chain for the manager's bucket only after the manager decides. Here
+    each bucket keeps the nearest-strike subset a refresh for that bucket would select at this
+    moment, so a strategy that picks another bucket can be finalized without a later fetch.
+    """
+    clients = _get_alpaca_clients()
+    if clients is None or ContractType is None or OptionChainRequest is None:
+        return {"available": False, "error": "alpaca-py or credentials unavailable", "buckets": {}}
+    if reference_stock_price is None:
+        return {"available": False, "error": "no reference stock price", "buckets": {}}
+    current_date = today or date.today()
+    window = {"expiration_date_gte": (current_date + timedelta(days=CLOSEST_EXPIRATION_GTE)).isoformat(),
+              "expiration_date_lte": (current_date + timedelta(days=FARTHEST_EXPIRATION_LTE)).isoformat(),
+              "strike_price_gte": max(0.0, reference_stock_price - 25.0),
+              "strike_price_lte": reference_stock_price + 25.0}
+    manager_context = get_settings().manager_context
+    limit = max(per_type_limit * manager_context.option_chain_fetch_multiplier, manager_context.option_fetch_min)
+    contracts = [contract for contract_type in (ContractType.CALL, ContractType.PUT)
+                 for contract in _fetch_option_contracts(company_symbol, contract_type=contract_type,
+                                                         expiration_date=None, limit=limit, **window)]
+    contract_map = {str(_get_field(contract, "symbol") or "").strip().upper(): contract for contract in contracts
+                    if str(_get_field(contract, "symbol") or "").strip()}
+    snapshots = _normalize_option_snapshot_map(clients["option"].get_option_chain(
+        OptionChainRequest(underlying_symbol=company_symbol, **window)))
+    serialized = _serialize_chain(contract_map, snapshots)
+    buckets = {}
+    for bucket in OPTION_DTE_BUCKETS:
+        first = (current_date + timedelta(days=bucket.min_days)).isoformat()
+        last = (current_date + timedelta(days=bucket.max_days)).isoformat()
+        members = _number_contracts([dict(item) for item in serialized
+                                     if first <= str(item.get("expiration_date") or "") <= last])
+        buckets[bucket.key] = _select_contract_subset_near_reference(
+            members, reference_stock_price=reference_stock_price, per_type_limit=per_type_limit)
+    return {"available": True, "underlying_symbol": company_symbol, "reference_stock_price": reference_stock_price,
+            "selection_filters": window, "per_type_limit": per_type_limit, "raw_contract_count": len(serialized),
+            "buckets": buckets}
 
 
 def _build_option_market_snapshot(
@@ -299,7 +393,7 @@ def _build_option_market_snapshot(
         return unavailable
 
     try:
-        raw_fetch_limit = max(contract_limit_per_type * DEFAULT_OPTION_CHAIN_FETCH_MULTIPLIER, DEFAULT_OPTION_FETCH_MIN)
+        raw_fetch_limit = max(contract_limit_per_type * get_settings().manager_context.option_chain_fetch_multiplier, get_settings().manager_context.option_fetch_min)
         effective_strike_price_gte = strike_price_gte if strike_price_gte is not None else (
             max(0.0, reference_stock_price - 25.0) if reference_stock_price is not None else None
         )
@@ -412,45 +506,15 @@ def _build_option_market_snapshot(
     except Exception as exc:
         chain_error = str(exc)
 
-    serialized_contracts: list[dict[str, Any]] = []
-    expiration_values: set[str] = set()
-    strike_values: set[float] = set()
-    for symbol, contract in contract_map.items():
-        serialized = _serialize_option_contract(contract)
-        snapshot = snapshots_by_symbol.get(symbol)
-        if snapshot is not None:
-            serialized["implied_volatility"] = _safe_float(_get_field(snapshot, "implied_volatility"))
-            serialized["greeks"] = _serialize_greeks(_get_field(snapshot, "greeks"))
-            serialized["latest_quote"] = _serialize_quote_snapshot(_get_field(snapshot, "latest_quote"))
-            serialized["latest_trade_price"] = _safe_float(_get_field(_get_field(snapshot, "latest_trade"), "price"))
-        else:
-            serialized["implied_volatility"] = None
-            serialized["greeks"] = _serialize_greeks(None)
-            serialized["latest_quote"] = _serialize_quote_snapshot(None)
-            serialized["latest_trade_price"] = None
-        if serialized["expiration_date"]:
-            expiration_values.add(str(serialized["expiration_date"]))
-        if serialized["strike_price"] is not None:
-            strike_values.add(float(serialized["strike_price"]))
-        serialized_contracts.append(serialized)
-
-    serialized_contracts.sort(
-        key=lambda item: (
-            str(item.get("expiration_date") or ""),
-            float(item.get("strike_price") or 0),
-            str(item.get("contract_type") or ""),
-            str(item.get("symbol") or ""),
-        )
-    )
-    for index, contract in enumerate(serialized_contracts, start=1):
-        contract["option_id"] = index
+    serialized_contracts = _serialize_chain(contract_map, snapshots_by_symbol)
+    expiration_values = {str(item["expiration_date"]) for item in serialized_contracts if item["expiration_date"]}
+    strike_values = {float(item["strike_price"]) for item in serialized_contracts if item["strike_price"] is not None}
 
     selected_contracts = _select_contract_subset_near_reference(
         serialized_contracts,
         reference_stock_price=reference_stock_price,
         per_type_limit=contract_limit_per_type,
     )
-    from services.option_hurdle_gate import select_atm_research_contracts
     payload = {
         "available": True,
         "underlying_symbol": company_symbol,

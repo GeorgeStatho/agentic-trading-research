@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
-import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -9,13 +9,7 @@ from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
 DATA_DIR = ROOT_DIR / "Data"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from db_common import get_connection  # noqa: E402
 from db_helpers import initialize_news_database  # noqa: E402
@@ -34,7 +28,7 @@ class BacktestingTests(unittest.TestCase):
         self.db_path = Path(self.temp_dir.name) / "backtest.db"
         initialize_database(db_path=self.db_path, schema_path=DATA_DIR / "market_schema.sql")
         initialize_news_database(db_path=self.db_path, schema_path=DATA_DIR / "news_schema.sql")
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             self.article_id = conn.execute(
                 """
                 INSERT INTO news_articles (
@@ -64,11 +58,40 @@ class BacktestingTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
+    def test_all_history_preserves_older_priced_trades_and_includes_latest_decisions(self) -> None:
+        for timestamp, bid, ask in (
+            ("2026-01-01T10:01:00+00:00", 1.0, 1.1),
+            ("2026-01-01T10:05:00+00:00", 1.5, 1.6),
+        ):
+            record_historical_option_quote(
+                {"option_symbol": "MSFT260117C00400000", "quote_at": timestamp, "bid": bid, "ask": ask},
+                provider="fixture", db_path=self.db_path,
+            )
+        earlier = run_backtest(db_path=self.db_path)
+        self.assertEqual(earlier["run"]["metrics"]["filled_count"], 1)
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.executemany(
+                "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES ('NVDA', ?, 'call')",
+                [((datetime(2026, 9, 20, tzinfo=timezone.utc) + timedelta(minutes=i)).isoformat(),) for i in range(1001)],
+            )
+        recent = run_backtest(limit=700, db_path=self.db_path)
+        self.assertIsNone(recent["run"]["metrics"]["expectancy_pct"])
+        complete = run_backtest(limit=None, db_path=self.db_path)
+        metrics = complete["run"]["metrics"]
+        self.assertEqual(metrics["decision_count"], 1003)
+        self.assertEqual(metrics["available_decision_count"], 1003)
+        self.assertEqual(metrics["omitted_older_decision_count"], 0)
+        self.assertIsNone(metrics["decision_limit"])
+        self.assertEqual(metrics["filled_count"], 1)
+        self.assertEqual(metrics["expectancy_pct"], earlier["run"]["metrics"]["expectancy_pct"])
+        self.assertTrue(complete["events"][-1]["as_of"].startswith("2026-09-20"))
+        self.assertEqual(get_backtest_run(earlier["run"]["id"], db_path=self.db_path), earlier)
+
     def test_default_window_includes_latest_decisions_past_250_and_preserves_old_runs(self) -> None:
         old_run = run_backtest(db_path=self.db_path)
         start = datetime(2026, 9, 20, 10, tzinfo=timezone.utc)
         timestamps = [(start + timedelta(minutes=i)).isoformat() for i in range(251)]
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             conn.executemany(
                 "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES ('NVDA', ?, 'call')",
                 [(timestamp,) for timestamp in timestamps],
@@ -85,7 +108,7 @@ class BacktestingTests(unittest.TestCase):
 
     def test_latest_selection_respects_date_bounds_and_id_ties(self) -> None:
         timestamp = "2026-09-20T10:00:00+00:00"
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             ids = [conn.execute(
                 "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES (?, ?, 'call')",
                 (symbol, timestamp),
@@ -97,6 +120,9 @@ class BacktestingTests(unittest.TestCase):
         self.assertEqual([event["manager_decision_history_id"] for event in result["events"]], ids[1:])
         self.assertEqual(result["run"]["metrics"]["available_decision_count"], 3)
         self.assertEqual(result["run"]["metrics"]["omitted_older_decision_count"], 1)
+        complete = run_backtest(start_at=timestamp, end_at=timestamp, limit=None, db_path=self.db_path)
+        self.assertEqual([event["manager_decision_history_id"] for event in complete["events"]], ids)
+        self.assertEqual(complete["run"]["metrics"]["omitted_older_decision_count"], 0)
 
     def test_empty_date_window_reports_empty_coverage(self) -> None:
         result = run_backtest(start_at="2027-01-01T00:00:00+00:00", db_path=self.db_path)
@@ -136,7 +162,7 @@ class BacktestingTests(unittest.TestCase):
         self.assertEqual(aapl_event["status"], "no_fill")
         self.assertEqual(result["run"]["metrics"]["filled_count"], 1)
         self.assertEqual(result["run"]["metrics"]["no_fill_count"], 1)
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             stored_quote = conn.execute("SELECT ask_price FROM historical_option_quotes WHERE id = ?", (first_quote_id,)).fetchone()
             snapshot = conn.execute("SELECT snapshot_json FROM decision_evidence_snapshots WHERE manager_decision_history_id = ?", (self.decision_id,)).fetchone()
             execution_count = conn.execute("SELECT COUNT(*) FROM option_trade_executions").fetchone()[0]

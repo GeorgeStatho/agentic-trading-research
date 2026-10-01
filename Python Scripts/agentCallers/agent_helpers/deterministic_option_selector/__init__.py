@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import json
 import logging
-from pathlib import Path
 import sys
 from typing import Any
 
@@ -13,16 +12,6 @@ from typing import Any
 SELECTOR_VERSION = "deterministic-selector-v7-profit-path-scoring"
 
 LOGGER = logging.getLogger(__name__)
-
-if __package__ in {None, ""}:
-    AGENT_CALLERS_DIR = Path(__file__).resolve().parents[1]
-    if str(AGENT_CALLERS_DIR) not in sys.path:
-        sys.path.append(str(AGENT_CALLERS_DIR))
-
-from _paths import bootstrap_agent_callers
-
-
-bootstrap_agent_callers()
 
 
 from .config import (  # noqa: E402
@@ -83,6 +72,7 @@ from .normalize import (  # noqa: E402
 from .simple import _pick_matching_contract_simple  # noqa: E402
 from .volatility import _assess_contract_volatility  # noqa: E402
 from services.option_dte_buckets import normalize_target_dte_bucket  # noqa: E402
+from services.liquidity_gate import filter_liquid_contracts
 
 
 def _pick_matching_contract(
@@ -135,7 +125,6 @@ def _pick_matching_contract(
 
 def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict[str, Any]:
     """Attach a concrete option contract to a manager result when rules allow it."""
-    from services.liquidity_gate import filter_liquid_contracts
     manager_result = filter_liquid_contracts(manager_result)
     recommendation = dict(manager_result.get("recommendation") or {})
     market_context = dict(manager_result.get("market_context") or {})

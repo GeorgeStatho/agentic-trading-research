@@ -7,18 +7,13 @@ from pathlib import Path
 import sys
 from typing import Any, Callable
 
-if __package__ in {None, ""}:
-    AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-    if str(AGENT_CALLERS_DIR) not in sys.path:
-        sys.path.append(str(AGENT_CALLERS_DIR))
-
-from _paths import DATA_DIR, LOGS_DIR, ROOT_DIR, bootstrap_agent_callers, load_project_env
+from services.runtime_paths import DATA_DIR, LOGS_DIR, ROOT_DIR
+from services.settings import load_process_settings
 
 
 if __name__ == "__main__":
-    load_project_env()
+    load_process_settings()
 
-bootstrap_agent_callers()
 
 from agent_helpers.deterministic_option_selector import apply_deterministic_option_selection
 from agent_helpers.company_opportunist import get_company_opportunist_summary
@@ -30,10 +25,29 @@ from db_helpers.market import record_manager_decision_history
 from services.config import AgentPipelineSettings
 from services.market_regime import build_market_regime_snapshot
 from services.market_regime_gate import apply_market_regime_gate_to_manager_result
+from agent_contracts import CompanyFailure, ManagerResult, StrategistResult
+from services.entry_gates import carry_gate_verdicts
+from services.evidence_thesis import evaluate_evidence_thesis_gate
+from services.evidence_thesis_policy import EvidenceThesisPolicy
+from services.forward_evaluation_policy import ChallengerPolicy
+from services.candidate_lifecycle import observe
+from services.catalyst_gates import catalyst_admission_allowed
+from services.company_evidence_demand import request_pipeline_evidence
+from services.contract_observations import record_scenario_selection
+from services.decision_observations import freeze_decision_observation
+from services.discovery_admission import evaluate_discovery_admission
+from services.pipeline_version import build_pipeline_version
+from services.pricing_gates import apply_option_hurdle_to_manager_result
+from services.scenario_selector import prepare_scenario_inputs
+from services.trade_economics import apply_trade_economics
+from services.trade_economics_policy import TradeEconomicsPolicy
 
 
 LOGGER = logging.getLogger("agent_runner")
 ProgressCallback = Callable[[dict[str, Any]], None]
+# Consecutive stage failures that stop a cycle early; isolated failures never do.
+MAX_CONSECUTIVE_COMPANY_FAILURES = 3
+COMPANY_FAILURE_MESSAGE_CHARS = 300
 
 
 def _build_log_path() -> Path:
@@ -101,6 +115,10 @@ def _build_company_context_by_symbol(
                     "industry_name": industry_name,
                 }
 
+    for company in pipeline_result.get("discovery_targets", []):
+        symbol = str(company.get("symbol") or "").upper()
+        if symbol and symbol not in contexts:
+            contexts[symbol] = {**company, "company_name": company.get("name"), "discovery_shadow": True}
     return contexts
 
 
@@ -127,25 +145,38 @@ def _emit_progress(
     on_progress(payload)
 
 
+def evaluate_primary_event_admission(event, evidence, *, at, policy):
+    return evaluate_discovery_admission(event, evidence, at=at, policy=policy)
+
+
 def _filter_company_symbols_by_high_confidence_support(
     company_symbols: list[str],
     *,
     minimum_high_confidence_articles: int,
     max_age_days: int | None,
     candidate_context_by_symbol: dict[str, dict[str, Any]] | None = None,
+    discovery_context_by_symbol: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     normalized_symbols = _normalize_company_symbols(company_symbols)
-    if minimum_high_confidence_articles <= 0:
+    if minimum_high_confidence_articles <= 0 and not discovery_context_by_symbol:
         return normalized_symbols, []
 
     allowed_symbols: list[str] = []
     skipped_companies: list[dict[str, Any]] = []
 
     from services.candidate_lifecycle import begin_candidate, checkpoint, reject, observe
-    from services.pipeline_version import build_pipeline_version
     version = observe(build_pipeline_version)
     contexts = candidate_context_by_symbol if candidate_context_by_symbol is not None else {}
     for symbol in normalized_symbols:
+        discovery_context = (discovery_context_by_symbol or {}).get(symbol)
+        if discovery_context:
+            admission = evaluate_primary_event_admission(**discovery_context)
+            contexts[symbol] = {'discovery_shadow': True, 'admission': admission}
+            if admission['allowed']:
+                allowed_symbols.append(symbol)
+            else:
+                skipped_companies.append({'symbol': symbol, 'skip_reason': admission['reason'], 'shadow': True})
+            continue
         context = observe(begin_candidate, symbol, version=version)
         contexts[symbol] = context
         try:
@@ -202,6 +233,8 @@ def _filter_company_symbols_by_high_confidence_support(
     if skipped_companies:
         for skipped in skipped_companies:
             context = contexts.get(skipped["symbol"])
+            if (context or {}).get('discovery_shadow'):
+                continue
             skipped["candidate_id"] = (context or {}).get("candidate_id")
             reject(context, "SUPPORT", skipped["skip_reason"], metrics=skipped,
                    thresholds={"minimum_high_confidence_articles": minimum_high_confidence_articles,
@@ -249,8 +282,7 @@ def _build_selected_option_output(
                 "selected_option_source": recommendation.get("selected_option_source"),
                 "selection_debug": recommendation.get("selection_debug", {}),
                 "strategist_recommendation": manager_result.get("strategist_recommendation", {}),
-                "entry_gate": manager_result.get("entry_gate", {}),
-                "market_regime_gate": manager_result.get("market_regime_gate", {}),
+                **carry_gate_verdicts(manager_result),
                 "selected_option": manager_result.get("selected_option"),
                 "reason": recommendation.get("reason"),
             }
@@ -390,11 +422,110 @@ def _record_manager_decision_history_for_result(manager_result: dict[str, Any]) 
         "manager_output_json": {
             "recommendation": recommendation,
             "selected_option": selected_option,
-            "entry_gate": manager_result.get("entry_gate", {}),
-            "market_regime_gate": manager_result.get("market_regime_gate", {}),
+            **carry_gate_verdicts(manager_result),
         },
     }
     return record_manager_decision_history(history_payload)
+
+
+class CompanyStageError(RuntimeError):
+    """One company's stage failed; the cycle records it and continues."""
+
+    def __init__(self, stage: str, error: Exception) -> None:
+        super().__init__(f"{stage} failed: {type(error).__name__}")
+        self.stage = stage
+        self.error = error
+
+
+def _run_company_stage(stage: str, function: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    try:
+        return function(*args, **kwargs)
+    except Exception as exc:
+        raise CompanyStageError(stage, exc) from exc
+
+
+def _apply_post_manager_gates(
+    manager_result: dict[str, Any],
+    *,
+    candidate_context: dict[str, Any] | None,
+    cycle_version: dict[str, Any] | None,
+    thesis_policy: EvidenceThesisPolicy,
+    economics_policy: TradeEconomicsPolicy,
+) -> dict[str, Any]:
+    """Contract selection, deterministic gates and finalization. Nothing here grants execution by itself.
+
+    The manager's direction and DTE bucket are a proposal until trade economics have priced the
+    selected contract; the streaming execution callback only ever sees the finalized result.
+    """
+    from services.candidate_lifecycle import checkpoint, reject, record_gate, observe
+    manager_result["candidate_context"] = candidate_context
+    manager_result["candidate_id"] = (candidate_context or {}).get("candidate_id")
+    checkpoint(candidate_context, "post_manager", manager_result)
+    record_gate(candidate_context, "CONTINUATION", manager_result.get("entry_gate"))
+    checkpoint(candidate_context, "pre_contract_selection", manager_result)
+    manager_result = observe(apply_option_hurdle_to_manager_result, manager_result) or manager_result
+    manager_result = observe(prepare_scenario_inputs, manager_result) or manager_result
+    manager_result = apply_deterministic_option_selection(manager_result)
+    checkpoint(candidate_context, "post_contract_selection", manager_result)
+    observe(record_scenario_selection, manager_result)
+    checkpoint(candidate_context, "pre_regime_gate", manager_result)
+    manager_result = apply_market_regime_gate_to_manager_result(manager_result)
+    record_gate(candidate_context, "REGIME", manager_result.get("market_regime_gate"))
+    thesis_gate = evaluate_evidence_thesis_gate(
+        manager_result.get("strategist_recommendation"),
+        manager_result.get("recommendation", {}).get("decision"),
+        policy=thesis_policy,
+    )
+    if thesis_gate is not None:
+        manager_result["evidence_thesis_gate"] = thesis_gate
+        record_gate(candidate_context, "EVIDENCE_THESIS", thesis_gate)
+    manager_result = apply_trade_economics(manager_result, policy=economics_policy)
+    record_gate(candidate_context, "TRADE_ECONOMICS", manager_result.get("trade_economics_gate"))
+    if not manager_result.get("selected_option"):
+        reject(candidate_context, "CONTRACT_SELECTION",
+               manager_result.get("recommendation", {}).get("selected_option_source") or "no_contract",
+               metrics=manager_result, thresholds=(cycle_version or {}).get("selector_config", {}))
+    if manager_result.get("recommendation", {}).get("decision") not in {"call", "put"}:
+        reject(candidate_context, "MANAGER", "non_directional_decision", metrics=manager_result.get("recommendation"))
+    return manager_result
+
+
+def _record_company_failure(
+    failure: CompanyStageError,
+    *,
+    symbol: str,
+    candidate_context: dict[str, Any] | None,
+    on_progress: ProgressCallback | None,
+    progress_base: dict[str, Any],
+) -> CompanyFailure:
+    from services.candidate_lifecycle import reject
+    LOGGER.error("%s failed for %s; continuing with the remaining companies", failure.stage, symbol,
+                 exc_info=failure.error)
+    # reason_code stage_error marks the candidate finished for research enrollment.
+    reject(candidate_context, failure.stage, "stage_error", metrics={"error": str(failure.error)})
+    _emit_progress(on_progress, {"stage": "company_failed",
+                                 "message": f"{failure.stage.lower()} failed for {symbol}", **progress_base})
+    return {"symbol": symbol, "candidate_id": (candidate_context or {}).get("candidate_id"),
+            "stage": failure.stage, "error_type": type(failure.error).__name__,
+            "error": str(failure.error)[:COMPANY_FAILURE_MESSAGE_CHARS]}
+
+
+def _stop_after_consecutive_failures(
+    remaining_symbols: list[str],
+    *,
+    candidate_context_by_symbol: dict[str, dict[str, Any]] | None,
+) -> list[CompanyFailure]:
+    """Repeated failures usually mean a shared outage; do not spend the cycle retrying it."""
+    from services.candidate_lifecycle import reject
+    LOGGER.error("Stopping after %s consecutive company failures; %s companies not evaluated",
+                 MAX_CONSECUTIVE_COMPANY_FAILURES, len(remaining_symbols))
+    skipped: list[CompanyFailure] = []
+    for symbol in remaining_symbols:
+        context = (candidate_context_by_symbol or {}).get(symbol)
+        reject(context, "CYCLE", "stage_error", metrics={"error": "stopped_after_consecutive_company_failures"})
+        skipped.append({"symbol": symbol, "candidate_id": (context or {}).get("candidate_id"), "stage": "NOT_RUN",
+                        "error_type": "stopped_after_consecutive_company_failures", "error": ""})
+    return skipped
 
 
 def _run_strategist_and_manager(
@@ -405,10 +536,13 @@ def _run_strategist_and_manager(
     on_progress: ProgressCallback | None = None,
     on_manager_result: Callable[[dict[str, Any]], None] | None = None,
     market_regime: dict[str, Any] | None = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    # Run the strategist and manager stages for one company and keep their outputs aligned for the final payload.
-    strategist_results: list[dict[str, Any]] = []
-    manager_results: list[dict[str, Any]] = []
+) -> tuple[list[StrategistResult], list[ManagerResult], list[CompanyFailure]]:
+    # Run the strategist and manager stages per company. A stage failure is recorded for that
+    # company and the cycle continues; only repeated consecutive failures stop it early.
+    strategist_results: list[StrategistResult] = []
+    manager_results: list[ManagerResult] = []
+    failures: list[CompanyFailure] = []
+    consecutive_failures = 0
 
     cycle_market_regime = market_regime if isinstance(market_regime, dict) else build_market_regime_snapshot()
     LOGGER.info(
@@ -418,12 +552,24 @@ def _run_strategist_and_manager(
         cycle_market_regime.get("as_of"),
     )
 
-    from services.candidate_lifecycle import begin_candidate, checkpoint, reject, record_gate, observe
-    from services.pipeline_version import build_pipeline_version
+    from services.candidate_lifecycle import begin_candidate, checkpoint, observe
+    request_pipeline_evidence(company_symbols, scope='manager')
     cycle_version = observe(build_pipeline_version)
-    for symbol in company_symbols:
+    # One policy per cycle: the strategist request and the entry gate must agree on the mode.
+    thesis_policy = EvidenceThesisPolicy.from_env()
+    economics_policy = TradeEconomicsPolicy.from_env()
+    # A misconfigured challenger only disables the shadow comparison, never the cycle.
+    challenger_policy = observe(ChallengerPolicy.from_env)
+    def is_discovery_shadow(symbol: str) -> bool:
+        route_context = (company_context_by_symbol or {}).get(symbol) or {}
+        recorded_context = (candidate_context_by_symbol or {}).get(symbol) or {}
+        return bool(route_context.get("discovery_shadow") or recorded_context.get("discovery_shadow")
+                    or str(recorded_context.get('candidate_id', '')).startswith('discovery:'))
+
+    for position, symbol in enumerate(company_symbols):
+        if is_discovery_shadow(symbol):
+            continue
         candidate_context = (candidate_context_by_symbol or {}).get(symbol) or observe(begin_candidate, symbol, version=cycle_version)
-        from services.catalyst_gates import catalyst_admission_allowed
         if not catalyst_admission_allowed(candidate_context):
             checkpoint(candidate_context, 'admission_blocked', (candidate_context or {}).get('catalyst_gates', {}))
             continue
@@ -447,66 +593,60 @@ def _run_strategist_and_manager(
         )
         LOGGER.info("Running strategist for %s", symbol)
         try:
-            strategist_result = decide_company_purchase(symbol, market_regime=cycle_market_regime,
-                                                        candidate_context=candidate_context)
-        except Exception as exc:
-            reject(candidate_context, "STRATEGIST", "stage_error", metrics={"error": str(exc)})
-            raise
-        checkpoint(candidate_context, "post_strategist", strategist_result)
-        strategist_results.append(strategist_result)
-        LOGGER.info(
-            "Finished strategist for %s with decision=%s confidence=%s",
-            symbol,
-            strategist_result.get("recommendation", {}).get("decision"),
-            strategist_result.get("recommendation", {}).get("confidence"),
-        )
-
-        _emit_progress(
-            on_progress,
-            {
-                "stage": "manager",
-                "message": f"Running manager for {symbol}",
-                **progress_base,
-            },
-        )
-        LOGGER.info("Running manager for %s", symbol)
-        strategist_recommendation = dict(strategist_result.get("recommendation") or {})
-        strategist_run_reference = strategist_result.get("strategist_run_reference")
-        if isinstance(strategist_run_reference, dict) and strategist_run_reference:
-            strategist_recommendation["strategist_run_reference"] = strategist_run_reference
-        try:
-            manager_result = decide_company_option_position(
+            strategist_result = _run_company_stage(
+                "STRATEGIST", decide_company_purchase, symbol, market_regime=cycle_market_regime,
+                candidate_context=candidate_context, thesis_policy=thesis_policy,
+            )
+            checkpoint(candidate_context, "post_strategist", strategist_result)
+            strategist_results.append(strategist_result)
+            LOGGER.info(
+                "Finished strategist for %s with decision=%s confidence=%s",
                 symbol,
+                strategist_result.get("recommendation", {}).get("decision"),
+                strategist_result.get("recommendation", {}).get("confidence"),
+            )
+
+            _emit_progress(
+                on_progress,
+                {
+                    "stage": "manager",
+                    "message": f"Running manager for {symbol}",
+                    **progress_base,
+                },
+            )
+            LOGGER.info("Running manager for %s", symbol)
+            strategist_recommendation = dict(strategist_result.get("recommendation") or {})
+            strategist_run_reference = strategist_result.get("strategist_run_reference")
+            if isinstance(strategist_run_reference, dict) and strategist_run_reference:
+                strategist_recommendation["strategist_run_reference"] = strategist_run_reference
+            manager_result = _run_company_stage(
+                "MANAGER", decide_company_option_position, symbol,
                 strategist_recommendation=strategist_recommendation,
                 market_regime=cycle_market_regime,
                 manager_evidence_payload=strategist_result.get("manager_evidence_payload"),
                 candidate_context=candidate_context,
             )
-        except Exception as exc:
-            reject(candidate_context, "MANAGER", "stage_error", metrics={"error": str(exc)})
-            raise
-        manager_result["candidate_context"] = candidate_context
-        manager_result["candidate_id"] = (candidate_context or {}).get("candidate_id")
-        checkpoint(candidate_context, "post_manager", manager_result)
-        record_gate(candidate_context, "CONTINUATION", manager_result.get("entry_gate"))
-        checkpoint(candidate_context, "pre_contract_selection", manager_result)
-        from services.pricing_gates import apply_option_hurdle_to_manager_result
-        manager_result = observe(apply_option_hurdle_to_manager_result, manager_result) or manager_result
-        from services.scenario_selector import prepare_scenario_inputs
-        manager_result = observe(prepare_scenario_inputs, manager_result) or manager_result
-        manager_result = apply_deterministic_option_selection(manager_result)
-        checkpoint(candidate_context, "post_contract_selection", manager_result)
-        from services.contract_observations import record_scenario_selection
-        observe(record_scenario_selection, manager_result)
-        checkpoint(candidate_context, "pre_regime_gate", manager_result)
-        manager_result = apply_market_regime_gate_to_manager_result(manager_result)
-        record_gate(candidate_context, "REGIME", manager_result.get("market_regime_gate"))
-        if not manager_result.get("selected_option"):
-            reject(candidate_context, "CONTRACT_SELECTION",
-                   manager_result.get("recommendation", {}).get("selected_option_source") or "no_contract",
-                   metrics=manager_result, thresholds=(cycle_version or {}).get("selector_config", {}))
-        if manager_result.get("recommendation", {}).get("decision") not in {"call", "put"}:
-            reject(candidate_context, "MANAGER", "non_directional_decision", metrics=manager_result.get("recommendation"))
+            # Shadow research only: freezes the inputs a challenger will see; production is unchanged.
+            observe(freeze_decision_observation, candidate_context, policy=challenger_policy)
+            manager_result = _run_company_stage(
+                "CONTRACT_SELECTION", _apply_post_manager_gates, manager_result,
+                candidate_context=candidate_context, cycle_version=cycle_version, thesis_policy=thesis_policy,
+                economics_policy=economics_policy,
+            )
+        except CompanyStageError as failure:
+            failures.append(_record_company_failure(
+                failure, symbol=symbol, candidate_context=candidate_context,
+                on_progress=on_progress, progress_base=progress_base,
+            ))
+            consecutive_failures += 1
+            if consecutive_failures >= MAX_CONSECUTIVE_COMPANY_FAILURES:
+                failures.extend(_stop_after_consecutive_failures(
+                    [remaining for remaining in company_symbols[position + 1:] if not is_discovery_shadow(remaining)],
+                    candidate_context_by_symbol=candidate_context_by_symbol,
+                ))
+                break
+            continue
+        consecutive_failures = 0
         manager_results.append(manager_result)
         LOGGER.info(
             "Finished manager for %s with decision=%s confidence=%s selected_option_id=%s expiration=%s strike=%s",
@@ -530,11 +670,12 @@ def _run_strategist_and_manager(
                 manager_result["manager_decision_history_id"] = decision_history_id
         except Exception:
             LOGGER.exception("Failed to record manager decision history for %s", symbol)
+        # Execution-callback failures are not company-stage failures; they still end the cycle.
         if on_manager_result is not None:
             on_manager_result(manager_result)
         checkpoint(candidate_context, 'candidate_complete', {'status': 'evaluated'})
 
-    return strategist_results, manager_results
+    return strategist_results, manager_results, failures
 
 
 def run_full_agent_stack(
@@ -554,6 +695,9 @@ def run_full_agent_stack(
     pipeline_result = run_agent_pipeline(on_progress=on_progress)
     LOGGER.info("Finished agent pipeline stage")
 
+    from services.discovery_queue import run_discovery_shadow_cycle
+    pipeline_result["discovery_shadow"] = observe(
+        run_discovery_shadow_cycle, sector_symbols=_dedupe_company_symbols(pipeline_result))
     pipeline_settings = AgentPipelineSettings.from_env()
     company_context_by_symbol = _build_company_context_by_symbol(pipeline_result)
     candidate_contexts = {}
@@ -563,7 +707,7 @@ def run_full_agent_stack(
         max_age_days=DEFAULT_MAX_ARTICLE_AGE_DAYS,
         candidate_context_by_symbol=candidate_contexts,
     )
-    strategist_results, manager_results = _run_strategist_and_manager(
+    strategist_results, manager_results, failed_companies = _run_strategist_and_manager(
         company_symbols,
         company_context_by_symbol=company_context_by_symbol,
         candidate_context_by_symbol=candidate_contexts,
@@ -579,6 +723,7 @@ def run_full_agent_stack(
         "pipeline": pipeline_result,
         "strategist": strategist_results,
         "manager": manager_results,
+        "failed_companies": failed_companies,
         "selected_options": _build_selected_option_output(ran_at=ran_at, manager_results=manager_results),
     }
 
@@ -600,6 +745,9 @@ def run_full_agent_stack_from_existing_data(
     pipeline_result = run_agent_pipeline_from_existing_data(on_progress=on_progress)
     LOGGER.info("Finished agent pipeline stage using existing DB data")
 
+    from services.discovery_queue import run_discovery_shadow_cycle
+    pipeline_result["discovery_shadow"] = observe(
+        run_discovery_shadow_cycle, sector_symbols=_dedupe_company_symbols(pipeline_result))
     pipeline_settings = AgentPipelineSettings.from_env()
     company_context_by_symbol = _build_company_context_by_symbol(pipeline_result)
     candidate_contexts = {}
@@ -609,7 +757,7 @@ def run_full_agent_stack_from_existing_data(
         max_age_days=DEFAULT_MAX_ARTICLE_AGE_DAYS,
         candidate_context_by_symbol=candidate_contexts,
     )
-    strategist_results, manager_results = _run_strategist_and_manager(
+    strategist_results, manager_results, failed_companies = _run_strategist_and_manager(
         company_symbols,
         company_context_by_symbol=company_context_by_symbol,
         candidate_context_by_symbol=candidate_contexts,
@@ -625,6 +773,7 @@ def run_full_agent_stack_from_existing_data(
         "pipeline": pipeline_result,
         "strategist": strategist_results,
         "manager": manager_results,
+        "failed_companies": failed_companies,
         "selected_options": _build_selected_option_output(ran_at=ran_at, manager_results=manager_results),
     }
 
@@ -637,7 +786,7 @@ def run_strategist_manager_only(
 ) -> dict[str, Any]:
     """Run only the strategist and manager stages for explicit company symbols."""
     normalized_symbols = _normalize_company_symbols(company_symbols)
-    strategist_results, manager_results = _run_strategist_and_manager(
+    strategist_results, manager_results, failed_companies = _run_strategist_and_manager(
         normalized_symbols,
         on_progress=on_progress,
         on_manager_result=on_manager_result,
@@ -650,6 +799,7 @@ def run_strategist_manager_only(
         "pipeline": None,
         "strategist": strategist_results,
         "manager": manager_results,
+        "failed_companies": failed_companies,
         "selected_options": _build_selected_option_output(ran_at=ran_at, manager_results=manager_results),
     }
 

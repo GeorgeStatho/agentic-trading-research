@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 import tempfile
 import unittest
 from datetime import date, datetime, timedelta, timezone
@@ -9,13 +8,7 @@ from unittest.mock import patch
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
 DATA_DIR = ROOT_DIR / "Data"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from market_db import (  # noqa: E402
     close_position_thesis,
@@ -82,8 +75,8 @@ class ThesisCaptureTests(unittest.TestCase):
         self.assertEqual(record["opened_at"], "2026-08-20T14:00:00+00:00")
         self.assertEqual(record["manager_decision_history_id"], 42)
         self.assertEqual(record["trade_execution_order_id"], "order-9")
-        # 35 DTE resolves to the 30-45 bucket: horizon = 45 - 18 force-exit buffer.
-        self.assertEqual(record["expected_horizon_days"], 27)
+        # 35 DTE resolves to the 30-45 bucket, whose live exit is forced at 18 DTE: 35 - 18.
+        self.assertEqual(record["expected_horizon_days"], 17)
         conditions = record["invalidation_conditions"]
         self.assertTrue(1 <= len(conditions) <= 3)
         self.assertTrue(all(condition.startswith("This thesis is wrong if") for condition in conditions))

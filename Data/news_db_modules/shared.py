@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Any
 
 from db_common import DATA_DIR
 
-WEBSCRAPING_DIR = DATA_DIR.parent / "Python Scripts" / "Webscraping"
-if str(WEBSCRAPING_DIR) not in sys.path:
-    sys.path.append(str(WEBSCRAPING_DIR))
-
-from news_normalization import build_content_hash, normalize_title, normalize_url
+from processing.news_normalization import build_content_hash, normalize_title, normalize_url
 
 SCHEMA_PATH = DATA_DIR / "news_schema.sql"
 

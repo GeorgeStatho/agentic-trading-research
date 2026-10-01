@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -11,7 +12,7 @@ from .bootstrap import initialize_database
 
 
 def list_companies_by_industry(industry_key: str, db_path: Path | str = DB_PATH) -> list[sqlite3.Row]:
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
             """
             SELECT c.id, c.symbol, c.name, c.rating, c.market_weight
@@ -30,7 +31,7 @@ def list_industry_company_rankings(
     ranking_type: str,
     db_path: Path | str = DB_PATH,
 ) -> list[sqlite3.Row]:
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -62,7 +63,7 @@ def list_company_price_snapshots(
     if normalized_symbol is None:
         return []
 
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -169,7 +170,7 @@ def list_recent_manager_decision_history(
     query += " ORDER BY decision_run_at DESC, id DESC LIMIT ?"
     parameters.append(max(1, int(limit)))
 
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(query, tuple(parameters)).fetchall()
     return rows
 
@@ -187,7 +188,7 @@ def list_decision_expectancy_rows(
         reference_time = reference_time.replace(tzinfo=timezone.utc)
     cutoff = normalize_timestamp(reference_time - timedelta(days=max(1, int(within_days))))
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         return conn.execute(
             """
             SELECT
@@ -278,6 +279,6 @@ def list_option_trade_executions(
     query += " ORDER BY submitted_at DESC, id DESC LIMIT ?"
     parameters.append(max(1, int(limit)))
 
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(query, tuple(parameters)).fetchall()
     return rows

@@ -1,21 +1,10 @@
 from __future__ import annotations
 
-import sys
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
-
-import main as agent_runner_main  # noqa: E402
+from agentCallers import main as agent_runner_main  # noqa: E402
 
 
 class AgentRunnerCompanyFilterTests(unittest.TestCase):
@@ -102,7 +91,7 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
         mock_apply_deterministic_option_selection.side_effect = lambda result: result
         mock_record_manager_decision_history.return_value = 77
 
-        strategist_results, manager_results = agent_runner_main._run_strategist_and_manager(["AAPL"])
+        strategist_results, manager_results, _ = agent_runner_main._run_strategist_and_manager(["AAPL"])
 
         self.assertEqual(len(strategist_results), 1)
         self.assertEqual(len(manager_results), 1)
@@ -352,6 +341,86 @@ class AgentRunnerCompanyFilterTests(unittest.TestCase):
             {"decision": "buy", "confidence": "high"},
         )
         self.assertEqual(option_position_call.kwargs["market_regime"]["state"], "trend_up")
+
+
+class CompanyFailureIsolationTests(unittest.TestCase):
+    """One company's stage failure is recorded; the rest of the cycle continues."""
+
+    def setUp(self) -> None:
+        patches = {
+            "build_market_regime_snapshot": {"return_value": {"state": "trend_up", "as_of": "2026-07-21T15:00:00+00:00"}},
+            "record_manager_decision_history": {"return_value": 1},
+            "decide_company_purchase": {"side_effect": self.strategist},
+            "decide_company_option_position": {"side_effect": self.manager},
+            "apply_deterministic_option_selection": {"side_effect": lambda result: result},
+            # The failures are deliberate; keep their tracebacks out of the test output.
+            "LOGGER": {},
+        }
+        for name, options in patches.items():
+            patcher = patch.object(agent_runner_main, name, **options)
+            setattr(self, name, patcher.start())
+            self.addCleanup(patcher.stop)
+        self.failing = {"strategist": set(), "manager": set()}
+        self.executed: list[str] = []
+
+    def strategist(self, symbol, **kwargs):
+        if symbol in self.failing["strategist"]:
+            raise RuntimeError(f"strategist returned invalid JSON for {symbol}")
+        return {"company": {"symbol": symbol}, "recommendation": {"decision": "trade_candidate", "confidence": "high"}}
+
+    def manager(self, symbol, **kwargs):
+        if symbol in self.failing["manager"]:
+            raise TimeoutError("manager timed out")
+        return {"company": {"symbol": symbol}, "recommendation": {"decision": "call", "confidence": "high"}}
+
+    def run_cycle(self, symbols, on_manager_result=None):
+        return agent_runner_main._run_strategist_and_manager(
+            symbols, on_manager_result=on_manager_result or (lambda result: self.executed.append(result["company"]["symbol"])))
+
+    def test_strategist_failure_does_not_stop_remaining_companies(self):
+        self.failing["strategist"] = {"AAPL"}
+        _, manager_results, failures = self.run_cycle(["AAPL", "MSFT"])
+        self.assertEqual(([r["company"]["symbol"] for r in manager_results], [(f["symbol"], f["stage"]) for f in failures]),
+                         (["MSFT"], [("AAPL", "STRATEGIST")]))
+
+    def test_failed_manager_result_never_reaches_execution(self):
+        self.failing["manager"] = {"AAPL"}
+        _, _, failures = self.run_cycle(["AAPL", "MSFT"])
+        self.assertEqual((self.executed, failures[0]["error_type"]), (["MSFT"], "TimeoutError"))
+
+    def test_contract_selection_failure_is_isolated(self):
+        def select(result):
+            if result["company"]["symbol"] == "AAPL":
+                raise RuntimeError("quote feed unavailable")
+            return result
+
+        self.apply_deterministic_option_selection.side_effect = select
+        _, _, failures = self.run_cycle(["AAPL", "MSFT"])
+        self.assertEqual(([f["stage"] for f in failures], self.executed), (["CONTRACT_SELECTION"], ["MSFT"]))
+
+    def test_consecutive_failures_stop_the_cycle_early(self):
+        symbols = ["A", "B", "C", "D", "E"]
+        self.failing["strategist"] = set(symbols)
+        _, _, failures = self.run_cycle(symbols)
+        self.assertEqual((self.decide_company_purchase.call_count, [f["stage"] for f in failures]),
+                         (3, ["STRATEGIST"] * 3 + ["NOT_RUN"] * 2))
+
+    def test_a_success_resets_the_consecutive_failure_count(self):
+        self.failing["strategist"] = {"A", "B", "D", "E"}
+        self.run_cycle(["A", "B", "C", "D", "E"])
+        self.assertEqual(self.decide_company_purchase.call_count, 5)
+
+    def test_execution_callback_failure_still_ends_the_cycle(self):
+        def broker_failure(result):
+            raise RuntimeError("broker rejected")
+        with self.assertRaises(RuntimeError):
+            self.run_cycle(["AAPL"], on_manager_result=broker_failure)
+
+    def test_failure_emits_progress(self):
+        self.failing["strategist"] = {"AAPL"}
+        events = []
+        agent_runner_main._run_strategist_and_manager(["AAPL"], on_progress=events.append)
+        self.assertEqual(events[-1]["stage"], "company_failed")
 
 
 if __name__ == "__main__":

@@ -621,6 +621,24 @@ class FrontMainApplication:
             )
             time.sleep(sleep_seconds)
 
+    def _run_due_research_marks(self, clock: Any | None) -> datetime | None:
+        """Closing marks for shadow research positions; returns when the next poll opens (local time).
+
+        Research only: the poll reads quotes and never touches positions or orders.
+        """
+        from services.candidate_lifecycle import observe
+        from services.forward_evaluation_policy import ForwardEvaluationPolicy
+        from services.research_marks import collect_research_marks, mark_window_opens
+
+        close_at = getattr(clock, "next_close", None)
+        policy = observe(ForwardEvaluationPolicy.from_env)
+        if close_at is None or policy is None or not policy.enabled:
+            return None
+        result = observe(collect_research_marks, at=datetime.now(MARKET_TIMEZONE), close_at=close_at, policy=policy)
+        if result and result.get("status") in {"complete", "failed"}:
+            self._logger.info("Research closing marks: %s", json.dumps(result, default=str))
+        return mark_window_opens(close_at, policy).astimezone().replace(tzinfo=None)
+
     def run_option_manager_loop(self) -> None:
         """Run the dedicated option-manager loop for existing option positions only."""
         # This lighter loop exists for deployments that only need position
@@ -654,7 +672,8 @@ class FrontMainApplication:
         while True:
             loop_started_at = datetime.now()
 
-            if not self._trading_gateway.market_is_open(trading_client):
+            clock = self._trading_gateway.get_market_clock(trading_client)
+            if not self._trading_gateway.market_is_open(trading_client, clock=clock):
                 self._sleep_for_market_close(
                     loop_label="option manager",
                     loop_started_at=loop_started_at,
@@ -667,11 +686,14 @@ class FrontMainApplication:
                 loop_log_prefix="Dedicated option manager",
                 loop_exception_label="Dedicated option manager",
             )
+            research_marks_at = self._run_due_research_marks(clock)
 
             current_time = datetime.now()
             next_wake_targets = [datetime.now() + timedelta(seconds=self._settings.market_recheck_seconds)]
             if self._settings.auto_manage_option_positions:
                 next_wake_targets.append(next_option_management_at)
+            if research_marks_at is not None and research_marks_at > current_time:
+                next_wake_targets.append(research_marks_at)
             sleep_seconds = max(0.0, min((target - current_time).total_seconds() for target in next_wake_targets))
             self._logger.info(
                 "Dedicated option manager sleeping %.1f seconds until next task.",

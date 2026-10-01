@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,7 @@ def load_news_articles(
     db_path: Path | str = DB_PATH,
 ) -> None:
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         for article in articles:
             source = clean_text(article.get("source")) or "unknown"
             article_key = clean_text(article.get("article_key")) or clean_text(article.get("source_url"))

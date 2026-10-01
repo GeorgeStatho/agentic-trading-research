@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from db_common import DB_PATH, get_connection, json_text
 from .bootstrap import initialize_database
@@ -9,7 +10,7 @@ from .telemetry_schema import EXECUTION_COLUMNS
 def store_execution_telemetry(order_id, telemetry, *, context=None, execution_version=None, conn=None, db_path=DB_PATH):
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local:
+        with closing(get_connection(db_path)) as local, local:
             return store_execution_telemetry(order_id, telemetry, context=context,
                                              execution_version=execution_version, conn=local)
     values = {key: value for key, value in telemetry.items() if key in EXECUTION_COLUMNS and value is not None}
@@ -29,7 +30,7 @@ def store_execution_telemetry(order_id, telemetry, *, context=None, execution_ve
 
 def pending_execution_telemetry(*, db_path=DB_PATH):
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         return [dict(row) for row in conn.execute('''SELECT * FROM option_trade_executions
             WHERE fill_observed_at IS NULL OR LOWER(order_status) NOT IN
             ('filled', 'canceled', 'expired', 'rejected', 'replaced') ORDER BY id''')]
@@ -37,7 +38,7 @@ def pending_execution_telemetry(*, db_path=DB_PATH):
 
 def execution_telemetry_report(*, start=None, end=None, db_path=DB_PATH):
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         return [dict(row) for row in conn.execute('''SELECT paper, order_side,
             COUNT(*) AS submitted_orders,
             COUNT(fill_observed_at) AS observed_orders,

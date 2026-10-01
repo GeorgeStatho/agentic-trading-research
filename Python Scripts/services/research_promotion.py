@@ -16,7 +16,9 @@ MODE_KEYS = {'mode', 'enforcement_mode', 'provenance_mode', 'freshness_mode',
 GATE_BLOCKS = {'PROVENANCE': 'catalyst', 'FRESHNESS': 'catalyst', 'CONTINUATION': 'continuation',
                'REGIME': 'regime', 'LIQUIDITY': 'contracts', 'RISK_CLUSTER': 'contracts',
                'EXECUTION_LIQUIDITY': 'contracts',
-               'SCENARIO_SELECTION': 'contracts', 'POSITION_EXIT_V2': 'contracts'}
+               'SCENARIO_SELECTION': 'contracts', 'POSITION_EXIT_V2': 'contracts',
+               'EVIDENCE_THESIS': 'thesis', 'TRADE_ECONOMICS': 'economics',
+               'TRADE_ECONOMICS_SUBMISSION': 'economics'}
 
 
 def source_hash():
@@ -26,7 +28,9 @@ def source_hash():
         paths.extend((ROOT / folder).rglob('*.py'))
     paths.extend((ROOT / 'Data/market_db_modules').glob('*.sql'))
     paths.extend(ROOT / name for name in ('config/risk_clusters.csv', 'config/source.json',
-                                        'Data/catalyst_models.py', 'Data/catalyst_schema.sql', 'Data/sector_etfs.json'))
+                                        'Data/catalyst_models.py', 'Data/catalyst_schema.sql', 'Data/sector_etfs.json',
+                                        'Data/research_foundation_contracts.py'))
+    paths.extend((ROOT / 'Python Scripts/Webscraping/company_evidence').rglob('*.py'))
     return fingerprint({str(p.relative_to(ROOT)): sha256(p.read_bytes()).hexdigest() for p in sorted(paths)})
 
 
@@ -62,9 +66,20 @@ def guard_policy(policy, stages, *, db_path=DB_PATH):
     return replace(policy, **changes) if changes else policy
 
 
+# Discovery intake and paired forward evaluations are research records with no capital path.
+PAIRED_PREFIX = 'paired:'
+RESEARCH_ONLY_PREFIXES = ('discovery:', PAIRED_PREFIX)
+
+
+def research_only_candidate(candidate_id):
+    return str(candidate_id or '').startswith(RESEARCH_ONLY_PREFIXES)
+
+
 def champion_allows(candidate, *, db_path=DB_PATH):
     """Research candidates never deploy; a promoted manifest owns the capital path."""
-    if candidate.get('research_run_id') or candidate.get('research_strategy'):
+    context = candidate.get('candidate_context') or {}
+    if (candidate.get('research_run_id') or candidate.get('research_strategy')
+            or research_only_candidate(candidate.get('candidate_id') or context.get('candidate_id'))):
         return False
     try:
         with closing(sqlite3.connect(f'file:{Path(db_path).resolve()}?mode=ro', uri=True)) as conn:

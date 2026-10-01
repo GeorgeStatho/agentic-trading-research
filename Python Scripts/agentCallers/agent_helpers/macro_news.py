@@ -1,19 +1,8 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
-from pathlib import Path
-import sys
 from typing import Any, Callable
-
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT_DIR / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
-
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
 
 from agent_helpers.shared import parse_published_at
 from db_helpers import DB_PATH, get_all_sectors, get_connection
@@ -60,7 +49,7 @@ def _load_unprocessed_macro_news_rows(news_scope: str) -> list[dict[str, Any]]:
     membership_table = config["membership_table"]
     processing_table = config["processing_table"]
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             f"""
             SELECT
@@ -149,7 +138,7 @@ def save_batch_results(
         article_id = int(pair["article_id"])
         batch_pairs_by_article.setdefault(article_id, []).append(pair)
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         for pair in pairs:
             impact_saver(
                 article_id=int(pair["article_id"]),

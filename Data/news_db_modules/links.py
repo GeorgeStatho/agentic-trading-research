@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from db_common import DB_PATH, get_connection
+from .provenance import update_article_provenance
 
 
 def _upsert_link(
@@ -13,7 +15,7 @@ def _upsert_link(
     conn=None,
 ) -> int:
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return _upsert_link(
                 table_name,
                 conflict_columns,
@@ -37,7 +39,6 @@ def _upsert_link(
     )
     link_id = cursor.fetchone()["id"]
     if table_name == "company_news_articles":
-        from .provenance import update_article_provenance
         update_article_provenance(int(values[1]), conn=conn)
     return link_id
 

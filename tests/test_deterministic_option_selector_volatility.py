@@ -1,19 +1,8 @@
 from __future__ import annotations
 
-import sys
 import unittest
 from datetime import date, timedelta
-from pathlib import Path
 from unittest.mock import patch
-
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 import agent_helpers.deterministic_option_selector as selector  # noqa: E402
 

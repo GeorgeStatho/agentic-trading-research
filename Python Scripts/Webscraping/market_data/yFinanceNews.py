@@ -1,13 +1,5 @@
-from pathlib import Path
-import sys
 
 import yfinance as yf
-
-
-if __package__ in {None, ""}:
-    WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
-    if str(WEBSCRAPING_DIR) not in sys.path:
-        sys.path.append(str(WEBSCRAPING_DIR))
 
 from sources.source_config import is_allowed_source
 

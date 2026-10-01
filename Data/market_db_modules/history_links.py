@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,7 @@ def get_latest_open_manager_decision_for_trade_link(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return get_latest_open_manager_decision_for_trade_link(
                 company_id=company_id,
                 symbol=symbol,
@@ -85,7 +86,7 @@ def link_manager_decision_to_trade_execution(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return link_manager_decision_to_trade_execution(
                 trade_execution_order_id=trade_execution_order_id,
                 trade_execution_record_id=trade_execution_record_id,
@@ -139,7 +140,7 @@ def get_latest_linked_manager_decision_for_option_symbol(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return get_latest_linked_manager_decision_for_option_symbol(
                 selected_option_symbol=selected_option_symbol,
                 conn=local_conn,

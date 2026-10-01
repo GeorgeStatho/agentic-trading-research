@@ -29,6 +29,8 @@ FULL_COHORT_MONTH = "all"
 UNKNOWN_REGIME = "unknown"
 REQUIRED_REGIME_COUNT = 2
 VALID_MODES = ("shadow", "enforce", "disabled", "observe")
+# Discovery intake and paired forward evaluations are research records, not the production stream.
+PRODUCTION_CANDIDATE = "candidate_id NOT LIKE 'discovery:%' AND candidate_id NOT LIKE 'paired:%'"
 
 # Each guarded feature maps an operator-facing control to the promotion stages
 # that must carry proofs before that control can take effect. `block` names the
@@ -183,7 +185,7 @@ def _load_policies() -> dict:
     """
     from services.catalyst_gates import CatalystGatePolicy
     from services.contract_policy import ContractPolicy
-    from services.evidence_continuation_gate import EvidenceContinuationPolicy
+    from services.evidence_continuation_policy import EvidenceContinuationPolicy
     from services.market_regime_gate import MarketRegimePolicy
 
     loaders = {
@@ -302,14 +304,14 @@ def _shadow_activity(conn, since: str) -> dict | None:
         return None
     activity: dict[str, dict] = {}
     for row in conn.execute(
-        """SELECT stage, COUNT(DISTINCT candidate_id) AS observed FROM candidate_snapshots
-           WHERE julianday(captured_at) >= julianday(?) GROUP BY stage""",
+        f"""SELECT stage, COUNT(DISTINCT candidate_id) AS observed FROM candidate_snapshots
+           WHERE julianday(captured_at) >= julianday(?) AND {PRODUCTION_CANDIDATE} GROUP BY stage""",
         (since,),
     ):
         activity.setdefault(row["stage"], dict(EMPTY_ACTIVITY))["observed_candidates"] = row["observed"]
     for row in conn.execute(
-        """SELECT stage, shadow, COUNT(DISTINCT candidate_id) AS blocked FROM candidate_rejections
-           WHERE julianday(occurred_at) >= julianday(?) GROUP BY stage, shadow""",
+        f"""SELECT stage, shadow, COUNT(DISTINCT candidate_id) AS blocked FROM candidate_rejections
+           WHERE julianday(occurred_at) >= julianday(?) AND {PRODUCTION_CANDIDATE} GROUP BY stage, shadow""",
         (since,),
     ):
         counter = "shadow_blocks" if row["shadow"] else "enforced_blocks"
@@ -381,8 +383,8 @@ def _research_status(conn, code_hash: str | None, run_limit: int) -> dict:
 def _run_status(conn, run: dict, code_hash: str | None) -> dict:
     """A run's enrollment progress and its latest full-cohort report.
 
-    `code_hash_matches` is the one that surprises people: an edit anywhere under
-    the hashed source trees ends the experiment and collection refuses to go on.
+    Broad source identity still governs promotion proofs. New runs separately
+    freeze evaluator identity so a strategy change need not stop collection.
     """
     enrolled = conn.execute(
         "SELECT COUNT(*) FROM research_candidates WHERE run_id=?", (run["run_id"],)
@@ -398,8 +400,23 @@ def _run_status(conn, run: dict, code_hash: str | None) -> dict:
         "enrolled_candidates": enrolled,
         "promotion_sample_floor": policy.get("minimum_promotion_samples"),
         "code_hash_matches": bool(code_hash) and run["code_hash"] == code_hash,
+        "collection_version_matches": _collection_version_matches(conn, run, code_hash),
         "latest_full_cohort_report": _latest_report(conn, run["run_id"], enrolled, policy),
     }
+
+
+def _collection_version_matches(conn, run: dict, code_hash: str | None) -> bool:
+    if not str(run.get("config_hash", "")).startswith("research-v2:"):
+        return bool(code_hash) and run["code_hash"] == code_hash
+    if not _table_exists(conn, "research_run_versions"):
+        return False
+    from market_db_modules.research_runs import read_run
+    from services.research_versions import require_current_evaluator
+    try:
+        require_current_evaluator(read_run(conn, run["run_id"]), code_hash)
+    except (ValueError, TypeError, KeyError):
+        return False
+    return True
 
 
 def _latest_report(conn, run_id: str, cohort_size: int, policy: dict) -> dict | None:
@@ -474,9 +491,9 @@ def _candidate_stream(conn, since: str, window_days: int) -> dict:
         return _prerequisite("candidate_stream", "Candidate stream", "missing", "No table",
                              "The candidate lifecycle tables do not exist in this database yet.")
     row = conn.execute(
-        """SELECT COUNT(*) AS recent, MAX(created_at) AS latest,
-           (SELECT COUNT(*) FROM candidates) AS total FROM candidates
-           WHERE julianday(created_at) >= julianday(?)""",
+        f"""SELECT COUNT(*) AS recent, MAX(created_at) AS latest,
+           (SELECT COUNT(*) FROM candidates WHERE {PRODUCTION_CANDIDATE}) AS total FROM candidates
+           WHERE julianday(created_at) >= julianday(?) AND {PRODUCTION_CANDIDATE}""",
         (since,),
     ).fetchone()
     if not row["total"]:

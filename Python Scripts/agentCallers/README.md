@@ -13,7 +13,7 @@ Grouped layout:
 
 Recent refactor direction:
 
-- shared runtime bootstrapping now lives in `_paths.py`
+- import roots come from `pyproject.toml` (`pip install -e .`); modules never edit `sys.path`
 - manager payload orchestration stays in `agent_helpers/manager.py`
 - Alpaca market/account collection is isolated in `agent_helpers/market_context.py`
 - shared opportunist article handling is isolated in `agent_helpers/opportunist_support.py`
@@ -24,9 +24,8 @@ Main entrypoint:
 
 Preferred imports for new code:
 
-- canonical import guidance lives in [INTERFACE_GUIDE.md](/mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/INTERFACE_GUIDE.md)
+- canonical import guidance lives in [INTERFACE_GUIDE.md](../../docs/INTERFACE_GUIDE.md)
 - prefer `agent_pipeline.*`, `agent_stages.*`, `agent_helpers.*`, `agent_builders.*`, `agent_analysis.*`, and `agent_runtime.*`
-- treat the misspelled top-level wrapper files in this folder as compatibility-only shims
 
 Common usage:
 
@@ -38,4 +37,3 @@ Notes:
 
 - the project is in the middle of an Ollama -> Vertex migration
 - the shared provider abstraction already lives in `agent_helpers/shared.py`
-- some older wrappers and filenames still exist for compatibility

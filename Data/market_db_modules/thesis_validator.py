@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import sqlite3
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 from db_common import DB_PATH, clean_text, coerce_float, get_connection, json_text
 from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
+from catalyst_schema import stamp_candidate_catalyst
 
 
 def _parse_json_column(value: Any, default: Any) -> Any:
@@ -47,7 +49,7 @@ def record_position_thesis(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return record_position_thesis(thesis, conn=local_conn)
 
     option_symbol = clean_text(thesis.get("option_symbol"))
@@ -109,7 +111,6 @@ def record_position_thesis(
     thesis_id = int(cursor.lastrowid)
     conn.execute("UPDATE position_theses SET candidate_id=?, pipeline_version_json=? WHERE id=?",
                  (thesis.get("candidate_id"), json_text(thesis.get("pipeline_version")), thesis_id))
-    from catalyst_schema import stamp_candidate_catalyst
     stamp_candidate_catalyst(conn, 'position_theses', thesis_id, thesis.get('candidate_id'))
     return thesis_id
 
@@ -126,7 +127,7 @@ def get_open_position_thesis_for_option_symbol(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return get_open_position_thesis_for_option_symbol(normalized_symbol, conn=local_conn)
 
     row = conn.execute(
@@ -142,6 +143,24 @@ def get_open_position_thesis_for_option_symbol(
     return _thesis_row_to_dict(row) if row is not None else None
 
 
+def list_open_position_theses_for_symbol(
+    symbol: str,
+    *,
+    db_path: Path | str = DB_PATH,
+) -> list[dict[str, Any]]:
+    """Every open thesis on an underlying; one company can hold several option positions."""
+    normalized_symbol = clean_text(symbol)
+    if normalized_symbol is None:
+        return []
+    initialize_database(db_path=db_path)
+    with closing(get_connection(db_path)) as conn:
+        rows = conn.execute(
+            "SELECT * FROM position_theses WHERE UPPER(symbol) = ? AND status = 'open' ORDER BY id",
+            (normalized_symbol.upper(),),
+        ).fetchall()
+    return [_thesis_row_to_dict(row) for row in rows]
+
+
 def close_position_thesis(
     option_symbol: str,
     *,
@@ -155,7 +174,7 @@ def close_position_thesis(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return close_position_thesis(normalized_symbol, closed_at=closed_at, conn=local_conn)
 
     cursor = conn.execute(
@@ -181,7 +200,7 @@ def record_thesis_validation_run(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return record_thesis_validation_run(run, conn=local_conn)
 
     thesis_id = coerce_int(run.get("thesis_id"))
@@ -267,7 +286,7 @@ def get_thesis_validation_run_for_date(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return get_thesis_validation_run_for_date(
                 thesis_id=normalized_id,
                 run_date=normalized_date,
@@ -293,7 +312,7 @@ def count_thesis_validator_exits_for_date(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return count_thesis_validator_exits_for_date(normalized_date, conn=local_conn)
 
     row = conn.execute(
@@ -317,7 +336,7 @@ def list_thesis_validation_runs(
 ) -> list[dict[str, Any]]:
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return list_thesis_validation_runs(limit=limit, conn=local_conn)
 
     rows = conn.execute(
@@ -340,7 +359,7 @@ def get_latest_thesis_validation_runs_by_option_symbol(
     """Latest run per option symbol, without the heavy evidence/sample blobs."""
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return get_latest_thesis_validation_runs_by_option_symbol(conn=local_conn)
 
     rows = conn.execute(
@@ -386,7 +405,7 @@ def summarize_thesis_validator_health(
     """Shadow-promotion health metrics: flip rate, action rate, grounding rate."""
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return summarize_thesis_validator_health(max_age_days=max_age_days, conn=local_conn)
 
     rows = conn.execute(

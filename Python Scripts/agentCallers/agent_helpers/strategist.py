@@ -1,20 +1,9 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime
 import json
-from pathlib import Path
-import sys
 from typing import Any
-
-
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT_DIR / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
 
 from agent_helpers.company_opportunist import get_company_reference
 from agent_helpers.opportunist_payload import (
@@ -159,7 +148,7 @@ def get_sector_news_for_company_sector(
 
 def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
     # Load the high confidence sector rows once so the downstream logic can stay focused on orchestration.
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -230,7 +219,7 @@ def get_high_confidence_sector_news(
 
 def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]]:
     # Load the high confidence industry rows once so the downstream logic can stay focused on orchestration.
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -301,7 +290,7 @@ def get_high_confidence_industry_news(
 
 def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
     # Load the high confidence company rows once so the downstream logic can stay focused on orchestration.
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT

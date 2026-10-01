@@ -1,17 +1,14 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from dataclasses import replace
 import json
 from pathlib import Path
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-for folder in ('Data', 'Python Scripts', 'Python Scripts/agentCallers', 'Python Scripts/Webscraping'):
-    sys.path.insert(0, str(ROOT/folder))
 from db_common import get_connection
 from market_db import initialize_database, record_manager_decision_history, record_option_trade_execution
 from news_db import initialize_database as initialize_news, add_company_news_article, add_company_opportunist_impact
@@ -34,7 +31,7 @@ class CatalystTests(unittest.TestCase):
         self.db = Path(self.temp.name)/'test.db'
         initialize_database(db_path=self.db)
         initialize_news(db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute("INSERT INTO sectors(id, sector_key, name) VALUES (1, 'technology', 'Technology')")
             conn.execute("INSERT INTO industries(id, sector_id, industry_key, name) VALUES (1, 1, 'chips', 'Chips')")
             conn.execute("INSERT INTO companies(id, industry_id, symbol, name) VALUES (1, 1, 'NVDA', 'Nvidia')")
@@ -47,12 +44,12 @@ class CatalystTests(unittest.TestCase):
             db_path=self.db, **extra)
 
     def state(self, article_id=1):
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             return json.loads(conn.execute('SELECT c.state_json FROM catalysts c JOIN news_articles a '
                               'ON c.catalyst_id=a.catalyst_id WHERE a.id=?', (article_id,)).fetchone()[0])
 
     def candidate(self):
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             evidence = [dict(row) for row in conn.execute('SELECT * FROM news_articles')]
         return record_candidate('NVDA', VERSION, evidence=evidence, db_path=self.db)
 
@@ -73,7 +70,7 @@ class CatalystTests(unittest.TestCase):
         self.article(3, 'calendar.example.com')
         state = self.state()
         self.assertEqual((state['article_count'], state['independent_root_count']), (3, 1))
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM root_events WHERE catalyst_id=?', (state['catalyst_id'],)).fetchone()[0], 1)
 
     def test_primary_document_and_independent_reporting_have_two_roots(self):
@@ -100,7 +97,7 @@ class CatalystTests(unittest.TestCase):
     def test_source_map_distinguishes_court_and_company_release(self):
         self.article(1, 'uscourts.gov', body='Court ruling', title='Nvidia wins court ruling')
         self.article(2, 'investor.nvidia.com', body='Company announcement')
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             kinds = [row[0] for row in conn.execute('SELECT source_type FROM news_articles ORDER BY id')]
         self.assertEqual(kinds, ['court_document', 'company_release'])
 
@@ -136,7 +133,7 @@ class CatalystTests(unittest.TestCase):
     def test_future_evidence_is_excluded_from_candidate_state(self):
         self.article(1)
         second = self.article(2, 'newswire.example.com', body='Independent reporting')
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute('UPDATE news_articles SET first_seen_time=? WHERE id=?', ((NOW+timedelta(days=1)).isoformat(), second))
         context = self.candidate()
         self.assertEqual(context['catalysts'][0]['independent_root_count'], 1)
@@ -151,13 +148,33 @@ class CatalystTests(unittest.TestCase):
     def test_impact_fields_are_derived_and_invalid_roots_rejected(self):
         article_id = self.article(1)
         impact_id = add_company_opportunist_impact(article_id, 1, raw_json={'reason': 'Forward expectations'}, db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             row = conn.execute('SELECT * FROM company_opportunist_impacts WHERE id=?', (impact_id,)).fetchone()
             self.assertEqual(row['catalyst_family'], 'guidance_raise')
-            self.assertTrue(json.loads(row['root_event_ids_json'])[0].startswith('root:'))
-            for roots in ([str(article_id)], ['root:invented'], [article_id]):
-                with self.assertRaises(ValueError):
-                    enrich_impact({'root_event_ids': roots}, article_id, conn=conn)
+            root = json.loads(row['root_event_ids_json'])[0]
+            self.assertTrue(root.startswith('root:'))
+            for roots in ([str(article_id)], ['root:invented'], [article_id], 'root:not-a-list'):
+                with self.subTest(roots=roots), self.assertLogs('news_db_modules.catalysts', 'WARNING'):
+                    enriched = enrich_impact({'root_event_ids': roots}, article_id, conn=conn)
+                    self.assertEqual((enriched['root_event_ids'], enriched['rejected_root_event_ids']), ([root], roots))
+
+    def test_matching_or_empty_root_claims_are_accepted_silently(self):
+        article_id = self.article(1)
+        add_company_opportunist_impact(article_id, 1, raw_json={'reason': 'Forward expectations'}, db_path=self.db)
+        with closing(get_connection(self.db)) as conn, conn:
+            root = conn.execute('SELECT root_event_id FROM news_articles WHERE id=?', (article_id,)).fetchone()[0]
+            for roots in ([root], []):
+                with self.subTest(roots=roots):
+                    self.assertNotIn('rejected_root_event_ids', enrich_impact({'root_event_ids': roots}, article_id, conn=conn))
+
+    def test_a_wrong_root_claim_no_longer_aborts_saving_the_impact(self):
+        article_id = self.article(1)
+        with self.assertLogs('news_db_modules.catalysts', 'WARNING'):
+            impact_id = add_company_opportunist_impact(article_id, 1, raw_json={'reason': 'Forward expectations',
+                                                                                'root_event_ids': ['root:invented']}, db_path=self.db)
+        with closing(get_connection(self.db)) as conn:
+            stored = json.loads(conn.execute('SELECT raw_json FROM company_opportunist_impacts WHERE id=?', (impact_id,)).fetchone()[0])
+        self.assertEqual(stored['rejected_root_event_ids'], ['root:invented'])
 
     def test_candidate_catalyst_stamps_decision_rejection_and_order(self):
         self.article(1)
@@ -166,7 +183,7 @@ class CatalystTests(unittest.TestCase):
         record_candidate_rejection(context, GateResult(False, 'TEST', 'test', {}, {}), db_path=self.db)
         record_option_trade_execution({'submitted': True, 'candidate_context': context, 'symbol': 'NVDA',
             'selected_option_symbol': 'NVDA261016C00150000', 'order': {'id': 'entry', 'qty': 1, 'side': 'buy'}}, paper=True, db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             for table in ('manager_decision_history', 'candidate_rejections', 'option_trade_executions'):
                 row = conn.execute(f'SELECT catalyst_id, catalyst_family FROM {table}').fetchone()
                 self.assertEqual(tuple(row), (context['catalyst_id'], 'guidance_raise'))
@@ -179,16 +196,17 @@ class CatalystTests(unittest.TestCase):
         second = backfill_catalysts(db_path=self.db)
         self.assertEqual(first, second)
         self.assertEqual(self.state()['root_event_ids'], before['root_event_ids'])
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             self.assertEqual(conn.execute('PRAGMA foreign_key_check').fetchall(), [])
 
     def test_additive_migration_preserves_decisions(self):
         record_manager_decision_history({'symbol': 'NVDA'}, db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute('ALTER TABLE manager_decision_history DROP COLUMN catalyst_family')
+            conn.execute('DELETE FROM schema_bootstrap')  # older code set this database up
         initialize_database(db_path=self.db)
         initialize_database(db_path=self.db)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM manager_decision_history').fetchone()[0], 1)
             self.assertIn('catalyst_family', {row['name'] for row in conn.execute('PRAGMA table_info(manager_decision_history)')})
 
@@ -272,7 +290,7 @@ class GateTests(unittest.TestCase):
         self.assertTrue(result['primary_source_exception'])
 
     def test_primary_source_exception_replaces_legacy_article_count_only_when_enforced(self):
-        from test_agent_runner_main import agent_runner_main
+        from tests.test_agent_runner_main import agent_runner_main
         for mode, expected in (('shadow', []), ('enforce', ['NVDA'])):
             context = {'candidate_id': 'fixture', 'catalyst_gates': {'PROVENANCE': {
                 'allowed': True, 'would_allow': True, 'enforcement_mode': mode,
@@ -286,7 +304,7 @@ class GateTests(unittest.TestCase):
             self.assertEqual(allowed, expected)
 
     def test_provenance_rejection_blocks_even_when_legacy_article_count_passes(self):
-        from test_agent_runner_main import agent_runner_main
+        from tests.test_agent_runner_main import agent_runner_main
         context = {'candidate_id': 'fixture', 'catalyst_gates': {'PROVENANCE': {
             'allowed': False, 'would_allow': False, 'enforcement_mode': 'enforce'}}}
         with patch('services.candidate_lifecycle.begin_candidate', return_value=context), \

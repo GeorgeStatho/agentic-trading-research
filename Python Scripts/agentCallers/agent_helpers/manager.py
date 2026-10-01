@@ -11,24 +11,18 @@ This module intentionally stays small and delegates the market-specific work to
 """
 
 import json
-import os
 from pathlib import Path
 import sys
 from typing import Any
 from datetime import datetime
 
-if __package__ in {None, ""}:
-    AGENT_CALLERS_DIR = Path(__file__).resolve().parents[1]
-    if str(AGENT_CALLERS_DIR) not in sys.path:
-        sys.path.append(str(AGENT_CALLERS_DIR))
-
-from _paths import bootstrap_agent_callers, load_project_env
+from services.settings import get_settings
+from services.settings import load_process_settings
 
 
 if __name__ == "__main__":
-    load_project_env()
+    load_process_settings()
 
-bootstrap_agent_callers()
 
 from agent_builders.strategist_payload import (
     DEFAULT_FULL_ARTICLE_LIMIT,
@@ -37,7 +31,6 @@ from agent_builders.strategist_payload import (
     build_strategist_input,
 )
 from agent_helpers.market_context import (
-    DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
     build_market_context,
 )
 from agent_contracts import ManagerInputPayload
@@ -45,28 +38,9 @@ from db_common import DB_PATH
 from db_helpers.market import backfill_decision_autopsy_ledger, list_decision_autopsy_ledger, list_recent_manager_decision_history
 
 
-DEFAULT_RECENT_MANAGER_HISTORY_LIMIT = max(1, int(os.getenv("MANAGER_DECISION_HISTORY_LIMIT", "3")))
-DEFAULT_RECENT_MANAGER_HISTORY_MAX_AGE_DAYS = max(
-    1,
-    int(os.getenv("MANAGER_DECISION_HISTORY_MAX_AGE_DAYS", "30")),
-)
-DEFAULT_RECENT_MANAGER_HISTORY_ARTICLE_LIMIT = max(
-    1,
-    int(os.getenv("MANAGER_DECISION_HISTORY_ARTICLE_LIMIT", "3")),
-)
-DEFAULT_RESOLVED_AUTOPSY_LIMIT = max(1, int(os.getenv("MANAGER_RESOLVED_AUTOPSY_LIMIT", "3")))
-DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS = max(1, int(os.getenv("MANAGER_RESOLVED_AUTOPSY_MAX_AGE_DAYS", "180")))
-
-
 __all__ = [
     "DEFAULT_FULL_ARTICLE_LIMIT",
     "DEFAULT_MAX_ARTICLE_AGE_DAYS",
-    "DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE",
-    "DEFAULT_RECENT_MANAGER_HISTORY_ARTICLE_LIMIT",
-    "DEFAULT_RECENT_MANAGER_HISTORY_LIMIT",
-    "DEFAULT_RECENT_MANAGER_HISTORY_MAX_AGE_DAYS",
-    "DEFAULT_RESOLVED_AUTOPSY_LIMIT",
-    "DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS",
     "DEFAULT_SUMMARY_ARTICLE_LIMIT",
     "build_resolved_autopsy_insights",
     "build_manager_input",
@@ -265,11 +239,11 @@ def build_manager_input(
     option_strike_price_gte: float | None,
     option_strike_price_lte: float | None,
     option_contract_limit_per_type: int,
-    recent_history_limit: int = DEFAULT_RECENT_MANAGER_HISTORY_LIMIT,
-    recent_history_max_age_days: int = DEFAULT_RECENT_MANAGER_HISTORY_MAX_AGE_DAYS,
-    recent_history_article_limit: int = DEFAULT_RECENT_MANAGER_HISTORY_ARTICLE_LIMIT,
-    resolved_autopsy_limit: int = DEFAULT_RESOLVED_AUTOPSY_LIMIT,
-    resolved_autopsy_max_age_days: int = DEFAULT_RESOLVED_AUTOPSY_MAX_AGE_DAYS,
+    recent_history_limit: int | None = None,
+    recent_history_max_age_days: int | None = None,
+    recent_history_article_limit: int | None = None,
+    resolved_autopsy_limit: int | None = None,
+    resolved_autopsy_max_age_days: int | None = None,
 ) -> ManagerInputPayload:
     """Build the full manager payload for one company.
 
@@ -280,6 +254,16 @@ def build_manager_input(
     ``agent_stages.manager.decide_company_option_position`` or inspected during
     local debugging.
     """
+    if recent_history_limit is None:
+        recent_history_limit = get_settings().manager_context.history_limit
+    if recent_history_max_age_days is None:
+        recent_history_max_age_days = get_settings().manager_context.history_max_age_days
+    if recent_history_article_limit is None:
+        recent_history_article_limit = get_settings().manager_context.history_article_limit
+    if resolved_autopsy_limit is None:
+        resolved_autopsy_limit = get_settings().manager_context.resolved_autopsy_limit
+    if resolved_autopsy_max_age_days is None:
+        resolved_autopsy_max_age_days = get_settings().manager_context.resolved_autopsy_max_age_days
     payload = build_strategist_input(
         company_identifier,
         start_time=start_time,
@@ -319,7 +303,7 @@ def test_market_context(
     option_expiration_date_lte: str | None = None,
     option_strike_price_gte: float | None = None,
     option_strike_price_lte: float | None = None,
-    option_contract_limit_per_type: int = DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
+    option_contract_limit_per_type: int | None = None,
 ) -> dict[str, Any]:
     """Return a diagnostics-first snapshot of manager market inputs.
 
@@ -327,6 +311,8 @@ def test_market_context(
         Run this helper when you want to confirm Alpaca credentials, option
         availability, and account state before involving the LLM stage.
     """
+    if option_contract_limit_per_type is None:
+        option_contract_limit_per_type = get_settings().manager_context.option_chain_limit_per_type
     payload = build_strategist_input(
         company_identifier,
         start_time=None,

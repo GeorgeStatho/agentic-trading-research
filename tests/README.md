@@ -17,3 +17,11 @@ Run the suite from the project root with:
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
+
+Evidence refresh integration: `tests/test_evidence_refresh.py` exercises the durable
+company-interest queue and collection-to-research handoff with synthetic providers.
+Run with an isolated `DB_PATH` and `TELEMETRY_ENABLED=false`; no live providers are used.
+
+Interest-driven discovery: `tests/test_discovery_interest.py` verifies current
+selection scopes, expiry, notifications, recovery scans, collection dependencies,
+and exactly one successor investigation across discovery and continuation routes.

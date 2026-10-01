@@ -19,9 +19,10 @@ level and a full split becomes "unclear".
 
 import json
 import logging
-import os
 from collections import Counter
 from typing import Any
+
+from services.settings import StageModel, get_settings
 
 
 LOGGER = logging.getLogger(__name__)
@@ -83,17 +84,8 @@ Rules:
 5. Respond with only the required JSON object. Keep rationale under 40 words.
 """
 
-_MODEL_BACKEND_LABEL = os.getenv(
-    "THESIS_VALIDATOR_OLLAMA_HOST",
-    os.getenv(
-        "MANAGER_OLLAMA_HOST",
-        os.getenv("MACRO_NEWS_OLLAMA_HOST", os.getenv("WORLD_NEWS_OLLAMA_HOST", "http://127.0.0.1:11434")),
-    ),
-)
-DEFAULT_THESIS_VALIDATOR_MODEL = os.getenv(
-    "THESIS_VALIDATOR_MODEL",
-    os.getenv("MANAGER_MODEL", os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "world-news-sectors"))),
-)
+def _stage_model() -> StageModel:
+    return get_settings().models.thesis_validator
 
 _adjudicator_client: Any | None = None
 
@@ -103,7 +95,7 @@ def get_default_client() -> Any:
     if _adjudicator_client is None:
         from agent_helpers.shared import get_model_client
 
-        _adjudicator_client = get_model_client(_MODEL_BACKEND_LABEL)
+        _adjudicator_client = get_model_client(_stage_model().ollama_host)
     return _adjudicator_client
 
 
@@ -258,7 +250,7 @@ def _collect_grounded_samples(
                 ADJUDICATOR_SYSTEM_PROMPT,
                 user_prompt,
                 temperature=temperature,
-                host_label=_MODEL_BACKEND_LABEL,
+                host_label=_stage_model().ollama_host,
                 response_schema=THESIS_VERDICT_SCHEMA,
             )
         except Exception as exc:
@@ -282,11 +274,12 @@ def adjudicate_thesis(
     evidence_pack: dict[str, Any],
     *,
     client: Any | None = None,
-    model: str = DEFAULT_THESIS_VALIDATOR_MODEL,
+    model: str | None = None,
     samples: int = 3,
     temperature: float = 0.4,
 ) -> dict[str, Any]:
     """Run Phases 2-3 for one evidence pack and return the gated verdict."""
+    model = model or _stage_model().model
     requested_samples = max(1, int(samples))
     raw_samples, grounded_samples = _collect_grounded_samples(
         evidence_pack,

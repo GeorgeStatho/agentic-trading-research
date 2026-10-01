@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from pathlib import Path
 
 from db_common import DB_PATH, get_connection, initialize_schema, table_columns, table_exists
 from .shared import MACRO_EVENT_COLUMN_TYPES, NEWS_ARTICLE_COLUMN_TYPES, SCHEMA_PATH
+from catalyst_schema import migrate_catalysts
 
 
 def _ensure_missing_columns(
@@ -73,12 +75,11 @@ def initialize_database(
     db_path: Path | str = DB_PATH,
     schema_path: Path | str = SCHEMA_PATH,
 ) -> None:
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         _run_bootstrap_migrations(conn)
 
     initialize_schema(db_path, schema_path)
 
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         _run_bootstrap_migrations(conn)
-        from catalyst_schema import migrate_catalysts
         migrate_catalysts(conn)

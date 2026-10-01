@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+from contextlib import closing
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
 from urllib.parse import quote_plus
-
-DATA_DIR = Path(__file__).resolve().parents[3] / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
 
 from db_common import get_connection
 from news_db import add_failed_url, get_failed_url, remove_failed_url
@@ -147,7 +142,7 @@ def fetch_existing_article_by_url(url: str) -> dict | None:
     if not normalized:
         return None
 
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         row = conn.execute(
             """
             SELECT

@@ -1,23 +1,13 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import os
-import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
-
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-DATA_DIR = ROOT_DIR / "Data"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from db_helpers import get_connection, initialize_market_database, initialize_news_database
 from api_support.exposure_map import (
@@ -74,7 +64,7 @@ class ExposureMapTests(unittest.TestCase):
     def _seed_article(self, db_path: Path) -> int:
         initialize_market_database(db_path=db_path)
         initialize_news_database(db_path=db_path)
-        with get_connection(db_path) as conn:
+        with closing(get_connection(db_path)) as conn, conn:
             sector_id = conn.execute(
                 "INSERT INTO sectors (sector_key, name) VALUES ('technology', 'Technology')"
             ).lastrowid
@@ -129,7 +119,7 @@ class ExposureMapTests(unittest.TestCase):
             initialize_market_database(db_path=db_path)
             initialize_news_database(db_path=db_path)
             now = datetime(2026, 7, 20, tzinfo=timezone.utc)
-            with get_connection(db_path) as conn:
+            with closing(get_connection(db_path)) as conn, conn:
                 fresh_id = conn.execute(
                     """
                     INSERT INTO news_articles (source, article_key, title, source_url, evidence_score, published_at)
@@ -209,7 +199,7 @@ class ExposureMapTests(unittest.TestCase):
             db_path = Path(temp_dir) / "exposure-live-history.sqlite3"
             article_id = self._seed_article(db_path)
             submitted_at = datetime(2026, 7, 20, tzinfo=timezone.utc).isoformat()
-            with get_connection(db_path) as conn:
+            with closing(get_connection(db_path)) as conn, conn:
                 company_id = conn.execute("SELECT id FROM companies WHERE symbol = 'NVDA'").fetchone()["id"]
                 execution_id = conn.execute(
                     """

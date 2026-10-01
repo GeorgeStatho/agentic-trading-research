@@ -33,6 +33,8 @@ from .market import (
 )
 from .normalize import _coerce_float, _normalize_decision, _normalize_option_id
 from .volatility import _assess_contract_volatility
+from services.contract_policy import ContractPolicy
+from services.scenario_selector import select_with_scenarios
 
 
 def _passes_hybrid_fast_filters(
@@ -75,7 +77,6 @@ def _passes_hybrid_fast_filters(
         reasons.append("dte_above_max")
 
     open_interest = _coerce_float(contract.get("open_interest"))
-    from services.contract_policy import ContractPolicy
     oi_is_hard_filter = ContractPolicy.from_env().liquidity_mode != 'enforce'
     if open_interest is None and oi_is_hard_filter:
         reasons.append("missing_open_interest")
@@ -279,7 +280,6 @@ def _pick_matching_contract_hybrid(
             target_dte_bucket=target_dte_bucket,
         )
     )
-    from services.scenario_selector import select_with_scenarios
     scenario_choice, scenario_comparison = select_with_scenarios(candidate_pool, market_context, spot=reference_stock_price)
     selected = dict(scenario_choice)
     selected["_selection_mode"] = "hybrid_fast_short_dte"

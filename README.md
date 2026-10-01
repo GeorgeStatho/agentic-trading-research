@@ -13,14 +13,23 @@ Includes:
 
 It is still an experiment, not production trading software.
 
-Preferred import paths and compatibility-wrapper guidance live in
-[INTERFACE_GUIDE.md](INTERFACE_GUIDE.md).
+All project documentation is indexed in [docs/README.md](docs/README.md), which
+separates current documents from archived ones. To install the project and run the
+tests, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+Preferred import paths live in
+[INTERFACE_GUIDE.md](docs/INTERFACE_GUIDE.md).
 
 For maintainers adding features, start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
 [docs/FEATURE_PLAYBOOK.md](docs/FEATURE_PLAYBOOK.md), and
 [scripts/README.md](scripts/README.md).
 
 ## Current Architecture
+
+The evidence/discovery research foundation is documented in
+Research Phase 0. It adds immutable evidence records,
+shared observations for strategy comparisons, and additive storage contracts.
+New provider retrieval and event-driven trading remain later implementation phases.
 
 The current runtime stack is:
 
@@ -143,6 +152,65 @@ Then fill in at minimum:
 - `PRIVATE_KEY`
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_CLOUD_LOCATION`
+
+For historical option-quote fetching, set `MARKETDATA_TOKEN`. The optional
+`MARKETDATA_DAILY_CREDIT_BUDGET` defaults to `100`; set it to `0` to disable
+outbound EOD requests. This is a conservative local allowance: every attempt
+uses at least one unit, including failures and free responses, and larger
+provider-reported credit costs are counted. Cached windows use no allowance.
+The daily window resets at 09:30 America/New_York, including daylight saving
+changes. See [MarketData rate limits](https://www.marketdata.app/docs/api/rate-limiting/)
+and [credit resets](https://www.marketdata.app/docs/api/troubleshooting/running-out-of-credits/).
+
+Allowance and provider cooldowns persist in SQLite and are shared by the
+Research dashboard and EOD CLI when they use the same database. `force` only
+bypasses the quote cache, never the budget. HTTP 429 or a response reporting
+zero remaining credits stops the batch; subsequent calls stay paused until
+`Retry-After` / the provider reset permits retrying. Without usable headers,
+the next local daily reset is used. The dashboard shows the pause reason,
+retry time, and allowance used. Quotes already imported remain usable, and
+unattempted windows remain queued. Manual fetching resumes on your next request
+after the pause. The optional scheduler below runs separately.
+
+The local counter starts when this protection is installed; it cannot reconstruct
+prior usage or track requests made by other applications/databases. Provider
+headers still trigger a pause if that outside usage exhausts the account.
+
+The `marketdata_eod_sync` Docker service automatically refreshes only the quote
+cache once daily at **10:00 America/New_York**. It starts with the normal Compose
+stack and shares the API's database and daily allowance. Set
+`MARKETDATA_AUTO_FETCH_ENABLED=false` to disable it. Start or update it separately:
+
+```bash
+docker compose up -d --build marketdata_eod_sync
+docker compose logs --tail=100 marketdata_eod_sync
+```
+
+The default batch size is 100. Each run fetches decisions whose complete entry
+and holding windows ended at least 24 hours ago (about nine-day-old decisions
+with the default 1,440-minute entry allowance and 168-hour hold). Match
+`MARKETDATA_AUTO_FETCH_MAX_HOLD_HOURS` to the holding horizon you want cached.
+Provider publication delays or holidays can still leave gaps; unresolved windows
+are retried no sooner than seven days later, controlled by
+`MARKETDATA_AUTO_FETCH_RETRY_DAYS`. Unattempted windows keep priority.
+
+The daily claim is saved in `marketdata_eod_sync_runs`, preventing duplicate
+batches across restarts or simultaneous schedulers sharing the database. Starting
+after 10:00 runs today's batch immediately if it has not already been claimed.
+A failed/interrupted or rate-limited daily batch resumes through the normal queue
+on a subsequent day's run, subject to the provider cooldown and shared budget.
+No catch-up loop spends multiple days' allowances at startup. The service creates
+no backtests and places no trades; run a new backtest when you want updated results.
+
+Without Docker, keep this process running under your existing process supervisor:
+
+```bash
+python "Python Scripts/marketdata_eod_sync_main.py"
+```
+
+Add `--once` to check the schedule once and exit; it still respects the daily claim
+and 10:00 schedule. The service logs fetch summaries and pause reasons. Missing
+`MARKETDATA_TOKEN` causes it to wait without making provider requests.
 
 ### 2. Run with Docker
 
@@ -460,3 +528,15 @@ If you’re working on similar systems, have feedback, or are interested in coll
 
 
  
+
+Company earnings/guidance ingestion, immutable evidence packages, and offline replay
+are described in Research Phase 1. Provider coverage and
+limits are listed in [the capability matrix](docs/COMPANY_EVIDENCE_PROVIDERS.md).
+
+The rotating company-event scan, durable queue, and shadow research intake are
+documented in Research Phase 2. Discovery is disabled by
+default and does not forward candidates to broker execution.
+
+Phase 3 adds bounded shadow investigation with typed archive retrieval, durable
+sessions, daily allowances and offline replay. It is disabled by default. See
+Research Phase 3 and `scripts/research.py`.

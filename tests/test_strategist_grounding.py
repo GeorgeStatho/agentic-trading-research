@@ -1,19 +1,9 @@
 from __future__ import annotations
 
-import sys
+from contextlib import closing
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-DATA_DIR = ROOT_DIR / "Data"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from agent_stages.strategist_grounding import (
     build_strategist_grounding,
@@ -177,7 +167,7 @@ class StrategistGroundingTests(unittest.TestCase):
             db_path = Path(temp_dir) / "strategist-runs.sqlite3"
             initialize_market_database(db_path=db_path)
             initialize_news_database(db_path=db_path)
-            with get_connection(db_path) as conn:
+            with closing(get_connection(db_path)) as conn, conn:
                 sector_id = conn.execute("INSERT INTO sectors (sector_key, name) VALUES ('technology', 'Technology')").lastrowid
                 industry_id = conn.execute("INSERT INTO industries (sector_id, industry_key, name) VALUES (?, 'hardware', 'Hardware')", (sector_id,)).lastrowid
                 company_id = conn.execute("INSERT INTO companies (industry_id, symbol, name) VALUES (?, 'AAPL', 'Apple Inc.')", (industry_id,)).lastrowid

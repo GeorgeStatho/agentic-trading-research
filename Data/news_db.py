@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from news_db_modules.catalysts import backfill_catalysts, catalyst_family_report
+from news_db_modules.catalysts import backfill_catalysts, catalyst_family_report, get_catalyst_revision
 from db_common import DB_PATH
 from news_db_modules.article_store import add_news_article
 from news_db_modules.bootstrap import initialize_database
@@ -45,7 +45,7 @@ from news_db_modules.queries import (
 )
 
 __all__ = [
-    "backfill_catalysts", "catalyst_family_report",
+    "backfill_catalysts", "catalyst_family_report", "get_catalyst_revision",
     "backfill_news_provenance",
     "DB_PATH",
     "add_company_news_article",

@@ -1,4 +1,5 @@
 """Frozen catalyst-gate observations and executed-outcome coverage reports."""
+from contextlib import closing
 from db_common import DB_PATH, get_connection, json_text
 from .bootstrap import initialize_database
 
@@ -6,7 +7,7 @@ from .bootstrap import initialize_database
 def record_catalyst_gate_observation(context, gate, *, db_path=DB_PATH):
     initialize_database(db_path=db_path)
     metrics = gate['metrics']
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         conn.execute('''INSERT INTO catalyst_gate_observations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(candidate_id, stage) DO NOTHING''',
             (context['candidate_id'], context['catalyst_id'], gate['stage'], context['created_at'],
@@ -17,7 +18,7 @@ def record_catalyst_gate_observation(context, gate, *, db_path=DB_PATH):
 
 def freshness_outcome_report(*, start=None, end=None, db_path=DB_PATH):
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = [dict(row) for row in conn.execute('''WITH cohort AS (
             SELECT *, NTILE(4) OVER (ORDER BY age_minutes, candidate_id) AS age_quartile
             FROM catalyst_gate_observations WHERE stage='FRESHNESS' AND age_minutes IS NOT NULL AND shadow=1

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -21,7 +22,7 @@ def add_company_price_snapshot(
         return None
 
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return add_company_price_snapshot(
                 normalized_symbol,
                 snapshot,

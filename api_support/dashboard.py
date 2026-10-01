@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
 import json
 import re
@@ -54,6 +55,8 @@ from api_support.context import (
 )
 from api_support.thesis_validator import load_latest_thesis_verdicts
 from api_support.trades import build_trade_explanation_payload
+from api_support.context import logger
+import os
 
 
 def _build_empty_company_decisions_payload() -> dict:
@@ -238,7 +241,7 @@ def _load_latest_strategist_run_statuses() -> dict[int, dict]:
     reads the already-persisted strategist run directly to show that failure.
     """
     try:
-        with get_connection(DB_PATH) as conn:
+        with closing(get_connection(DB_PATH)) as conn, conn:
             rows = conn.execute(
                 """
                 SELECT
@@ -1471,9 +1474,7 @@ def build_risk_controls_payload() -> dict:
 def _build_thesis_validator_kpi_payload() -> dict:
     """Shadow-mode health summary for the KPI card; fail-soft so the KPI
     endpoint never breaks over validator data."""
-    import os
 
-    from api_support.context import logger
 
     mode = str(os.getenv("THESIS_VALIDATOR_MODE", "shadow")).strip().lower() or "shadow"
     try:

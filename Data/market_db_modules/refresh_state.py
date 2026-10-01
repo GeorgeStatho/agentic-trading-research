@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,7 @@ def get_market_data_refresh_state(
         return None
 
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return get_market_data_refresh_state(
                 normalized_type,
                 normalized_key,
@@ -60,7 +61,7 @@ def record_market_data_refresh_state(
     )
 
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             record_market_data_refresh_state(
                 normalized_type,
                 normalized_key,

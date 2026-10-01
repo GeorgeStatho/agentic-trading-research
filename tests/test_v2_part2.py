@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -10,10 +11,6 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
-
-ROOT = Path(__file__).resolve().parents[1]
-for folder in ('Data', 'Python Scripts', 'Python Scripts/agentCallers'):
-    sys.path.insert(0, str(ROOT / folder))
 
 from db_common import get_connection
 from market_db import initialize_database, record_option_trade_execution, record_manager_decision_history
@@ -109,7 +106,7 @@ class TelemetryDatabaseTests(unittest.TestCase):
         self.context = record_candidate('NVDA', VERSION, evidence=[{'id': 7, 'catalyst_id': 'event-1'}], db_path=self.db)
 
     def row(self, table, key='id', value=1):
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             return dict(conn.execute(f'SELECT * FROM {table} WHERE {key}=?', (value,)).fetchone())
 
     def entry(self, order_id='entry', **extra):
@@ -136,13 +133,14 @@ class TelemetryDatabaseTests(unittest.TestCase):
 
     def test_migrations_are_additive_and_repeatable(self):
         self.entry()
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute('ALTER TABLE option_trade_executions DROP COLUMN underlying_move_while_working')
             conn.execute('ALTER TABLE manager_decision_history DROP COLUMN pipeline_version_json')
+            conn.execute('DELETE FROM schema_bootstrap')  # older code set this database up
         initialize_database(db_path=self.db)
         initialize_database(db_path=self.db)
         self.assertEqual(self.row('option_trade_executions')['order_id'], 'entry')
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             names = {r['name'] for r in conn.execute('PRAGMA table_info(option_trade_executions)')}
         self.assertIn('underlying_move_while_working', names)
 
@@ -151,7 +149,7 @@ class TelemetryDatabaseTests(unittest.TestCase):
         record_candidate_snapshot(self.context, 'pre_gates', {'threshold': 999}, db_path=self.db)
         lifecycle = load_candidate_lifecycle(self.context['candidate_id'], db_path=self.db)
         self.assertEqual(lifecycle['snapshots'][0]['snapshot']['payload']['threshold'], 2)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             conn.execute("UPDATE candidate_snapshots SET snapshot_json='{}'")
         with self.assertRaisesRegex(ValueError, 'hash mismatch'):
             load_candidate_lifecycle(self.context['candidate_id'], db_path=self.db)
@@ -201,7 +199,7 @@ class TelemetryDatabaseTests(unittest.TestCase):
         self.assertEqual((row['mfe_option'], row['mae_option'], row['time_to_mfe_minutes'], row['time_to_mae_minutes']), (25, -10, 10, 20))
         self.assertEqual(row['iv_at_entry'], .5)
         self.assertEqual(row['iv_at_exit'], .6)
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             close_position_outcome(decision_id, realized_pnl_pct=-12, closed_at='2026-09-04T14:21:00Z', exit_reason='stop_loss', conn=conn)
         self.assertEqual(exit_attribution_report(db_path=self.db)[0]['median_mfe_minus_realized_pct'], 37)
         lifecycle = load_candidate_lifecycle(self.context['candidate_id'], db_path=self.db)
@@ -210,7 +208,7 @@ class TelemetryDatabaseTests(unittest.TestCase):
 
     def test_entry_and_reentry_do_not_share_paths(self):
         position_id, decision_id = self.position()
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             close_position_outcome(decision_id, realized_pnl_pct=20, closed_at='2026-09-04T16:00:00Z', exit_reason='profit', conn=conn)
         self.entry('reentry')
         new_id = ensure_position_outcome('reentry', db_path=self.db)
@@ -227,7 +225,7 @@ class TelemetryDatabaseTests(unittest.TestCase):
 
     def test_post_exit_uses_sessions_across_labor_day_and_waits_for_completed_day(self):
         position_id, decision_id = self.position()
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             close_position_outcome(decision_id, realized_pnl_pct=10, closed_at='2026-09-04T16:00:00Z', exit_reason='profit', conn=conn)
         bars = [{'session': day, 'close': close} for day, close in
                 [('2026-09-04', 100), ('2026-09-08', 101), ('2026-09-09', 102), ('2026-09-10', 103)]]
@@ -240,7 +238,7 @@ class TelemetryDatabaseTests(unittest.TestCase):
 
     def test_benchmark_proxy_preserves_exact_bars_and_basis(self):
         position_id, decision_id = self.position()
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             close_position_outcome(decision_id, realized_pnl_pct=10, closed_at='2026-09-08T16:00:00Z', exit_reason='profit', conn=conn)
         histories = {symbol: {'provider': 'fixture', 'bars': [{'session': '2026-09-04', 'close': 100},
                      {'session': '2026-09-08', 'close': end}]} for symbol, end in [('NVDA', 110), ('SPY', 102), ('XLK', 104)]}
@@ -252,7 +250,7 @@ class TelemetryDatabaseTests(unittest.TestCase):
 
     def test_missing_underlying_session_is_not_shifted_to_the_following_day(self):
         position_id, decision_id = self.position()
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             close_position_outcome(decision_id, realized_pnl_pct=0, closed_at='2026-09-04T16:00:00Z', exit_reason='profit', conn=conn)
         bars = [{'session': '2026-09-04', 'close': 100}, {'session': '2026-09-09', 'close': 102}]
         resolve_post_exit_returns(position_id, bars, checked_on='2026-09-10',
@@ -262,7 +260,7 @@ class TelemetryDatabaseTests(unittest.TestCase):
     def test_daily_job_is_idempotent_and_caches_shared_benchmarks(self):
         from services.position_telemetry import refresh_post_exit_returns
         position_id, decision_id = self.position()
-        with get_connection(self.db) as conn:
+        with closing(get_connection(self.db)) as conn, conn:
             close_position_outcome(decision_id, realized_pnl_pct=0, closed_at='2026-09-04T16:00:00Z', exit_reason='profit', conn=conn)
         fetcher = Mock(return_value=('fixture', [{'bar_at': day+'T04:00:00Z', 'close': price}
             for day, price in [('2026-09-04', 100), ('2026-09-08', 101), ('2026-09-09', 102), ('2026-09-10', 103)]]))
@@ -332,12 +330,12 @@ class VersionAndGateTests(unittest.TestCase):
             self.assertFalse(writer.call_args.kwargs['shadow'])
 
     def test_coactive_exit_collection_preserves_priority_and_state(self):
-        from test_option_positions import _load_option_positions_module, _make_trailing_profit_config, _make_momentum_history_config
+        from tests.test_option_positions import _load_option_positions_module, _make_trailing_profit_config, _make_momentum_history_config
         module = _load_option_positions_module()
         strategy = sys.modules['_test_trading_support._option_positions_strategy']
         state = {'max_pnl_pct': 1.1, 'profit_protection_active': True, 'protected_profit_floor_pct': .4}
         kwargs = dict(option_symbol=SYMBOL, quantity=3, unrealized_pl_pct_ratio=.58,
-                      days_to_expiration=1, hours_to_expiration=2,
+                      exit_rule_days_to_expiration=1, hours_to_expiration=2,
                       exit_thresholds=module.ExitThresholds(dte_rule_label='test', take_profit_pct=60,
                           stop_loss_pct=-35, force_exit_days_to_expiration=7, exit_hours_to_expiration=168, is_default_rule=False),
                       position_state=state, critical_errors=[], context_notes=[], enable_trailing_profit=True,

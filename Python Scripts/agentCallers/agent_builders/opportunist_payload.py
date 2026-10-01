@@ -2,19 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-from pathlib import Path
-import sys
 from typing import Any
-
-
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT_DIR / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
 
 from agent_helpers.opportunist_payload import (
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
