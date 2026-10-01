@@ -17,11 +17,12 @@ history and are not updated when the code changes.
 | [CleanCode.md](CleanCode.md) | Code style rules used in reviews |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Installing the project, running tests and entrypoints |
 
-### Research and decision pipeline (in progress)
+### Research and decision pipeline
 
 | Document | Status |
 | --- | --- |
-| [RESEARCH_AND_DECISION_IMPLEMENTATION_PLAN.md](RESEARCH_AND_DECISION_IMPLEMENTATION_PLAN.md) | The plan: Phases 0–6 implemented, 7 proposed |
+| [RESEARCH_GUIDE.md](RESEARCH_GUIDE.md) | Operator guide: what runs where, turning phases on, watching them, known issues |
+| [RESEARCH_AND_DECISION_IMPLEMENTATION_PLAN.md](RESEARCH_AND_DECISION_IMPLEMENTATION_PLAN.md) | The plan: Phases 0–7 implemented |
 | [RESEARCH_PHASE0.md](RESEARCH_PHASE0.md) | Evidence/observation contracts and comparison identity |
 | [RESEARCH_PHASE1.md](RESEARCH_PHASE1.md) | Earnings and guidance evidence ingestion |
 | [COMPANY_EVIDENCE_PROVIDERS.md](COMPANY_EVIDENCE_PROVIDERS.md) | Provider capability matrix |
