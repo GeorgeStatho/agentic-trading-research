@@ -29,10 +29,12 @@ from agent_contracts import CompanyFailure, ManagerResult, StrategistResult
 from services.entry_gates import carry_gate_verdicts
 from services.evidence_thesis import evaluate_evidence_thesis_gate
 from services.evidence_thesis_policy import EvidenceThesisPolicy
+from services.forward_evaluation_policy import ChallengerPolicy
 from services.candidate_lifecycle import observe
 from services.catalyst_gates import catalyst_admission_allowed
 from services.company_evidence_demand import request_pipeline_evidence
 from services.contract_observations import record_scenario_selection
+from services.decision_observations import freeze_decision_observation
 from services.discovery_admission import evaluate_discovery_admission
 from services.pipeline_version import build_pipeline_version
 from services.pricing_gates import apply_option_hurdle_to_manager_result
@@ -556,6 +558,8 @@ def _run_strategist_and_manager(
     # One policy per cycle: the strategist request and the entry gate must agree on the mode.
     thesis_policy = EvidenceThesisPolicy.from_env()
     economics_policy = TradeEconomicsPolicy.from_env()
+    # A misconfigured challenger only disables the shadow comparison, never the cycle.
+    challenger_policy = observe(ChallengerPolicy.from_env)
     def is_discovery_shadow(symbol: str) -> bool:
         route_context = (company_context_by_symbol or {}).get(symbol) or {}
         recorded_context = (candidate_context_by_symbol or {}).get(symbol) or {}
@@ -622,6 +626,8 @@ def _run_strategist_and_manager(
                 manager_evidence_payload=strategist_result.get("manager_evidence_payload"),
                 candidate_context=candidate_context,
             )
+            # Shadow research only: freezes the inputs a challenger will see; production is unchanged.
+            observe(freeze_decision_observation, candidate_context, policy=challenger_policy)
             manager_result = _run_company_stage(
                 "CONTRACT_SELECTION", _apply_post_manager_gates, manager_result,
                 candidate_context=candidate_context, cycle_version=cycle_version, thesis_policy=thesis_policy,

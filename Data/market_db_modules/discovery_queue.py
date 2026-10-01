@@ -79,10 +79,16 @@ def _row_payload(conn, row, at, aging_per_hour):
     return result
 
 
-def _ranked_due(conn, at, aging_per_hour):
-    rows = conn.execute('''SELECT q.*,d.* FROM discovery_queue q JOIN discovery_queue_details d USING(queue_id)
+REVIEW_PURPOSE = 'position_review'
+# Position reviews have their own consumer in the option manager; the discovery worker never claims them.
+DISCOVERY_WORK = "q.purpose != 'position_review'"
+REVIEW_WORK = "q.purpose = 'position_review'"
+
+
+def _ranked_due(conn, at, aging_per_hour, work=DISCOVERY_WORK):
+    rows = conn.execute(f'''SELECT q.*,d.* FROM discovery_queue q JOIN discovery_queue_details d USING(queue_id)
         WHERE q.status IN ('pending','deferred') AND julianday(q.next_attempt_at)<=julianday(?)
-        AND julianday(d.expires_at)>julianday(?)''', (at, at)).fetchall()
+        AND julianday(d.expires_at)>julianday(?) AND {work}''', (at, at)).fetchall()
     ranked = [_row_payload(conn, row, at, aging_per_hour) for row in rows]
     return sorted(ranked, key=lambda row: (-row['priority'], row['created_at'], row['queue_id']))
 
@@ -108,30 +114,50 @@ def _recover_leases(conn, at, policy):
 
 
 def _reserve_batch(ranked, policy):
-    selected = []
-    for predicate, count in ((lambda r: r['purpose'] == 'position_review', policy.review_slots),
-                             (lambda r: r['purpose'] != 'position_review' and 'direct_event' in r['origins'], policy.direct_slots)):
-        selected.extend([row for row in ranked if predicate(row) and row not in selected][:count])
+    selected = [row for row in ranked if 'direct_event' in row['origins']][:policy.direct_slots]
     selected.extend([row for row in ranked if row not in selected][:policy.batch_size - len(selected)])
     return selected
+
+
+def _lease(conn, rows, owner, *, at, policy):
+    expiry = (datetime.fromisoformat(at) + timedelta(seconds=policy.lease_seconds)).isoformat()
+    for row in rows:
+        token = uuid4().hex
+        conn.execute('''UPDATE discovery_queue SET status='running',attempts=attempts+1,
+            lease_owner=?,lease_expires_at=?,completion_reason=NULL WHERE queue_id=?''', (owner, expiry, row['queue_id']))
+        conn.execute('UPDATE discovery_queue_details SET lease_token=? WHERE queue_id=?', (token, row['queue_id']))
+        row.update(lease_owner=owner, lease_token=token, lease_expires_at=expiry, attempts=row['attempts'] + 1, status='running')
+    return rows
 
 
 def claim_discovery_batch(owner, *, at, policy, db_path=DB_PATH):
     if not owner.strip():
         raise ValueError('A queue worker needs an owner identity')
     at = timestamp(at)
-    expiry = (datetime.fromisoformat(at) + timedelta(seconds=policy.lease_seconds)).isoformat()
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('BEGIN IMMEDIATE')
         _recover_leases(conn, at, policy)
-        selected = _reserve_batch(_ranked_due(conn, at, policy.aging_per_hour), policy)
-        for row in selected:
-            token = uuid4().hex
-            conn.execute('''UPDATE discovery_queue SET status='running',attempts=attempts+1,
-                lease_owner=?,lease_expires_at=?,completion_reason=NULL WHERE queue_id=?''', (owner, expiry, row['queue_id']))
-            conn.execute('UPDATE discovery_queue_details SET lease_token=? WHERE queue_id=?', (token, row['queue_id']))
-            row.update(lease_owner=owner, lease_token=token, lease_expires_at=expiry, attempts=row['attempts'] + 1, status='running')
-    return selected
+        return _lease(conn, _reserve_batch(_ranked_due(conn, at, policy.aging_per_hour), policy), owner, at=at, policy=policy)
+
+
+def claim_position_reviews(owner, *, at, policy, debounce_seconds, limit, db_path=DB_PATH):
+    """Lease settled position-review items, highest priority first.
+
+    An item settles once it is `debounce_seconds` old. A newer revision of the same event
+    expires the older item, so a burst of updates is reviewed once, at its latest revision.
+    """
+    if not owner.strip():
+        raise ValueError('A queue worker needs an owner identity')
+    at = timestamp(at)
+    settled_before = datetime.fromisoformat(at) - timedelta(seconds=debounce_seconds)
+    with closing(get_connection(db_path)) as conn, conn:
+        conn.execute('BEGIN IMMEDIATE')
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='discovery_queue_details'").fetchone():
+            return []
+        _recover_leases(conn, at, policy)
+        settled = [row for row in _ranked_due(conn, at, policy.aging_per_hour, REVIEW_WORK)
+                   if datetime.fromisoformat(timestamp(row['created_at'])) <= settled_before]
+        return _lease(conn, settled[:limit], owner, at=at, policy=policy)
 
 
 def require_discovery_lease(conn, queue_id, token, at):

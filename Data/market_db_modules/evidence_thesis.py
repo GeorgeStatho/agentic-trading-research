@@ -36,6 +36,17 @@ def get_evidence_thesis(evaluation_id, *, db_path=DB_PATH):
     return load_record(db_path, "evidence_thesis_checks", "evaluation_id", evaluation_id)
 
 
+def latest_strategist_thesis_check(candidate_id, *, db_path=DB_PATH):
+    """The legacy-route thesis check written for a candidate, if Phase 4 ran for it."""
+    if not candidate_id:
+        return None
+    with closing(get_connection(db_path)) as conn:
+        row = conn.execute("""SELECT evaluation_id FROM evidence_thesis_checks
+            WHERE candidate_id=? AND route='legacy_strategist' ORDER BY created_at DESC LIMIT 1""",
+                           (candidate_id,)).fetchone()
+    return get_evidence_thesis(row["evaluation_id"], db_path=db_path) if row else None
+
+
 def pending_research_theses(*, limit, db_path=DB_PATH):
     """Terminal research sessions without a thesis check, oldest first."""
     placeholders = ",".join("?" for _ in TERMINAL_RESEARCH_STATUSES)

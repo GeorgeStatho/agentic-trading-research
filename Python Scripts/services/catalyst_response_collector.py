@@ -14,6 +14,7 @@ from market_db_modules.pricing_research import (
 from services.price_response import completed_at, measure_response, positive
 from services.pricing_policy import PricingPolicy, RESPONSE_HORIZONS
 from agent_helpers.market_context.common import REQUEST_HANDLER, yf
+from market_db_modules.research_outcomes import research_outcome_symbols
 from market_db_modules.research_runs import collect_active_runs
 from services.candidate_lifecycle import observe
 from services.price_response import residual
@@ -46,6 +47,8 @@ def refresh_universe_history(*, as_of, policy, fetcher, db_path):
         universe = {row[0] for row in conn.execute('SELECT ticker FROM catalyst_response_events')}
         benchmarks = {row[0] for row in conn.execute('SELECT sector_symbol FROM catalyst_response_events WHERE sector_symbol IS NOT NULL')}
         universe.update(benchmarks)
+        # Research-route thesis outcomes are measured on the same cached history.
+        universe.update(research_outcome_symbols(db_path=db_path))
         if universe:
             universe.add('SPY')
             benchmarks.add('SPY')

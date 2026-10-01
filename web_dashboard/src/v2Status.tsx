@@ -1,3 +1,4 @@
+import ForwardEvaluationPanel from './forwardEvaluation.tsx';
 import { formatCurrency, formatDate } from './format';
 import { usePolledResource } from './useRemoteResource';
 import { V2SafeguardCounts, V2SafeguardNotices } from './v2Safeguards.tsx';
@@ -187,7 +188,28 @@ function RunCard({ run }: { run: Run }) {
   );
 }
 
-function V2StatusPage() {
+function V2StatusPage({ demoMode = false }: { demoMode?: boolean }) {
+  if (demoMode) {
+    return (
+      <main className="v2-status">
+        <section className="v2-status__hero">
+          <div>
+            <p>V2 Rollout · demo</p>
+            <h1>Forward evaluation walkthrough</h1>
+            <span>Only the forward-evaluation panel has a demo; live controls and runs are not shown.</span>
+          </div>
+        </section>
+        <section className="forward-eval__demo">
+          Seeded fictional walkthrough. No cohort, challenger, comparison or order exists behind these numbers.
+        </section>
+        <ForwardEvaluationPanel demoMode />
+      </main>
+    );
+  }
+  return <LiveV2StatusPage />;
+}
+
+function LiveV2StatusPage() {
   const { payload, error } = usePolledResource<V2StatusPayload>(getV2Status, { errorMessage: 'Failed to load V2 rollout status.' });
 
   return (
@@ -288,6 +310,8 @@ function V2StatusPage() {
               <p className="v2-status__muted">{payload.research.reason}</p>
             )}
           </section>
+
+          <ForwardEvaluationPanel />
 
           <section className="v2-status__card">
             <header>

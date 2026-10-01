@@ -1,4 +1,4 @@
-"""Consume shadow research, replay recorded sessions or inspect trade economics, without provider access."""
+"""Consume shadow research, replay sessions, and inspect economics, event reviews and forward evaluation."""
 import argparse
 import json
 
@@ -23,6 +23,25 @@ def main():
     economics_report = subparsers.add_parser('economics-report',
                                              help='summarise trade-economics reports and rejections (read-only)')
     economics_report.add_argument('--days', type=int, default=7, help='look-back window in days; 0 for all history')
+    event_review = subparsers.add_parser('event-review', help='show one recorded event-triggered thesis review')
+    event_review.add_argument('review_id')
+    event_reviews = subparsers.add_parser('event-reviews', help='summarise shadow event-triggered thesis reviews (read-only)')
+    event_reviews.add_argument('--days', type=int, default=7, help='look-back window in days; 0 for all history')
+    subparsers.add_parser('forward-status', help='forward cohorts, paired evaluations and closing marks (read-only)')
+    compare = subparsers.add_parser('compare', help='write a paired incumbent/challenger report for a cohort')
+    compare.add_argument('cohort_id')
+    compare.add_argument('--as-of')
+    comparison = subparsers.add_parser('comparison', help='show one recorded comparison report')
+    comparison.add_argument('report_id')
+    promote = subparsers.add_parser('promote-challenger',
+                                    help='record approval of a final comparison that met its pre-registered criteria')
+    promote.add_argument('report_id')
+    ledger = subparsers.add_parser('discovery-ledger', help='route status and outcomes of admitted events (read-only)')
+    ledger.add_argument('--days', type=int, default=30)
+    ledger.add_argument('--events', action='store_true', help='include the per-event ledger')
+    outcomes = subparsers.add_parser('research-outcomes', help='research-route thesis outcomes, cost and latency (read-only)')
+    outcomes.add_argument('--days', type=int, default=30, help='look-back window in days; 0 for all history')
+    subparsers.add_parser('forward-cycle', help="run the collector's forward-evaluation step once")
     args = parser.parse_args()
     from db_common import DB_PATH
     db_path = args.db or DB_PATH
@@ -45,6 +64,42 @@ def main():
             parser.error('--days must be 0 or positive')
         from market_db_modules.trade_economics import trade_economics_summary
         result = trade_economics_summary(days=args.days, db_path=db_path)
+    elif args.command == 'event-review':
+        from market_db_modules.thesis_event_reviews import find_thesis_event_review
+        result = find_thesis_event_review(args.review_id, db_path=db_path)
+    elif args.command == 'event-reviews':
+        if args.days < 0:
+            parser.error('--days must be 0 or positive')
+        from market_db_modules.thesis_event_reviews import thesis_event_review_summary
+        result = thesis_event_review_summary(days=args.days, db_path=db_path)
+    elif args.command == 'forward-status':
+        from market_db_modules.forward_evaluation import forward_status
+        from services.research_marks import mark_status
+        result = {**forward_status(db_path=db_path), 'marks': mark_status(db_path=db_path)}
+    elif args.command == 'compare':
+        from market_db_modules.forward_comparison import comparison_report
+        result = comparison_report(args.cohort_id, as_of=args.as_of, db_path=db_path)
+    elif args.command == 'comparison':
+        from market_db_modules.forward_comparison import get_comparison_report
+        result = get_comparison_report(args.report_id, db_path=db_path)
+    elif args.command == 'promote-challenger':
+        from market_db_modules.forward_comparison import promote_challenger
+        result = promote_challenger(args.report_id, db_path=db_path)
+    elif args.command == 'discovery-ledger':
+        if args.days < 1:
+            parser.error('--days must be positive')
+        from market_db_modules.discovery_evaluation import discovery_route_ledger
+        result = discovery_route_ledger(days=args.days, db_path=db_path)
+        if not args.events:
+            result.pop('admitted_events')
+    elif args.command == 'research-outcomes':
+        if args.days < 0:
+            parser.error('--days must be 0 or positive')
+        from market_db_modules.research_outcomes import research_route_report
+        result = research_route_report(days=args.days, db_path=db_path)
+    elif args.command == 'forward-cycle':
+        from services.forward_evaluation import run_forward_evaluation_cycle
+        result = run_forward_evaluation_cycle(db_path=db_path)
     elif args.command == 'theses':
         if not 1 <= args.limit <= 100:
             parser.error('--limit must be between 1 and 100')

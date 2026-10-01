@@ -5,6 +5,7 @@ from typing import Any
 from agent_contracts import OrderCandidate
 from services.entry_gates import carry_gate_verdicts, entry_allowed
 from services.catalyst_gates import catalyst_admission_allowed
+from services.research_promotion import research_only_candidate
 
 
 class OrderCandidateBuilder:
@@ -33,7 +34,7 @@ class OrderCandidateBuilder:
     def _is_trade_eligible(self, company_result: dict[str, Any]) -> bool:
         context = company_result.get('candidate_context') or {}
         identity = str(company_result.get('candidate_id') or context.get('candidate_id') or '')
-        if company_result.get('discovery_shadow') or context.get('discovery_shadow') or identity.startswith('discovery:'):
+        if company_result.get('discovery_shadow') or context.get('discovery_shadow') or research_only_candidate(identity):
             return False
         decision = str(company_result.get("decision") or "").strip().lower()
         confidence = str(company_result.get("confidence") or "").strip().lower()

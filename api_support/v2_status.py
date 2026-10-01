@@ -29,6 +29,8 @@ FULL_COHORT_MONTH = "all"
 UNKNOWN_REGIME = "unknown"
 REQUIRED_REGIME_COUNT = 2
 VALID_MODES = ("shadow", "enforce", "disabled", "observe")
+# Discovery intake and paired forward evaluations are research records, not the production stream.
+PRODUCTION_CANDIDATE = "candidate_id NOT LIKE 'discovery:%' AND candidate_id NOT LIKE 'paired:%'"
 
 # Each guarded feature maps an operator-facing control to the promotion stages
 # that must carry proofs before that control can take effect. `block` names the
@@ -302,14 +304,14 @@ def _shadow_activity(conn, since: str) -> dict | None:
         return None
     activity: dict[str, dict] = {}
     for row in conn.execute(
-        """SELECT stage, COUNT(DISTINCT candidate_id) AS observed FROM candidate_snapshots
-           WHERE julianday(captured_at) >= julianday(?) GROUP BY stage""",
+        f"""SELECT stage, COUNT(DISTINCT candidate_id) AS observed FROM candidate_snapshots
+           WHERE julianday(captured_at) >= julianday(?) AND {PRODUCTION_CANDIDATE} GROUP BY stage""",
         (since,),
     ):
         activity.setdefault(row["stage"], dict(EMPTY_ACTIVITY))["observed_candidates"] = row["observed"]
     for row in conn.execute(
-        """SELECT stage, shadow, COUNT(DISTINCT candidate_id) AS blocked FROM candidate_rejections
-           WHERE julianday(occurred_at) >= julianday(?) GROUP BY stage, shadow""",
+        f"""SELECT stage, shadow, COUNT(DISTINCT candidate_id) AS blocked FROM candidate_rejections
+           WHERE julianday(occurred_at) >= julianday(?) AND {PRODUCTION_CANDIDATE} GROUP BY stage, shadow""",
         (since,),
     ):
         counter = "shadow_blocks" if row["shadow"] else "enforced_blocks"
@@ -489,9 +491,9 @@ def _candidate_stream(conn, since: str, window_days: int) -> dict:
         return _prerequisite("candidate_stream", "Candidate stream", "missing", "No table",
                              "The candidate lifecycle tables do not exist in this database yet.")
     row = conn.execute(
-        """SELECT COUNT(*) AS recent, MAX(created_at) AS latest,
-           (SELECT COUNT(*) FROM candidates) AS total FROM candidates
-           WHERE julianday(created_at) >= julianday(?)""",
+        f"""SELECT COUNT(*) AS recent, MAX(created_at) AS latest,
+           (SELECT COUNT(*) FROM candidates WHERE {PRODUCTION_CANDIDATE}) AS total FROM candidates
+           WHERE julianday(created_at) >= julianday(?) AND {PRODUCTION_CANDIDATE}""",
         (since,),
     ).fetchone()
     if not row["total"]:

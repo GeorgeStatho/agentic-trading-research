@@ -110,11 +110,7 @@ def _attach_thesis_check(
         candidate_id=(candidate_context or {}).get("candidate_id"),
         context={"model": model, "prompt_version": prompt_version},
     )
-    return {
-        **recommendation,
-        "evidence_thesis": check["thesis"],
-        "evidence_thesis_check": compact_thesis_check(check, evaluation_id),
-    }
+    return attach_thesis_check(recommendation, check, evaluation_id)
 
 
 def _save_strategist_summary(
@@ -188,6 +184,58 @@ def _record_failed_strategist_run(
         status="failed",
         error_message=str(error),
     )
+
+
+def _parse_strategist_response(raw_response: str, payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    parsed = extract_json_value(raw_response)
+    raw_recommendation = extract_recommendation(parsed)
+    recommendation = normalize_recommendation(raw_recommendation)
+    if recommendation is None:
+        recommendation = extract_recommendation_from_text(raw_response)
+    if recommendation is None:
+        raise RuntimeError(
+            "Strategist model returned an invalid response. "
+            "Expected a grounded JSON recommendation with evidence_claims. "
+            f"Raw response: {raw_response[:800]}"
+        )
+    return validate_grounded_recommendation(recommendation, grounding=payload.get("grounding", {})), raw_recommendation
+
+
+def replay_strategist_decision_from_payload(
+    payload: dict[str, Any],
+    *,
+    client: Client | None = None,
+    model: str | None = None,
+    thesis_policy: EvidenceThesisPolicy | None = None,
+) -> dict[str, Any]:
+    """Re-run only the strategist LLM against a frozen decision-time payload.
+
+    Nothing is saved: no strategist run, company summary or thesis check. A shadow evaluation
+    therefore cannot replace the latest summary production reads; the caller persists the check.
+    """
+    model = model or _stage_model().model
+    thesis_policy = thesis_policy or EvidenceThesisPolicy.from_env()
+    include_thesis = thesis_policy.requests_thesis
+    payload = copy.deepcopy(payload)
+    result = {"model": model, "prompt_version": strategist_prompt_version(thesis_policy), "thesis_check": None}
+    if not payload_has_evidence(payload):
+        no_evidence = build_no_evidence_result(payload["company"], context_snapshot=build_context_snapshot(payload))
+        if include_thesis:
+            result["thesis_check"] = not_requested_check(payload, "no_evidence", route=THESIS_ROUTE, policy=thesis_policy)
+        return {**result, "recommendation": no_evidence["recommendation"], "replay_skipped": "no_evidence"}
+    system_prompt, user_prompt = build_strategist_prompt(payload, include_thesis=include_thesis)
+    raw_response = ask_model(client=client or get_default_client(), model=model, system_prompt=system_prompt,
+                             user_prompt=user_prompt, include_thesis=include_thesis)
+    recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
+    if include_thesis:
+        result["thesis_check"] = check_evidence_thesis((raw_recommendation or {}).get("evidence_thesis"), payload,
+                                                       route=THESIS_ROUTE, policy=thesis_policy)
+    return {**result, "recommendation": recommendation}
+
+
+def attach_thesis_check(recommendation: dict[str, Any], check: dict[str, Any], evaluation_id: str | None) -> dict[str, Any]:
+    return {**recommendation, "evidence_thesis": check["thesis"],
+            "evidence_thesis_check": compact_thesis_check(check, evaluation_id)}
 
 
 def decide_company_purchase(
@@ -271,21 +319,7 @@ def decide_company_purchase(
             include_thesis=include_thesis,
         )
 
-        parsed = extract_json_value(raw_response)
-        raw_recommendation = extract_recommendation(parsed)
-        recommendation = normalize_recommendation(raw_recommendation)
-        if recommendation is None:
-            recommendation = extract_recommendation_from_text(raw_response)
-        if recommendation is None:
-            raise RuntimeError(
-                "Strategist model returned an invalid response. "
-                "Expected a grounded JSON recommendation with evidence_claims. "
-                f"Raw response: {raw_response[:800]}"
-            )
-        recommendation = validate_grounded_recommendation(
-            recommendation,
-            grounding=payload.get("grounding", {}),
-        )
+        recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
     except Exception as exc:
         _record_failed_strategist_run(
             company=company,

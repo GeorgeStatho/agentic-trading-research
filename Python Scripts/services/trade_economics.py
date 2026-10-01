@@ -18,6 +18,7 @@ from db_helpers.news import get_catalyst_revision
 from market_db_modules.foundation_store import digest
 from market_db_modules.pricing_research import catalyst_return_scenarios
 from market_db_modules.trade_economics import get_candidate_economics_report, record_candidate_economics_report
+from services.evaluation_clock import evaluation_now
 from services.execution_telemetry import number, quote_values
 from services.option_dte_buckets import get_dte_bucket, resolve_dte_bucket_for_days
 from services.option_pricing import DAYS_PER_YEAR, CalibratedOption, days_until_expiration, option_side
@@ -462,7 +463,7 @@ def apply_trade_economics(manager_result, *, policy, as_of=None, db_path=DB_PATH
     decision = directional_decision(manager_result)
     if policy.mode == 'off' or decision is None:
         return manager_result
-    now = as_of or datetime.now(timezone.utc)
+    now = as_of or evaluation_now()
     try:
         report = build_trade_economics_report(manager_result, policy=policy, as_of=now, db_path=db_path)
     except Exception:

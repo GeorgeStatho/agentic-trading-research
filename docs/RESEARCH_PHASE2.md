@@ -14,7 +14,6 @@ DISCOVERY_SCAN_LIMIT=20
 DISCOVERY_RESCAN_SECONDS=300
 DISCOVERY_BATCH_SIZE=6
 DISCOVERY_DIRECT_SLOTS=2
-DISCOVERY_REVIEW_SLOTS=2
 DISCOVERY_LEASE_SECONDS=120
 DISCOVERY_MAX_ATTEMPTS=3
 DISCOVERY_RETRY_SECONDS=60
@@ -116,9 +115,12 @@ Materiality detection is conservative: changed normalized primary text is treate
 as potentially material. It is not a semantic determination that the economics
 changed; later research must establish that distinction.
 
-Claims reserve review slots and direct-event slots, then fill the remaining slots
-by aged priority. Unused reservations flow to the general pool. Configuration must
-leave at least one general slot so older sector/watchlist work can compete.
+Claims reserve direct-event slots, then fill the remaining slots by aged priority.
+Unused reservations flow to the general pool. Configuration must leave at least one
+general slot so older sector/watchlist work can compete. The discovery worker never
+claims `position_review` items: since Phase 6 the option manager's event thesis
+review owns them (see [Phase 6](RESEARCH_PHASE6.md)), so they no longer need reserved
+discovery slots.
 
 Claims run inside a short SQLite `BEGIN IMMEDIATE` transaction. Every attempt gets
 a new fencing token. Completion, renewal and candidate persistence require the
@@ -154,8 +156,9 @@ shadow contexts before model/manager processing, and the order-candidate builder
 rejects them even if they are accidentally supplied with an otherwise eligible
 recommendation. The streaming broker callback receives no discovery output.
 
-Open-position items are research intake only. Phase 6 will connect material-event
-reviews to the thesis validator under the existing exit controls. Phase 3 supplies
+Open-position items feed Phase 6 event-triggered thesis reviews, in shadow, rather
+than research intake. The same event is still researched through its entry item.
+Phase 3 supplies
 the bounded investigative/model loop. These intake snapshots are not completed
 strategy evaluations or promotion evidence.
 

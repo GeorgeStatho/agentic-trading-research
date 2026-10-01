@@ -21,7 +21,7 @@ history and are not updated when the code changes.
 
 | Document | Status |
 | --- | --- |
-| [RESEARCH_AND_DECISION_IMPLEMENTATION_PLAN.md](RESEARCH_AND_DECISION_IMPLEMENTATION_PLAN.md) | The plan: Phases 0–5 implemented, 6–7 proposed |
+| [RESEARCH_AND_DECISION_IMPLEMENTATION_PLAN.md](RESEARCH_AND_DECISION_IMPLEMENTATION_PLAN.md) | The plan: Phases 0–6 implemented, 7 proposed |
 | [RESEARCH_PHASE0.md](RESEARCH_PHASE0.md) | Evidence/observation contracts and comparison identity |
 | [RESEARCH_PHASE1.md](RESEARCH_PHASE1.md) | Earnings and guidance evidence ingestion |
 | [COMPANY_EVIDENCE_PROVIDERS.md](COMPANY_EVIDENCE_PROVIDERS.md) | Provider capability matrix |
@@ -29,6 +29,8 @@ history and are not updated when the code changes.
 | [RESEARCH_PHASE3.md](RESEARCH_PHASE3.md) | Bounded investigative research |
 | [RESEARCH_PHASE4.md](RESEARCH_PHASE4.md) | Structured theses, claim checks and the thesis gate |
 | [RESEARCH_PHASE5.md](RESEARCH_PHASE5.md) | Trade-economics reports, finalization and submission rechecks |
+| [RESEARCH_PHASE6.md](RESEARCH_PHASE6.md) | Event-triggered thesis reviews of open positions (shadow) |
+| [RESEARCH_PHASE7.md](RESEARCH_PHASE7.md) | Forward cohorts, challenger comparisons and pre-registered promotion |
 
 ### V2 trading architecture (implemented)
 

@@ -139,9 +139,10 @@ flowchart TD
         end
         catalyst["catalyst_response_collector<br/>price responses, forward returns,<br/>refresh active research runs"]
         evidence["company_evidence_service<br/>SEC facts, filings, issuer releases<br/>→ immutable evidence packages"]
+        forward["forward_evaluation (shadow)<br/>challenger evaluations, research-thesis<br/>outcomes, daily comparison reports"]
         discover["event_discovery.discover_company_events<br/>→ discovery queue (shadow)"]
         out["write agent_pipeline_output.json"]
-        regime --> pipe --> catalyst --> evidence --> discover --> out
+        regime --> pipe --> catalyst --> forward --> evidence --> discover --> out
     end
 
     out --> sleep["sleep NEWS_COLLECTION_INTERVAL_SECONDS"] --> regime
@@ -224,7 +225,7 @@ flowchart TD
     subgraph each["for each company symbol"]
         direction TB
         disc{"discovery-shadow<br/>candidate?"} -->|yes| skipd["skip (never traded)"]
-        disc -->|no| begin["begin_candidate → candidate_id"]
+        disc -->|no| begin["begin_candidate → candidate_id<br/>(opens the forward cohort first)"]
         begin --> adm{"catalyst_admission_allowed?<br/>(provenance, freshness decay)"}
         adm -->|no| blocked["checkpoint admission_blocked"]
         adm -->|yes| strat
@@ -252,6 +253,7 @@ flowchart TD
         end
 
         mgr --> gates
+        mgr -. "challenger on" .-> freeze["freeze decision observation<br/>model inputs + every bucket's chain<br/>(shadow, §7)"]
 
         subgraph gates["_apply_post_manager_gates (deterministic)"]
             direction TB
@@ -353,7 +355,19 @@ flowchart TD
         adj --> arb["thesis_arbiter<br/>hold / close half / close"]
     end
 
-    tv --> outw["write option_position_management_output.json<br/>status → option_manager_status.json"]
+    tv --> er
+
+    subgraph er["EventThesisReviewService.run (shadow, Phase 6)"]
+        direction TB
+        claim["claim 1 settled position_review item<br/>(discovery queue, 15-min debounce)"] --> skip{"rules exit, working order,<br/>no new evidence, same evidence,<br/>daily limit?"}
+        skip -->|no| epack["event evidence pack<br/>(trigger articles first,<br/>previous verdict, Phase 4 thesis)"]
+        epack --> eadj["LLM: thesis_adjudicator"] --> earb["thesis_arbiter →<br/>would-be action only"]
+        skip -->|yes| erec["record status, no model call"]
+        earb --> erec2["thesis_event_reviews<br/>(what changed and why)"]
+    end
+
+    er --> marks["research closing marks (shadow, ~10 min before close)<br/>Alpaca quotes for open research positions"]
+    marks --> outw["write option_position_management_output.json<br/>status → option_manager_status.json"]
     outw --> open
 ```
 
@@ -364,7 +378,9 @@ flowchart TD
 These subsystems measure and compare strategies. They are disabled or
 shadow-only by default and **do not feed broker execution**; the only link back to
 live trading is the research-promotion champion guard checked in §5. See
-[RESEARCH_PHASE0–4](README.md) and `scripts/v2_part*.py`.
+[RESEARCH_PHASE0–7](README.md) and `scripts/v2_part*.py`. Paired forward evaluations
+(`paired:` candidates) and discovery intake (`discovery:`) are refused by the order
+builder and the champion guard.
 
 ```mermaid
 flowchart LR
@@ -395,6 +411,14 @@ flowchart LR
         prom["research_promotion<br/>policy/source-hashed approvals<br/>singleton champion"]
     end
 
+    subgraph forward["Forward evaluation (Phase 7)"]
+        cohorts[("research_run_acceptance<br/>rolling cohorts, frozen criteria")]
+        dobs[("decision_observations<br/>frozen inputs + bucket chains")]
+        chal["challenger_evaluation<br/>incumbent + challenger finalized<br/>as of the cutoff"]
+        cmp["forward_comparison<br/>paired report, cluster bootstrap,<br/>acceptance, approval"]
+        ledgers["discovery_evaluation · research_outcomes<br/>route ledgers"]
+    end
+
     subgraph offline["Offline tools"]
         bt["backtesting<br/>(market_db_modules/backtesting,<br/>agentCallers/backtest.py)"]
         eod["marketdata_sync<br/>EOD option quote cache"]
@@ -402,6 +426,7 @@ flowchart LR
     end
 
     ed --> dq --> dcons --> dcand --> ro
+    dq -. "position_review items" .-> evrev(["event thesis reviews (§6)"])
     ce --> ro
     ro --> rp --> rt --> ro
     ro --> rth
@@ -410,6 +435,10 @@ flowchart LR
     sgates --> rr
     sp --> rr
     rr --> prom
+    dobs --> chal --> rr
+    cohorts --> rr
+    rr --> cmp
+    ro --> ledgers
     prom -. "champion guard" .-> exec(["OptionTradeExecutor (§5)"])
     eod --> bt
     lc --> replay
@@ -494,7 +523,7 @@ flowchart LR
         a5["exposure_map<br/>/exposure-map/articles, /&lt;id&gt;, POST /runs"]
         a6["decision_autopsy /decision-autopsies"]
         a7["backtest /backtests, POST /backtests,<br/>POST /backtests/marketdata-eod"]
-        a8["thesis_validator · v2_status · demo_mode ·<br/>telemetry (POST /startup, GET /summary)"]
+        a8["thesis_validator · v2_status · forward_evaluation ·<br/>demo_mode · telemetry (POST /startup, GET /summary)"]
     end
 
     live --> a1 & a2 & a3
@@ -532,6 +561,7 @@ flowchart LR
         s8["research_planner<br/>(own transport module)"]
         s9["api exposure_map"]
         s10["startup_readiness ping"]
+        s11["challenger strategist/manager (shadow)<br/>RESEARCH_CHALLENGER_*_MODEL"]
     end
     callers --> shared["agent_helpers/shared.py<br/>ask_llm_model()<br/>system-prompt caching (Vertex),<br/>rate-limit handling, diagnostics,<br/>extract_json_value()"]
     shared -->|vertex| v[("Vertex AI (Gemini)")]

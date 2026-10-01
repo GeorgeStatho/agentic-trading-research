@@ -143,6 +143,24 @@ def get_open_position_thesis_for_option_symbol(
     return _thesis_row_to_dict(row) if row is not None else None
 
 
+def list_open_position_theses_for_symbol(
+    symbol: str,
+    *,
+    db_path: Path | str = DB_PATH,
+) -> list[dict[str, Any]]:
+    """Every open thesis on an underlying; one company can hold several option positions."""
+    normalized_symbol = clean_text(symbol)
+    if normalized_symbol is None:
+        return []
+    initialize_database(db_path=db_path)
+    with closing(get_connection(db_path)) as conn:
+        rows = conn.execute(
+            "SELECT * FROM position_theses WHERE UPPER(symbol) = ? AND status = 'open' ORDER BY id",
+            (normalized_symbol.upper(),),
+        ).fetchall()
+    return [_thesis_row_to_dict(row) for row in rows]
+
+
 def close_position_thesis(
     option_symbol: str,
     *,

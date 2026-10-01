@@ -29,7 +29,11 @@ def observe(function, *args, **kwargs):
 
 
 def begin_candidate(symbol, *, version=None, observation_id=None):
-    context = record_candidate(symbol, version or build_pipeline_version(), observation_id=observation_id)
+    version = version or build_pipeline_version()
+    # The forward cohort must exist before the candidate, so the cohort is frozen prospectively.
+    from services.forward_cohorts import ensure_production_cohort
+    observe(ensure_production_cohort, version)
+    context = record_candidate(symbol, version, observation_id=observation_id)
     record_candidate_snapshot(context, 'candidate_created', context,
                               cutoff=context.get('observation_cutoff') or context['created_at'])
     from services.catalyst_gates import record_catalyst_gates

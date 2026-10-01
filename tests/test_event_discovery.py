@@ -316,22 +316,21 @@ class QueueLeaseTests(DiscoveryFixture):
         initialize_database(db_path=self.db)
         self.assertEqual(self.claim()[0]['queue_id'], identity)
 
-    def test_reserved_review_slot_beats_higher_entry_priority(self):
-        self.queued_item(purpose='position_review', components={'review_urgency': 1})
-        self.queued_item(components={'materiality': 100})
-        policy = replace(self.policy, batch_size=2, review_slots=1, direct_slots=0)
-        self.assertEqual(self.claim(policy=policy)[0]['purpose'], 'position_review')
+    def test_discovery_worker_never_claims_position_reviews(self):
+        self.queued_item(purpose='position_review', components={'review_urgency': 100})
+        self.queued_item(components={'materiality': 1})
+        self.assertEqual([item['purpose'] for item in self.claim()], ['entry'])
 
     def test_reserved_direct_slot_beats_sector_priority(self):
         self.queued_item(origin='sector', purpose='watchlist', components={'materiality': 100})
         self.queued_item(origin='direct_event', components={'materiality': 1})
-        policy = replace(self.policy, batch_size=2, review_slots=0, direct_slots=1)
+        policy = replace(self.policy, batch_size=2, direct_slots=1)
         self.assertEqual(self.claim(policy=policy)[0]['purpose'], 'entry')
 
     def test_waiting_time_prevents_general_lane_starvation(self):
         self.queued_item(origin='sector', purpose='watchlist', components={'materiality': 1}, at=START)
         self.queued_item(components={'materiality': 10})
-        policy = replace(self.policy, batch_size=1, review_slots=0, direct_slots=0)
+        policy = replace(self.policy, batch_size=1, direct_slots=0)
         # Extend the test item's lifetime beyond its one-day fixture default.
         with closing(get_connection(self.db)) as conn, conn:
             conn.execute('UPDATE discovery_queue_details SET expires_at=?', (later(86400),))
@@ -388,7 +387,7 @@ class DiscoveryScanTests(DiscoveryFixture):
 
     def test_at_least_one_general_slot_is_required(self):
         with self.assertRaises(ValueError):
-            replace(self.policy, batch_size=4)
+            replace(self.policy, batch_size=2, direct_slots=2)
 
     def test_read_only_target_preview_marks_shadow(self):
         self.package()

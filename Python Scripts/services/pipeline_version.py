@@ -40,38 +40,33 @@ def settings_values(settings):
             if not key.startswith('_') and not callable(value)}
 
 
-def build_pipeline_version(*, settings=None):
-    from services.evidence_research_policy import foundation_manifest
-    from services.config import FrontMainSettings, OptionPositionSettings, AgentPipelineSettings
+def gate_config():
+    """Decision-relevant policy values; a paired replay refuses to run when they have changed."""
     from services.settings import get_settings
     from services.market_regime_gate import MarketRegimePolicy
     from services.market_regime import MarketRegimeSnapshotPolicy
-    from services.option_dte_buckets import OPTION_DTE_BUCKETS
-    from agent_stages.strategist_runner import strategist_prompt_version
     from services.evidence_thesis_policy import EvidenceThesisPolicy
-    from agent_stages.manager_runner import MANAGER_PROMPT_VERSION
-    from agent_helpers.deterministic_option_selector import SELECTOR_VERSION, config
-    from agent_helpers.shared import _normalize_provider, _resolve_model_name
-    from agent_stages.strategist_runner import decide_company_purchase
-    from agent_stages.manager_runner import decide_company_option_position
-
-    effective_settings = settings or FrontMainSettings.from_env()
-    process_settings = get_settings()
-    settings_block = settings_values(effective_settings)
     from services.catalyst_gates import CatalystGatePolicy
     from services.pricing_policy import PricingPolicy, HORIZON_DAYS, RESPONSE_HORIZONS
     from services.contract_policy import ContractPolicy
-    from catalyst_models import HALF_LIFE_MINUTES, CLASSIFICATION_VERSION, DECAY_BASIS
+    from catalyst_models import HALF_LIFE_MINUTES
     from services.trade_economics_policy import TradeEconomicsPolicy
-    thesis_policy = EvidenceThesisPolicy.from_env()
-    gates = serializable({'thesis': thesis_policy, 'economics': TradeEconomicsPolicy.from_env(),'contracts': ContractPolicy.from_env(), 'pricing': PricingPolicy.from_env(), 'pricing_horizons': HORIZON_DAYS,
-                          'response_horizons': RESPONSE_HORIZONS,
-                          'catalyst_decay_priors': HALF_LIFE_MINUTES, 'catalyst': CatalystGatePolicy.from_env(), 'continuation': process_settings.evidence_continuation,
-                          'regime': MarketRegimePolicy.from_env(),
-                          'regime_snapshot': MarketRegimeSnapshotPolicy.from_env()})
-    def constants(module):
-        return {k: serializable(v) for k, v in vars(module).items()
-                if k.isupper() and isinstance(v, (str, int, float, bool, dict, list, tuple, set, frozenset))}
+    return serializable({'thesis': EvidenceThesisPolicy.from_env(), 'economics': TradeEconomicsPolicy.from_env(),
+                         'contracts': ContractPolicy.from_env(), 'pricing': PricingPolicy.from_env(),
+                         'pricing_horizons': HORIZON_DAYS, 'response_horizons': RESPONSE_HORIZONS,
+                         'catalyst_decay_priors': HALF_LIFE_MINUTES, 'catalyst': CatalystGatePolicy.from_env(),
+                         'continuation': get_settings().evidence_continuation,
+                         'regime': MarketRegimePolicy.from_env(),
+                         'regime_snapshot': MarketRegimeSnapshotPolicy.from_env()})
+
+
+def selector_constants():
+    from agent_helpers.deterministic_option_selector import config
+    return {k: serializable(v) for k, v in vars(config).items()
+            if k.isupper() and isinstance(v, (str, int, float, bool, dict, list, tuple, set, frozenset))}
+
+
+def pipeline_source_hashes():
     source_files = [p for folder in ('services', 'trading_support', 'agentCallers')
                     for p in (ROOT / 'Python Scripts' / folder).rglob('*.py')]
     source_files.extend([ROOT / path for path in ('Data/catalyst_models.py', 'Data/catalyst_schema.py',
@@ -79,11 +74,38 @@ def build_pipeline_version(*, settings=None):
         'Data/market_db_modules/pricing_research.py', 'Data/market_db_modules/pricing_schema.sql',
         'Data/market_db_modules/contract_research.py', 'config/risk_clusters.csv',
         'Data/market_db_modules/trade_economics.py', 'Data/market_db_modules/trade_economics_schema.sql',
+        'Data/market_db_modules/thesis_event_reviews.py', 'Data/market_db_modules/thesis_event_reviews_schema.sql',
         'Data/market_db_modules/research_runs.py', 'Data/market_db_modules/research_reports.py',
         'Data/market_db_modules/research_schema.sql',
+        'Data/market_db_modules/forward_evaluation.py', 'Data/market_db_modules/forward_evaluation_schema.sql',
+        'Data/market_db_modules/forward_comparison.py', 'Data/market_db_modules/discovery_evaluation.py',
+        'Data/market_db_modules/research_outcomes.py',
         'Data/market_db_modules/thesis_validator.py',
         'Python Scripts/news_collector_main.py', 'Data/sector_etfs.json', 'config/source.json')])
-    source_hashes = {str(p.relative_to(ROOT)): sha256(p.read_bytes()).hexdigest() for p in sorted(source_files)}
+    return {str(p.relative_to(ROOT)): sha256(p.read_bytes()).hexdigest() for p in sorted(source_files)}
+
+
+def build_pipeline_version(*, settings=None):
+    from services.evidence_research_policy import foundation_manifest
+    from services.config import FrontMainSettings, OptionPositionSettings, AgentPipelineSettings
+    from services.settings import get_settings
+    from services.option_dte_buckets import OPTION_DTE_BUCKETS
+    from agent_stages.strategist_runner import strategist_prompt_version
+    from services.evidence_thesis_policy import EvidenceThesisPolicy
+    from agent_stages.manager_runner import MANAGER_PROMPT_VERSION
+    from agent_helpers.deterministic_option_selector import SELECTOR_VERSION
+    from agent_helpers.shared import _normalize_provider, _resolve_model_name
+    from agent_stages.strategist_runner import decide_company_purchase
+    from agent_stages.manager_runner import decide_company_option_position
+    from catalyst_models import HALF_LIFE_MINUTES, CLASSIFICATION_VERSION, DECAY_BASIS
+    from services.event_thesis_review_policy import EventThesisReviewPolicy
+    from services.forward_evaluation_policy import forward_evaluation_manifest, recorded_configuration
+
+    effective_settings = settings or FrontMainSettings.from_env()
+    process_settings = get_settings()
+    settings_block = settings_values(effective_settings)
+    thesis_policy = EvidenceThesisPolicy.from_env()
+    gates = gate_config()
     manifest = {
         'manifest_version': 'pipeline-manifest-v1',
         'strategist_prompt_version': strategist_prompt_version(thesis_policy),
@@ -100,10 +122,12 @@ def build_pipeline_version(*, settings=None):
         'provenance_source_config': json.loads((ROOT / 'config/source.json').read_text()),
         'catalyst_decay_priors': HALF_LIFE_MINUTES, 'catalyst_decay_basis': DECAY_BASIS,
         'gate_config_hash': digest(gates), 'gate_config': gates,
-        'runtime_settings': settings_block, 'selector_config': constants(config),
+        'runtime_settings': settings_block, 'selector_config': selector_constants(),
         'contract_selector_version': SELECTOR_VERSION,
         'exit_engine_version': 'option-exits-v2-shadow-priors', 'exit_config': serializable(OptionPositionSettings.from_env()),
-        'dte_buckets': serializable(OPTION_DTE_BUCKETS), 'source_hashes': source_hashes,
+        'dte_buckets': serializable(OPTION_DTE_BUCKETS), 'source_hashes': pipeline_source_hashes(),
+        'event_thesis_review': recorded_configuration(lambda: EventThesisReviewPolicy.from_env().manifest()),
+        'forward_evaluation': forward_evaluation_manifest(),
         'research_foundation': foundation_manifest(),
         # The one settings object this process loaded; see services/settings.py.
         'process_settings': serializable(process_settings),

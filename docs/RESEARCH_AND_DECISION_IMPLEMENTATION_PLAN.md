@@ -1,12 +1,14 @@
 # Evidence, discovery, and trade decision implementation plan
 
-Status: Phases 0–5 implemented; Phases 6–7 remain proposed. See
+Status: Phases 0–7 implemented. See
 [Phase 0 implementation and operating notes](RESEARCH_PHASE0.md) and
 [Phase 1 implementation, coverage limits, and setup](RESEARCH_PHASE1.md), plus
 [Phase 2 queue and shadow discovery operating notes](RESEARCH_PHASE2.md),
 [Phase 3 bounded research operating notes and retrieval limits](RESEARCH_PHASE3.md), and
 [Phase 4 structured thesis, claim checks, and design decisions](RESEARCH_PHASE4.md), and
-[Phase 5 trade economics, finalization, and submission rechecks](RESEARCH_PHASE5.md).
+[Phase 5 trade economics, finalization, and submission rechecks](RESEARCH_PHASE5.md), and
+[Phase 6 event-triggered thesis reviews](RESEARCH_PHASE6.md), and
+[Phase 7 forward evidence, challengers and pre-registered promotion](RESEARCH_PHASE7.md).
 
 ## Objective
 
@@ -285,29 +287,50 @@ Execution dependency: current live entries use market orders and the limit-entry
 
 ### Phase 6 — Trigger thesis reviews from material events
 
-- [ ] Route queue items affecting open positions into the existing thesis evidence pack and validator.
-- [ ] Keep scheduled daily reviews, but introduce event-revision-based review identity so the current one-review-per-date check does not suppress a material new event.
-- [ ] Debounce repeated updates, coalesce identical evidence, and prioritize reviews over discretionary new research.
-- [ ] Compare new evidence against stored entry thesis and invalidation conditions; persist what changed and why.
-- [ ] Feed review results through the existing deterministic arbiter. Preserve kill switches, exit limits, active-order handling, and hard-risk exit priority.
-- [ ] Begin event reviews in shadow independently of the existing validator's configured live/shadow mode. Do not unintentionally extend its live authority.
+- [x] Route queue items affecting open positions into the existing thesis evidence pack and validator.
+- [x] Keep scheduled daily reviews, but introduce event-revision-based review identity so the current one-review-per-date check does not suppress a material new event.
+- [x] Debounce repeated updates, coalesce identical evidence, and prioritize reviews over discretionary new research.
+- [x] Compare new evidence against stored entry thesis and invalidation conditions; persist what changed and why.
+- [x] Feed review results through the existing deterministic arbiter. Preserve kill switches, exit limits, active-order handling, and hard-risk exit priority.
+- [x] Begin event reviews in shadow independently of the existing validator's configured live/shadow mode. Do not unintentionally extend its live authority.
 
 Acceptance: a morning material contradiction triggers a review without waiting for the daily schedule; duplicate articles do not repeat it; review failure does not interrupt mechanical position management.
 
+Implementation note: event reviews consume discovery `position_review` items, so they need
+`DISCOVERY_MODE=shadow`. The option manager owns those items; the discovery worker no longer turns
+them into research candidates. Each item settles for a 15-minute debounce before review.
+Reviews are keyed per thesis per event revision in a new `thesis_event_reviews` table, coalesce
+on evidence content, and are limited to three per position per New York day. They are shadow only:
+the arbiter's action is recorded as would-be and never executed, whatever `THESIS_VALIDATOR_MODE`
+says. Phase 4's structured invalidation conditions join the evidence pack when the entry decision
+has a thesis check. See [Phase 6](RESEARCH_PHASE6.md).
+
 ### Phase 7 — Collect forward evidence and evaluate promotion
 
-- [ ] Schedule bounded, restart-safe collection of frozen observations, strategy evaluations, quote coverage, and reconciled outcomes. Do not rely only on manually invoked reports.
-- [ ] Evaluate incumbent and challenger on the same observations and information cutoff. Collect alternate model outputs independently; do not treat replay of one model's stored answer as a challenger model evaluation.
-- [ ] For model/prompt comparisons, hold evidence access constant. For end-to-end research comparisons, explicitly version permitted retrieval and budgets, count research cost/latency, and freeze all source availability. Do not silently give one strategy later information.
-- [ ] Evaluate discovery separately on the union of admitted events, recording which route admitted each event. Distinguish deliberate non-admission from missing evaluation.
-- [ ] Preserve rejected/deferred candidates, unavailable outcomes, no fills, and explicit cash decisions as different states.
-- [ ] Use entry and exit prices consistent with executable quote assumptions. Daily marks cannot validate intraday event-response or limit-repricing claims; obtain matching-resolution data or mark that analysis unavailable.
-- [ ] Report net return, downside/drawdown, coverage, research cost, time-to-decision, confidence calibration where defined, and incremental value against the existing strategy and simple baselines.
-- [ ] Group correlated observations by event and time when assessing uncertainty; repeated candidates from one announcement are not independent samples.
-- [ ] Preserve existing sample/coverage/regime requirements as minimum floors. Define a prospective evaluation window and economic acceptance criteria before reviewing outcomes; do not tune and approve on the same cohort.
-- [ ] Permit promotion only for matching immutable evidence, policy, evaluator, and strategy versions. A changed version requires renewed evidence according to its affected scope.
+- [x] Schedule bounded, restart-safe collection of frozen observations, strategy evaluations, quote coverage, and reconciled outcomes. Do not rely only on manually invoked reports.
+- [x] Evaluate incumbent and challenger on the same observations and information cutoff. Collect alternate model outputs independently; do not treat replay of one model's stored answer as a challenger model evaluation.
+- [x] For model/prompt comparisons, hold evidence access constant. For end-to-end research comparisons, explicitly version permitted retrieval and budgets, count research cost/latency, and freeze all source availability. Do not silently give one strategy later information.
+- [x] Evaluate discovery separately on the union of admitted events, recording which route admitted each event. Distinguish deliberate non-admission from missing evaluation.
+- [x] Preserve rejected/deferred candidates, unavailable outcomes, no fills, and explicit cash decisions as different states.
+- [x] Use entry and exit prices consistent with executable quote assumptions. Daily marks cannot validate intraday event-response or limit-repricing claims; obtain matching-resolution data or mark that analysis unavailable.
+- [x] Report net return, downside/drawdown, coverage, research cost, time-to-decision, confidence calibration where defined, and incremental value against the existing strategy and simple baselines.
+- [x] Group correlated observations by event and time when assessing uncertainty; repeated candidates from one announcement are not independent samples.
+- [x] Preserve existing sample/coverage/regime requirements as minimum floors. Define a prospective evaluation window and economic acceptance criteria before reviewing outcomes; do not tune and approve on the same cohort.
+- [x] Permit promotion only for matching immutable evidence, policy, evaluator, and strategy versions. A changed version requires renewed evidence according to its affected scope.
 
 Acceptance: a genuinely different strategy can be paired with the incumbent and evaluated for replacement; missing quotes cannot count as avoided losses; future evidence cannot enter an earlier snapshot; a research candidate never reaches broker execution.
+
+Implementation note: production cohorts open in the worker just before each production
+candidate, so a cohort never postdates its decisions. While a challenger (an alternate
+strategist/manager model pair) is on, each production decision freezes a shared observation:
+the strategist and manager inputs plus every DTE bucket's chain. The collector then finalizes the
+incumbent's recorded outputs and the challenger's fresh ones on it, with the clock pinned to the
+cutoff. Entries use the quote frozen with the decision; the option manager polls Alpaca closing
+marks once per session. Acceptance criteria are frozen into each cohort; comparison reports cluster
+decisions by announcement and company-day and use a one-sided cluster bootstrap. Approval records
+evidence only. Discovery is scored per route on stored catalyst responses, and research theses on
+the residual move from thesis time. The end-to-end research comparison is stock-level; no option
+chain is fetched for research theses. See [Phase 7](RESEARCH_PHASE7.md).
 
 ## Configuration and operating behavior
 

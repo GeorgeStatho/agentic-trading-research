@@ -28,6 +28,7 @@ from services.order_candidates import OrderCandidateBuilder
 from services.position_manager import OptionPositionManagerService
 from services.thesis_capture import PositionThesisJournal
 from services.thesis_validator_service import ThesisValidatorService
+from services.thesis_event_review import EventThesisReviewService
 from services.trade_journal import OptionTradeJournal
 from services.trade_executor import OptionExposureSnapshot, OptionTradeExecutor, TradeExecutionSession
 from services.trading_gateway import AlpacaTradingGateway
@@ -49,6 +50,7 @@ TRADE_JOURNAL = OptionTradeJournal(
 )
 THESIS_JOURNAL = PositionThesisJournal(logger=LOGGER)
 THESIS_VALIDATOR = ThesisValidatorService(logger=LOGGER)
+EVENT_THESIS_REVIEWER = EventThesisReviewService(validator_settings=THESIS_VALIDATOR.settings, logger=LOGGER)
 TRADE_EXECUTOR = OptionTradeExecutor(
     settings=APP_SETTINGS,
     trading_gateway=TRADING_GATEWAY,
@@ -63,6 +65,7 @@ POSITION_MANAGER = OptionPositionManagerService(
     trade_journal=TRADE_JOURNAL,
     thesis_journal=THESIS_JOURNAL,
     thesis_validator=THESIS_VALIDATOR,
+    event_thesis_reviewer=EVENT_THESIS_REVIEWER,
     logger=LOGGER,
 )
 FRONT_MAIN_APP = FrontMainApplication(

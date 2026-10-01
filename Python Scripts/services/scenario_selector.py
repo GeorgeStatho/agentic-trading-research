@@ -1,10 +1,10 @@
 """Auditable empirical scenarios repriced with Black-Scholes, after the existing hard filters."""
-from datetime import datetime, timezone
 import math
 from statistics import mean
 
 from catalyst_models import timestamp
 from services.contract_policy import ContractPolicy
+from services.evaluation_clock import evaluation_now
 from services.execution_telemetry import number, quote_values
 from services.option_pricing import DAYS_PER_YEAR, CalibratedOption, days_until_expiration, option_side
 from services.pricing_policy import HORIZON_DAYS, PricingPolicy
@@ -67,7 +67,7 @@ def score_contract(contract, *, spot, moves, horizon_days, as_of, policy=None):
 
 def rank_contracts(contracts, *, spot, distribution, horizon_days, policy=None, as_of=None):
     policy = policy or ContractPolicy.from_env()
-    now = as_of or datetime.now(timezone.utc)
+    now = as_of or evaluation_now()
     scores = [score_contract(contract, spot=spot, moves=distribution, horizon_days=horizon_days, as_of=now, policy=policy)
               for contract in contracts]
     complete = [(contract, score) for contract, score in zip(contracts, scores) if score['status'] == 'complete']
@@ -80,7 +80,7 @@ def prepare_scenario_inputs(result, *, as_of=None, db_path=None):
     state = (context.get('catalysts') or [{}])[0]
     if not state.get('catalyst_family'):
         return result
-    now = as_of or datetime.now(timezone.utc)
+    now = as_of or evaluation_now()
     horizon = HORIZON_DAYS.get(state.get('expected_horizon'), 5)
     rows = catalyst_return_distribution(state['catalyst_family'], horizon, as_of=now,
                                         exclude_catalyst_id=state.get('catalyst_id'),

@@ -1,7 +1,8 @@
 from db_helpers.common import DB_PATH, DATA_DIR, get_connection, validate_sql_identifier
 from db_helpers.market import (
     replay_research_session, load_research_progress,
-    enqueue_discovery_event, claim_discovery_batch, preview_discovery_queue, renew_discovery_lease, finish_discovery_item, discovery_queue_status,
+    enqueue_discovery_event, claim_discovery_batch, claim_position_reviews, preview_discovery_queue, renew_discovery_lease,
+    finish_discovery_item, discovery_queue_status,
     record_evidence_document,
     record_company_fact,
     record_evidence_package,

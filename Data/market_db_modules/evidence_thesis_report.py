@@ -26,7 +26,9 @@ def _counts(counter):
 
 
 def _load_checks(conn, since, route):
-    query, values = "SELECT record_json,record_hash FROM evidence_thesis_checks WHERE 1=1", []
+    # Phase 7 challenger checks share the strategist route but are not production's strategist.
+    query, values = ("SELECT record_json,record_hash FROM evidence_thesis_checks "
+                     "WHERE (candidate_id IS NULL OR candidate_id NOT LIKE 'paired:%')"), []
     if since:
         query += " AND julianday(created_at)>=julianday(?)"
         values.append(since)

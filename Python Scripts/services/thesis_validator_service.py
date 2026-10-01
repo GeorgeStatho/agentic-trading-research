@@ -26,6 +26,13 @@ MARKET_TIMEZONE = ZoneInfo("America/New_York")
 VALID_MODES = {"off", "shadow", "live"}
 
 
+def rules_exit_active(position_summary: dict[str, Any]) -> bool:
+    """The deterministic exit layer already decided to sell; no thesis review may override it."""
+    if position_summary.get("close_submitted"):
+        return True
+    return str(position_summary.get("decision") or "").strip().lower() == "sell"
+
+
 @dataclass(frozen=True)
 class ThesisValidatorSettings:
     """Runtime configuration for the daily thesis validation pipeline."""
@@ -94,12 +101,6 @@ class ThesisValidatorService:
         )
         return market_now >= run_after
 
-    @staticmethod
-    def _rules_exit_active(position_summary: dict[str, Any]) -> bool:
-        if position_summary.get("close_submitted"):
-            return True
-        return str(position_summary.get("decision") or "").strip().lower() == "sell"
-
     def _execute_action(
         self,
         *,
@@ -161,7 +162,7 @@ class ThesisValidatorService:
             "mark_mid_price": safe_float(position_summary.get("mid_price")),
         }
 
-        if self._rules_exit_active(position_summary):
+        if rules_exit_active(position_summary):
             # The deterministic layer already decided to exit; the LLM is not consulted.
             run_record.update(
                 {

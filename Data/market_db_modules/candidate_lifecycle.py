@@ -68,6 +68,8 @@ def record_candidate(symbol, version, *, evidence=None, observation_id=None, db_
 
 
 def record_candidate_snapshot(context, stage, payload, *, cutoff=None, db_path=DB_PATH):
+    # A research evaluation's context names the database its candidate lives in.
+    db_path = context.get('db_path') or db_path
     initialize_database(db_path=db_path)
     captured = now_iso()
     cutoff = cutoff or context.get('observation_cutoff') or captured
@@ -90,6 +92,7 @@ def record_candidate_snapshot(context, stage, payload, *, cutoff=None, db_path=D
 def record_candidate_rejection(context, result, *, shadow=False, db_path=DB_PATH):
     if result.passed:
         return
+    db_path = context.get('db_path') or db_path
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('''INSERT INTO candidate_rejections
@@ -129,12 +132,15 @@ def candidate_funnel(*, date, db_path=DB_PATH):
             SELECT s.stage, COUNT(DISTINCT s.candidate_id) AS candidates,
                 (SELECT COUNT(DISTINCT r.candidate_id) FROM candidate_rejections r
                  JOIN candidates rc ON rc.candidate_id=r.candidate_id
-                 WHERE date(rc.created_at)=? AND r.stage=s.stage AND r.shadow=0) AS rejected
+                 WHERE date(rc.created_at)=? AND r.stage=s.stage AND r.shadow=0
+                 AND rc.candidate_id NOT LIKE 'discovery:%' AND rc.candidate_id NOT LIKE 'paired:%') AS rejected
             FROM candidate_snapshots s JOIN candidates c ON c.candidate_id=s.candidate_id
-            WHERE date(c.created_at)=? GROUP BY s.stage ORDER BY MIN(s.id)
+            WHERE date(c.created_at)=? AND c.candidate_id NOT LIKE 'discovery:%' AND c.candidate_id NOT LIKE 'paired:%'
+            GROUP BY s.stage ORDER BY MIN(s.id)
         ''', (date, date))]
         rejections = [dict(row) for row in conn.execute('''SELECT r.* FROM candidate_rejections r
-            JOIN candidates c ON c.candidate_id=r.candidate_id WHERE date(c.created_at)=? ORDER BY r.id''', (date,))]
+            JOIN candidates c ON c.candidate_id=r.candidate_id WHERE date(c.created_at)=?
+            AND c.candidate_id NOT LIKE 'discovery:%' AND c.candidate_id NOT LIKE 'paired:%' ORDER BY r.id''', (date,))]
         for row in rejections:
             row['metrics'] = json.loads(row.pop('metrics_json'))
             row['thresholds'] = json.loads(row.pop('thresholds_json'))

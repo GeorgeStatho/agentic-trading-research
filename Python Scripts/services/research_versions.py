@@ -17,6 +17,7 @@ EVALUATOR_FILES = (
     "Data/market_db_modules/research_observations.py",
     "Data/market_db_modules/research_runs.py",
     "Data/market_db_modules/research_reports.py",
+    "Data/market_db_modules/forward_comparison.py",
     "Data/market_db_modules/research_schema.sql",
     "Data/market_db_modules/pricing_research.py",
     "Data/market_db_modules/pricing_schema.sql",

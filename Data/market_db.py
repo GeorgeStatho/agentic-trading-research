@@ -4,11 +4,19 @@ from db_common import DB_PATH, DATA_DIR
 from market_db_modules.research_runtime import replay_research_session, load_research_progress
 from market_db_modules.evidence_thesis import record_evidence_thesis, get_evidence_thesis
 from market_db_modules.evidence_thesis_report import evidence_thesis_report
+from market_db_modules.thesis_event_reviews import (
+    find_thesis_event_review, latest_thesis_verdict, record_thesis_event_review, thesis_event_review_summary,
+    thesis_event_reviews,
+)
+# Forward cohorts and comparisons build on research_runs, which (like Part 6) stays out of this facade.
+from market_db_modules.discovery_evaluation import discovery_route_ledger
+from market_db_modules.research_outcomes import collect_research_thesis_outcomes, research_route_report
 from market_db_modules.trade_economics import (
     record_candidate_economics_report, get_candidate_economics_report, trade_economics_summary,
 )
 from market_db_modules.discovery_queue import (
-    enqueue_discovery_event, claim_discovery_batch, preview_discovery_queue, renew_discovery_lease, finish_discovery_item, discovery_queue_status,
+    enqueue_discovery_event, claim_discovery_batch, claim_position_reviews, preview_discovery_queue, renew_discovery_lease,
+    finish_discovery_item, discovery_queue_status,
 )
 from market_db_modules.company_evidence import (
     record_evidence_document,
@@ -105,6 +113,7 @@ from market_db_modules.thesis_validator import (
     count_thesis_validator_exits_for_date,
     get_latest_thesis_validation_runs_by_option_symbol,
     get_open_position_thesis_for_option_symbol,
+    list_open_position_theses_for_symbol,
     get_thesis_validation_run_for_date,
     list_thesis_validation_runs,
     record_position_thesis,
@@ -119,11 +128,20 @@ __all__ = [
     "record_evidence_thesis",
     "get_evidence_thesis",
     "evidence_thesis_report",
+    "record_thesis_event_review",
+    "find_thesis_event_review",
+    "thesis_event_reviews",
+    "latest_thesis_verdict",
+    "thesis_event_review_summary",
+    "discovery_route_ledger",
+    "research_route_report",
+    "collect_research_thesis_outcomes",
     "record_candidate_economics_report",
     "get_candidate_economics_report",
     "trade_economics_summary",
     "enqueue_discovery_event",
     "claim_discovery_batch",
+    "claim_position_reviews",
     "preview_discovery_queue",
     "renew_discovery_lease",
     "finish_discovery_item",
@@ -190,6 +208,7 @@ __all__ = [
     "get_latest_open_manager_decision_for_trade_link",
     "get_latest_thesis_validation_runs_by_option_symbol",
     "get_open_position_thesis_for_option_symbol",
+    "list_open_position_theses_for_symbol",
     "get_thesis_validation_run_for_date",
     "get_market_data_refresh_state",
     "get_latest_market_regime_snapshot",

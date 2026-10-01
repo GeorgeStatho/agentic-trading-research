@@ -8,7 +8,11 @@ def record_contract_observation(context, stage, payload):
     if not context:
         return
     from services.candidate_lifecycle import checkpoint, observe
+    from services.research_promotion import research_only_candidate
     checkpoint(context, stage, payload)
+    # Part 5 contract research measures production decisions; paired evaluations keep only the snapshot.
+    if research_only_candidate(context['candidate_id']):
+        return
     observe(record_observation, context['candidate_id'] + ':' + stage, stage, payload,
             observed_at=datetime.now(timezone.utc).isoformat(), candidate_id=context['candidate_id'])
 

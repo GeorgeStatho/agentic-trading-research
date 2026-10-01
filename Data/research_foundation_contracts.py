@@ -9,6 +9,8 @@ from typing import Any, Literal
 
 SCHEMA_VERSION = "research-foundation-v1"
 OBSERVATION_PROTOCOL = "company-evidence-v1"
+# A production decision's frozen inputs (Phase 7); never paired with discovery observations.
+DECISION_OBSERVATION_PROTOCOL = "decision-observation-v1"
 
 
 def timestamp(value: str) -> str:

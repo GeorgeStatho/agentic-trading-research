@@ -1,14 +1,13 @@
 """Quote depth, age and spread checks independent of open-interest ranking."""
-from datetime import datetime, timezone
-
 from catalyst_models import timestamp
+from services.evaluation_clock import evaluation_now
 from services.execution_telemetry import number, quote_values
 from services.contract_policy import ContractPolicy
 
 
 def evaluate_liquidity(contract, *, as_of=None, quantity=1, policy=None):
     policy = policy or ContractPolicy.from_env()
-    now = as_of or datetime.now(timezone.utc)
+    now = as_of or evaluation_now()
     quote = contract.get('latest_quote') or {}
     bid, ask, mid, spread = quote_values(quote)
     quoted = timestamp(quote.get('timestamp'))

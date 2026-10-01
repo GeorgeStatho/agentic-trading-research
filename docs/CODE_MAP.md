@@ -568,3 +568,16 @@ side-matching contracts with Black-Scholes (`services/option_pricing.py`) on dat
 and stores an immutable report in `candidate_economics_reports`. It records the promotion-guarded
 `TRADE_ECONOMICS` entry gate before the streaming callback, and rechecks the report at order submission.
 Policy: `services/trade_economics_policy.py`. See [Research Phase 5](RESEARCH_PHASE5.md).
+
+Phase 6 reviews open positions when a material event arrives. `services/thesis_event_review.py` claims settled
+discovery `position_review` items (`claim_position_reviews`) inside the option manager's cycle, and reuses the daily
+validator's evidence pack, adjudicator and arbiter. It records shadow-only verdicts, would-be actions and what changed
+in `thesis_event_reviews`. Policy: `services/event_thesis_review_policy.py`. See [Research Phase 6](RESEARCH_PHASE6.md).
+
+Phase 7 makes forward evidence accumulate and ties promotion to criteria written beforehand. `begin_candidate` opens a
+rolling production cohort (`services/forward_cohorts.py`); while a challenger model pair is on, the live route freezes a
+decision observation with every DTE bucket's chain (`services/decision_observations.py`). The collector finalizes the
+incumbent's and the challenger's outputs on it (`services/challenger_evaluation.py`, `paired_decisions.py`), and the option
+manager polls Alpaca closing marks (`services/research_marks.py`). Paired reports, frozen acceptance criteria and approvals live
+in `Data/market_db_modules/forward_comparison.py`; route ledgers in `discovery_evaluation.py` and `research_outcomes.py`.
+See [Research Phase 7](RESEARCH_PHASE7.md).

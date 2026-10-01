@@ -18,7 +18,8 @@ SOURCE_TIME_KEYS = {
 def validate_source_times(value, cutoff):
     if isinstance(value, dict):
         for name, item in value.items():
-            if name in SOURCE_TIME_KEYS and item is not None:
+            # Serializers write an unknown time as "", which states nothing to check.
+            if name in SOURCE_TIME_KEYS and item not in (None, ''):
                 if timestamp(item) > cutoff:
                     raise ValueError("Observation includes evidence after its cutoff")
             elif isinstance(item, (dict, list)):
@@ -26,6 +27,13 @@ def validate_source_times(value, cutoff):
     elif isinstance(value, list):
         for item in value:
             validate_source_times(item, cutoff)
+
+
+WITNESS_VERSION = "observation-input-v2"
+
+
+def source_witness(observation):
+    return {"source_snapshot_hash": digest(observation["source_snapshot"])}
 
 
 def record_research_observation(observation: ResearchObservation, *, db_path=DB_PATH):
@@ -80,16 +88,18 @@ def bind_candidate_observation(conn, candidate_id, observation_id):
     if conn.execute("SELECT 1 FROM candidate_snapshots WHERE candidate_id=?", (candidate_id,)).fetchone():
         raise ValueError("Cannot attach an observation after candidate evaluation has begun")
     conn.execute("INSERT INTO candidate_observations VALUES (?,?)", (candidate_id, observation_id))
+    # The observation is immutable and hash-checked, so its digest witnesses the binding without a
+    # second full copy of the frozen inputs for every candidate that shares them.
     envelope = {"candidate_id": candidate_id, "observation_id": observation_id,
-                "stage": "observation_input", "snapshot_version": "observation-input-v1",
+                "stage": "observation_input", "snapshot_version": WITNESS_VERSION,
                 "information_cutoff_time": observation["information_cutoff_time"],
-                "payload": observation["source_snapshot"]}
+                "payload": source_witness(observation)}
     manifest = json.loads(candidate["pipeline_version_json"])
     conn.execute("""INSERT INTO candidate_snapshots
         (candidate_id,stage,captured_at,information_cutoff_time,pipeline_version,
          snapshot_version,snapshot_hash,snapshot_json) VALUES (?,?,?,?,?,?,?,?)""",
         (candidate_id, "observation_input", candidate["created_at"], observation["information_cutoff_time"],
-         manifest["pipeline_version"], "observation-input-v1", digest(envelope), canonical(envelope)))
+         manifest["pipeline_version"], WITNESS_VERSION, digest(envelope), canonical(envelope)))
     return observation
 
 
@@ -117,7 +127,8 @@ def validate_candidate_observation(conn, candidate_id, observation):
                 if key in source and key in payload and source[key] != payload[key]:
                     raise ValueError("Candidate inputs differ from the shared source snapshot")
         if row["stage"] == "observation_input":
-            witness_found = envelope["payload"] == observation["source_snapshot"]
+            # Earlier candidates carry the full source as their witness.
+            witness_found = envelope["payload"] in (source_witness(observation), observation["source_snapshot"])
     if not witness_found:
         raise ValueError("Candidate lacks the original shared source snapshot")
 

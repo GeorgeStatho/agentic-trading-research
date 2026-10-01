@@ -66,9 +66,20 @@ def guard_policy(policy, stages, *, db_path=DB_PATH):
     return replace(policy, **changes) if changes else policy
 
 
+# Discovery intake and paired forward evaluations are research records with no capital path.
+PAIRED_PREFIX = 'paired:'
+RESEARCH_ONLY_PREFIXES = ('discovery:', PAIRED_PREFIX)
+
+
+def research_only_candidate(candidate_id):
+    return str(candidate_id or '').startswith(RESEARCH_ONLY_PREFIXES)
+
+
 def champion_allows(candidate, *, db_path=DB_PATH):
     """Research candidates never deploy; a promoted manifest owns the capital path."""
-    if candidate.get('research_run_id') or candidate.get('research_strategy'):
+    context = candidate.get('candidate_context') or {}
+    if (candidate.get('research_run_id') or candidate.get('research_strategy')
+            or research_only_candidate(candidate.get('candidate_id') or context.get('candidate_id'))):
         return False
     try:
         with closing(sqlite3.connect(f'file:{Path(db_path).resolve()}?mode=ro', uri=True)) as conn:
