@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,7 +24,7 @@ def _json_object(value: Any) -> dict[str, Any]:
 
 def backfill_decision_autopsy_ledger(*, db_path: Path | str = DB_PATH) -> int:
     """Create one snapshot for legacy manager decisions that predate the ledger."""
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
             """
             SELECT history.*
@@ -116,7 +117,7 @@ def list_decision_autopsy_ledger(
         parameters.append(as_of_timestamp)
 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         return conn.execute(
             f"""
             SELECT

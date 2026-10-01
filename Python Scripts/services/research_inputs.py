@@ -4,6 +4,12 @@ import json
 from statistics import mean
 
 from services.research_contract import assert_information_cutoff, direction, number, utc
+from services.entry_gates import ENTRY_GATES
+from agent_helpers.deterministic_option_selector import _pick_matching_contract
+from agent_helpers.deterministic_option_selector import config
+from agent_helpers.deterministic_option_selector.market import selection_date
+from services.contract_policy import ContractPolicy
+from services.pipeline_version import serializable
 
 
 FEATURE_TIME_KEYS = {'timestamp', 'published_at', 'available_at', 'as_of', 'quote_at',
@@ -12,9 +18,10 @@ FEATURE_TIME_KEYS = {'timestamp', 'published_at', 'available_at', 'as_of', 'quot
 
 
 def feature_times(value):
+    """Every stated time in a payload. Serializers write an unknown time as "", which states nothing."""
     if isinstance(value, dict):
         for key, item in value.items():
-            if key in FEATURE_TIME_KEYS and item is not None:
+            if key in FEATURE_TIME_KEYS and item not in (None, ''):
                 yield item
             elif isinstance(item, (dict, list)):
                 yield from feature_times(item)
@@ -72,10 +79,10 @@ def load_inputs(conn, candidate, as_of):
         if rejection['stage'] != 'LIQUIDITY':
             gates[rejection['stage']] = False
     # Canonical entry_gate snapshots exist even when record_gate was not reached.
-    for name, key in (('CONTINUATION', 'entry_gate'), ('REGIME', 'market_regime_gate')):
-        gate = payload.get(key) or {}
-        if isinstance(gate.get('would_allow'), bool):
-            gates.setdefault(name, gate['would_allow'])
+    for entry_gate in ENTRY_GATES:
+        verdict = entry_gate.verdict(payload) or {}
+        if isinstance(verdict.get('would_allow'), bool):
+            gates.setdefault(entry_gate.name, verdict['would_allow'])
     strategist = payload.get('strategist_recommendation') or snapshots.get('post_strategist', (None, {}))[1].get('recommendation') or {}
     confidence = {key: manager.get(key) for key in ('thesis_confidence', 'timing_confidence', 'execution_confidence')}
     selected = payload.get('selected_option')
@@ -106,33 +113,30 @@ def load_inputs(conn, candidate, as_of):
                               if 'post_contract_selection' in snapshots or any(not r['shadow'] for r in rejections) else None,
     }
     contracts = (market.get('option_market') or {}).get('contracts') or []
+    # The full market context is hundreds of kilobytes; only replaying a missing selection reads it.
+    replayable = not selected and direction(manager.get('decision')) in {'call', 'put'}
     return {'candidate_id': candidate['candidate_id'], 'symbol': candidate['symbol'],
             'created_at': candidate['created_at'], 'information_cutoff_time': cutoff,
             'evaluation_cutoff_time': as_of, 'features': features, 'contracts': contracts,
             'selected_contract': selected, 'rejected_by': sorted({r['stage'] for r in rejections}),
             'snapshot_hashes': {name: row['snapshot_hash'] for name, (row, _) in snapshots.items()},
-            'selection_context': market, 'target_dte_bucket': manager.get('target_dte_bucket', 'none'),
+            'selection_context': market if replayable else {}, 'target_dte_bucket': manager.get('target_dte_bucket', 'none'),
             'selection_source': 'recorded_production' if selected else 'unavailable',
-            'pipeline_version': json.loads(candidate['pipeline_version_json'])}
+            # The run freezes the whole manifest; repeating it per candidate cost ~37 KB each.
+            'pipeline_version': json.loads(candidate['pipeline_version_json'])['pipeline_version']}
 
 
-def replay_missing_selection(inputs):
+def replay_missing_selection(inputs, manifest):
     """Run only the deterministic picker, with saved features and the original date.
 
-    Caller verifies the frozen manifest and source hashes first. No model, quote,
-    account or history refresh belongs in this path.
+    Caller verifies the frozen manifest (the candidate's, which a frozen-forward run requires to be
+    its own) and source hashes first. No model, quote, account or history refresh belongs here.
     """
     side = direction(inputs['features'].get('manager_direction'))
     if inputs['selected_contract'] or not inputs['contracts'] or side not in {'call', 'put'}:
         return inputs
-    from agent_helpers.deterministic_option_selector import _pick_matching_contract
-    from agent_helpers.deterministic_option_selector import config
-    from agent_helpers.deterministic_option_selector.market import selection_date
-    from services.pipeline_version import serializable
-    from services.contract_policy import ContractPolicy
     current_config = {key: serializable(value) for key, value in vars(config).items()
                       if key.isupper() and isinstance(value, (str, int, float, bool, dict, list, tuple, set, frozenset))}
-    manifest = inputs['pipeline_version']
     if (current_config != manifest.get('selector_config') or
             serializable(ContractPolicy.from_env()) != manifest.get('gate_config', {}).get('contracts')):
         raise ValueError('Selector configuration changed; open a new challenger')

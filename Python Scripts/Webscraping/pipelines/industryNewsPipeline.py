@@ -1,13 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-import sys
-
-if __package__ in {None, ""}:
-    WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
-    if str(WEBSCRAPING_DIR) not in sys.path:
-        sys.path.append(str(WEBSCRAPING_DIR))
-
 from pipelines._shared import (
     MAX_ARTICLES_PER_SEARCH_PAGE,
     MAX_ARTICLE_AGE_DAYS,
@@ -25,7 +17,7 @@ from pipelines._entity_adapters import (
     make_request_saver,
     make_search_request_builder,
 )
-from pipelines._internal import is_blacklisted_source_link, link_matches_variants, normalize_match_text
+from pipelines._internal import is_blacklisted_cnbc_link, link_matches_variants, normalize_match_text
 from pipelines._orchestration import (
     run_mixed_job_orchestration,
 )
@@ -121,8 +113,8 @@ def _filter_industry_candidate_links(page_url: str, links: list[dict], industry:
         href = str(link.get("href") or "")
         if not href:
             continue
-        if is_blacklisted_source_link(href):
-            LOGGER.info("Skipping blocked source URL %s for industry %s", href, industry["name"])
+        if is_blacklisted_cnbc_link(href):
+            LOGGER.info("Skipping blacklisted CNBC URL %s for industry %s", href, industry["name"])
             continue
 
         if link_matches_variants(link, variants):

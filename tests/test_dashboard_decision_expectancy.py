@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import sys
+from contextlib import closing
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -9,13 +9,7 @@ from unittest.mock import patch
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
 DATA_DIR = ROOT_DIR / "Data"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from db_common import get_connection  # noqa: E402
 from market_db import (  # noqa: E402
@@ -141,7 +135,7 @@ class DecisionExpectancyReaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "expectancy-reader.db"
             initialize_database(db_path=db_path, schema_path=DATA_DIR / "market_schema.sql")
-            with get_connection(db_path) as conn:
+            with closing(get_connection(db_path)) as conn, conn:
                 conn.execute(
                     """
                     INSERT INTO manager_decision_history (
@@ -163,7 +157,7 @@ class DecisionExpectancyReaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "expectancy-closed.db"
             initialize_database(db_path=db_path, schema_path=DATA_DIR / "market_schema.sql")
-            with get_connection(db_path) as conn:
+            with closing(get_connection(db_path)) as conn, conn:
                 decision_id = conn.execute(
                     """
                     INSERT INTO manager_decision_history (symbol, decision_run_at, trade_executed)
@@ -184,7 +178,7 @@ class DecisionExpectancyReaderTests(unittest.TestCase):
                 broker_confirmed=True,
                 db_path=db_path,
             ))
-            with get_connection(db_path) as conn:
+            with closing(get_connection(db_path)) as conn, conn:
                 row = conn.execute(
                     "SELECT outcome_status, realized_pnl_pct, closed_at FROM manager_decision_history WHERE id = ?",
                     (decision_id,),

@@ -10,26 +10,12 @@ import sys
 import time
 from typing import Any
 
-try:
-    from dotenv import load_dotenv
-except ImportError:  # pragma: no cover - optional dependency
-    load_dotenv = None
+from services.runtime_paths import DATA_DIR, LOGS_DIR
+from services.settings import load_process_settings
 
-
-PYTHON_SCRIPTS_DIR = Path(__file__).resolve().parent
-ROOT_DIR = PYTHON_SCRIPTS_DIR.parent
-DATA_DIR = ROOT_DIR / "Data"
-LOGS_DIR = DATA_DIR / "logs"
-ENV_PATH = ROOT_DIR / ".env"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-
-for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.append(normalized)
-
-if load_dotenv is not None:
-    load_dotenv(ENV_PATH)
+# Entrypoint only: importing this module (tests) must not load .env.
+if __name__ == "__main__":
+    load_process_settings()
 
 from agent_pipeline.main import run_news_collection_pipeline
 from db_helpers import (
@@ -180,6 +166,12 @@ def run_news_collection_cycle() -> dict[str, Any]:
     from services.candidate_lifecycle import observe
     from services.catalyst_response_collector import collect_catalyst_responses
     result['catalyst_response_refresh'] = observe(collect_catalyst_responses)
+    from services.forward_evaluation import run_forward_evaluation_cycle
+    result['forward_evaluation'] = observe(run_forward_evaluation_cycle)
+    from services.company_evidence_service import collect_company_evidence
+    result['company_evidence_refresh'] = observe(collect_company_evidence)
+    from services.event_discovery import discover_company_events
+    result['event_discovery'] = observe(discover_company_events)
     JsonFileWriter.write(SETTINGS.output_path, result)
     LOGGER.info("Saved news collection output to %s", SETTINGS.output_path)
     return result

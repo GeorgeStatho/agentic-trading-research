@@ -26,6 +26,7 @@ class OptionPositionManagerService:
         trade_journal: Any | None = None,
         thesis_journal: Any | None = None,
         thesis_validator: Any | None = None,
+        event_thesis_reviewer: Any | None = None,
         logger: logging.Logger,
     ) -> None:
         self._settings = settings
@@ -34,6 +35,7 @@ class OptionPositionManagerService:
         self._trade_journal = trade_journal
         self._thesis_journal = thesis_journal
         self._thesis_validator = thesis_validator
+        self._event_thesis_reviewer = event_thesis_reviewer
         self._logger = logger
 
     @staticmethod
@@ -184,6 +186,16 @@ class OptionPositionManagerService:
             self._logger.exception("Outcome reconciliation failed: %s", exc)
             return {"error": str(exc)}
 
+    def _run_event_thesis_reviews(self, *, positions: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """Shadow reviews of open theses after material events; mechanical management already ran."""
+        if self._event_thesis_reviewer is None or not positions:
+            return None
+        try:
+            return self._event_thesis_reviewer.run(positions=positions)
+        except Exception as exc:
+            self._logger.exception("Event thesis reviews failed: %s", exc)
+            return {"error": str(exc)}
+
     def run_cycle(self, *, trading_client: TradingClient) -> dict[str, Any]:
         from Trading import ManageCurrentOptionPositions
 
@@ -293,6 +305,9 @@ class OptionPositionManagerService:
         )
         if thesis_validation_result is not None:
             management_result["thesis_validator"] = thesis_validation_result
+        event_review_result = self._run_event_thesis_reviews(positions=positions)
+        if event_review_result is not None:
+            management_result["event_thesis_reviews"] = event_review_result
 
         management_result["outcome_reconciliation"] = self.reconcile_outcomes(trading_client=trading_client, refresh_fills=False)
         management_result["post_exit_returns"] = observe(refresh_post_exit_returns)

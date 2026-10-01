@@ -1,17 +1,11 @@
-from stringtoJson import generalWrite
-from yfinance_client import LOGGER, stream_stock_prices
+from WritingToDataBase.stringtoJson import generalWrite
+from market_data.yfinance_client import LOGGER, stream_stock_prices
 import json
 
 from pathlib import Path
-import sys
 
-WRITER_DIR = Path(__file__).resolve().parents[2] / "WritingToDataBase"
-if str(WRITER_DIR) not in sys.path:
-    sys.path.append(str(WRITER_DIR))
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
 
 from db_helpers.market import add_company_price_snapshot, initialize_market_database
 

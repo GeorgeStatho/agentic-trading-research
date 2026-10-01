@@ -65,7 +65,7 @@ export const ROUTES: readonly Route[] = [
     tabs: [
       { slug: 'expectancy', label: 'Expectancy', render: () => <DecisionExpectancyPage /> },
       { slug: 'backtests', label: 'Backtests', render: () => <BacktestPage /> },
-      { slug: 'rollout', label: 'V2 Rollout', render: () => <V2StatusPage /> },
+      { slug: 'rollout', label: 'V2 Rollout', supportsDemo: true, render: (demoMode) => <V2StatusPage demoMode={demoMode} /> },
     ],
   },
 ]

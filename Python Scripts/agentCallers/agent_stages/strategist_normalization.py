@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from agent_contracts import StrategistRecommendation
 from services.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET
 from agent_stages.strategist_schema import (
     VALID_CONFIDENCE_LEVELS,
@@ -77,7 +78,7 @@ def extract_recommendation(payload: dict[str, Any] | None) -> dict[str, Any] | N
     return None
 
 
-def _normalize_string_list(value: Any) -> list[str]:
+def normalize_string_list(value: Any) -> list[str]:
     if isinstance(value, str):
         text = value.strip()
         return [text] if text else []
@@ -184,7 +185,7 @@ def _normalize_confidence(value: Any) -> str:
     return confidence if confidence in VALID_CONFIDENCE_LEVELS else ""
 
 
-def _normalize_quality(value: Any) -> str:
+def normalize_quality(value: Any) -> str:
     quality = str(value or "").strip().lower()
     replacements = {
         "high": "strong",
@@ -195,7 +196,7 @@ def _normalize_quality(value: Any) -> str:
     return quality if quality in VALID_QUALITY_LEVELS else ""
 
 
-def _normalize_timing_clarity(value: Any) -> str:
+def normalize_timing_clarity(value: Any) -> str:
     timing = str(value or "").strip().lower()
     replacements = {
         "timely": "clear",
@@ -283,16 +284,16 @@ def _normalize_stock_direction(value: Any) -> str:
     return direction if direction in VALID_STOCK_DIRECTIONS else ""
 
 
-def normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str, Any] | None:
+def normalize_recommendation(recommendation: dict[str, Any] | None) -> StrategistRecommendation | None:
     # Normalize the raw strategist output into one recommendation shape so downstream code can rely on fixed fields.
     if not isinstance(recommendation, dict):
         return None
 
     decision = _normalize_decision(recommendation.get("decision"))
     confidence = _normalize_confidence(recommendation.get("confidence"))
-    evidence_quality = _normalize_quality(recommendation.get("evidence_quality"))
-    setup_quality = _normalize_quality(recommendation.get("setup_quality"))
-    timing_clarity = _normalize_timing_clarity(recommendation.get("timing_clarity"))
+    evidence_quality = normalize_quality(recommendation.get("evidence_quality"))
+    setup_quality = normalize_quality(recommendation.get("setup_quality"))
+    timing_clarity = normalize_timing_clarity(recommendation.get("timing_clarity"))
     preferred_option_direction = _normalize_option_direction(
         recommendation.get("preferred_option_direction")
         or recommendation.get("option_direction")
@@ -313,9 +314,9 @@ def normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str,
         or ""
     ).strip()
     summary = str(recommendation.get("summary") or recommendation.get("reason") or "").strip()
-    catalyst = _normalize_string_list(recommendation.get("catalyst"))
-    thesis = _normalize_string_list(recommendation.get("thesis"))
-    risks = _normalize_string_list(recommendation.get("risks"))
+    catalyst = normalize_string_list(recommendation.get("catalyst"))
+    thesis = normalize_string_list(recommendation.get("thesis"))
+    risks = normalize_string_list(recommendation.get("risks"))
     contradictions_present = _coerce_bool(recommendation.get("contradictions_present"))
     watchlist_reason = str(recommendation.get("watchlist_reason") or "").strip()
     grounded_company_symbol = str(recommendation.get("grounded_company_symbol") or "").strip().upper()
@@ -323,14 +324,14 @@ def normalize_recommendation(recommendation: dict[str, Any] | None) -> dict[str,
     evidence_claims = recommendation.get("evidence_claims")
 
     if not thesis:
-        thesis = _normalize_string_list(recommendation.get("bull_case"))
+        thesis = normalize_string_list(recommendation.get("bull_case"))
     if not thesis:
-        thesis = _normalize_string_list(recommendation.get("bullish_points"))
+        thesis = normalize_string_list(recommendation.get("bullish_points"))
 
     if not risks:
-        risks = _normalize_string_list(recommendation.get("bear_case"))
+        risks = normalize_string_list(recommendation.get("bear_case"))
     if not risks:
-        risks = _normalize_string_list(recommendation.get("risk_factors"))
+        risks = normalize_string_list(recommendation.get("risk_factors"))
 
     if not summary and thesis:
         summary = thesis[0]

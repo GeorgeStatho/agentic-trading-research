@@ -25,6 +25,15 @@ Use this checklist when adding a feature so implementation remains discoverable 
 4. Persist model name, prompt version, input IDs, output, and timestamp.
 5. Keep scoring, constraints, and any order permission in deterministic Python.
 
+## Entry Gate
+
+1. Compute the verdict in a `services/` module and return a dict with `allowed`, `would_allow`,
+   `reason_codes`, `policy_version` and `enforcement_mode`.
+2. Add one `EntryGate` to `services/entry_gates.py`; eligibility and carrying follow from it.
+3. Record it with `record_gate` so research reports can measure it, and add its policy block to
+   `gate_config` in `services/pipeline_version.py` and `GATE_BLOCKS` for promotion proofs.
+4. Default to shadow; enforcement stays behind `guard_policy` and a matching promotion proof.
+
 ## Demo Feature
 
 1. Put static fixtures in `api_support/demo_mode.py` or a feature-local equivalent.

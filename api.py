@@ -1,24 +1,13 @@
 from __future__ import annotations
 
 import logging
-import sys
-from pathlib import Path
 
 from flask import Flask
 
-from portfolio_history_service import load_env
-
-
-load_env()
-
-ROOT_DIR = Path(__file__).resolve().parent
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-DATA_DIR = ROOT_DIR / "Data"
-for path in (PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.append(normalized)
+if __name__ == "__main__":
+    # Before route modules import services that still read configuration at import time.
+    from services.settings import load_process_settings
+    load_process_settings()
 
 from api_routes.dashboard import register_dashboard_routes
 from api_routes.backtest import register_backtest_routes
@@ -31,6 +20,7 @@ from api_routes.telemetry import register_telemetry_routes
 from api_routes.thesis_validator import register_thesis_validator_routes
 from api_routes.trades import register_trade_routes
 from api_routes.v2_status import register_v2_status_routes
+from api_routes.forward_evaluation import register_forward_evaluation_routes
 from services.telemetry import send_startup_ping_async
 
 
@@ -57,6 +47,7 @@ register_exposure_map_routes(app)
 register_telemetry_routes(app)
 register_thesis_validator_routes(app)
 register_v2_status_routes(app)
+register_forward_evaluation_routes(app)
 
 
 if __name__ == "__main__":

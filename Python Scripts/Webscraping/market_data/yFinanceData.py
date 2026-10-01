@@ -2,20 +2,14 @@ import asyncio
 import json
 import math
 from pathlib import Path
-import sys
 from typing import Any
 
-WRITER_DIR = Path(__file__).resolve().parents[2] / "WritingToDataBase"
-if str(WRITER_DIR) not in sys.path:
-    sys.path.append(str(WRITER_DIR))
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
 
 from market_db import add_company_price_snapshot, load_sector_tree
-from stringtoJson import generalWrite
-from yfinance_client import (
+from WritingToDataBase.stringtoJson import generalWrite
+from market_data.yfinance_client import (
     LOGGER,
     fetch_company_fast_info,
     fetch_industry_snapshot,

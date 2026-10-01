@@ -1,6 +1,6 @@
 # Architecture
 
-This document is the current source of truth for where new code belongs. The repository retains older compatibility wrappers, but new feature code should use the boundaries below.
+This document is the current source of truth for where new code belongs.
 
 ```text
 React dashboard ──> Flask routes ──> API support ──> SQLite helpers/schemas
@@ -17,7 +17,7 @@ News ingestion ──> agent pipeline ──> strategist/manager ──> determi
 | API use case | `api_support/<feature>.py` | Read/shape data here; no Flask objects. |
 | Market persistence | `Data/market_db_modules/` | Export through `Data/market_db.py` and `Data/db_helpers/market.py`. |
 | News persistence | `Data/news_db_modules/` | Export through `Data/news_db.py` and `Data/db_helpers/news.py`. |
-| Database schema | `Data/market_schema.sql`, `Data/news_schema.sql` | Use additive, idempotent `CREATE ... IF NOT EXISTS` migrations. |
+| Database schema | `Data/market_schema.sql`, `Data/news_schema.sql` | Use additive, idempotent `CREATE ... IF NOT EXISTS` migrations. The market setup stamps the database with a hash of its files (`Data/*.py`, `Data/*.sql`, `Data/market_db_modules/`, `config/risk_clusters.csv`) and reruns only when that hash changes, so a new migration must live in those files. |
 | Agent input builders | `Python Scripts/agentCallers/agent_builders/` | Deterministic payload construction only. |
 | Agent stage | `Python Scripts/agentCallers/agent_stages/` | Prompt, structured model response, and validation. |
 | Agent data helper | `Python Scripts/agentCallers/agent_helpers/` | Database and market-context loading. |
@@ -39,7 +39,12 @@ Docker Compose remains the source of truth for the integrated production-like st
 
 ## Compatibility Policy
 
-Older top-level modules in `Python Scripts/Webscraping/` and `Python Scripts/agentCallers/` may be import-compatible facades. Do not add new business logic there. Add it to the named package boundary above, then preserve old imports with a thin wrapper only when needed.
+Import roots are declared once in `pyproject.toml` (see [DEVELOPMENT.md](DEVELOPMENT.md)); modules never edit `sys.path`. Put code in the package boundary above and import it from there. Do not add re-export wrappers: move callers to the canonical module instead. `Python Scripts/Trading.py` remains a facade for the legacy trading runtime.
+
+## Configuration
+
+Read settings through `services.settings.get_settings()` at call time; never read the
+environment when a module is imported. See [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Safety Boundaries
 

@@ -1,3 +1,4 @@
+from contextlib import closing
 import json
 from pathlib import Path
 
@@ -18,7 +19,7 @@ def _ensure_market_reference_data() -> None:
     if not Path(SECTOR_DEFINITIONS_JSON_PATH).read_text(encoding="utf-8").strip():
         return
 
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         if not table_exists(conn, "sectors"):
             initialize_market_database()
             return
@@ -46,7 +47,7 @@ def load_json_keys(json_path: Path) -> list[str]:
 
 def get_all_sectors() -> list[dict]:
     _ensure_market_reference_data()
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -62,7 +63,7 @@ def get_all_sectors() -> list[dict]:
 
 def get_all_industries() -> list[dict]:
     _ensure_market_reference_data()
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -83,7 +84,7 @@ def get_all_industries() -> list[dict]:
 
 def get_all_companies() -> list[dict]:
     _ensure_market_reference_data()
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT

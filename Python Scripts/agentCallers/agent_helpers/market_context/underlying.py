@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from services.settings import get_settings
 from .common import (
-    UNDERLYING_HISTORY_LOOKBACK_CALENDAR_DAYS,
-    UNDERLYING_HV_LONG_WINDOW_DAYS,
-    UNDERLYING_HV_SHORT_WINDOW_DAYS,
     compute_realized_volatility,
 )
 from .underlying_bars import (
@@ -30,7 +28,7 @@ def _empty_underlying_price_history_snapshot(*, symbol: str, error: str = "") ->
         "source": "alpaca_stock_bars",
         "feed": "iex",
         "timeframe": "1Day",
-        "lookback_calendar_days": UNDERLYING_HISTORY_LOOKBACK_CALENDAR_DAYS,
+        "lookback_calendar_days": get_settings().manager_context.underlying_history_lookback_days,
         "close_count": 0,
         "first_bar_timestamp": "",
         "last_bar_timestamp": "",
@@ -151,11 +149,11 @@ def _summarize_underlying_price_history(
             "last_close": round(close_values[-1], 6),
             "historical_volatility_20d": compute_realized_volatility(
                 close_values,
-                UNDERLYING_HV_SHORT_WINDOW_DAYS,
+                get_settings().manager_context.hv_short_window_days,
             ),
             "historical_volatility_60d": compute_realized_volatility(
                 close_values,
-                UNDERLYING_HV_LONG_WINDOW_DAYS,
+                get_settings().manager_context.hv_long_window_days,
             ),
             "recent_closes": [round(value, 6) for value in close_values[-5:]],
             "technical_indicators": technical_indicators,

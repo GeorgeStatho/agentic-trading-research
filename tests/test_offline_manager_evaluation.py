@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,11 +9,6 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "Data"
-AGENT_CALLERS_DIR = ROOT_DIR / "Python Scripts" / "agentCallers"
-for path in (ROOT_DIR, DATA_DIR, AGENT_CALLERS_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from db_common import get_connection  # noqa: E402
 from market_db import (  # noqa: E402
@@ -185,7 +180,7 @@ class OfflineManagerEvaluationTests(unittest.TestCase):
 
         self.assertTrue(report["offline_only"])
         self.assertEqual(report["replayed_decision_count"], 1)
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             run_count = conn.execute("SELECT COUNT(*) FROM manager_replay_evaluations").fetchone()[0]
             result_count = conn.execute("SELECT COUNT(*) FROM manager_replay_results").fetchone()[0]
         self.assertEqual(run_count, 1)
@@ -219,7 +214,7 @@ class OfflineManagerEvaluationTests(unittest.TestCase):
         )
 
         self.assertEqual(report["source_decision_count"], 0)
-        with get_connection(empty_db_path) as conn:
+        with closing(get_connection(empty_db_path)) as conn, conn:
             exists = conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'manager_decision_history'"
             ).fetchone()
@@ -252,7 +247,7 @@ class OfflineManagerEvaluationTests(unittest.TestCase):
         self.assertEqual(report["metrics"]["false_positive_rate"], 0.5)
         self.assertEqual(report["metrics"]["confidence_buckets"]["high"]["count"], 1)
         self.assertEqual(report["metrics"]["confidence_buckets"]["low"]["count"], 1)
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             modes = [
                 row[0]
                 for row in conn.execute(
@@ -267,7 +262,7 @@ class OfflineManagerEvaluationTests(unittest.TestCase):
             pnl_updated_at="2026-01-03T10:00:00+00:00",
             pnl=-6.0,
         )
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             execution_id = conn.execute(
                 """
                 INSERT INTO option_trade_executions (
@@ -358,7 +353,7 @@ class OfflineManagerEvaluationTests(unittest.TestCase):
         self.assertEqual(report["legacy_partial_replayed_count"], 1)
         self.assertIn("Do not combine", report["comparability"])
         self.assertTrue(any(item["reason"].startswith("exact_replay_available") for item in report["skipped"]))
-        with get_connection(self.db_path) as conn:
+        with closing(get_connection(self.db_path)) as conn, conn:
             modes = [row[0] for row in conn.execute("SELECT replay_mode FROM manager_replay_results ORDER BY id").fetchall()]
         self.assertEqual(modes, ["legacy_partial"])
 

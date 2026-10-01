@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -25,7 +26,7 @@ def record_telemetry_installation(
 
     if conn is None:
         initialize_database(db_path=db_path)
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return record_telemetry_installation(payload, db_path=db_path, conn=local_conn)
 
     project = clean_text(payload.get("project"))
@@ -122,7 +123,7 @@ def get_telemetry_summary(
         query += " WHERE project = ?"
         parameters.append(normalized_project)
 
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         row = conn.execute(query, tuple(parameters)).fetchone()
 
     return {

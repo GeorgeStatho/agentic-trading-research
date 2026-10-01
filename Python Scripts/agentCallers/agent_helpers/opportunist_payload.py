@@ -1,19 +1,8 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime
-from pathlib import Path
-import sys
 from typing import Any
-
-
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT_DIR / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
 
 from agent_helpers.shared import normalize_time_window, published_at_in_window
 from db_helpers import DB_PATH, get_all_sectors, get_connection, initialize_news_database
@@ -51,7 +40,7 @@ def find_sector(sector_identifier: str) -> dict[str, Any] | None:
 
 def _load_sector_rss_rows(sector_id: int) -> list[dict[str, Any]]:
     # Load the sector rss rows once so the downstream logic can stay focused on orchestration.
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -166,7 +155,7 @@ def get_high_confidence_macro_news_for_sector(
         max_age_days=max_age_days,
     )
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT

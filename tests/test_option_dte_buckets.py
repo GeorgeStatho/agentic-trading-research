@@ -12,10 +12,6 @@ from unittest.mock import patch
 ROOT_DIR = Path(__file__).resolve().parents[1]
 PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
 TRADING_SUPPORT_DIR = PYTHON_SCRIPTS_DIR / "trading_support"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from services.config import FrontMainSettings, OptionPositionSettings  # noqa: E402
 from services.option_dte_buckets import DteBucket  # noqa: E402

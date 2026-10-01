@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from pathlib import Path
 from typing import Any, Optional
@@ -16,7 +17,7 @@ def add_sector(
 ) -> int:
     values = (sector_key, name, json_text(raw_json))
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return add_sector(sector_key, name, raw_json=raw_json, conn=local_conn)
 
     cursor = conn.execute(
@@ -45,7 +46,7 @@ def add_industry(
 ) -> int:
     values = (sector_id, industry_key, name, symbol, market_weight, json_text(raw_json))
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return add_industry(
                 sector_id,
                 industry_key,
@@ -85,7 +86,7 @@ def add_company(
 ) -> int:
     values = (industry_id, symbol, name, rating, market_weight, json_text(raw_json))
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return add_company(
                 industry_id,
                 symbol,
@@ -121,7 +122,7 @@ def replace_industry_company_rankings(
     conn: sqlite3.Connection | None = None,
 ) -> None:
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             replace_industry_company_rankings(
                 industry_id,
                 ranking_type,

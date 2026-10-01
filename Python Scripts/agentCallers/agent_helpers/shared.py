@@ -10,6 +10,7 @@ import os
 import re
 import time
 from typing import Any
+from services.settings import get_settings
 
 try:
     from google import genai
@@ -53,25 +54,12 @@ VERTEX_AUTH_SCOPES: tuple[str, ...] = (
     "https://www.googleapis.com/auth/cloud-platform",
 )
 
-VERTEX_MAX_ATTEMPTS = max(1, int(os.getenv("VERTEX_MAX_ATTEMPTS", "5")))
-VERTEX_RETRY_INITIAL_DELAY_SECONDS = max(
-    0.5,
-    float(os.getenv("VERTEX_RETRY_INITIAL_DELAY_SECONDS", "2")),
-)
-VERTEX_RETRY_MAX_DELAY_SECONDS = max(
-    VERTEX_RETRY_INITIAL_DELAY_SECONDS,
-    float(os.getenv("VERTEX_RETRY_MAX_DELAY_SECONDS", "30")),
-)
 
 # Explicit context caching is opt-in. Implicit caching is already on by default for
 # Gemini 2.5 models, so enable this only for stages whose system prompt clears the
 # provider minimum (2048 tokens) and which run many calls inside one TTL window.
-VERTEX_EXPLICIT_CACHE_ENABLED = str(
-    os.getenv("VERTEX_EXPLICIT_CACHE", "")
-).strip().lower() in {"1", "true", "yes"}
 # Cached tokens are billed for storage per hour, and RUN_INTERVAL_SECONDS defaults to
 # three hours -- a TTL longer than one cycle's strategist/manager burst is billed idle.
-VERTEX_CACHE_TTL_SECONDS = max(60, int(os.getenv("VERTEX_CACHE_TTL_SECONDS", "900")))
 
 # cache_key -> (cached_content_name, local_expiry_monotonic)
 _VERTEX_CACHE_REGISTRY: dict[str, tuple[str, float]] = {}
@@ -323,7 +311,7 @@ def _build_vertex_error_message(exc: Exception, model_name: str) -> str:
 
     if _is_vertex_rate_limited(exc):
         return (
-            f"Vertex AI rate limit hit for model '{model_name}' after {VERTEX_MAX_ATTEMPTS} attempts. "
+            f"Vertex AI rate limit hit for model '{model_name}' after {get_settings().vertex.max_attempts} attempts. "
             f"Last error: {message or 'RESOURCE_EXHAUSTED'}"
         )
 
@@ -375,7 +363,7 @@ def _cached_system_prompt_name(
     system prompt inline whenever this returns None -- prompts below the provider's
     minimum cacheable size (2048 tokens for Gemini 2.5) are rejected at create time.
     """
-    if not VERTEX_EXPLICIT_CACHE_ENABLED or genai_types is None:
+    if not get_settings().vertex.explicit_cache or genai_types is None:
         return None
 
     prompt_digest = hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[:16]
@@ -394,7 +382,7 @@ def _cached_system_prompt_name(
             config=genai_types.CreateCachedContentConfig(
                 system_instruction=system_prompt,
                 display_name=f"agent-stage-{prompt_digest}",
-                ttl=f"{VERTEX_CACHE_TTL_SECONDS}s",
+                ttl=f"{get_settings().vertex.cache_ttl_seconds}s",
             ),
         )
     except Exception as exc:
@@ -411,14 +399,14 @@ def _cached_system_prompt_name(
         return None
 
     # Expire locally before the server does so a call never races a vanishing cache.
-    local_expiry = time.monotonic() + max(30, VERTEX_CACHE_TTL_SECONDS - 60)
+    local_expiry = time.monotonic() + max(30, get_settings().vertex.cache_ttl_seconds - 60)
     _VERTEX_CACHE_REGISTRY[cache_key] = (cache.name, local_expiry)
     LOGGER.info(
         "Created Vertex context cache %s for model '%s' (prompt %s, ttl %ss)",
         cache.name,
         resolved_model,
         prompt_digest,
-        VERTEX_CACHE_TTL_SECONDS,
+        get_settings().vertex.cache_ttl_seconds,
     )
     return cache.name
 
@@ -460,9 +448,9 @@ def _ask_vertex_model(
     else:
         config_kwargs["system_instruction"] = system_prompt
 
-    retry_delay_seconds = VERTEX_RETRY_INITIAL_DELAY_SECONDS
+    retry_delay_seconds = get_settings().vertex.retry_initial_delay_seconds
 
-    for attempt in range(1, VERTEX_MAX_ATTEMPTS + 1):
+    for attempt in range(1, get_settings().vertex.max_attempts + 1):
         try:
             response = client.raw_client.models.generate_content(
                 model=resolved_model,
@@ -489,18 +477,18 @@ def _ask_vertex_model(
                 config_kwargs["system_instruction"] = system_prompt
                 continue
 
-            if _is_vertex_rate_limited(exc) and attempt < VERTEX_MAX_ATTEMPTS:
+            if _is_vertex_rate_limited(exc) and attempt < get_settings().vertex.max_attempts:
                 LOGGER.warning(
                     "Vertex AI rate limit hit for model '%s' (attempt %s/%s). "
                     "Sleeping %.1fs before retry.",
                     resolved_model,
                     attempt,
-                    VERTEX_MAX_ATTEMPTS,
+                    get_settings().vertex.max_attempts,
                     retry_delay_seconds,
                 )
                 time.sleep(retry_delay_seconds)
                 retry_delay_seconds = min(
-                    VERTEX_RETRY_MAX_DELAY_SECONDS,
+                    get_settings().vertex.retry_max_delay_seconds,
                     retry_delay_seconds * 2,
                 )
                 continue

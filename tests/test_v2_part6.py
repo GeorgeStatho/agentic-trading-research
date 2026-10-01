@@ -4,15 +4,10 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import logging
-import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
-
-ROOT = Path(__file__).resolve().parents[1]
-for folder in ('Data', 'Python Scripts', 'Python Scripts/agentCallers', 'Python Scripts/Webscraping'):
-    sys.path.insert(0, str(ROOT / folder))
 
 from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database
@@ -425,9 +420,9 @@ class ResearchDatabaseTests(unittest.TestCase):
         self.candidate(1)
         self.assertEqual(collect_run(run_id, as_of=END, db_path=self.db)['candidates'], 1)
 
-    def test_changed_source_cannot_continue_experiment(self):
+    def test_changed_evaluator_source_cannot_continue_experiment(self):
         run_id = self.run_fixture()
-        with patch('market_db_modules.research_runs.source_hash', return_value='changed'), self.assertRaises(ValueError):
+        with patch('services.research_versions.evaluator_source_hash', return_value='changed'), self.assertRaises(ValueError):
             collect_run(run_id, as_of=END, db_path=self.db)
 
     def test_changed_frozen_configuration_is_rejected(self):

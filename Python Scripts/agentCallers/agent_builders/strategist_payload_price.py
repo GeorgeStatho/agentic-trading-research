@@ -12,7 +12,7 @@ except ImportError:
     yf = None
 
 try:
-    from yfinance_client import REQUEST_HANDLER
+    from market_data.yfinance_client import REQUEST_HANDLER
 except ImportError:
     REQUEST_HANDLER = None
 

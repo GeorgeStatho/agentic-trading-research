@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import csv
 import json
 import re
@@ -174,7 +175,7 @@ def import_alpaca_option_quote_csv(
             result["duplicate_rows"] += len(batch) - inserted
             batch.clear()
 
-        with get_connection(db_path) as conn:
+        with closing(get_connection(db_path)) as conn, conn:
             for line_number, row in enumerate(reader, start=2):
                 if not any(clean_text(value) is not None for value in row.values()):
                     continue

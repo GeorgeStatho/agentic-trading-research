@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,7 @@ def _upsert_related_record(
     conn=None,
 ) -> int:
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return _upsert_related_record(
                 table_name,
                 key_columns,
@@ -57,7 +58,16 @@ def _upsert_related_record(
         """,
         values,
     )
-    return cursor.fetchone()["id"]
+    identity = cursor.fetchone()["id"]
+    if table_name == "company_opportunist_impacts" and conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='company_evidence_requests'").fetchone():
+        from datetime import datetime, timezone
+        from market_db_modules.evidence_refresh import enqueue_refresh
+        from market_db_modules.foundation_store import digest
+        enqueue_refresh(conn, record['company_id'], 'opportunist',
+                        digest([record['article_id'], record['confidence'], record['raw_json']]),
+                        at=datetime.now(timezone.utc).isoformat())
+    return identity
 
 
 def add_world_news_sector_impact(

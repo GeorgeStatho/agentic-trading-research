@@ -1,13 +1,35 @@
 from __future__ import annotations
 
-from pathlib import Path
+from contextlib import closing
 import logging
-import sys
 from datetime import datetime, timedelta, timezone
 
 from db_common import DB_PATH, get_connection
 from market_db import initialize_database as initialize_market_database
 from market_db import (
+    replay_research_session, load_research_progress,
+    record_evidence_thesis, get_evidence_thesis, evidence_thesis_report,
+    record_candidate_economics_report, get_candidate_economics_report, trade_economics_summary,
+    record_thesis_event_review, find_thesis_event_review, thesis_event_reviews, latest_thesis_verdict,
+    thesis_event_review_summary,
+    discovery_route_ledger, research_route_report, collect_research_thesis_outcomes,
+    enqueue_discovery_event, claim_discovery_batch, claim_position_reviews, preview_discovery_queue, renew_discovery_lease,
+    finish_discovery_item, discovery_queue_status,
+    record_evidence_document,
+    record_company_fact,
+    record_evidence_package,
+    get_evidence_package,
+    get_evidence_document,
+    get_company_fact,
+    latest_evidence_package,
+    list_company_documents,
+    list_company_facts,
+    enqueue_discovery,
+    get_discovery_item,
+    record_research_session,
+    get_research_session,
+    record_research_observation,
+    get_research_observation,
     record_catalyst_gate_observation, freshness_outcome_report,
     ensure_position_outcome, record_position_observation, list_post_exit_positions, resolve_post_exit_returns, exit_attribution_report, resolve_position_benchmarks, position_entry_context,
     store_execution_telemetry, pending_execution_telemetry, execution_telemetry_report,
@@ -20,6 +42,7 @@ from market_db import (
     count_thesis_validator_exits_for_date,
     get_latest_thesis_validation_runs_by_option_symbol,
     get_open_position_thesis_for_option_symbol,
+    list_open_position_theses_for_symbol,
     get_thesis_validation_run_for_date,
     list_thesis_validation_runs,
     record_position_thesis,
@@ -69,13 +92,8 @@ from market_db import (
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MARKET_DATA_DIR = PROJECT_ROOT / "Python Scripts" / "Webscraping" / "market_data"
-if str(MARKET_DATA_DIR) not in sys.path:
-    sys.path.append(str(MARKET_DATA_DIR))
-
 try:
-    from yFinanceData import load_industry_from_yfinance, load_sector_from_yfinance
+    from market_data.yFinanceData import load_industry_from_yfinance, load_sector_from_yfinance
 except ImportError:  # pragma: no cover - optional runtime integration
     load_industry_from_yfinance = None
     load_sector_from_yfinance = None
@@ -87,7 +105,7 @@ INDUSTRY_TOP_COMPANIES_REFRESH_DAYS = 30
 
 def _ensure_sector_definitions_seeded() -> None:
     initialize_market_database(db_path=DB_PATH)
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         sector_count = conn.execute("SELECT COUNT(*) AS count FROM sectors").fetchone()["count"]
 
     if int(sector_count or 0) > 0:
@@ -105,7 +123,7 @@ def _find_sector_row(sector_identifier: str) -> dict | None:
     if not needle:
         return None
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT id, sector_key, name
@@ -129,7 +147,7 @@ def _find_industry_row(industry_identifier: str) -> dict | None:
     if not needle:
         return None
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT i.id, i.industry_key, i.name, i.sector_id, s.sector_key, s.name AS sector_name
@@ -193,7 +211,7 @@ def ensure_sector_market_data(sector_identifier: str) -> dict | None:
     if sector is None:
         return None
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         industry_row = conn.execute(
             """
             SELECT 1
@@ -236,7 +254,7 @@ def ensure_sector_market_data(sector_identifier: str) -> dict | None:
 
 def ensure_all_sector_market_data() -> list[dict]:
     _ensure_sector_definitions_seeded()
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         sector_rows = conn.execute(
             """
             SELECT id, sector_key, name
@@ -282,7 +300,7 @@ def ensure_industry_market_data(industry_identifier: str) -> dict | None:
     industry = _find_industry_row(industry_identifier)
     if industry is not None:
         industry_key = str(industry["industry_key"])
-        with get_connection(DB_PATH) as conn:
+        with closing(get_connection(DB_PATH)) as conn, conn:
             company_row = conn.execute(
                 """
                 SELECT 1

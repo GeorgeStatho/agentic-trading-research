@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -10,10 +9,6 @@ from unittest.mock import patch
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "Data"
-for path in (ROOT_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 import db_helpers.market as market_helpers  # noqa: E402
 from market_db import (  # noqa: E402

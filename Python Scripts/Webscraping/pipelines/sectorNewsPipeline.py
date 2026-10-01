@@ -1,13 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-import sys
-
-if __package__ in {None, ""}:
-    WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
-    if str(WEBSCRAPING_DIR) not in sys.path:
-        sys.path.append(str(WEBSCRAPING_DIR))
-
 from pipelines._shared import (
     MAX_ARTICLE_AGE_DAYS,
     fetch_existing_article_by_url,
@@ -40,9 +32,8 @@ __all__ = [
 ]
 
 
-def _is_demo_feed_url(url: str) -> bool:
-    lowered = (url or "").lower()
-    return "example.com" in lowered or "example.org" in lowered
+def _is_cnbc_url(url: str) -> bool:
+    return "newswire.example.com" in (url or "").lower()
 
 
 def _find_sector(sector_identifier: str) -> dict | None:
@@ -124,7 +115,7 @@ def _process_sector_jobs(jobs: list[SectorSourceJob]) -> dict[int, int]:
     return run_article_save_requests(
         save_requests=save_requests,
         save_request=_save_sector_request,
-        should_include_link=lambda href, link: _is_demo_feed_url(href),
+        should_include_link=lambda href, link: _is_cnbc_url(href),
     )
 
 
@@ -180,7 +171,7 @@ def _build_all_sector_jobs_from_rss(sectors: list[dict], max_age_days: int = DEF
     return jobs
 
 
-def get_sector_news(sector_identifier: str, urls: list[str], source_page_url: str = "https://example.com/demo/rss/sector.xml") -> int:
+def get_sector_news(sector_identifier: str, urls: list[str], source_page_url: str = "https://newswire.example.com/") -> int:
     initialize_news_database()
     sector = _find_sector(sector_identifier)
     if sector is None:

@@ -1,20 +1,10 @@
 from __future__ import annotations
 
 import logging
-import sys
 import unittest
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
-
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from services.trade_executor import OptionTradeExecutor, TradeExecutionSession  # noqa: E402
 

@@ -15,8 +15,6 @@ PYTHON_SCRIPTS_DIR = REPO_ROOT / "Python Scripts"
 TRADING_SUPPORT_DIR = PYTHON_SCRIPTS_DIR / "trading_support"
 OPTION_SYMBOL = "AAPL240621C00150000"
 
-if str(PYTHON_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(PYTHON_SCRIPTS_DIR))
 
 from services.option_momentum import MOMENTUM_GOOD, MOMENTUM_UNKNOWN, evaluate_option_momentum
 
@@ -625,7 +623,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=3,
             unrealized_pl_pct_ratio=2.10,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -678,7 +676,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=3,
             unrealized_pl_pct_ratio=2.08,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -755,7 +753,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=3,
             unrealized_pl_pct_ratio=2.05,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -807,7 +805,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=3,
             unrealized_pl_pct_ratio=2.10,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -855,7 +853,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=3,
             unrealized_pl_pct_ratio=2.10,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -900,7 +898,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=3,
             unrealized_pl_pct_ratio=2.10,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -950,7 +948,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=2,
             unrealized_pl_pct_ratio=-0.35,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -982,7 +980,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=2,
             unrealized_pl_pct_ratio=-0.35,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -1021,7 +1019,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=2,
             unrealized_pl_pct_ratio=broker_unrealized_pl_pct_ratio,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -1272,7 +1270,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=4,
             unrealized_pl_pct_ratio=0.80,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -1314,7 +1312,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=4,
             unrealized_pl_pct_ratio=0.80,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -1426,7 +1424,7 @@ class OptionPositionTests(VerboseTestCase):
                     option_symbol=OPTION_SYMBOL,
                     quantity=scenario["quantity"],
                     unrealized_pl_pct_ratio=0.80,
-                    days_to_expiration=15,
+                    exit_rule_days_to_expiration=15,
                     hours_to_expiration=300.0,
                     exit_thresholds=exit_thresholds,
                     position_state={},
@@ -1450,7 +1448,7 @@ class OptionPositionTests(VerboseTestCase):
                     option_symbol=OPTION_SYMBOL,
                     quantity=scenario["follow_up_quantity"],
                     unrealized_pl_pct_ratio=0.60,
-                    days_to_expiration=15,
+                    exit_rule_days_to_expiration=15,
                     hours_to_expiration=300.0,
                     exit_thresholds=exit_thresholds,
                     position_state={
@@ -1476,7 +1474,7 @@ class OptionPositionTests(VerboseTestCase):
                     option_symbol=OPTION_SYMBOL,
                     quantity=scenario["follow_up_quantity"],
                     unrealized_pl_pct_ratio=0.39,
-                    days_to_expiration=15,
+                    exit_rule_days_to_expiration=15,
                     hours_to_expiration=300.0,
                     exit_thresholds=exit_thresholds,
                     position_state={
@@ -1533,7 +1531,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=2,
             unrealized_pl_pct_ratio=0.62,
-            days_to_expiration=15,
+            exit_rule_days_to_expiration=15,
             hours_to_expiration=300.0,
             exit_thresholds=exit_thresholds,
             position_state={
@@ -1571,7 +1569,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=3,
             unrealized_pl_pct_ratio=0.58,
-            days_to_expiration=20,
+            exit_rule_days_to_expiration=20,
             hours_to_expiration=200.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="14-30 DTE",
@@ -1607,7 +1605,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=2,
             unrealized_pl_pct_ratio=0.80,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -1639,7 +1637,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=2,
             unrealized_pl_pct_ratio=None,
-            days_to_expiration=1,
+            exit_rule_days_to_expiration=1,
             hours_to_expiration=8.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="3-7 DTE",
@@ -1742,7 +1740,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=2,
             unrealized_pl_pct_ratio=0.45,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -1788,7 +1786,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=4,
             unrealized_pl_pct_ratio=0.60,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -1829,7 +1827,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=1,
             unrealized_pl_pct_ratio=0.80,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -1875,7 +1873,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=1,
             unrealized_pl_pct_ratio=0.80,
-            days_to_expiration=10,
+            exit_rule_days_to_expiration=10,
             hours_to_expiration=120.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="7-14 DTE",
@@ -1915,7 +1913,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=3,
             unrealized_pl_pct_ratio=0.58,
-            days_to_expiration=20,
+            exit_rule_days_to_expiration=20,
             hours_to_expiration=200.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="14-30 DTE",
@@ -1961,7 +1959,7 @@ class OptionPositionTests(VerboseTestCase):
             option_symbol=OPTION_SYMBOL,
             quantity=1,
             unrealized_pl_pct_ratio=0.04,
-            days_to_expiration=30,
+            exit_rule_days_to_expiration=30,
             hours_to_expiration=720.0,
             exit_thresholds=self.option_positions.ExitThresholds(
                 dte_rule_label="30-45 DTE",
@@ -2203,6 +2201,58 @@ class OptionPositionTests(VerboseTestCase):
             self.assertEqual(summary["unrealized_pl_pct"], expected_unrealized_pl_pct)
             self.assertNotEqual(summary["unrealized_pl_pct"], round(0.7846 * 100.0, 4))
             self.log_pass("snapshot pricing preferred the live option midpoint over broker-reported option P/L when they disagreed")
+
+    def _flat_position_snapshot(self, *, days_until_expiration: int, position_state: dict) -> dict:
+        with TemporaryDirectory() as temp_dir:
+            position = SimpleNamespace(
+                symbol=_make_future_option_symbol("XOM", days_until_expiration=days_until_expiration, strike_price=155.0),
+                avg_entry_price="2.00",
+                qty="1",
+                unrealized_plpc=0.0,
+            )
+            original_get_latest_option_quote = self.option_positions._get_latest_option_quote
+            original_get_latest_stock_price = self.option_positions._get_latest_stock_price
+            try:
+                self.option_positions._get_latest_option_quote = lambda _symbol: {
+                    "bid_price": 1.98, "ask_price": 2.02, "mid_price": 2.00, "price": 2.00,
+                    "timestamp": "2026-05-15T15:30:00Z", "error": "",
+                }
+                self.option_positions._get_latest_stock_price = lambda _symbol: {
+                    "price": 150.0, "timestamp": "2026-05-15T15:30:00Z", "error": "",
+                }
+                return self.option_positions._build_option_position_snapshot(
+                    position,
+                    take_profit_pct=25.0,
+                    stop_loss_pct=-20.0,
+                    exit_hours_to_expiration=24.0,
+                    enable_trailing_profit=False,
+                    trailing_profit_dry_run=False,
+                    trailing_profit_config=_make_trailing_profit_config(self.option_positions),
+                    momentum_history_config=_make_momentum_history_config(self.option_positions),
+                    option_price_momentum_config=_make_option_price_momentum_config(self.option_positions),
+                    state_path=Path(temp_dir) / "option_state.json",
+                    position_state_override=position_state,
+                    pending_reconciliation=None,
+                )
+            finally:
+                self.option_positions._get_latest_option_quote = original_get_latest_option_quote
+                self.option_positions._get_latest_stock_price = original_get_latest_stock_price
+
+    def test_entry_bucket_forced_exit_fires_after_the_position_ages_out_of_its_bucket(self) -> None:
+        # Entered at 25 DTE (20-30 bucket). At 10 DTE no bucket matches the current DTE, which
+        # used to fall back to the 1-day default and hold past the bucket's forced exit.
+        entry_rule = next(rule for rule in self.option_positions.OPTION_EXIT_DTE_RULES
+                          if rule.min_days_to_expiration <= 25 <= rule.max_days_to_expiration)
+        summary = self._flat_position_snapshot(days_until_expiration=10, position_state={"entry_dte": 25})
+        self.assertEqual((summary["dte_exit_rule"], summary["exit_rule_days_to_expiration"], summary["exit_reason"]),
+                         (entry_rule.label, 25, "near_expiration"))
+        self.log_pass("a position kept its entry bucket's rule and was force-exited at that bucket's DTE")
+
+    def test_first_observation_chooses_the_exit_rule_from_the_current_dte(self) -> None:
+        summary = self._flat_position_snapshot(days_until_expiration=25, position_state={})
+        self.assertEqual((summary["exit_rule_days_to_expiration"], summary["exit_reason"]),
+                         (summary["days_to_expiration"], "hold"))
+        self.log_pass("a newly managed position chose its exit rule from its DTE at first observation")
 
     def test_manage_current_option_positions_submits_partial_scale_out_for_trailing_profit(self) -> None:
         with TemporaryDirectory() as temp_dir:

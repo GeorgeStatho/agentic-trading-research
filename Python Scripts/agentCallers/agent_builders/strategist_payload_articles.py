@@ -11,6 +11,7 @@ from agent_contracts import (
 )
 from agent_helpers.shared import parse_published_at
 from agent_helpers.strategist import HIGH_CONFIDENCE
+import json
 
 
 def _serialize_signal(item: dict[str, Any], *, layer: str) -> AgentSignalPayload:
@@ -46,7 +47,6 @@ def _serialize_signal(item: dict[str, Any], *, layer: str) -> AgentSignalPayload
         signal["industry_name"] = item["industry_name"]
     if item.get("company_name"):
         signal["company_name"] = item["company_name"]
-    import json
     for key in ('catalyst_id', 'catalyst_family', 'catalyst_type', 'mechanism', 'expected_horizon'):
         if item.get(key):
             signal[key] = item[key]

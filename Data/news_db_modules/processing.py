@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ def _mark_article_processed(
     conn=None,
 ) -> int:
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return _mark_article_processed(
                 table_name,
                 key_columns,

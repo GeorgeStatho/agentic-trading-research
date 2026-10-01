@@ -1,12 +1,16 @@
 """First-class catalyst state derived from persisted articles, never model-invented roots."""
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
+import logging
 
 from catalyst_models import CatalystState, HALF_LIFE_MINUTES, PRIMARY_SOURCE_TYPES, classify_catalyst, timestamp
 from db_common import DB_PATH, get_connection, json_text
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _earliest(rows, key):
@@ -60,6 +64,17 @@ def store_catalyst_state(state, *, conn):
     conn.execute('INSERT INTO catalysts ('+', '.join(values)+') VALUES ('+', '.join('?' for _ in values)+') '
                  'ON CONFLICT(catalyst_id) DO UPDATE SET '+', '.join(f'{key}=excluded.{key}' for key in values if key != 'catalyst_id'),
                  tuple(values.values()))
+
+
+CATALYST_REVISION_FIELDS = ('catalyst_family', 'direction', 'latest_root_event_time', 'independent_root_count')
+
+
+def get_catalyst_revision(catalyst_id, *, db_path=DB_PATH):
+    """The fields whose change makes earlier decision inputs out of date; None if unknown."""
+    with closing(get_connection(db_path)) as conn:
+        row = conn.execute(f"SELECT {', '.join(CATALYST_REVISION_FIELDS)} FROM catalysts WHERE catalyst_id=?",
+                           (catalyst_id,)).fetchone()
+    return dict(row) if row else None
 
 
 def refresh_catalyst(catalyst_id, *, conn):
@@ -136,13 +151,18 @@ def enrich_impact(impact, article_id, *, conn):
         from .provenance import update_article_provenance
         update_article_provenance(article_id, conn=conn)
         row = conn.execute('SELECT * FROM news_articles WHERE id=?', (article_id,)).fetchone()
-    requested = impact.get('root_event_ids')
-    if requested is not None and (not isinstance(requested, list) or any(
-            not isinstance(root, str) or not root.startswith('root:') or root != row['root_event_id'] for root in requested)):
-        raise ValueError('root_event_ids must be provenance roots of the cited article, not article IDs')
     state = json.loads(conn.execute('SELECT state_json FROM catalysts WHERE catalyst_id=?', (row['catalyst_id'],)).fetchone()[0])
-    return {**impact, **{key: state[key] for key in ('catalyst_id', 'catalyst_family', 'catalyst_type', 'mechanism', 'expected_horizon')},
-            'root_event_ids': [row['root_event_id']]}
+    enriched = {**impact, **{key: state[key] for key in ('catalyst_id', 'catalyst_family', 'catalyst_type', 'mechanism', 'expected_horizon')},
+                'root_event_ids': [row['root_event_id']]}
+    requested = impact.get('root_event_ids')
+    if requested is not None and not (isinstance(requested, list) and all(root == row['root_event_id'] for root in requested)):
+        # Provenance always comes from the article. A model claiming another root, or an article ID,
+        # is a model error kept for audit; raising here aborted the whole news collection cycle,
+        # because the root is often assigned only now, after the model saw the article.
+        LOGGER.warning('Discarded root_event_ids %s claimed for article %s; its root is %s',
+                       requested, article_id, row['root_event_id'])
+        enriched['rejected_root_event_ids'] = requested
+    return enriched
 
 
 def backfill_catalysts(*, db_path=DB_PATH):
@@ -150,7 +170,7 @@ def backfill_catalysts(*, db_path=DB_PATH):
     from catalyst_schema import IMPACT_TABLES
     report = backfill_news_provenance(db_path=db_path)
     count = 0
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         for table in IMPACT_TABLES:
             for row in conn.execute(f'SELECT id, article_id, raw_json FROM {table}').fetchall():
                 raw = json.loads(row['raw_json'] or '{}')
@@ -171,7 +191,7 @@ def backfill_catalysts(*, db_path=DB_PATH):
 def catalyst_family_report(*, db_path=DB_PATH):
     from .bootstrap import initialize_database
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         return [dict(row) for row in conn.execute('''SELECT catalyst_family, COUNT(*) AS catalysts,
             SUM(article_count) AS articles, SUM(independent_root_count) AS independent_roots,
             SUM(CASE WHEN classification_status='needs_review' THEN 1 ELSE 0 END) AS needs_review

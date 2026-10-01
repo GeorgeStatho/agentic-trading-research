@@ -1,21 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
-import sys
+from contextlib import closing
 from typing import Any
-
-if __package__ in {None, ""}:
-    WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
-    if str(WEBSCRAPING_DIR) not in sys.path:
-        sys.path.append(str(WEBSCRAPING_DIR))
-
-AGENT_CALLERS_DIR = Path(__file__).resolve().parents[2] / "agentCallers"
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
-
-API_DIR = Path(__file__).resolve().parents[1] / "APIs"
-if str(API_DIR) not in sys.path:
-    sys.path.append(str(API_DIR))
 
 from pipelines._shared import (
     MAX_ARTICLES_PER_SEARCH_PAGE,
@@ -32,7 +18,7 @@ from pipelines._entity_adapters import (
     make_request_saver,
     make_search_request_builder,
 )
-from pipelines._internal import is_blacklisted_source_link, link_matches_variants, normalize_match_text
+from pipelines._internal import is_blacklisted_cnbc_link, link_matches_variants, normalize_match_text
 from pipelines._orchestration import (
     run_mixed_job_orchestration,
 )
@@ -43,10 +29,10 @@ from pipelines.job_builder import (
     group_jobs_by_url,
     unique_job_urls,
 )
-from foolAPI import get_stock_data as get_fool_stock_data
-from gurufocusAPI import get_stock_data as get_gurufocus_stock_data
+from APIs.foolAPI import get_stock_data as get_fool_stock_data
+from APIs.gurufocusAPI import get_stock_data as get_gurufocus_stock_data
 from market_data.yFinanceNews import extract_title_and_url, get_company_news_items
-from morningStarAPI import get_stock_data as get_morningstar_stock_data
+from APIs.morningStarAPI import get_stock_data as get_morningstar_stock_data
 
 from db_helpers import (
     add_company_news_article,
@@ -159,8 +145,9 @@ def _build_api_jobs(company: dict) -> list[CompanySourceJob]:
 
 
 def _filter_company_candidate_links(page_url: str, links: list[dict], company: dict) -> list[dict]:
-    # Start from the shared source/article-pattern filter, then apply a small
-    # public-safe blocked-path list without exposing private source logic.
+    # Start from the shared source/article-pattern filter. We still keep
+    # explicit CNBC blacklist protection, but we no longer drop links just
+    # because the visible text is a weak company-name match.
     base_candidates = filter_article_links(page_url, links)
     if not base_candidates:
         return []
@@ -170,8 +157,8 @@ def _filter_company_candidate_links(page_url: str, links: list[dict], company: d
         href = str(link.get("href") or "")
         if not href:
             continue
-        if is_blacklisted_source_link(href):
-            LOGGER.info("Skipping blocked source URL %s for company %s", href, company["symbol"])
+        if is_blacklisted_cnbc_link(href):
+            LOGGER.info("Skipping blacklisted CNBC URL %s for company %s", href, company["symbol"])
             continue
         filtered.append(link)
 
@@ -300,7 +287,7 @@ def _build_company_jobs(company: dict) -> list[CompanySourceJob]:
     try:
         yahoo_news_items = get_company_news_items(symbol)
     except Exception as exc:
-        LOGGER.warning("Supplemental discovery feed failed for %s: %s", symbol, exc)
+        LOGGER.warning("Yahoo Finance news fetch failed for %s: %s", symbol, exc)
         return jobs
 
     yahoo_news_pairs = extract_title_and_url(yahoo_news_items)
@@ -425,7 +412,7 @@ def _get_top_processed_sector_keys(limit: int) -> list[str]:
 
     from db_helpers import DB_PATH, get_connection
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -466,7 +453,7 @@ def _get_top_processed_industry_keys_for_sector(sector_key: str, limit: int) -> 
 
     from db_helpers import DB_PATH, get_connection
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
             """
             SELECT

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from pathlib import Path
 
@@ -18,7 +19,7 @@ def _rows_to_dicts(rows) -> list[dict]:
 
 
 def _table_columns(table_name: str) -> set[str]:
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
     return {row["name"] for row in rows}
 
@@ -55,7 +56,7 @@ def fetch_table_counts() -> dict[str, int]:
     ]
     counts: dict[str, int] = {}
 
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         for table_name in table_names:
             row = conn.execute(f"SELECT COUNT(*) AS count FROM {table_name}").fetchone()
             counts[table_name] = row["count"]
@@ -63,7 +64,7 @@ def fetch_table_counts() -> dict[str, int]:
 
 
 def fetch_article_counts() -> dict[str, int]:
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         total_articles = conn.execute(
             "SELECT COUNT(*) AS count FROM news_articles"
         ).fetchone()["count"]
@@ -96,7 +97,7 @@ def fetch_article_counts() -> dict[str, int]:
 
 
 def fetch_sample_market_data(limit: int = 5) -> dict[str, list[dict]]:
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         sectors = conn.execute(
             """
             SELECT id, sector_key, name
@@ -138,7 +139,7 @@ def fetch_sample_market_data(limit: int = 5) -> dict[str, list[dict]]:
 
 def fetch_sample_macro_events(limit: int = 10) -> list[dict]:
     select_clause = _macro_event_select_clause()
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             f"""
             SELECT {select_clause}
@@ -153,7 +154,7 @@ def fetch_sample_macro_events(limit: int = 10) -> list[dict]:
 
 def fetch_macro_events_by_country(country: str, limit: int = 10) -> list[dict]:
     select_clause = _macro_event_select_clause()
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             f"""
             SELECT {select_clause}
@@ -168,7 +169,7 @@ def fetch_macro_events_by_country(country: str, limit: int = 10) -> list[dict]:
 
 
 def fetch_companies_by_industry(industry_key: str, limit: int = 10) -> list[dict]:
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT c.id, c.symbol, c.name, c.rating, c.market_weight
@@ -201,7 +202,7 @@ def fetch_all_companies(limit: int | None = None) -> list[dict]:
         ORDER BY s.name, i.name, c.name
     """
 
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         if limit is None:
             rows = conn.execute(query).fetchall()
         else:
@@ -210,7 +211,7 @@ def fetch_all_companies(limit: int | None = None) -> list[dict]:
 
 
 def fetch_sample_articles(limit: int = 10) -> list[dict]:
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -230,7 +231,7 @@ def fetch_sample_articles(limit: int = 10) -> list[dict]:
 
 
 def fetch_sample_industry_articles(limit: int = 10) -> list[dict]:
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -255,7 +256,7 @@ def fetch_sample_industry_articles(limit: int = 10) -> list[dict]:
 
 
 def fetch_sample_company_articles(limit: int = 10) -> list[dict]:
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -283,7 +284,7 @@ def fetch_sample_company_articles(limit: int = 10) -> list[dict]:
 
 
 def fetch_sample_failed_urls(limit: int = 10) -> list[dict]:
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT

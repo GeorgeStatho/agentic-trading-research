@@ -11,15 +11,12 @@ import json
 from datetime import datetime
 from typing import Any
 
+from services.settings import get_settings
 from . import iv_history as _iv_history
 from .account import _build_account_state, _serialize_position
 from .common import (
-    DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE,
     IV_PERCENTILE_DTE_BUCKETS,
     LOGGER,
-    OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES,
-    OPTION_IV_HISTORY_MAX_ENTRIES,
-    OPTION_IV_HISTORY_PATH,
 )
 from .equities import (
     _build_current_stock_price_snapshot,
@@ -57,23 +54,22 @@ from .underlying import (
 
 
 __all__ = [
-    "DEFAULT_OPTION_CHAIN_LIMIT_PER_TYPE",
     "build_market_context",
 ]
 
 
 def _load_option_iv_history_store() -> dict[str, Any]:
-    return _iv_history._load_option_iv_history_store(OPTION_IV_HISTORY_PATH)
+    return _iv_history._load_option_iv_history_store(get_settings().manager_context.iv_history_path)
 
 
 def _save_option_iv_history_store(store: dict[str, Any]) -> None:
-    _iv_history._save_option_iv_history_store(store, OPTION_IV_HISTORY_PATH)
+    _iv_history._save_option_iv_history_store(store, get_settings().manager_context.iv_history_path)
 
 
 def _normalize_iv_history_entries(entries: Any) -> list[dict[str, Any]]:
     return _iv_history._normalize_iv_history_entries(
         entries,
-        max_entries=OPTION_IV_HISTORY_MAX_ENTRIES,
+        max_entries=get_settings().manager_context.iv_history_max_entries,
     )
 
 
@@ -87,7 +83,7 @@ def _upsert_iv_history_entry(
         entries,
         recorded_at=recorded_at,
         value=value,
-        max_entries=OPTION_IV_HISTORY_MAX_ENTRIES,
+        max_entries=get_settings().manager_context.iv_history_max_entries,
     )
 
 
@@ -120,14 +116,14 @@ def _annotate_contract_iv_percentiles(
         contracts,
         bucket_percentiles=bucket_percentiles,
         bucket_history_counts=bucket_history_counts,
-        min_samples=OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES,
+        min_samples=get_settings().manager_context.iv_bucket_min_history_samples,
     )
 
 
 def _historical_values_from_iv_entries(entries: list[dict[str, Any]]) -> list[float]:
     return _iv_history._historical_values_from_iv_entries(
         entries,
-        max_entries=OPTION_IV_HISTORY_MAX_ENTRIES,
+        max_entries=get_settings().manager_context.iv_history_max_entries,
     )
 
 
@@ -147,8 +143,8 @@ def _record_option_iv_history(
         longer_term_atm_iv=longer_term_atm_iv,
         bucket_atm_ivs=bucket_atm_ivs,
         recorded_at=recorded_at,
-        path=OPTION_IV_HISTORY_PATH,
-        max_entries=OPTION_IV_HISTORY_MAX_ENTRIES,
+        path=get_settings().manager_context.iv_history_path,
+        max_entries=get_settings().manager_context.iv_history_max_entries,
     )
 
 
@@ -164,9 +160,9 @@ def _enrich_with_alpaca_iv_percentiles(
         volatility_summary,
         contracts=contracts,
         reference_stock_price=reference_stock_price,
-        path=OPTION_IV_HISTORY_PATH,
-        max_entries=OPTION_IV_HISTORY_MAX_ENTRIES,
-        min_samples=OPTION_IV_BUCKET_MIN_HISTORY_SAMPLES,
+        path=get_settings().manager_context.iv_history_path,
+        max_entries=get_settings().manager_context.iv_history_max_entries,
+        min_samples=get_settings().manager_context.iv_bucket_min_history_samples,
         current_datetime=datetime,
     )
 

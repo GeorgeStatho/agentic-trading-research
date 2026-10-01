@@ -1,20 +1,8 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
-import sys
 
-
-if __package__ in {None, ""}:
-    AGENT_CALLERS_DIR = Path(__file__).resolve().parents[1]
-    if str(AGENT_CALLERS_DIR) not in sys.path:
-        sys.path.append(str(AGENT_CALLERS_DIR))
-
-from _paths import bootstrap_agent_callers
 from services.option_dte_buckets import DTE_BUCKET_TO_TARGET_OTM_PCT
-
-
-bootstrap_agent_callers()
 
 
 def _env_flag(name: str, default: bool) -> bool:

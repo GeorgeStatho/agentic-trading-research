@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent_contracts import OrderCandidate
+from services.entry_gates import carry_gate_verdicts, entry_allowed
+from services.catalyst_gates import catalyst_admission_allowed
+from services.research_promotion import research_only_candidate
+
 
 class OrderCandidateBuilder:
     """Turn agent output into executable option-order candidates."""
@@ -27,16 +32,17 @@ class OrderCandidateBuilder:
         return decision if decision in {"trade_candidate", "watchlist", "do_not_trade"} else ""
 
     def _is_trade_eligible(self, company_result: dict[str, Any]) -> bool:
+        context = company_result.get('candidate_context') or {}
+        identity = str(company_result.get('candidate_id') or context.get('candidate_id') or '')
+        if company_result.get('discovery_shadow') or context.get('discovery_shadow') or research_only_candidate(identity):
+            return False
         decision = str(company_result.get("decision") or "").strip().lower()
         confidence = str(company_result.get("confidence") or "").strip().lower()
         strategist_recommendation = company_result.get("strategist_recommendation") or {}
         strategist_decision = self._normalize_strategist_decision(
             strategist_recommendation.get("decision")
         )
-        entry_gate = company_result.get("entry_gate") or {}
-        market_regime_gate = company_result.get("market_regime_gate") or {}
 
-        from services.catalyst_gates import catalyst_admission_allowed
         if not catalyst_admission_allowed(company_result.get('candidate_context')):
             return False
         if decision not in {"call", "put"}:
@@ -47,18 +53,14 @@ class OrderCandidateBuilder:
             return False
         if strategist_decision == "do_not_trade":
             return False
-        if not isinstance(entry_gate, dict) or entry_gate.get("allowed") is not True:
-            return False
-        if not isinstance(market_regime_gate, dict) or market_regime_gate.get("allowed") is not True:
-            return False
-        return True
+        return entry_allowed(company_result)
 
     def _record_ineligible(self, company_result, reason):
         from services.candidate_lifecycle import reject
         reject(company_result.get("candidate_context"), "ORDER_ELIGIBILITY", reason,
                metrics=company_result, thresholds={"execute_medium_confidence_trades": self._execute_medium_confidence_trades})
 
-    def _build_candidate(self, company_result: dict[str, Any]) -> dict[str, Any] | None:
+    def _build_candidate(self, company_result: dict[str, Any]) -> OrderCandidate | None:
         # Assemble the candidate so callers can work from one normalized shape.
         decision = str(company_result.get("decision") or "").strip().lower()
         confidence = str(company_result.get("confidence") or "").strip().lower()
@@ -90,8 +92,7 @@ class OrderCandidateBuilder:
             "selected_option_symbol": option_symbol,
             "selected_option": selected_option,
             "strategist_recommendation": company_result.get("strategist_recommendation", {}),
-            "entry_gate": company_result.get("entry_gate", {}),
-            "market_regime_gate": company_result.get("market_regime_gate", {}),
+            **carry_gate_verdicts(company_result),
             "reason": company_result.get("reason"),
             # The executor's champion guard reads these top-level fields, so a research
             # identity must survive every conversion rather than being dropped here.
@@ -99,12 +100,12 @@ class OrderCandidateBuilder:
             "research_strategy": company_result.get("research_strategy"),
         }
 
-    def build(self, agent_result: dict[str, Any]) -> list[dict[str, Any]]:
+    def build(self, agent_result: dict[str, Any]) -> list[OrderCandidate]:
         return self.build_from_company_results(self._extract_selected_option_candidates(agent_result))
 
-    def build_from_company_results(self, company_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def build_from_company_results(self, company_results: list[dict[str, Any]]) -> list[OrderCandidate]:
         """Build unique order candidates from selected-option company summaries."""
-        candidates: list[dict[str, Any]] = []
+        candidates: list[OrderCandidate] = []
         seen_option_symbols: set[str] = set()
 
         for company_result in company_results:
@@ -122,7 +123,7 @@ class OrderCandidateBuilder:
 
         return candidates
 
-    def build_from_manager_result(self, manager_result: dict[str, Any]) -> dict[str, Any] | None:
+    def build_from_manager_result(self, manager_result: dict[str, Any]) -> OrderCandidate | None:
         """Build a single executable candidate from one manager result."""
         company = dict(manager_result.get("company") or {})
         recommendation = dict(manager_result.get("recommendation") or {})
@@ -142,8 +143,7 @@ class OrderCandidateBuilder:
             "selected_strike_price": recommendation.get("selected_strike_price"),
             "selected_option_source": recommendation.get("selected_option_source"),
             "strategist_recommendation": manager_result.get("strategist_recommendation", {}),
-            "entry_gate": manager_result.get("entry_gate", {}),
-            "market_regime_gate": manager_result.get("market_regime_gate", {}),
+            **carry_gate_verdicts(manager_result),
             "selected_option": manager_result.get("selected_option"),
             "reason": recommendation.get("reason"),
             "research_run_id": manager_result.get("research_run_id"),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import sqlite3
 from pathlib import Path
@@ -17,7 +18,7 @@ def load_sector_definitions(
 ) -> None:
     initialize_database(db_path=db_path)
 
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         for sector_key, payload in sector_definitions.items():
             if not isinstance(payload, dict):
                 payload = {}
@@ -136,7 +137,7 @@ def load_sector_tree(
 ) -> None:
     initialize_database(db_path=db_path)
 
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         for sector_key, sector_payload in sector_tree.items():
             industries_payload = sector_payload
             sector_name = sector_key.replace("-", " ").title()

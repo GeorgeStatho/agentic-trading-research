@@ -3,22 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 import json
 import logging
-import os
-from pathlib import Path
-import sys
 from typing import Any
 
-
-AGENT_STAGES_DIR = Path(__file__).resolve().parent
-AGENT_CALLERS_DIR = AGENT_STAGES_DIR.parent
-PYTHON_SCRIPTS_DIR = AGENT_CALLERS_DIR.parent
-ROOT_DIR = PYTHON_SCRIPTS_DIR.parent
-DATA_DIR = ROOT_DIR / "Data"
-for path in (AGENT_CALLERS_DIR, PYTHON_SCRIPTS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.append(normalized)
-
+from services.settings import StageModel, get_settings
 from agent_helpers.industry_opportunist import (
     build_empty_result,
     build_industry_opportunist_articles,
@@ -38,14 +25,9 @@ from agent_helpers.shared import (
 )
 
 
-OLLAMA_HOST = os.getenv(
-    "INDUSTRY_OPPURUNTINST_OLLAMA_HOST",
-    os.getenv("MACRO_NEWS_OLLAMA_HOST", os.getenv("WORLD_NEWS_OLLAMA_HOST", "http://127.0.0.1:11434")),
-)
-DEFAULT_MODEL = os.getenv(
-    "INDUSTRY_OPPURUNTINST_MODEL",
-    os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "world-news-sectors")),
-)
+def _stage_model() -> StageModel:
+    return get_settings().models.industry_opportunist
+
 
 DEFAULT_MAX_ARTICLE_AGE_DAYS = 5
 DEFAULT_CONTEXT_LIMIT = 4096
@@ -72,7 +54,7 @@ __all__ = [
 def _get_default_client() -> Client:
     global _industry_opportunist_client
     if _industry_opportunist_client is None:
-        _industry_opportunist_client = get_model_client(OLLAMA_HOST)
+        _industry_opportunist_client = get_model_client(_stage_model().ollama_host)
     return _industry_opportunist_client
 
 
@@ -83,7 +65,7 @@ def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) 
         system_prompt,
         user_prompt,
         temperature=0,
-        host_label=OLLAMA_HOST,
+        host_label=_stage_model().ollama_host,
         response_schema=INDUSTRY_IMPACTS_SCHEMA,
     )
 
@@ -268,7 +250,7 @@ def classify_sector_articles_to_industries(
     sector_identifier: str,
     *,
     client: Client | None = None,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     system_prompt_override: str | None = None,
     task_override: str | None = None,
     start_time: datetime | None = None,
@@ -278,6 +260,7 @@ def classify_sector_articles_to_industries(
     prompt_overhead_tokens: int = DEFAULT_PROMPT_OVERHEAD_TOKENS,
 ) -> dict[str, Any]:
     # Batch sector articles through the LLM and normalize the resulting industry impacts.
+    model = model or _stage_model().model
     client = client or _get_default_client()
     sector, industries, articles = build_industry_opportunist_articles(
         sector_identifier,

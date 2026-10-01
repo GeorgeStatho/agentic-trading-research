@@ -1,20 +1,8 @@
 from __future__ import annotations
 
-import sys
 import unittest
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from unittest.mock import patch
-
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
-AGENT_CALLERS_DIR = PYTHON_SCRIPTS_DIR / "agentCallers"
-WEBSCRAPING_DIR = PYTHON_SCRIPTS_DIR / "Webscraping"
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR, AGENT_CALLERS_DIR, WEBSCRAPING_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
 
 from services.market_regime import (  # noqa: E402
     MarketRegimeSnapshotPolicy,
@@ -214,7 +202,7 @@ class MarketRegimeGateTests(unittest.TestCase):
         )
 
     def test_cycle_uses_the_same_snapshot_for_all_companies(self) -> None:
-        import main as agent_main  # noqa: E402
+        from agentCallers import main as agent_main  # noqa: E402
 
         regime = _snapshot()
         strategist_result = {"recommendation": {"decision": "trade_candidate", "confidence": "high"}}

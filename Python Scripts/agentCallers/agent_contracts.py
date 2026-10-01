@@ -79,6 +79,7 @@ class PipelineTargetsPayload(TypedDict):
     selected_companies: list[SelectedCompany]
     selected_company_ids: list[int]
     selected_company_symbols: list[str]
+    discovery_companies: NotRequired[list[dict[str, Any]]]
 
 
 class PipelineIndustryResult(TypedDict):
@@ -117,6 +118,8 @@ class PipelineRunResult(TypedDict):
     scrape_results: ScrapeResultsPayload
     rankings: PipelineRunRankingsPayload
     sectors: list[PipelineSectorResult]
+    discovery_targets: NotRequired[list[dict[str, Any]]]
+    discovery_shadow: NotRequired[dict[str, Any]]
 
 
 class PayloadFilters(TypedDict):
@@ -285,6 +288,7 @@ class StrategistInputPayload(TypedDict):
     views: StrategistViewsPayload
     supporting_articles: SupportingArticlesPayload
     grounding: dict[str, Any]
+    company_evidence: NotRequired[dict[str, Any]]
 
 
 class ManagerInputPayload(StrategistInputPayload):
@@ -296,3 +300,151 @@ class ManagerInputPayload(StrategistInputPayload):
 class CompanyLinkedArticlesPayload(TypedDict):
     company: dict[str, Any]
     articles: list[Any]
+
+
+# Pipeline objects passed from the strategist to the manager, the gates and order building.
+# tests/test_pipeline_contracts.py keeps these, the model schemas and the prompt examples
+# in agreement.
+
+
+class GateVerdict(TypedDict, total=False):
+    allowed: bool
+    would_allow: bool | None
+    proposed_decision: str
+    eligible_decision: str
+    reason_codes: list[str]
+    policy_version: str
+    enforcement_mode: str
+    evidence: dict[str, Any]
+    technical: dict[str, Any]
+    evaluation_id: str | None
+    thesis_status: str | None
+    stage: str
+    report_id: str | None
+    package_id: str | None
+    valid_until: str
+    selected_option_symbol: str | None
+    outcome: str
+    summary: str
+
+
+class EvidenceClaim(TypedDict):
+    claim_type: str
+    claim: str
+    evidence_article_ids: list[int]
+
+
+class StrategistRecommendation(TypedDict):
+    decision: str
+    confidence: str
+    evidence_quality: str
+    setup_quality: str
+    timing_clarity: str
+    preferred_option_direction: str
+    expected_stock_direction: str
+    time_horizon: str
+    why_now: str
+    summary: str
+    catalyst: list[str]
+    thesis: list[str]
+    risks: list[str]
+    contradictions_present: bool
+    watchlist_reason: str
+    grounded_company_symbol: str
+    grounded_entity_ids: dict[str, int]
+    evidence_claims: list[EvidenceClaim]
+    evidence_thesis: NotRequired[dict[str, Any] | None]
+    evidence_thesis_check: NotRequired[dict[str, Any]]
+    evidence_thesis_handoff: NotRequired[str]
+    strategist_run_reference: NotRequired[dict[str, Any]]
+
+
+class StrategistResult(TypedDict):
+    company: dict[str, Any]
+    context_snapshot: dict[str, Any]
+    recommendation: StrategistRecommendation
+    grounding: dict[str, Any]
+    manager_evidence_payload: dict[str, Any]
+    strategist_run_reference: dict[str, Any]
+
+
+class ManagerRecommendation(TypedDict):
+    decision: str
+    confidence: str
+    target_dte_bucket: str
+    selected_option_id: Any
+    selected_expiration_date: str | None
+    selected_strike_price: float | None
+    selected_option_source: str
+    reason: str
+    thesis_confidence: str | None
+    timing_confidence: str | None
+    execution_confidence: str | None
+    confidence_basis: str
+    technical_confirmation: NotRequired[str]
+    entry_quality: NotRequired[str]
+    recommended_action_adjustment: NotRequired[str]
+    overextension_risk: NotRequired[str]
+    options_pricing_risk: NotRequired[str]
+    technical_summary: NotRequired[str]
+    risk_summary: NotRequired[str]
+    selection_debug: NotRequired[dict[str, Any]]
+
+
+class ManagerResult(TypedDict):
+    company: dict[str, Any]
+    context_snapshot: dict[str, Any]
+    market_context: dict[str, Any]
+    recommendation: ManagerRecommendation
+    entry_gate: GateVerdict
+    selected_option: dict[str, Any] | None
+    manager_replay_payload: dict[str, Any]
+    manager_model: str
+    manager_prompt_version: str
+    market_regime: dict[str, Any]
+    supporting_articles: NotRequired[dict[str, Any]]
+    company_evidence: NotRequired[dict[str, Any]]
+    recent_manager_decision_history: NotRequired[list[dict[str, Any]]]
+    resolved_autopsy_insights: NotRequired[list[dict[str, Any]]]
+    strategist_recommendation: NotRequired[StrategistRecommendation]
+    market_regime_gate: NotRequired[GateVerdict]
+    evidence_thesis_gate: NotRequired[GateVerdict]
+    trade_economics_gate: NotRequired[GateVerdict]
+    candidate_context: NotRequired[dict[str, Any] | None]
+    candidate_id: NotRequired[str | None]
+    manager_decision_history_id: NotRequired[int]
+
+
+class CompanyFailure(TypedDict):
+    symbol: str
+    candidate_id: str | None
+    stage: str
+    error_type: str
+    error: str
+
+
+class OrderCandidate(TypedDict):
+    candidate_id: str | None
+    candidate_context: dict[str, Any] | None
+    market_context: dict[str, Any]
+    manager_decision_history_id: int | None
+    company_id: int | None
+    symbol: str
+    name: str | None
+    sector_key: str | None
+    decision: str
+    confidence: str
+    selected_option_id: Any
+    selected_expiration_date: str | None
+    selected_strike_price: float | None
+    selected_option_source: str | None
+    selected_option_symbol: str
+    selected_option: dict[str, Any]
+    strategist_recommendation: StrategistRecommendation | dict[str, Any]
+    entry_gate: GateVerdict
+    market_regime_gate: GateVerdict
+    evidence_thesis_gate: GateVerdict | None
+    trade_economics_gate: GateVerdict | None
+    reason: str | None
+    research_run_id: str | None
+    research_strategy: str | None

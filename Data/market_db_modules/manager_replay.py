@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,7 @@ def list_replayable_manager_decisions(
 ) -> list[sqlite3.Row]:
     """Return resolved, executed decisions in chronological replay order."""
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         return conn.execute(
             """
             SELECT *
@@ -72,7 +73,7 @@ def create_manager_replay_evaluation(
     db_path: Path | str = DB_PATH,
 ) -> int:
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         cursor = conn.execute(
             """
             INSERT INTO manager_replay_evaluations (
@@ -108,7 +109,7 @@ def record_manager_replay_result(
         "legacy_partial",
     }:
         raise ValueError(f"Unsupported manager replay mode: {replay_mode}")
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         conn.execute(
             """
             INSERT INTO manager_replay_results (
@@ -138,7 +139,7 @@ def complete_manager_replay_evaluation(
     completed_at: Any = None,
     db_path: Path | str = DB_PATH,
 ) -> None:
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         conn.execute(
             """
             UPDATE manager_replay_evaluations

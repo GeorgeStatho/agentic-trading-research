@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling", "hatch-requirements-txt"]
+build-backend = "hatchling.build"
+
+[project]
+name = "stock-trading-experiment"
+version = "0.1.0"
+description = "Agentic news-to-options research and trading pipeline."
+readme = "README.md"
+requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[project.optional-dependencies]
+# Parallel test runs: pip install -e ".[dev]"
+dev = ["pytest>=8", "pytest-xdist>=3"]
+
+[tool.hatch.metadata.hooks.requirements_txt]
+files = ["requirements.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Deprecations inside installed packages, which this project cannot fix.
+filterwarnings = [
+    "ignore::DeprecationWarning:google.genai.types",
+    "ignore::DeprecationWarning:websockets.legacy",
+]
+
+# This is an application run from its checkout, so install it editable:
+#     pip install -e .
+# Development mode adds the import roots below to sys.path through a .pth file.
+# They are the only import roots; modules must not edit sys.path themselves.
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
+dev-mode-dirs = [
+    ".",
+    "Data",
+    "Python Scripts",
+    "Python Scripts/agentCallers",
+    "Python Scripts/Webscraping",
+]

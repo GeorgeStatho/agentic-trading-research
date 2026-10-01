@@ -6,19 +6,11 @@ import os
 import statistics
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PYTHON_SCRIPTS_DIR = Path(__file__).resolve().parent
-for path in (ROOT_DIR, PYTHON_SCRIPTS_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.insert(0, normalized)
-
 from api_support.alpaca import alpaca_get_json
-from portfolio_history_service import fetch_portfolio_history, load_env
+from portfolio_history_service import fetch_portfolio_history
+from services.settings import load_process_settings
 from services.common import env_positive_int, safe_float
 
 
@@ -330,7 +322,7 @@ def build_performance_metrics_payload(
 
 
 def main() -> int:
-    load_env()
+    load_process_settings()
     annual_risk_free_rate = float(
         str(os.getenv("PERFORMANCE_METRICS_RISK_FREE_RATE", str(DEFAULT_ANNUAL_RISK_FREE_RATE))).strip()
     )

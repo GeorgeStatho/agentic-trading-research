@@ -1,26 +1,19 @@
 """Per-decision V2 shadow verdicts: what a decision record may claim about gates."""
 from contextlib import closing
 from pathlib import Path
-import sys
 import tempfile
-import types
 import unittest
-
-ROOT = Path(__file__).resolve().parents[1]
-for folder in ("", "Data", "Python Scripts"):
-    sys.path.insert(0, str(ROOT / folder) if folder else str(ROOT))
-
-if "flask" not in sys.modules:  # the API package imports it at module scope
-    flask = types.ModuleType("flask")
-    flask.Flask = object
-    flask.jsonify = lambda *a, **k: None
-    flask.request = types.SimpleNamespace(args={})
-    sys.modules["flask"] = flask
 
 from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database
 
-from api_support.v2_verdicts import shadow_verdicts_for_decisions
+try:
+    from api_support.v2_verdicts import shadow_verdicts_for_decisions
+except ModuleNotFoundError as exc:  # the API package imports Flask at module scope
+    if exc.name != "flask":
+        raise
+    # A stub would replace the real module for every later API test in the same process.
+    raise unittest.SkipTest("flask is not installed in this environment") from exc
 
 
 def decision(conn, decision_id, candidate_id):

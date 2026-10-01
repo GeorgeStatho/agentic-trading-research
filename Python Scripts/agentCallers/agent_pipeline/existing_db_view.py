@@ -18,9 +18,14 @@ from agent_pipeline.ranking import (
     resolve_ranking_max_age_days,
 )
 from agent_pipeline.target_selection import collect_ranked_companies_for_industry
+from services.discovery_queue import discovery_targets
 
 
 ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _discovery_targets():
+    return discovery_targets()
 
 
 def _emit_progress(
@@ -163,6 +168,7 @@ def run_agent_pipeline_from_existing_data(
         "top_company_count": top_company_count,
         "ranking_max_age_days": ranking_max_age_days,
         "pipeline_mode": "existing_db",
+        "discovery_targets": _discovery_targets(),
         "macro_news_to_sectors": {
             "us": [],
             "world": [],

@@ -1,18 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
-import sys
 from typing import Any
-
-
-AGENT_CALLERS_DIR = Path(__file__).resolve().parent
-if str(AGENT_CALLERS_DIR) not in sys.path:
-    sys.path.append(str(AGENT_CALLERS_DIR))
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT_DIR / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
 
 from db_helpers import get_all_companies, get_all_industries, list_company_news_articles
 from db_helpers.market import (

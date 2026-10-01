@@ -1,14 +1,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-import sys
 from typing import NotRequired, TypedDict
-
-if __package__ in {None, ""}:
-    WEBSCRAPING_DIR = Path(__file__).resolve().parents[1]
-    if str(WEBSCRAPING_DIR) not in sys.path:
-        sys.path.append(str(WEBSCRAPING_DIR))
 
 from pipelines._constants import FOOL_EXCHANGE_SLUGS
 from pipelines._shared import build_source_url, supports_source_type
@@ -139,7 +132,13 @@ def _get_company_exchange_slug(company: dict) -> str | None:
 
 def _build_company_source_url(company: dict, search_term: str, source_config: dict) -> str | None:
     company_specific_type = source_config.get("company_specific")
-    if company_specific_type == "symbol_profile":
+    if company_specific_type == "fool_quote":
+        symbol = _get_company_symbol(company).lower()
+        exchange_slug = _get_company_exchange_slug(company)
+        if not symbol or not exchange_slug:
+            return None
+        return source_config["url"].format(exchange=exchange_slug, symbol=symbol)
+    if company_specific_type == "cnbc_quote":
         symbol = _get_company_symbol(company).lower()
         if not symbol:
             return None
@@ -150,7 +149,7 @@ def _build_company_source_url(company: dict, search_term: str, source_config: di
 
 def _get_company_job_search_term(company: dict, source_config: dict, fallback_search_term: str) -> str:
     company_specific_type = source_config.get("company_specific")
-    if company_specific_type == "symbol_profile":
+    if company_specific_type in {"fool_quote", "cnbc_quote"}:
         symbol = _get_company_symbol(company)
         if symbol:
             return symbol
@@ -207,7 +206,7 @@ def build_sector_rss_jobs(
     sector: dict,
     urls: list[str],
     *,
-    source_name: str = "demo_rss",
+    source_name: str = "cnbc_rss",
     source_type: str = "article",
 ) -> list[SectorSourceJob]:
     # Assemble the sector rss jobs so downstream callers can work from one normalized shape.

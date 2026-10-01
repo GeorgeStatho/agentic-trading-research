@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +49,7 @@ def add_macro_event(
         json_text(raw_json),
     )
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return add_macro_event(
                 source,
                 event_key,
@@ -107,7 +108,7 @@ def load_macro_events(
     db_path: Path | str = DB_PATH,
 ) -> None:
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         for event in events:
             event_key = clean_text(event.get("event_key"))
             event_name = clean_text(event.get("event_name"))

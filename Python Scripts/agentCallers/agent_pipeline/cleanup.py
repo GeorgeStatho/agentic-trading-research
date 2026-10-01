@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from db_helpers import DB_PATH, get_connection, validate_sql_identifier
 
 from agent_pipeline.ranking import (
@@ -71,7 +72,7 @@ def clear_current_pipeline_targets(
         ranking_max_age_days=ranking_max_age_days,
     )
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         sector_rows = conn.execute(
             """
             SELECT id, sector_key

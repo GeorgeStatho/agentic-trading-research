@@ -3,22 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 import json
 import logging
-import os
-from pathlib import Path
-import sys
 from typing import Any
 
-
-AGENT_STAGES_DIR = Path(__file__).resolve().parent
-AGENT_CALLERS_DIR = AGENT_STAGES_DIR.parent
-PYTHON_SCRIPTS_DIR = AGENT_CALLERS_DIR.parent
-ROOT_DIR = PYTHON_SCRIPTS_DIR.parent
-DATA_DIR = ROOT_DIR / "Data"
-for path in (AGENT_CALLERS_DIR, PYTHON_SCRIPTS_DIR, DATA_DIR):
-    normalized = str(path)
-    if normalized not in sys.path:
-        sys.path.append(normalized)
-
+from services.settings import get_settings
+from services.settings import StageModel, get_settings
 from agent_helpers.company_opportunist import (
     build_company_opportunist_articles,
     build_company_valid_reference_sets,
@@ -38,23 +26,15 @@ from agent_helpers.shared import (
 )
 
 
-OLLAMA_HOST = os.getenv(
-    "COMPANY_OPPURUNTIST_OLLAMA_HOST",
-    os.getenv("MACRO_NEWS_OLLAMA_HOST", os.getenv("WORLD_NEWS_OLLAMA_HOST", "http://127.0.0.1:11434")),
-)
-DEFAULT_MODEL = os.getenv(
-    "COMPANY_OPPURUNTIST_MODEL",
-    os.getenv("MACRO_NEWS_MODEL", os.getenv("WORLD_NEWS_MODEL", "world-news-sectors")),
-)
+def _stage_model() -> StageModel:
+    return get_settings().models.company_opportunist
+
 
 DEFAULT_CONTEXT_LIMIT = 4096
 DEFAULT_PROMPT_OVERHEAD_TOKENS = 1200
 
 _company_opportunist_client: Client | None = None
 LOGGER = logging.getLogger(__name__)
-DEFAULT_TOP_COMPANIES_LIMIT = max(1, int(os.getenv("COMPANY_OPPORTUNIST_TOP_COMPANIES_LIMIT", "12")))
-DEFAULT_RANKED_COMPANIES_LIMIT = max(1, int(os.getenv("COMPANY_OPPORTUNIST_RANKED_COMPANIES_LIMIT", "6")))
-DEFAULT_ARTICLE_BODY_CHAR_LIMIT = max(200, int(os.getenv("COMPANY_OPPORTUNIST_ARTICLE_BODY_CHAR_LIMIT", "1200")))
 COMPANY_IMPACTS_SCHEMA: dict[str, Any] = build_shared_opportunist_impacts_schema(
     additional_properties={
         "relative_positioning": {
@@ -81,7 +61,7 @@ __all__ = [
 def _get_default_client() -> Client:
     global _company_opportunist_client
     if _company_opportunist_client is None:
-        _company_opportunist_client = get_model_client(OLLAMA_HOST)
+        _company_opportunist_client = get_model_client(_stage_model().ollama_host)
     return _company_opportunist_client
 
 
@@ -92,7 +72,7 @@ def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) 
         system_prompt,
         user_prompt,
         temperature=0,
-        host_label=OLLAMA_HOST,
+        host_label=_stage_model().ollama_host,
         response_schema=COMPANY_IMPACTS_SCHEMA,
     )
 
@@ -107,9 +87,9 @@ def _truncate_text(value: Any, *, limit: int) -> str:
 def _build_trimmed_peer_groups(peer_groups: dict[str, Any]) -> dict[str, Any]:
     return {
         "industry": dict(peer_groups.get("industry") or {}),
-        "top_companies": list(peer_groups.get("top_companies") or [])[:DEFAULT_TOP_COMPANIES_LIMIT],
-        "top_growth_companies": list(peer_groups.get("top_growth_companies") or [])[:DEFAULT_RANKED_COMPANIES_LIMIT],
-        "top_performing_companies": list(peer_groups.get("top_performing_companies") or [])[:DEFAULT_RANKED_COMPANIES_LIMIT],
+        "top_companies": list(peer_groups.get("top_companies") or [])[:get_settings().opportunists.company_top_companies_limit],
+        "top_growth_companies": list(peer_groups.get("top_growth_companies") or [])[:get_settings().opportunists.company_ranked_companies_limit],
+        "top_performing_companies": list(peer_groups.get("top_performing_companies") or [])[:get_settings().opportunists.company_ranked_companies_limit],
     }
 
 
@@ -171,7 +151,7 @@ def build_company_opportunist_prompt(
                 "summary": article["summary"],
                 "body": _truncate_text(
                     article["body"] or article["summary"],
-                    limit=DEFAULT_ARTICLE_BODY_CHAR_LIMIT,
+                    limit=get_settings().opportunists.company_article_body_char_limit,
                 ),
                 "published_at": article["published_at"],
                 "source": article["source"],
@@ -318,7 +298,7 @@ def classify_company_articles(
     company_identifier: str,
     *,
     client: Client | None = None,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     system_prompt_override: str | None = None,
     task_override: str | None = None,
     start_time: datetime | None = None,
@@ -328,6 +308,7 @@ def classify_company_articles(
     prompt_overhead_tokens: int = DEFAULT_PROMPT_OVERHEAD_TOKENS,
 ) -> dict[str, Any]:
     # Batch company articles through the LLM, clean the responses, and persist the resulting impacts.
+    model = model or _stage_model().model
     client = client or _get_default_client()
     company, peer_groups, articles = build_company_opportunist_articles(
         company_identifier,

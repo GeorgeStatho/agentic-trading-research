@@ -2,20 +2,9 @@ from __future__ import annotations
 
 """Persistence and normalization helpers for the sector opportunist stage."""
 
+from contextlib import closing
 from datetime import datetime
-from pathlib import Path
-import sys
 from typing import Any
-
-if __package__ in {None, ""}:
-    AGENT_CALLERS_DIR = Path(__file__).resolve().parents[1]
-    if str(AGENT_CALLERS_DIR) not in sys.path:
-        sys.path.append(str(AGENT_CALLERS_DIR))
-
-from _paths import bootstrap_agent_callers
-
-
-bootstrap_agent_callers()
 
 from agent_builders.opportunist_payload import build_opportunist_input
 from db_helpers import (
@@ -187,7 +176,7 @@ def save_sector_opportunist_batch_results(
         article_id = int(impact["article_id"])
         batch_impacts_by_article.setdefault(article_id, []).append(impact)
 
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         article_ids = [int(article["article_id"]) for article in article_batch]
         if article_ids:
             placeholders = ",".join("?" for _ in article_ids)

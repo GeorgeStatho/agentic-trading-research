@@ -5,6 +5,7 @@ from typing import Any
 
 from db_helpers.market import record_option_trade_execution
 from services.order_values import normalize_order_side, normalize_order_status
+from services.execution_telemetry import capture_execution_context
 
 
 class OptionTradeJournal:
@@ -44,7 +45,6 @@ class OptionTradeJournal:
             return None
 
         requested_qty = position_summary.get("close_requested_qty") or position_summary.get("qty_to_sell")
-        from services.execution_telemetry import capture_execution_context
         quote = {'bid_price': position_summary.get('current_bid'), 'ask_price': position_summary.get('current_ask'),
                  'timestamp': position_summary.get('option_quote_timestamp')}
         telemetry = capture_execution_context(

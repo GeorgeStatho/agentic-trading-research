@@ -1,19 +1,33 @@
-# Secrets
-.env
-.env.*
-!.env.example
-*.key
-*.pem
+# Generated data files
+*.json
+*.db
+*.db.gz
+*.sqlite
+*.sqlite3
 
-# Runtime outputs
-logs/
-data/
+# Local environment files
+.env
+!.env.example
+
+# Keep frontend JSON config tracked
+!web_dashboard/package.json
+!web_dashboard/package-lock.json
+!web_dashboard/tsconfig.json
+!web_dashboard/tsconfig.app.json
+!web_dashboard/tsconfig.node.json
+
+# Binary artifacts
+*.bin
+*.pyc
+__pycache__/
+.pytest_cache/
+
+# Local scraping/debug artifacts
+html_pages/
 Data/logs/
-shared/*.json
-web_dashboard/public/script_status.json
-web_dashboard/public/option_manager_status.json
-web_dashboard/public/trade_execution_output.json
-web_dashboard/public/option_position_management_output.json
+
+# Process locks for bounded shadow research sessions.
+.research-locks/
 
 # Trading/private artifacts
 trade_logs/
@@ -21,25 +35,6 @@ outcome_dataset/
 private_strategy/
 prompts/production/
 configs/live/
-
-# Generated data files
-*.db
-*.sqlite
-*.sqlite3
-
-# Python
-__pycache__/
-*.pyc
-.pytest_cache/
-.mypy_cache/
-
-# Binary artifacts
-*.bin
-
-# Local scraping/debug artifacts
-html_pages/
-
-# Local/editor
-.vscode/
-.idea/
-.DS_Store
+.env.*
+*.key
+*.pem

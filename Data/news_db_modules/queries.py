@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from db_common import DB_PATH, get_connection
@@ -9,7 +10,7 @@ from .shared import normalize_url
 
 def list_industry_news_articles(industry_id: int, db_path: Path | str = DB_PATH) -> list[dict]:
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -35,7 +36,7 @@ def list_industry_news_articles(industry_id: int, db_path: Path | str = DB_PATH)
 
 def list_company_news_articles(company_id: int, db_path: Path | str = DB_PATH) -> list[dict]:
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -65,7 +66,7 @@ def get_failed_url(url: str, db_path: Path | str = DB_PATH) -> dict | None:
         return None
 
     initialize_database(db_path=db_path)
-    with get_connection(db_path) as conn:
+    with closing(get_connection(db_path)) as conn, conn:
         row = conn.execute(
             """
             SELECT
@@ -107,7 +108,7 @@ def add_failed_url(
         1 if is_permanent else 0,
     )
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             return add_failed_url(
                 url,
                 stage=stage,
@@ -145,7 +146,7 @@ def remove_failed_url(url: str, db_path: Path | str = DB_PATH, conn=None) -> Non
         return
 
     if conn is None:
-        with get_connection(db_path) as local_conn:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
             remove_failed_url(url, conn=local_conn)
             return
 

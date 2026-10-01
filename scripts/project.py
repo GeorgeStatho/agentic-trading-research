@@ -8,6 +8,7 @@ them, so legacy imports and Docker commands remain compatible.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 from pathlib import Path
 import subprocess
 import sys
@@ -21,12 +22,24 @@ RUNTIME_ENTRYPOINTS = {
     "worker": ROOT_DIR / "Python Scripts" / "main.py",
     "news": ROOT_DIR / "Python Scripts" / "news_collector_main.py",
     "option-manager": ROOT_DIR / "Python Scripts" / "option_manager_main.py",
+    "eod-sync": ROOT_DIR / "Python Scripts" / "marketdata_eod_sync_main.py",
     "offline-evaluation": ROOT_DIR / "Python Scripts" / "agentCallers" / "offline_manager_evaluation.py",
 }
 
 
 def _run(command: list[str], *, cwd: Path = ROOT_DIR) -> int:
     return subprocess.run(command, cwd=cwd, check=False).returncode
+
+
+def _test_command(modules: list[str]) -> list[str]:
+    # Tests import as the `tests` package, whose __init__ isolates the environment first;
+    # each parallel worker process gets its own throwaway database that way.
+    if modules:
+        return [PYTHON, "-m", "unittest", *modules]
+    if importlib.util.find_spec("xdist") is not None:
+        return [PYTHON, "-m", "pytest", "-n", "auto", "-q"]
+    print('Running tests one at a time. For parallel runs: pip install -e ".[dev]"', file=sys.stderr)
+    return [PYTHON, "-m", "unittest", "discover", "-s", "tests", "-t", ".", "-p", "test_*.py"]
 
 
 def _parse_args() -> argparse.Namespace:
@@ -52,12 +65,10 @@ def main() -> int:
     if args.command == "run":
         return _run([PYTHON, str(RUNTIME_ENTRYPOINTS[args.target]), *args.args])
     if args.command == "test":
-        command = [PYTHON, "-m", "unittest"]
-        if args.modules:
-            command.extend(args.modules)
-        else:
-            command.extend(["discover", "-s", "tests", "-p", "test_*.py", "-v"])
-        return _run(command)
+        if importlib.util.find_spec("db_common") is None:
+            print("The project is not installed. Run: pip install -e .", file=sys.stderr)
+            return 2
+        return _run(_test_command(args.modules))
     if args.command == "dashboard":
         return _run(["npm", "run", args.target], cwd=ROOT_DIR / "web_dashboard")
     if args.command == "demo-url":

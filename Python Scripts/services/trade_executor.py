@@ -3,19 +3,13 @@ from __future__ import annotations
 import logging
 import math
 import re
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from services.common import safe_float
 from services.config import FrontMainSettings
-
-DATA_DIR = Path(__file__).resolve().parents[2] / "Data"
-if str(DATA_DIR) not in sys.path:
-    sys.path.append(str(DATA_DIR))
 
 from db_helpers.market import (
     count_option_entry_executions_since,
@@ -25,6 +19,15 @@ from db_helpers.market import (
     link_manager_decision_to_trade_execution,
 )
 from services.trading_gateway import TradingClient
+from db_helpers.market import store_execution_telemetry, ensure_position_outcome
+from services.candidate_lifecycle import observe
+from services.catalyst_gates import catalyst_admission_allowed
+from services.execution_telemetry import capture_execution_context
+from services.execution_telemetry import fill_metrics
+from services.limit_entry import observe_entry_plan
+from services.liquidity_gate import evaluate_liquidity
+from services.trade_economics import recheck_trade_economics
+from services.pipeline_version import build_pipeline_version, serializable
 
 
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
@@ -355,7 +358,6 @@ class OptionTradeExecutor:
 
     def execute_candidate(self, *, trading_client, candidate, session):
         from services.candidate_lifecycle import checkpoint, reject, observe
-        from services.pipeline_version import build_pipeline_version, serializable
         candidate = dict(candidate)
         candidate["execution_version"] = observe(build_pipeline_version, settings=self._settings)
         from services.research_promotion import champion_allows
@@ -380,7 +382,6 @@ class OptionTradeExecutor:
         session: TradeExecutionSession,
     ) -> dict[str, Any]:
         """Execute one candidate immediately and update the shared session state."""
-        from services.catalyst_gates import catalyst_admission_allowed
         if not catalyst_admission_allowed(candidate.get('candidate_context')):
             execution = self._build_execution(candidate=candidate, session=session, order_qty=0,
                 submitted=False, order=None, estimated_order_cost=None, error='Catalyst admission blocked or unavailable.',
@@ -537,13 +538,10 @@ class OptionTradeExecutor:
         )
 
         from services.candidate_lifecycle import checkpoint, observe
-        from services.execution_telemetry import capture_execution_context
         arrival = observe(getattr(self._trading_gateway, 'get_execution_market_snapshot', lambda **_: None),
                           option_symbol=option_symbol, underlying_symbol=candidate.get("symbol"))
         candidate["execution_telemetry"] = capture_execution_context(candidate, arrival)
-        from services.liquidity_gate import evaluate_liquidity
         from services.candidate_lifecycle import reject
-        from services.limit_entry import observe_entry_plan
         liquidity = evaluate_liquidity({'latest_quote': (arrival or {}).get('option') or {}}, quantity=calculated_order_qty)
         candidate['execution_liquidity_gate'] = liquidity
         record_contract_observation(candidate.get('candidate_context'), 'EXECUTION_LIQUIDITY', liquidity)
@@ -556,6 +554,20 @@ class OptionTradeExecutor:
                 error='Fresh quote failed V2 liquidity checks.', portfolio_guardrail='execution_liquidity_blocked')
             session.executions.append(execution)
             return execution
+        economics = recheck_trade_economics(candidate, arrival)
+        if economics is not None:
+            candidate['trade_economics_recheck'] = economics
+            checkpoint(candidate.get('candidate_context'), 'TRADE_ECONOMICS_SUBMISSION', economics)
+            for reason in economics['reason_codes']:
+                reject(candidate.get('candidate_context'), 'TRADE_ECONOMICS_SUBMISSION', reason,
+                       metrics=economics['metrics'], shadow=economics['allowed'])
+            if not economics['allowed']:
+                execution = self._build_execution(candidate=candidate, session=session, order_qty=calculated_order_qty,
+                    submitted=False, order=None, estimated_order_cost=estimated_order_cost,
+                    error='Trade-economics report failed its submission recheck.',
+                    portfolio_guardrail='economics_recheck_failed')
+                session.executions.append(execution)
+                return execution
         candidate['limit_entry_shadow'] = observe(observe_entry_plan, candidate, arrival,
                                                   quantity=calculated_order_qty, paper=self._settings.alpaca_paper)
         record_contract_observation(candidate.get('candidate_context'), 'LIMIT_ENTRY_SHADOW', candidate['limit_entry_shadow'])
@@ -613,13 +625,10 @@ class OptionTradeExecutor:
         return execution
 
     def _observe_submitted_order(self, trading_client, execution):
-        from services.execution_telemetry import fill_metrics
-        from db_helpers.market import store_execution_telemetry, ensure_position_outcome
         order_id = str(execution["order"]["id"])
         order = self._trading_gateway.get_order_status_summary(trading_client, order_id=order_id)
         if not isinstance(order, dict):
             return
-        from services.candidate_lifecycle import observe
         market = observe(getattr(self._trading_gateway, 'get_execution_market_snapshot', lambda **_: None),
             option_symbol=execution["selected_option_symbol"], underlying_symbol=execution.get("symbol"))
         metrics = fill_metrics(order, execution.get("execution_telemetry") or {}, market_snapshot=market)

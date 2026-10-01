@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -448,7 +449,7 @@ def build_analyzed_company_news_payload(
         article_age_reference_time
         - timedelta(days=ANALYZED_COMPANY_NEWS_MAX_ARTICLE_AGE_DAYS)
     ).isoformat()
-    with get_connection(DB_PATH) as conn:
+    with closing(get_connection(DB_PATH)) as conn, conn:
         company_news_source_mode = _resolve_company_news_source_mode(conn)
         normalized_company_lookup = normalize_company_lookup_query(company_lookup)
         company_lookup_by_id: dict[int, dict] = {}
