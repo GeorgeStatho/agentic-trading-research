@@ -10,6 +10,7 @@ import os
 import re
 import time
 from typing import Any
+from services.gemini_models import default_vertex_model, temperature_for, thinking_level_for, uses_thinking_levels
 from services.settings import get_settings
 
 try:
@@ -46,10 +47,8 @@ class Client:
     label: str | None = None
 
 
-VERTEX_MODEL_ALIASES: dict[str, str] = {
-    "llama3.1": "gemini-2.5-flash",
-    "world-news-sectors": "gemini-2.5-flash",
-}
+# Ollama-era model names that resolve to VERTEX_DEFAULT_MODEL on Vertex.
+VERTEX_DEFAULT_MODEL_ALIASES: frozenset[str] = frozenset({"llama3.1", "world-news-sectors"})
 VERTEX_AUTH_SCOPES: tuple[str, ...] = (
     "https://www.googleapis.com/auth/cloud-platform",
 )
@@ -165,10 +164,10 @@ def _resolve_model_name(provider: str, model: str) -> str:
     if provider != "vertex":
         return normalized
 
-    if not normalized:
-        return str(os.getenv("VERTEX_DEFAULT_MODEL", "gemini-2.5-flash")).strip()
+    if not normalized or normalized in VERTEX_DEFAULT_MODEL_ALIASES:
+        return default_vertex_model()
 
-    return VERTEX_MODEL_ALIASES.get(normalized, normalized)
+    return normalized
 
 
 def _extract_response_text(response: Any) -> str | None:
@@ -426,6 +425,7 @@ def _ask_vertex_model(
     temperature: float,
     response_schema: dict[str, Any] | None,
     response_diagnostic: dict[str, Any] | None,
+    thinking_level: str | None = None,
 ) -> str:
     # Call the Vertex model with the shared request settings and translate provider errors into a stable message shape.
     if genai_types is None:
@@ -434,8 +434,15 @@ def _ask_vertex_model(
         )
 
     resolved_model = _resolve_model_name(client.provider, model)
+    vertex_settings = get_settings().vertex
 
-    config_kwargs: dict[str, Any] = {"temperature": temperature}
+    config_kwargs: dict[str, Any] = {
+        "temperature": temperature_for(resolved_model, temperature, vertex_settings.gemini3_temperature),
+    }
+    # Gemini 2.5 keeps its default thinking budget; it does not accept a thinking level.
+    level = thinking_level_for(resolved_model, thinking_level or vertex_settings.thinking_level)
+    if level and uses_thinking_levels(resolved_model):
+        config_kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_level=level.upper())
     if response_schema is not None:
         config_kwargs["response_mime_type"] = "application/json"
         config_kwargs["response_schema"] = response_schema
@@ -555,8 +562,10 @@ def ask_llm_model(
     host_label: str | None = None,
     response_schema: dict[str, Any] | None = None,
     response_diagnostic: dict[str, Any] | None = None,
+    thinking_level: str | None = None,
 ) -> str:
     # Route model calls through the supported provider path and normalize the response and error handling for callers.
+    # thinking_level applies to Gemini 3+ on Vertex only; blank uses VERTEX_THINKING_LEVEL.
     if client.provider == "vertex":
         return _ask_vertex_model(
             client,
@@ -566,6 +575,7 @@ def ask_llm_model(
             temperature=temperature,
             response_schema=response_schema,
             response_diagnostic=response_diagnostic,
+            thinking_level=thinking_level,
         )
 
     if client.provider == "openai":

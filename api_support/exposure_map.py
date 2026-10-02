@@ -10,6 +10,7 @@ from agent_helpers.shared import ask_llm_model, extract_json_object, get_model_c
 from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 from api_support.context import DB_PATH, get_connection, initialize_market_database
 from db_helpers import initialize_news_database
+from services.gemini_models import default_vertex_model
 from services.order_values import normalize_order_side, normalize_order_status
 
 
@@ -93,7 +94,7 @@ def resolve_exposure_map_model(model: Any = None) -> str:
     if provider == "openai":
         return "gpt-5.6-terra"
     if provider == "vertex":
-        return str(os.getenv("VERTEX_DEFAULT_MODEL", "gemini-2.5-flash")).strip()
+        return default_vertex_model()
     return str(
         os.getenv(
             "EXPOSURE_MAP_OLLAMA_MODEL",

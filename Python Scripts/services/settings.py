@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Iterator, Mapping
 
 from services.evidence_continuation_policy import EvidenceContinuationPolicy
+from services.gemini_models import parse_thinking_level
 from services.runtime_paths import ROOT_DIR, load_project_env
 
 
@@ -38,17 +39,36 @@ def _decimal(environ, name, default, minimum):
     return max(minimum, float(environ.get(name, str(default))))
 
 
+def _optional_temperature(environ, name, default):
+    # Set-but-blank means "no override": each call keeps the temperature its caller asked for.
+    raw = environ.get(name, str(default)).strip()
+    if not raw:
+        return None
+    value = float(raw)
+    if not 0.0 <= value <= 2.0:
+        raise ValueError(f"{name} must be between 0 and 2, or blank")
+    return value
+
+
 @dataclass(frozen=True)
 class StageModel:
     model: str
     ollama_host: str
+    # Gemini 3+ only. Blank falls back to VERTEX_THINKING_LEVEL, then the model default.
+    thinking_level: str = ""
 
     @classmethod
     def from_environ(cls, environ, *prefixes: str) -> "StageModel":
-        """Resolve ``<PREFIX>_MODEL`` / ``<PREFIX>_OLLAMA_HOST`` through each prefix, then macro/world news."""
+        """Resolve ``<PREFIX>_MODEL`` / ``<PREFIX>_OLLAMA_HOST`` through each prefix, then macro/world news.
+
+        ``<PREFIX>_THINKING_LEVEL`` does not fall back to the news stages: a manager inheriting
+        the news classifiers' low thinking would silently weaken the final decision.
+        """
+        thinking_names = tuple(p + "_THINKING_LEVEL" for p in prefixes or ("MACRO_NEWS", "WORLD_NEWS"))
         return cls(model=_first(environ, (*(p + "_MODEL" for p in prefixes), *_MODEL_FALLBACKS), DEFAULT_STAGE_MODEL),
                    ollama_host=_first(environ, (*(p + "_OLLAMA_HOST" for p in prefixes), *_HOST_FALLBACKS),
-                                      DEFAULT_OLLAMA_HOST))
+                                      DEFAULT_OLLAMA_HOST),
+                   thinking_level=parse_thinking_level(_first(environ, thinking_names, ""), thinking_names[0]))
 
 
 @dataclass(frozen=True)
@@ -80,6 +100,9 @@ class VertexSettings:
     retry_max_delay_seconds: float
     explicit_cache: bool
     cache_ttl_seconds: int
+    # Gemini 3+ only; see services/gemini_models.py.
+    thinking_level: str = ""
+    gemini3_temperature: float | None = 1.0
 
     @classmethod
     def from_environ(cls, environ) -> "VertexSettings":
@@ -88,7 +111,9 @@ class VertexSettings:
                    retry_initial_delay_seconds=initial,
                    retry_max_delay_seconds=_decimal(environ, "VERTEX_RETRY_MAX_DELAY_SECONDS", 30, initial),
                    explicit_cache=environ.get("VERTEX_EXPLICIT_CACHE", "").strip().lower() in {"1", "true", "yes"},
-                   cache_ttl_seconds=_integer(environ, "VERTEX_CACHE_TTL_SECONDS", 900, 60))
+                   cache_ttl_seconds=_integer(environ, "VERTEX_CACHE_TTL_SECONDS", 900, 60),
+                   thinking_level=parse_thinking_level(environ.get("VERTEX_THINKING_LEVEL"), "VERTEX_THINKING_LEVEL"),
+                   gemini3_temperature=_optional_temperature(environ, "VERTEX_GEMINI3_TEMPERATURE", 1.0))
 
 
 @dataclass(frozen=True)

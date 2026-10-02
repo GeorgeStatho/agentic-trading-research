@@ -6,6 +6,7 @@ import math
 import os
 
 from market_db_modules.research_runtime import ResearchBudgetExceeded
+from services.gemini_models import THINKING_LEVELS, default_vertex_model
 
 
 PLANNER_PREFIX = 'RESEARCH_PLANNER'
@@ -42,7 +43,7 @@ def configured_model(provider, override='RESEARCH_PLANNER_MODEL'):
     configured = _first_setting((override, *STAGE_MODEL_FALLBACKS))
     if provider == 'vertex':
         if not configured or configured in {'llama3.1', 'world-news-sectors'}:
-            return os.getenv('VERTEX_DEFAULT_MODEL', 'gemini-2.5-flash')
+            return default_vertex_model()
     return configured or ''
 
 
@@ -62,7 +63,8 @@ class ResearchModelPolicy:
                 raise ValueError('Research token ceilings must be positive integers')
         if type(self.thinking_budget) is not int or self.thinking_budget < 0:
             raise ValueError('Research thinking budget must be explicit and nonnegative')
-        if self.thinking_level not in {'', 'minimal', 'low', 'medium', 'high'}:
+        # Model support varies (Gemini 3.8 has no minimal); research_planner sends the nearest supported level.
+        if self.thinking_level and self.thinking_level not in THINKING_LEVELS:
             raise ValueError('Invalid research thinking level')
         if type(self.thinking_token_reservation) is not int or self.thinking_token_reservation < self.thinking_budget:
             raise ValueError('Thinking reservation must cover the configured thinking budget')

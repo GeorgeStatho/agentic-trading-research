@@ -73,6 +73,7 @@ def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) 
         user_prompt,
         temperature=0,
         host_label=_stage_model().ollama_host,
+        thinking_level=_stage_model().thinking_level,
         response_schema=COMPANY_IMPACTS_SCHEMA,
     )
 

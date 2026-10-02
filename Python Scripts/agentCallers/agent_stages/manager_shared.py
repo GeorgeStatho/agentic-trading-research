@@ -99,6 +99,7 @@ def ask_model(
         user_prompt,
         temperature=0,
         host_label=_stage_model().ollama_host,
+        thinking_level=_stage_model().thinking_level,
         response_schema=MANAGER_RECOMMENDATION_SCHEMA,
         response_diagnostic=response_diagnostic,
     )

@@ -251,6 +251,7 @@ def _collect_grounded_samples(
                 user_prompt,
                 temperature=temperature,
                 host_label=_stage_model().ollama_host,
+                thinking_level=_stage_model().thinking_level,
                 response_schema=THESIS_VERDICT_SCHEMA,
             )
         except Exception as exc:
