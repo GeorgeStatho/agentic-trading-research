@@ -1,4 +1,5 @@
 """Auditable empirical scenarios repriced with Black-Scholes, after the existing hard filters."""
+import logging
 import math
 from statistics import mean
 
@@ -11,6 +12,7 @@ from services.pricing_policy import HORIZON_DAYS, PricingPolicy
 from market_db_modules.pricing_research import catalyst_return_distribution, quantile
 
 CONTRACT_MULTIPLIER = 100
+LOGGER = logging.getLogger(__name__)
 
 
 def score_contract(contract, *, spot, moves, horizon_days, as_of, policy=None):
@@ -97,12 +99,19 @@ def select_with_scenarios(pool, market_context, *, spot):
     research = market_context.get('_v2_scenario_distribution') or {}
     minimum = research.get('minimum_samples', PricingPolicy.from_env().minimum_samples)
     usable = len(research.get('returns') or []) >= minimum
-    selected, scores = (None, [])
+    selected, scores, error = (None, [], None)
     if usable and policy.scenario_mode != 'disabled':
-        selected, scores = rank_contracts(pool, spot=spot, distribution=research['returns'],
-                                          horizon_days=research['horizon_days'], policy=policy,
-                                          as_of=timestamp(research.get('as_of')))
-    comparison = {'mode': policy.scenario_mode, 'status': 'complete' if selected else 'insufficient_scenarios_or_inputs',
+        # Research scoring runs inside live contract selection. A failure here must leave the
+        # baseline choice in place, exactly as an insufficient sample does, in every mode.
+        try:
+            selected, scores = rank_contracts(pool, spot=spot, distribution=research['returns'],
+                                              horizon_days=research['horizon_days'], policy=policy,
+                                              as_of=timestamp(research.get('as_of')))
+        except Exception as exc:
+            LOGGER.exception('Scenario ranking failed; keeping the baseline contract')
+            selected, scores, error = None, [], f'{type(exc).__name__}: {exc}'
+    status = 'scenario_error' if error else 'complete' if selected else 'insufficient_scenarios_or_inputs'
+    comparison = {'mode': policy.scenario_mode, 'status': status, 'error': error,
                   'sample_size': research.get('sample_size', 0), 'baseline_option_symbol': pool[0].get('symbol') if pool else None,
                   'scenario_option_symbol': selected.get('symbol') if selected else None,
                   'scores': scores, 'research': research}

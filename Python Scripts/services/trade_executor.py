@@ -360,10 +360,22 @@ class OptionTradeExecutor:
         from services.candidate_lifecycle import checkpoint, reject, observe
         candidate = dict(candidate)
         candidate["execution_version"] = observe(build_pipeline_version, settings=self._settings)
-        from services.research_promotion import champion_allows
-        if not champion_allows(candidate):
-            return {"submitted": False, "portfolio_guardrail": "research_champion_only"}
+        from services.research_promotion import champion_check
         context = candidate.get("candidate_context")
+        allowed, champion_reason, differing = champion_check(candidate)
+        if not allowed:
+            # A refused champion check stops every entry, so it must be as visible as a fill.
+            self._logger.error("Champion guard refused %s (%s); differing manifest paths: %s",
+                               candidate.get("selected_option_symbol"), champion_reason, differing)
+            execution = self._build_execution(
+                candidate=candidate, session=session, order_qty=0, submitted=False, order=None,
+                estimated_order_cost=None, portfolio_guardrail="research_champion_only",
+                error=f"Champion guard refused entry: {champion_reason}.")
+            execution["champion_guard"] = {"reason": champion_reason, "differing_manifest_paths": differing}
+            session.executions.append(execution)
+            reject(context, "EXECUTION", "research_champion_only",
+                   metrics=execution["champion_guard"], thresholds={})
+            return execution
         checkpoint(context, "pre_execution", {"candidate": candidate, "session": serializable(session)})
         result = self._execute_candidate(trading_client=trading_client, candidate=candidate, session=session)
         if result.get("submitted"):
