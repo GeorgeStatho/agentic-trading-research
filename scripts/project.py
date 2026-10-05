@@ -8,7 +8,9 @@ them, so legacy imports and Docker commands remain compatible.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -29,6 +31,60 @@ RUNTIME_ENTRYPOINTS = {
 
 def _run(command: list[str], *, cwd: Path = ROOT_DIR) -> int:
     return subprocess.run(command, cwd=cwd, check=False).returncode
+
+
+# Where testmon records which code each test executed; written by `test --changed`.
+TESTMON_DATA = ROOT_DIR / ".testmondata"
+TEST_INPUTS_FINGERPRINT = ROOT_DIR / ".testmon-inputs.json"
+# Files the code reads at run time. testmon only sees executed Python, so a change to any of
+# these cannot be traced to the tests it affects; it re-runs every test once and re-records.
+NON_PYTHON_TEST_INPUTS = ("*.sql", "config/*", "Data/*.json", ".env.example", "pyproject.toml", "requirements.txt")
+
+
+def _test_inputs_fingerprint() -> str | None:
+    """Content hash of the non-Python test inputs, or None when git cannot list them."""
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", *NON_PYTHON_TEST_INPUTS],
+        cwd=ROOT_DIR, capture_output=True, check=False,
+    )
+    if listed.returncode != 0:
+        return None
+    digest = hashlib.sha256()
+    for name in sorted({path for path in listed.stdout.decode().split("\0") if path}):
+        path = ROOT_DIR / name
+        if path.is_file():
+            digest.update(name.encode() + b"\0" + hashlib.sha256(path.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def _run_changed_tests() -> int:
+    """Run only the tests whose executed code changed since the last recorded run."""
+    if importlib.util.find_spec("testmon") is None:
+        print('Selecting changed tests needs the dev extras: pip install -e ".[dev]"', file=sys.stderr)
+        return 2
+    fingerprint = _test_inputs_fingerprint()
+    try:
+        recorded = json.loads(TEST_INPUTS_FINGERPRINT.read_text(encoding="utf-8"))["fingerprint"]
+    except (OSError, ValueError, KeyError):
+        recorded = None
+    if not TESTMON_DATA.exists():
+        reason = "no recorded test map yet"
+    elif fingerprint is None:
+        reason = "git could not list the schema and configuration files"
+    elif fingerprint != recorded:
+        reason = "schema, configuration or dependency files changed"
+    else:
+        reason = ""
+    if reason:
+        print(f"Running every test and re-recording: {reason}.", file=sys.stderr)
+    command = [PYTHON, "-m", "pytest", "--testmon-noselect" if reason else "--testmon", "-q"]
+    if importlib.util.find_spec("xdist") is not None:
+        command += ["-n", "auto"]
+    code = _run(command)
+    # 0 and 1 are completed runs; testmon itself keeps selecting tests that failed until they pass.
+    if fingerprint is not None and code in (0, 1):
+        TEST_INPUTS_FINGERPRINT.write_text(json.dumps({"fingerprint": fingerprint}) + "\n", encoding="utf-8")
+    return code
 
 
 def _test_command(modules: list[str]) -> list[str]:
@@ -52,6 +108,8 @@ def _parse_args() -> argparse.Namespace:
 
     test_parser = subparsers.add_parser("test", help="Run the Python test suite or selected test modules.")
     test_parser.add_argument("modules", nargs="*", help="Optional unittest modules, for example tests.test_exposure_map.")
+    test_parser.add_argument("--changed", action="store_true",
+                             help="Run only tests affected by changes since the last --changed run (needs the dev extras).")
 
     dashboard_parser = subparsers.add_parser("dashboard", help="Run a dashboard development command.")
     dashboard_parser.add_argument("target", choices=("dev", "build"))
@@ -68,6 +126,11 @@ def main() -> int:
         if importlib.util.find_spec("db_common") is None:
             print("The project is not installed. Run: pip install -e .", file=sys.stderr)
             return 2
+        if args.changed:
+            if args.modules:
+                print("--changed selects tests itself; do not also name modules.", file=sys.stderr)
+                return 2
+            return _run_changed_tests()
         return _run(_test_command(args.modules))
     if args.command == "dashboard":
         return _run(["npm", "run", args.target], cwd=ROOT_DIR / "web_dashboard")
