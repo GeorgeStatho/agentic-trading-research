@@ -66,10 +66,12 @@ EVIDENCE_THESIS_SCHEMA: dict[str, Any] = {
             "properties": {"minimum_days": {"type": "integer"}, "maximum_days": {"type": "integer"}},
         },
         "forecast_uncertainty": {"type": "string", "enum": list(UNCERTAINTY_LEVELS)},
-        "supporting_claims": {"type": "array", "maxItems": MAX_CLAIMS_PER_SECTION, "items": CLAIM_SCHEMA},
-        "opposing_claims": {"type": "array", "maxItems": MAX_CLAIMS_PER_SECTION, "items": CLAIM_SCHEMA},
-        "invalidation_conditions": {"type": "array", "maxItems": MAX_CLAIMS_PER_SECTION, "items": INVALIDATION_SCHEMA},
-        "unresolved_questions": {"type": "array", "maxItems": MAX_CLAIMS_PER_SECTION, "items": _TEXT},
+        # No maxItems: Vertex response_schema rejects this schema with 400 INVALID_ARGUMENT when it is
+        # present. The limit is stated in THESIS_INSTRUCTIONS and enforced by _list on normalization.
+        "supporting_claims": {"type": "array", "items": CLAIM_SCHEMA},
+        "opposing_claims": {"type": "array", "items": CLAIM_SCHEMA},
+        "invalidation_conditions": {"type": "array", "items": INVALIDATION_SCHEMA},
+        "unresolved_questions": {"type": "array", "items": _TEXT},
     },
 }
 
@@ -90,7 +92,9 @@ THESIS_INSTRUCTIONS = (
     "Put contradicting and package opposing evidence in opposing_claims instead of omitting it. "
     "horizon is the calendar-day window for the thesis to play out. invalidation_conditions name an observable trigger, "
     "its data_source and review_within_days. forecast_uncertainty is ordinal, never a probability. "
-    "List what is still unknown in unresolved_questions."
+    "List what is still unknown in unresolved_questions. "
+    f"supporting_claims, opposing_claims, invalidation_conditions and unresolved_questions hold at most "
+    f"{MAX_CLAIMS_PER_SECTION} items each."
 )
 
 REQUIRED_OUTPUT_EXAMPLE = {

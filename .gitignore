@@ -22,6 +22,10 @@
 __pycache__/
 .pytest_cache/
 
+# Changed-test selection state, written by `project.py test --changed`.
+.testmondata*
+.testmon-inputs.json
+
 # Local scraping/debug artifacts
 html_pages/
 Data/logs/

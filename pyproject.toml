@@ -11,8 +11,8 @@ requires-python = ">=3.11"
 dynamic = ["dependencies"]
 
 [project.optional-dependencies]
-# Parallel test runs: pip install -e ".[dev]"
-dev = ["pytest>=8", "pytest-xdist>=3"]
+# Parallel test runs and `project.py test --changed`: pip install -e ".[dev]"
+dev = ["pytest>=8", "pytest-xdist>=3", "pytest-testmon>=2.2"]
 
 [tool.hatch.metadata.hooks.requirements_txt]
 files = ["requirements.txt"]
