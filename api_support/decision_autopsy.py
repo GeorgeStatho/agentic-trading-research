@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from api_support.common import safe_float, safe_json_loads
-from api_support.context import DB_PATH, initialize_market_database
+from api_support.context import DB_PATH
 from api_support.v2_verdicts import shadow_verdicts_for_decisions
-from db_helpers.market import backfill_decision_autopsy_ledger, list_decision_autopsy_ledger
+from db_helpers.market import list_decision_autopsy_ledger
 
 
 def _string_list(value: Any) -> list[str]:
@@ -144,8 +144,6 @@ def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
 
 
 def build_decision_autopsy_payload(*, limit: int = 100) -> dict[str, Any]:
-    initialize_market_database(db_path=DB_PATH)
-    backfill_decision_autopsy_ledger(db_path=DB_PATH)
     records = [_serialize_ledger_row(row) for row in list_decision_autopsy_ledger(limit=limit, db_path=DB_PATH)]
     # One query for the page, not one per record. None means the lifecycle
     # tables cannot be read, which a reader must not mistake for "nothing

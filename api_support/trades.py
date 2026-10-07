@@ -8,7 +8,6 @@ from api_support.context import (
     DB_PATH,
     SELECTED_OPTIONS_OUTPUT_PATH,
     TRADE_EXECUTION_OUTPUT_PATH,
-    initialize_market_database,
     list_option_trade_executions,
 )
 
@@ -143,7 +142,6 @@ def build_executed_trades_payload(
     underlying_symbol: str | None = None,
     limit: int = 100,
 ) -> dict[str, Any]:
-    initialize_market_database(db_path=DB_PATH)
     rows = list_option_trade_executions(
         underlying_symbol=underlying_symbol,
         within_days=EXECUTED_TRADES_MAX_AGE_DAYS,

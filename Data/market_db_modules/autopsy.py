@@ -22,53 +22,64 @@ def _json_object(value: Any) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def backfill_decision_autopsy_ledger(*, db_path: Path | str = DB_PATH) -> int:
-    """Create one snapshot for legacy manager decisions that predate the ledger."""
-    with closing(get_connection(db_path)) as conn, conn:
-        rows = conn.execute(
+def backfill_decision_autopsy_ledger(
+    *,
+    db_path: Path | str = DB_PATH,
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Create one snapshot for legacy manager decisions that predate the ledger.
+
+    `record_manager_decision_history` writes the snapshot with each new decision, so
+    only database setup needs to run this.
+    """
+    if conn is None:
+        with closing(get_connection(db_path)) as local_conn, local_conn:
+            return backfill_decision_autopsy_ledger(conn=local_conn)
+
+    rows = conn.execute(
+        """
+        SELECT history.*
+        FROM manager_decision_history AS history
+        LEFT JOIN decision_autopsy_ledger AS ledger
+            ON ledger.manager_decision_history_id = history.id
+        WHERE ledger.id IS NULL
+        """
+    ).fetchall()
+    for raw_row in rows:
+        row = dict(raw_row)
+        snapshot = {
+            "version": "decision-autopsy-v1",
+            "company_id": row.get("company_id"),
+            "symbol": row.get("symbol"),
+            "company_name": row.get("company_name"),
+            "decision_run_at": row.get("decision_run_at"),
+            "strategist_decision": row.get("strategist_decision"),
+            "manager_decision": row.get("manager_decision"),
+            "manager_confidence": row.get("manager_confidence"),
+            "manager_reason": row.get("manager_reason"),
+            "target_dte_bucket": row.get("target_dte_bucket"),
+            "selected_option_id": row.get("selected_option_id"),
+            "selected_option_symbol": row.get("selected_option_symbol"),
+            "selected_expiration_date": row.get("selected_expiration_date"),
+            "selected_strike_price": row.get("selected_strike_price"),
+            "selected_option_source": row.get("selected_option_source"),
+            "manager_input": _json_object(row.get("manager_input_json")),
+            "manager_output": _json_object(row.get("manager_output_json")),
+        }
+        conn.execute(
             """
-            SELECT history.*
-            FROM manager_decision_history AS history
-            LEFT JOIN decision_autopsy_ledger AS ledger
-                ON ledger.manager_decision_history_id = history.id
-            WHERE ledger.id IS NULL
-            """
-        ).fetchall()
-        for raw_row in rows:
-            row = dict(raw_row)
-            snapshot = {
-                "version": "decision-autopsy-v1",
-                "company_id": row.get("company_id"),
-                "symbol": row.get("symbol"),
-                "company_name": row.get("company_name"),
-                "decision_run_at": row.get("decision_run_at"),
-                "strategist_decision": row.get("strategist_decision"),
-                "manager_decision": row.get("manager_decision"),
-                "manager_confidence": row.get("manager_confidence"),
-                "manager_reason": row.get("manager_reason"),
-                "target_dte_bucket": row.get("target_dte_bucket"),
-                "selected_option_id": row.get("selected_option_id"),
-                "selected_option_symbol": row.get("selected_option_symbol"),
-                "selected_expiration_date": row.get("selected_expiration_date"),
-                "selected_strike_price": row.get("selected_strike_price"),
-                "selected_option_source": row.get("selected_option_source"),
-                "manager_input": _json_object(row.get("manager_input_json")),
-                "manager_output": _json_object(row.get("manager_output_json")),
-            }
-            conn.execute(
-                """
-                INSERT INTO decision_autopsy_ledger (
-                    manager_decision_history_id, symbol, decision_run_at, snapshot_json, created_at
-                ) VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    row["id"],
-                    row.get("symbol"),
-                    row.get("decision_run_at"),
-                    json_text(snapshot),
-                    row.get("created_at") or row.get("decision_run_at"),
-                ),
-            )
+            INSERT INTO decision_autopsy_ledger (
+                manager_decision_history_id, symbol, decision_run_at, snapshot_json, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                row["id"],
+                row.get("symbol"),
+                row.get("decision_run_at"),
+                json_text(snapshot),
+                row.get("created_at") or row.get("decision_run_at"),
+            ),
+        )
     return len(rows)
 
 

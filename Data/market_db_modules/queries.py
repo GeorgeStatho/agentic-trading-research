@@ -8,7 +8,6 @@ from typing import Any
 
 from db_common import DB_PATH, clean_text, get_connection
 from .shared import coerce_int, normalize_timestamp
-from .bootstrap import initialize_database
 
 
 def list_companies_by_industry(industry_key: str, db_path: Path | str = DB_PATH) -> list[sqlite3.Row]:
@@ -187,7 +186,6 @@ def list_decision_expectancy_rows(
     if reference_time.tzinfo is None:
         reference_time = reference_time.replace(tzinfo=timezone.utc)
     cutoff = normalize_timestamp(reference_time - timedelta(days=max(1, int(within_days))))
-    initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         return conn.execute(
             """

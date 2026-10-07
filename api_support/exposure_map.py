@@ -884,8 +884,6 @@ def _add_ancestor_nodes(conn, nodes: dict[str, dict[str, Any]], entity_node: dic
 
 def build_exposure_map_payload(article_id: int, *, run_id: int | None = None, conn=None) -> dict[str, Any]:
     owns_connection = conn is None
-    if owns_connection:
-        _initialize_databases()
     active_conn = conn or get_connection(DB_PATH)
     try:
         article = _load_article(active_conn, int(article_id))
@@ -1025,7 +1023,6 @@ def list_recent_exposure_articles(
     *,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    _initialize_databases()
     reference_time = now or datetime.now(timezone.utc)
     cutoff = reference_time - timedelta(days=EXPOSURE_MAP_MAX_ARTICLE_AGE_DAYS)
     with closing(get_connection(DB_PATH)) as conn, conn:

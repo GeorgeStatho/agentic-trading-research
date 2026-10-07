@@ -499,6 +499,11 @@ CREATE INDEX IF NOT EXISTS idx_manager_decision_history_symbol
 CREATE INDEX IF NOT EXISTS idx_manager_decision_history_decision_run_at
     ON manager_decision_history (decision_run_at);
 
+-- trade_executed is stored after the large manager JSON columns, so filtering on it
+-- through the date index alone reads every decision's JSON overflow pages.
+CREATE INDEX IF NOT EXISTS idx_manager_decision_history_executed_run_at
+    ON manager_decision_history (decision_run_at) WHERE trade_executed = 1;
+
 CREATE INDEX IF NOT EXISTS idx_manager_decision_history_trade_execution_order_id
     ON manager_decision_history (trade_execution_order_id);
 

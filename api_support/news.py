@@ -240,74 +240,52 @@ def _lookup_companies_for_news(conn, company_lookup_query: str) -> list[dict[str
     return matches
 
 
-def _load_default_companies_for_news(conn) -> list[dict[str, Any]]:
-    company_news_source_mode = _resolve_company_news_source_mode(conn)
-    if company_news_source_mode == "linked_articles":
-        rows = conn.execute(
-            """
-            SELECT
-                c.id AS company_id,
-                c.symbol,
-                c.name,
-                i.id AS industry_id,
-                i.industry_key,
-                i.name AS industry_name,
-                s.id AS sector_id,
-                s.sector_key,
-                s.name AS sector_name,
-                MAX(na.published_at) AS latest_company_news_published_at
-            FROM companies AS c
-            JOIN industries AS i ON i.id = c.industry_id
-            JOIN sectors AS s ON s.id = i.sector_id
-            JOIN company_news_articles AS cna ON cna.company_id = c.id
-            JOIN news_articles AS na ON na.id = cna.article_id
-            GROUP BY
-                c.id,
-                c.symbol,
-                c.name,
-                i.id,
-                i.industry_key,
-                i.name,
-                s.id,
-                s.sector_key,
-                s.name
-            ORDER BY MAX(na.published_at) DESC, c.symbol ASC
-            """
-        ).fetchall()
-    elif company_news_source_mode == "opportunist_impacts":
-        rows = conn.execute(
-            """
-            SELECT
-                c.id AS company_id,
-                c.symbol,
-                c.name,
-                i.id AS industry_id,
-                i.industry_key,
-                i.name AS industry_name,
-                s.id AS sector_id,
-                s.sector_key,
-                s.name AS sector_name,
-                MAX(na.published_at) AS latest_company_news_published_at
-            FROM companies AS c
-            JOIN industries AS i ON i.id = c.industry_id
-            JOIN sectors AS s ON s.id = i.sector_id
-            JOIN company_opportunist_impacts AS coi ON coi.company_id = c.id
-            JOIN news_articles AS na ON na.id = coi.article_id
-            GROUP BY
-                c.id,
-                c.symbol,
-                c.name,
-                i.id,
-                i.industry_key,
-                i.name,
-                s.id,
-                s.sector_key,
-                s.name
-            ORDER BY MAX(na.published_at) DESC, c.symbol ASC
-            """
-        ).fetchall()
-    else:
-        rows = []
+_COMPANY_NEWS_LINK_TABLES = {
+    "linked_articles": "company_news_articles",
+    "opportunist_impacts": "company_opportunist_impacts",
+}
+
+
+def _load_default_companies_for_news(conn, article_age_cutoff: str) -> list[dict[str, Any]]:
+    link_table = _COMPANY_NEWS_LINK_TABLES.get(_resolve_company_news_source_mode(conn))
+    if link_table is None:
+        return []
+    # published_at is stored after the article body. CROSS JOIN keeps news_articles as
+    # the outer loop so the age filter reads the published_at index, never the bodies.
+    rows = conn.execute(
+        f"""
+        SELECT
+            c.id AS company_id,
+            c.symbol,
+            c.name,
+            i.id AS industry_id,
+            i.industry_key,
+            i.name AS industry_name,
+            s.id AS sector_id,
+            s.sector_key,
+            s.name AS sector_name,
+            MAX(na.published_at) AS latest_company_news_published_at
+        FROM news_articles AS na
+        CROSS JOIN {link_table} AS link ON link.article_id = na.id
+        JOIN companies AS c ON c.id = link.company_id
+        JOIN industries AS i ON i.id = c.industry_id
+        JOIN sectors AS s ON s.id = i.sector_id
+        WHERE 1 = 1
+        {_recent_article_sql_clause()}
+        GROUP BY
+            c.id,
+            c.symbol,
+            c.name,
+            i.id,
+            i.industry_key,
+            i.name,
+            s.id,
+            s.sector_key,
+            s.name
+        ORDER BY MAX(na.published_at) DESC, c.symbol ASC
+        """,
+        (article_age_cutoff,),
+    ).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -462,7 +440,7 @@ def build_analyzed_company_news_payload(
                 all_company_ids.append(company_id)
                 company_lookup_by_id[company_id] = company
         else:
-            default_companies = _load_default_companies_for_news(conn)
+            default_companies = _load_default_companies_for_news(conn, article_age_cutoff)
             if not default_companies:
                 payload = _empty_analyzed_company_news_payload(page=page, page_size=page_size)
                 payload["lookup_query"] = normalized_company_lookup

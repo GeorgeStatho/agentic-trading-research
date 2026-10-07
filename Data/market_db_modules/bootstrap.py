@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 
 from db_common import DATA_DIR, DB_PATH, coerce_float, get_connection, table_exists
+from .autopsy import backfill_decision_autopsy_ledger
 from .contract_research import CLUSTER_PATH
 from .entities import add_company, add_industry, add_sector
 from .shared import LEGACY_SECTOR_KEY, LEGACY_SECTOR_NAME, SCHEMA_PATH, is_legacy_schema
@@ -160,4 +161,5 @@ def initialize_database(
         conn.executescript(Path(__file__).with_name('trade_economics_schema.sql').read_text(encoding='utf-8'))
         conn.executescript(Path(__file__).with_name('thesis_event_reviews_schema.sql').read_text(encoding='utf-8'))
         conn.executescript(Path(__file__).with_name('forward_evaluation_schema.sql').read_text(encoding='utf-8'))
+        backfill_decision_autopsy_ledger(conn=conn)
         _record_fingerprint(conn, fingerprint)
