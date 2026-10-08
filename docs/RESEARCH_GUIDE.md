@@ -72,7 +72,7 @@ Enable in this order. Each step feeds the next, and each can run for a while on 
 
    Use your real application name and an email you read. SEC requires the contact; without an
    `@` the collector returns `configuration_required`. Check progress with
-   `python3 scripts/company_evidence.py collect` or the collector output.
+   `docker compose exec news_collector python scripts/company_evidence.py collect` or the collector output.
 
 2. **Discovery (P2), which also switches on event reviews (P6).**
 
@@ -81,7 +81,8 @@ Enable in this order. Each step feeds the next, and each can run for a while on 
    ```
 
    - Discovery needs no model.
-   - Check it with `python3 scripts/discovery.py status`, then `interest` and `checks`.
+   - Check it with `docker compose exec news_collector python scripts/discovery.py status`, then
+     `interest` and `checks`.
    - The first scan queues every current catalyst for each company of interest, including
      position reviews for open positions. Most of the first reviews are skipped as pre-entry
      evidence. Reviews beyond three per position per day are closed as `daily_limit_reached`,
@@ -112,21 +113,23 @@ Enable in this order. Each step feeds the next, and each can run for a while on 
 
 ## Watching it
 
-All commands are read-only unless noted. Pass `--db /path/to/db` to read a copy instead of the
-configured database.
+Run these from the repository directory on the server. They run inside the containers, which hold
+the import paths and the database volume; plain `python3 scripts/...` on the host fails with
+`ModuleNotFoundError`. All commands are read-only unless noted. Pass `--db /path/to/db` to read a
+copy instead of the configured database; the path is inside the container.
 
 | Question | Command |
 | --- | --- |
-| Is evidence being collected? | `python3 scripts/company_evidence.py collect` (runs one cycle) |
-| What is discovery holding? | `python3 scripts/discovery.py status` / `interest` / `checks` |
-| What did research find, and why did it stop? | `python3 scripts/research.py replay 'research:…'` |
-| Are theses checkable? | `python3 scripts/research.py thesis-report --days 7` |
-| What would economics have blocked? | `python3 scripts/research.py economics-report --days 7` |
-| What did event reviews conclude? | `python3 scripts/research.py event-reviews --days 7` |
-| Is forward evidence accumulating? | `python3 scripts/research.py forward-status` |
-| How does the challenger compare? | `python3 scripts/research.py compare COHORT_ID` (writes a report) |
-| Which route admits better events? | `python3 scripts/research.py discovery-ledger --days 30` |
-| Do research theses hold up? | `python3 scripts/research.py research-outcomes --days 30` |
+| Is evidence being collected? | `docker compose exec news_collector python scripts/company_evidence.py collect` (runs one cycle) |
+| What is discovery holding? | `docker compose exec news_collector python scripts/discovery.py status` / `interest` / `checks` |
+| What did research find, and why did it stop? | `docker compose exec worker python scripts/research.py replay 'research:…'` |
+| Are theses checkable? | `docker compose exec worker python scripts/research.py thesis-report --days 7` |
+| What would economics have blocked? | `docker compose exec worker python scripts/research.py economics-report --days 7` |
+| What did event reviews conclude? | `docker compose exec worker python scripts/research.py event-reviews --days 7` |
+| Is forward evidence accumulating? | `docker compose exec worker python scripts/research.py forward-status` |
+| How does the challenger compare? | `docker compose exec worker python scripts/research.py compare COHORT_ID` (writes a report) |
+| Which route admits better events? | `docker compose exec worker python scripts/research.py discovery-ledger --days 30` |
+| Do research theses hold up? | `docker compose exec worker python scripts/research.py research-outcomes --days 30` |
 
 The dashboard's **Research → V2 Rollout** page shows enforcement modes, Part 6 runs and the Phase 7
 panel. `?demo=1` shows a fictional walkthrough.
