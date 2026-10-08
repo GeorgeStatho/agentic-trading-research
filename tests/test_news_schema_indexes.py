@@ -80,6 +80,18 @@ class ArticleContentTableTests(unittest.TestCase):
         self.assertEqual(self.content_rows(), [(7, "Old body", "{}")])
 
 
+class ScraperArticleReuseTests(unittest.TestCase):
+    def test_scraper_reads_a_stored_article_with_its_body(self):
+        from core.CommonPipeline import fetch_existing_article_by_url
+
+        url = "https://example.com/scraper-reuse"
+        article_id = add_news_article("Test Wire", "scraper-reuse", "Title", url, body="Stored body")
+
+        article = fetch_existing_article_by_url(url)
+
+        self.assertEqual((article["id"], article["body"]), (article_id, "Stored body"))
+
+
 class NewsSetupFingerprintTests(unittest.TestCase):
     def setUp(self):
         temp_dir = TemporaryDirectory()

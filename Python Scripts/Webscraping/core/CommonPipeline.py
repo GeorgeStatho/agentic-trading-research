@@ -146,28 +146,29 @@ def fetch_existing_article_by_url(url: str) -> dict | None:
         row = conn.execute(
             """
             SELECT
-                id,
-                source,
-                article_key,
-                title,
-                normalized_title,
-                summary,
-                body,
-                normalized_url,
-                content_hash,
-                published_at,
-                section,
-                age_days,
-                recency_score,
-                source_reputation_score,
-                directness_score,
-                confirmation_score,
-                independent_source_count,
-                factuality_score,
-                evidence_score,
-                source_url
-            FROM news_articles
-            WHERE normalized_url = ?
+                na.id,
+                na.source,
+                na.article_key,
+                na.title,
+                na.normalized_title,
+                na.summary,
+                content.body,
+                na.normalized_url,
+                na.content_hash,
+                na.published_at,
+                na.section,
+                na.age_days,
+                na.recency_score,
+                na.source_reputation_score,
+                na.directness_score,
+                na.confirmation_score,
+                na.independent_source_count,
+                na.factuality_score,
+                na.evidence_score,
+                na.source_url
+            FROM news_articles AS na
+            LEFT JOIN news_article_content AS content ON content.article_id = na.id
+            WHERE na.normalized_url = ?
             LIMIT 1
             """,
             (normalized,),
