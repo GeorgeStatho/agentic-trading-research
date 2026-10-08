@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from contextlib import closing
+from datetime import datetime, timezone
+from hashlib import sha256
 import json
 import math
 import os
@@ -61,6 +64,39 @@ def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
         (table_name,),
     ).fetchone()
     return row is not None
+
+
+def lock_for_migration(conn: sqlite3.Connection) -> None:
+    """Take the write lock before a migration checks whether it still has work to do.
+
+    Every service runs setup at start, so another one can finish the same migration
+    between an unlocked check and the write, leaving this one to read a dropped column.
+    """
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+
+
+def setup_fingerprint(sources: Iterable[Path]) -> str:
+    """Hash the files that define a setup, so changing any of them re-runs it once."""
+    digest = sha256()
+    for path in sorted(set(sources)):
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def applied_setup_fingerprint(conn: sqlite3.Connection, name: str) -> str | None:
+    if not table_exists(conn, "schema_bootstrap"):
+        return None
+    row = conn.execute("SELECT fingerprint FROM schema_bootstrap WHERE name = ?", (name,)).fetchone()
+    return row["fingerprint"] if row else None
+
+
+def record_setup_fingerprint(conn: sqlite3.Connection, name: str, fingerprint: str) -> None:
+    conn.execute("""CREATE TABLE IF NOT EXISTS schema_bootstrap (
+        name TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, applied_at TEXT NOT NULL)""")
+    conn.execute("""INSERT INTO schema_bootstrap (name, fingerprint, applied_at) VALUES (?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET fingerprint = excluded.fingerprint, applied_at = excluded.applied_at""",
+                 (name, fingerprint, datetime.now(timezone.utc).isoformat()))
 
 
 def validate_sql_identifier(value: str) -> str:

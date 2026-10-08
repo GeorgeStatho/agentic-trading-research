@@ -70,6 +70,7 @@ class ArticleContentTableTests(unittest.TestCase):
                 VALUES (7, 'Test Wire', 'old-article', 'Old', 'https://example.com/old', 'Old body', '{}')
                 """
             )
+            conn.execute("UPDATE schema_bootstrap SET fingerprint = 'older-setup' WHERE name = 'news'")
 
         initialize_news_database(db_path=self.db_path)
 
@@ -77,6 +78,40 @@ class ArticleContentTableTests(unittest.TestCase):
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(news_articles)")}
         self.assertFalse({"body", "raw_json"} & columns)
         self.assertEqual(self.content_rows(), [(7, "Old body", "{}")])
+
+
+class NewsSetupFingerprintTests(unittest.TestCase):
+    def setUp(self):
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.db_path = Path(temp_dir.name) / "news-setup.sqlite3"
+        initialize_market_database(db_path=self.db_path)
+        initialize_news_database(db_path=self.db_path)
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("DROP INDEX idx_news_articles_section")
+
+    def news_article_indexes(self):
+        with closing(get_connection(self.db_path)) as conn, conn:
+            return {row["name"] for row in conn.execute("PRAGMA index_list(news_articles)")}
+
+    def test_database_set_up_by_the_same_files_is_left_alone(self):
+        initialize_news_database(db_path=self.db_path)
+
+        self.assertNotIn("idx_news_articles_section", self.news_article_indexes())
+
+    def test_database_set_up_by_other_files_is_migrated(self):
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("UPDATE schema_bootstrap SET fingerprint = 'older-setup' WHERE name = 'news'")
+
+        initialize_news_database(db_path=self.db_path)
+
+        self.assertIn("idx_news_articles_section", self.news_article_indexes())
+
+    def test_news_and_market_setups_keep_separate_fingerprints(self):
+        with closing(get_connection(self.db_path)) as conn, conn:
+            names = {row["name"] for row in conn.execute("SELECT name FROM schema_bootstrap")}
+
+        self.assertEqual(names, {"market", "news"})
 
 
 if __name__ == "__main__":

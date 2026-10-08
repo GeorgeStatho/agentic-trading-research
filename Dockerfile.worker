@@ -34,6 +34,11 @@ RUN playwright install --with-deps chromium
 
 COPY . .
 
+# PYTHONDONTWRITEBYTECODE stops Python writing .pyc files but it still reads them, so
+# compiling the project here saves every process (including each scrape subprocess)
+# from recompiling the modules it imports.
+RUN python -m compileall -q -x /node_modules/ /app
+
 # Registers the import roots declared in pyproject.toml; dependencies are already installed.
 RUN pip install --no-deps -e .
 

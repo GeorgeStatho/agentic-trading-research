@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 from functools import cache
-from hashlib import sha256
 import sqlite3
 from pathlib import Path
 
-from db_common import DATA_DIR, DB_PATH, coerce_float, get_connection, table_columns, table_exists
+from db_common import (DATA_DIR, DB_PATH, applied_setup_fingerprint, coerce_float, get_connection,
+                       lock_for_migration, record_setup_fingerprint, setup_fingerprint, table_columns,
+                       table_exists)
 from .autopsy import backfill_decision_autopsy_ledger, move_payload_copies_out_of_ledger
 from .contract_research import CLUSTER_PATH
 from .entities import add_company, add_industry, add_sector
@@ -43,6 +43,7 @@ def _ensure_manager_decision_outcome_columns(conn: sqlite3.Connection) -> None:
 
 def _move_manager_decision_payloads(conn: sqlite3.Connection) -> None:
     """Move the manager JSON that older code kept on manager_decision_history into its own table."""
+    lock_for_migration(conn)
     if "manager_input_json" not in table_columns(conn, "manager_decision_history"):
         return
     conn.execute(
@@ -114,29 +115,9 @@ def _migrate_legacy_schema(conn: sqlite3.Connection) -> None:
 
 @cache
 def _setup_fingerprint(schema_path: Path) -> str:
-    """Hash the files that define the setup, so changing any of them re-runs it once."""
     module_dir = Path(__file__).parent
-    sources = {*DATA_DIR.glob("*.py"), *DATA_DIR.glob("*.sql"), *module_dir.glob("*.py"),
-               *module_dir.glob("*.sql"), CLUSTER_PATH, schema_path}
-    digest = sha256()
-    for path in sorted(sources):
-        digest.update(path.read_bytes())
-    return digest.hexdigest()
-
-
-def _applied_fingerprint(conn: sqlite3.Connection) -> str | None:
-    if not table_exists(conn, "schema_bootstrap"):
-        return None
-    row = conn.execute("SELECT fingerprint FROM schema_bootstrap WHERE name = ?", (SETUP_NAME,)).fetchone()
-    return row["fingerprint"] if row else None
-
-
-def _record_fingerprint(conn: sqlite3.Connection, fingerprint: str) -> None:
-    conn.execute("""CREATE TABLE IF NOT EXISTS schema_bootstrap (
-        name TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, applied_at TEXT NOT NULL)""")
-    conn.execute("""INSERT INTO schema_bootstrap (name, fingerprint, applied_at) VALUES (?, ?, ?)
-        ON CONFLICT(name) DO UPDATE SET fingerprint = excluded.fingerprint, applied_at = excluded.applied_at""",
-                 (SETUP_NAME, fingerprint, datetime.now(timezone.utc).isoformat()))
+    return setup_fingerprint([*DATA_DIR.glob("*.py"), *DATA_DIR.glob("*.sql"), *module_dir.glob("*.py"),
+                              *module_dir.glob("*.sql"), CLUSTER_PATH, schema_path])
 
 
 def initialize_database(
@@ -152,7 +133,7 @@ def initialize_database(
     # sqlite3 keeps a self-referencing statement cache, so a connection left to the garbage
     # collector holds the file open long after the caller is done with it.
     with closing(get_connection(db_path)) as conn, conn:
-        if _applied_fingerprint(conn) == fingerprint:
+        if applied_setup_fingerprint(conn, SETUP_NAME) == fingerprint:
             return
         if is_legacy_schema(conn):
             _migrate_legacy_schema(conn)
@@ -182,4 +163,4 @@ def initialize_database(
         conn.executescript(Path(__file__).with_name('forward_evaluation_schema.sql').read_text(encoding='utf-8'))
         move_payload_copies_out_of_ledger(conn)
         backfill_decision_autopsy_ledger(conn=conn)
-        _record_fingerprint(conn, fingerprint)
+        record_setup_fingerprint(conn, SETUP_NAME, fingerprint)

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from contextlib import closing
+from functools import cache
 import sqlite3
 from pathlib import Path
 
-from db_common import DB_PATH, get_connection, initialize_schema, table_columns, table_exists
+from db_common import (DATA_DIR, DB_PATH, applied_setup_fingerprint, get_connection, initialize_schema,
+                       lock_for_migration, record_setup_fingerprint, setup_fingerprint, table_columns,
+                       table_exists)
 from .shared import MACRO_EVENT_COLUMN_TYPES, NEWS_ARTICLE_COLUMN_TYPES, SCHEMA_PATH
 from catalyst_schema import migrate_catalysts
+
+
+SETUP_NAME = "news"
 
 
 def _ensure_missing_columns(
@@ -66,6 +72,7 @@ def _migrate_company_opportunist_article_processing(conn: sqlite3.Connection) ->
 
 def _move_article_content(conn: sqlite3.Connection) -> None:
     """Move the body and raw_json that older code kept on news_articles into their own table."""
+    lock_for_migration(conn)
     if "body" not in table_columns(conn, "news_articles"):
         return
     conn.execute(
@@ -87,10 +94,27 @@ def _run_bootstrap_migrations(conn: sqlite3.Connection) -> None:
     _ensure_missing_columns(conn, "strategist_runs", {"candidate_id": "TEXT"})
 
 
+@cache
+def _setup_fingerprint(schema_path: Path) -> str:
+    # Data/*.py and Data/*.sql cover db_common and the catalyst schema this setup also runs.
+    return setup_fingerprint([*DATA_DIR.glob("*.py"), *DATA_DIR.glob("*.sql"),
+                              *Path(__file__).parent.glob("*.py"), schema_path])
+
+
 def initialize_database(
     db_path: Path | str = DB_PATH,
     schema_path: Path | str = SCHEMA_PATH,
 ) -> None:
+    """Create and migrate the news schema.
+
+    The agents and scrapers call this once per payload or batch, so the work runs only when
+    the database was last set up by different setup files; otherwise it is one lookup.
+    """
+    fingerprint = _setup_fingerprint(Path(schema_path).resolve())
+    with closing(get_connection(db_path)) as conn:
+        if applied_setup_fingerprint(conn, SETUP_NAME) == fingerprint:
+            return
+
     with closing(get_connection(db_path)) as conn, conn:
         _run_bootstrap_migrations(conn)
 
@@ -100,3 +124,4 @@ def initialize_database(
         _run_bootstrap_migrations(conn)
         _move_article_content(conn)
         migrate_catalysts(conn)
+        record_setup_fingerprint(conn, SETUP_NAME, fingerprint)
