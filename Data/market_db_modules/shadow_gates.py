@@ -34,8 +34,11 @@ def backfill_gate_verdicts(*, db_path=DB_PATH):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         before = conn.total_changes
-        for row in conn.execute("SELECT id, manager_output_json FROM manager_decision_history").fetchall():
-            record_decision_gate_verdicts(row["id"], row["manager_output_json"], conn=conn)
+        rows = conn.execute(
+            "SELECT manager_decision_history_id, manager_output_json FROM manager_decision_payloads"
+        ).fetchall()
+        for row in rows:
+            record_decision_gate_verdicts(row["manager_decision_history_id"], row["manager_output_json"], conn=conn)
         return conn.total_changes - before
 
 

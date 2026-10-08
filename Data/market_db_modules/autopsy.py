@@ -10,16 +10,50 @@ from db_common import DB_PATH, get_connection, json_text
 from .shared import normalize_timestamp
 
 
-def _json_object(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return value
-    try:
-        import json
+# v2 snapshots leave the manager input/output in manager_decision_payloads instead of
+# embedding a second copy; readers get them from list_decision_autopsy_ledger.
+SNAPSHOT_VERSION = "decision-autopsy-v2"
 
-        parsed = json.loads(str(value or ""))
-    except (TypeError, ValueError):
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+
+def move_payload_copies_out_of_ledger(conn: sqlite3.Connection) -> None:
+    """Strip the manager input/output that v1 snapshots embedded.
+
+    A snapshot copy is kept in manager_decision_payloads first if that decision has no
+    payload of its own, so nothing is lost.
+    """
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO manager_decision_payloads (
+            manager_decision_history_id, manager_input_json, manager_output_json
+        )
+        SELECT
+            ledger.manager_decision_history_id,
+            json_extract(ledger.snapshot_json, '$.manager_input'),
+            json_extract(ledger.snapshot_json, '$.manager_output')
+        FROM decision_autopsy_ledger AS ledger
+        JOIN manager_decision_history AS history ON history.id = ledger.manager_decision_history_id
+        WHERE json_valid(ledger.snapshot_json)
+          AND (
+              json_extract(ledger.snapshot_json, '$.manager_input') <> '{}'
+              OR json_extract(ledger.snapshot_json, '$.manager_output') <> '{}'
+          )
+        """
+    )
+    conn.execute(
+        """
+        UPDATE decision_autopsy_ledger
+        SET snapshot_json = json_set(
+            json_remove(snapshot_json, '$.manager_input', '$.manager_output'),
+            '$.version', ?
+        )
+        WHERE json_valid(snapshot_json)
+          AND (
+              json_type(snapshot_json, '$.manager_input') IS NOT NULL
+              OR json_type(snapshot_json, '$.manager_output') IS NOT NULL
+          )
+        """,
+        (SNAPSHOT_VERSION,),
+    )
 
 
 def backfill_decision_autopsy_ledger(
@@ -48,7 +82,7 @@ def backfill_decision_autopsy_ledger(
     for raw_row in rows:
         row = dict(raw_row)
         snapshot = {
-            "version": "decision-autopsy-v1",
+            "version": SNAPSHOT_VERSION,
             "company_id": row.get("company_id"),
             "symbol": row.get("symbol"),
             "company_name": row.get("company_name"),
@@ -63,8 +97,6 @@ def backfill_decision_autopsy_ledger(
             "selected_expiration_date": row.get("selected_expiration_date"),
             "selected_strike_price": row.get("selected_strike_price"),
             "selected_option_source": row.get("selected_option_source"),
-            "manager_input": _json_object(row.get("manager_input_json")),
-            "manager_output": _json_object(row.get("manager_output_json")),
         }
         conn.execute(
             """
@@ -138,6 +170,8 @@ def list_decision_autopsy_ledger(
                 ledger.decision_run_at,
                 ledger.snapshot_json,
                 ledger.created_at,
+                payload.manager_input_json,
+                payload.manager_output_json,
                 history.trade_executed,
                 history.trade_execution_order_id,
                 history.trade_execution_record_id,
@@ -158,6 +192,8 @@ def list_decision_autopsy_ledger(
             FROM decision_autopsy_ledger AS ledger
             LEFT JOIN manager_decision_history AS history
                 ON history.id = ledger.manager_decision_history_id
+            LEFT JOIN manager_decision_payloads AS payload
+                ON payload.manager_decision_history_id = ledger.manager_decision_history_id
             LEFT JOIN option_trade_executions AS execution
                 ON execution.id = history.trade_execution_record_id
                 OR (

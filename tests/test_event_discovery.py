@@ -53,13 +53,14 @@ class DiscoveryFixture(unittest.TestCase):
     def article(self, index=1, *, body='Revenue guidance raised to 110 million.', root='root:earnings', primary=True):
         with closing(get_connection(self.db)) as conn, conn:
             conn.execute('''INSERT INTO news_articles
-                (id,source,article_key,title,body,source_url,published_at,event_time,first_seen_time,
+                (id,source,article_key,title,source_url,published_at,event_time,first_seen_time,
                  primary_ticker,catalyst_id,root_event_id,root_source_id,source_type,evidence_score,syndication_parent_id)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                         (index, 'issuer' if primary else 'wire', f'article-{index}', 'Fixture earnings guidance', body,
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                         (index, 'issuer' if primary else 'wire', f'article-{index}', 'Fixture earnings guidance',
                           f'https://issuer.test/{index}', START, START, START, 'NVDA', CATALYST, root,
                           'url:https://issuer.test/release', 'company_release' if primary else 'wire_service', .9,
                           None if index == 1 else 1))
+            conn.execute('INSERT INTO news_article_content(article_id,body) VALUES (?,?)', (index, body))
             conn.execute('INSERT INTO company_news_articles(company_id,article_id) VALUES (1,?)', (index,))
             from market_db_modules.company_interest import signal_discovery
             signal_discovery(conn, 1, 'news:' + str(index), body, at=START)
@@ -212,7 +213,8 @@ class DiscoveryAcceptanceTests(DiscoveryFixture):
         self.article()
         self.discover()
         with closing(get_connection(self.db)) as conn, conn:
-            conn.execute("UPDATE news_articles SET title='Corrected earnings guidance',body='Guidance is 90 million.' WHERE id=1")
+            conn.execute("UPDATE news_articles SET title='Corrected earnings guidance' WHERE id=1")
+            conn.execute("UPDATE news_article_content SET body='Guidance is 90 million.' WHERE article_id=1")
             from market_db_modules.company_interest import signal_company_news
             signal_company_news(conn, 1, at=later(1))
         self.discover(at=later(1))

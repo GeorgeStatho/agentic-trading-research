@@ -31,9 +31,12 @@ def _article_references(manager_input: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _build_review(snapshot: dict[str, Any], row: dict[str, Any]) -> dict[str, str]:
-    manager_input = snapshot.get("manager_input") if isinstance(snapshot.get("manager_input"), dict) else {}
-    strategist = manager_input.get("strategist_recommendation") if isinstance(manager_input.get("strategist_recommendation"), dict) else {}
+def _json_dict(value: Any) -> dict[str, Any]:
+    parsed = safe_json_loads(value)
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _build_review(snapshot: dict[str, Any], strategist: dict[str, Any], row: dict[str, Any]) -> dict[str, str]:
     risks = _string_list(strategist.get("risks"))
     pnl = safe_float(row.get("latest_trade_pnl_pct"))
     decision = str(snapshot.get("manager_decision") or "").strip() or "No trade"
@@ -71,10 +74,9 @@ def _execution_mode(row: dict[str, Any]) -> str:
 
 def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
     row = dict(raw_row)
-    snapshot = safe_json_loads(row.get("snapshot_json"))
-    snapshot = snapshot if isinstance(snapshot, dict) else {}
-    manager_input = snapshot.get("manager_input") if isinstance(snapshot.get("manager_input"), dict) else {}
-    manager_output = snapshot.get("manager_output") if isinstance(snapshot.get("manager_output"), dict) else {}
+    snapshot = _json_dict(row.get("snapshot_json"))
+    manager_input = _json_dict(row.get("manager_input_json"))
+    manager_output = _json_dict(row.get("manager_output_json"))
     strategist = manager_input.get("strategist_recommendation") if isinstance(manager_input.get("strategist_recommendation"), dict) else {}
     recommendation = manager_output.get("recommendation") if isinstance(manager_output.get("recommendation"), dict) else {}
     entry_gate = manager_output.get("entry_gate") if isinstance(manager_output.get("entry_gate"), dict) else {}
@@ -139,7 +141,7 @@ def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
             "side": str(row.get("execution_order_side") or "").strip(),
             "submitted_at": str(row.get("execution_submitted_at") or "").strip(),
         },
-        "review": _build_review(snapshot, row),
+        "review": _build_review(snapshot, strategist, row),
     }
 
 

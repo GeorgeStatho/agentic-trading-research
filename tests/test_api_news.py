@@ -91,10 +91,14 @@ class ApiNewsTests(unittest.TestCase):
                         id INTEGER PRIMARY KEY,
                         title TEXT,
                         summary TEXT,
-                        body TEXT,
                         source TEXT,
                         source_url TEXT,
                         published_at TEXT
+                    );
+                    CREATE TABLE news_article_content (
+                        article_id INTEGER PRIMARY KEY,
+                        body TEXT,
+                        raw_json TEXT
                     );
                     CREATE TABLE company_news_articles (
                         company_id INTEGER,
@@ -128,14 +132,18 @@ class ApiNewsTests(unittest.TestCase):
                 )
                 conn.executemany(
                     """
-                    INSERT INTO news_articles (id, title, summary, body, source, source_url, published_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO news_articles (id, title, summary, source, source_url, published_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     [
-                        (1, "Analyzed article", "Analyzed summary", "Analyzed body", "Test Wire", "https://example.com/1", published_at),
-                        (2, "Processed no impact", "Processed summary", "Processed body", "Test Wire", "https://example.com/2", published_at),
-                        (3, "Pending article", "Pending summary", "Pending body", "Test Wire", "https://example.com/3", published_at),
+                        (1, "Analyzed article", "Analyzed summary", "Test Wire", "https://example.com/1", published_at),
+                        (2, "Processed no impact", "Processed summary", "Test Wire", "https://example.com/2", published_at),
+                        (3, "Pending article", "Pending summary", "Test Wire", "https://example.com/3", published_at),
                     ],
+                )
+                conn.executemany(
+                    "INSERT INTO news_article_content (article_id, body) VALUES (?, ?)",
+                    [(1, "Analyzed body"), (2, "Processed body"), (3, "Pending body")],
                 )
                 conn.executemany(
                     "INSERT INTO company_news_articles (company_id, article_id) VALUES (?, ?)",
@@ -202,10 +210,14 @@ class ApiNewsTests(unittest.TestCase):
                         id INTEGER PRIMARY KEY,
                         title TEXT,
                         summary TEXT,
-                        body TEXT,
                         source TEXT,
                         source_url TEXT,
                         published_at TEXT
+                    );
+                    CREATE TABLE news_article_content (
+                        article_id INTEGER PRIMARY KEY,
+                        body TEXT,
+                        raw_json TEXT
                     );
                     CREATE TABLE company_opportunist_impacts (
                         article_id INTEGER,
@@ -287,15 +299,14 @@ class ApiNewsTests(unittest.TestCase):
                 )
                 conn.executemany(
                     """
-                    INSERT INTO news_articles (id, title, summary, body, source, source_url, published_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO news_articles (id, title, summary, source, source_url, published_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     [
                         (
                             1,
                             "Fresh article",
                             "Recent catalyst",
-                            "Recent body",
                             "Test Wire",
                             "https://example.com/fresh",
                             recent_published_at,
@@ -304,7 +315,6 @@ class ApiNewsTests(unittest.TestCase):
                             2,
                             "Stale article",
                             "Old catalyst",
-                            "Old body",
                             "Test Wire",
                             "https://example.com/stale",
                             stale_published_at,
@@ -313,12 +323,15 @@ class ApiNewsTests(unittest.TestCase):
                             3,
                             "Expired article",
                             "Expired catalyst",
-                            "Expired body",
                             "Test Wire",
                             "https://example.com/expired",
                             expired_published_at,
                         ),
                     ],
+                )
+                conn.executemany(
+                    "INSERT INTO news_article_content (article_id, body) VALUES (?, ?)",
+                    [(1, "Recent body"), (2, "Old body"), (3, "Expired body")],
                 )
                 conn.executemany(
                     """
@@ -396,10 +409,14 @@ class ApiNewsTests(unittest.TestCase):
                         id INTEGER PRIMARY KEY,
                         title TEXT,
                         summary TEXT,
-                        body TEXT,
                         source TEXT,
                         source_url TEXT,
                         published_at TEXT
+                    );
+                    CREATE TABLE news_article_content (
+                        article_id INTEGER PRIMARY KEY,
+                        body TEXT,
+                        raw_json TEXT
                     );
                     CREATE TABLE company_opportunist_impacts (
                         article_id INTEGER,
@@ -485,11 +502,12 @@ class ApiNewsTests(unittest.TestCase):
                 )
                 conn.execute(
                     """
-                    INSERT INTO news_articles (id, title, summary, body, source, source_url, published_at)
-                    VALUES (1, 'Microsoft article', 'MSFT catalyst', 'MSFT body', 'Test Wire', 'https://example.com/msft', ?)
+                    INSERT INTO news_articles (id, title, summary, source, source_url, published_at)
+                    VALUES (1, 'Microsoft article', 'MSFT catalyst', 'Test Wire', 'https://example.com/msft', ?)
                     """,
                     (published_at,),
                 )
+                conn.execute("INSERT INTO news_article_content (article_id, body) VALUES (1, 'MSFT body')")
                 conn.execute(
                     """
                     INSERT INTO company_opportunist_impacts

@@ -55,13 +55,14 @@ def _load_unprocessed_macro_news_rows(news_scope: str) -> list[dict[str, Any]]:
             SELECT
                 na.id AS article_id,
                 na.title,
-                na.body,
+                content.body,
                 na.summary,
                 na.source,
                 na.source_url,
                 na.published_at
             FROM {membership_table} AS mna
             JOIN news_articles AS na ON na.id = mna.article_id
+            LEFT JOIN news_article_content AS content ON content.article_id = na.id
             LEFT JOIN {processing_table} AS pna ON pna.article_id = na.id
             WHERE pna.article_id IS NULL
             ORDER BY na.published_at DESC, na.id DESC

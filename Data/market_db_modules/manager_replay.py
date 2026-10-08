@@ -30,8 +30,8 @@ def list_replayable_manager_decisions(
                     history.decision_run_at,
                     history.manager_decision,
                     history.manager_confidence,
-                    history.manager_input_json,
-                    history.manager_output_json,
+                    payload.manager_input_json,
+                    payload.manager_output_json,
                     history.trade_execution_order_id,
                     history.trade_execution_record_id,
                     history.latest_trade_pnl_pct,
@@ -45,6 +45,8 @@ def list_replayable_manager_decisions(
                     execution.order_side AS execution_order_side,
                     execution.submitted_at AS execution_submitted_at
                 FROM manager_decision_history AS history
+                LEFT JOIN manager_decision_payloads AS payload
+                  ON payload.manager_decision_history_id = history.id
                 LEFT JOIN option_trade_executions AS execution
                   ON execution.id = history.trade_execution_record_id
                   OR (

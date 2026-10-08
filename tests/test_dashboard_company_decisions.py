@@ -200,12 +200,16 @@ class DashboardCompanyDecisionsTests(unittest.TestCase):
     def test_malformed_manager_json_does_not_hide_other_companies(self):
         self._record_decision()
         with closing(get_connection(self.db_path)) as conn, conn:
+            decision_id = conn.execute(
+                "INSERT INTO manager_decision_history (symbol, decision_run_at) VALUES ('MSFT', ?)",
+                (self._hours_ago(2),),
+            ).lastrowid
             conn.execute(
                 """
-                INSERT INTO manager_decision_history (symbol, decision_run_at, manager_input_json, manager_output_json)
-                VALUES ('MSFT', ?, 'not json', '{')
+                INSERT INTO manager_decision_payloads (manager_decision_history_id, manager_input_json, manager_output_json)
+                VALUES (?, 'not json', '{')
                 """,
-                (self._hours_ago(2),),
+                (decision_id,),
             )
 
         payload = build_company_decisions_payload()

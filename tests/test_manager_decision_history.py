@@ -91,8 +91,9 @@ class ManagerDecisionHistoryTests(unittest.TestCase):
         self.assertEqual(len(ledger_rows), 1)
         snapshot = json.loads(ledger_rows[0]["snapshot_json"])
         self.assertEqual(ledger_rows[0]["manager_decision_history_id"], decision_id)
-        self.assertEqual(snapshot["manager_input"]["company"]["symbol"], "MSFT")
-        self.assertEqual(snapshot["manager_output"]["recommendation"]["decision"], "call")
+        self.assertNotIn("manager_input", snapshot)
+        self.assertEqual(json.loads(ledger_rows[0]["manager_input_json"])["company"]["symbol"], "MSFT")
+        self.assertEqual(json.loads(ledger_rows[0]["manager_output_json"])["recommendation"]["decision"], "call")
 
     def test_link_trade_execution_and_update_latest_pnl(self) -> None:
         submitted_at = "2026-05-22T14:05:00+00:00"

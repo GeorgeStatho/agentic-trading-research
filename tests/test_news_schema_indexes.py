@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 
 from db_common import get_connection
 from market_db import initialize_database as initialize_market_database
-from news_db import initialize_database as initialize_news_database
+from news_db import add_news_article, initialize_database as initialize_news_database
 
 
 class NewsSchemaIndexTests(unittest.TestCase):
@@ -38,6 +38,45 @@ class NewsSchemaIndexTests(unittest.TestCase):
                 "idx_us_news_sector_impacts_sector_article",
             }.issubset(index_names)
         )
+
+
+class ArticleContentTableTests(unittest.TestCase):
+    def setUp(self):
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.db_path = Path(temp_dir.name) / "news-content.sqlite3"
+        initialize_market_database(db_path=self.db_path)
+        initialize_news_database(db_path=self.db_path)
+
+    def content_rows(self):
+        with closing(get_connection(self.db_path)) as conn, conn:
+            return [tuple(row) for row in conn.execute("SELECT article_id, body, raw_json FROM news_article_content")]
+
+    def test_writer_stores_body_and_raw_json_outside_news_articles(self):
+        article_id = add_news_article(
+            "Test Wire", "article-1", "Title", "https://example.com/1",
+            body="Body text", raw_json={"source": "Test Wire"}, db_path=self.db_path,
+        )
+
+        self.assertEqual(self.content_rows(), [(article_id, "Body text", '{"source": "Test Wire"}')])
+
+    def test_setup_moves_inline_content_written_by_older_code(self):
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("ALTER TABLE news_articles ADD COLUMN body TEXT")
+            conn.execute("ALTER TABLE news_articles ADD COLUMN raw_json TEXT")
+            conn.execute(
+                """
+                INSERT INTO news_articles (id, source, article_key, title, source_url, body, raw_json)
+                VALUES (7, 'Test Wire', 'old-article', 'Old', 'https://example.com/old', 'Old body', '{}')
+                """
+            )
+
+        initialize_news_database(db_path=self.db_path)
+
+        with closing(get_connection(self.db_path)) as conn, conn:
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(news_articles)")}
+        self.assertFalse({"body", "raw_json"} & columns)
+        self.assertEqual(self.content_rows(), [(7, "Old body", "{}")])
 
 
 if __name__ == "__main__":

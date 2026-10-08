@@ -64,6 +64,22 @@ def _migrate_company_opportunist_article_processing(conn: sqlite3.Connection) ->
     )
 
 
+def _move_article_content(conn: sqlite3.Connection) -> None:
+    """Move the body and raw_json that older code kept on news_articles into their own table."""
+    if "body" not in table_columns(conn, "news_articles"):
+        return
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO news_article_content (article_id, body, raw_json)
+        SELECT id, body, raw_json
+        FROM news_articles
+        WHERE body IS NOT NULL OR raw_json IS NOT NULL
+        """
+    )
+    conn.execute("ALTER TABLE news_articles DROP COLUMN body")
+    conn.execute("ALTER TABLE news_articles DROP COLUMN raw_json")
+
+
 def _run_bootstrap_migrations(conn: sqlite3.Connection) -> None:
     _migrate_company_opportunist_article_processing(conn)
     _ensure_missing_columns(conn, "macro_events", MACRO_EVENT_COLUMN_TYPES)
@@ -82,4 +98,5 @@ def initialize_database(
 
     with closing(get_connection(db_path)) as conn, conn:
         _run_bootstrap_migrations(conn)
+        _move_article_content(conn)
         migrate_catalysts(conn)

@@ -605,9 +605,10 @@ def run_backtest(
         try:
             query = """
                 SELECT history.id, history.symbol, history.decision_run_at, history.manager_decision, history.manager_reason,
-                       history.selected_option_symbol, history.selected_option_id, history.manager_input_json,
-                       history.manager_output_json, COALESCE(sector.sector_key, 'unknown') AS sector_key
+                       history.selected_option_symbol, history.selected_option_id, payload.manager_input_json,
+                       payload.manager_output_json, COALESCE(sector.sector_key, 'unknown') AS sector_key
                 FROM manager_decision_history AS history
+                LEFT JOIN manager_decision_payloads AS payload ON payload.manager_decision_history_id = history.id
                 LEFT JOIN companies AS company ON company.id = history.company_id
                 LEFT JOIN industries AS industry ON industry.id = company.industry_id
                 LEFT JOIN sectors AS sector ON sector.id = industry.sector_id

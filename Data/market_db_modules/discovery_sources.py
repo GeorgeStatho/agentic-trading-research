@@ -36,8 +36,10 @@ def company_event_articles(company_id, *, at, stale_seconds, db_path=DB_PATH):
     with closing(get_connection(db_path)) as conn:
         if not table_exists(conn, 'news_articles') or not table_exists(conn, 'company_news_articles'):
             return []
-        return [dict(row) for row in conn.execute('''SELECT DISTINCT a.* FROM news_articles a
-            JOIN company_news_articles l ON l.article_id=a.id JOIN companies c ON c.id=l.company_id
+        return [dict(row) for row in conn.execute('''SELECT DISTINCT a.*, content.body, content.raw_json
+            FROM news_articles a JOIN company_news_articles l ON l.article_id=a.id
+            JOIN companies c ON c.id=l.company_id
+            LEFT JOIN news_article_content content ON content.article_id=a.id
             WHERE l.company_id=? AND UPPER(a.primary_ticker)=UPPER(c.symbol) AND a.catalyst_id IS NOT NULL
             AND julianday(COALESCE(a.first_seen_time,a.created_at))<=julianday(?)
             AND julianday(a.event_time) BETWEEN julianday(?)-?/86400.0 AND julianday(?)
@@ -112,8 +114,10 @@ def sector_support_articles(company_id, *, at, stale_seconds, db_path=DB_PATH):
     with closing(get_connection(db_path)) as conn:
         if not table_exists(conn, 'company_opportunist_impacts'):
             return []
-        return [dict(row) for row in conn.execute('''SELECT a.* FROM company_opportunist_impacts i
-            JOIN news_articles a ON a.id=i.article_id WHERE i.company_id=? AND i.confidence='high'
+        return [dict(row) for row in conn.execute('''SELECT a.*, content.body, content.raw_json
+            FROM company_opportunist_impacts i JOIN news_articles a ON a.id=i.article_id
+            LEFT JOIN news_article_content content ON content.article_id=a.id
+            WHERE i.company_id=? AND i.confidence='high'
             AND julianday(i.created_at)<=julianday(?) AND julianday(COALESCE(a.first_seen_time,a.created_at))<=julianday(?)
             AND julianday(a.published_at) BETWEEN julianday(?)-?/86400.0 AND julianday(?) ORDER BY a.id''',
                                                 (company_id, at, at, at, stale_seconds, at))]

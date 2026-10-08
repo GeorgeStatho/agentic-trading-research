@@ -39,7 +39,6 @@ CREATE TABLE IF NOT EXISTS news_articles (
     first_seen_time TEXT,
 
     summary TEXT,
-    body TEXT,
     normalized_url TEXT,
     content_hash TEXT,
     published_at TEXT,
@@ -53,8 +52,17 @@ CREATE TABLE IF NOT EXISTS news_articles (
     factuality_score REAL,
     evidence_score REAL,
     source_url TEXT NOT NULL,
-    raw_json TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- The article text and the scraped payload (which repeats the text) are kept apart from
+-- news_articles so the many queries that filter or sort on its metadata never page
+-- through them.
+CREATE TABLE IF NOT EXISTS news_article_content (
+    article_id INTEGER PRIMARY KEY,
+    body TEXT,
+    raw_json TEXT,
+    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS industry_news_articles (

@@ -40,13 +40,18 @@ class BacktestingTests(unittest.TestCase):
             self.decision_id = conn.execute(
                 """
                 INSERT INTO manager_decision_history (
-                    symbol, decision_run_at, manager_decision, manager_reason,
-                    selected_option_symbol, manager_input_json
+                    symbol, decision_run_at, manager_decision, manager_reason, selected_option_symbol
                 ) VALUES ('MSFT', '2026-01-01T10:00:00+00:00', 'call', 'Stored evidence supported the setup.',
-                          'MSFT260117C00400000', ?)
-                """,
-                (json.dumps({"article_references": [{"article_id": self.article_id, "title": "Future ingestion"}]}),),
+                          'MSFT260117C00400000')
+                """
             ).lastrowid
+            conn.execute(
+                "INSERT INTO manager_decision_payloads (manager_decision_history_id, manager_input_json) VALUES (?, ?)",
+                (
+                    self.decision_id,
+                    json.dumps({"article_references": [{"article_id": self.article_id, "title": "Future ingestion"}]}),
+                ),
+            )
             conn.execute(
                 """
                 INSERT INTO manager_decision_history (

@@ -344,22 +344,23 @@ def _json_fields_sql(column: str, path: str, fields: tuple[str, ...]) -> str:
     return f"json_object({pairs})"
 
 
-# The manager JSON columns hold the whole model input (articles, option chain, bars),
-# so SQLite trims them to the fields this page shows, and only for the rows it shows.
+# The manager payload holds the whole model input (articles, option chain, bars), so
+# SQLite trims it to the fields this page shows, and only for the rows it shows.
 _COMPANY_DECISION_ROWS_SQL = f"""
     WITH recent AS (
         SELECT
-            id,
-            decision_run_at,
+            history.id,
+            history.decision_run_at,
             UPPER(TRIM(COALESCE(
-                NULLIF(TRIM(symbol), ''),
-                CASE WHEN json_valid(manager_input_json)
-                    THEN json_extract(manager_input_json, '$.company.symbol') END,
+                NULLIF(TRIM(history.symbol), ''),
+                CASE WHEN json_valid(payload.manager_input_json)
+                    THEN json_extract(payload.manager_input_json, '$.company.symbol') END,
                 ''
             ))) AS symbol_key
-        FROM manager_decision_history
-        WHERE decision_run_at >= :cutoff
-        ORDER BY decision_run_at DESC, id DESC
+        FROM manager_decision_history AS history
+        LEFT JOIN manager_decision_payloads AS payload ON payload.manager_decision_history_id = history.id
+        WHERE history.decision_run_at >= :cutoff
+        ORDER BY history.decision_run_at DESC, history.id DESC
         LIMIT :row_limit
     ),
     ranked AS (
@@ -398,33 +399,34 @@ _COMPANY_DECISION_ROWS_SQL = f"""
         history.pnl_expires_at,
         CASE WHEN history.pnl_expires_at IS NULL OR history.pnl_expires_at > :now
             THEN history.resolved_outcome_label END AS resolved_outcome_label,
-        CASE WHEN json_valid(history.manager_input_json) THEN json_object(
+        CASE WHEN json_valid(payload.manager_input_json) THEN json_object(
             'company', json_object(
-                'name', json_extract(history.manager_input_json, '$.company.name')
+                'name', json_extract(payload.manager_input_json, '$.company.name')
             ),
             'strategist_recommendation',
-                json_extract(history.manager_input_json, '$.strategist_recommendation'),
-            'article_references', json_extract(history.manager_input_json, '$.article_references'),
+                json_extract(payload.manager_input_json, '$.strategist_recommendation'),
+            'article_references', json_extract(payload.manager_input_json, '$.article_references'),
             'market_context', json_object(
                 'underlying_price_history',
                 CASE WHEN json_type(
-                    history.manager_input_json, '$.market_context.underlying_price_history'
+                    payload.manager_input_json, '$.market_context.underlying_price_history'
                 ) = 'object' THEN {_json_fields_sql(
-                    "history.manager_input_json",
+                    "payload.manager_input_json",
                     "$.market_context.underlying_price_history",
                     _PRICE_HISTORY_DIAGNOSTIC_FIELDS,
                 )} END
             )
         ) END AS manager_input_json,
-        CASE WHEN json_valid(history.manager_output_json) THEN json_object(
+        CASE WHEN json_valid(payload.manager_output_json) THEN json_object(
             'recommendation', {_json_fields_sql(
-                "history.manager_output_json", "$.recommendation", _RECOMMENDATION_FIELDS
+                "payload.manager_output_json", "$.recommendation", _RECOMMENDATION_FIELDS
             )},
-            'entry_gate', json_extract(history.manager_output_json, '$.entry_gate'),
-            'market_regime_gate', json_extract(history.manager_output_json, '$.market_regime_gate')
+            'entry_gate', json_extract(payload.manager_output_json, '$.entry_gate'),
+            'market_regime_gate', json_extract(payload.manager_output_json, '$.market_regime_gate')
         ) END AS manager_output_json
     FROM ranked
     JOIN manager_decision_history AS history ON history.id = ranked.id
+    LEFT JOIN manager_decision_payloads AS payload ON payload.manager_decision_history_id = history.id
     WHERE ranked.symbol_rank <= :per_company
     ORDER BY history.decision_run_at DESC, history.id DESC
 """

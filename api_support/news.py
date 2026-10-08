@@ -530,7 +530,7 @@ def build_analyzed_company_news_payload(
                     coi.created_at AS impact_created_at,
                     na.title,
                     na.summary,
-                    substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
+                    substr(COALESCE(content.body, na.summary, ''), 1, 320) AS body_preview,
                     na.source,
                     na.source_url,
                     na.published_at,
@@ -544,6 +544,7 @@ def build_analyzed_company_news_payload(
                 JOIN industries AS i ON i.id = c.industry_id
                 JOIN sectors AS s ON s.id = i.sector_id
                 JOIN news_articles AS na ON na.id = cna.article_id
+                LEFT JOIN news_article_content AS content ON content.article_id = na.id
                 LEFT JOIN company_opportunist_impacts AS coi
                     ON coi.article_id = cna.article_id
                    AND coi.company_id = cna.company_id
@@ -573,7 +574,7 @@ def build_analyzed_company_news_payload(
                     coi.created_at AS impact_created_at,
                     na.title,
                     na.summary,
-                    substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
+                    substr(COALESCE(content.body, na.summary, ''), 1, 320) AS body_preview,
                     na.source,
                     na.source_url,
                     na.published_at,
@@ -583,6 +584,7 @@ def build_analyzed_company_news_payload(
                 JOIN industries AS i ON i.id = c.industry_id
                 JOIN sectors AS s ON s.id = i.sector_id
                 JOIN news_articles AS na ON na.id = coi.article_id
+                LEFT JOIN news_article_content AS content ON content.article_id = na.id
                 WHERE coi.company_id IN ({placeholders})
                 {_recent_article_sql_clause()}
                 ORDER BY c.symbol ASC, na.published_at DESC, coi.article_id DESC, coi.created_at DESC
@@ -633,13 +635,14 @@ def build_analyzed_company_news_payload(
                     ioi.created_at AS impact_created_at,
                     na.title,
                     na.summary,
-                    substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
+                    substr(COALESCE(content.body, na.summary, ''), 1, 320) AS body_preview,
                     na.source,
                     na.source_url,
                     na.published_at
                 FROM industry_opportunist_impacts AS ioi
                 JOIN industries AS i ON i.id = ioi.industry_id
                 JOIN news_articles AS na ON na.id = ioi.article_id
+                LEFT JOIN news_article_content AS content ON content.article_id = na.id
                 LEFT JOIN industry_opportunist_article_processing AS iop
                     ON iop.article_id = ioi.article_id
                 WHERE ioi.industry_id IN ({industry_placeholders})
@@ -667,13 +670,14 @@ def build_analyzed_company_news_payload(
                     soi.created_at AS impact_created_at,
                     na.title,
                     na.summary,
-                    substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
+                    substr(COALESCE(content.body, na.summary, ''), 1, 320) AS body_preview,
                     na.source,
                     na.source_url,
                     na.published_at
                 FROM sector_opportunist_impacts AS soi
                 JOIN sectors AS s ON s.id = soi.sector_id
                 JOIN news_articles AS na ON na.id = soi.article_id
+                LEFT JOIN news_article_content AS content ON content.article_id = na.id
                 LEFT JOIN sector_opportunist_article_processing AS sop
                     ON sop.article_id = soi.article_id
                 WHERE soi.sector_id IN ({sector_placeholders})
@@ -714,12 +718,13 @@ def build_analyzed_company_news_payload(
                         wsi.created_at AS impact_created_at,
                         na.title,
                         na.summary,
-                        substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
+                        substr(COALESCE(content.body, na.summary, ''), 1, 320) AS body_preview,
                         na.source,
                         na.source_url,
                         na.published_at
                     FROM world_news_sector_impacts AS wsi
                     JOIN news_articles AS na ON na.id = wsi.article_id
+                    LEFT JOIN news_article_content AS content ON content.article_id = na.id
                     LEFT JOIN world_news_article_processing AS wnap
                         ON wnap.article_id = wsi.article_id
                     WHERE (na.published_at >= ? OR na.published_at NOT GLOB '????-??-??T*')
@@ -735,12 +740,13 @@ def build_analyzed_company_news_payload(
                         usi.created_at AS impact_created_at,
                         na.title,
                         na.summary,
-                        substr(COALESCE(na.body, na.summary, ''), 1, 320) AS body_preview,
+                        substr(COALESCE(content.body, na.summary, ''), 1, 320) AS body_preview,
                         na.source,
                         na.source_url,
                         na.published_at
                     FROM us_news_sector_impacts AS usi
                     JOIN news_articles AS na ON na.id = usi.article_id
+                    LEFT JOIN news_article_content AS content ON content.article_id = na.id
                     LEFT JOIN us_news_article_processing AS unap
                         ON unap.article_id = usi.article_id
                     WHERE (na.published_at >= ? OR na.published_at NOT GLOB '????-??-??T*')

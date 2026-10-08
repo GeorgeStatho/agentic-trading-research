@@ -143,8 +143,6 @@ CREATE TABLE IF NOT EXISTS manager_decision_history (
     selected_expiration_date TEXT,
     selected_strike_price REAL,
     selected_option_source TEXT,
-    manager_input_json TEXT,
-    manager_output_json TEXT,
     trade_executed INTEGER NOT NULL DEFAULT 0,
     trade_execution_order_id TEXT,
     trade_execution_record_id INTEGER,
@@ -160,6 +158,16 @@ CREATE TABLE IF NOT EXISTS manager_decision_history (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
+);
+
+-- The full manager input/output (articles, option chain, bars) is kept apart from
+-- manager_decision_history so reading a decision's other columns never pages through it.
+-- Written once with the decision and never updated.
+CREATE TABLE IF NOT EXISTS manager_decision_payloads (
+    manager_decision_history_id INTEGER PRIMARY KEY,
+    manager_input_json TEXT,
+    manager_output_json TEXT,
+    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS market_regime_runs (
@@ -499,8 +507,6 @@ CREATE INDEX IF NOT EXISTS idx_manager_decision_history_symbol
 CREATE INDEX IF NOT EXISTS idx_manager_decision_history_decision_run_at
     ON manager_decision_history (decision_run_at);
 
--- trade_executed is stored after the large manager JSON columns, so filtering on it
--- through the date index alone reads every decision's JSON overflow pages.
 CREATE INDEX IF NOT EXISTS idx_manager_decision_history_executed_run_at
     ON manager_decision_history (decision_run_at) WHERE trade_executed = 1;
 

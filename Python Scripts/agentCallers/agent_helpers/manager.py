@@ -176,7 +176,7 @@ def build_resolved_autopsy_insights(
         if int(item.get("manager_decision_history_id") or 0) == int(exclude_decision_history_id or 0):
             continue
         snapshot = _safe_json_object(item.get("snapshot_json"))
-        manager_input = snapshot.get("manager_input") if isinstance(snapshot.get("manager_input"), dict) else {}
+        manager_input = _safe_json_object(item.get("manager_input_json"))
         strategist = manager_input.get("strategist_recommendation") if isinstance(manager_input.get("strategist_recommendation"), dict) else {}
         risks = [str(risk).strip() for risk in strategist.get("risks", []) if str(risk).strip()][:2] if isinstance(strategist.get("risks"), list) else []
         article_ids = [

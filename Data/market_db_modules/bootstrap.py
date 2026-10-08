@@ -7,8 +7,8 @@ from hashlib import sha256
 import sqlite3
 from pathlib import Path
 
-from db_common import DATA_DIR, DB_PATH, coerce_float, get_connection, table_exists
-from .autopsy import backfill_decision_autopsy_ledger
+from db_common import DATA_DIR, DB_PATH, coerce_float, get_connection, table_columns, table_exists
+from .autopsy import backfill_decision_autopsy_ledger, move_payload_copies_out_of_ledger
 from .contract_research import CLUSTER_PATH
 from .entities import add_company, add_industry, add_sector
 from .shared import LEGACY_SECTOR_KEY, LEGACY_SECTOR_NAME, SCHEMA_PATH, is_legacy_schema
@@ -39,6 +39,24 @@ def _ensure_manager_decision_outcome_columns(conn: sqlite3.Connection) -> None:
     for column_name, column_type in _MANAGER_DECISION_OUTCOME_COLUMNS.items():
         if column_name not in columns:
             conn.execute(f"ALTER TABLE manager_decision_history ADD COLUMN {column_name} {column_type}")
+
+
+def _move_manager_decision_payloads(conn: sqlite3.Connection) -> None:
+    """Move the manager JSON that older code kept on manager_decision_history into its own table."""
+    if "manager_input_json" not in table_columns(conn, "manager_decision_history"):
+        return
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO manager_decision_payloads (
+            manager_decision_history_id, manager_input_json, manager_output_json
+        )
+        SELECT id, manager_input_json, manager_output_json
+        FROM manager_decision_history
+        WHERE manager_input_json IS NOT NULL OR manager_output_json IS NOT NULL
+        """
+    )
+    conn.execute("ALTER TABLE manager_decision_history DROP COLUMN manager_input_json")
+    conn.execute("ALTER TABLE manager_decision_history DROP COLUMN manager_output_json")
 
 
 def _migrate_legacy_schema(conn: sqlite3.Connection) -> None:
@@ -141,6 +159,7 @@ def initialize_database(
         else:
             conn.executescript(Path(schema_path).read_text(encoding="utf-8"))
         _ensure_manager_decision_outcome_columns(conn)
+        _move_manager_decision_payloads(conn)
         from .telemetry_schema import migrate_telemetry_columns
         migrate_telemetry_columns(conn)
         from catalyst_schema import migrate_catalysts
@@ -161,5 +180,6 @@ def initialize_database(
         conn.executescript(Path(__file__).with_name('trade_economics_schema.sql').read_text(encoding='utf-8'))
         conn.executescript(Path(__file__).with_name('thesis_event_reviews_schema.sql').read_text(encoding='utf-8'))
         conn.executescript(Path(__file__).with_name('forward_evaluation_schema.sql').read_text(encoding='utf-8'))
+        move_payload_copies_out_of_ledger(conn)
         backfill_decision_autopsy_ledger(conn=conn)
         _record_fingerprint(conn, fingerprint)

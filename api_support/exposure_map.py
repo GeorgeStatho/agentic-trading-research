@@ -260,10 +260,11 @@ def _risk_level(score: float) -> str:
 def _load_article(conn, article_id: int) -> dict[str, Any] | None:
     row = conn.execute(
         """
-        SELECT id, title, summary, body, source, source_url, published_at, evidence_score,
-               recency_score, factuality_score, section
-        FROM news_articles
-        WHERE id = ?
+        SELECT na.id, na.title, na.summary, content.body, na.source, na.source_url, na.published_at,
+               na.evidence_score, na.recency_score, na.factuality_score, na.section
+        FROM news_articles AS na
+        LEFT JOIN news_article_content AS content ON content.article_id = na.id
+        WHERE na.id = ?
         """,
         (article_id,),
     ).fetchone()
