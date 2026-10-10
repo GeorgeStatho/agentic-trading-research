@@ -576,6 +576,75 @@ def _store_event(conn: sqlite3.Connection, run_id: int, event: dict[str, Any]) -
     )
 
 
+def _simulate_decisions(
+    conn: sqlite3.Connection,
+    config: dict[str, Any],
+    *,
+    start_at: str | None,
+    end_at: str | None,
+    limit: int | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    query = """
+        SELECT history.id, history.symbol, history.decision_run_at, history.manager_decision, history.manager_reason,
+               history.selected_option_symbol, history.selected_option_id, payload.manager_input_json,
+               payload.manager_output_json, COALESCE(sector.sector_key, 'unknown') AS sector_key
+        FROM manager_decision_history AS history
+        LEFT JOIN manager_decision_payloads AS payload ON payload.manager_decision_history_id = history.id
+        LEFT JOIN companies AS company ON company.id = history.company_id
+        LEFT JOIN industries AS industry ON industry.id = company.industry_id
+        LEFT JOIN sectors AS sector ON sector.id = industry.sector_id
+        WHERE LOWER(history.manager_decision) IN ('call', 'put')
+    """
+    parameters: list[Any] = []
+    if start_at:
+        query += " AND history.decision_run_at >= ?"
+        parameters.append(normalize_timestamp(start_at))
+    if end_at:
+        query += " AND history.decision_run_at <= ?"
+        parameters.append(normalize_timestamp(end_at))
+    available_decision_count = conn.execute(
+        f"SELECT COUNT(*) FROM ({query})", tuple(parameters)
+    ).fetchone()[0]
+    decision_limit = max(1, min(int(limit), 1000)) if limit is not None else None
+    if decision_limit is None:
+        query += " ORDER BY history.decision_run_at ASC, history.id ASC"
+    else:
+        # Limit the recent window first, then simulate it in chronological order.
+        query += " ORDER BY history.decision_run_at DESC, history.id DESC LIMIT ?"
+        parameters.append(decision_limit)
+    decisions = [dict(row) for row in conn.execute(query, tuple(parameters)).fetchall()]
+    if decision_limit is not None:
+        decisions.reverse()
+    events: list[dict[str, Any]] = []
+    for decision in decisions:
+        snapshot = ensure_decision_evidence_snapshot(decision, conn=conn)
+        events.append(_simulate_event(decision, snapshot, conn, config))
+    _apply_portfolio_limits(events, config)
+    metrics = _metrics(events)
+    metrics["decision_count"] = len(decisions)
+    metrics["available_decision_count"] = available_decision_count
+    metrics["decision_limit"] = decision_limit
+    metrics["omitted_older_decision_count"] = available_decision_count - len(decisions)
+    metrics["decision_start_at"] = decisions[0]["decision_run_at"] if decisions else None
+    metrics["decision_end_at"] = decisions[-1]["decision_run_at"] if decisions else None
+    metrics["snapshot_count"] = len({event.get("evidence_snapshot_id") for event in events})
+    return events, metrics
+
+
+def simulate_backtest_metrics(
+    *,
+    config: dict[str, Any] | None = None,
+    start_at: str | None = None,
+    end_at: str | None = None,
+    db_path: Path | str = DB_PATH,
+) -> dict[str, Any]:
+    """Simulate every decision in the window like run_backtest, without recording a backtest run."""
+    initialize_database(db_path=db_path)
+    with closing(get_connection(db_path)) as conn, conn:
+        _, metrics = _simulate_decisions(conn, _merged_config(config), start_at=start_at, end_at=end_at, limit=None)
+    return metrics
+
+
 def run_backtest(
     *,
     config: dict[str, Any] | None = None,
@@ -603,53 +672,9 @@ def run_backtest(
         )
         run_id = int(cursor.lastrowid)
         try:
-            query = """
-                SELECT history.id, history.symbol, history.decision_run_at, history.manager_decision, history.manager_reason,
-                       history.selected_option_symbol, history.selected_option_id, payload.manager_input_json,
-                       payload.manager_output_json, COALESCE(sector.sector_key, 'unknown') AS sector_key
-                FROM manager_decision_history AS history
-                LEFT JOIN manager_decision_payloads AS payload ON payload.manager_decision_history_id = history.id
-                LEFT JOIN companies AS company ON company.id = history.company_id
-                LEFT JOIN industries AS industry ON industry.id = company.industry_id
-                LEFT JOIN sectors AS sector ON sector.id = industry.sector_id
-                WHERE LOWER(history.manager_decision) IN ('call', 'put')
-            """
-            parameters: list[Any] = []
-            if start_at:
-                query += " AND history.decision_run_at >= ?"
-                parameters.append(normalize_timestamp(start_at))
-            if end_at:
-                query += " AND history.decision_run_at <= ?"
-                parameters.append(normalize_timestamp(end_at))
-            available_decision_count = conn.execute(
-                f"SELECT COUNT(*) FROM ({query})", tuple(parameters)
-            ).fetchone()[0]
-            decision_limit = max(1, min(int(limit), 1000)) if limit is not None else None
-            if decision_limit is None:
-                query += " ORDER BY history.decision_run_at ASC, history.id ASC"
-            else:
-                # Limit the recent window first, then simulate it in chronological order.
-                query += " ORDER BY history.decision_run_at DESC, history.id DESC LIMIT ?"
-                parameters.append(decision_limit)
-            decisions = [dict(row) for row in conn.execute(query, tuple(parameters)).fetchall()]
-            if decision_limit is not None:
-                decisions.reverse()
-            events: list[dict[str, Any]] = []
-            for decision in decisions:
-                snapshot = ensure_decision_evidence_snapshot(decision, conn=conn)
-                event = _simulate_event(decision, snapshot, conn, resolved_config)
-                events.append(event)
-            _apply_portfolio_limits(events, resolved_config)
+            events, metrics = _simulate_decisions(conn, resolved_config, start_at=start_at, end_at=end_at, limit=limit)
             for event in events:
                 _store_event(conn, run_id, event)
-            metrics = _metrics(events)
-            metrics["decision_count"] = len(decisions)
-            metrics["available_decision_count"] = available_decision_count
-            metrics["decision_limit"] = decision_limit
-            metrics["omitted_older_decision_count"] = available_decision_count - len(decisions)
-            metrics["decision_start_at"] = decisions[0]["decision_run_at"] if decisions else None
-            metrics["decision_end_at"] = decisions[-1]["decision_run_at"] if decisions else None
-            metrics["snapshot_count"] = len({event.get("evidence_snapshot_id") for event in events})
             completed_at = datetime.now(timezone.utc).isoformat()
             conn.execute(
                 """

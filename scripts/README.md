@@ -12,6 +12,10 @@ python3 scripts/project.py run option-manager
 # Run the offline evaluator with its normal arguments
 python3 scripts/project.py run offline-evaluation --historical-outcome-audit --limit 100
 
+# Grid-search backtest exit settings; tune before --split-at, validate after it
+python3 scripts/project.py run backtest-sweep --db path/to.db --split-at 2026-09-01 \
+    --setting take_profit_pct=25,50,100 --setting stop_loss_pct=-25,-50 --csv sweep.csv
+
 # Validate Python or the dashboard
 python3 scripts/project.py test
 python3 scripts/project.py test tests.test_exposure_map tests.test_demo_mode

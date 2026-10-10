@@ -18,6 +18,7 @@ from market_db import (  # noqa: E402
     initialize_database,
     record_historical_option_quote,
     run_backtest,
+    simulate_backtest_metrics,
 )
 from market_db_modules.backtesting import _apply_portfolio_limits, _merged_config, _metrics  # noqa: E402
 
@@ -174,6 +175,24 @@ class BacktestingTests(unittest.TestCase):
         self.assertEqual(stored_quote["ask_price"], 1.1)
         self.assertEqual(json.loads(snapshot["snapshot_json"])["articles"], [])
         self.assertEqual(execution_count, 0)
+
+    def test_simulated_metrics_match_a_recorded_run_without_recording_one(self) -> None:
+        for timestamp, bid, ask in (
+            ("2026-01-01T10:01:00+00:00", 1.0, 1.1),
+            ("2026-01-01T10:05:00+00:00", 1.5, 1.6),
+        ):
+            record_historical_option_quote(
+                {"option_symbol": "MSFT260117C00400000", "quote_at": timestamp, "bid": bid, "ask": ask},
+                provider="fixture", db_path=self.db_path,
+            )
+        config = {"take_profit_pct": 20.0}
+        simulated = simulate_backtest_metrics(config=config, db_path=self.db_path)
+        with closing(get_connection(self.db_path)) as conn, conn:
+            run_count = conn.execute("SELECT COUNT(*) FROM backtest_runs").fetchone()[0]
+        recorded = run_backtest(config=config, limit=None, db_path=self.db_path)
+
+        self.assertEqual(run_count, 0)
+        self.assertEqual(simulated, recorded["run"]["metrics"])
 
     def test_backtest_rejects_an_entry_quote_that_is_too_delayed(self) -> None:
         record_historical_option_quote(

@@ -89,6 +89,7 @@ from market_db import (
     record_telemetry_installation,
     update_manager_decision_latest_pnl,
     run_backtest,
+    simulate_backtest_metrics,
 )
 
 
