@@ -37,6 +37,7 @@ except ImportError:  # pragma: no cover - optional provider dependency
 
 
 LOGGER = logging.getLogger(__name__)
+LLAMACPP_TIMEOUT_SECONDS = 1800
 
 
 @dataclass(slots=True)
@@ -131,8 +132,10 @@ def _build_llamacpp_client() -> Any:
             "The 'openai' Python package is required for llama.cpp requests. "
             "Install it in your environment with: pip install openai"
         )
-    # llama-server ignores the key unless it was started with --api-key.
-    return OpenAI(base_url=get_settings().llamacpp.base_url, api_key="local")
+    # llama-server ignores the key unless it was started with --api-key. A local model can spend many
+    # minutes on one long prompt, and a client retry would recompute it from scratch, so wait instead.
+    return OpenAI(base_url=get_settings().llamacpp.base_url, api_key="local",
+                  timeout=LLAMACPP_TIMEOUT_SECONDS, max_retries=0)
 
 
 def get_model_client(label: str | None = None) -> Client:

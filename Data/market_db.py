@@ -70,12 +70,17 @@ from market_db_modules.backtesting import (
 )
 from market_db_modules.llm_replay_store import (
     get_cached_llm_replay,
+    get_candidate_manifest,
     get_saved_bucket_chain,
+    symbols_without_daily_bars,
     list_frozen_manager_decisions,
     store_cached_llm_replay,
 )
 from market_db_modules.backtest_imports import import_alpaca_option_quote_csv
-from market_db_modules.backtest_marketdata import fetch_marketdata_eod_option_quotes
+from market_db_modules.backtest_marketdata import (
+    fetch_marketdata_eod_option_quotes,
+    fetch_marketdata_eod_quotes_for_contracts,
+)
 from market_db_modules.portfolio_risk import (
     count_option_entry_executions_since,
     get_company_sector_key,
@@ -206,6 +211,7 @@ __all__ = [
     "create_manager_replay_evaluation",
     "expire_manager_decision_pnl",
     "fetch_marketdata_eod_option_quotes",
+    "fetch_marketdata_eod_quotes_for_contracts",
     "count_option_entry_executions_since",
     "get_company_sector_key",
     "get_latest_stop_loss_exit_at",
@@ -254,7 +260,9 @@ __all__ = [
     "run_backtest",
     "run_decision_backtest",
     "get_cached_llm_replay",
+    "get_candidate_manifest",
     "get_saved_bucket_chain",
+    "symbols_without_daily_bars",
     "list_frozen_manager_decisions",
     "store_cached_llm_replay",
     "simulate_backtest_metrics",

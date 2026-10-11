@@ -55,6 +55,12 @@ def fetch_regime_history(symbol):
     } for timestamp, row in history.iterrows()]
 
 
+def fetch_daily_history(symbol, *, fetcher=fetch_regime_history):
+    """Normalized daily bars for any symbol, from the same providers as the regime series."""
+    provider, raw_bars = fetcher(symbol)
+    return provider, [bar for raw in raw_bars if (bar := _normalize_bar(raw)) is not None]
+
+
 def refresh_regime_history(symbol, *, as_of=None, db_path=DB_PATH, fetcher=fetch_regime_history):
     now = as_of or datetime.now(timezone.utc)
     cached = load_regime_bars(symbol, as_of=now, db_path=db_path)

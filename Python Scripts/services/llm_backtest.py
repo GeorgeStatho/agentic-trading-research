@@ -12,6 +12,10 @@ a replayed answer naming another bucket, or an older decision, is `bucket_chain_
 Trades go through the backtest engine: stored option quotes when they exist, otherwise
 Black-Scholes marks from the frozen chain and daily underlying closes.
 
+Eligibility, the premium cap and portfolio limits use the settings production recorded in each
+candidate's pipeline manifest, not this checkout's environment; a decision whose recorded selector
+settings differ from the local ones is reported rather than re-selected under different rules.
+
 Model answers are cached per frozen input, so re-running with new execution settings never asks
 the model again. Only the manager is replayed: the strategist's recorded output stays in the
 payload. Trade economics is not replayed; it is shadow-only in production. No broker is called.
@@ -19,22 +23,28 @@ payload. Trade economics is not replayed; it is shadow-only in production. No br
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field, fields, replace
 from hashlib import sha256
 import json
 import logging
+import time
+from statistics import median
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
 from db_common import DB_PATH
 from db_helpers.market import (
+    fetch_marketdata_eod_quotes_for_contracts,
     get_cached_llm_replay,
+    get_candidate_manifest,
     get_saved_bucket_chain,
     list_frozen_manager_decisions,
     run_decision_backtest,
     store_cached_llm_replay,
+    store_regime_bars,
+    symbols_without_daily_bars,
 )
 from agent_helpers.deterministic_option_selector import SELECTOR_VERSION, apply_deterministic_option_selection
-from agent_helpers.deterministic_option_selector import config as selector_config
 from agent_helpers.deterministic_option_selector.market import _get_reference_stock_price
 from agent_helpers.shared import _normalize_provider
 from agent_stages.manager_runner import MANAGER_PROMPT_VERSION, replay_manager_decision_from_payload
@@ -47,6 +57,8 @@ from services.evidence_thesis_policy import EvidenceThesisPolicy
 from services.market_regime_gate import apply_market_regime_gate_to_manager_result
 from services.option_dte_buckets import normalize_target_dte_bucket
 from services.order_candidates import OrderCandidateBuilder
+from services.pipeline_version import selector_constants
+from services.regime_history import fetch_daily_history
 from services.trade_economics_policy import TradeEconomicsPolicy
 
 LOGGER = logging.getLogger(__name__)
@@ -55,6 +67,10 @@ STORED_MODEL = "stored"
 STAGE = "manager"
 DIRECTIONAL = frozenset({"call", "put"})
 STRATEGY_VERSION = "llm-replay-manager-v1"
+# Quote windows match the engine's defaults: next-day entry at the latest, then the longest hold.
+QUOTE_ENTRY_DELAY = timedelta(days=1)
+DEFAULT_HOLD_HOURS = 168
+PROGRESS_EVERY = 5
 # A run of failures this long means the model server is down, not that inputs are bad.
 MAX_CONSECUTIVE_FAILURES = 5
 # Fields the selector adds; a stored answer is re-finalized from the manager's own fields.
@@ -105,6 +121,49 @@ class CachedManagerReplay:
         return recommendation, False
 
 
+@dataclass(frozen=True)
+class ProductionRules:
+    """The settings a decision ran under: its recorded manifest's, or local ones when none exists."""
+    settings: FrontMainSettings
+    selector_config: dict[str, Any] | None = None
+
+    @property
+    def recorded(self) -> bool:
+        return self.selector_config is not None
+
+    @classmethod
+    def for_candidate(cls, candidate_id: str | None, *, local: FrontMainSettings, db_path: Any = DB_PATH) -> "ProductionRules":
+        manifest = get_candidate_manifest(candidate_id, db_path=db_path)
+        if manifest is None:
+            return cls(local)
+        runtime = manifest.get("runtime_settings") or {}
+        recorded = {setting.name: runtime[setting.name] for setting in fields(local)
+                    if setting.name in runtime and isinstance(getattr(local, setting.name), (bool, int, float, str))}
+        return cls(replace(local, **recorded), manifest.get("selector_config") or {})
+
+    def selector_differences(self, current: dict[str, Any]) -> list[str]:
+        if not self.recorded:
+            return []
+        return sorted(key for key in set(current) | set(self.selector_config)
+                      if current.get(key) != self.selector_config.get(key))
+
+    def portfolio_limits(self, buying_powers: list[float]) -> dict[str, Any]:
+        limits = {"max_concurrent_positions": self.settings.max_concurrent_option_positions,
+                  "max_sector_notional_pct": self.settings.max_option_sector_exposure_pct,
+                  "daily_loss_limit_dollars": self.settings.daily_option_loss_limit_dollars}
+        if buying_powers:
+            limits["max_total_entry_notional"] = median(buying_powers) * self.settings.max_deployable_buying_power_ratio
+        return limits
+
+
+def frozen_buying_power(payload: dict[str, Any]) -> float:
+    account = (payload.get("market_context") or {}).get("account_state") or {}
+    try:
+        return float(account.get("buying_power") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def selection_market_context(payload: dict[str, Any], recommendation: dict[str, Any],
                              candidate_id: str | None, *, db_path: Any = DB_PATH) -> dict[str, Any] | None:
     """The market context production would have selected from; None when that chain was never saved.
@@ -153,17 +212,111 @@ def trade_outcome(result: dict[str, Any], builder: OrderCandidateBuilder) -> str
     return "traded"
 
 
-def backtest_decision(decision: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+def backtest_decision(decision: dict[str, Any], result: dict[str, Any], *, max_premium_dollars: float) -> dict[str, Any]:
     """The engine's decision shape, carrying the frozen contract for model pricing."""
     recommendation = result["recommendation"]
     contract = result["selected_option"]
     return {**decision, "manager_decision": recommendation.get("decision"),
             "manager_reason": recommendation.get("reason"), "selected_option_symbol": contract.get("symbol"),
-            "selected_contract": contract, "reference_spot": _get_reference_stock_price(result["market_context"])}
+            "selected_contract": contract, "reference_spot": _get_reference_stock_price(result["market_context"]),
+            "max_premium_dollars": max_premium_dollars}
+
+
+@dataclass
+class ReplayTally:
+    outcomes: dict[str, int] = field(default_factory=dict)
+    changed_direction: int = 0
+    cached_answers: int = 0
+    recorded_settings: int = 0
+    selector_differences: set[str] = field(default_factory=set)
+
+    def count(self, outcome: str) -> None:
+        self.outcomes[outcome] = self.outcomes.get(outcome, 0) + 1
+
+
+def evaluate_answer(decision: dict[str, Any], payload: dict[str, Any], recommendation: dict[str, Any],
+                    rules: ProductionRules, tally: ReplayTally, *, thesis_policy: EvidenceThesisPolicy,
+                    db_path: Any) -> tuple[str, dict[str, Any] | None]:
+    """One answer through production's selection and eligibility; returns the outcome and any trade."""
+    market = selection_market_context(payload, recommendation, decision.get("candidate_id"), db_path=db_path)
+    if market is None:
+        return "bucket_chain_unavailable", None
+    differences = rules.selector_differences(selector_constants())
+    if recommendation.get("decision") in DIRECTIONAL and differences:
+        tally.selector_differences.update(differences)
+        return "selector_config_mismatch", None
+    result = finalize(payload, recommendation, market, as_of=decision["decision_run_at"], thesis_policy=thesis_policy)
+    builder = OrderCandidateBuilder(execute_medium_confidence_trades=rules.settings.execute_medium_confidence_trades)
+    outcome = trade_outcome(result, builder)
+    if outcome != "traded":
+        return outcome, None
+    cap = rules.settings.resolve_max_premium_per_trade(frozen_buying_power(payload))
+    return outcome, backtest_decision(decision, result, max_premium_dollars=cap)
+
+
+def fill_missing_daily_closes(symbols: set[str], *, since: str, db_path: Any = DB_PATH,
+                              fetch: Callable[[str], tuple[str, list[dict[str, Any]]]] = fetch_daily_history) -> dict[str, Any]:
+    """Store daily history for traded symbols that have none, so model-priced exits can be marked."""
+    missing = symbols_without_daily_bars(symbols, since=since, db_path=db_path)
+    fetched, failed = [], {}
+    for symbol in sorted(missing):
+        try:
+            provider, bars = fetch(symbol)
+            store_regime_bars(symbol, bars, provider=provider, db_path=db_path)
+            fetched.append(symbol)
+        except Exception as exc:  # A provider gap leaves that symbol's exits unpriced, as before.
+            failed[symbol] = str(exc)
+    return {"fetched": fetched, "failed": failed}
 
 
 def manager_decider(model: str) -> Decider:
     return lambda payload: replay_manager_decision_from_payload(payload, model=model)
+
+
+@dataclass
+class ProgressEstimate:
+    """Done and remaining decisions, with a finish time paced by the model calls made so far.
+
+    Cached answers return instantly, so only real model calls set the pace; the estimate assumes
+    every remaining decision needs one, which holds for a run resumed in chronological order.
+    """
+    total: int
+    model_seconds: float = 0.0
+    model_calls: int = 0
+
+    def record_model_call(self, seconds: float) -> None:
+        self.model_seconds += seconds
+        self.model_calls += 1
+
+    def report(self, done: int, *, now: datetime) -> str:
+        remaining = self.total - done
+        if not self.model_calls:
+            return f"Progress: {done}/{self.total} done, {remaining} remaining; no model calls yet to estimate from"
+        per_call = self.model_seconds / self.model_calls
+        finish = now + timedelta(seconds=per_call * remaining)
+        return (f"Progress: {done}/{self.total} done, {remaining} remaining, {per_call / 60:.1f} min per model answer, "
+                f"estimated finish {finish:%Y-%m-%d %H:%M %Z}")
+
+
+def quote_windows(traded: list[dict[str, Any]], *, max_hold_hours: int) -> list[dict[str, Any]]:
+    windows = []
+    for trade in traded:
+        start = datetime.fromisoformat(trade["decision_run_at"])
+        windows.append({"decision": {"id": trade["id"], "decision_run_at": trade["decision_run_at"]},
+                        "option_symbol": trade["selected_option_symbol"], "start_at": start.isoformat(),
+                        "end_at": (start + QUOTE_ENTRY_DELAY + timedelta(hours=max_hold_hours)).isoformat()})
+    return windows
+
+
+def fetch_quotes_for_trades(traded: list[dict[str, Any]], *, max_hold_hours: int, db_path: Any = DB_PATH) -> dict[str, Any]:
+    """Real end-of-day quotes for the replay's own contracts, within the MarketData credit budget."""
+    result = fetch_marketdata_eod_quotes_for_contracts(quote_windows(traded, max_hold_hours=max_hold_hours), db_path=db_path)
+    gap_reasons: dict[str, int] = {}
+    for gap in result["coverage_gaps"]:
+        reason = str(gap["reason"]).split(":", 1)[0]
+        gap_reasons[reason] = gap_reasons.get(reason, 0) + 1
+    return {key: result[key] for key in ("fetched_count", "already_cached_count", "no_data_count", "unavailable_count",
+                                         "error_count", "rate_limited_count", "stop_reason")} | {"gap_reasons": gap_reasons}
 
 
 def run_llm_backtest(
@@ -173,6 +326,8 @@ def run_llm_backtest(
     end_at: str | None = None,
     limit: int | None = None,
     execution_config: dict[str, Any] | None = None,
+    fetch_missing_bars: bool = False,
+    fetch_option_quotes: bool = False,
     decide: Decider | None = None,
     db_path: Any = DB_PATH,
 ) -> dict[str, Any]:
@@ -181,19 +336,27 @@ def run_llm_backtest(
     replay = None if stored else CachedManagerReplay(model=model, provider=_normalize_provider(),
                                                      decide=decide or manager_decider(model), db_path=db_path)
     thesis_policy = EvidenceThesisPolicy.from_env()
-    builder = OrderCandidateBuilder(
-        execute_medium_confidence_trades=FrontMainSettings.from_env().execute_medium_confidence_trades)
+    local_settings = FrontMainSettings.from_env()
+    latest_rules = ProductionRules(local_settings)
     decisions = list_frozen_manager_decisions(start_at=start_at, end_at=end_at, limit=limit, db_path=db_path)
-    outcomes: dict[str, int] = {}
+    tally = ReplayTally()
     traded: list[dict[str, Any]] = []
-    changed_direction = cached_answers = consecutive_failures = 0
+    consecutive_failures = 0
+    progress = ProgressEstimate(total=len(decisions))
     for index, decision in enumerate(decisions, start=1):
         payload = frozen_payload(decision)
+        rules = ProductionRules.for_candidate(decision.get("candidate_id"), local=local_settings, db_path=db_path)
+        if rules.recorded:
+            tally.recorded_settings += 1
+            latest_rules = rules
         if payload is None:
             outcome = "missing_frozen_input"
         else:
             try:
+                asked_at = time.monotonic()
                 recommendation, cached = (stored_recommendation(decision), True) if stored else replay.recommendation(payload)
+                if not cached:
+                    progress.record_model_call(time.monotonic() - asked_at)
                 consecutive_failures = 0
             except Exception as exc:  # One bad answer is recorded; a dead server stops the run.
                 consecutive_failures += 1
@@ -204,20 +367,27 @@ def run_llm_backtest(
             if recommendation is None:
                 outcome = "model_error"
             else:
-                cached_answers += cached
-                changed_direction += recommendation.get("decision") != str(decision.get("manager_decision") or "").lower()
-                market = selection_market_context(payload, recommendation, decision.get("candidate_id"), db_path=db_path)
-                if market is None:
-                    outcome = "bucket_chain_unavailable"
-                else:
-                    result = finalize(payload, recommendation, market, as_of=decision["decision_run_at"],
-                                      thesis_policy=thesis_policy)
-                    outcome = trade_outcome(result, builder)
-                    if outcome == "traded":
-                        traded.append(backtest_decision(decision, result))
-        outcomes[outcome] = outcomes.get(outcome, 0) + 1
+                tally.cached_answers += cached
+                tally.changed_direction += recommendation.get("decision") != str(decision.get("manager_decision") or "").lower()
+                outcome, trade = evaluate_answer(decision, payload, recommendation, rules, tally,
+                                                 thesis_policy=thesis_policy, db_path=db_path)
+                if trade is not None:
+                    traded.append(trade)
+        tally.count(outcome)
         LOGGER.info("[%d/%d] %s %s -> %s", index, len(decisions), decision["symbol"], decision["decision_run_at"], outcome)
+        if index % PROGRESS_EVERY == 0:
+            LOGGER.info(progress.report(index, now=datetime.now().astimezone()))
+    traded_symbols = {trade["symbol"] for trade in traded}
+    since = traded[0]["decision_run_at"] if traded else ""
+    bars = (fill_missing_daily_closes(traded_symbols, since=since, db_path=db_path) if fetch_missing_bars and traded
+            else {"fetched": [], "failed": {}})
+    max_hold_hours = int((execution_config or {}).get("max_hold_hours") or DEFAULT_HOLD_HOURS)
+    quotes = (fetch_quotes_for_trades(traded, max_hold_hours=max_hold_hours, db_path=db_path)
+              if fetch_option_quotes and traded else None)
+    limits = latest_rules.portfolio_limits([power for trade in traded
+                                            if (power := frozen_buying_power(frozen_payload(trade) or {})) > 0])
     config = {
+        **limits,
         **(execution_config or {}),
         "strategy_version": STRATEGY_VERSION,
         "model": model,
@@ -226,10 +396,22 @@ def run_llm_backtest(
         "data_source_versions": {"option_quotes": "historical_option_quotes",
                                  "fallback": "black_scholes_frozen_chain_daily_closes"},
     }
-    replay_summary = {"source_decision_count": len(decisions), "outcomes": outcomes,
-                      "changed_direction_count": changed_direction, "cached_answer_count": cached_answers,
-                      "provider": STORED_MODEL if stored else replay.provider,
-                      # Selection only matches production when these match the server's settings.
-                      "selector": {"version": SELECTOR_VERSION, "mode": selector_config.OPTION_SELECTOR_MODE,
-                                   "allow_risky_simple_fallback": selector_config.ALLOW_RISKY_SIMPLE_FALLBACK}}
+    replay_summary = {
+        "source_decision_count": len(decisions),
+        "outcomes": tally.outcomes,
+        "changed_direction_count": tally.changed_direction,
+        "cached_answer_count": tally.cached_answers,
+        "provider": STORED_MODEL if stored else replay.provider,
+        "selector_version": SELECTOR_VERSION,
+        "production_settings": {
+            "recorded_decision_count": tally.recorded_settings,
+            "local_fallback_decision_count": len(decisions) - tally.recorded_settings,
+            "execute_medium_confidence_trades": latest_rules.settings.execute_medium_confidence_trades,
+            "portfolio_limits": limits,
+            "selector_settings_differing_from_local": sorted(tally.selector_differences),
+        },
+        "option_quotes": quotes,
+        "daily_bars": {**bars, "still_missing": sorted(symbols_without_daily_bars(traded_symbols, since=since, db_path=db_path))
+                       if traded else []},
+    }
     return run_decision_backtest(traded, config=config, extra_metrics={"replay": replay_summary}, db_path=db_path)

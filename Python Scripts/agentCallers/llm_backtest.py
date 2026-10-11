@@ -23,6 +23,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--start-at", default="", help="Inclusive ISO-8601 decision timestamp.")
     parser.add_argument("--end-at", default="", help="Inclusive ISO-8601 decision timestamp.")
     parser.add_argument("--limit", type=int, default=None, help="Most recent decisions in the window (default all).")
+    parser.add_argument("--fetch-missing-bars", action="store_true",
+                        help="Download daily history (yfinance) for traded symbols with none, so their exits can be priced.")
+    parser.add_argument("--fetch-option-quotes", action="store_true",
+                        help="Download MarketData.app end-of-day quotes for the replay's contracts (MARKETDATA_TOKEN, "
+                             "daily credit budget); contracts without them are Black-Scholes priced.")
     parser.add_argument("--take-profit-pct", type=float)
     parser.add_argument("--stop-loss-pct", type=float)
     parser.add_argument("--max-hold-hours", type=int)
@@ -49,7 +54,8 @@ def main() -> None:
         "exit_slippage_bps": args.exit_slippage_bps,
     }.items() if value is not None}
     result = run_llm_backtest(model=args.model, start_at=args.start_at or None, end_at=args.end_at or None,
-                              limit=args.limit, execution_config=execution_config)
+                              limit=args.limit, execution_config=execution_config,
+                              fetch_missing_bars=args.fetch_missing_bars, fetch_option_quotes=args.fetch_option_quotes)
     print(json.dumps(_summary(result), indent=2, default=str))
 
 

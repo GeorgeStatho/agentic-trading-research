@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import closing
 import json
+from dataclasses import replace
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,9 +12,13 @@ from unittest.mock import Mock, patch
 from db_common import get_connection
 from db_helpers import initialize_news_database
 from market_db import initialize_database, record_historical_option_quote, record_historical_underlying_bar
-from market_db_modules.backtesting import MODELLED_PRICING_SOURCE, run_decision_backtest
+from datetime import datetime, timezone
+from market_db import fetch_marketdata_eod_quotes_for_contracts
+from market_db_modules.backtesting import MODELLED_EOD_IV_PRICING_SOURCE, MODELLED_PRICING_SOURCE, run_decision_backtest
 from services import llm_backtest
-from services.llm_backtest import CachedManagerReplay, ModelUnavailable, run_llm_backtest, stored_recommendation
+from services.config import FrontMainSettings
+from services.llm_backtest import (CachedManagerReplay, ModelUnavailable, ProductionRules, fetch_quotes_for_trades,
+                                   fill_missing_daily_closes, run_llm_backtest, stored_recommendation)
 from services.order_candidates import OrderCandidateBuilder
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "Data"
@@ -52,10 +57,14 @@ class DatabaseFixture(unittest.TestCase):
             record_historical_underlying_bar({"symbol": "MSFT", "bar_at": f"{day}T05:00:00+00:00", "close": close},
                                              provider="fixture", db_path=self.db_path)
 
-    def backtest(self, contract=CONTRACT) -> dict:
+    def backtest(self, contract=CONTRACT, **decision_fields) -> dict:
+        return self.backtest_run(contract, **decision_fields)["events"][0]
+
+    def backtest_run(self, contract=CONTRACT, **decision_fields) -> dict:
         decision = {"id": self.decision_id, "symbol": "MSFT", "decision_run_at": DECISION_AT, "manager_decision": "call",
-                    "selected_option_symbol": contract["symbol"], "selected_contract": contract, "reference_spot": 400.0}
-        return run_decision_backtest([decision], db_path=self.db_path)["events"][0]
+                    "selected_option_symbol": contract["symbol"], "selected_contract": contract, "reference_spot": 400.0,
+                    **decision_fields}
+        return run_decision_backtest([decision], db_path=self.db_path)
 
 
 class ModelPricingTests(DatabaseFixture):
@@ -79,6 +88,108 @@ class ModelPricingTests(DatabaseFixture):
     def test_crossed_frozen_quote_does_not_fill(self) -> None:
         crossed = {**CONTRACT, "latest_quote": {"bid_price": 11.0, "ask_price": 10.0}}
         self.assertEqual(self.backtest(crossed)["warnings"], ["no_valid_frozen_entry_quote"])
+
+
+class MarketDataResponse:
+    status_code = 203
+    headers = {"X-Api-Ratelimit-Consumed": "1", "X-Api-Ratelimit-Remaining": "99"}
+
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict:
+        return self.payload
+
+
+class ObservedVolatilityTests(DatabaseFixture):
+    NEIGHBOUR = "MSFT260417C00440000"
+
+    def quote_neighbour(self, bid: float, ask: float) -> None:
+        record_historical_option_quote({"option_symbol": self.NEIGHBOUR, "quote_at": "2026-03-03T21:00:00+00:00",
+                                        "bid": bid, "ask": ask}, provider="fixture", db_path=self.db_path)
+
+    def test_same_day_quote_supplies_the_volatility(self) -> None:
+        self.add_closes(("2026-03-03", 440.0))
+        self.quote_neighbour(14.0, 14.4)
+        self.assertEqual(self.backtest()["pricing_source"], MODELLED_EOD_IV_PRICING_SOURCE)
+
+    def test_volatility_collapse_lowers_the_exit(self) -> None:
+        self.add_closes(("2026-03-03", 440.0))
+        constant_iv_pnl = self.backtest()["realized_pnl_pct"]
+        self.quote_neighbour(6.0, 6.3)
+        self.assertLess(self.backtest()["realized_pnl_pct"], constant_iv_pnl)
+
+    def test_wide_same_day_quotes_are_ignored(self) -> None:
+        self.add_closes(("2026-03-03", 440.0))
+        self.quote_neighbour(5.0, 14.0)
+        self.assertEqual(self.backtest()["pricing_source"], MODELLED_PRICING_SOURCE)
+
+
+class ContractQuoteFetchTests(DatabaseFixture):
+    WINDOW = {"decision": {"id": None, "decision_run_at": DECISION_AT}, "option_symbol": CONTRACT["symbol"],
+              "start_at": DECISION_AT, "end_at": "2026-03-10T15:00:00+00:00"}
+
+    def payload(self) -> dict:
+        days = ["2026-03-02T16:00:00-05:00", "2026-03-10T16:00:00-04:00"]
+        return {"s": "ok", "optionSymbol": [CONTRACT["symbol"]] * 2, "bid": [9.8, 12.0], "ask": [10.2, 12.4],
+                "updated": [int(datetime.fromisoformat(day).timestamp()) for day in days]}
+
+    def test_replay_contract_quotes_are_stored(self) -> None:
+        window = {**self.WINDOW, "decision": {"id": self.decision_id, "decision_run_at": DECISION_AT}}
+        result = fetch_marketdata_eod_quotes_for_contracts([window], token="fixture", db_path=self.db_path,
+                                                           request_get=lambda *args, **kwargs: MarketDataResponse(self.payload()))
+        self.assertEqual(result["inserted_quote_count"], 2)
+
+    def test_missing_token_is_reported_not_raised(self) -> None:
+        trade = {"id": self.decision_id, "decision_run_at": DECISION_AT, "selected_option_symbol": CONTRACT["symbol"]}
+        with patch.dict("os.environ", {"MARKETDATA_TOKEN": ""}):
+            summary = fetch_quotes_for_trades([trade], max_hold_hours=168, db_path=self.db_path)
+        self.assertEqual(summary["gap_reasons"], {"missing_marketdata_token": 1})
+
+
+class ProductionGuardrailTests(DatabaseFixture):
+    def test_contract_above_the_premium_cap_is_skipped(self) -> None:
+        self.assertEqual(self.backtest(max_premium_dollars=800)["warnings"], ["premium_per_trade_cap"])
+
+    def test_contract_within_the_premium_cap_is_priced(self) -> None:
+        self.add_closes(("2026-03-03", 440.0))
+        self.assertEqual(self.backtest(max_premium_dollars=1500)["status"], "simulated_closed")
+
+    def test_every_candidate_is_scored_before_portfolio_limits(self) -> None:
+        self.add_closes(("2026-03-03", 440.0))
+        metrics = self.backtest_run()["run"]["metrics"]
+        self.assertEqual(metrics["before_portfolio_limits"]["priced_entry_count"], 1)
+
+    def test_missing_daily_closes_are_fetched_for_traded_symbols(self) -> None:
+        bars = [{"bar_at": "2026-03-03T05:00:00+00:00", "close": 440.0}]
+        fill_missing_daily_closes({"MSFT"}, since=DECISION_AT, db_path=self.db_path, fetch=lambda symbol: ("fixture", bars))
+        self.assertEqual(self.backtest()["status"], "simulated_closed")
+
+
+class ProductionRulesTests(unittest.TestCase):
+    LOCAL = FrontMainSettings.from_env()
+    MANIFEST = {"runtime_settings": {"execute_medium_confidence_trades": False, "max_premium_per_trade_dollars": 800.0},
+                "selector_config": {"ALLOW_RISKY_SIMPLE_FALLBACK": False}}
+
+    def rules(self, manifest=MANIFEST) -> ProductionRules:
+        with patch.object(llm_backtest, "get_candidate_manifest", return_value=manifest):
+            return ProductionRules.for_candidate("candidate", local=self.LOCAL)
+
+    def test_recorded_settings_replace_local_ones(self) -> None:
+        local = replace(self.LOCAL, execute_medium_confidence_trades=True)
+        with patch.object(llm_backtest, "get_candidate_manifest", return_value=self.MANIFEST):
+            rules = ProductionRules.for_candidate("candidate", local=local)
+        self.assertFalse(rules.settings.execute_medium_confidence_trades)
+
+    def test_differing_selector_settings_are_named(self) -> None:
+        current = {"ALLOW_RISKY_SIMPLE_FALLBACK": True}
+        self.assertEqual(self.rules().selector_differences(current), ["ALLOW_RISKY_SIMPLE_FALLBACK"])
+
+    def test_without_a_manifest_local_settings_apply(self) -> None:
+        self.assertEqual(self.rules(manifest=None).selector_differences({"ANY": 1}), [])
 
 
 class CachedReplayTests(DatabaseFixture):
@@ -152,6 +263,19 @@ class SelectionChainTests(unittest.TestCase):
     def test_bucket_none_keeps_the_pre_decision_chain(self) -> None:
         market = self.market({"decision": "call", "target_dte_bucket": "none"})
         self.assertEqual(market["option_market"]["contracts"], ["pre-decision"])
+
+
+class ProgressEstimateTests(unittest.TestCase):
+    NOW = datetime(2026, 10, 11, 20, 0, tzinfo=timezone.utc)
+
+    def test_finish_time_is_paced_by_model_calls(self) -> None:
+        progress = llm_backtest.ProgressEstimate(total=10)
+        progress.record_model_call(60)
+        progress.record_model_call(120)
+        self.assertIn("estimated finish 2026-10-11 20:07", progress.report(5, now=self.NOW))
+
+    def test_remaining_decisions_are_counted(self) -> None:
+        self.assertIn("5/12 done, 7 remaining", llm_backtest.ProgressEstimate(total=12).report(5, now=self.NOW))
 
 
 class StoredAnswerTests(unittest.TestCase):

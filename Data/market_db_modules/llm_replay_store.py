@@ -78,6 +78,31 @@ def get_saved_bucket_chain(candidate_id: str | None, *, db_path: Path | str = DB
     return {"target_dte_bucket": recommendation.get("target_dte_bucket"), "option_market": option_market}
 
 
+def get_candidate_manifest(candidate_id: str | None, *, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
+    """The pipeline manifest a candidate ran under: production's settings, not this checkout's."""
+    if not candidate_id:
+        return None
+    with closing(get_connection(db_path)) as conn:
+        row = conn.execute("SELECT pipeline_version_json FROM candidates WHERE candidate_id = ?", (candidate_id,)).fetchone()
+    manifest = json.loads(row["pipeline_version_json"] or "{}") if row is not None else {}
+    return manifest or None
+
+
+def symbols_without_daily_bars(symbols: set[str], *, since: str, db_path: Path | str = DB_PATH) -> set[str]:
+    """Symbols with no stored daily close on or after `since`."""
+    initialize_database(db_path=db_path)
+    with closing(get_connection(db_path)) as conn:
+        covered = {row["symbol"] for row in conn.execute(
+            f"""
+            SELECT DISTINCT symbol FROM historical_underlying_bars
+            WHERE timeframe = '1d' AND close_price > 0 AND bar_at >= ?
+              AND symbol IN ({",".join("?" for _ in symbols)})
+            """,
+            (normalize_timestamp(since), *symbols),
+        )} if symbols else set()
+    return set(symbols) - covered
+
+
 def get_cached_llm_replay(
     *,
     stage: str,

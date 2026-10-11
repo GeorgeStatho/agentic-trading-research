@@ -250,6 +250,14 @@ class PortfolioGuardrailTests(unittest.TestCase):
         self.assertEqual(events[0]["status"], "simulated_closed")
         self.assertEqual(events[1]["warnings"], ["portfolio_max_concurrent_positions"])
 
+    def test_adding_to_a_held_contract_does_not_need_a_new_slot(self) -> None:
+        held = {"option_symbol": "NVDA261030C00240000"}
+        events = self._run_limits([
+            {**self._event(1, entry_at="2026-01-01T10:00:00+00:00", exit_at="2026-01-01T11:00:00+00:00"), **held},
+            {**self._event(2, entry_at="2026-01-01T10:01:00+00:00", exit_at="2026-01-01T11:01:00+00:00"), **held},
+        ], max_concurrent_positions=1)
+        self.assertEqual(events[1]["status"], "simulated_closed")
+
     def test_total_notional_and_sector_limits_are_auditable(self) -> None:
         total_events = self._run_limits([
             self._event(1, entry_at="2026-01-01T10:00:00+00:00", exit_at="2026-01-01T11:00:00+00:00"),
