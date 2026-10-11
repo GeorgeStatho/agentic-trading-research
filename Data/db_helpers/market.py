@@ -89,6 +89,11 @@ from market_db import (
     record_telemetry_installation,
     update_manager_decision_latest_pnl,
     run_backtest,
+    run_decision_backtest,
+    get_cached_llm_replay,
+    get_saved_bucket_chain,
+    list_frozen_manager_decisions,
+    store_cached_llm_replay,
     simulate_backtest_metrics,
 )
 

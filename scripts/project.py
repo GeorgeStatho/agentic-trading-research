@@ -27,6 +27,7 @@ RUNTIME_ENTRYPOINTS = {
     "eod-sync": ROOT_DIR / "Python Scripts" / "marketdata_eod_sync_main.py",
     "offline-evaluation": ROOT_DIR / "Python Scripts" / "agentCallers" / "offline_manager_evaluation.py",
     "backtest-sweep": ROOT_DIR / "Python Scripts" / "agentCallers" / "backtest_sweep.py",
+    "llm-backtest": ROOT_DIR / "Python Scripts" / "agentCallers" / "llm_backtest.py",
 }
 
 

@@ -65,7 +65,14 @@ from market_db_modules.backtesting import (
     record_historical_option_quote,
     record_historical_underlying_bar,
     run_backtest,
+    run_decision_backtest,
     simulate_backtest_metrics,
+)
+from market_db_modules.llm_replay_store import (
+    get_cached_llm_replay,
+    get_saved_bucket_chain,
+    list_frozen_manager_decisions,
+    store_cached_llm_replay,
 )
 from market_db_modules.backtest_imports import import_alpaca_option_quote_csv
 from market_db_modules.backtest_marketdata import fetch_marketdata_eod_option_quotes
@@ -245,6 +252,11 @@ __all__ = [
     "record_thesis_validation_run",
     "replace_industry_company_rankings",
     "run_backtest",
+    "run_decision_backtest",
+    "get_cached_llm_replay",
+    "get_saved_bucket_chain",
+    "list_frozen_manager_decisions",
+    "store_cached_llm_replay",
     "simulate_backtest_metrics",
     "summarize_thesis_validator_health",
     "update_manager_decision_latest_pnl",

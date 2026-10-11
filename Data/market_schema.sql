@@ -220,6 +220,21 @@ CREATE TABLE IF NOT EXISTS manager_replay_results (
     UNIQUE (evaluation_id, manager_decision_history_id, replay_mode)
 );
 
+-- One model answer per frozen input, so re-running a backtest with new execution
+-- settings never calls the model again. A local server's model name is only a label:
+-- change it whenever the served weights change, or the cache returns the old answers.
+CREATE TABLE IF NOT EXISTS llm_replay_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    output_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (stage, provider, model, prompt_version, input_hash)
+);
+
 CREATE TABLE IF NOT EXISTS decision_evidence_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     manager_decision_history_id INTEGER NOT NULL UNIQUE,
