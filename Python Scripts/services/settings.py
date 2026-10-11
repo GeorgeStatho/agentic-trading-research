@@ -21,6 +21,7 @@ from services.runtime_paths import ROOT_DIR, load_project_env
 
 
 DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
+DEFAULT_LLAMACPP_BASE_URL = "http://127.0.0.1:8080/v1"
 DEFAULT_STAGE_MODEL = "world-news-sectors"
 _MODEL_FALLBACKS = ("MACRO_NEWS_MODEL", "WORLD_NEWS_MODEL")
 _HOST_FALLBACKS = ("MACRO_NEWS_OLLAMA_HOST", "WORLD_NEWS_OLLAMA_HOST")
@@ -117,6 +118,17 @@ class VertexSettings:
 
 
 @dataclass(frozen=True)
+class LlamaCppSettings:
+    # llama-server's OpenAI-compatible root. One server hosts one model, so the context
+    # size (-c) and GPU offload are server flags, not request settings.
+    base_url: str = DEFAULT_LLAMACPP_BASE_URL
+
+    @classmethod
+    def from_environ(cls, environ) -> "LlamaCppSettings":
+        return cls(base_url=environ.get("LLAMACPP_BASE_URL", "").strip() or DEFAULT_LLAMACPP_BASE_URL)
+
+
+@dataclass(frozen=True)
 class ManagerContextSettings:
     history_limit: int
     history_max_age_days: int
@@ -176,6 +188,7 @@ class OpportunistSettings:
 class Settings:
     models: ModelSettings
     vertex: VertexSettings
+    llamacpp: LlamaCppSettings
     manager_context: ManagerContextSettings
     opportunists: OpportunistSettings
     evidence_continuation: EvidenceContinuationPolicy
@@ -183,6 +196,7 @@ class Settings:
     @classmethod
     def from_environ(cls, environ: Mapping[str, str]) -> "Settings":
         return cls(models=ModelSettings.from_environ(environ), vertex=VertexSettings.from_environ(environ),
+                   llamacpp=LlamaCppSettings.from_environ(environ),
                    manager_context=ManagerContextSettings.from_environ(environ),
                    opportunists=OpportunistSettings.from_environ(environ),
                    evidence_continuation=EvidenceContinuationPolicy.from_environ(environ))

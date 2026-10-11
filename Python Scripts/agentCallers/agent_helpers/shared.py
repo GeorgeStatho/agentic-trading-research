@@ -125,6 +125,16 @@ def _build_openai_client() -> Any:
     return OpenAI(api_key=api_key)
 
 
+def _build_llamacpp_client() -> Any:
+    if OpenAI is None:
+        raise RuntimeError(
+            "The 'openai' Python package is required for llama.cpp requests. "
+            "Install it in your environment with: pip install openai"
+        )
+    # llama-server ignores the key unless it was started with --api-key.
+    return OpenAI(base_url=get_settings().llamacpp.base_url, api_key="local")
+
+
 def get_model_client(label: str | None = None) -> Client:
     # Choose the configured model backend once and return the callable/client pair the rest of the code should use.
     provider = _normalize_provider()
@@ -135,9 +145,13 @@ def get_model_client(label: str | None = None) -> Client:
     if provider == "openai":
         return Client(provider=provider, raw_client=_build_openai_client(), label=label)
 
+    if provider == "llamacpp":
+        base_url = get_settings().llamacpp.base_url
+        return Client(provider=provider, raw_client=_build_llamacpp_client(), host=base_url, label=base_url)
+
     if provider != "ollama":
         raise RuntimeError(
-            f"Unsupported LLM_PROVIDER '{provider}'. Expected 'ollama', 'openai', or 'vertex'."
+            f"Unsupported LLM_PROVIDER '{provider}'. Expected 'ollama', 'openai', 'llamacpp', or 'vertex'."
         )
 
     if OllamaClient is None:
@@ -552,6 +566,47 @@ def _ask_openai_model(
     return content
 
 
+def _ask_llamacpp_model(
+    client: Client,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    temperature: float,
+    response_schema: dict[str, Any] | None,
+) -> str:
+    # llama-server supports Chat Completions on every build; it compiles a JSON schema into a grammar.
+    request_kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+    }
+    if response_schema is not None:
+        request_kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "structured_response", "schema": response_schema},
+        }
+
+    try:
+        response = client.raw_client.chat.completions.create(**request_kwargs)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not complete the llama.cpp request. Verify llama-server is running at {client.label}. {exc}"
+        ) from exc
+
+    choice = response.choices[0] if response.choices else None
+    content = choice.message.content if choice is not None else None
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError(f"Model returned empty content: {response}")
+    if choice.finish_reason == "length":
+        raise RuntimeError("llama.cpp truncated the response; raise llama-server's context size (-c).")
+
+    return content
+
+
 def ask_llm_model(
     client: Client,
     model: str,
@@ -587,6 +642,16 @@ def ask_llm_model(
             temperature=temperature,
             response_schema=response_schema,
             response_diagnostic=response_diagnostic,
+        )
+
+    if client.provider == "llamacpp":
+        return _ask_llamacpp_model(
+            client,
+            model,
+            system_prompt,
+            user_prompt,
+            temperature=temperature,
+            response_schema=response_schema,
         )
 
     if client.provider != "ollama":
