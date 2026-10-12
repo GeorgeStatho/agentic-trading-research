@@ -145,7 +145,8 @@ def _build_gemini_client() -> Any:
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY must be set when a stage uses the 'gemini' provider.")
 
-    return genai.Client(api_key=api_key)
+    # Explicit: docker-compose sets GOOGLE_GENAI_USE_VERTEXAI=true, which would otherwise route this key to Vertex.
+    return genai.Client(vertexai=False, api_key=api_key)
 
 
 def _build_openai_client() -> Any:

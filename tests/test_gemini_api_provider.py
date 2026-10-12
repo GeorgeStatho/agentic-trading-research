@@ -55,7 +55,12 @@ class GeminiClientTests(unittest.TestCase):
     def test_builds_an_api_key_client(self):
         with patch.dict(os.environ, {"GEMINI_API_KEY": "key"}), patch.object(shared, "genai") as genai:
             get_model_client(provider="gemini")
-        genai.Client.assert_called_once_with(api_key="key")
+        genai.Client.assert_called_once_with(vertexai=False, api_key="key")
+
+    def test_vertex_environment_flag_does_not_redirect_the_key(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "key", "GOOGLE_GENAI_USE_VERTEXAI": "true"}):
+            client = get_model_client(provider="gemini")
+        self.assertFalse(client.raw_client.vertexai)
 
     def test_missing_key_raises(self):
         environ = {k: v for k, v in os.environ.items() if k not in {"GEMINI_API_KEY", "GOOGLE_API_KEY"}}
