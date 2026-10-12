@@ -13,7 +13,14 @@ from agent_helpers.macro_news import (
     get_sector_reference,
     save_batch_results,
 )
-from agent_helpers.shared import Client, ask_llm_model, build_token_limited_batches, extract_json_object, get_model_client
+from agent_helpers.shared import (
+    GOOGLE_GENAI_PROVIDERS,
+    Client,
+    ask_llm_model,
+    build_token_limited_batches,
+    extract_json_object,
+    get_model_client,
+)
 from db_helpers import initialize_news_database
 
 
@@ -57,7 +64,7 @@ MACRO_SECTOR_PAIRS_SCHEMA: dict[str, Any] = {
 def _get_default_client() -> Client:
     global _macro_news_classifier_client
     if _macro_news_classifier_client is None:
-        _macro_news_classifier_client = get_model_client(_stage_model().ollama_host)
+        _macro_news_classifier_client = get_model_client(_stage_model().ollama_host, _stage_model().provider)
     return _macro_news_classifier_client
 
 
@@ -284,7 +291,7 @@ def _collect_cleaned_pairs(
     for batch_index, article_batch in enumerate(article_batches):
         if (
             batch_index > 0
-            and client.provider == "vertex"
+            and client.provider in GOOGLE_GENAI_PROVIDERS
             and get_settings().opportunists.macro_news_batch_pause_seconds > 0
         ):
             time.sleep(get_settings().opportunists.macro_news_batch_pause_seconds)

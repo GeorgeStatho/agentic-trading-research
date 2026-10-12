@@ -48,7 +48,10 @@ class Client:
     label: str | None = None
 
 
-# Ollama-era model names that resolve to VERTEX_DEFAULT_MODEL on Vertex.
+# Both reach Gemini through the google-genai SDK: Vertex with Cloud credentials, gemini with an AI Studio key.
+GOOGLE_GENAI_PROVIDERS: frozenset[str] = frozenset({"vertex", "gemini"})
+PROVIDER_DISPLAY_NAMES: dict[str, str] = {"vertex": "Vertex AI", "gemini": "Gemini API"}
+# Ollama-era model names that resolve to VERTEX_DEFAULT_MODEL on Vertex and the Gemini API.
 VERTEX_DEFAULT_MODEL_ALIASES: frozenset[str] = frozenset({"llama3.1", "world-news-sectors"})
 VERTEX_AUTH_SCOPES: tuple[str, ...] = (
     "https://www.googleapis.com/auth/cloud-platform",
@@ -112,6 +115,21 @@ def _build_vertex_client() -> Any:
     )
 
 
+def _build_gemini_client() -> Any:
+    if genai is None:
+        raise RuntimeError(
+            "The 'google-genai' Python package is required for Gemini API requests. "
+            "Install it in your environment with: pip install google-genai"
+        )
+
+    # Read here rather than from settings: the settings object is recorded in the pipeline manifest.
+    api_key = str(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY must be set when a stage uses the 'gemini' provider.")
+
+    return genai.Client(api_key=api_key)
+
+
 def _build_openai_client() -> Any:
     if OpenAI is None:
         raise RuntimeError(
@@ -138,12 +156,16 @@ def _build_llamacpp_client() -> Any:
                   timeout=LLAMACPP_TIMEOUT_SECONDS, max_retries=0)
 
 
-def get_model_client(label: str | None = None) -> Client:
-    # Choose the configured model backend once and return the callable/client pair the rest of the code should use.
-    provider = _normalize_provider()
+def get_model_client(label: str | None = None, provider: str | None = None) -> Client:
+    # Choose the model backend once and return the callable/client pair the rest of the code should use.
+    # A blank provider uses LLM_PROVIDER.
+    provider = _normalize_provider(provider)
 
     if provider == "vertex":
         return Client(provider=provider, raw_client=_build_vertex_client(), label=label)
+
+    if provider == "gemini":
+        return Client(provider=provider, raw_client=_build_gemini_client(), label=label)
 
     if provider == "openai":
         return Client(provider=provider, raw_client=_build_openai_client(), label=label)
@@ -154,7 +176,7 @@ def get_model_client(label: str | None = None) -> Client:
 
     if provider != "ollama":
         raise RuntimeError(
-            f"Unsupported LLM_PROVIDER '{provider}'. Expected 'ollama', 'openai', 'llamacpp', or 'vertex'."
+            f"Unsupported LLM_PROVIDER '{provider}'. Expected 'ollama', 'openai', 'llamacpp', 'vertex', or 'gemini'."
         )
 
     if OllamaClient is None:
@@ -178,7 +200,7 @@ def get_ollama_client(host: str) -> Client:
 
 def _resolve_model_name(provider: str, model: str) -> str:
     normalized = str(model or "").strip()
-    if provider != "vertex":
+    if provider not in GOOGLE_GENAI_PROVIDERS:
         return normalized
 
     if not normalized or normalized in VERTEX_DEFAULT_MODEL_ALIASES:
@@ -224,6 +246,7 @@ def _safe_response_value(value: Any) -> str | int | float | bool | None:
 def _record_vertex_response_diagnostic(
     response: Any,
     *,
+    provider: str,
     model: str,
     response_diagnostic: dict[str, Any] | None,
 ) -> None:
@@ -235,7 +258,7 @@ def _record_vertex_response_diagnostic(
     candidate = candidates[0] if isinstance(candidates, list) and candidates else None
     response_diagnostic.update(
         {
-            "provider": "vertex",
+            "provider": provider,
             "model": model,
             "candidate_count": len(candidates) if isinstance(candidates, list) else 0,
             "finish_reason": _safe_response_value(getattr(candidate, "finish_reason", None)),
@@ -312,6 +335,11 @@ def _is_vertex_rate_limited(exc: Exception) -> bool:
     return "RESOURCE_EXHAUSTED" in message or "RATE LIMIT" in message
 
 
+def _is_daily_quota_exhausted(exc: Exception) -> bool:
+    # Free-tier quota ids end in PerDay (GenerateRequestsPerDayPerProjectPerModel-FreeTier); retrying cannot help.
+    return _is_vertex_rate_limited(exc) and "PERDAY" in str(exc).upper()
+
+
 def _is_vertex_cache_error(exc: Exception) -> bool:
     message = str(exc).lower()
     if "cachedcontent" in message.replace("_", "").replace(" ", ""):
@@ -319,15 +347,22 @@ def _is_vertex_cache_error(exc: Exception) -> bool:
     return "cached content" in message or _extract_status_code(exc) == 404
 
 
-def _build_vertex_error_message(exc: Exception, model_name: str) -> str:
-    # Assemble the vertex error message so callers can work from one normalized shape.
+def _build_vertex_error_message(exc: Exception, model_name: str, provider: str = "vertex") -> str:
+    # Assemble the Vertex/Gemini API error message so callers can work from one normalized shape.
     message = str(exc).strip()
     status_code = _extract_status_code(exc)
     normalized_message = message.lower()
+    service = PROVIDER_DISPLAY_NAMES[provider]
+
+    if _is_daily_quota_exhausted(exc):
+        return (
+            f"{service} daily quota exhausted for model '{model_name}'; it resets at midnight Pacific time. "
+            f"Last error: {message}"
+        )
 
     if _is_vertex_rate_limited(exc):
         return (
-            f"Vertex AI rate limit hit for model '{model_name}' after {get_settings().vertex.max_attempts} attempts. "
+            f"{service} rate limit hit for model '{model_name}' after {get_settings().vertex.max_attempts} attempts. "
             f"Last error: {message or 'RESOURCE_EXHAUSTED'}"
         )
 
@@ -352,13 +387,13 @@ def _build_vertex_error_message(exc: Exception, model_name: str) -> str:
 
     if status_code is not None:
         return (
-            f"Could not complete the Vertex AI request for model '{model_name}' "
+            f"Could not complete the {service} request for model '{model_name}' "
             f"(HTTP {status_code}). {message}"
         )
 
     if message:
         return (
-            f"Could not complete the Vertex AI request for model '{model_name}'. {message}"
+            f"Could not complete the {service} request for model '{model_name}'. {message}"
         )
 
     return (
@@ -483,6 +518,7 @@ def _ask_vertex_model(
             )
             _record_vertex_response_diagnostic(
                 response,
+                provider=client.provider,
                 model=resolved_model,
                 response_diagnostic=response_diagnostic,
             )
@@ -501,10 +537,15 @@ def _ask_vertex_model(
                 config_kwargs["system_instruction"] = system_prompt
                 continue
 
-            if _is_vertex_rate_limited(exc) and attempt < get_settings().vertex.max_attempts:
+            if (
+                _is_vertex_rate_limited(exc)
+                and not _is_daily_quota_exhausted(exc)
+                and attempt < get_settings().vertex.max_attempts
+            ):
                 LOGGER.warning(
-                    "Vertex AI rate limit hit for model '%s' (attempt %s/%s). "
+                    "%s rate limit hit for model '%s' (attempt %s/%s). "
                     "Sleeping %.1fs before retry.",
+                    PROVIDER_DISPLAY_NAMES[client.provider],
                     resolved_model,
                     attempt,
                     get_settings().vertex.max_attempts,
@@ -518,7 +559,7 @@ def _ask_vertex_model(
                 continue
 
             raise RuntimeError(
-                _build_vertex_error_message(exc, resolved_model)
+                _build_vertex_error_message(exc, resolved_model, client.provider)
             ) from exc
 
     content = _extract_response_text(response)
@@ -623,8 +664,8 @@ def ask_llm_model(
     thinking_level: str | None = None,
 ) -> str:
     # Route model calls through the supported provider path and normalize the response and error handling for callers.
-    # thinking_level applies to Gemini 3+ on Vertex only; blank uses VERTEX_THINKING_LEVEL.
-    if client.provider == "vertex":
+    # thinking_level applies to Gemini 3+ on Vertex and the Gemini API only; blank uses VERTEX_THINKING_LEVEL.
+    if client.provider in GOOGLE_GENAI_PROVIDERS:
         return _ask_vertex_model(
             client,
             model,

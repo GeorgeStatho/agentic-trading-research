@@ -28,6 +28,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--fetch-option-quotes", action="store_true",
                         help="Download MarketData.app end-of-day quotes for the replay's contracts (MARKETDATA_TOKEN, "
                              "daily credit budget); contracts without them are Black-Scholes priced.")
+    parser.add_argument("--execute-medium-confidence", action="store_true",
+                        help="Trade medium-confidence answers too, overriding production's recorded rule, to score a "
+                             "model's direction apart from its confidence. The run summary records the override.")
     parser.add_argument("--take-profit-pct", type=float)
     parser.add_argument("--stop-loss-pct", type=float)
     parser.add_argument("--max-hold-hours", type=int)
@@ -55,7 +58,8 @@ def main() -> None:
     }.items() if value is not None}
     result = run_llm_backtest(model=args.model, start_at=args.start_at or None, end_at=args.end_at or None,
                               limit=args.limit, execution_config=execution_config,
-                              fetch_missing_bars=args.fetch_missing_bars, fetch_option_quotes=args.fetch_option_quotes)
+                              fetch_missing_bars=args.fetch_missing_bars, fetch_option_quotes=args.fetch_option_quotes,
+                              execute_medium_confidence=args.execute_medium_confidence)
     print(json.dumps(_summary(result), indent=2, default=str))
 
 

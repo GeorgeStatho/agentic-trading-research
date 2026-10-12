@@ -184,6 +184,12 @@ class ProductionRulesTests(unittest.TestCase):
             rules = ProductionRules.for_candidate("candidate", local=local)
         self.assertFalse(rules.settings.execute_medium_confidence_trades)
 
+    def test_medium_confidence_override_allows_medium_entries(self) -> None:
+        self.assertTrue(self.rules().executing_medium_confidence().settings.execute_medium_confidence_trades)
+
+    def test_override_keeps_the_other_recorded_settings(self) -> None:
+        self.assertEqual(self.rules().executing_medium_confidence().settings.max_premium_per_trade_dollars, 800.0)
+
     def test_differing_selector_settings_are_named(self) -> None:
         current = {"ALLOW_RISKY_SIMPLE_FALLBACK": True}
         self.assertEqual(self.rules().selector_differences(current), ["ALLOW_RISKY_SIMPLE_FALLBACK"])
@@ -219,6 +225,19 @@ class ReplayFunnelTests(DatabaseFixture):
     def test_direction_changes_are_counted(self) -> None:
         result = self.run_with(Mock(return_value={"recommendation": TRADEABLE["recommendation"]}))
         self.assertEqual(result["run"]["metrics"]["replay"]["changed_direction_count"], 1)
+
+    def test_medium_answers_trade_only_with_the_override(self) -> None:
+        medium = {**TRADEABLE, "recommendation": {**TRADEABLE["recommendation"], "confidence": "medium"}}
+        local = replace(FrontMainSettings.from_env(), execute_medium_confidence_trades=False)
+        decide = Mock(return_value={"recommendation": medium["recommendation"]})
+        outcomes = []
+        for override in (False, True):
+            with patch.object(llm_backtest.FrontMainSettings, "from_env", return_value=local), \
+                    patch.object(llm_backtest, "finalize", return_value=medium):
+                result = run_llm_backtest(model=f"local-{override}", decide=decide, db_path=self.db_path,
+                                          execute_medium_confidence=override)
+            outcomes.append(result["run"]["metrics"]["replay"]["outcomes"])
+        self.assertEqual(outcomes, [{"not_eligible": 1}, {"traded": 1}])
 
     def test_a_blocked_gate_is_not_traded(self) -> None:
         blocked = {**TRADEABLE, "market_regime_gate": {"allowed": False}}

@@ -141,6 +141,10 @@ class ProductionRules:
                     if setting.name in runtime and isinstance(getattr(local, setting.name), (bool, int, float, str))}
         return cls(replace(local, **recorded), manifest.get("selector_config") or {})
 
+    def executing_medium_confidence(self) -> "ProductionRules":
+        """The same rules with medium-confidence entries allowed: scores a model's direction apart from its confidence."""
+        return replace(self, settings=replace(self.settings, execute_medium_confidence_trades=True))
+
     def selector_differences(self, current: dict[str, Any]) -> list[str]:
         if not self.recorded:
             return []
@@ -328,10 +332,15 @@ def run_llm_backtest(
     execution_config: dict[str, Any] | None = None,
     fetch_missing_bars: bool = False,
     fetch_option_quotes: bool = False,
+    execute_medium_confidence: bool = False,
     decide: Decider | None = None,
     db_path: Any = DB_PATH,
 ) -> dict[str, Any]:
-    """Replay `model` (or `stored`) over the window and record the trades as a backtest run."""
+    """Replay `model` (or `stored`) over the window and record the trades as a backtest run.
+
+    `execute_medium_confidence` overrides production's recorded rule, so the run is no longer a
+    production-faithful replay; the summary records the override.
+    """
     stored = model == STORED_MODEL
     replay = None if stored else CachedManagerReplay(model=model, provider=_normalize_provider(),
                                                      decide=decide or manager_decider(model), db_path=db_path)
@@ -346,6 +355,8 @@ def run_llm_backtest(
     for index, decision in enumerate(decisions, start=1):
         payload = frozen_payload(decision)
         rules = ProductionRules.for_candidate(decision.get("candidate_id"), local=local_settings, db_path=db_path)
+        if execute_medium_confidence:
+            rules = rules.executing_medium_confidence()
         if rules.recorded:
             tally.recorded_settings += 1
             latest_rules = rules
@@ -407,6 +418,7 @@ def run_llm_backtest(
             "recorded_decision_count": tally.recorded_settings,
             "local_fallback_decision_count": len(decisions) - tally.recorded_settings,
             "execute_medium_confidence_trades": latest_rules.settings.execute_medium_confidence_trades,
+            "overrides": ["execute_medium_confidence_trades"] if execute_medium_confidence else [],
             "portfolio_limits": limits,
             "selector_settings_differing_from_local": sorted(tally.selector_differences),
         },

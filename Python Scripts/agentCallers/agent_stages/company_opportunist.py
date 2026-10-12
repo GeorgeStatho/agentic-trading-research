@@ -61,7 +61,7 @@ __all__ = [
 def _get_default_client() -> Client:
     global _company_opportunist_client
     if _company_opportunist_client is None:
-        _company_opportunist_client = get_model_client(_stage_model().ollama_host)
+        _company_opportunist_client = get_model_client(_stage_model().ollama_host, _stage_model().provider)
     return _company_opportunist_client
 
 

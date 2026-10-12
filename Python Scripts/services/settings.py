@@ -57,19 +57,24 @@ class StageModel:
     ollama_host: str
     # Gemini 3+ only. Blank falls back to VERTEX_THINKING_LEVEL, then the model default.
     thinking_level: str = ""
+    # Blank uses LLM_PROVIDER.
+    provider: str = ""
 
     @classmethod
     def from_environ(cls, environ, *prefixes: str) -> "StageModel":
         """Resolve ``<PREFIX>_MODEL`` / ``<PREFIX>_OLLAMA_HOST`` through each prefix, then macro/world news.
 
-        ``<PREFIX>_THINKING_LEVEL`` does not fall back to the news stages: a manager inheriting
-        the news classifiers' low thinking would silently weaken the final decision.
+        ``<PREFIX>_THINKING_LEVEL`` and ``<PREFIX>_PROVIDER`` do not fall back to the news stages:
+        a manager inheriting the news classifiers' low thinking or free-tier provider would
+        silently weaken the final decision.
         """
-        thinking_names = tuple(p + "_THINKING_LEVEL" for p in prefixes or ("MACRO_NEWS", "WORLD_NEWS"))
+        own_prefixes = prefixes or ("MACRO_NEWS", "WORLD_NEWS")
+        thinking_names = tuple(p + "_THINKING_LEVEL" for p in own_prefixes)
         return cls(model=_first(environ, (*(p + "_MODEL" for p in prefixes), *_MODEL_FALLBACKS), DEFAULT_STAGE_MODEL),
                    ollama_host=_first(environ, (*(p + "_OLLAMA_HOST" for p in prefixes), *_HOST_FALLBACKS),
                                       DEFAULT_OLLAMA_HOST),
-                   thinking_level=parse_thinking_level(_first(environ, thinking_names, ""), thinking_names[0]))
+                   thinking_level=parse_thinking_level(_first(environ, thinking_names, ""), thinking_names[0]),
+                   provider=_first(environ, tuple(p + "_PROVIDER" for p in own_prefixes), "").strip().lower())
 
 
 @dataclass(frozen=True)
