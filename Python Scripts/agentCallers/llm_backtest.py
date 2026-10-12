@@ -31,6 +31,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--execute-medium-confidence", action="store_true",
                         help="Trade medium-confidence answers too, overriding production's recorded rule, to score a "
                              "model's direction apart from its confidence. The run summary records the override.")
+    parser.add_argument("--min-hours-between", type=float, default=0,
+                        help="Replay a company's decision only if it is at least this many hours after the last one "
+                             "replayed for that company (default 0: every decision). Fewer, less repetitive samples; "
+                             "compare with a stored run using the same value.")
+    parser.add_argument("--replay-strategist", action="store_true",
+                        help="Have --model answer the strategist too, on each decision's frozen strategist input; the "
+                             "manager then answers that strategist instead of production's. Not valid with 'stored'.")
     parser.add_argument("--take-profit-pct", type=float)
     parser.add_argument("--stop-loss-pct", type=float)
     parser.add_argument("--max-hold-hours", type=int)
@@ -59,7 +66,8 @@ def main() -> None:
     result = run_llm_backtest(model=args.model, start_at=args.start_at or None, end_at=args.end_at or None,
                               limit=args.limit, execution_config=execution_config,
                               fetch_missing_bars=args.fetch_missing_bars, fetch_option_quotes=args.fetch_option_quotes,
-                              execute_medium_confidence=args.execute_medium_confidence)
+                              execute_medium_confidence=args.execute_medium_confidence,
+                              min_hours_between=args.min_hours_between, replay_strategist=args.replay_strategist)
     print(json.dumps(_summary(result), indent=2, default=str))
 
 

@@ -71,6 +71,7 @@ from market_db_modules.backtesting import (
 from market_db_modules.llm_replay_store import (
     get_cached_llm_replay,
     get_candidate_manifest,
+    get_frozen_strategist_input,
     get_saved_bucket_chain,
     symbols_without_daily_bars,
     list_frozen_manager_decisions,
@@ -261,6 +262,7 @@ __all__ = [
     "run_decision_backtest",
     "get_cached_llm_replay",
     "get_candidate_manifest",
+    "get_frozen_strategist_input",
     "get_saved_bucket_chain",
     "symbols_without_daily_bars",
     "list_frozen_manager_decisions",

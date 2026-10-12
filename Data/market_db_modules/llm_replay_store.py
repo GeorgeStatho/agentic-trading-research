@@ -78,6 +78,23 @@ def get_saved_bucket_chain(candidate_id: str | None, *, db_path: Path | str = DB
     return {"target_dte_bucket": recommendation.get("target_dte_bucket"), "option_market": option_market}
 
 
+def get_frozen_strategist_input(candidate_id: str | None, *, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
+    """The input production's strategist answered for this candidate, or None when it has no completed run."""
+    if not candidate_id:
+        return None
+    with closing(get_connection(db_path)) as conn:
+        row = conn.execute(
+            """
+            SELECT input_payload_json FROM strategist_runs
+            WHERE candidate_id = ? AND status = 'completed'
+            ORDER BY id DESC LIMIT 1
+            """,
+            (candidate_id,),
+        ).fetchone()
+    payload = json.loads(row["input_payload_json"] or "{}") if row is not None else {}
+    return payload if isinstance(payload.get("company"), dict) else None
+
+
 def get_candidate_manifest(candidate_id: str | None, *, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
     """The pipeline manifest a candidate ran under: production's settings, not this checkout's."""
     if not candidate_id:

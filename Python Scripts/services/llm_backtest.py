@@ -17,8 +17,10 @@ candidate's pipeline manifest, not this checkout's environment; a decision whose
 settings differ from the local ones is reported rather than re-selected under different rules.
 
 Model answers are cached per frozen input, so re-running with new execution settings never asks
-the model again. Only the manager is replayed: the strategist's recorded output stays in the
-payload. Trade economics is not replayed; it is shadow-only in production. No broker is called.
+the model again. By default only the manager is replayed and the strategist's recorded output stays
+in the payload. With `replay_strategist`, the model also answers the strategist's frozen input, and
+that answer replaces production's in the manager input, projected exactly as production hands it
+over. Trade economics is not replayed; it is shadow-only in production. No broker is called.
 """
 from __future__ import annotations
 
@@ -37,6 +39,7 @@ from db_helpers.market import (
     fetch_marketdata_eod_quotes_for_contracts,
     get_cached_llm_replay,
     get_candidate_manifest,
+    get_frozen_strategist_input,
     get_saved_bucket_chain,
     list_frozen_manager_decisions,
     run_decision_backtest,
@@ -48,6 +51,9 @@ from agent_helpers.deterministic_option_selector import SELECTOR_VERSION, apply_
 from agent_helpers.deterministic_option_selector.market import _get_reference_stock_price
 from agent_helpers.shared import _normalize_provider
 from agent_stages.manager_runner import MANAGER_PROMPT_VERSION, replay_manager_decision_from_payload
+from agent_stages.manager_strategist_context import _build_manager_visible_strategist_context
+from agent_stages.strategist_runner import (attach_thesis_check, replay_strategist_decision_from_payload,
+                                            strategist_prompt_version)
 from services.config import FrontMainSettings
 from services.entry_gates import carry_gate_verdicts
 from services.evaluation_clock import evaluated_at
@@ -58,6 +64,7 @@ from services.market_regime_gate import apply_market_regime_gate_to_manager_resu
 from services.option_dte_buckets import normalize_target_dte_bucket
 from services.order_candidates import OrderCandidateBuilder
 from services.pipeline_version import selector_constants
+from services.settings import get_settings
 from services.regime_history import fetch_daily_history
 from services.trade_economics_policy import TradeEconomicsPolicy
 
@@ -65,6 +72,7 @@ LOGGER = logging.getLogger(__name__)
 
 STORED_MODEL = "stored"
 STAGE = "manager"
+STRATEGIST_STAGE = "strategist"
 DIRECTIONAL = frozenset({"call", "put"})
 STRATEGY_VERSION = "llm-replay-manager-v1"
 # Quote windows match the engine's defaults: next-day entry at the latest, then the longest hold.
@@ -102,9 +110,19 @@ def input_hash(payload: dict[str, Any]) -> str:
     return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
 
+def cached_answer(key: dict[str, str], ask: Callable[[], dict[str, Any]], *, db_path: Any) -> tuple[dict[str, Any], bool]:
+    """One model answer per cache key, asked once and then read back."""
+    cached = get_cached_llm_replay(**key, db_path=db_path)
+    if cached is not None:
+        return cached, True
+    answer = ask()
+    store_cached_llm_replay(**key, output=answer, db_path=db_path)
+    return answer, False
+
+
 @dataclass
 class CachedManagerReplay:
-    """One model answer per frozen input, asked once and then read back."""
+    """One manager answer per frozen input."""
     model: str
     provider: str
     decide: Decider
@@ -113,12 +131,47 @@ class CachedManagerReplay:
     def recommendation(self, payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         key = {"stage": STAGE, "provider": self.provider, "model": self.model,
                "prompt_version": MANAGER_PROMPT_VERSION, "input_hash": input_hash(payload)}
-        cached = get_cached_llm_replay(**key, db_path=self.db_path)
-        if cached is not None:
-            return cached, True
-        recommendation = self.decide(payload)["recommendation"]
-        store_cached_llm_replay(**key, output=recommendation, db_path=self.db_path)
-        return recommendation, False
+        return cached_answer(key, lambda: self.decide(payload)["recommendation"], db_path=self.db_path)
+
+
+@dataclass
+class StrategistReplay:
+    """One strategist answer per frozen strategist input, handed to the manager as production would."""
+    model: str
+    provider: str
+    thesis_policy: EvidenceThesisPolicy
+    decide: Decider
+    db_path: Any = DB_PATH
+
+    @property
+    def prompt_version(self) -> str:
+        return strategist_prompt_version(self.thesis_policy)
+
+    def recommendation(self, strategist_input: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        key = {"stage": STRATEGIST_STAGE, "provider": self.provider, "model": self.model,
+               "prompt_version": self.prompt_version, "input_hash": input_hash(strategist_input)}
+        return cached_answer(key, lambda: self.checked_recommendation(strategist_input), db_path=self.db_path)
+
+    def checked_recommendation(self, strategist_input: dict[str, Any]) -> dict[str, Any]:
+        # The thesis check is attached as production attaches it, but never persisted.
+        replay = self.decide(strategist_input)
+        check = replay.get("thesis_check")
+        return attach_thesis_check(replay["recommendation"], check, None) if check else replay["recommendation"]
+
+    def manager_payload(self, payload: dict[str, Any], recommendation: dict[str, Any]) -> dict[str, Any]:
+        """The frozen manager input with this answer in place of production's strategist's.
+
+        Production's run reference is kept with this replay's model and prompt version, so the
+        manager prompt differs only where the strategist's answer does.
+        """
+        replayed = copy.deepcopy(payload)
+        answer = copy.deepcopy(recommendation)
+        reference = (payload.get("strategist_recommendation") or {}).get("strategist_run_reference")
+        if isinstance(reference, dict):
+            answer["strategist_run_reference"] = {**reference, "model": self.model, "prompt_version": self.prompt_version}
+        replayed["strategist_recommendation"] = answer
+        replayed["strategist_recommendation"] = _build_manager_visible_strategist_context(replayed)
+        return replayed
 
 
 @dataclass(frozen=True)
@@ -231,6 +284,8 @@ class ReplayTally:
     outcomes: dict[str, int] = field(default_factory=dict)
     changed_direction: int = 0
     cached_answers: int = 0
+    strategist_changed_decision: int = 0
+    strategist_cached_answers: int = 0
     recorded_settings: int = 0
     selector_differences: set[str] = field(default_factory=set)
 
@@ -275,6 +330,10 @@ def fill_missing_daily_closes(symbols: set[str], *, since: str, db_path: Any = D
 
 def manager_decider(model: str) -> Decider:
     return lambda payload: replay_manager_decision_from_payload(payload, model=model)
+
+
+def strategist_decider(model: str, thesis_policy: EvidenceThesisPolicy) -> Decider:
+    return lambda payload: replay_strategist_decision_from_payload(payload, model=model, thesis_policy=thesis_policy)
 
 
 @dataclass
@@ -323,6 +382,25 @@ def fetch_quotes_for_trades(traded: list[dict[str, Any]], *, max_hold_hours: int
                                          "error_count", "rate_limited_count", "stop_reason")} | {"gap_reasons": gap_reasons}
 
 
+def space_decisions_per_symbol(decisions: list[dict[str, Any]], *, min_hours: float) -> list[dict[str, Any]]:
+    """Each symbol's first decision, then its next one at least `min_hours` after the last one kept.
+
+    Production re-decides a company every cycle, so neighbouring decisions largely repeat each other.
+    Selection is by time alone, never by what production decided, so the subset is not tilted toward
+    the decisions that traded. `decisions` must be in chronological order.
+    """
+    gap = timedelta(hours=min_hours)
+    last_kept: dict[str, datetime] = {}
+    kept = []
+    for decision in decisions:
+        decided_at = datetime.fromisoformat(decision["decision_run_at"])
+        previous = last_kept.get(decision["symbol"])
+        if previous is None or decided_at - previous >= gap:
+            last_kept[decision["symbol"]] = decided_at
+            kept.append(decision)
+    return kept
+
+
 def run_llm_backtest(
     *,
     model: str,
@@ -333,21 +411,35 @@ def run_llm_backtest(
     fetch_missing_bars: bool = False,
     fetch_option_quotes: bool = False,
     execute_medium_confidence: bool = False,
+    min_hours_between: float = 0,
+    replay_strategist: bool = False,
     decide: Decider | None = None,
+    decide_strategist: Decider | None = None,
     db_path: Any = DB_PATH,
 ) -> dict[str, Any]:
     """Replay `model` (or `stored`) over the window and record the trades as a backtest run.
 
     `execute_medium_confidence` overrides production's recorded rule, so the run is no longer a
-    production-faithful replay; the summary records the override.
+    production-faithful replay; the summary records the override. `min_hours_between` replays only
+    decisions spaced that far apart per symbol (see `space_decisions_per_symbol`); compare such a run
+    with a `stored` run using the same spacing. `replay_strategist` has `model` answer the strategist
+    too, so the manager answers that strategist instead of production's.
     """
     stored = model == STORED_MODEL
-    replay = None if stored else CachedManagerReplay(model=model, provider=_normalize_provider(),
+    if stored and replay_strategist:
+        raise ValueError(f"replay_strategist needs a model to replay; '{STORED_MODEL}' reuses production's answers")
+    models = get_settings().models
+    replay = None if stored else CachedManagerReplay(model=model, provider=_normalize_provider(models.manager.provider),
                                                      decide=decide or manager_decider(model), db_path=db_path)
     thesis_policy = EvidenceThesisPolicy.from_env()
+    strategist = (StrategistReplay(model=model, provider=_normalize_provider(models.strategist.provider),
+                                   thesis_policy=thesis_policy,
+                                   decide=decide_strategist or strategist_decider(model, thesis_policy), db_path=db_path)
+                  if replay_strategist else None)
     local_settings = FrontMainSettings.from_env()
     latest_rules = ProductionRules(local_settings)
-    decisions = list_frozen_manager_decisions(start_at=start_at, end_at=end_at, limit=limit, db_path=db_path)
+    window = list_frozen_manager_decisions(start_at=start_at, end_at=end_at, limit=limit, db_path=db_path)
+    decisions = space_decisions_per_symbol(window, min_hours=min_hours_between) if min_hours_between > 0 else window
     tally = ReplayTally()
     traded: list[dict[str, Any]] = []
     consecutive_failures = 0
@@ -360,13 +452,24 @@ def run_llm_backtest(
         if rules.recorded:
             tally.recorded_settings += 1
             latest_rules = rules
+        strategist_input = (get_frozen_strategist_input(decision.get("candidate_id"), db_path=db_path)
+                            if strategist is not None and payload is not None else None)
         if payload is None:
             outcome = "missing_frozen_input"
+        elif strategist is not None and strategist_input is None:
+            outcome = "missing_strategist_input"
         else:
             try:
                 asked_at = time.monotonic()
+                strategist_cached = True
+                if strategist is not None:
+                    strategist_answer, strategist_cached = strategist.recommendation(strategist_input)
+                    tally.strategist_cached_answers += strategist_cached
+                    production_strategist = (payload.get("strategist_recommendation") or {}).get("decision")
+                    tally.strategist_changed_decision += strategist_answer.get("decision") != production_strategist
+                    payload = strategist.manager_payload(payload, strategist_answer)
                 recommendation, cached = (stored_recommendation(decision), True) if stored else replay.recommendation(payload)
-                if not cached:
+                if not (cached and strategist_cached):
                     progress.record_model_call(time.monotonic() - asked_at)
                 consecutive_failures = 0
             except Exception as exc:  # One bad answer is recorded; a dead server stops the run.
@@ -409,9 +512,18 @@ def run_llm_backtest(
     }
     replay_summary = {
         "source_decision_count": len(decisions),
+        "min_hours_between_same_symbol": min_hours_between,
+        "spaced_out_decision_count": len(window) - len(decisions),
         "outcomes": tally.outcomes,
         "changed_direction_count": tally.changed_direction,
         "cached_answer_count": tally.cached_answers,
+        "strategist_replay": {
+            "model": model,
+            "prompt_version": strategist.prompt_version,
+            "provider": strategist.provider,
+            "changed_decision_count": tally.strategist_changed_decision,
+            "cached_answer_count": tally.strategist_cached_answers,
+        } if strategist is not None else None,
         "provider": STORED_MODEL if stored else replay.provider,
         "selector_version": SELECTOR_VERSION,
         "production_settings": {

@@ -591,4 +591,7 @@ exist, otherwise Black-Scholes marks on daily closes. Answers are cached in `llm
 production's own answers as the like-for-like baseline. Eligibility, the premium cap and portfolio limits come
 from each candidate's recorded pipeline manifest; directional answers whose recorded selector settings differ from
 the local ones are reported as `selector_config_mismatch`. `--fetch-missing-bars` downloads daily history for
-traded symbols that have none.
+traded symbols that have none. `--min-hours-between N` replays a company's decision only when it is N hours
+after the last one replayed for it, chosen by time alone; compare it with a `stored` run using the same N. `--replay-strategist` has the model answer
+each decision's frozen strategist input too (`strategist_runs`, by candidate) and hands that answer to
+the manager exactly as production does; strategist answers are cached separately.

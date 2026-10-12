@@ -11,7 +11,8 @@ from unittest.mock import Mock, patch
 
 from db_common import get_connection
 from db_helpers import initialize_news_database
-from market_db import initialize_database, record_historical_option_quote, record_historical_underlying_bar
+from market_db import (add_company, add_industry, add_sector, initialize_database, record_historical_option_quote,
+                       record_historical_underlying_bar)
 from datetime import datetime, timezone
 from market_db import fetch_marketdata_eod_quotes_for_contracts
 from market_db_modules.backtesting import MODELLED_EOD_IV_PRICING_SOURCE, MODELLED_PRICING_SOURCE, run_decision_backtest
@@ -282,6 +283,102 @@ class SelectionChainTests(unittest.TestCase):
     def test_bucket_none_keeps_the_pre_decision_chain(self) -> None:
         market = self.market({"decision": "call", "target_dte_bucket": "none"})
         self.assertEqual(market["option_market"]["contracts"], ["pre-decision"])
+
+
+def decision(symbol: str, at: str) -> dict:
+    return {"symbol": symbol, "decision_run_at": at}
+
+
+class DecisionSpacingTests(unittest.TestCase):
+    def kept(self, decisions, hours=4) -> list[str]:
+        spaced = llm_backtest.space_decisions_per_symbol(decisions, min_hours=hours)
+        return [f"{item['symbol']} {item['decision_run_at'][11:16]}" for item in spaced]
+
+    def test_decisions_inside_the_gap_are_skipped(self) -> None:
+        decisions = [decision("NVDA", f"2026-09-21T{hour}:00:00+00:00") for hour in (14, 15, 17, 18)]
+        self.assertEqual(self.kept(decisions), ["NVDA 14:00", "NVDA 18:00"])
+
+    def test_the_gap_is_measured_from_the_last_kept_decision(self) -> None:
+        decisions = [decision("NVDA", f"2026-09-21T{hour}:00:00+00:00") for hour in (10, 13, 15)]
+        self.assertEqual(self.kept(decisions, hours=4), ["NVDA 10:00", "NVDA 15:00"])
+
+    def test_each_symbol_has_its_own_gap(self) -> None:
+        decisions = [decision("NVDA", "2026-09-21T14:00:00+00:00"), decision("CRWD", "2026-09-21T14:30:00+00:00")]
+        self.assertEqual(self.kept(decisions), ["NVDA 14:00", "CRWD 14:30"])
+
+
+class SpacedReplayTests(DatabaseFixture):
+    def test_spaced_out_decisions_are_not_replayed_and_are_counted(self) -> None:
+        with closing(get_connection(self.db_path)) as conn, conn:
+            history_id = conn.execute(
+                "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) "
+                "VALUES ('MSFT', '2026-03-02T16:00:00+00:00', 'neither')").lastrowid
+            conn.execute("INSERT INTO manager_decision_payloads (manager_decision_history_id, manager_input_json) "
+                         "VALUES (?, ?)", (history_id, json.dumps({"replay_input": {"company": {"symbol": "MSFT"}}})))
+        decide = Mock(return_value={"recommendation": {"decision": "neither"}})
+        with patch.object(llm_backtest, "finalize", return_value=TRADEABLE):
+            result = run_llm_backtest(model="local", decide=decide, db_path=self.db_path, min_hours_between=4)
+        replay = result["run"]["metrics"]["replay"]
+        self.assertEqual((replay["source_decision_count"], replay["spaced_out_decision_count"]), (1, 1))
+
+
+class StrategistReplayTests(DatabaseFixture):
+    def setUp(self) -> None:
+        super().setUp()
+        sector_id = add_sector("technology", "Technology", db_path=self.db_path)
+        company_id = add_company(add_industry(sector_id, "software", "Software", db_path=self.db_path), "MSFT",
+                                 "Microsoft", db_path=self.db_path)
+        manager_input = {"replay_input": {"company": {"symbol": "MSFT"},
+                                          "strategist_recommendation": {"decision": "trade_candidate"}}}
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("UPDATE manager_decision_history SET candidate_id = 'candidate-1' WHERE id = ?", (self.decision_id,))
+            conn.execute("UPDATE manager_decision_payloads SET manager_input_json = ? WHERE manager_decision_history_id = ?",
+                         (json.dumps(manager_input), self.decision_id))
+            conn.execute(
+                "INSERT INTO strategist_runs (candidate_id, company_id, model, prompt_version, input_article_ids_json, "
+                "input_payload_json, status) VALUES ('candidate-1', ?, 'production', 'v', '[]', ?, 'completed')",
+                (company_id, json.dumps({"company": {"symbol": "MSFT", "company_id": company_id}})))
+
+    def run_replay(self, **options) -> tuple[dict, Mock, Mock]:
+        manager = Mock(return_value={"recommendation": {"decision": "neither"}})
+        strategist = Mock(return_value={"recommendation": {"decision": "do_not_trade", "confidence": "low"}})
+        with patch.object(llm_backtest, "finalize", return_value=TRADEABLE):
+            result = run_llm_backtest(model="local", decide=manager, decide_strategist=strategist,
+                                      replay_strategist=True, db_path=self.db_path, **options)
+        return result, manager, strategist
+
+    def test_the_manager_answers_the_replayed_strategist(self) -> None:
+        _, manager, _ = self.run_replay()
+        self.assertEqual(manager.call_args.args[0]["strategist_recommendation"]["decision"], "do_not_trade")
+
+    def test_the_strategist_answers_its_frozen_input(self) -> None:
+        _, _, strategist = self.run_replay()
+        self.assertEqual(strategist.call_args.args[0]["company"]["symbol"], "MSFT")
+
+    def test_a_changed_strategist_decision_is_counted(self) -> None:
+        result, _, _ = self.run_replay()
+        self.assertEqual(result["run"]["metrics"]["replay"]["strategist_replay"]["changed_decision_count"], 1)
+
+    def test_strategist_answers_are_cached(self) -> None:
+        self.run_replay()
+        _, _, strategist = self.run_replay()
+        strategist.assert_not_called()
+
+    def test_a_decision_without_a_strategist_run_is_reported(self) -> None:
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("DELETE FROM strategist_runs")
+        result, _, _ = self.run_replay()
+        self.assertEqual(result["run"]["metrics"]["replay"]["outcomes"], {"missing_strategist_input": 1})
+
+    def test_stored_answers_cannot_replay_the_strategist(self) -> None:
+        with self.assertRaises(ValueError):
+            run_llm_backtest(model="stored", replay_strategist=True, db_path=self.db_path)
+
+    def test_without_the_option_production_strategist_is_kept(self) -> None:
+        manager = Mock(return_value={"recommendation": {"decision": "neither"}})
+        with patch.object(llm_backtest, "finalize", return_value=TRADEABLE):
+            result = run_llm_backtest(model="local", decide=manager, db_path=self.db_path)
+        self.assertIsNone(result["run"]["metrics"]["replay"]["strategist_replay"])
 
 
 class ProgressEstimateTests(unittest.TestCase):

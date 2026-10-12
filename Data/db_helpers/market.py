@@ -93,6 +93,7 @@ from market_db import (
     run_decision_backtest,
     get_cached_llm_replay,
     get_candidate_manifest,
+    get_frozen_strategist_input,
     get_saved_bucket_chain,
     symbols_without_daily_bars,
     list_frozen_manager_decisions,
