@@ -8,7 +8,7 @@ import json
 from typing import Any
 
 from agent_builders.company_opportunity import get_company_linked_articles, get_industry_company_groups
-from agent_helpers.shared import normalize_time_window, published_at_in_window
+from agent_helpers.shared import ModelAnswer, normalize_time_window, published_at_in_window
 from db_helpers import (
     DB_PATH,
     add_company_opportunist_impact,
@@ -302,8 +302,7 @@ def save_company_opportunist_batch_results(
     impacts: list[dict[str, Any]],
     *,
     company_id: int,
-    model: str,
-    raw_response: str,
+    answer: ModelAnswer,
 ) -> None:
     """Persist the cleaned impacts and mark the article batch as processed."""
     initialize_news_database()
@@ -342,14 +341,15 @@ def save_company_opportunist_batch_results(
             mark_company_opportunist_article_processed(
                 article_id=article_id,
                 company_id=int(company_id),
-                model=model,
+                model=answer.model,
                 raw_json={
                     "article_id": article_id,
                     "company_id": int(company_id),
                     "schema_version": CURRENT_OPPORTUNIST_SCHEMA_VERSION,
                     "required_impact_fields": list(COMPANY_OPPORTUNIST_REQUIRED_IMPACT_FIELDS),
                     "impacts": batch_impacts_by_article.get(article_id, []),
-                    "raw_response": raw_response,
+                    "raw_response": answer.text,
+                    "answered_by": answer.record(),
                 },
                 conn=conn,
             )

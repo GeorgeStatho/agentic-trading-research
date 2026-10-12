@@ -104,7 +104,7 @@ class InterestDiscoveryTests(CollectorMixin, DiscoveryFixture):
         self.article()
         self.discover()
         with closing(get_connection(self.db)) as conn, conn:
-            conn.execute("UPDATE news_articles SET body='A material correction' WHERE id=1")
+            conn.execute("UPDATE news_article_content SET body='A material correction' WHERE article_id=1")
         self.discover(at=later(301))
         self.assertEqual(len(discovery_queue_status(db_path=self.db)), 2)
 
@@ -113,7 +113,7 @@ class InterestDiscoveryTests(CollectorMixin, DiscoveryFixture):
         self.article()
         self.discover()
         with closing(get_connection(self.db)) as conn, conn:
-            conn.execute("UPDATE news_articles SET body='A material correction' WHERE id=1")
+            conn.execute("UPDATE news_article_content SET body='A material correction' WHERE article_id=1")
             signal_company_news(conn, 1, at=later(1))
         self.assertEqual(self.discover(at=later(1))['scanned_company_ids'], [1])
 

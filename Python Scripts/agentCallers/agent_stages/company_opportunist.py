@@ -19,7 +19,8 @@ from agent_helpers.company_opportunist import (
 from agent_helpers.opportunist_support import build_shared_opportunist_impacts_schema
 from agent_helpers.shared import (
     Client,
-    ask_llm_model,
+    ModelAnswer,
+    ask_classifier_model,
     build_token_limited_batches,
     extract_json_value,
     get_model_client,
@@ -61,18 +62,19 @@ __all__ = [
 def _get_default_client() -> Client:
     global _company_opportunist_client
     if _company_opportunist_client is None:
-        _company_opportunist_client = get_model_client(_stage_model().ollama_host)
+        _company_opportunist_client = get_model_client(_stage_model().ollama_host, _stage_model().provider)
     return _company_opportunist_client
 
 
-def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> str:
-    return ask_llm_model(
+def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> ModelAnswer:
+    return ask_classifier_model(
         client,
         model,
         system_prompt,
         user_prompt,
         temperature=0,
         host_label=_stage_model().ollama_host,
+        thinking_level=_stage_model().thinking_level,
         response_schema=COMPANY_IMPACTS_SCHEMA,
     )
 
@@ -187,7 +189,7 @@ def _classify_article_batch(
     model: str,
     system_prompt_override: str | None = None,
     task_override: str | None = None,
-) -> tuple[str, list[dict[str, Any]]]:
+) -> tuple[ModelAnswer, list[dict[str, Any]]]:
     # Classify the current batch and return normalized results that the caller can merge or persist.
     system_prompt, user_prompt = build_company_opportunist_prompt(
         company,
@@ -196,16 +198,16 @@ def _classify_article_batch(
         system_prompt_override=system_prompt_override,
         task_override=task_override,
     )
-    raw_response = ask_model(
+    answer = ask_model(
         client=client,
         model=model,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
     )
 
-    parsed = extract_json_value(raw_response)
+    parsed = extract_json_value(answer.text)
     impacts = extract_company_impacts(parsed)
-    return raw_response, impacts if isinstance(impacts, list) else []
+    return answer, impacts if isinstance(impacts, list) else []
 
 
 def _collect_cleaned_impacts(
@@ -229,7 +231,7 @@ def _collect_cleaned_impacts(
         for article in article_batch:
             single_article_batch = [article]
             try:
-                raw_response, batch_impacts = _classify_article_batch(
+                answer, batch_impacts = _classify_article_batch(
                     single_article_batch,
                     company=company,
                     peer_groups=peer_groups,
@@ -242,7 +244,7 @@ def _collect_cleaned_impacts(
                 if not _is_empty_vertex_max_tokens_error(exc):
                     raise
 
-                raw_response = str(exc)
+                answer = ModelAnswer(text=str(exc), provider=client.provider, model=model)
                 batch_impacts = []
                 LOGGER.warning(
                     "Skipping company article %s for %s because the model hit MAX_TOKENS and returned no JSON content.",
@@ -280,15 +282,14 @@ def _collect_cleaned_impacts(
                     "No valid company impacts were extracted for company %s from article %s. Raw model response: %s",
                     valid_symbol,
                     int(article["article_id"]),
-                    raw_response,
+                    answer.text,
                 )
 
             save_company_opportunist_batch_results(
                 single_article_batch,
                 batch_cleaned_impacts,
                 company_id=valid_company_id,
-                model=model,
-                raw_response=raw_response,
+                answer=answer,
             )
 
     return cleaned_impacts

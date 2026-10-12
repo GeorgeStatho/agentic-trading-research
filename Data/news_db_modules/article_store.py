@@ -83,7 +83,6 @@ def add_news_article(
         title,
         normalized_title,
         summary,
-        body,
         normalized_url,
         content_hash,
         published_at,
@@ -97,7 +96,6 @@ def add_news_article(
         factuality_score,
         evidence_score,
         source_url,
-        json_text(raw_json),
     )
     if conn is None:
         with closing(get_connection(db_path)) as local_conn, local_conn:
@@ -144,7 +142,6 @@ def add_news_article(
                 title = ?,
                 normalized_title = ?,
                 summary = ?,
-                body = ?,
                 normalized_url = ?,
                 content_hash = ?,
                 published_at = ?,
@@ -157,31 +154,30 @@ def add_news_article(
                 independent_source_count = ?,
                 factuality_score = ?,
                 evidence_score = ?,
-                source_url = ?,
-                raw_json = ?
+                source_url = ?
             WHERE id = ?
             """,
             values + (article_id,),
         )
+        _store_article_content(conn, article_id, body, raw_json)
         update_article_provenance(article_id, conn=conn)
         return article_id
 
     cursor = conn.execute(
         """
         INSERT INTO news_articles (
-            source, article_key, title, normalized_title, summary, body,
+            source, article_key, title, normalized_title, summary,
             normalized_url, content_hash, published_at, section,
             age_days, recency_score, source_reputation_score, directness_score,
             confirmation_score, independent_source_count, factuality_score,
-            evidence_score, source_url, raw_json
+            evidence_score, source_url
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(article_key) DO UPDATE SET
             source = excluded.source,
             title = excluded.title,
             normalized_title = excluded.normalized_title,
             summary = excluded.summary,
-            body = excluded.body,
             normalized_url = excluded.normalized_url,
             content_hash = excluded.content_hash,
             published_at = excluded.published_at,
@@ -194,12 +190,25 @@ def add_news_article(
             independent_source_count = excluded.independent_source_count,
             factuality_score = excluded.factuality_score,
             evidence_score = excluded.evidence_score,
-            source_url = excluded.source_url,
-            raw_json = excluded.raw_json
+            source_url = excluded.source_url
         RETURNING id
         """,
         values,
     )
     article_id = cursor.fetchone()["id"]
+    _store_article_content(conn, article_id, body, raw_json)
     update_article_provenance(article_id, conn=conn)
     return article_id
+
+
+def _store_article_content(conn, article_id: int, body: str | None, raw_json: Any | None) -> None:
+    conn.execute(
+        """
+        INSERT INTO news_article_content (article_id, body, raw_json)
+        VALUES (?, ?, ?)
+        ON CONFLICT(article_id) DO UPDATE SET
+            body = excluded.body,
+            raw_json = excluded.raw_json
+        """,
+        (article_id, body, json_text(raw_json)),
+    )

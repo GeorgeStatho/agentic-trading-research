@@ -168,7 +168,7 @@ def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
                 sop.model,
                 na.title,
                 na.summary,
-                na.body,
+                content.body,
                 na.source,
                 na.source_url,
                 na.evidence_score,
@@ -179,6 +179,7 @@ def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
             FROM sector_opportunist_impacts AS soi
             JOIN sectors AS s ON s.id = soi.sector_id
             JOIN news_articles AS na ON na.id = soi.article_id
+            LEFT JOIN news_article_content AS content ON content.article_id = na.id
             LEFT JOIN sector_opportunist_article_processing AS sop ON sop.article_id = soi.article_id
             WHERE soi.sector_id = ?
               AND lower(coalesce(soi.confidence, '')) IN (?, ?)
@@ -239,7 +240,7 @@ def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]
                 iop.model,
                 na.title,
                 na.summary,
-                na.body,
+                content.body,
                 na.source,
                 na.source_url,
                 na.evidence_score,
@@ -250,6 +251,7 @@ def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]
             FROM industry_opportunist_impacts AS ioi
             JOIN industries AS i ON i.id = ioi.industry_id
             JOIN news_articles AS na ON na.id = ioi.article_id
+            LEFT JOIN news_article_content AS content ON content.article_id = na.id
             LEFT JOIN industry_opportunist_article_processing AS iop ON iop.article_id = ioi.article_id
             WHERE ioi.industry_id = ?
               AND lower(coalesce(ioi.confidence, '')) IN (?, ?)
@@ -310,7 +312,7 @@ def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
                 cop.model,
                 na.title,
                 na.summary,
-                na.body,
+                content.body,
                 na.source,
                 na.source_url,
                 na.evidence_score,
@@ -321,6 +323,7 @@ def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
             FROM company_opportunist_impacts AS coi
             JOIN companies AS c ON c.id = coi.company_id
             JOIN news_articles AS na ON na.id = coi.article_id
+            LEFT JOIN news_article_content AS content ON content.article_id = na.id
             LEFT JOIN company_opportunist_article_processing AS cop
                 ON cop.article_id = coi.article_id
                AND cop.company_id = coi.company_id

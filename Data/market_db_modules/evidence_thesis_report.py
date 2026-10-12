@@ -79,7 +79,9 @@ def _mean_outcome(rows):
 
 def _gate_summary(conn, since):
     # decision_run_at is written by the runner; the window is approximate for naive timestamps.
-    query = "SELECT trade_executed,realized_pnl_pct,manager_output_json FROM manager_decision_history"
+    query = ("SELECT history.trade_executed, history.realized_pnl_pct, payload.manager_output_json"
+             " FROM manager_decision_history AS history"
+             " LEFT JOIN manager_decision_payloads AS payload ON payload.manager_decision_history_id = history.id")
     rows = conn.execute(query + (" WHERE julianday(decision_run_at)>=julianday(?)" if since else ""),
                         [since] if since else []).fetchall()
     verdicts = []

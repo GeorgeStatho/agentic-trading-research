@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from catalyst_models import UNSCOPED_TYPES
 from services.research_promotion import guard_policy
 
 REGIME_RELEVANCE = {'systemic': 1.00, 'sector': .60, 'idiosyncratic': .25}
@@ -11,9 +12,10 @@ REGIME_RELEVANCE = {'systemic': 1.00, 'sector': .60, 'idiosyncratic': .25}
 
 @dataclass(frozen=True)
 class MarketRegimePolicy:
-    policy_version: str = "market-regime-v2-scope"
+    policy_version: str = "market-regime-v3-scope"
     mode: str = "shadow"
     maximum_opposition: float = .75
+    scope_exception_confidence: str = "high"
 
     @classmethod
     def from_env(cls) -> "MarketRegimePolicy":
@@ -90,8 +92,17 @@ def evaluate_market_regime_gate(
     # existing confidence requirements remain independent of scope weighting.
     if (decision in {'call', 'put'} and not macro_active and opposition > 0
             and scope in REGIME_RELEVANCE):
-        would_allow = penalty < active_policy.maximum_opposition
-        reasons = ['regime_scope_opposition_pass' if would_allow else 'regime_scope_opposition_block']
+        scope_allows = penalty < active_policy.maximum_opposition
+        # An exception trades against the regime, so it needs at least the conviction an
+        # aligned trend entry needs; otherwise opposing the regime is easier than following it.
+        confident = confidence == active_policy.scope_exception_confidence
+        would_allow = scope_allows and confident
+        if not scope_allows:
+            reasons = ['regime_scope_opposition_block']
+        elif not confident:
+            reasons = ['regime_scope_exception_requires_high_confidence', f"manager_confidence_{confidence or 'unknown'}"]
+        else:
+            reasons = ['regime_scope_opposition_pass']
 
     allowed = would_allow or active_policy.mode in {"observe", "shadow"}
     return {
@@ -117,6 +128,18 @@ def evaluate_market_regime_gate(
     }
 
 
+def regime_scope(state: dict[str, Any]) -> str:
+    """A catalyst's scope, or 'unknown' when its classification cannot support one.
+
+    States frozen before catalyst-rules-v2 label unclassified events 'idiosyncratic',
+    so the type is checked rather than trusting the stored scope. Scope follows the event
+    type, so a recognised type awaiting direction review keeps its scope.
+    """
+    if state.get('catalyst_type') in UNSCOPED_TYPES:
+        return 'unknown'
+    return state.get('catalyst_scope') or 'unknown'
+
+
 def apply_market_regime_gate_to_manager_result(manager_result: dict[str, Any]) -> dict[str, Any]:
     result = dict(manager_result or {})
     recommendation = result.get("recommendation") if isinstance(result.get("recommendation"), dict) else {}
@@ -124,7 +147,7 @@ def apply_market_regime_gate_to_manager_result(manager_result: dict[str, Any]) -
     regime = market_context.get("market_regime") if isinstance(market_context.get("market_regime"), dict) else {}
     catalysts = (result.get('candidate_context') or {}).get('catalysts') or []
     # For mixed-scope evidence retain the strongest relevant regime constraint.
-    scope = max((state.get('catalyst_scope', 'unknown') for state in catalysts),
+    scope = max((regime_scope(state) for state in catalysts),
                 key=lambda value: REGIME_RELEVANCE.get(value, 1.0), default='unknown')
     result["market_regime_gate"] = evaluate_market_regime_gate(
         proposed_decision=str(recommendation.get("decision") or ""),

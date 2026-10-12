@@ -16,7 +16,7 @@ from market_db_modules.research_reports import monthly_report, promote_gate, pro
 from services.contract_policy import ContractPolicy
 from services.research_contract import ResearchPolicy, assert_information_cutoff, canonical, fingerprint, strategy_decisions
 from services.research_inputs import load_inputs, baseline_contract
-from services.research_promotion import approved, guard_policy, champion_allows, source_hash
+from services.research_promotion import approved, guard_policy, champion_allows, champion_check, source_hash
 from services.shadow_portfolio import simulate_option, evaluate_gate
 from services.order_candidates import OrderCandidateBuilder
 from services.trade_executor import TradeExecutionSession, OptionTradeExecutor
@@ -215,15 +215,19 @@ class ExecutionIdentityTests(unittest.TestCase):
         seen = {}
         def spy(candidate, **kwargs):
             seen['candidate'] = candidate
-            return champion_allows(candidate, db_path=self.db)
+            return champion_check(candidate, db_path=self.db)
 
         executor = OptionTradeExecutor(settings=SimpleNamespace(), trading_gateway=Mock(),
                                        logger=logging.getLogger('fixture'))
         session = TradeExecutionSession(available_buying_power=20000, max_deployable_buying_power=10000,
                                         remaining_deployable_buying_power=10000, base_order_qty=1)
-        with patch('services.research_promotion.champion_allows', spy):
+        with patch('services.research_promotion.champion_check', spy), self.assertLogs('fixture', 'ERROR'):
             result = executor.execute_candidate(trading_client=Mock(), candidate=built, session=session)
-        self.assertEqual(result, {'submitted': False, 'portfolio_guardrail': 'research_champion_only'})
+        self.assertFalse(result['submitted'])
+        self.assertEqual(result['portfolio_guardrail'], 'research_champion_only')
+        self.assertEqual(result['champion_guard']['reason'], 'research_candidate')
+        # The refusal is part of the cycle's record, not a silent early return.
+        self.assertEqual(session.executions, [result])
         self.assertEqual(seen['candidate']['research_run_id'], 'challenger')
         executor._trading_gateway.submit_option_market_order.assert_not_called()
 
@@ -602,6 +606,13 @@ class ResearchDatabaseTests(unittest.TestCase):
         self.assertEqual(promote_champion(report['report_id'], db_path=self.db)['champion_run_id'], run_id)
         self.assertTrue(champion_allows({'execution_version': self.manifest}, db_path=self.db))
         self.assertFalse(champion_allows({'execution_version': {'pipeline_version': 'other'}}, db_path=self.db))
+        # A deploy or a later gate promotion changes code hashes and modes, not the tested configuration.
+        redeployed = {**self.manifest, 'pipeline_version': 'v2:redeployed', 'source_hashes': {'services/x.py': 'new'},
+                      'gate_config': {'contracts': asdict(ContractPolicy(liquidity_mode='enforce'))}}
+        self.assertTrue(champion_allows({'execution_version': redeployed}, db_path=self.db))
+        retuned = {**self.manifest, 'gate_config': {'contracts': asdict(ContractPolicy(maximum_spread_fraction=.2))}}
+        self.assertEqual(champion_check({'execution_version': retuned}, db_path=self.db),
+                         (False, 'champion_manifest_mismatch', ['gate_config.contracts.maximum_spread_fraction']))
         promote_champion(report['report_id'], db_path=self.db)
         with closing(get_connection(self.db)) as conn:
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM research_champion').fetchone()[0], 1)

@@ -87,7 +87,11 @@ def _origin(article):
 
 
 def update_article_provenance(article_id: int, *, conn) -> None:
-    article = dict(conn.execute("SELECT * FROM news_articles WHERE id = ?", (article_id,)).fetchone())
+    article = dict(conn.execute("""
+        SELECT a.*, content.body, content.raw_json FROM news_articles a
+        LEFT JOIN news_article_content content ON content.article_id = a.id
+        WHERE a.id = ?
+    """, (article_id,)).fetchone())
     company = conn.execute("""
         SELECT c.symbol, c.name FROM companies c
         JOIN company_news_articles link ON link.company_id = c.id

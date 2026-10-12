@@ -49,7 +49,7 @@ def _load_sector_rss_rows(sector_id: int) -> list[dict[str, Any]]:
                 sna.created_at AS linked_at,
                 na.title,
                 na.summary,
-                na.body,
+                content.body,
                 na.source,
                 na.source_url,
                 na.evidence_score,
@@ -62,6 +62,7 @@ def _load_sector_rss_rows(sector_id: int) -> list[dict[str, Any]]:
                 na.published_at
             FROM sector_news_articles AS sna
             JOIN news_articles AS na ON na.id = sna.article_id
+            LEFT JOIN news_article_content AS content ON content.article_id = na.id
             WHERE sna.sector_id = ?
               AND (
                   lower(coalesce(na.source, '')) = ?
@@ -190,7 +191,7 @@ def get_high_confidence_macro_news_for_sector(
                     wnap.model,
                     na.title,
                     na.summary,
-                    na.body,
+                    content.body,
                     na.source,
                     na.source_url,
                     na.evidence_score,
@@ -204,6 +205,7 @@ def get_high_confidence_macro_news_for_sector(
                     wsi.sector_id
                 FROM world_news_sector_impacts AS wsi
                 JOIN news_articles AS na ON na.id = wsi.article_id
+                LEFT JOIN news_article_content AS content ON content.article_id = na.id
                 LEFT JOIN world_news_article_processing AS wnap ON wnap.article_id = wsi.article_id
 
                 UNION ALL
@@ -218,7 +220,7 @@ def get_high_confidence_macro_news_for_sector(
                     unap.model,
                     na.title,
                     na.summary,
-                    na.body,
+                    content.body,
                     na.source,
                     na.source_url,
                     na.evidence_score,
@@ -232,6 +234,7 @@ def get_high_confidence_macro_news_for_sector(
                     usi.sector_id
                 FROM us_news_sector_impacts AS usi
                 JOIN news_articles AS na ON na.id = usi.article_id
+                LEFT JOIN news_article_content AS content ON content.article_id = na.id
                 LEFT JOIN us_news_article_processing AS unap ON unap.article_id = usi.article_id
             ) AS combined
             WHERE combined.sector_id = ?

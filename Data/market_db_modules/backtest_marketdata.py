@@ -303,9 +303,7 @@ def fetch_marketdata_eod_option_quotes(
     if retry_before_at and normalized_retry_before is None:
         raise ValueError("retry_before_at must be an ISO-8601 timestamp.")
 
-    token_value = os.getenv("MARKETDATA_TOKEN") if token is None else token
-    resolved_token = str(token_value or "").strip()
-    resolved_request_get = request_get or (requests.get if requests is not None else None)
+    resolved_token, resolved_request_get = _resolve_client(token, request_get)
     budget = MarketDataBudget(db_path)
     initialize_database(db_path=db_path)
     config = {
@@ -321,14 +319,8 @@ def fetch_marketdata_eod_option_quotes(
         "daily_credit_budget": budget.limit,
         "retry_before_at": normalized_retry_before,
     }
+    fetch_run_id = _start_fetch_run(config, db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
-        fetch_run_id = int(conn.execute(
-            """
-            INSERT INTO historical_option_quote_fetch_runs (provider, feed, config_json, started_at, status)
-            VALUES (?, 'eod', ?, ?, 'running')
-            """,
-            (MARKETDATA_PROVIDER, json_text(config) or "{}", datetime.now(timezone.utc).isoformat()),
-        ).lastrowid)
         eligible = _decision_rows(conn, start_at=normalized_start, end_at=normalized_end, limit=None,
                                   retry_before_at=normalized_retry_before)
         decisions = []
@@ -348,20 +340,76 @@ def fetch_marketdata_eod_option_quotes(
         decisions.sort(key=lambda decision: (decision["decision_run_at"], decision["id"]))
 
     result: dict[str, Any] = {
-        "fetch_run_id": fetch_run_id,
-        "provider": MARKETDATA_PROVIDER,
-        "pricing_source": MARKETDATA_EOD_PRICING_SOURCE,
-        "read_only_trading": True,
-        "source_decision_count": len(decisions),
+        **_new_result(fetch_run_id, source_decision_count=len(decisions)),
         "eligible_decision_count": len(eligible),
         "remaining_decision_count": pending_count - len(decisions),
         "latest_contract_decision_at": max((row["decision_run_at"] for row in eligible), default=None),
         "selected_start_at": min((row["decision_run_at"] for row in decisions), default=None),
         "selected_end_at": max((row["decision_run_at"] for row in decisions), default=None),
+        "already_cached_count": already_cached_count,
+    }
+    windows = [_decision_window(decision, entry_delay_minutes=entry_delay_minutes, max_hold_hours=max_hold_hours)
+               for decision in decisions]
+    _fetch_windows(windows, fetch_run_id=fetch_run_id, result=result, budget=budget, token=resolved_token,
+                   request_get=resolved_request_get, timeout_seconds=timeout_seconds, force=force, db_path=db_path)
+    return result
+
+
+def fetch_marketdata_eod_quotes_for_contracts(
+    windows: list[dict[str, Any]],
+    *,
+    db_path: Path | str = DB_PATH,
+    timeout_seconds: float = 30.0,
+    force: bool = False,
+    token: str | None = None,
+    request_get: Callable[..., Any] | None = None,
+) -> dict[str, Any]:
+    """Fetch end-of-day quotes for explicit contract windows, such as a replayed model's picks.
+
+    Each window is ``{"decision": {"id", "decision_run_at"}, "option_symbol", "start_at", "end_at"}``.
+    It shares the decision fetch's credit budget, cache check and coverage records.
+    """
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive.")
+    resolved_token, resolved_request_get = _resolve_client(token, request_get)
+    budget = MarketDataBudget(db_path)
+    initialize_database(db_path=db_path)
+    config = {"selection": "explicit_contract_windows", "window_count": len(windows), "timeout_seconds": timeout_seconds,
+              "force": force, "pricing_source": MARKETDATA_EOD_PRICING_SOURCE, "daily_credit_budget": budget.limit}
+    fetch_run_id = _start_fetch_run(config, db_path=db_path)
+    result = {**_new_result(fetch_run_id, source_decision_count=len(windows)), "remaining_decision_count": 0}
+    _fetch_windows(windows, fetch_run_id=fetch_run_id, result=result, budget=budget, token=resolved_token,
+                   request_get=resolved_request_get, timeout_seconds=timeout_seconds, force=force, db_path=db_path)
+    return result
+
+
+def _resolve_client(token: str | None, request_get: Callable[..., Any] | None) -> tuple[str, Callable[..., Any] | None]:
+    token_value = os.getenv("MARKETDATA_TOKEN") if token is None else token
+    return str(token_value or "").strip(), request_get or (requests.get if requests is not None else None)
+
+
+def _start_fetch_run(config: dict[str, Any], *, db_path: Path | str) -> int:
+    with closing(get_connection(db_path)) as conn, conn:
+        return int(conn.execute(
+            """
+            INSERT INTO historical_option_quote_fetch_runs (provider, feed, config_json, started_at, status)
+            VALUES (?, 'eod', ?, ?, 'running')
+            """,
+            (MARKETDATA_PROVIDER, json_text(config) or "{}", datetime.now(timezone.utc).isoformat()),
+        ).lastrowid)
+
+
+def _new_result(fetch_run_id: int, *, source_decision_count: int) -> dict[str, Any]:
+    return {
+        "fetch_run_id": fetch_run_id,
+        "provider": MARKETDATA_PROVIDER,
+        "pricing_source": MARKETDATA_EOD_PRICING_SOURCE,
+        "read_only_trading": True,
+        "source_decision_count": source_decision_count,
         "returned_quote_start_at": None,
         "returned_quote_end_at": None,
         "fetched_count": 0,
-        "already_cached_count": already_cached_count,
+        "already_cached_count": 0,
         "no_data_count": 0,
         "unavailable_count": 0,
         "error_count": 0,
@@ -373,16 +421,42 @@ def fetch_marketdata_eod_option_quotes(
         "stop_reason": None,
         "resume_at": None,
     }
-    credentials_error = "missing_marketdata_token" if not resolved_token else ""
-    client_error = "requests_dependency_unavailable" if resolved_request_get is None else ""
+
+
+def _decision_window(decision: dict[str, Any], *, entry_delay_minutes: int, max_hold_hours: int) -> dict[str, Any]:
+    decision_at = _parse_timestamp(decision.get("decision_run_at"))
+    return {
+        "decision": decision,
+        "option_symbol": _normalized_option_symbol(decision.get("selected_option_symbol")) or "",
+        "start_at": decision_at.isoformat() if decision_at else "",
+        "end_at": (decision_at + timedelta(minutes=entry_delay_minutes, hours=max_hold_hours)).isoformat() if decision_at else "",
+    }
+
+
+def _fetch_windows(
+    windows: list[dict[str, Any]],
+    *,
+    fetch_run_id: int,
+    result: dict[str, Any],
+    budget: MarketDataBudget,
+    token: str,
+    request_get: Callable[..., Any] | None,
+    timeout_seconds: float,
+    force: bool,
+    db_path: Path | str,
+) -> None:
+    """Fetch each uncached window within the credit budget, recording coverage for every window."""
+    credentials_error = "missing_marketdata_token" if not token else ""
+    client_error = "requests_dependency_unavailable" if request_get is None else ""
 
     with closing(get_connection(db_path)) as conn, conn:
-        for index, decision in enumerate(decisions):
+        for index, window in enumerate(windows):
             # Never hold a write transaction during provider I/O or budget accounting.
             conn.commit()
-            option_symbol = _normalized_option_symbol(decision.get("selected_option_symbol")) or ""
-            decision_at = _parse_timestamp(decision.get("decision_run_at"))
-            if not option_symbol or decision_at is None:
+            decision = window["decision"]
+            option_symbol = window["option_symbol"]
+            requested_start, requested_end = window["start_at"], window["end_at"]
+            if not option_symbol or not requested_start:
                 result["unavailable_count"] += 1
                 gap = {"decision_id": decision.get("id"), "option_symbol": option_symbol, "reason": "invalid_decision_contract_or_timestamp"}
                 result["coverage_gaps"].append(gap)
@@ -391,8 +465,6 @@ def fetch_marketdata_eod_option_quotes(
                     requested_start_at="", requested_end_at="", status="unavailable", error_text=gap["reason"],
                 )
                 continue
-            requested_start = decision_at.isoformat()
-            requested_end = (decision_at + timedelta(minutes=entry_delay_minutes, hours=max_hold_hours)).isoformat()
             cached_count = _cached_quote_count(conn, option_symbol, requested_start, requested_end)
             if not force and _cached_window_complete(conn, option_symbol, requested_start, requested_end):
                 result["already_cached_count"] += 1
@@ -405,7 +477,7 @@ def fetch_marketdata_eod_option_quotes(
             if credentials_error or client_error:
                 reason = credentials_error or client_error
                 result["unavailable_count"] += 1
-                result["coverage_gaps"].append({"decision_id": decision["id"], "option_symbol": option_symbol, "reason": reason})
+                result["coverage_gaps"].append({"decision_id": decision.get("id"), "option_symbol": option_symbol, "reason": reason})
                 _record_coverage(
                     conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
                     requested_start_at=requested_start, requested_end_at=requested_end, status="unavailable", error_text=reason,
@@ -414,72 +486,17 @@ def fetch_marketdata_eod_option_quotes(
             reservation, allowance = budget.reserve()
             if reservation is None:
                 result.update(stop_reason=allowance["stop_reason"], resume_at=allowance["resume_at"])
-                result["deferred_decision_count"] = len(decisions) - index
+                result["deferred_decision_count"] = len(windows) - index
                 break
-
-            response_metadata = {}
-
-            def budgeted_get(*args, **kwargs):
-                response = resolved_request_get(*args, **kwargs)
-                allowance = budget.observe(reservation, response)
-                response_metadata.update(http_status=getattr(response, "status_code", None), budget=allowance)
-                return response
-
-            try:
-                payload, metadata = _request_marketdata_quotes(
-                    option_symbol=option_symbol, start_at=requested_start, end_at=requested_end,
-                    token=resolved_token, timeout_seconds=timeout_seconds, request_get=budgeted_get,
-                )
-                response_status = str(payload.get("s") or "").lower()
-                if response_status == "error":
-                    raise ValueError(str(payload.get("errmsg") or "MarketData.app returned an error response."))
-                quotes, invalid_count = _marketdata_quotes(option_symbol, payload)
-                quote_times = [quote["quote_at"] for quote in quotes]
-                if quote_times:
-                    result["returned_quote_start_at"] = min(quote_times + ([result["returned_quote_start_at"]] if result["returned_quote_start_at"] else []))
-                    result["returned_quote_end_at"] = max(quote_times + ([result["returned_quote_end_at"]] if result["returned_quote_end_at"] else []))
-                window_complete = any(_parse_timestamp(at) >= _parse_timestamp(requested_end) for at in quote_times)
-                result["invalid_quote_count"] += invalid_count
-                inserted_count = _store_quote_batch(conn, quotes)
-                result["inserted_quote_count"] += inserted_count
-                if quotes:
-                    result["fetched_count"] += 1
-                    _record_coverage(
-                        conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
-                        requested_start_at=requested_start, requested_end_at=requested_end, status="fetched",
-                        quote_count=len(quotes), page_count=1,
-                        metadata={**metadata, "inserted_quote_count": inserted_count, "invalid_quote_count": invalid_count,
-                                  "pricing_source": MARKETDATA_EOD_PRICING_SOURCE, "cache_policy": CACHE_POLICY,
-                                  "window_complete": window_complete},
-                    )
-                else:
-                    result["no_data_count"] += 1
-                    gap = {"decision_id": decision["id"], "option_symbol": option_symbol, "reason": "marketdata_no_valid_eod_quotes"}
-                    result["coverage_gaps"].append(gap)
-                    _record_coverage(
-                        conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
-                        requested_start_at=requested_start, requested_end_at=requested_end, status="no_data",
-                        error_text=gap["reason"], metadata={**metadata, "marketdata_status": response_status or None},
-                    )
-            except Exception as exc:
-                status_code = response_metadata.get("http_status") or getattr(getattr(exc, "response", None), "status_code", None)
-                status = "rate_limited" if status_code == 429 else "unavailable" if status_code in {401, 403} else "no_data" if status_code == 404 else "error"
-                result[f"{status}_count"] += 1
-                reason = f"marketdata_request_failed:{type(exc).__name__}:{exc}"
-                result["coverage_gaps"].append({"decision_id": decision["id"], "option_symbol": option_symbol, "reason": reason})
-                _record_coverage(
-                    conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
-                    requested_start_at=requested_start, requested_end_at=requested_end, status=status, error_text=reason,
-                    metadata={"pricing_source": MARKETDATA_EOD_PRICING_SOURCE, **response_metadata},
-                )
-                if status == "rate_limited":
-                    result["remaining_decision_count"] += 1
-
+            _fetch_window(conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
+                          requested_start=requested_start, requested_end=requested_end, token=token,
+                          timeout_seconds=timeout_seconds, request_get=request_get, budget=budget,
+                          reservation=reservation, result=result)
             conn.commit()
             allowance = budget.snapshot()
             if allowance["stop_reason"]:
                 result.update(stop_reason=allowance["stop_reason"], resume_at=allowance["resume_at"])
-                result["deferred_decision_count"] = len(decisions) - index - 1
+                result["deferred_decision_count"] = len(windows) - index - 1
                 break
 
         conn.commit()
@@ -492,4 +509,77 @@ def fetch_marketdata_eod_option_quotes(
             "UPDATE historical_option_quote_fetch_runs SET completed_at = ?, status = ?, summary_json = ? WHERE id = ?",
             (completed_at, final_status, json_text(result) or "{}", fetch_run_id),
         )
-    return result
+
+
+def _fetch_window(
+    conn: sqlite3.Connection,
+    *,
+    fetch_run_id: int,
+    decision: dict[str, Any],
+    option_symbol: str,
+    requested_start: str,
+    requested_end: str,
+    token: str,
+    timeout_seconds: float,
+    request_get: Callable[..., Any],
+    budget: MarketDataBudget,
+    reservation: Any,
+    result: dict[str, Any],
+) -> None:
+    response_metadata = {}
+
+    def budgeted_get(*args, **kwargs):
+        response = request_get(*args, **kwargs)
+        allowance = budget.observe(reservation, response)
+        response_metadata.update(http_status=getattr(response, "status_code", None), budget=allowance)
+        return response
+
+    try:
+        payload, metadata = _request_marketdata_quotes(
+            option_symbol=option_symbol, start_at=requested_start, end_at=requested_end,
+            token=token, timeout_seconds=timeout_seconds, request_get=budgeted_get,
+        )
+        response_status = str(payload.get("s") or "").lower()
+        if response_status == "error":
+            raise ValueError(str(payload.get("errmsg") or "MarketData.app returned an error response."))
+        quotes, invalid_count = _marketdata_quotes(option_symbol, payload)
+        quote_times = [quote["quote_at"] for quote in quotes]
+        if quote_times:
+            result["returned_quote_start_at"] = min(quote_times + ([result["returned_quote_start_at"]] if result["returned_quote_start_at"] else []))
+            result["returned_quote_end_at"] = max(quote_times + ([result["returned_quote_end_at"]] if result["returned_quote_end_at"] else []))
+        window_complete = any(_parse_timestamp(at) >= _parse_timestamp(requested_end) for at in quote_times)
+        result["invalid_quote_count"] += invalid_count
+        inserted_count = _store_quote_batch(conn, quotes)
+        result["inserted_quote_count"] += inserted_count
+        if quotes:
+            result["fetched_count"] += 1
+            _record_coverage(
+                conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
+                requested_start_at=requested_start, requested_end_at=requested_end, status="fetched",
+                quote_count=len(quotes), page_count=1,
+                metadata={**metadata, "inserted_quote_count": inserted_count, "invalid_quote_count": invalid_count,
+                          "pricing_source": MARKETDATA_EOD_PRICING_SOURCE, "cache_policy": CACHE_POLICY,
+                          "window_complete": window_complete},
+            )
+        else:
+            result["no_data_count"] += 1
+            gap = {"decision_id": decision.get("id"), "option_symbol": option_symbol, "reason": "marketdata_no_valid_eod_quotes"}
+            result["coverage_gaps"].append(gap)
+            _record_coverage(
+                conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
+                requested_start_at=requested_start, requested_end_at=requested_end, status="no_data",
+                error_text=gap["reason"], metadata={**metadata, "marketdata_status": response_status or None},
+            )
+    except Exception as exc:
+        status_code = response_metadata.get("http_status") or getattr(getattr(exc, "response", None), "status_code", None)
+        status = "rate_limited" if status_code == 429 else "unavailable" if status_code in {401, 403} else "no_data" if status_code == 404 else "error"
+        result[f"{status}_count"] += 1
+        reason = f"marketdata_request_failed:{type(exc).__name__}:{exc}"
+        result["coverage_gaps"].append({"decision_id": decision.get("id"), "option_symbol": option_symbol, "reason": reason})
+        _record_coverage(
+            conn, fetch_run_id=fetch_run_id, decision=decision, option_symbol=option_symbol,
+            requested_start_at=requested_start, requested_end_at=requested_end, status=status, error_text=reason,
+            metadata={"pricing_source": MARKETDATA_EOD_PRICING_SOURCE, **response_metadata},
+        )
+        if status == "rate_limited":
+            result["remaining_decision_count"] += 1

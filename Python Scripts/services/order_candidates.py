@@ -36,6 +36,15 @@ class OrderCandidateBuilder:
         identity = str(company_result.get('candidate_id') or context.get('candidate_id') or '')
         if company_result.get('discovery_shadow') or context.get('discovery_shadow') or research_only_candidate(identity):
             return False
+        if not catalyst_admission_allowed(company_result.get('candidate_context')):
+            return False
+        return self.recommendation_allows_entry(company_result)
+
+    def recommendation_allows_entry(self, company_result: dict[str, Any]) -> bool:
+        """The manager decision, confidence, strategist veto and entry gates, without admission.
+
+        Offline replays use this alone: their decisions were already admitted when recorded.
+        """
         decision = str(company_result.get("decision") or "").strip().lower()
         confidence = str(company_result.get("confidence") or "").strip().lower()
         strategist_recommendation = company_result.get("strategist_recommendation") or {}
@@ -43,8 +52,6 @@ class OrderCandidateBuilder:
             strategist_recommendation.get("decision")
         )
 
-        if not catalyst_admission_allowed(company_result.get('candidate_context')):
-            return False
         if decision not in {"call", "put"}:
             return False
         if confidence not in {"high", "medium"}:

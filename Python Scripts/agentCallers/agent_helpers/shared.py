@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import hashlib
@@ -10,6 +10,7 @@ import os
 import re
 import time
 from typing import Any
+from services.gemini_models import default_vertex_model, temperature_for, thinking_level_for, uses_thinking_levels
 from services.settings import get_settings
 
 try:
@@ -36,6 +37,7 @@ except ImportError:  # pragma: no cover - optional provider dependency
 
 
 LOGGER = logging.getLogger(__name__)
+LLAMACPP_TIMEOUT_SECONDS = 1800
 
 
 @dataclass(slots=True)
@@ -46,10 +48,29 @@ class Client:
     label: str | None = None
 
 
-VERTEX_MODEL_ALIASES: dict[str, str] = {
-    "llama3.1": "gemini-2.5-flash",
-    "world-news-sectors": "gemini-2.5-flash",
-}
+class ModelQuotaExhausted(RuntimeError):
+    """The provider kept refusing the call for rate, quota or capacity limits."""
+
+
+@dataclass(frozen=True)
+class ModelAnswer:
+    text: str
+    provider: str
+    # The model asked, as resolved for the provider; model_version is what the provider reported, if anything.
+    model: str
+    model_version: str | None = None
+    fallback: bool = False
+
+    def record(self) -> dict[str, Any]:
+        return {"provider": self.provider, "model": self.model,
+                "model_version": self.model_version, "fallback": self.fallback}
+
+
+# Both reach Gemini through the google-genai SDK: Vertex with Cloud credentials, gemini with an AI Studio key.
+GOOGLE_GENAI_PROVIDERS: frozenset[str] = frozenset({"vertex", "gemini"})
+PROVIDER_DISPLAY_NAMES: dict[str, str] = {"vertex": "Vertex AI", "gemini": "Gemini API"}
+# Ollama-era model names that resolve to VERTEX_DEFAULT_MODEL on Vertex and the Gemini API.
+VERTEX_DEFAULT_MODEL_ALIASES: frozenset[str] = frozenset({"llama3.1", "world-news-sectors"})
 VERTEX_AUTH_SCOPES: tuple[str, ...] = (
     "https://www.googleapis.com/auth/cloud-platform",
 )
@@ -112,6 +133,22 @@ def _build_vertex_client() -> Any:
     )
 
 
+def _build_gemini_client() -> Any:
+    if genai is None:
+        raise RuntimeError(
+            "The 'google-genai' Python package is required for Gemini API requests. "
+            "Install it in your environment with: pip install google-genai"
+        )
+
+    # Read here rather than from settings: the settings object is recorded in the pipeline manifest.
+    api_key = str(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY must be set when a stage uses the 'gemini' provider.")
+
+    # Explicit: docker-compose sets GOOGLE_GENAI_USE_VERTEXAI=true, which would otherwise route this key to Vertex.
+    return genai.Client(vertexai=False, api_key=api_key)
+
+
 def _build_openai_client() -> Any:
     if OpenAI is None:
         raise RuntimeError(
@@ -126,19 +163,62 @@ def _build_openai_client() -> Any:
     return OpenAI(api_key=api_key)
 
 
-def get_model_client(label: str | None = None) -> Client:
-    # Choose the configured model backend once and return the callable/client pair the rest of the code should use.
-    provider = _normalize_provider()
+def _build_openai_compatible_client() -> Any:
+    if OpenAI is None:
+        raise RuntimeError(
+            "The 'openai' Python package is required for OpenAI-compatible requests. "
+            "Install it in your environment with: pip install openai"
+        )
+
+    base_url = get_settings().openai_compatible.base_url
+    api_key = str(os.getenv("OPENAI_COMPATIBLE_API_KEY") or "").strip()
+    if not base_url or not api_key:
+        raise RuntimeError(
+            "OPENAI_COMPATIBLE_BASE_URL and OPENAI_COMPATIBLE_API_KEY must be set for the 'openai_compatible' provider."
+        )
+
+    # Quota errors are handled by the caller's fallback, so the SDK should not sit retrying them.
+    return OpenAI(base_url=base_url, api_key=api_key, max_retries=0)
+
+
+def _build_llamacpp_client() -> Any:
+    if OpenAI is None:
+        raise RuntimeError(
+            "The 'openai' Python package is required for llama.cpp requests. "
+            "Install it in your environment with: pip install openai"
+        )
+    # llama-server ignores the key unless it was started with --api-key. A local model can spend many
+    # minutes on one long prompt, and a client retry would recompute it from scratch, so wait instead.
+    return OpenAI(base_url=get_settings().llamacpp.base_url, api_key="local",
+                  timeout=LLAMACPP_TIMEOUT_SECONDS, max_retries=0)
+
+
+def get_model_client(label: str | None = None, provider: str | None = None) -> Client:
+    # Choose the model backend once and return the callable/client pair the rest of the code should use.
+    # A blank provider uses LLM_PROVIDER.
+    provider = _normalize_provider(provider)
 
     if provider == "vertex":
         return Client(provider=provider, raw_client=_build_vertex_client(), label=label)
 
+    if provider == "gemini":
+        return Client(provider=provider, raw_client=_build_gemini_client(), label=label)
+
     if provider == "openai":
         return Client(provider=provider, raw_client=_build_openai_client(), label=label)
 
+    if provider == "llamacpp":
+        base_url = get_settings().llamacpp.base_url
+        return Client(provider=provider, raw_client=_build_llamacpp_client(), host=base_url, label=base_url)
+
+    if provider == "openai_compatible":
+        base_url = get_settings().openai_compatible.base_url
+        return Client(provider=provider, raw_client=_build_openai_compatible_client(), host=base_url, label=base_url)
+
     if provider != "ollama":
         raise RuntimeError(
-            f"Unsupported LLM_PROVIDER '{provider}'. Expected 'ollama', 'openai', or 'vertex'."
+            f"Unsupported LLM_PROVIDER '{provider}'. Expected 'ollama', 'openai', 'llamacpp', "
+            "'openai_compatible', 'vertex', or 'gemini'."
         )
 
     if OllamaClient is None:
@@ -162,13 +242,13 @@ def get_ollama_client(host: str) -> Client:
 
 def _resolve_model_name(provider: str, model: str) -> str:
     normalized = str(model or "").strip()
-    if provider != "vertex":
+    if provider not in GOOGLE_GENAI_PROVIDERS:
         return normalized
 
-    if not normalized:
-        return str(os.getenv("VERTEX_DEFAULT_MODEL", "gemini-2.5-flash")).strip()
+    if not normalized or normalized in VERTEX_DEFAULT_MODEL_ALIASES:
+        return default_vertex_model()
 
-    return VERTEX_MODEL_ALIASES.get(normalized, normalized)
+    return normalized
 
 
 def _extract_response_text(response: Any) -> str | None:
@@ -208,6 +288,7 @@ def _safe_response_value(value: Any) -> str | int | float | bool | None:
 def _record_vertex_response_diagnostic(
     response: Any,
     *,
+    provider: str,
     model: str,
     response_diagnostic: dict[str, Any] | None,
 ) -> None:
@@ -219,13 +300,16 @@ def _record_vertex_response_diagnostic(
     candidate = candidates[0] if isinstance(candidates, list) and candidates else None
     response_diagnostic.update(
         {
-            "provider": "vertex",
+            "provider": provider,
             "model": model,
             "candidate_count": len(candidates) if isinstance(candidates, list) else 0,
             "finish_reason": _safe_response_value(getattr(candidate, "finish_reason", None)),
             "finish_message": _safe_response_value(getattr(candidate, "finish_message", None)),
         }
     )
+    model_version = getattr(response, "model_version", None)
+    if isinstance(model_version, str) and model_version:
+        response_diagnostic["model_version"] = model_version
     usage = getattr(response, "usage_metadata", None)
     if usage is not None:
         for key in (
@@ -296,6 +380,20 @@ def _is_vertex_rate_limited(exc: Exception) -> bool:
     return "RESOURCE_EXHAUSTED" in message or "RATE LIMIT" in message
 
 
+def _is_overloaded(exc: Exception) -> bool:
+    # 503 UNAVAILABLE ("experiencing high demand") is temporary; the free Gemini API returns it often.
+    return _extract_status_code(exc) == 503 or "UNAVAILABLE" in str(exc).upper()
+
+
+def _is_retryable(exc: Exception) -> bool:
+    return (_is_vertex_rate_limited(exc) or _is_overloaded(exc)) and not _is_daily_quota_exhausted(exc)
+
+
+def _is_daily_quota_exhausted(exc: Exception) -> bool:
+    # Free-tier quota ids end in PerDay (GenerateRequestsPerDayPerProjectPerModel-FreeTier); retrying cannot help.
+    return _is_vertex_rate_limited(exc) and "PERDAY" in str(exc).upper()
+
+
 def _is_vertex_cache_error(exc: Exception) -> bool:
     message = str(exc).lower()
     if "cachedcontent" in message.replace("_", "").replace(" ", ""):
@@ -303,15 +401,28 @@ def _is_vertex_cache_error(exc: Exception) -> bool:
     return "cached content" in message or _extract_status_code(exc) == 404
 
 
-def _build_vertex_error_message(exc: Exception, model_name: str) -> str:
-    # Assemble the vertex error message so callers can work from one normalized shape.
+def _build_vertex_error_message(exc: Exception, model_name: str, provider: str = "vertex") -> str:
+    # Assemble the Vertex/Gemini API error message so callers can work from one normalized shape.
     message = str(exc).strip()
     status_code = _extract_status_code(exc)
     normalized_message = message.lower()
+    service = PROVIDER_DISPLAY_NAMES[provider]
+
+    if _is_daily_quota_exhausted(exc):
+        return (
+            f"{service} daily quota exhausted for model '{model_name}'; it resets at midnight Pacific time. "
+            f"Last error: {message}"
+        )
+
+    if _is_overloaded(exc):
+        return (
+            f"{service} is overloaded for model '{model_name}' after {get_settings().vertex.max_attempts} attempts. "
+            f"Last error: {message}"
+        )
 
     if _is_vertex_rate_limited(exc):
         return (
-            f"Vertex AI rate limit hit for model '{model_name}' after {get_settings().vertex.max_attempts} attempts. "
+            f"{service} rate limit hit for model '{model_name}' after {get_settings().vertex.max_attempts} attempts. "
             f"Last error: {message or 'RESOURCE_EXHAUSTED'}"
         )
 
@@ -336,13 +447,13 @@ def _build_vertex_error_message(exc: Exception, model_name: str) -> str:
 
     if status_code is not None:
         return (
-            f"Could not complete the Vertex AI request for model '{model_name}' "
+            f"Could not complete the {service} request for model '{model_name}' "
             f"(HTTP {status_code}). {message}"
         )
 
     if message:
         return (
-            f"Could not complete the Vertex AI request for model '{model_name}'. {message}"
+            f"Could not complete the {service} request for model '{model_name}'. {message}"
         )
 
     return (
@@ -426,6 +537,7 @@ def _ask_vertex_model(
     temperature: float,
     response_schema: dict[str, Any] | None,
     response_diagnostic: dict[str, Any] | None,
+    thinking_level: str | None = None,
 ) -> str:
     # Call the Vertex model with the shared request settings and translate provider errors into a stable message shape.
     if genai_types is None:
@@ -434,11 +546,21 @@ def _ask_vertex_model(
         )
 
     resolved_model = _resolve_model_name(client.provider, model)
+    vertex_settings = get_settings().vertex
 
-    config_kwargs: dict[str, Any] = {"temperature": temperature}
+    config_kwargs: dict[str, Any] = {
+        "temperature": temperature_for(resolved_model, temperature, vertex_settings.gemini3_temperature),
+    }
+    # Gemini 2.5 keeps its default thinking budget; it does not accept a thinking level.
+    level = thinking_level_for(resolved_model, thinking_level or vertex_settings.thinking_level)
+    if level and uses_thinking_levels(resolved_model):
+        config_kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_level=level.upper())
     if response_schema is not None:
         config_kwargs["response_mime_type"] = "application/json"
-        config_kwargs["response_schema"] = response_schema
+        # The Gemini API's response_schema rejects additionalProperties, which the stage schemas use;
+        # its JSON Schema field accepts them. Vertex keeps the field production was validated with.
+        schema_field = "response_json_schema" if client.provider == "gemini" else "response_schema"
+        config_kwargs[schema_field] = response_schema
 
     # A cached system instruction is baked into the cache, so it must not also be sent
     # inline -- the provider rejects requests that set both.
@@ -459,6 +581,7 @@ def _ask_vertex_model(
             )
             _record_vertex_response_diagnostic(
                 response,
+                provider=client.provider,
                 model=resolved_model,
                 response_diagnostic=response_diagnostic,
             )
@@ -477,10 +600,12 @@ def _ask_vertex_model(
                 config_kwargs["system_instruction"] = system_prompt
                 continue
 
-            if _is_vertex_rate_limited(exc) and attempt < get_settings().vertex.max_attempts:
+            if _is_retryable(exc) and attempt < get_settings().vertex.max_attempts:
                 LOGGER.warning(
-                    "Vertex AI rate limit hit for model '%s' (attempt %s/%s). "
+                    "%s %s for model '%s' (attempt %s/%s). "
                     "Sleeping %.1fs before retry.",
+                    PROVIDER_DISPLAY_NAMES[client.provider],
+                    "is overloaded" if _is_overloaded(exc) else "rate limit hit",
                     resolved_model,
                     attempt,
                     get_settings().vertex.max_attempts,
@@ -493,8 +618,9 @@ def _ask_vertex_model(
                 )
                 continue
 
-            raise RuntimeError(
-                _build_vertex_error_message(exc, resolved_model)
+            error_type = ModelQuotaExhausted if _is_vertex_rate_limited(exc) or _is_overloaded(exc) else RuntimeError
+            raise error_type(
+                _build_vertex_error_message(exc, resolved_model, client.provider)
             ) from exc
 
     content = _extract_response_text(response)
@@ -545,6 +671,60 @@ def _ask_openai_model(
     return content
 
 
+def _ask_chat_completions_model(
+    client: Client,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    temperature: float,
+    response_schema: dict[str, Any] | None,
+    response_diagnostic: dict[str, Any] | None = None,
+) -> str:
+    # llama-server and hosted OpenAI-compatible APIs share Chat Completions; llama-server compiles
+    # a JSON schema into a grammar.
+    request_kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+    }
+    if response_schema is not None:
+        request_kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "structured_response", "schema": response_schema},
+        }
+
+    is_llamacpp = client.provider == "llamacpp"
+    try:
+        response = client.raw_client.chat.completions.create(**request_kwargs)
+    except Exception as exc:
+        if _extract_status_code(exc) == 429:
+            raise ModelQuotaExhausted(f"{client.label} rate or quota limit hit for model '{model}'. {exc}") from exc
+        if is_llamacpp:
+            raise RuntimeError(
+                f"Could not complete the llama.cpp request. Verify llama-server is running at {client.label}. {exc}"
+            ) from exc
+        raise RuntimeError(f"Could not complete the request to {client.label} for model '{model}'. {exc}") from exc
+
+    reported_model = getattr(response, "model", None)
+    if response_diagnostic is not None and isinstance(reported_model, str) and reported_model:
+        response_diagnostic.update({"provider": client.provider, "model_version": reported_model})
+
+    choice = response.choices[0] if response.choices else None
+    content = choice.message.content if choice is not None else None
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError(f"Model returned empty content: {response}")
+    if choice.finish_reason == "length":
+        if is_llamacpp:
+            raise RuntimeError("llama.cpp truncated the response; raise llama-server's context size (-c).")
+        raise RuntimeError(f"{client.label} truncated the response from model '{model}'.")
+
+    return content
+
+
 def ask_llm_model(
     client: Client,
     model: str,
@@ -555,10 +735,24 @@ def ask_llm_model(
     host_label: str | None = None,
     response_schema: dict[str, Any] | None = None,
     response_diagnostic: dict[str, Any] | None = None,
+    thinking_level: str | None = None,
 ) -> str:
     # Route model calls through the supported provider path and normalize the response and error handling for callers.
-    if client.provider == "vertex":
+    # thinking_level applies to Gemini 3+ on Vertex and the Gemini API only; blank uses VERTEX_THINKING_LEVEL.
+    if client.provider in GOOGLE_GENAI_PROVIDERS:
         return _ask_vertex_model(
+            client,
+            model,
+            system_prompt,
+            user_prompt,
+            temperature=temperature,
+            response_schema=response_schema,
+            response_diagnostic=response_diagnostic,
+            thinking_level=thinking_level,
+        )
+
+    if client.provider == "openai":
+        return _ask_openai_model(
             client,
             model,
             system_prompt,
@@ -568,8 +762,8 @@ def ask_llm_model(
             response_diagnostic=response_diagnostic,
         )
 
-    if client.provider == "openai":
-        return _ask_openai_model(
+    if client.provider in {"llamacpp", "openai_compatible"}:
+        return _ask_chat_completions_model(
             client,
             model,
             system_prompt,
@@ -615,6 +809,55 @@ def ask_llm_model(
         raise RuntimeError(f"Model returned empty content: {response}")
 
     return content
+
+
+_classifier_fallback_clients: dict[str, Client] = {}
+
+
+def _get_classifier_fallback_client(provider: str) -> Client:
+    if provider not in _classifier_fallback_clients:
+        _classifier_fallback_clients[provider] = get_model_client(provider=provider)
+    return _classifier_fallback_clients[provider]
+
+
+def _ask_for_answer(client: Client, model: str, system_prompt: str, user_prompt: str, **request) -> ModelAnswer:
+    diagnostic: dict[str, Any] = {}
+    text = ask_llm_model(client, model, system_prompt, user_prompt, response_diagnostic=diagnostic, **request)
+    return ModelAnswer(text=text, provider=client.provider, model=_resolve_model_name(client.provider, model),
+                       model_version=diagnostic.get("model_version"))
+
+
+def ask_classifier_model(
+    client: Client,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    temperature: float = 0,
+    host_label: str | None = None,
+    response_schema: dict[str, Any] | None = None,
+    thinking_level: str | None = None,
+) -> ModelAnswer:
+    """Ask a news classification stage's model, then each CLASSIFIER_FALLBACKS model in turn while quota runs out.
+
+    Free tiers count requests per model, so a second model of the same provider is a separate allowance.
+    The answer names the model that produced it, so stored classifications keep their real source.
+    """
+    request = {"temperature": temperature, "response_schema": response_schema, "thinking_level": thinking_level}
+    try:
+        return _ask_for_answer(client, model, system_prompt, user_prompt, host_label=host_label, **request)
+    except ModelQuotaExhausted as exc:
+        refusal = exc
+    for fallback in get_settings().classifier_fallback.chain:
+        LOGGER.warning("%s Classifying with the %s fallback model '%s'.", refusal, fallback.provider, fallback.model)
+        try:
+            answer = _ask_for_answer(_get_classifier_fallback_client(fallback.provider), fallback.model,
+                                     system_prompt, user_prompt, **request)
+        except ModelQuotaExhausted as exc:
+            refusal = exc
+            continue
+        return replace(answer, fallback=True)
+    raise refusal
 
 
 def ask_ollama_model(

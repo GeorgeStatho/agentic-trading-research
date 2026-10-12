@@ -40,6 +40,20 @@ parallel through `pytest -n auto`; without them it runs one test at a time throu
 `unittest`. Selected modules always run through `unittest`. Tests are written as
 `unittest` test cases either way.
 
+While you work, run only the tests your edits affect:
+
+```bash
+python3 scripts/project.py test --changed
+```
+
+It uses `pytest-testmon` from the dev extras, which records the code each test executes and
+re-runs only tests whose executed code changed since the previous `--changed` run, plus any
+that failed last time. The first run, and any run after a change to the schema, configuration
+or dependency files (`*.sql`, `config/`, `Data/*.json`, `.env.example`, `pyproject.toml`,
+`requirements.txt`), runs every test and re-records, because those files are read rather than
+executed and cannot be traced to individual tests. The map lives in `.testmondata` and is
+ignored by git. Run the whole suite before committing; the image build always does.
+
 Keep the checkout on the Linux filesystem when you work in WSL (for example under
 `~/code`, not `/mnt/c` or `/mnt/e`). Every file access on a Windows drive goes through a
 slow file-sharing layer, and the suite runs about five times slower there.

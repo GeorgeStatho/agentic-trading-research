@@ -75,21 +75,57 @@ def research_only_candidate(candidate_id):
     return str(candidate_id or '').startswith(RESEARCH_ONLY_PREFIXES)
 
 
-def champion_allows(candidate, *, db_path=DB_PATH):
-    """Research candidates never deploy; a promoted manifest owns the capital path."""
+# Not part of what a champion was tested on. Source hashes change on every deploy; the
+# top-level version and these digests are computed over modes or code. Modes are excluded
+# for the same reason policy_hash excludes them: each gate's enforcement has its own proof,
+# so promoting a gate must not revoke the champion that a deploy did not change.
+CHAMPION_EXCLUDED_KEYS = frozenset({'source_hashes', 'pipeline_version', 'gate_config_hash',
+                                    'provider_config_hash', 'research_budget_hash',
+                                    'economics_assumptions_hash', 'evaluator_hash'}) | MODE_KEYS
+CHAMPION_MISMATCH_PATHS = 20
+
+
+def champion_identity(manifest):
+    """The decision configuration a champion is bound to: prompts, models and thresholds."""
+    if isinstance(manifest, dict):
+        return {key: champion_identity(value) for key, value in manifest.items() if key not in CHAMPION_EXCLUDED_KEYS}
+    if isinstance(manifest, list):
+        return [champion_identity(value) for value in manifest]
+    return manifest
+
+
+def _differing_paths(expected, actual, prefix=''):
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        return [path for key in sorted(set(expected) | set(actual), key=str)
+                for path in _differing_paths(expected.get(key), actual.get(key), f'{prefix}.{key}' if prefix else str(key))]
+    return [] if expected == actual else [prefix or '<root>']
+
+
+def champion_check(candidate, *, db_path=DB_PATH):
+    """(allowed, reason, differing manifest paths). Research candidates never deploy."""
     context = candidate.get('candidate_context') or {}
     if (candidate.get('research_run_id') or candidate.get('research_strategy')
             or research_only_candidate(candidate.get('candidate_id') or context.get('candidate_id'))):
-        return False
+        return False, 'research_candidate', []
     try:
         with closing(sqlite3.connect(f'file:{Path(db_path).resolve()}?mode=ro', uri=True)) as conn:
             row = conn.execute('''SELECT r.manifest_json FROM research_champion c
                 LEFT JOIN research_runs r ON r.run_id=c.run_id WHERE c.singleton=1''').fetchone()
-            if row is None or row[0] is None:
-                return True
-            import json
-            return json.loads(row[0]) == candidate.get('execution_version')
     except sqlite3.OperationalError as exc:
         # Pre-migration installations continue the existing single production path.
         # Other DB failures cannot grant capital authority.
-        return 'no such table' in str(exc)
+        allowed = 'no such table' in str(exc)
+        return allowed, 'no_champion_table' if allowed else 'champion_registry_unavailable', []
+    if row is None or row[0] is None:
+        return True, 'no_champion', []
+    import json
+    expected = champion_identity(json.loads(row[0]))
+    actual = champion_identity(candidate.get('execution_version'))
+    if expected == actual:
+        return True, 'champion_manifest', []
+    return False, 'champion_manifest_mismatch', _differing_paths(expected, actual)[:CHAMPION_MISMATCH_PATHS]
+
+
+def champion_allows(candidate, *, db_path=DB_PATH):
+    """Research candidates never deploy; a promoted manifest owns the capital path."""
+    return champion_check(candidate, db_path=db_path)[0]

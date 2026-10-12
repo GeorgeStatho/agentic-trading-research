@@ -303,6 +303,34 @@ GOOGLE_CLOUD_LOCATION=global
 
 On Google Cloud, the containers should authenticate automatically through the attached service account.
 
+To run the high-volume news classifiers on the Gemini API free tier instead, while the strategist and
+manager stay on Vertex, set an AI Studio key and override those stages' provider:
+
+```env
+GEMINI_API_KEY=your-ai-studio-key
+WORLD_NEWS_PROVIDER=gemini
+SECTOR_OPPURUNTIST_PROVIDER=gemini
+INDUSTRY_OPPURUNTINST_PROVIDER=gemini
+COMPANY_OPPURUNTIST_PROVIDER=gemini
+```
+
+Free-tier quotas are unpublished and can change; a call that hits the daily quota fails at once
+instead of retrying, and the free tier may use prompts for training.
+
+When the quota runs out, the classifiers continue down an ordered list of fallbacks. Free Gemini
+quotas are counted per model, so another Flash-Lite version is a fresh allowance; after that, any
+OpenAI-compatible Chat Completions endpoint works (Mistral's free plan shown here):
+
+```env
+OPENAI_COMPATIBLE_BASE_URL=https://api.mistral.ai/v1
+OPENAI_COMPATIBLE_API_KEY=your-mistral-key
+CLASSIFIER_FALLBACKS=gemini:gemini-3.5-flash-lite,openai_compatible:mistral-small-latest
+```
+
+Each `*_article_processing` row stores the model that actually classified the article in `model`,
+and `raw_json.answered_by` adds the provider, the version the provider reported, and whether the
+fallback answered.
+
 Local Docker note:
 
 - the containers mount the host ADC directory from `~/.config/gcloud`

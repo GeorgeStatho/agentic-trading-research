@@ -8,7 +8,6 @@ from typing import Any
 
 from db_common import DB_PATH, clean_text, get_connection
 from .shared import coerce_int, normalize_timestamp
-from .bootstrap import initialize_database
 
 
 def list_companies_by_industry(industry_key: str, db_path: Path | str = DB_PATH) -> list[sqlite3.Row]:
@@ -142,6 +141,8 @@ def list_recent_manager_decision_history(
             created_at,
             updated_at
         FROM manager_decision_history
+        LEFT JOIN manager_decision_payloads
+            ON manager_decision_payloads.manager_decision_history_id = manager_decision_history.id
         WHERE 1 = 1
     """
     parameters: list[Any] = [
@@ -187,7 +188,6 @@ def list_decision_expectancy_rows(
     if reference_time.tzinfo is None:
         reference_time = reference_time.replace(tzinfo=timezone.utc)
     cutoff = normalize_timestamp(reference_time - timedelta(days=max(1, int(within_days))))
-    initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         return conn.execute(
             """
@@ -198,7 +198,7 @@ def list_decision_expectancy_rows(
                 history.manager_confidence,
                 history.target_dte_bucket,
                 history.selected_option_source,
-                history.manager_output_json,
+                payload.manager_output_json,
                 history.trade_executed,
                 history.latest_trade_pnl_pct,
                 history.latest_trade_pnl_updated_at,
@@ -211,6 +211,8 @@ def list_decision_expectancy_rows(
                 industry.industry_key,
                 sector.sector_key
             FROM manager_decision_history AS history
+            LEFT JOIN manager_decision_payloads AS payload
+                ON payload.manager_decision_history_id = history.id
             LEFT JOIN companies AS company ON company.id = history.company_id
             LEFT JOIN industries AS industry ON industry.id = company.industry_id
             LEFT JOIN sectors AS sector ON sector.id = industry.sector_id

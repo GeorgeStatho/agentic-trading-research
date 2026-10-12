@@ -19,13 +19,14 @@ def list_industry_news_articles(industry_id: int, db_path: Path | str = DB_PATH)
                 na.article_key,
                 na.title,
                 na.summary,
-                na.body,
+                content.body,
                 na.published_at,
                 na.section,
                 na.source_url,
                 ina.source_page_url
             FROM industry_news_articles AS ina
             JOIN news_articles AS na ON na.id = ina.article_id
+            LEFT JOIN news_article_content AS content ON content.article_id = na.id
             WHERE ina.industry_id = ?
             ORDER BY na.created_at DESC, na.id DESC
             """,
@@ -45,13 +46,14 @@ def list_company_news_articles(company_id: int, db_path: Path | str = DB_PATH) -
                 na.article_key,
                 na.title,
                 na.summary,
-                na.body,
+                content.body,
                 na.published_at,
                 na.section,
                 na.source_url,
                 cna.source_page_url
             FROM company_news_articles AS cna
             JOIN news_articles AS na ON na.id = cna.article_id
+            LEFT JOIN news_article_content AS content ON content.article_id = na.id
             WHERE cna.company_id = ?
             ORDER BY na.created_at DESC, na.id DESC
             """,
