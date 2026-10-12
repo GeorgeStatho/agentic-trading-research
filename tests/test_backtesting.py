@@ -18,6 +18,7 @@ from market_db import (  # noqa: E402
     initialize_database,
     record_historical_option_quote,
     run_backtest,
+    simulate_backtest_metrics,
 )
 from market_db_modules.backtesting import _apply_portfolio_limits, _merged_config, _metrics  # noqa: E402
 
@@ -40,13 +41,18 @@ class BacktestingTests(unittest.TestCase):
             self.decision_id = conn.execute(
                 """
                 INSERT INTO manager_decision_history (
-                    symbol, decision_run_at, manager_decision, manager_reason,
-                    selected_option_symbol, manager_input_json
+                    symbol, decision_run_at, manager_decision, manager_reason, selected_option_symbol
                 ) VALUES ('MSFT', '2026-01-01T10:00:00+00:00', 'call', 'Stored evidence supported the setup.',
-                          'MSFT260117C00400000', ?)
-                """,
-                (json.dumps({"article_references": [{"article_id": self.article_id, "title": "Future ingestion"}]}),),
+                          'MSFT260117C00400000')
+                """
             ).lastrowid
+            conn.execute(
+                "INSERT INTO manager_decision_payloads (manager_decision_history_id, manager_input_json) VALUES (?, ?)",
+                (
+                    self.decision_id,
+                    json.dumps({"article_references": [{"article_id": self.article_id, "title": "Future ingestion"}]}),
+                ),
+            )
             conn.execute(
                 """
                 INSERT INTO manager_decision_history (
@@ -170,6 +176,24 @@ class BacktestingTests(unittest.TestCase):
         self.assertEqual(json.loads(snapshot["snapshot_json"])["articles"], [])
         self.assertEqual(execution_count, 0)
 
+    def test_simulated_metrics_match_a_recorded_run_without_recording_one(self) -> None:
+        for timestamp, bid, ask in (
+            ("2026-01-01T10:01:00+00:00", 1.0, 1.1),
+            ("2026-01-01T10:05:00+00:00", 1.5, 1.6),
+        ):
+            record_historical_option_quote(
+                {"option_symbol": "MSFT260117C00400000", "quote_at": timestamp, "bid": bid, "ask": ask},
+                provider="fixture", db_path=self.db_path,
+            )
+        config = {"take_profit_pct": 20.0}
+        simulated = simulate_backtest_metrics(config=config, db_path=self.db_path)
+        with closing(get_connection(self.db_path)) as conn, conn:
+            run_count = conn.execute("SELECT COUNT(*) FROM backtest_runs").fetchone()[0]
+        recorded = run_backtest(config=config, limit=None, db_path=self.db_path)
+
+        self.assertEqual(run_count, 0)
+        self.assertEqual(simulated, recorded["run"]["metrics"])
+
     def test_backtest_rejects_an_entry_quote_that_is_too_delayed(self) -> None:
         record_historical_option_quote(
             {"option_symbol": "MSFT260117C00400000", "quote_at": "2026-01-01T11:00:00+00:00", "bid": 1.0, "ask": 1.1, "volume": 20},
@@ -225,6 +249,14 @@ class PortfolioGuardrailTests(unittest.TestCase):
         ], max_concurrent_positions=1)
         self.assertEqual(events[0]["status"], "simulated_closed")
         self.assertEqual(events[1]["warnings"], ["portfolio_max_concurrent_positions"])
+
+    def test_adding_to_a_held_contract_does_not_need_a_new_slot(self) -> None:
+        held = {"option_symbol": "NVDA261030C00240000"}
+        events = self._run_limits([
+            {**self._event(1, entry_at="2026-01-01T10:00:00+00:00", exit_at="2026-01-01T11:00:00+00:00"), **held},
+            {**self._event(2, entry_at="2026-01-01T10:01:00+00:00", exit_at="2026-01-01T11:01:00+00:00"), **held},
+        ], max_concurrent_positions=1)
+        self.assertEqual(events[1]["status"], "simulated_closed")
 
     def test_total_notional_and_sector_limits_are_auditable(self) -> None:
         total_events = self._run_limits([

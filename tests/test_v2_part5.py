@@ -142,6 +142,20 @@ class ScenarioTests(unittest.TestCase):
             selected, _ = select_with_scenarios(pool, context, spot=100)
         self.assertEqual(selected['symbol'], 'second')
 
+    def test_scoring_failure_keeps_the_baseline_in_every_mode(self):
+        pool = [option(), option(symbol='second')]
+        context = {'_v2_scenario_distribution': {'returns': [.02] * 30, 'sample_size': 30,
+                                                'minimum_samples': 30, 'horizon_days': 5, 'as_of': NOW.isoformat()}}
+        failing = patch('services.scenario_selector.rank_contracts', side_effect=ZeroDivisionError('fixture'))
+        with failing, self.assertLogs('services.scenario_selector', 'ERROR'):
+            selected, comparison = select_with_scenarios(pool, context, spot=100)
+        self.assertEqual(selected['symbol'], pool[0]['symbol'])
+        self.assertEqual((comparison['status'], comparison['error']), ('scenario_error', 'ZeroDivisionError: fixture'))
+        with failing, self.assertLogs('services.scenario_selector', 'ERROR'), patch.dict(
+                'os.environ', {'V2_SCENARIO_MODE': 'enforce'}), patch('services.research_promotion.approved', return_value=True):
+            selected, _ = select_with_scenarios(pool, context, spot=100)
+        self.assertEqual(selected['symbol'], pool[0]['symbol'])
+
     def test_missing_distribution_preserves_baseline_without_fabrication(self):
         selected, comparison = select_with_scenarios([option()], {}, spot=100)
         self.assertEqual(selected['symbol'], option()['symbol'])

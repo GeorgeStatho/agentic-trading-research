@@ -177,8 +177,10 @@ class MigrationAndManifestTests(unittest.TestCase):
         config_hash = fingerprint({"manifest": manifest, "policy": policy, "code_hash": "legacy",
             "kind": "frozen_forward", "started_at": fixtures.START, "target_candidates": 1})
         with closing(get_connection(db)) as conn, conn:
-            conn.execute("INSERT INTO manager_decision_history(decision_run_at,manager_output_json) VALUES (?,?)",
-                         (fixtures.START, '{"unchanged": true}'))
+            decision_id = conn.execute("INSERT INTO manager_decision_history(decision_run_at) VALUES (?)",
+                                       (fixtures.START,)).lastrowid
+            conn.execute("""INSERT INTO manager_decision_payloads(manager_decision_history_id,manager_output_json)
+                VALUES (?,?)""", (decision_id, '{"unchanged": true}'))
             conn.execute("INSERT INTO option_trade_executions(order_id,option_symbol) VALUES ('old-order','old-option')")
             conn.execute("""INSERT INTO candidates
                 (candidate_id,symbol,created_at,catalyst_ids_json,article_ids_json,pipeline_version_json)
@@ -193,7 +195,7 @@ class MigrationAndManifestTests(unittest.TestCase):
                  snapshot_version,snapshot_hash,snapshot_json)
                 VALUES ('old-candidate','post_manager',?,?,'incumbent','v1',?,?)""",
                 (fixtures.ENTRY, fixtures.ENTRY, fingerprint(json.loads(envelope)), envelope))
-            tables = ("manager_decision_history", "option_trade_executions", "candidates",
+            tables = ("manager_decision_history", "manager_decision_payloads", "option_trade_executions", "candidates",
                       "candidate_snapshots", "research_runs", "research_reports")
             before = {table: [tuple(row) for row in conn.execute(f"SELECT * FROM {table}")] for table in tables}
         initialize_database(db_path=db)

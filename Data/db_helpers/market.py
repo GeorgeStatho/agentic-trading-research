@@ -55,6 +55,7 @@ from market_db import (
     get_latest_market_regime_snapshot,
     get_backtest_run,
     fetch_marketdata_eod_option_quotes,
+    fetch_marketdata_eod_quotes_for_contracts,
     count_option_entry_executions_since,
     get_company_sector_key,
     get_latest_stop_loss_exit_at,
@@ -89,6 +90,15 @@ from market_db import (
     record_telemetry_installation,
     update_manager_decision_latest_pnl,
     run_backtest,
+    run_decision_backtest,
+    get_cached_llm_replay,
+    get_candidate_manifest,
+    get_frozen_strategist_input,
+    get_saved_bucket_chain,
+    symbols_without_daily_bars,
+    list_frozen_manager_decisions,
+    store_cached_llm_replay,
+    simulate_backtest_metrics,
 )
 
 

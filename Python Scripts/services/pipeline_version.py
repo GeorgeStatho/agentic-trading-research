@@ -111,9 +111,9 @@ def build_pipeline_version(*, settings=None):
         'strategist_prompt_version': strategist_prompt_version(thesis_policy),
         'manager_prompt_version': MANAGER_PROMPT_VERSION,
         'model_provider': _normalize_provider(),
-        'model_names': {stage: _resolve_model_name(_normalize_provider(), model)
-                        for stage, model in (('strategist', process_settings.models.strategist.model),
-                                             ('manager', process_settings.models.manager.model))},
+        'model_names': {stage: _resolve_model_name(_normalize_provider(stage_model.provider), stage_model.model)
+                        for stage, stage_model in (('strategist', process_settings.models.strategist),
+                                                   ('manager', process_settings.models.manager))},
         'stage_defaults': {stage: {key: value.default for key, value in inspect.signature(function).parameters.items()
                                   if value.default is None or isinstance(value.default, (str, int, float, bool))}
                            for stage, function in (('strategist', decide_company_purchase), ('manager', decide_company_option_position))},

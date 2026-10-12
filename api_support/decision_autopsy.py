@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from api_support.common import safe_float, safe_json_loads
-from api_support.context import DB_PATH, initialize_market_database
+from api_support.context import DB_PATH
 from api_support.v2_verdicts import shadow_verdicts_for_decisions
-from db_helpers.market import backfill_decision_autopsy_ledger, list_decision_autopsy_ledger
+from db_helpers.market import list_decision_autopsy_ledger
 
 
 def _string_list(value: Any) -> list[str]:
@@ -31,9 +31,12 @@ def _article_references(manager_input: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _build_review(snapshot: dict[str, Any], row: dict[str, Any]) -> dict[str, str]:
-    manager_input = snapshot.get("manager_input") if isinstance(snapshot.get("manager_input"), dict) else {}
-    strategist = manager_input.get("strategist_recommendation") if isinstance(manager_input.get("strategist_recommendation"), dict) else {}
+def _json_dict(value: Any) -> dict[str, Any]:
+    parsed = safe_json_loads(value)
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _build_review(snapshot: dict[str, Any], strategist: dict[str, Any], row: dict[str, Any]) -> dict[str, str]:
     risks = _string_list(strategist.get("risks"))
     pnl = safe_float(row.get("latest_trade_pnl_pct"))
     decision = str(snapshot.get("manager_decision") or "").strip() or "No trade"
@@ -71,10 +74,9 @@ def _execution_mode(row: dict[str, Any]) -> str:
 
 def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
     row = dict(raw_row)
-    snapshot = safe_json_loads(row.get("snapshot_json"))
-    snapshot = snapshot if isinstance(snapshot, dict) else {}
-    manager_input = snapshot.get("manager_input") if isinstance(snapshot.get("manager_input"), dict) else {}
-    manager_output = snapshot.get("manager_output") if isinstance(snapshot.get("manager_output"), dict) else {}
+    snapshot = _json_dict(row.get("snapshot_json"))
+    manager_input = _json_dict(row.get("manager_input_json"))
+    manager_output = _json_dict(row.get("manager_output_json"))
     strategist = manager_input.get("strategist_recommendation") if isinstance(manager_input.get("strategist_recommendation"), dict) else {}
     recommendation = manager_output.get("recommendation") if isinstance(manager_output.get("recommendation"), dict) else {}
     entry_gate = manager_output.get("entry_gate") if isinstance(manager_output.get("entry_gate"), dict) else {}
@@ -139,13 +141,11 @@ def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
             "side": str(row.get("execution_order_side") or "").strip(),
             "submitted_at": str(row.get("execution_submitted_at") or "").strip(),
         },
-        "review": _build_review(snapshot, row),
+        "review": _build_review(snapshot, strategist, row),
     }
 
 
 def build_decision_autopsy_payload(*, limit: int = 100) -> dict[str, Any]:
-    initialize_market_database(db_path=DB_PATH)
-    backfill_decision_autopsy_ledger(db_path=DB_PATH)
     records = [_serialize_ledger_row(row) for row in list_decision_autopsy_ledger(limit=limit, db_path=DB_PATH)]
     # One query for the page, not one per record. None means the lifecycle
     # tables cannot be read, which a reader must not mistake for "nothing

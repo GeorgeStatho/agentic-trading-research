@@ -71,7 +71,7 @@ def _build_manager_evidence_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def get_default_client() -> Client:
     global _strategist_client
     if _strategist_client is None:
-        _strategist_client = get_model_client(_stage_model().ollama_host)
+        _strategist_client = get_model_client(_stage_model().ollama_host, _stage_model().provider)
     return _strategist_client
 
 
@@ -90,6 +90,7 @@ def ask_model(
         user_prompt,
         temperature=0,
         host_label=_stage_model().ollama_host,
+        thinking_level=_stage_model().thinking_level,
         response_schema=strategist_recommendation_schema(include_thesis=include_thesis),
     )
 

@@ -60,7 +60,6 @@ def record_startup_ping(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_telemetry_summary_payload(*, project: str | None = None) -> dict[str, Any]:
-    initialize_market_database(db_path=DB_PATH)
     payload = get_telemetry_summary(project=project, db_path=DB_PATH)
     payload["status"] = "ok"
     return payload

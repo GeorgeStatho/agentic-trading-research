@@ -56,7 +56,7 @@ def vertex_response(payload, *, sdk=None, auth_default=None):
     try:
         response = client.models.generate_content(model=payload['model'],
             contents=payload['messages'][1]['content'], config={
-                'system_instruction': payload['messages'][0]['content'], 'temperature': 0,
+                'system_instruction': payload['messages'][0]['content'], 'temperature': payload.get('temperature', 0),
                 'response_mime_type': 'application/json', 'response_json_schema': payload['format'],
                 'candidate_count': 1, 'max_output_tokens': payload['max_output_tokens'],
                 'thinking_config': thinking_config(payload),

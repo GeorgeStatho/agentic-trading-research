@@ -581,3 +581,17 @@ incumbent's and the challenger's outputs on it (`services/challenger_evaluation.
 manager polls Alpaca closing marks (`services/research_marks.py`). Paired reports, frozen acceptance criteria and approvals live
 in `Data/market_db_modules/forward_comparison.py`; route ledgers in `discovery_evaluation.py` and `research_outcomes.py`.
 See Research Phase 7.
+
+LLM replay backtests (`scripts/project.py llm-backtest`, `agentCallers/llm_backtest.py`) re-ask a manager model, such as a
+local llama.cpp model, on every stored decision's frozen input, then run production's continuation, selection, regime and
+thesis steps as of the decision time (`services/llm_backtest.py`). Directional answers select from the DTE-bucket chain that
+production saved in `candidate_snapshots`; answers in another bucket, and decisions before those snapshots, are reported as
+`bucket_chain_unavailable`. Trades are recorded as ordinary backtest runs (`run_decision_backtest`): stored quotes where they
+exist, otherwise Black-Scholes marks on daily closes. Answers are cached in `llm_replay_cache`; `--model stored` replays
+production's own answers as the like-for-like baseline. Eligibility, the premium cap and portfolio limits come
+from each candidate's recorded pipeline manifest; directional answers whose recorded selector settings differ from
+the local ones are reported as `selector_config_mismatch`. `--fetch-missing-bars` downloads daily history for
+traded symbols that have none. `--min-hours-between N` replays a company's decision only when it is N hours
+after the last one replayed for it, chosen by time alone; compare it with a `stored` run using the same N. `--replay-strategist` has the model answer
+each decision's frozen strategist input too (`strategist_runs`, by candidate) and hands that answer to
+the manager exactly as production does; strategist answers are cached separately.

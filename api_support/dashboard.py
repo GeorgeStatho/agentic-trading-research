@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import re
 from statistics import median
@@ -12,7 +12,6 @@ from db_helpers.market import (
     get_latest_market_regime_snapshot,
     get_telemetry_summary,
     list_decision_expectancy_rows,
-    list_recent_manager_decision_history,
 )
 from db_helpers import DB_PATH, get_connection
 from performance_metrics import (
@@ -242,6 +241,8 @@ def _load_latest_strategist_run_statuses() -> dict[int, dict]:
     """
     try:
         with closing(get_connection(DB_PATH)) as conn, conn:
+            # status follows the large payload columns, so only the latest run per
+            # company is read; the subquery resolves it from the index alone.
             rows = conn.execute(
                 """
                 SELECT
@@ -252,9 +253,14 @@ def _load_latest_strategist_run_statuses() -> dict[int, dict]:
                     sr.error_message,
                     sr.input_article_ids_json,
                     sr.created_at
-                FROM strategist_runs AS sr
-                JOIN companies AS c ON c.id = sr.company_id
-                ORDER BY sr.company_id ASC, sr.created_at DESC, sr.id DESC
+                FROM companies AS c
+                JOIN strategist_runs AS sr ON sr.id = (
+                    SELECT latest.id
+                    FROM strategist_runs AS latest
+                    WHERE latest.company_id = c.id
+                    ORDER BY latest.created_at DESC, latest.id DESC
+                    LIMIT 1
+                )
                 """
             ).fetchall()
     except Exception:
@@ -264,7 +270,7 @@ def _load_latest_strategist_run_statuses() -> dict[int, dict]:
     for row in rows:
         item = dict(row)
         company_id = int(item.get("company_id") or 0)
-        if company_id <= 0 or company_id in latest_by_company:
+        if company_id <= 0:
             continue
         article_ids = safe_json_loads(item.get("input_article_ids_json"))
         latest_by_company[company_id] = {
@@ -317,9 +323,134 @@ def _serialize_manager_history_row(item: dict) -> dict:
     }
 
 
+COMPANY_DECISION_WINDOW_DAYS = 30
+COMPANY_DECISION_ROW_LIMIT = 250
+MANAGER_HISTORY_PER_COMPANY = 3
+_PRICE_HISTORY_DIAGNOSTIC_FIELDS = ("available", "source", "feed", "close_count", "error")
+_RECOMMENDATION_FIELDS = (
+    "decision",
+    "confidence",
+    "reason",
+    "target_dte_bucket",
+    "selected_option_id",
+    "selected_expiration_date",
+    "selected_strike_price",
+    "selected_option_source",
+)
+
+
+def _json_fields_sql(column: str, path: str, fields: tuple[str, ...]) -> str:
+    pairs = ", ".join(f"'{field}', json_extract({column}, '{path}.{field}')" for field in fields)
+    return f"json_object({pairs})"
+
+
+# The manager payload holds the whole model input (articles, option chain, bars), so
+# SQLite trims it to the fields this page shows, and only for the rows it shows.
+_COMPANY_DECISION_ROWS_SQL = f"""
+    WITH recent AS (
+        SELECT
+            history.id,
+            history.decision_run_at,
+            UPPER(TRIM(COALESCE(
+                NULLIF(TRIM(history.symbol), ''),
+                CASE WHEN json_valid(payload.manager_input_json)
+                    THEN json_extract(payload.manager_input_json, '$.company.symbol') END,
+                ''
+            ))) AS symbol_key
+        FROM manager_decision_history AS history
+        LEFT JOIN manager_decision_payloads AS payload ON payload.manager_decision_history_id = history.id
+        WHERE history.decision_run_at >= :cutoff
+        ORDER BY history.decision_run_at DESC, history.id DESC
+        LIMIT :row_limit
+    ),
+    ranked AS (
+        SELECT
+            id,
+            symbol_key,
+            ROW_NUMBER() OVER (
+                PARTITION BY symbol_key ORDER BY decision_run_at DESC, id DESC
+            ) AS symbol_rank
+        FROM recent
+        WHERE symbol_key <> ''
+    )
+    SELECT
+        history.id,
+        history.company_id,
+        ranked.symbol_key AS symbol,
+        history.company_name,
+        history.decision_run_at,
+        history.strategist_decision,
+        history.manager_decision,
+        history.manager_confidence,
+        history.manager_reason,
+        history.target_dte_bucket,
+        history.selected_option_id,
+        history.selected_option_symbol,
+        history.selected_expiration_date,
+        history.selected_strike_price,
+        history.selected_option_source,
+        history.trade_executed,
+        history.trade_execution_order_id,
+        history.trade_execution_record_id,
+        CASE WHEN history.pnl_expires_at IS NULL OR history.pnl_expires_at > :now
+            THEN history.latest_trade_pnl_pct END AS latest_trade_pnl_pct,
+        CASE WHEN history.pnl_expires_at IS NULL OR history.pnl_expires_at > :now
+            THEN history.latest_trade_pnl_updated_at END AS latest_trade_pnl_updated_at,
+        history.pnl_expires_at,
+        CASE WHEN history.pnl_expires_at IS NULL OR history.pnl_expires_at > :now
+            THEN history.resolved_outcome_label END AS resolved_outcome_label,
+        CASE WHEN json_valid(payload.manager_input_json) THEN json_object(
+            'company', json_object(
+                'name', json_extract(payload.manager_input_json, '$.company.name')
+            ),
+            'strategist_recommendation',
+                json_extract(payload.manager_input_json, '$.strategist_recommendation'),
+            'article_references', json_extract(payload.manager_input_json, '$.article_references'),
+            'market_context', json_object(
+                'underlying_price_history',
+                CASE WHEN json_type(
+                    payload.manager_input_json, '$.market_context.underlying_price_history'
+                ) = 'object' THEN {_json_fields_sql(
+                    "payload.manager_input_json",
+                    "$.market_context.underlying_price_history",
+                    _PRICE_HISTORY_DIAGNOSTIC_FIELDS,
+                )} END
+            )
+        ) END AS manager_input_json,
+        CASE WHEN json_valid(payload.manager_output_json) THEN json_object(
+            'recommendation', {_json_fields_sql(
+                "payload.manager_output_json", "$.recommendation", _RECOMMENDATION_FIELDS
+            )},
+            'entry_gate', json_extract(payload.manager_output_json, '$.entry_gate'),
+            'market_regime_gate', json_extract(payload.manager_output_json, '$.market_regime_gate')
+        ) END AS manager_output_json
+    FROM ranked
+    JOIN manager_decision_history AS history ON history.id = ranked.id
+    LEFT JOIN manager_decision_payloads AS payload ON payload.manager_decision_history_id = history.id
+    WHERE ranked.symbol_rank <= :per_company
+    ORDER BY history.decision_run_at DESC, history.id DESC
+"""
+
+
+def _load_recent_company_decision_rows() -> list[dict]:
+    """Return each company's latest manager decisions with trimmed manager JSON."""
+    now = datetime.now(timezone.utc)
+    with closing(get_connection(DB_PATH)) as conn, conn:
+        rows = conn.execute(
+            _COMPANY_DECISION_ROWS_SQL,
+            {
+                "cutoff": (now - timedelta(days=COMPANY_DECISION_WINDOW_DAYS)).isoformat(),
+                "row_limit": COMPANY_DECISION_ROW_LIMIT,
+                "now": now.isoformat(),
+                "per_company": MANAGER_HISTORY_PER_COMPANY,
+            },
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def _build_company_decisions_payload_from_history() -> dict:
     try:
-        rows = list_recent_manager_decision_history(limit=250, within_days=30)
+        rows = _load_recent_company_decision_rows()
     except Exception:
         return _build_empty_company_decisions_payload()
 
@@ -384,7 +515,7 @@ def _build_company_decisions_payload_from_history() -> dict:
     for symbol, company_entry in companies_by_symbol.items():
         company_entry["manager_history"] = [
             _serialize_manager_history_row(item)
-            for item in history_by_symbol.get(symbol, [])[:3]
+            for item in history_by_symbol.get(symbol, [])
         ]
 
     companies = sorted(

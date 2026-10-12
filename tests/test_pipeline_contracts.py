@@ -76,6 +76,11 @@ class StrategistContractTests(unittest.TestCase):
     def test_thesis_example_matches_thesis_schema(self):
         self.assertEqual(set(REQUIRED_OUTPUT_EXAMPLE), set(EVIDENCE_THESIS_SCHEMA["properties"]))
 
+    def test_strategist_schema_has_no_max_items(self):
+        # Sent as Vertex response_schema, gemini-3.8-flash returns 400 INVALID_ARGUMENT for the thesis
+        # schema when maxItems is present. response_json_schema (planner transport) accepts it.
+        self.assertNotIn('"maxItems"', json.dumps(strategist_recommendation_schema(include_thesis=True)))
+
 
 class GateRegistryTests(unittest.TestCase):
     RESULT = {"company": {"symbol": "NVDA"}, "recommendation": {"decision": "call", "confidence": "high"},

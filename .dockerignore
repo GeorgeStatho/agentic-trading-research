@@ -5,6 +5,9 @@ Data/logs/
 *.pyc
 *.pyo
 *.pyd
+# A developer's changed-test map; the image build always runs the full suite.
+.testmondata*
+.testmon-inputs.json
 
 # Compose injects these at runtime through env_file, so the image never needs them.
 # Copying them in bakes credentials into every layer and makes the build's test run

@@ -12,11 +12,15 @@ The tests here mainly protect the backend areas that were cleaned up in the refa
 
 Most of these are lightweight unit tests with mocked dependencies so they run quickly and can be executed during Docker image builds.
 
-Run the suite from the project root with:
+Run from the project root:
 
 ```bash
-python -m unittest discover -s tests -p "test_*.py" -v
+python3 scripts/project.py test                           # whole suite
+python3 scripts/project.py test tests.test_exposure_map   # named modules
+python3 scripts/project.py test --changed                 # only tests your edits affect
 ```
+
+`--changed` needs the dev extras (`pip install -e ".[dev]"`); see `docs/DEVELOPMENT.md`.
 
 Evidence refresh integration: `tests/test_evidence_refresh.py` exercises the durable
 company-interest queue and collection-to-research handoff with synthetic providers.

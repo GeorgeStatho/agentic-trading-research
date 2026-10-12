@@ -14,6 +14,7 @@ from db_helpers import (
     initialize_news_database,
     mark_sector_opportunist_article_processed,
 )
+from agent_helpers.shared import ModelAnswer
 from agent_helpers.opportunist_support import (
     CURRENT_OPPORTUNIST_SCHEMA_VERSION,
     SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
@@ -166,8 +167,7 @@ def save_sector_opportunist_batch_results(
     impacts: list[dict[str, Any]],
     *,
     sector_id: int,
-    model: str,
-    raw_response: str,
+    answer: ModelAnswer,
 ) -> None:
     """Persist the cleaned impacts and mark the article batch as processed."""
     initialize_news_database()
@@ -205,14 +205,15 @@ def save_sector_opportunist_batch_results(
             article_id = int(article["article_id"])
             mark_sector_opportunist_article_processed(
                 article_id=article_id,
-                model=model,
+                model=answer.model,
                 raw_json={
                     "article_id": article_id,
                     "sector_id": int(sector_id),
                     "schema_version": CURRENT_OPPORTUNIST_SCHEMA_VERSION,
                     "required_impact_fields": list(SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS),
                     "impacts": batch_impacts_by_article.get(article_id, []),
-                    "raw_response": raw_response,
+                    "raw_response": answer.text,
+                    "answered_by": answer.record(),
                 },
                 conn=conn,
             )

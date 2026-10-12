@@ -7,7 +7,9 @@ import subprocess
 import sys
 from urllib.parse import urlsplit
 
+from services.gemini_models import temperature_for, thinking_level_for
 from services.research_tools import OPERATIONS
+from services.settings import get_settings
 from services.research_model_policy import ResearchModelPolicy, configured_model, configured_provider
 from dataclasses import asdict
 
@@ -114,7 +116,8 @@ class ResearchPlanner:
         payload = {'provider': self.provider, 'host': self.host, 'model': self.model, 'timeout': timeout,
                    'project': self.project, 'location': self.location, 'format': self.response_schema,
                    'max_output_tokens': self.policy.max_output_tokens, 'thinking_budget': self.policy.thinking_budget,
-                   'thinking_level': self.policy.thinking_level,
+                   'thinking_level': thinking_level_for(self.model, self.policy.thinking_level),
+                   'temperature': temperature_for(self.model, 0, get_settings().vertex.gemini3_temperature),
                    'messages': self.messages(context)}
         transport = Path(__file__).with_name('research_planner_transport.py')
         response = subprocess.run([sys.executable, str(transport)], input=json.dumps(payload),

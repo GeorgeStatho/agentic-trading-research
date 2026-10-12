@@ -143,8 +143,6 @@ CREATE TABLE IF NOT EXISTS manager_decision_history (
     selected_expiration_date TEXT,
     selected_strike_price REAL,
     selected_option_source TEXT,
-    manager_input_json TEXT,
-    manager_output_json TEXT,
     trade_executed INTEGER NOT NULL DEFAULT 0,
     trade_execution_order_id TEXT,
     trade_execution_record_id INTEGER,
@@ -160,6 +158,16 @@ CREATE TABLE IF NOT EXISTS manager_decision_history (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
+);
+
+-- The full manager input/output (articles, option chain, bars) is kept apart from
+-- manager_decision_history so reading a decision's other columns never pages through it.
+-- Written once with the decision and never updated.
+CREATE TABLE IF NOT EXISTS manager_decision_payloads (
+    manager_decision_history_id INTEGER PRIMARY KEY,
+    manager_input_json TEXT,
+    manager_output_json TEXT,
+    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS market_regime_runs (
@@ -210,6 +218,21 @@ CREATE TABLE IF NOT EXISTS manager_replay_results (
     FOREIGN KEY (evaluation_id) REFERENCES manager_replay_evaluations(id) ON DELETE CASCADE,
     FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE CASCADE,
     UNIQUE (evaluation_id, manager_decision_history_id, replay_mode)
+);
+
+-- One model answer per frozen input, so re-running a backtest with new execution
+-- settings never calls the model again. A local server's model name is only a label:
+-- change it whenever the served weights change, or the cache returns the old answers.
+CREATE TABLE IF NOT EXISTS llm_replay_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    output_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (stage, provider, model, prompt_version, input_hash)
 );
 
 CREATE TABLE IF NOT EXISTS decision_evidence_snapshots (
@@ -498,6 +521,9 @@ CREATE INDEX IF NOT EXISTS idx_manager_decision_history_symbol
 
 CREATE INDEX IF NOT EXISTS idx_manager_decision_history_decision_run_at
     ON manager_decision_history (decision_run_at);
+
+CREATE INDEX IF NOT EXISTS idx_manager_decision_history_executed_run_at
+    ON manager_decision_history (decision_run_at) WHERE trade_executed = 1;
 
 CREATE INDEX IF NOT EXISTS idx_manager_decision_history_trade_execution_order_id
     ON manager_decision_history (trade_execution_order_id);

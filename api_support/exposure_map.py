@@ -10,6 +10,7 @@ from agent_helpers.shared import ask_llm_model, extract_json_object, get_model_c
 from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 from api_support.context import DB_PATH, get_connection, initialize_market_database
 from db_helpers import initialize_news_database
+from services.gemini_models import default_vertex_model
 from services.order_values import normalize_order_side, normalize_order_status
 
 
@@ -93,7 +94,7 @@ def resolve_exposure_map_model(model: Any = None) -> str:
     if provider == "openai":
         return "gpt-5.6-terra"
     if provider == "vertex":
-        return str(os.getenv("VERTEX_DEFAULT_MODEL", "gemini-2.5-flash")).strip()
+        return default_vertex_model()
     return str(
         os.getenv(
             "EXPOSURE_MAP_OLLAMA_MODEL",
@@ -259,10 +260,11 @@ def _risk_level(score: float) -> str:
 def _load_article(conn, article_id: int) -> dict[str, Any] | None:
     row = conn.execute(
         """
-        SELECT id, title, summary, body, source, source_url, published_at, evidence_score,
-               recency_score, factuality_score, section
-        FROM news_articles
-        WHERE id = ?
+        SELECT na.id, na.title, na.summary, content.body, na.source, na.source_url, na.published_at,
+               na.evidence_score, na.recency_score, na.factuality_score, na.section
+        FROM news_articles AS na
+        LEFT JOIN news_article_content AS content ON content.article_id = na.id
+        WHERE na.id = ?
         """,
         (article_id,),
     ).fetchone()
@@ -883,8 +885,6 @@ def _add_ancestor_nodes(conn, nodes: dict[str, dict[str, Any]], entity_node: dic
 
 def build_exposure_map_payload(article_id: int, *, run_id: int | None = None, conn=None) -> dict[str, Any]:
     owns_connection = conn is None
-    if owns_connection:
-        _initialize_databases()
     active_conn = conn or get_connection(DB_PATH)
     try:
         article = _load_article(active_conn, int(article_id))
@@ -1024,7 +1024,6 @@ def list_recent_exposure_articles(
     *,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    _initialize_databases()
     reference_time = now or datetime.now(timezone.utc)
     cutoff = reference_time - timedelta(days=EXPOSURE_MAP_MAX_ARTICLE_AGE_DAYS)
     with closing(get_connection(DB_PATH)) as conn, conn:

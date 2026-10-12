@@ -346,9 +346,11 @@ class ReportTests(ThesisFixture):
                   "entry_gate": {"allowed": other_gates}, "market_regime_gate": {"allowed": True},
                   "selected_option": {"symbol": "NVDA260918C00100000"}}
         with closing(get_connection(self.db)) as conn, conn:
-            conn.execute("""INSERT INTO manager_decision_history
-                (decision_run_at,manager_decision,trade_executed,realized_pnl_pct,manager_output_json)
-                VALUES (?,?,?,?,?)""", (run_at, "call", int(executed), pnl, json.dumps(output)))
+            decision_id = conn.execute("""INSERT INTO manager_decision_history
+                (decision_run_at,manager_decision,trade_executed,realized_pnl_pct)
+                VALUES (?,?,?,?)""", (run_at, "call", int(executed), pnl)).lastrowid
+            conn.execute("""INSERT INTO manager_decision_payloads
+                (manager_decision_history_id,manager_output_json) VALUES (?,?)""", (decision_id, json.dumps(output)))
 
     def report(self, **kwargs):
         return evidence_thesis_report(now=self.NOW, db_path=self.db, **kwargs)

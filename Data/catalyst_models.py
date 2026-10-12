@@ -5,11 +5,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
 
-CLASSIFICATION_VERSION = 'catalyst-rules-v1'
+CLASSIFICATION_VERSION = 'catalyst-rules-v2'
 PRIMARY_SOURCE_TYPES = frozenset({'primary_filing', 'company_release', 'government', 'court_document', 'earnings_call'})
 CATALYST_TYPES = ('earnings', 'guidance', 'ma', 'regulatory', 'legal', 'product', 'customer_contract',
                  'supply_chain', 'management', 'capital_return', 'financing', 'analyst_action',
                  'macro', 'geopolitical', 'industry_readthrough', 'rumor', 'other')
+# An unrecognised or unconfirmed event has no known reach. Scope weighting relaxes regime
+# vetoes, so these must never default to the most lenient (idiosyncratic) scope.
+UNSCOPED_TYPES = frozenset({'rumor', 'other'})
 CATALYST_FAMILIES = ('earnings_positive', 'earnings_negative', 'guidance_raise', 'guidance_cut',
                     'regulatory_positive', 'regulatory_negative', 'legal_positive', 'legal_negative',
                     'ma', 'product_commercial', 'analyst', 'macro_sector', 'other')
@@ -114,7 +117,8 @@ def classify_catalyst(title, summary=''):
         family = 'analyst'
     elif kind in {'macro', 'geopolitical', 'industry_readthrough'}:
         family = 'macro_sector'
-    scope = 'systemic' if kind in {'macro', 'geopolitical'} else 'sector' if kind == 'industry_readthrough' else 'idiosyncratic'
+    scope = ('unknown' if kind in UNSCOPED_TYPES else 'systemic' if kind in {'macro', 'geopolitical'}
+             else 'sector' if kind == 'industry_readthrough' else 'idiosyncratic')
     horizon = '1_3_days' if kind in {'analyst_action', 'macro'} else '1_2_months' if kind == 'ma' else '4_10_days'
     mechanisms = {
         'guidance': 'Revision to forward revenue or profitability expectations',

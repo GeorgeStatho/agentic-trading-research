@@ -50,6 +50,9 @@ research session asked the planner once and then deferred with `verified_company
 
 ## Turning it on
 
+For the step-by-step server checklist (backup, pull, rebuild, verify), see
+[RESEARCH_LIVE_SETUP.md](RESEARCH_LIVE_SETUP.md).
+
 Enable in this order. Each step feeds the next, and each can run for a while on its own.
 
 1. **Evidence (P1).**
@@ -61,7 +64,7 @@ Enable in this order. Each step feeds the next, and each can run for a while on 
 
    Use your real application name and an email you read. SEC requires the contact; without an
    `@` the collector returns `configuration_required`. Check progress with
-   `python3 scripts/company_evidence.py collect` or the collector output.
+   `docker compose exec news_collector python scripts/company_evidence.py collect` or the collector output.
 
 2. **Discovery (P2), which also switches on event reviews (P6).**
 
@@ -70,7 +73,8 @@ Enable in this order. Each step feeds the next, and each can run for a while on 
    ```
 
    - Discovery needs no model.
-   - Check it with `python3 scripts/discovery.py status`, then `interest` and `checks`.
+   - Check it with `docker compose exec news_collector python scripts/discovery.py status`, then
+     `interest` and `checks`.
    - The first scan queues every current catalyst for each company of interest, including
      position reviews for open positions. Most of the first reviews are skipped as pre-entry
      evidence. Reviews beyond three per position per day are closed as `daily_limit_reached`,
@@ -101,21 +105,23 @@ Enable in this order. Each step feeds the next, and each can run for a while on 
 
 ## Watching it
 
-All commands are read-only unless noted. Pass `--db /path/to/db` to read a copy instead of the
-configured database.
+Run these from the repository directory on the server. They run inside the containers, which hold
+the import paths and the database volume; plain `python3 scripts/...` on the host fails with
+`ModuleNotFoundError`. All commands are read-only unless noted. Pass `--db /path/to/db` to read a
+copy instead of the configured database; the path is inside the container.
 
 | Question | Command |
 | --- | --- |
-| Is evidence being collected? | `python3 scripts/company_evidence.py collect` (runs one cycle) |
-| What is discovery holding? | `python3 scripts/discovery.py status` / `interest` / `checks` |
-| What did research find, and why did it stop? | `python3 scripts/research.py replay 'research:…'` |
-| Are theses checkable? | `python3 scripts/research.py thesis-report --days 7` |
-| What would economics have blocked? | `python3 scripts/research.py economics-report --days 7` |
-| What did event reviews conclude? | `python3 scripts/research.py event-reviews --days 7` |
-| Is forward evidence accumulating? | `python3 scripts/research.py forward-status` |
-| How does the challenger compare? | `python3 scripts/research.py compare COHORT_ID` (writes a report) |
-| Which route admits better events? | `python3 scripts/research.py discovery-ledger --days 30` |
-| Do research theses hold up? | `python3 scripts/research.py research-outcomes --days 30` |
+| Is evidence being collected? | `docker compose exec news_collector python scripts/company_evidence.py collect` (runs one cycle) |
+| What is discovery holding? | `docker compose exec news_collector python scripts/discovery.py status` / `interest` / `checks` |
+| What did research find, and why did it stop? | `docker compose exec worker python scripts/research.py replay 'research:…'` |
+| Are theses checkable? | `docker compose exec worker python scripts/research.py thesis-report --days 7` |
+| What would economics have blocked? | `docker compose exec worker python scripts/research.py economics-report --days 7` |
+| What did event reviews conclude? | `docker compose exec worker python scripts/research.py event-reviews --days 7` |
+| Is forward evidence accumulating? | `docker compose exec worker python scripts/research.py forward-status` |
+| How does the challenger compare? | `docker compose exec worker python scripts/research.py compare COHORT_ID` (writes a report) |
+| Which route admits better events? | `docker compose exec worker python scripts/research.py discovery-ledger --days 30` |
+| Do research theses hold up? | `docker compose exec worker python scripts/research.py research-outcomes --days 30` |
 
 The dashboard's **Research → V2 Rollout** page shows enforcement modes, Part 6 runs and the Phase 7
 panel. `?demo=1` shows a fictional walkthrough.
@@ -163,32 +169,31 @@ Setting a mode to `enforce` is not enough. `guard_policy` keeps each gate in sha
 These come from a review of all phases and runs against a migrated copy of the live database. They
 are not fixed yet.
 
-1. **`.env.example` turns the daily thesis validator live** (`THESIS_VALIDATOR_MODE=live`), while
-   its comment and the code default say shadow. A server configured from the template lets the
-   validator close positions.
-2. **Research blocks the trading cycle.**
+1. **Research blocks the trading cycle.**
    - `run_discovery_shadow_cycle` runs synchronously in the worker before any strategist or
      manager call. It covers discovery, then up to `DISCOVERY_BATCH_SIZE` (6) research sessions of
      up to 90 s each, then their theses.
    - Planner retries `sleep` for up to 30 s inside it.
    - With `RESEARCH_MODE=shadow`, every trading decision can start several minutes late.
-3. **Research pays for a planner call that cannot help.** A session with no verified company facts
+2. **Research pays for a planner call that cannot help.** A session with no verified company facts
    still calls the planner before deferring. On live data, 6 of 6 sessions did.
-4. **A model outage uses up the day's daily thesis review.** If every adjudicator sample fails, the
+3. **A model outage uses up the day's daily thesis review.** If every adjudicator sample fails, the
    failure is saved as that day's only run, and a second run that day is silently dropped.
-5. **Every candidate snapshot embeds the full 36 KB pipeline manifest.** That is about 0.49 GB of
+4. **Every candidate snapshot embeds the full 36 KB pipeline manifest.** That is about 0.49 GB of
    the 2.31 GB of snapshots in nine days. The snapshot's own column already holds the version id.
-6. **95% of catalysts are never classified.** On live, 4,535 of 4,758 are `needs_review`. Only
+5. **95% of catalysts are never classified.** On live, 4,535 of 4,758 are `needs_review`. Only
    classified catalysts with a ticker get price responses, so economics scenarios, Part 4 hurdles,
    calibration labels and the discovery ledger's outcomes see about 4% of events.
-7. **Event reviews over the daily limit are never retried.** They close as
+6. **Event reviews over the daily limit are never retried.** They close as
    `daily_limit_reached`; only the next daily review sees that evidence. On the first discovery
    scan, 4 of 17 review items for one position closed this way.
-8. **Dead admission path.** `_filter_company_symbols_by_high_confidence_support` accepts
+7. **Dead admission path.** `_filter_company_symbols_by_high_confidence_support` accepts
    `discovery_context_by_symbol`, but no caller passes it, so its primary-event admission branch
    never runs.
 
-Fixed during Phase 7 (kept here because they explain older data):
+Fixed since (kept here because they explain older data):
+
+- `.env.example` set the daily thesis validator to `live`; it now matches the live server (`shadow`).
 
 - Part 6 forward collection never produced outcomes on live.
 - Empty `""` timestamps crashed collection.

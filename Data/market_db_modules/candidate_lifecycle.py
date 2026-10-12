@@ -35,8 +35,11 @@ def record_candidate(symbol, version, *, evidence=None, observation_id=None, db_
         if evidence is None:
             has_news = conn.execute("SELECT 1 FROM sqlite_master WHERE name='news_articles'").fetchone()
             evidence = [dict(row) for row in conn.execute('''
-                SELECT a.* FROM news_articles a JOIN company_news_articles l ON l.article_id=a.id
-                JOIN companies c ON c.id=l.company_id WHERE UPPER(c.symbol)=?
+                SELECT a.*, content.body, content.raw_json FROM news_articles a
+                JOIN company_news_articles l ON l.article_id=a.id
+                JOIN companies c ON c.id=l.company_id
+                LEFT JOIN news_article_content content ON content.article_id=a.id
+                WHERE UPPER(c.symbol)=?
                 AND julianday(a.published_at) BETWEEN julianday(?) - 14 AND julianday(?)
                 ORDER BY a.id
             ''', (symbol.upper(), created_at, created_at))] if has_news else []

@@ -19,6 +19,7 @@ from market_db_modules.pricing_research import (
 )
 from services.price_response import fit_betas, measure_response, evaluate_price_absorption, completed_at
 from services.option_hurdle_gate import evaluate_option_hurdle, select_atm_research_contracts
+from catalyst_models import classify_catalyst
 from services.market_regime_gate import evaluate_market_regime_gate, MarketRegimePolicy, apply_market_regime_gate_to_manager_result
 from services.pricing_policy import PricingPolicy
 from services.pricing_gates import record_candidate_price_response, apply_option_hurdle_to_manager_result
@@ -225,6 +226,26 @@ class RegimeScopeTests(unittest.TestCase):
         result = apply_market_regime_gate_to_manager_result({'recommendation': {'decision': 'call', 'confidence': 'high'},
             'market_context': {'market_regime': {'state': 'range'}},
             'candidate_context': {'catalysts': [{'catalyst_scope': 'idiosyncratic'}, {'catalyst_scope': 'systemic'}]}})
+        self.assertFalse(result['market_regime_gate']['would_allow'])
+
+    def test_scope_exception_requires_the_confidence_an_aligned_entry_needs(self):
+        for state, decision in (('range', 'call'), ('stressed', 'put'), ('trend_up', 'put'), ('trend_down', 'call')):
+            with self.subTest(state=state, decision=decision):
+                gate = evaluate_market_regime_gate(proposed_decision=decision, manager_confidence='medium',
+                    regime={'state': state}, catalyst_scope='idiosyncratic', policy=MarketRegimePolicy(mode='enforce'))
+                self.assertFalse(gate['allowed'])
+                self.assertIn('regime_scope_exception_requires_high_confidence', gate['reason_codes'])
+
+    def test_unclassified_catalyst_gets_no_scope_exception(self):
+        for title in ('Nvidia shares jump as investors cheer AI demand', 'Apple reportedly weighs a deal', ''):
+            with self.subTest(title=title):
+                self.assertEqual(classify_catalyst(title)['catalyst_scope'], 'unknown')
+        self.assertEqual(classify_catalyst('Nvidia raises revenue guidance')['catalyst_scope'], 'idiosyncratic')
+        # States frozen before the classifier change still carry the old lenient scope.
+        frozen = {'catalyst_type': 'other', 'catalyst_scope': 'idiosyncratic'}
+        result = apply_market_regime_gate_to_manager_result({'recommendation': {'decision': 'call', 'confidence': 'high'},
+            'market_context': {'market_regime': {'state': 'range'}}, 'candidate_context': {'catalysts': [frozen]}})
+        self.assertEqual(result['market_regime_gate']['catalyst_scope'], 'unknown')
         self.assertFalse(result['market_regime_gate']['would_allow'])
 
     def test_scope_does_not_bypass_high_volatility_confidence_requirement(self):

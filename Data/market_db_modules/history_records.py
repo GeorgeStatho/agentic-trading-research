@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from db_common import DB_PATH, clean_text, coerce_float, get_connection, json_text
+from .autopsy import SNAPSHOT_VERSION
 from .bootstrap import initialize_database
 from .shared import coerce_int, find_company_row_by_symbol, normalize_bool_to_int, normalize_timestamp
 from .backtesting import ensure_decision_evidence_snapshot
@@ -60,8 +61,6 @@ def record_manager_decision_history(
         clean_text(history.get("selected_expiration_date")),
         coerce_float(history.get("selected_strike_price")),
         clean_text(history.get("selected_option_source")),
-        json_text(history.get("manager_input_json")),
-        json_text(history.get("manager_output_json")),
         normalize_bool_to_int(history.get("trade_executed")),
         clean_text(history.get("trade_execution_order_id")),
         coerce_int(history.get("trade_execution_record_id")),
@@ -105,8 +104,6 @@ def record_manager_decision_history(
             selected_expiration_date,
             selected_strike_price,
             selected_option_source,
-            manager_input_json,
-            manager_output_json,
             trade_executed,
             trade_execution_order_id,
             trade_execution_record_id,
@@ -120,17 +117,29 @@ def record_manager_decision_history(
             created_at,
             updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         values,
     )
     decision_history_id = int(cursor.lastrowid)
+    conn.execute(
+        """
+        INSERT INTO manager_decision_payloads (
+            manager_decision_history_id, manager_input_json, manager_output_json
+        ) VALUES (?, ?, ?)
+        """,
+        (
+            decision_history_id,
+            json_text(history.get("manager_input_json")),
+            json_text(history.get("manager_output_json")),
+        ),
+    )
     conn.execute("UPDATE manager_decision_history SET candidate_id=?, pipeline_version_json=? WHERE id=?",
                  (history.get("candidate_id"), json_text(history.get("pipeline_version")), decision_history_id))
     stamp_candidate_catalyst(conn, 'manager_decision_history', decision_history_id, history.get('candidate_id'))
     record_decision_gate_verdicts(decision_history_id, history.get("manager_output_json"), conn=conn)
     snapshot = {
-        "version": "decision-autopsy-v1",
+        "version": SNAPSHOT_VERSION,
         "company_id": company_id,
         "symbol": symbol,
         "company_name": company_name,
@@ -148,8 +157,6 @@ def record_manager_decision_history(
         "outcome_status": clean_text(history.get("outcome_status")),
         "realized_pnl_pct": coerce_float(history.get("realized_pnl_pct")),
         "closed_at": clean_text(history.get("closed_at")),
-        "manager_input": history.get("manager_input_json") if isinstance(history.get("manager_input_json"), dict) else {},
-        "manager_output": history.get("manager_output_json") if isinstance(history.get("manager_output_json"), dict) else {},
     }
     conn.execute(
         """

@@ -25,8 +25,9 @@ Current role:
 
 Key helpers:
 
-- `get_model_client(label=None)`: returns the current provider client based on `LLM_PROVIDER`
+- `get_model_client(label=None, provider=None)`: returns a client for `provider` (a stage's `<STAGE>_PROVIDER`), or `LLM_PROVIDER` when blank
 - `ask_llm_model(...)`: sends a structured request through the active provider
+- `ask_classifier_model(...)`: the news classifiers' call; tries each `CLASSIFIER_FALLBACKS` model in order when the quota is used up and returns a `ModelAnswer` naming the model that answered
 - `get_ollama_client(...)` / `ask_ollama_model(...)`: compatibility wrappers for older stage code
 - `parse_published_at(...)`
 - `normalize_time_window(...)`

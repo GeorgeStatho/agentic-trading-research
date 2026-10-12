@@ -35,7 +35,7 @@ from agent_helpers.market_context import (
 )
 from agent_contracts import ManagerInputPayload
 from db_common import DB_PATH
-from db_helpers.market import backfill_decision_autopsy_ledger, list_decision_autopsy_ledger, list_recent_manager_decision_history
+from db_helpers.market import list_decision_autopsy_ledger, list_recent_manager_decision_history
 
 
 __all__ = [
@@ -159,7 +159,6 @@ def build_resolved_autopsy_insights(
 ) -> list[dict[str, Any]]:
     """Return outcome feedback that was resolved before a replay decision time."""
     try:
-        backfill_decision_autopsy_ledger(db_path=db_path)
         rows = list_decision_autopsy_ledger(
             company_id=company.get("company_id"),
             symbol=company.get("symbol"),
@@ -177,7 +176,7 @@ def build_resolved_autopsy_insights(
         if int(item.get("manager_decision_history_id") or 0) == int(exclude_decision_history_id or 0):
             continue
         snapshot = _safe_json_object(item.get("snapshot_json"))
-        manager_input = snapshot.get("manager_input") if isinstance(snapshot.get("manager_input"), dict) else {}
+        manager_input = _safe_json_object(item.get("manager_input_json"))
         strategist = manager_input.get("strategist_recommendation") if isinstance(manager_input.get("strategist_recommendation"), dict) else {}
         risks = [str(risk).strip() for risk in strategist.get("risks", []) if str(risk).strip()][:2] if isinstance(strategist.get("risks"), list) else []
         article_ids = [
