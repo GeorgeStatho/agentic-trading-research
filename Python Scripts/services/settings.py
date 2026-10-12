@@ -134,6 +134,35 @@ class LlamaCppSettings:
 
 
 @dataclass(frozen=True)
+class OpenAICompatibleSettings:
+    # Any hosted Chat Completions API (Mistral, Groq, OpenRouter, Cerebras). The key is read from
+    # OPENAI_COMPATIBLE_API_KEY when the client is built, so it never reaches the pipeline manifest.
+    base_url: str = ""
+
+    @classmethod
+    def from_environ(cls, environ) -> "OpenAICompatibleSettings":
+        return cls(base_url=environ.get("OPENAI_COMPATIBLE_BASE_URL", "").strip())
+
+
+@dataclass(frozen=True)
+class ClassifierFallbackSettings:
+    """Answers news classification calls once the stage's provider reports its quota used up.
+
+    A blank provider disables the fallback.
+    """
+    provider: str = ""
+    model: str = ""
+
+    @classmethod
+    def from_environ(cls, environ) -> "ClassifierFallbackSettings":
+        provider = environ.get("CLASSIFIER_FALLBACK_PROVIDER", "").strip().lower()
+        model = environ.get("CLASSIFIER_FALLBACK_MODEL", "").strip()
+        if provider and not model:
+            raise ValueError("CLASSIFIER_FALLBACK_MODEL must be set when CLASSIFIER_FALLBACK_PROVIDER is set")
+        return cls(provider=provider, model=model)
+
+
+@dataclass(frozen=True)
 class ManagerContextSettings:
     history_limit: int
     history_max_age_days: int
@@ -197,6 +226,8 @@ class Settings:
     manager_context: ManagerContextSettings
     opportunists: OpportunistSettings
     evidence_continuation: EvidenceContinuationPolicy
+    openai_compatible: OpenAICompatibleSettings = OpenAICompatibleSettings()
+    classifier_fallback: ClassifierFallbackSettings = ClassifierFallbackSettings()
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str]) -> "Settings":
@@ -204,7 +235,9 @@ class Settings:
                    llamacpp=LlamaCppSettings.from_environ(environ),
                    manager_context=ManagerContextSettings.from_environ(environ),
                    opportunists=OpportunistSettings.from_environ(environ),
-                   evidence_continuation=EvidenceContinuationPolicy.from_environ(environ))
+                   evidence_continuation=EvidenceContinuationPolicy.from_environ(environ),
+                   openai_compatible=OpenAICompatibleSettings.from_environ(environ),
+                   classifier_fallback=ClassifierFallbackSettings.from_environ(environ))
 
 
 _settings: Settings | None = None

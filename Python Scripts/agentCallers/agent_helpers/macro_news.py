@@ -4,7 +4,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from agent_helpers.shared import parse_published_at
+from agent_helpers.shared import ModelAnswer, parse_published_at
 from db_helpers import DB_PATH, get_all_sectors, get_connection
 from db_helpers import (
     add_us_news_sector_impact,
@@ -125,8 +125,7 @@ def save_batch_results(
     article_batch: list[dict[str, Any]],
     pairs: list[dict[str, Any]],
     *,
-    model: str,
-    raw_response: str,
+    answer: ModelAnswer,
     news_scope: str,
 ) -> None:
     # Persist the batch results and return a summary that callers can inspect.
@@ -154,12 +153,13 @@ def save_batch_results(
             article_id = int(article["article_id"])
             processed_marker(
                 article_id=article_id,
-                model=model,
+                model=answer.model,
                 raw_json={
                     "news_scope": news_scope,
                     "article_id": article_id,
                     "pairs": batch_pairs_by_article.get(article_id, []),
-                    "raw_response": raw_response,
+                    "raw_response": answer.text,
+                    "answered_by": answer.record(),
                 },
                 conn=conn,
             )

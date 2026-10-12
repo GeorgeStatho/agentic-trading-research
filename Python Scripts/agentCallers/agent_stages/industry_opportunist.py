@@ -18,7 +18,8 @@ from agent_helpers.industry_opportunist import (
 from agent_helpers.opportunist_support import build_shared_opportunist_impacts_schema
 from agent_helpers.shared import (
     Client,
-    ask_llm_model,
+    ModelAnswer,
+    ask_classifier_model,
     build_token_limited_batches,
     extract_json_value,
     get_model_client,
@@ -58,8 +59,8 @@ def _get_default_client() -> Client:
     return _industry_opportunist_client
 
 
-def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> str:
-    return ask_llm_model(
+def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> ModelAnswer:
+    return ask_classifier_model(
         client,
         model,
         system_prompt,
@@ -152,7 +153,7 @@ def _classify_article_batch(
     model: str,
     system_prompt_override: str | None = None,
     task_override: str | None = None,
-) -> tuple[str, list[dict[str, Any]]]:
+) -> tuple[ModelAnswer, list[dict[str, Any]]]:
     # Classify the current batch and return normalized results that the caller can merge or persist.
     system_prompt, user_prompt = build_industry_opportunist_prompt(
         sector,
@@ -161,16 +162,16 @@ def _classify_article_batch(
         system_prompt_override=system_prompt_override,
         task_override=task_override,
     )
-    raw_response = ask_model(
+    answer = ask_model(
         client=client,
         model=model,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
     )
 
-    parsed = extract_json_value(raw_response)
+    parsed = extract_json_value(answer.text)
     impacts = extract_impacts(parsed)
-    return raw_response, impacts if isinstance(impacts, list) else []
+    return answer, impacts if isinstance(impacts, list) else []
 
 
 def _collect_cleaned_impacts(
@@ -193,7 +194,7 @@ def _collect_cleaned_impacts(
     for article_batch in article_batches:
         for article in article_batch:
             single_article_batch = [article]
-            raw_response, batch_impacts = _classify_article_batch(
+            answer, batch_impacts = _classify_article_batch(
                 single_article_batch,
                 sector=sector,
                 industries=industries,
@@ -233,15 +234,14 @@ def _collect_cleaned_impacts(
                     "No valid industry impacts were extracted for sector %s from article %s. Raw model response: %s",
                     sector["sector_key"],
                     int(article["article_id"]),
-                    raw_response,
+                    answer.text,
                 )
 
             save_industry_opportunist_batch_results(
                 single_article_batch,
                 batch_cleaned_impacts,
                 valid_industry_ids=valid_industry_ids,
-                model=model,
-                raw_response=raw_response,
+                answer=answer,
             )
 
     return cleaned_impacts

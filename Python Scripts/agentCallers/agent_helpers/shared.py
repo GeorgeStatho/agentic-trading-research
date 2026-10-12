@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import hashlib
@@ -46,6 +46,24 @@ class Client:
     raw_client: Any
     host: str | None = None
     label: str | None = None
+
+
+class ModelQuotaExhausted(RuntimeError):
+    """The provider kept refusing the call for rate or quota limits."""
+
+
+@dataclass(frozen=True)
+class ModelAnswer:
+    text: str
+    provider: str
+    # The model asked, as resolved for the provider; model_version is what the provider reported, if anything.
+    model: str
+    model_version: str | None = None
+    fallback: bool = False
+
+    def record(self) -> dict[str, Any]:
+        return {"provider": self.provider, "model": self.model,
+                "model_version": self.model_version, "fallback": self.fallback}
 
 
 # Both reach Gemini through the google-genai SDK: Vertex with Cloud credentials, gemini with an AI Studio key.
@@ -144,6 +162,24 @@ def _build_openai_client() -> Any:
     return OpenAI(api_key=api_key)
 
 
+def _build_openai_compatible_client() -> Any:
+    if OpenAI is None:
+        raise RuntimeError(
+            "The 'openai' Python package is required for OpenAI-compatible requests. "
+            "Install it in your environment with: pip install openai"
+        )
+
+    base_url = get_settings().openai_compatible.base_url
+    api_key = str(os.getenv("OPENAI_COMPATIBLE_API_KEY") or "").strip()
+    if not base_url or not api_key:
+        raise RuntimeError(
+            "OPENAI_COMPATIBLE_BASE_URL and OPENAI_COMPATIBLE_API_KEY must be set for the 'openai_compatible' provider."
+        )
+
+    # Quota errors are handled by the caller's fallback, so the SDK should not sit retrying them.
+    return OpenAI(base_url=base_url, api_key=api_key, max_retries=0)
+
+
 def _build_llamacpp_client() -> Any:
     if OpenAI is None:
         raise RuntimeError(
@@ -174,9 +210,14 @@ def get_model_client(label: str | None = None, provider: str | None = None) -> C
         base_url = get_settings().llamacpp.base_url
         return Client(provider=provider, raw_client=_build_llamacpp_client(), host=base_url, label=base_url)
 
+    if provider == "openai_compatible":
+        base_url = get_settings().openai_compatible.base_url
+        return Client(provider=provider, raw_client=_build_openai_compatible_client(), host=base_url, label=base_url)
+
     if provider != "ollama":
         raise RuntimeError(
-            f"Unsupported LLM_PROVIDER '{provider}'. Expected 'ollama', 'openai', 'llamacpp', 'vertex', or 'gemini'."
+            f"Unsupported LLM_PROVIDER '{provider}'. Expected 'ollama', 'openai', 'llamacpp', "
+            "'openai_compatible', 'vertex', or 'gemini'."
         )
 
     if OllamaClient is None:
@@ -265,6 +306,9 @@ def _record_vertex_response_diagnostic(
             "finish_message": _safe_response_value(getattr(candidate, "finish_message", None)),
         }
     )
+    model_version = getattr(response, "model_version", None)
+    if isinstance(model_version, str) and model_version:
+        response_diagnostic["model_version"] = model_version
     usage = getattr(response, "usage_metadata", None)
     if usage is not None:
         for key in (
@@ -558,7 +602,8 @@ def _ask_vertex_model(
                 )
                 continue
 
-            raise RuntimeError(
+            error_type = ModelQuotaExhausted if _is_vertex_rate_limited(exc) else RuntimeError
+            raise error_type(
                 _build_vertex_error_message(exc, resolved_model, client.provider)
             ) from exc
 
@@ -610,7 +655,7 @@ def _ask_openai_model(
     return content
 
 
-def _ask_llamacpp_model(
+def _ask_chat_completions_model(
     client: Client,
     model: str,
     system_prompt: str,
@@ -618,8 +663,10 @@ def _ask_llamacpp_model(
     *,
     temperature: float,
     response_schema: dict[str, Any] | None,
+    response_diagnostic: dict[str, Any] | None = None,
 ) -> str:
-    # llama-server supports Chat Completions on every build; it compiles a JSON schema into a grammar.
+    # llama-server and hosted OpenAI-compatible APIs share Chat Completions; llama-server compiles
+    # a JSON schema into a grammar.
     request_kwargs: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -634,19 +681,30 @@ def _ask_llamacpp_model(
             "json_schema": {"name": "structured_response", "schema": response_schema},
         }
 
+    is_llamacpp = client.provider == "llamacpp"
     try:
         response = client.raw_client.chat.completions.create(**request_kwargs)
     except Exception as exc:
-        raise RuntimeError(
-            f"Could not complete the llama.cpp request. Verify llama-server is running at {client.label}. {exc}"
-        ) from exc
+        if _extract_status_code(exc) == 429:
+            raise ModelQuotaExhausted(f"{client.label} rate or quota limit hit for model '{model}'. {exc}") from exc
+        if is_llamacpp:
+            raise RuntimeError(
+                f"Could not complete the llama.cpp request. Verify llama-server is running at {client.label}. {exc}"
+            ) from exc
+        raise RuntimeError(f"Could not complete the request to {client.label} for model '{model}'. {exc}") from exc
+
+    reported_model = getattr(response, "model", None)
+    if response_diagnostic is not None and isinstance(reported_model, str) and reported_model:
+        response_diagnostic.update({"provider": client.provider, "model_version": reported_model})
 
     choice = response.choices[0] if response.choices else None
     content = choice.message.content if choice is not None else None
     if not isinstance(content, str) or not content.strip():
         raise RuntimeError(f"Model returned empty content: {response}")
     if choice.finish_reason == "length":
-        raise RuntimeError("llama.cpp truncated the response; raise llama-server's context size (-c).")
+        if is_llamacpp:
+            raise RuntimeError("llama.cpp truncated the response; raise llama-server's context size (-c).")
+        raise RuntimeError(f"{client.label} truncated the response from model '{model}'.")
 
     return content
 
@@ -688,14 +746,15 @@ def ask_llm_model(
             response_diagnostic=response_diagnostic,
         )
 
-    if client.provider == "llamacpp":
-        return _ask_llamacpp_model(
+    if client.provider in {"llamacpp", "openai_compatible"}:
+        return _ask_chat_completions_model(
             client,
             model,
             system_prompt,
             user_prompt,
             temperature=temperature,
             response_schema=response_schema,
+            response_diagnostic=response_diagnostic,
         )
 
     if client.provider != "ollama":
@@ -734,6 +793,52 @@ def ask_llm_model(
         raise RuntimeError(f"Model returned empty content: {response}")
 
     return content
+
+
+_classifier_fallback_client: Client | None = None
+
+
+def _get_classifier_fallback_client() -> Client:
+    global _classifier_fallback_client
+    if _classifier_fallback_client is None:
+        _classifier_fallback_client = get_model_client(provider=get_settings().classifier_fallback.provider)
+    return _classifier_fallback_client
+
+
+def _ask_for_answer(client: Client, model: str, system_prompt: str, user_prompt: str, **request) -> ModelAnswer:
+    diagnostic: dict[str, Any] = {}
+    text = ask_llm_model(client, model, system_prompt, user_prompt, response_diagnostic=diagnostic, **request)
+    return ModelAnswer(text=text, provider=client.provider, model=_resolve_model_name(client.provider, model),
+                       model_version=diagnostic.get("model_version"))
+
+
+def ask_classifier_model(
+    client: Client,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    temperature: float = 0,
+    host_label: str | None = None,
+    response_schema: dict[str, Any] | None = None,
+    thinking_level: str | None = None,
+) -> ModelAnswer:
+    """Ask a news classification stage's model, then CLASSIFIER_FALLBACK_* once its quota is used up.
+
+    The answer names the model that produced it, so stored classifications keep their real source.
+    """
+    try:
+        return _ask_for_answer(client, model, system_prompt, user_prompt, temperature=temperature,
+                               host_label=host_label, response_schema=response_schema, thinking_level=thinking_level)
+    except ModelQuotaExhausted as exc:
+        fallback = get_settings().classifier_fallback
+        if not fallback.provider:
+            raise
+        LOGGER.warning("%s Classifying with the %s fallback model '%s'.", exc, fallback.provider, fallback.model)
+
+    answer = _ask_for_answer(_get_classifier_fallback_client(), fallback.model, system_prompt, user_prompt,
+                             temperature=temperature, response_schema=response_schema)
+    return replace(answer, fallback=True)
 
 
 def ask_ollama_model(

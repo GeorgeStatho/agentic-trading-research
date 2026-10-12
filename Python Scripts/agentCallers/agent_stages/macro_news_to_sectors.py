@@ -16,7 +16,8 @@ from agent_helpers.macro_news import (
 from agent_helpers.shared import (
     GOOGLE_GENAI_PROVIDERS,
     Client,
-    ask_llm_model,
+    ModelAnswer,
+    ask_classifier_model,
     build_token_limited_batches,
     extract_json_object,
     get_model_client,
@@ -76,8 +77,8 @@ def _configure_console_logging() -> None:
     )
 
 
-def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> str:
-    return ask_llm_model(
+def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> ModelAnswer:
+    return ask_classifier_model(
         client,
         model,
         system_prompt,
@@ -196,23 +197,23 @@ def _classify_article_batch(
     news_scope: str,
     client: Client,
     model: str,
-) -> tuple[str, list[dict[str, Any]]]:
+) -> tuple[ModelAnswer, list[dict[str, Any]]]:
     # Classify the current batch and return normalized results that the caller can merge or persist.
     system_prompt, user_prompt = build_macro_news_to_sectors_prompt(
         article_batch,
         sectors,
         news_scope=news_scope,
     )
-    raw_response = ask_model(
+    answer = ask_model(
         client=client,
         model=model,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
     )
 
-    parsed = extract_json_object(raw_response)
+    parsed = extract_json_object(answer.text)
     pairs = _extract_pairs(parsed)
-    return raw_response, pairs if isinstance(pairs, list) else []
+    return answer, pairs if isinstance(pairs, list) else []
 
 
 def _normalize_pair(
@@ -296,7 +297,7 @@ def _collect_cleaned_pairs(
         ):
             time.sleep(get_settings().opportunists.macro_news_batch_pause_seconds)
 
-        raw_response, batch_pairs = _classify_article_batch(
+        answer, batch_pairs = _classify_article_batch(
             article_batch,
             sectors=sectors,
             news_scope=news_scope,
@@ -333,14 +334,13 @@ def _collect_cleaned_pairs(
                 "No valid sector pairs were extracted for %s article batch %s. Raw model response: %s",
                 news_scope,
                 article_ids,
-                raw_response,
+                answer.text,
             )
 
         save_batch_results(
             article_batch,
             batch_cleaned_pairs,
-            model=model,
-            raw_response=raw_response,
+            answer=answer,
             news_scope=news_scope,
         )
 

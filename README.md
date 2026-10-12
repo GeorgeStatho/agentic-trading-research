@@ -315,6 +315,20 @@ COMPANY_OPPURUNTIST_PROVIDER=gemini
 Free-tier quotas are unpublished and can change; a call that hits the daily quota fails at once
 instead of retrying, and the free tier may use prompts for training.
 
+When the quota runs out, the classifiers can continue on a second free API. Any OpenAI-compatible
+Chat Completions endpoint works; Mistral's free plan is shown here:
+
+```env
+OPENAI_COMPATIBLE_BASE_URL=https://api.mistral.ai/v1
+OPENAI_COMPATIBLE_API_KEY=your-mistral-key
+CLASSIFIER_FALLBACK_PROVIDER=openai_compatible
+CLASSIFIER_FALLBACK_MODEL=mistral-small-latest
+```
+
+Each `*_article_processing` row stores the model that actually classified the article in `model`,
+and `raw_json.answered_by` adds the provider, the version the provider reported, and whether the
+fallback answered.
+
 Local Docker note:
 
 - the containers mount the host ADC directory from `~/.config/gcloud`
