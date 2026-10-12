@@ -315,14 +315,14 @@ COMPANY_OPPURUNTIST_PROVIDER=gemini
 Free-tier quotas are unpublished and can change; a call that hits the daily quota fails at once
 instead of retrying, and the free tier may use prompts for training.
 
-When the quota runs out, the classifiers can continue on a second free API. Any OpenAI-compatible
-Chat Completions endpoint works; Mistral's free plan is shown here:
+When the quota runs out, the classifiers continue down an ordered list of fallbacks. Free Gemini
+quotas are counted per model, so another Flash-Lite version is a fresh allowance; after that, any
+OpenAI-compatible Chat Completions endpoint works (Mistral's free plan shown here):
 
 ```env
 OPENAI_COMPATIBLE_BASE_URL=https://api.mistral.ai/v1
 OPENAI_COMPATIBLE_API_KEY=your-mistral-key
-CLASSIFIER_FALLBACK_PROVIDER=openai_compatible
-CLASSIFIER_FALLBACK_MODEL=mistral-small-latest
+CLASSIFIER_FALLBACKS=gemini:gemini-3.5-flash-lite,openai_compatible:mistral-small-latest
 ```
 
 Each `*_article_processing` row stores the model that actually classified the article in `model`,

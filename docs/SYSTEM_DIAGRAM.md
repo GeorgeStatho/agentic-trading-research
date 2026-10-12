@@ -546,7 +546,7 @@ All model calls go through `agent_helpers/shared.py`
 (`get_model_client`, `ask_llm_model`), which picks Vertex AI, the Gemini API (AI Studio key),
 OpenAI, llama.cpp or Ollama from each stage's `<STAGE>_PROVIDER`, falling back to `LLM_PROVIDER`,
 and the per-stage model settings in `services.settings.get_settings()`. The news classifiers call
-`ask_classifier_model()`, which moves a quota-refused call to `CLASSIFIER_FALLBACK_PROVIDER` and returns
+`ask_classifier_model()`, which moves a quota-refused call down the `CLASSIFIER_FALLBACKS` models in order and returns
 the model that answered, for storage with the classification.
 
 ```mermaid

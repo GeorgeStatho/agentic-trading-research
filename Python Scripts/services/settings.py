@@ -145,21 +145,28 @@ class OpenAICompatibleSettings:
 
 
 @dataclass(frozen=True)
-class ClassifierFallbackSettings:
-    """Answers news classification calls once the stage's provider reports its quota used up.
+class FallbackModel:
+    provider: str
+    model: str
 
-    A blank provider disables the fallback.
+
+@dataclass(frozen=True)
+class ClassifierFallbackSettings:
+    """Models that answer a news classification call, in order, once the one before refuses it for quota.
+
+    CLASSIFIER_FALLBACKS is a comma-separated list of provider:model; empty disables the fallback.
     """
-    provider: str = ""
-    model: str = ""
+    chain: tuple[FallbackModel, ...] = ()
 
     @classmethod
     def from_environ(cls, environ) -> "ClassifierFallbackSettings":
-        provider = environ.get("CLASSIFIER_FALLBACK_PROVIDER", "").strip().lower()
-        model = environ.get("CLASSIFIER_FALLBACK_MODEL", "").strip()
-        if provider and not model:
-            raise ValueError("CLASSIFIER_FALLBACK_MODEL must be set when CLASSIFIER_FALLBACK_PROVIDER is set")
-        return cls(provider=provider, model=model)
+        chain = []
+        for entry in filter(None, (item.strip() for item in environ.get("CLASSIFIER_FALLBACKS", "").split(","))):
+            provider, _, model = (part.strip() for part in entry.partition(":"))
+            if not provider or not model:
+                raise ValueError(f"CLASSIFIER_FALLBACKS entries must be provider:model, got '{entry}'")
+            chain.append(FallbackModel(provider=provider.lower(), model=model))
+        return cls(chain=tuple(chain))
 
 
 @dataclass(frozen=True)

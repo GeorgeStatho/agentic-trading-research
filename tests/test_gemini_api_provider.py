@@ -14,6 +14,9 @@ DAILY_QUOTA_ERROR = ("429 RESOURCE_EXHAUSTED. Quota exceeded for metric generate
                      "quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier")
 MINUTE_QUOTA_ERROR = ("429 RESOURCE_EXHAUSTED. Quota exceeded for metric generate_content_free_tier_requests, "
                       "quotaId: GenerateRequestsPerMinutePerProjectPerModel-FreeTier")
+STRICT_SCHEMA = {"type": "object", "properties": {"pairs": {"type": "array", "items": {
+    "type": "object", "properties": {"sector_id": {"type": "integer"}}, "additionalProperties": False}}},
+    "required": ["pairs"], "additionalProperties": False}
 FAST_RETRIES = VertexSettings(max_attempts=3, retry_initial_delay_seconds=0.5, retry_max_delay_seconds=0.5,
                               explicit_cache=False, cache_ttl_seconds=900)
 
@@ -89,6 +92,21 @@ class GeminiRequestTests(unittest.TestCase):
         with patch.object(shared, "default_vertex_model", return_value="gemini-default"):
             ask(client, model="llama3.1")
         self.assertEqual(client.raw_client.models.generate_content.call_args.kwargs["model"], "gemini-default")
+
+    def test_schema_goes_in_the_json_schema_field(self):
+        client = gemini_client(SimpleNamespace(text="{}"))
+        with use_settings(vertex=FAST_RETRIES):
+            ask_llm_model(client, "gemini-3.1-flash-lite", "system", "user", response_schema=STRICT_SCHEMA)
+        config = client.raw_client.models.generate_content.call_args.kwargs["config"]
+        self.assertEqual((config.response_json_schema, config.response_schema), (STRICT_SCHEMA, None))
+
+    def test_vertex_keeps_the_response_schema_field(self):
+        client = gemini_client(SimpleNamespace(text="{}"))
+        client.provider = "vertex"
+        with use_settings(vertex=FAST_RETRIES):
+            ask_llm_model(client, "gemini-3.1-flash-lite", "system", "user", response_schema=STRICT_SCHEMA)
+        config = client.raw_client.models.generate_content.call_args.kwargs["config"]
+        self.assertIsNone(config.response_json_schema)
 
     def test_per_minute_quota_is_retried(self):
         client = gemini_client(RuntimeError(MINUTE_QUOTA_ERROR), SimpleNamespace(text="{}"))

@@ -49,7 +49,7 @@ class Client:
 
 
 class ModelQuotaExhausted(RuntimeError):
-    """The provider kept refusing the call for rate or quota limits."""
+    """The provider kept refusing the call for rate, quota or capacity limits."""
 
 
 @dataclass(frozen=True)
@@ -380,6 +380,15 @@ def _is_vertex_rate_limited(exc: Exception) -> bool:
     return "RESOURCE_EXHAUSTED" in message or "RATE LIMIT" in message
 
 
+def _is_overloaded(exc: Exception) -> bool:
+    # 503 UNAVAILABLE ("experiencing high demand") is temporary; the free Gemini API returns it often.
+    return _extract_status_code(exc) == 503 or "UNAVAILABLE" in str(exc).upper()
+
+
+def _is_retryable(exc: Exception) -> bool:
+    return (_is_vertex_rate_limited(exc) or _is_overloaded(exc)) and not _is_daily_quota_exhausted(exc)
+
+
 def _is_daily_quota_exhausted(exc: Exception) -> bool:
     # Free-tier quota ids end in PerDay (GenerateRequestsPerDayPerProjectPerModel-FreeTier); retrying cannot help.
     return _is_vertex_rate_limited(exc) and "PERDAY" in str(exc).upper()
@@ -402,6 +411,12 @@ def _build_vertex_error_message(exc: Exception, model_name: str, provider: str =
     if _is_daily_quota_exhausted(exc):
         return (
             f"{service} daily quota exhausted for model '{model_name}'; it resets at midnight Pacific time. "
+            f"Last error: {message}"
+        )
+
+    if _is_overloaded(exc):
+        return (
+            f"{service} is overloaded for model '{model_name}' after {get_settings().vertex.max_attempts} attempts. "
             f"Last error: {message}"
         )
 
@@ -542,7 +557,10 @@ def _ask_vertex_model(
         config_kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_level=level.upper())
     if response_schema is not None:
         config_kwargs["response_mime_type"] = "application/json"
-        config_kwargs["response_schema"] = response_schema
+        # The Gemini API's response_schema rejects additionalProperties, which the stage schemas use;
+        # its JSON Schema field accepts them. Vertex keeps the field production was validated with.
+        schema_field = "response_json_schema" if client.provider == "gemini" else "response_schema"
+        config_kwargs[schema_field] = response_schema
 
     # A cached system instruction is baked into the cache, so it must not also be sent
     # inline -- the provider rejects requests that set both.
@@ -582,15 +600,12 @@ def _ask_vertex_model(
                 config_kwargs["system_instruction"] = system_prompt
                 continue
 
-            if (
-                _is_vertex_rate_limited(exc)
-                and not _is_daily_quota_exhausted(exc)
-                and attempt < get_settings().vertex.max_attempts
-            ):
+            if _is_retryable(exc) and attempt < get_settings().vertex.max_attempts:
                 LOGGER.warning(
-                    "%s rate limit hit for model '%s' (attempt %s/%s). "
+                    "%s %s for model '%s' (attempt %s/%s). "
                     "Sleeping %.1fs before retry.",
                     PROVIDER_DISPLAY_NAMES[client.provider],
+                    "is overloaded" if _is_overloaded(exc) else "rate limit hit",
                     resolved_model,
                     attempt,
                     get_settings().vertex.max_attempts,
@@ -603,7 +618,7 @@ def _ask_vertex_model(
                 )
                 continue
 
-            error_type = ModelQuotaExhausted if _is_vertex_rate_limited(exc) else RuntimeError
+            error_type = ModelQuotaExhausted if _is_vertex_rate_limited(exc) or _is_overloaded(exc) else RuntimeError
             raise error_type(
                 _build_vertex_error_message(exc, resolved_model, client.provider)
             ) from exc
@@ -796,14 +811,13 @@ def ask_llm_model(
     return content
 
 
-_classifier_fallback_client: Client | None = None
+_classifier_fallback_clients: dict[str, Client] = {}
 
 
-def _get_classifier_fallback_client() -> Client:
-    global _classifier_fallback_client
-    if _classifier_fallback_client is None:
-        _classifier_fallback_client = get_model_client(provider=get_settings().classifier_fallback.provider)
-    return _classifier_fallback_client
+def _get_classifier_fallback_client(provider: str) -> Client:
+    if provider not in _classifier_fallback_clients:
+        _classifier_fallback_clients[provider] = get_model_client(provider=provider)
+    return _classifier_fallback_clients[provider]
 
 
 def _ask_for_answer(client: Client, model: str, system_prompt: str, user_prompt: str, **request) -> ModelAnswer:
@@ -824,22 +838,26 @@ def ask_classifier_model(
     response_schema: dict[str, Any] | None = None,
     thinking_level: str | None = None,
 ) -> ModelAnswer:
-    """Ask a news classification stage's model, then CLASSIFIER_FALLBACK_* once its quota is used up.
+    """Ask a news classification stage's model, then each CLASSIFIER_FALLBACKS model in turn while quota runs out.
 
+    Free tiers count requests per model, so a second model of the same provider is a separate allowance.
     The answer names the model that produced it, so stored classifications keep their real source.
     """
+    request = {"temperature": temperature, "response_schema": response_schema, "thinking_level": thinking_level}
     try:
-        return _ask_for_answer(client, model, system_prompt, user_prompt, temperature=temperature,
-                               host_label=host_label, response_schema=response_schema, thinking_level=thinking_level)
+        return _ask_for_answer(client, model, system_prompt, user_prompt, host_label=host_label, **request)
     except ModelQuotaExhausted as exc:
-        fallback = get_settings().classifier_fallback
-        if not fallback.provider:
-            raise
-        LOGGER.warning("%s Classifying with the %s fallback model '%s'.", exc, fallback.provider, fallback.model)
-
-    answer = _ask_for_answer(_get_classifier_fallback_client(), fallback.model, system_prompt, user_prompt,
-                             temperature=temperature, response_schema=response_schema)
-    return replace(answer, fallback=True)
+        refusal = exc
+    for fallback in get_settings().classifier_fallback.chain:
+        LOGGER.warning("%s Classifying with the %s fallback model '%s'.", refusal, fallback.provider, fallback.model)
+        try:
+            answer = _ask_for_answer(_get_classifier_fallback_client(fallback.provider), fallback.model,
+                                     system_prompt, user_prompt, **request)
+        except ModelQuotaExhausted as exc:
+            refusal = exc
+            continue
+        return replace(answer, fallback=True)
+    raise refusal
 
 
 def ask_ollama_model(
