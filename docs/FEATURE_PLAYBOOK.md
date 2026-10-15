@@ -14,7 +14,7 @@ Use this checklist when adding a feature so implementation remains discoverable 
 
 1. Add tables and indexes to the appropriate schema file with idempotent SQL.
 2. Add database functions under the correct `*_db_modules/` package.
-3. Re-export stable functions through `market_db.py`/`news_db.py` and `db_helpers`.
+3. Import the new functions from their owning module; do not add a re-export. Give store functions `db_path=None`.
 4. Test empty databases, invalid input, and read-after-write behavior.
 
 ## LLM-Assisted Feature

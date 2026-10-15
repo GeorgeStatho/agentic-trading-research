@@ -12,7 +12,7 @@ Phase 0 adds persistence and comparison contracts. It does not enable new data p
 - `services/research_versions.py` hashes evaluator implementation separately from a strategy's manifest. New runs carry an immutable evaluator identity; legacy runs retain their existing broad source checks.
 - `services/evidence_research_policy.py` records non-secret research budgets, provider/adapter inventory, foundation source hashes, and economics assumptions in pipeline manifests. No provider adapters are enabled in Phase 0.
 
-Public storage APIs are exported through `market_db`, `db_helpers.market`, and `db_helpers`. Schema initialization remains the existing `initialize_database` operation; it adds the foundation tables on the next normal initialization. The new foundation tests use isolated databases. For broad existing-suite runs, set `DB_PATH` to a disposable database as some older tests exercise default storage paths.
+Public storage APIs live in `market_db_modules.research_observations` and `market_db_modules.candidate_lifecycle`. Schema initialization remains the existing `initialize_database` operation; it adds the foundation tables on the next normal initialization. The new foundation tests use isolated databases. For broad existing-suite runs, set `DB_PATH` to a disposable database as some older tests exercise default storage paths.
 
 ## Creating shared observations
 
@@ -20,7 +20,8 @@ The company and catalyst must already exist. A future discovery/research produce
 
 ```python
 from research_foundation_contracts import ResearchObservation
-from db_helpers.market import record_research_observation, record_candidate
+from market_db_modules.candidate_lifecycle import record_candidate
+from market_db_modules.research_observations import record_research_observation
 
 observation_id = record_research_observation(
     ResearchObservation(

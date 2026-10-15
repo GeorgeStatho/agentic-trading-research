@@ -6,6 +6,8 @@ from pathlib import Path
 import sqlite3
 import io
 import json
+import re
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -65,7 +67,6 @@ def _project_python_files() -> list[Path]:
     return [
         path for path in sorted(ROOT_DIR.rglob("*.py"))
         if not SKIPPED_DIRS & set(path.relative_to(ROOT_DIR).parts)
-        and path.relative_to(ROOT_DIR).parts[:2] != ("scripts", "codemods")
     ]
 
 
@@ -96,7 +97,7 @@ class PersistenceLayeringTests(unittest.TestCase):
     def test_db_path_is_only_bound_in_db_common(self) -> None:
         roots = [DATA_DIR, ROOT_DIR / "Python Scripts", ROOT_DIR / "api_support", ROOT_DIR / "scripts"]
         paths = [path for root in roots for path in sorted(root.rglob("*.py"))
-                 if "__pycache__" not in path.parts and ROOT_DIR / "scripts" / "codemods" not in path.parents]
+                 if "__pycache__" not in path.parts]
         paths += [ROOT_DIR / "api.py", ROOT_DIR / "portfolio_history_service.py"]
         offenders = [f"{path.relative_to(ROOT_DIR)}:{line}" for path in paths for line in _bound_db_path_lines(path)]
         self.assertEqual(offenders, [])
@@ -172,6 +173,17 @@ class PersistenceLayeringTests(unittest.TestCase):
     def test_facade_files_are_gone(self) -> None:
         facades = ["market_db.py", "news_db.py", "db.py", "db_helpers", "queryDB.py"]
         self.assertEqual([name for name in facades if (DATA_DIR / name).exists()], [])
+
+    def test_docs_do_not_point_at_facades(self) -> None:
+        tracked = subprocess.run(["git", "ls-files", "-z", "*.md"], cwd=ROOT_DIR, capture_output=True, text=True, check=True).stdout
+        facade = re.compile(r"market_db\.py|news_db\.py|db_helpers|Data/db\.py|queryDB")  # not market_db_modules
+        offenders = [
+            f"{name}:{number}"
+            for name in tracked.split("\0") if name and not name.startswith(("docs/archive/", "graft/"))
+            for number, line in enumerate((ROOT_DIR / name).read_text(encoding="utf-8").splitlines(), 1)
+            if facade.search(line)
+        ]
+        self.assertEqual(offenders, [])
 
 
 if __name__ == "__main__":

@@ -1,1 +1,1 @@
-"""Internal modules that back the public `news_db` facade."""
+"""News persistence modules; import from the owning module."""
