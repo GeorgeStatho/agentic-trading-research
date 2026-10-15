@@ -7,7 +7,10 @@ Usage: python3 scripts/codemods/late_bind_db_path.py <dir-or-file>...
   or `Path` annotation becomes optional;
 - `get_connection(DB_PATH)` becomes `get_connection()` and `db_path=DB_PATH` keyword
   arguments in calls are dropped;
-- `DB_PATH` is dropped from `from db_common import ...` once nothing else uses it.
+- `DB_PATH` is dropped from any `from db_common import ...`, top-level or function-local,
+  once nothing else in its scope (the enclosing function, else the file) uses it.
+
+`db_common.DB_PATH` is treated like `DB_PATH` throughout.
 
 Edits are spliced into the original text bottom-up from `ast` positions, so formatting,
 comments and line endings are kept. Prints each changed file.
@@ -24,6 +27,8 @@ OPTIONAL_ANNOTATIONS = {"Path | str": "Path | str | None", "Path": "Path | None"
 
 
 def _is_db_path(node: ast.AST | None) -> bool:
+    if isinstance(node, ast.Attribute):
+        return node.attr == "DB_PATH" and isinstance(node.value, ast.Name) and node.value.id == "db_common"
     return isinstance(node, ast.Name) and node.id == "DB_PATH"
 
 
@@ -47,11 +52,26 @@ class _Source:
         return self.offset(node.end_lineno, node.end_col_offset)
 
 
-def _drop_from_list(source: _Source, items: list[ast.AST], index: int) -> tuple[int, int]:
-    """Span that removes items[index] and one adjacent comma from a comma-separated list."""
-    if index > 0:
-        return source.end(items[index - 1]), source.end(items[index])
-    return source.start(items[index]), source.start(items[index + 1])
+def _drop_from_list(source: _Source, items: list[ast.AST], dropped: set[int]) -> list[tuple[int, int]]:
+    """Spans that remove items[i] for i in dropped, with one adjacent comma per run of them.
+
+    Consecutive drops are merged into one span so the edits never overlap.
+    """
+    spans = []
+    index = 0
+    while index < len(items):
+        if index not in dropped:
+            index += 1
+            continue
+        last = index
+        while last + 1 in dropped:
+            last += 1
+        if index > 0:
+            spans.append((source.end(items[index - 1]), source.end(items[last])))
+        else:
+            spans.append((source.start(items[index]), source.start(items[last + 1])))
+        index = last + 1
+    return spans
 
 
 def _transform(text: str) -> str:
@@ -85,38 +105,59 @@ def _transform(text: str) -> str:
         elif isinstance(node, ast.Call):
             items = sorted(node.args + node.keywords, key=lambda item: (item.lineno, item.col_offset))
             func_name = getattr(node.func, "id", getattr(node.func, "attr", None))
-            for index, item in enumerate(items):
-                drop = (isinstance(item, ast.keyword) and item.arg == "db_path" and _is_db_path(item.value)) or (
-                    func_name == "get_connection" and len(items) == 1 and _is_db_path(item))
-                if not drop:
-                    continue
-                removed_names.add(id(getattr(item, "value", item)))
-                if len(items) == 1:
-                    edits.append((source.end(node.func), source.end(node), "()"))
-                else:
-                    edits.append((*_drop_from_list(source, items, index), ""))
+            dropped = {
+                index for index, item in enumerate(items)
+                if (isinstance(item, ast.keyword) and item.arg == "db_path" and _is_db_path(item.value))
+                or (func_name == "get_connection" and len(items) == 1 and _is_db_path(item))
+            }
+            for index in dropped:
+                removed_names.add(id(getattr(items[index], "value", items[index])))
+            if dropped and len(dropped) == len(items):
+                edits.append((source.end(node.func), source.end(node), "()"))
+            elif dropped:
+                edits += [(*span, "") for span in _drop_from_list(source, items, dropped)]
 
-    still_used = any(
-        (_is_db_path(node) and id(node) not in removed_names)
-        or (isinstance(node, ast.Constant) and node.value == "DB_PATH")
-        for node in ast.walk(tree)
-    )
-    if not still_used:
-        for statement in tree.body:
-            if not (isinstance(statement, ast.ImportFrom) and statement.module == "db_common"):
+    def still_used(scope: ast.AST) -> bool:
+        return any(
+            (isinstance(node, ast.Name) and node.id == "DB_PATH" and id(node) not in removed_names)
+            or (isinstance(node, ast.Constant) and node.value == "DB_PATH")
+            for node in ast.walk(scope)
+        )
+
+    # A function-local import only needs its enclosing function; any other import is
+    # checked against the whole file.
+    def visit_imports(scope: ast.AST, node: ast.AST) -> None:
+        for field in ("body", "orelse", "finalbody", "handlers", "cases"):
+            block = getattr(node, field, None)
+            if not isinstance(block, list):
                 continue
-            names = statement.names
-            for index, alias in enumerate(names):
-                if alias.name != "DB_PATH" or alias.asname:
-                    continue
-                if len(names) == 1:
-                    start = source.line_starts[statement.lineno - 1]
-                    end = source.line_starts[statement.end_lineno] if statement.end_lineno < len(source.line_starts) else len(text)
-                    edits.append((start, end, ""))
-                else:
-                    edits.append((*_drop_from_list(source, names, index), ""))
+            for statement in block:
+                if isinstance(statement, ast.ImportFrom) and statement.module == "db_common":
+                    drop_import(scope, statement, block)
+                inner = statement if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)) else scope
+                visit_imports(inner, statement)
 
-    for start, end, replacement in sorted(edits, reverse=True):
+    def drop_import(scope: ast.AST, statement: ast.ImportFrom, block: list[ast.stmt]) -> None:
+        names = statement.names
+        dropped = {index for index, alias in enumerate(names) if alias.name == "DB_PATH" and not alias.asname}
+        if not dropped or still_used(scope):
+            return
+        if len(dropped) < len(names):
+            edits.extend((*span, "") for span in _drop_from_list(source, names, dropped))
+        elif len(block) == 1:
+            edits.append((source.start(statement), source.end(statement), "pass"))
+        else:
+            start = source.line_starts[statement.lineno - 1]
+            end = source.line_starts[statement.end_lineno] if statement.end_lineno < len(source.line_starts) else len(text)
+            edits.append((start, end, ""))
+
+    visit_imports(tree, tree)
+
+    edits.sort(reverse=True)
+    for (start, end, _), (next_start, _, _) in zip(edits[1:], edits):
+        if end > next_start:
+            raise ValueError(f"overlapping edits at offsets {start}-{end} and {next_start}")
+    for start, end, replacement in edits:
         text = text[:start] + replacement + text[end:]
     return text
 
