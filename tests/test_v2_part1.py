@@ -9,7 +9,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from db_common import get_connection
+from db_common import forget_setup, get_connection
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.history_records import record_manager_decision_history
 from market_db_modules.autopsy import list_decision_autopsy_ledger
@@ -209,6 +209,7 @@ class DatabaseTests(unittest.TestCase):
             for column in ("exit_reason", "closing_order_ids_json"):
                 conn.execute(f"ALTER TABLE manager_decision_history DROP COLUMN {column}")
             conn.execute("DELETE FROM schema_bootstrap")  # older code set this database up
+            forget_setup(self.db)
         for _ in range(2):
             initialize_database(db_path=self.db)
             initialize_news(db_path=self.db)

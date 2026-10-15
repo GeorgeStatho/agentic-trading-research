@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from db_common import get_connection
+from db_common import forget_setup, get_connection
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.trade_executions import record_option_trade_execution
 from market_db_modules.history_records import record_manager_decision_history
@@ -139,6 +139,7 @@ class TelemetryDatabaseTests(unittest.TestCase):
             conn.execute('ALTER TABLE option_trade_executions DROP COLUMN underlying_move_while_working')
             conn.execute('ALTER TABLE manager_decision_history DROP COLUMN pipeline_version_json')
             conn.execute('DELETE FROM schema_bootstrap')  # older code set this database up
+            forget_setup(self.db)
         initialize_database(db_path=self.db)
         initialize_database(db_path=self.db)
         self.assertEqual(self.row('option_trade_executions')['order_id'], 'entry')

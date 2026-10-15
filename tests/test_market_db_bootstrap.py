@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from db_common import get_connection
+from db_common import forget_setup, get_connection
 from market_db_modules.bootstrap import initialize_database
 
 
@@ -31,6 +31,7 @@ class MarketSetupFingerprintTests(unittest.TestCase):
     def test_database_set_up_by_other_files_is_migrated(self):
         with closing(get_connection(self.db_path)) as conn, conn:
             conn.execute("UPDATE schema_bootstrap SET fingerprint = 'older-setup'")
+            forget_setup(self.db_path)
 
         initialize_database(db_path=self.db_path)
 
@@ -42,6 +43,7 @@ class MarketSetupFingerprintTests(unittest.TestCase):
                 "INSERT INTO manager_decision_history (symbol, decision_run_at) VALUES ('AAPL', '2026-06-01T14:00:00+00:00')"
             ).lastrowid
             conn.execute("UPDATE schema_bootstrap SET fingerprint = 'older-setup'")
+            forget_setup(self.db_path)
 
         initialize_database(db_path=self.db_path)
 
@@ -74,6 +76,7 @@ class MarketSetupFingerprintTests(unittest.TestCase):
                     (decision_id, json.dumps({"version": "decision-autopsy-v1", "manager_input": manager_input, "manager_output": {}})),
                 )
             conn.execute("UPDATE schema_bootstrap SET fingerprint = 'older-setup'")
+            forget_setup(self.db_path)
         initialize_database(db_path=self.db_path)
         return inline_id, ledger_only_id
 

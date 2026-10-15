@@ -133,6 +133,46 @@ def record_setup_fingerprint(conn: sqlite3.Connection, name: str, fingerprint: s
                  (name, fingerprint, datetime.now(timezone.utc).isoformat()))
 
 
+# (setup name, realpath, fingerprint) -> (st_dev, st_ino) of the file that was confirmed current.
+# The inode, not a timestamp, because a WAL checkpoint changes the times constantly.
+_CURRENT_SETUPS: dict[tuple[str, str, str], tuple[int, int]] = {}
+
+
+def _setup_key(name: str, db_path: Path | str, fingerprint: str) -> tuple[str, str, str]:
+    return name, os.path.realpath(os.fspath(db_path)), fingerprint
+
+
+def _file_identity(db_path: Path | str) -> tuple[int, int] | None:
+    try:
+        stat = os.stat(db_path)
+    except OSError:
+        return None
+    return stat.st_dev, stat.st_ino
+
+
+def setup_is_current(name: str, db_path: Path | str, fingerprint: str) -> bool:
+    """True when this process already confirmed this very file is set up; a deleted or renamed-over file is not."""
+    identity = _file_identity(db_path)
+    return identity is not None and _CURRENT_SETUPS.get(_setup_key(name, db_path, fingerprint)) == identity
+
+
+def mark_setup_current(name: str, db_path: Path | str, fingerprint: str) -> None:
+    # A path that cannot be stat'ed (":memory:") is never remembered.
+    identity = _file_identity(db_path)
+    if identity is not None:
+        _CURRENT_SETUPS[_setup_key(name, db_path, fingerprint)] = identity
+
+
+def forget_setup(db_path: Path | str | None = None) -> None:
+    """Drop the memo for one database, or for all of them. Call it after restoring a file in place."""
+    if db_path is None:
+        _CURRENT_SETUPS.clear()
+        return
+    real = os.path.realpath(os.fspath(db_path))
+    for key in [key for key in _CURRENT_SETUPS if key[1] == real]:
+        del _CURRENT_SETUPS[key]
+
+
 def validate_sql_identifier(value: str) -> str:
     identifier = str(value or "").strip()
     if not SQL_IDENTIFIER_RE.fullmatch(identifier):

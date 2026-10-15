@@ -5,9 +5,9 @@ from functools import cache
 import sqlite3
 from pathlib import Path
 
-from db_common import (DATA_DIR, applied_setup_fingerprint, get_connection, initialize_schema,
-                       lock_for_migration, record_setup_fingerprint, setup_fingerprint, table_columns,
-                       table_exists)
+from db_common import (DATA_DIR, applied_setup_fingerprint, database_path, get_connection,
+                       initialize_schema, lock_for_migration, mark_setup_current, record_setup_fingerprint,
+                       setup_fingerprint, setup_is_current, table_columns, table_exists)
 from .shared import MACRO_EVENT_COLUMN_TYPES, NEWS_ARTICLE_COLUMN_TYPES, SCHEMA_PATH
 from catalyst_schema import migrate_catalysts
 
@@ -107,10 +107,18 @@ def initialize_database(
 ) -> None:
     """Create and migrate the news schema.
 
-    The agents and scrapers call this once per payload or batch, so the work runs only when
-    the database was last set up by different setup files; otherwise it is one lookup.
+    The agents and scrapers call this once per payload or batch. The work runs only when this
+    process has not already confirmed the file current and the database was last set up by
+    different setup files; otherwise it is one lookup, or none.
     """
+    db_path = database_path(db_path)
     fingerprint = _setup_fingerprint(Path(schema_path).resolve())
+    if not setup_is_current(SETUP_NAME, db_path, fingerprint):
+        _set_up(db_path, schema_path, fingerprint)
+        mark_setup_current(SETUP_NAME, db_path, fingerprint)  # only after success
+
+
+def _set_up(db_path: Path | str, schema_path: Path | str, fingerprint: str) -> None:
     with closing(get_connection(db_path)) as conn:
         if applied_setup_fingerprint(conn, SETUP_NAME) == fingerprint:
             return

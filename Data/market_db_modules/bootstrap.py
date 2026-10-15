@@ -5,9 +5,9 @@ from functools import cache
 import sqlite3
 from pathlib import Path
 
-from db_common import (DATA_DIR, applied_setup_fingerprint, coerce_float, get_connection,
-                       lock_for_migration, record_setup_fingerprint, setup_fingerprint, table_columns,
-                       table_exists)
+from db_common import (DATA_DIR, applied_setup_fingerprint, coerce_float, database_path,
+                       get_connection, lock_for_migration, mark_setup_current, record_setup_fingerprint,
+                       setup_fingerprint, setup_is_current, table_columns, table_exists)
 from .autopsy import backfill_decision_autopsy_ledger, move_payload_copies_out_of_ledger
 from .contract_research import CLUSTER_PATH
 from .entities import add_company, add_industry, add_sector
@@ -126,10 +126,18 @@ def initialize_database(
 ) -> None:
     """Create and migrate the market schema.
 
-    Write paths call this before every write, so the work runs only when the database was
-    last set up by different setup files; otherwise it is one lookup.
+    Write paths call this before every write. The work runs only when this process has not
+    already confirmed the file current and the database was last set up by different setup
+    files; otherwise it is one lookup, or none.
     """
+    db_path = database_path(db_path)
     fingerprint = _setup_fingerprint(Path(schema_path).resolve())
+    if not setup_is_current(SETUP_NAME, db_path, fingerprint):
+        _set_up(db_path, schema_path, fingerprint)
+        mark_setup_current(SETUP_NAME, db_path, fingerprint)  # only after success
+
+
+def _set_up(db_path: Path | str, schema_path: Path | str, fingerprint: str) -> None:
     # sqlite3 keeps a self-referencing statement cache, so a connection left to the garbage
     # collector holds the file open long after the caller is done with it.
     with closing(get_connection(db_path)) as conn, conn:

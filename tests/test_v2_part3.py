@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from db_common import get_connection
+from db_common import forget_setup, get_connection
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.history_records import record_manager_decision_history
 from market_db_modules.trade_executions import record_option_trade_execution
@@ -208,6 +208,7 @@ class CatalystTests(unittest.TestCase):
         with closing(get_connection(self.db)) as conn, conn:
             conn.execute('ALTER TABLE manager_decision_history DROP COLUMN catalyst_family')
             conn.execute('DELETE FROM schema_bootstrap')  # older code set this database up
+            forget_setup(self.db)
         initialize_database(db_path=self.db)
         initialize_database(db_path=self.db)
         with closing(get_connection(self.db)) as conn, conn:

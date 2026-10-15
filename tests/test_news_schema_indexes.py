@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from db_common import get_connection
+from db_common import forget_setup, get_connection
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.article_store import add_news_article
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
@@ -72,6 +72,7 @@ class ArticleContentTableTests(unittest.TestCase):
                 """
             )
             conn.execute("UPDATE schema_bootstrap SET fingerprint = 'older-setup' WHERE name = 'news'")
+            forget_setup(self.db_path)
 
         initialize_news_database(db_path=self.db_path)
 
@@ -115,6 +116,7 @@ class NewsSetupFingerprintTests(unittest.TestCase):
     def test_database_set_up_by_other_files_is_migrated(self):
         with closing(get_connection(self.db_path)) as conn, conn:
             conn.execute("UPDATE schema_bootstrap SET fingerprint = 'older-setup' WHERE name = 'news'")
+            forget_setup(self.db_path)
 
         initialize_news_database(db_path=self.db_path)
 
