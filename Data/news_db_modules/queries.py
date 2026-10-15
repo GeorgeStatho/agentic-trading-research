@@ -3,12 +3,12 @@ from __future__ import annotations
 from contextlib import closing
 from pathlib import Path
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from .bootstrap import initialize_database
 from .shared import normalize_url
 
 
-def list_industry_news_articles(industry_id: int, db_path: Path | str = DB_PATH) -> list[dict]:
+def list_industry_news_articles(industry_id: int, db_path: Path | str | None = None) -> list[dict]:
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
@@ -35,7 +35,7 @@ def list_industry_news_articles(industry_id: int, db_path: Path | str = DB_PATH)
     return [dict(row) for row in rows]
 
 
-def list_company_news_articles(company_id: int, db_path: Path | str = DB_PATH) -> list[dict]:
+def list_company_news_articles(company_id: int, db_path: Path | str | None = None) -> list[dict]:
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
@@ -62,7 +62,7 @@ def list_company_news_articles(company_id: int, db_path: Path | str = DB_PATH) -
     return [dict(row) for row in rows]
 
 
-def get_failed_url(url: str, db_path: Path | str = DB_PATH) -> dict | None:
+def get_failed_url(url: str, db_path: Path | str | None = None) -> dict | None:
     normalized = normalize_url(url)
     if not normalized:
         return None
@@ -95,7 +95,7 @@ def add_failed_url(
     stage: str | None = None,
     error: str | None = None,
     is_permanent: bool = False,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     normalized = normalize_url(url)
@@ -142,7 +142,7 @@ def add_failed_url(
     return cursor.fetchone()["id"]
 
 
-def remove_failed_url(url: str, db_path: Path | str = DB_PATH, conn=None) -> None:
+def remove_failed_url(url: str, db_path: Path | str | None = None, conn=None) -> None:
     normalized = normalize_url(url)
     if not normalized:
         return

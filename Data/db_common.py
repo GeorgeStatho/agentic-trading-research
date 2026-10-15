@@ -86,7 +86,7 @@ def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
     return conn
 
 
-def initialize_schema(db_path: Path | str, schema_path: Path | str) -> None:
+def initialize_schema(db_path: Path | str | None, schema_path: Path | str) -> None:
     schema = Path(schema_path).read_text(encoding="utf-8")
     with closing(get_connection(db_path)) as conn, conn:
         conn.executescript(schema)

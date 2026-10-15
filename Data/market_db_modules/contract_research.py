@@ -4,7 +4,7 @@ import csv
 import json
 from pathlib import Path
 
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 
 CLUSTER_PATH = Path(__file__).resolve().parents[2] / 'config/risk_clusters.csv'
 
@@ -26,7 +26,7 @@ def cluster_mapping_rows():
         return list(csv.DictReader(handle))
 
 
-def get_risk_cluster(symbol, *, db_path=DB_PATH):
+def get_risk_cluster(symbol, *, db_path=None):
     from .bootstrap import initialize_database
     initialize_database(db_path=db_path)
     symbol = str(symbol or '').upper().strip()
@@ -39,14 +39,14 @@ def get_risk_cluster(symbol, *, db_path=DB_PATH):
     return next((row['risk_cluster_id'] for row in cluster_mapping_rows() if row['symbol'] == symbol), None)
 
 
-def record_observation(observation_id, stage, payload, *, observed_at, candidate_id=None, db_path=DB_PATH):
+def record_observation(observation_id, stage, payload, *, observed_at, candidate_id=None, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('''INSERT INTO contract_research_observations VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(observation_id) DO NOTHING''',
             (observation_id, candidate_id, stage, observed_at, 'contract-execution-v2', json_text(payload)))
 
 
-def execution_baseline(*, paper=True, regime_state=None, minimum_fills=30, db_path=DB_PATH):
+def execution_baseline(*, paper=True, regime_state=None, minimum_fills=30, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         rows = [dict(row) for row in conn.execute('''SELECT * FROM option_trade_executions
             WHERE paper=? AND order_side='buy' AND LOWER(order_type)='market' ''', (int(paper),))]
@@ -68,7 +68,7 @@ def execution_baseline(*, paper=True, regime_state=None, minimum_fills=30, db_pa
             'readiness_note': 'Baseline count is necessary, not promotion approval. R1 option counterfactual comparison remains required.'}
 
 
-def contract_report(*, db_path=DB_PATH):
+def contract_report(*, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         coverage = [dict(row) for row in conn.execute('SELECT stage, COUNT(*) AS observations FROM contract_research_observations GROUP BY stage')]
         mapping = [dict(row) for row in conn.execute('SELECT risk_cluster_id, COUNT(*) AS companies FROM companies GROUP BY risk_cluster_id')]

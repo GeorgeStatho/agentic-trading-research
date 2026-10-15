@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 from .bootstrap import initialize_database
 from .shared import normalize_timestamp
 
@@ -15,7 +15,7 @@ def list_frozen_manager_decisions(
     start_at: str | None = None,
     end_at: str | None = None,
     limit: int | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[dict[str, Any]]:
     """Every stored manager decision with its frozen input, oldest first.
 
@@ -51,7 +51,7 @@ def list_frozen_manager_decisions(
     return rows[::-1]
 
 
-def get_saved_bucket_chain(candidate_id: str | None, *, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
+def get_saved_bucket_chain(candidate_id: str | None, *, db_path: Path | str | None = None) -> dict[str, Any] | None:
     """The option chain production re-fetched for its chosen DTE bucket, just before selecting.
 
     The frozen manager input holds only the pre-decision chain, so this is the only record of
@@ -78,7 +78,7 @@ def get_saved_bucket_chain(candidate_id: str | None, *, db_path: Path | str = DB
     return {"target_dte_bucket": recommendation.get("target_dte_bucket"), "option_market": option_market}
 
 
-def get_frozen_strategist_input(candidate_id: str | None, *, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
+def get_frozen_strategist_input(candidate_id: str | None, *, db_path: Path | str | None = None) -> dict[str, Any] | None:
     """The input production's strategist answered for this candidate, or None when it has no completed run."""
     if not candidate_id:
         return None
@@ -95,7 +95,7 @@ def get_frozen_strategist_input(candidate_id: str | None, *, db_path: Path | str
     return payload if isinstance(payload.get("company"), dict) else None
 
 
-def get_candidate_manifest(candidate_id: str | None, *, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
+def get_candidate_manifest(candidate_id: str | None, *, db_path: Path | str | None = None) -> dict[str, Any] | None:
     """The pipeline manifest a candidate ran under: production's settings, not this checkout's."""
     if not candidate_id:
         return None
@@ -105,7 +105,7 @@ def get_candidate_manifest(candidate_id: str | None, *, db_path: Path | str = DB
     return manifest or None
 
 
-def symbols_without_daily_bars(symbols: set[str], *, since: str, db_path: Path | str = DB_PATH) -> set[str]:
+def symbols_without_daily_bars(symbols: set[str], *, since: str, db_path: Path | str | None = None) -> set[str]:
     """Symbols with no stored daily close on or after `since`."""
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn:
@@ -127,7 +127,7 @@ def get_cached_llm_replay(
     model: str,
     prompt_version: str,
     input_hash: str,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> dict[str, Any] | None:
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn:
@@ -149,7 +149,7 @@ def store_cached_llm_replay(
     prompt_version: str,
     input_hash: str,
     output: dict[str, Any],
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> None:
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:

@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, clean_text, coerce_float, get_connection, json_text
+from db_common import clean_text, coerce_float, get_connection, json_text
 from .autopsy import SNAPSHOT_VERSION
 from .bootstrap import initialize_database
 from .shared import coerce_int, find_company_row_by_symbol, normalize_bool_to_int, normalize_timestamp
@@ -19,7 +19,7 @@ from catalyst_schema import stamp_candidate_catalyst
 def record_manager_decision_history(
     history: dict[str, Any],
     *,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int | None:
     if not isinstance(history, dict):
@@ -186,7 +186,7 @@ def update_manager_decision_latest_pnl(
     latest_trade_pnl_updated_at: Any = None,
     pnl_expires_at: Any = None,
     resolved_outcome_label: str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> bool:
     normalized_id = coerce_int(decision_history_id)
@@ -244,7 +244,7 @@ def record_manager_decision_closed_outcome(
     broker_confirmed: bool = False,
     closing_order_ids: list[str] | None = None,
     exit_reason: str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> bool:
     """Persist a closed outcome only after the broker confirms the final exit."""
@@ -314,7 +314,7 @@ def record_manager_decision_closed_outcome(
 def expire_manager_decision_pnl(
     *,
     now: Any = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int:
     expiration_cutoff = normalize_timestamp(now)
@@ -340,7 +340,7 @@ def expire_manager_decision_pnl(
     return int((row["count"] if row is not None else 0) or 0)
 
 
-def list_unresolved_manager_decisions(*, db_path=DB_PATH) -> list[dict]:
+def list_unresolved_manager_decisions(*, db_path=None) -> list[dict]:
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         return [dict(row) for row in conn.execute("""

@@ -2,7 +2,7 @@
 from contextlib import closing
 from datetime import datetime, timedelta
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from research_foundation_contracts import timestamp
 from .foundation_store import digest
 from .company_interest import register_interest
@@ -22,12 +22,12 @@ def enqueue_refresh(conn, company_id, source, source_key, *, at, parent_session_
     return identity
 
 
-def request_company_evidence(company_id, source, source_key, *, at, parent_session_id=None, db_path=DB_PATH):
+def request_company_evidence(company_id, source, source_key, *, at, parent_session_id=None, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         return enqueue_refresh(conn, company_id, source, source_key, at=at, parent_session_id=parent_session_id)
 
 
-def due_refresh_companies(*, at, limit, db_path=DB_PATH):
+def due_refresh_companies(*, at, limit, db_path=None):
     with closing(get_connection(db_path)) as conn:
         return [dict(row) for row in conn.execute('''SELECT c.id,c.symbol,c.name FROM companies c
             JOIN company_evidence_requests r ON r.company_id=c.id
@@ -37,13 +37,13 @@ def due_refresh_companies(*, at, limit, db_path=DB_PATH):
             ORDER BY MAX(r.parent_session_id IS NOT NULL) DESC,MIN(r.requested_at),c.id LIMIT ?''', (at, at, at, limit))]
 
 
-def due_refresh_requests(company_id, *, at, db_path=DB_PATH):
+def due_refresh_requests(company_id, *, at, db_path=None):
     with closing(get_connection(db_path)) as conn:
         return [dict(row) for row in conn.execute('''SELECT * FROM company_evidence_requests
             WHERE company_id=? AND status='pending' AND julianday(next_attempt_at)<=julianday(?)''', (company_id, at))]
 
 
-def finish_refresh_requests(requests, *, at, package_id=None, reason=None, retry_at=None, db_path=DB_PATH):
+def finish_refresh_requests(requests, *, at, package_id=None, reason=None, retry_at=None, db_path=None):
     """Only finish the captured requests; arrivals during a fetch remain pending."""
     with closing(get_connection(db_path)) as conn, conn:
         for request in requests:

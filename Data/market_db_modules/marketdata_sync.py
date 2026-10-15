@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from .backtest_marketdata import fetch_marketdata_eod_option_quotes
 
 
@@ -48,7 +48,7 @@ class EodSyncSettings:
 def run_due_eod_sync(
     settings: EodSyncSettings,
     *,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     now: datetime | None = None,
     fetcher: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:

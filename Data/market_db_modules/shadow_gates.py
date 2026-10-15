@@ -4,7 +4,7 @@ from __future__ import annotations
 from contextlib import closing
 import json
 
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 from .bootstrap import initialize_database
 
 
@@ -30,7 +30,7 @@ def record_decision_gate_verdicts(decision_id, output, *, conn):
               gate.get("policy_version"), json_text(gate)))
 
 
-def backfill_gate_verdicts(*, db_path=DB_PATH):
+def backfill_gate_verdicts(*, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         before = conn.total_changes
@@ -42,7 +42,7 @@ def backfill_gate_verdicts(*, db_path=DB_PATH):
         return conn.total_changes - before
 
 
-def list_shadow_gate_outcomes(*, limit=100, db_path=DB_PATH):
+def list_shadow_gate_outcomes(*, limit=100, db_path=None):
     """Last N executed decisions; unknown outcomes remain explicitly unscored.
 
     Summed percentage-point returns are diagnostic only, not dollar gate value

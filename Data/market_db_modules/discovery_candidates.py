@@ -2,7 +2,7 @@
 from contextlib import closing
 import json
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from research_foundation_contracts import ResearchObservation
 from .discovery_queue import require_discovery_lease
 from .foundation_store import canonical, digest
@@ -11,7 +11,7 @@ from .evidence_refresh import enqueue_refresh
 from .research_work import claim_research_work
 
 
-def persist_discovery_candidate(item, payload, admission, version, *, at, db_path=DB_PATH):
+def persist_discovery_candidate(item, payload, admission, version, *, at, db_path=None):
     event = item['event']
     observation = ResearchObservation(company_id=item['company_id'], symbol=event['company']['symbol'],
                                      catalyst_id=item['catalyst_id'], event_revision=item['evidence_revision'],

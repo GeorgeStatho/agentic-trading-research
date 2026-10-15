@@ -4,14 +4,14 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, clean_text, get_connection
+from db_common import clean_text, get_connection
 from .article_store import add_news_article
 from .bootstrap import initialize_database
 
 
 def load_news_articles(
     articles: list[dict[str, Any]],
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> None:
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:

@@ -5,7 +5,7 @@ from functools import cache
 import sqlite3
 from pathlib import Path
 
-from db_common import (DATA_DIR, DB_PATH, applied_setup_fingerprint, coerce_float, get_connection,
+from db_common import (DATA_DIR, applied_setup_fingerprint, coerce_float, get_connection,
                        lock_for_migration, record_setup_fingerprint, setup_fingerprint, table_columns,
                        table_exists)
 from .autopsy import backfill_decision_autopsy_ledger, move_payload_copies_out_of_ledger
@@ -121,7 +121,7 @@ def _setup_fingerprint(schema_path: Path) -> str:
 
 
 def initialize_database(
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     schema_path: Path | str = SCHEMA_PATH,
 ) -> None:
     """Create and migrate the market schema.

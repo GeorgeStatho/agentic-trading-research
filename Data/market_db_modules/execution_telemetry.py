@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from contextlib import closing
 import json
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 from .bootstrap import initialize_database
 from .telemetry_schema import EXECUTION_COLUMNS
 
 
-def store_execution_telemetry(order_id, telemetry, *, context=None, execution_version=None, conn=None, db_path=DB_PATH):
+def store_execution_telemetry(order_id, telemetry, *, context=None, execution_version=None, conn=None, db_path=None):
     if conn is None:
         initialize_database(db_path=db_path)
         with closing(get_connection(db_path)) as local, local:
@@ -28,7 +28,7 @@ def store_execution_telemetry(order_id, telemetry, *, context=None, execution_ve
                      (*values.values(), order_id))
 
 
-def pending_execution_telemetry(*, db_path=DB_PATH):
+def pending_execution_telemetry(*, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         return [dict(row) for row in conn.execute('''SELECT * FROM option_trade_executions
@@ -36,7 +36,7 @@ def pending_execution_telemetry(*, db_path=DB_PATH):
             ('filled', 'canceled', 'expired', 'rejected', 'replaced') ORDER BY id''')]
 
 
-def execution_telemetry_report(*, start=None, end=None, db_path=DB_PATH):
+def execution_telemetry_report(*, start=None, end=None, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         return [dict(row) for row in conn.execute('''SELECT paper, order_side,

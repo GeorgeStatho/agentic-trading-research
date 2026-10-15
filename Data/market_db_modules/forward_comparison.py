@@ -12,7 +12,7 @@ import random
 from statistics import median
 from zoneinfo import ZoneInfo
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from services.forward_evaluation_policy import AcceptancePolicy
 from services.research_contract import canonical, fingerprint, utc
 from services.research_promotion import source_hash
@@ -175,7 +175,7 @@ def _cohort_facts(conn, cohort_id, at):
     return decisions, evaluations, residuals, latency
 
 
-def comparison_report(cohort_id, *, as_of=None, db_path=DB_PATH, persist=True):
+def comparison_report(cohort_id, *, as_of=None, db_path=None, persist=True):
     initialize_database(db_path=db_path)
     at = utc(as_of or datetime.now(timezone.utc)).isoformat()
     registrations = cohort_registrations(cohort_id, db_path=db_path)
@@ -271,7 +271,7 @@ def comparison_report(cohort_id, *, as_of=None, db_path=DB_PATH, persist=True):
     return report
 
 
-def get_comparison_report(report_id, *, db_path=DB_PATH):
+def get_comparison_report(report_id, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         row = conn.execute('SELECT report_json FROM forward_comparison_reports WHERE report_id=?', (report_id,)).fetchone()
     if row is None:
@@ -294,7 +294,7 @@ def latest_comparisons(conn, *, limit=5):
     return [{key: report.get(key) for key in keys} for report in (json.loads(row['report_json']) for row in rows)]
 
 
-def refresh_comparison_reports(*, as_of=None, db_path=DB_PATH):
+def refresh_comparison_reports(*, as_of=None, db_path=None):
     """One interim report per cohort per day, so evidence is reviewed without anyone asking."""
     at = utc(as_of or datetime.now(timezone.utc))
     with closing(get_connection(db_path)) as conn:
@@ -313,7 +313,7 @@ def refresh_comparison_reports(*, as_of=None, db_path=DB_PATH):
     return results
 
 
-def promote_challenger(report_id, *, db_path=DB_PATH, now=None):
+def promote_challenger(report_id, *, db_path=None, now=None):
     """Record approval evidence. Production keeps its models until the operator switches them."""
     report = get_comparison_report(report_id, db_path=db_path)
     if report['verdict'] != 'accepted' or not report['final']:

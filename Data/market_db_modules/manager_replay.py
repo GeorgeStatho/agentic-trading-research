@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 from .bootstrap import initialize_database
 from .shared import normalize_timestamp
 
@@ -13,7 +13,7 @@ from .shared import normalize_timestamp
 def list_replayable_manager_decisions(
     *,
     limit: int = 100,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[sqlite3.Row]:
     """Return resolved, executed decisions in chronological replay order."""
     initialize_database(db_path=db_path)
@@ -72,7 +72,7 @@ def create_manager_replay_evaluation(
     autopsy_limit: int,
     autopsy_max_age_days: int,
     started_at: Any = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> int:
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
@@ -102,7 +102,7 @@ def record_manager_replay_result(
     autopsy_ids: list[int],
     recommendation: dict[str, Any] | None = None,
     error_text: str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> None:
     if replay_mode not in {
         "baseline",
@@ -139,7 +139,7 @@ def complete_manager_replay_evaluation(
     skipped_decision_count: int,
     metrics: dict[str, Any],
     completed_at: Any = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> None:
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute(

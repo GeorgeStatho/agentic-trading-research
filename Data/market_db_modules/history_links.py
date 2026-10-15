@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, clean_text, get_connection
+from db_common import clean_text, get_connection
 from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
 
@@ -16,7 +16,7 @@ def get_latest_open_manager_decision_for_trade_link(
     symbol: str | None = None,
     selected_option_symbol: str | None = None,
     submitted_at: Any = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> sqlite3.Row | None:
     normalized_option_symbol = clean_text(selected_option_symbol)
@@ -77,7 +77,7 @@ def link_manager_decision_to_trade_execution(
     symbol: str | None = None,
     selected_option_symbol: str | None = None,
     submitted_at: Any = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int | None:
     normalized_order_id = clean_text(trade_execution_order_id)
@@ -131,7 +131,7 @@ def link_manager_decision_to_trade_execution(
 def get_latest_linked_manager_decision_for_option_symbol(
     *,
     selected_option_symbol: str,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> sqlite3.Row | None:
     normalized_option_symbol = clean_text(selected_option_symbol)

@@ -6,11 +6,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, clean_text, get_connection
+from db_common import clean_text, get_connection
 from .shared import coerce_int, normalize_timestamp
 
 
-def list_companies_by_industry(industry_key: str, db_path: Path | str = DB_PATH) -> list[sqlite3.Row]:
+def list_companies_by_industry(industry_key: str, db_path: Path | str | None = None) -> list[sqlite3.Row]:
     with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
             """
@@ -28,7 +28,7 @@ def list_companies_by_industry(industry_key: str, db_path: Path | str = DB_PATH)
 def list_industry_company_rankings(
     industry_key: str,
     ranking_type: str,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[sqlite3.Row]:
     with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
@@ -56,7 +56,7 @@ def list_company_price_snapshots(
     symbol: str,
     *,
     limit: int = 20,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[sqlite3.Row]:
     normalized_symbol = clean_text(symbol)
     if normalized_symbol is None:
@@ -94,7 +94,7 @@ def list_recent_manager_decision_history(
     limit: int = 20,
     within_days: int | None = None,
     include_expired_pnl: bool = False,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[sqlite3.Row]:
     normalized_symbol = clean_text(underlying_symbol)
     normalized_company_id = coerce_int(company_id)
@@ -180,7 +180,7 @@ def list_decision_expectancy_rows(
     *,
     within_days: int = 90,
     as_of: datetime | str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[sqlite3.Row]:
     """Return unmasked executed-decision outcomes for deterministic analytics."""
     normalized_as_of = normalize_timestamp(as_of)
@@ -229,7 +229,7 @@ def list_option_trade_executions(
     underlying_symbol: str | None = None,
     within_days: int | None = None,
     limit: int = 100,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[sqlite3.Row]:
     normalized_symbol = clean_text(underlying_symbol)
     query = """

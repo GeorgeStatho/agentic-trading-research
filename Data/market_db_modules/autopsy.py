@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 from .shared import normalize_timestamp
 
 
@@ -58,7 +58,7 @@ def move_payload_copies_out_of_ledger(conn: sqlite3.Connection) -> None:
 
 def backfill_decision_autopsy_ledger(
     *,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int:
     """Create one snapshot for legacy manager decisions that predate the ledger.
@@ -123,7 +123,7 @@ def list_decision_autopsy_ledger(
     within_days: int | None = None,
     as_of: datetime | str | None = None,
     limit: int = 100,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[sqlite3.Row]:
     where_clauses: list[str] = []
     parameters: list[Any] = []

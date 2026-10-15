@@ -4,12 +4,12 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 from .bootstrap import initialize_database
 import json
 
 
-def record_market_regime_snapshot(snapshot: dict[str, Any], db_path: Path | str = DB_PATH) -> int:
+def record_market_regime_snapshot(snapshot: dict[str, Any], db_path: Path | str | None = None) -> int:
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         cursor = conn.execute(
@@ -29,7 +29,7 @@ def record_market_regime_snapshot(snapshot: dict[str, Any], db_path: Path | str 
         return int(cursor.fetchone()["id"])
 
 
-def get_latest_market_regime_snapshot(db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
+def get_latest_market_regime_snapshot(db_path: Path | str | None = None) -> dict[str, Any] | None:
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         row = conn.execute(
@@ -46,7 +46,7 @@ def get_latest_market_regime_snapshot(db_path: Path | str = DB_PATH) -> dict[str
     return {**record, **snapshot, "market_regime_run_id": record["id"]}
 
 
-def store_regime_bars(symbol, bars, *, provider, db_path=DB_PATH):
+def store_regime_bars(symbol, bars, *, provider, db_path=None):
     """Batch an entire lookback in one transaction; repeated refreshes are safe."""
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
@@ -61,7 +61,7 @@ def store_regime_bars(symbol, bars, *, provider, db_path=DB_PATH):
                bar["close"], bar.get("volume"), provider) for bar in bars])
 
 
-def load_regime_bars(symbol, *, as_of, db_path=DB_PATH):
+def load_regime_bars(symbol, *, as_of, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute("""

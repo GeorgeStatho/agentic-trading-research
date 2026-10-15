@@ -13,7 +13,7 @@ from statistics import median
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
-from db_common import DB_PATH, clean_text, coerce_float, get_connection, json_text, table_exists
+from db_common import clean_text, coerce_float, get_connection, json_text, table_exists
 from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
 from services.option_pricing import (CalibratedOption, black_scholes_price, expiration_close, implied_volatility,
@@ -219,7 +219,7 @@ def record_historical_option_quote(
     quote: dict[str, Any],
     *,
     provider: str,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> int | None:
     option_symbol = clean_text(quote.get("option_symbol") or quote.get("symbol"))
     quote_at = clean_text(quote.get("quote_at") or quote.get("timestamp") or quote.get("captured_at"))
@@ -260,7 +260,7 @@ def record_historical_underlying_bar(
     *,
     provider: str,
     timeframe: str = "1d",
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> int | None:
     symbol = clean_text(bar.get("symbol"))
     bar_at = clean_text(bar.get("bar_at") or bar.get("timestamp") or bar.get("captured_at"))
@@ -298,7 +298,7 @@ def record_historical_option_contract(
     contract: dict[str, Any],
     *,
     provider: str,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> int | None:
     option_symbol = clean_text(contract.get("option_symbol") or contract.get("symbol"))
     underlying_symbol = clean_text(contract.get("underlying_symbol"))
@@ -877,7 +877,7 @@ def simulate_backtest_metrics(
     config: dict[str, Any] | None = None,
     start_at: str | None = None,
     end_at: str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Simulate every decision in the window like run_backtest, without recording a backtest run."""
     initialize_database(db_path=db_path)
@@ -892,7 +892,7 @@ def run_backtest(
     start_at: str | None = None,
     end_at: str | None = None,
     limit: int | None = 250,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> dict[str, Any]:
     def simulate(conn: sqlite3.Connection) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         return _simulate_decisions(conn, resolved_config, start_at=start_at, end_at=end_at, limit=limit)
@@ -906,7 +906,7 @@ def run_decision_backtest(
     *,
     config: dict[str, Any] | None = None,
     extra_metrics: dict[str, Any] | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Simulate supplied decisions, such as a replayed model's, and record them as a backtest run.
 
@@ -967,7 +967,7 @@ def _record_backtest_run(
     return get_backtest_run(run_id, db_path=db_path)
 
 
-def list_backtest_runs(*, limit: int = 25, db_path: Path | str = DB_PATH) -> list[dict[str, Any]]:
+def list_backtest_runs(*, limit: int = 25, db_path: Path | str | None = None) -> list[dict[str, Any]]:
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
@@ -977,7 +977,7 @@ def list_backtest_runs(*, limit: int = 25, db_path: Path | str = DB_PATH) -> lis
     return [{**dict(row), "metrics": _json_object(row["metrics_json"]), "config": _json_object(row["config_json"])} for row in rows]
 
 
-def get_backtest_run(run_id: int, *, db_path: Path | str = DB_PATH) -> dict[str, Any]:
+def get_backtest_run(run_id: int, *, db_path: Path | str | None = None) -> dict[str, Any]:
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         run = conn.execute("SELECT * FROM backtest_runs WHERE id = ?", (int(run_id),)).fetchone()

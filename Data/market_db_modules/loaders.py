@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, clean_text, coerce_float, get_connection
+from db_common import clean_text, coerce_float, get_connection
 from .bootstrap import initialize_database
 from .entities import add_company, add_industry, add_sector, replace_industry_company_rankings
 from .shared import SECTOR_DEFINITIONS_PATH
@@ -14,7 +14,7 @@ from .shared import SECTOR_DEFINITIONS_PATH
 
 def load_sector_definitions(
     sector_definitions: dict[str, dict[str, Any]],
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> None:
     initialize_database(db_path=db_path)
 
@@ -42,7 +42,7 @@ def load_sector_definitions(
 
 def load_sector_definitions_from_json(
     json_path: Path | str = SECTOR_DEFINITIONS_PATH,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> None:
     payload = json.loads(Path(json_path).read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
@@ -133,7 +133,7 @@ def _load_industry_rankings(
 
 def load_sector_tree(
     sector_tree: dict[str, dict[str, Any]],
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> None:
     initialize_database(db_path=db_path)
 
@@ -184,7 +184,7 @@ def load_sector_tree(
 
 def load_sector_tree_from_json(
     json_path: Path | str,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> None:
     payload = json.loads(Path(json_path).read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
