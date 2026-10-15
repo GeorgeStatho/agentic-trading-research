@@ -20,7 +20,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific te
     build_v2_status_payload = None
     FLASK_AVAILABLE = False
 
-from db_common import get_connection
+from db_common import get_connection, use_database
 from market_db_modules.bootstrap import initialize_database
 from services.contract_policy import ContractPolicy
 from services.research_promotion import policy_hash, source_hash
@@ -117,6 +117,19 @@ class V2StatusTests(unittest.TestCase):
         self.assertEqual(stage["superseded_proofs"], 0)
         # The second stage of the same control has no proof of its own.
         self.assertFalse(_stage(self._payload(), "liquidity", "EXECUTION_LIQUIDITY")["enforcement_allowed"])
+
+    def test_proof_is_found_in_the_current_database_when_no_path_is_given(self) -> None:
+        self._record_report("report-1", [])
+        expected = policy_hash("LIQUIDITY", ContractPolicy(), source_hash())
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute(
+                "INSERT INTO research_gate_promotions VALUES (?,?,?,?,?,?)",
+                ("LIQUIDITY", expected, "report-1", RECENT, 120, 250.0),
+            )
+
+        with use_database(self.db):
+            payload = build_v2_status_payload()
+        self.assertTrue(_stage(payload, "liquidity", "LIQUIDITY")["enforcement_allowed"])
 
     def test_proof_recorded_under_other_thresholds_is_counted_as_superseded(self) -> None:
         self._record_report("report-1", [])

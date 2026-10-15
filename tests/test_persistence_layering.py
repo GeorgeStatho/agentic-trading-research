@@ -91,7 +91,7 @@ class PersistenceLayeringTests(unittest.TestCase):
         offenders = []
         for path in paths:
             for node in ast.walk(ast.parse(path.read_bytes())):
-                if isinstance(node, ast.Call) and node.args and _is_db_path(node.args[0]):
+                if isinstance(node, ast.Call) and any(_is_db_path(a) for a in node.args + [k.value for k in node.keywords]):
                     offenders.append(f"{path.relative_to(ROOT_DIR)}:{node.lineno}")
             offenders += [f"{path.relative_to(ROOT_DIR)}:{line}" for line in _db_path_defaults(path)]
         self.assertEqual(offenders, [])
