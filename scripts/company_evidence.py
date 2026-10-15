@@ -12,7 +12,7 @@ def main():
     replay.add_argument('package_id')
     replay.add_argument('--as-of', help='Default: the original package cutoff')
     args = parser.parse_args()
-    db_path = args.db
+    db_path = args.db or None
     if args.command == 'collect':
         from services.company_evidence_service import collect_company_evidence
         result = collect_company_evidence(db_path=db_path)

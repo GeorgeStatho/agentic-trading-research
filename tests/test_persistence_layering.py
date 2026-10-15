@@ -4,11 +4,14 @@ import ast
 from contextlib import closing
 from pathlib import Path
 import sqlite3
+import io
+import json
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import db_common
-from db_common import use_database
+from db_common import database_path, use_database
 from market_db_modules import bootstrap as market_bootstrap
 from market_db_modules import entities
 from news_db_modules import article_store
@@ -112,6 +115,16 @@ class PersistenceLayeringTests(unittest.TestCase):
     def test_research_session_lock_defaults_to_the_current_database(self) -> None:
         with use_database(self.tmp / "lock.db"), research_session_lock(None, "x:y"):
             self.assertTrue((self.tmp / ".research-locks" / "x_y").exists())
+
+    def test_empty_db_argument_means_the_current_database(self) -> None:
+        from scripts import discovery
+        db_path = self.tmp / "script.db"
+        with use_database(db_path), patch("sys.argv", ["discovery", "--db", "", "status"]), \
+                patch("market_db_modules.discovery_queue.discovery_queue_status",
+                      lambda db_path=None: {"db": str(database_path(db_path))}), \
+                patch("sys.stdout", new_callable=io.StringIO) as out:
+            discovery.main()
+        self.assertEqual(json.loads(out.getvalue()), {"db": str(db_path)})
 
     def test_store_functions_follow_use_database(self) -> None:
         db_path = self.tmp / "market.db"

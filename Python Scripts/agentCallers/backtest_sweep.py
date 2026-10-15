@@ -200,7 +200,7 @@ def print_report(baseline: SweepRow, best: list[SweepRow], *, rank_by: str, vali
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Grid-search backtest exit and execution settings.")
-    parser.add_argument("--db", type=Path, default=None, help="SQLite database; defaults to DB_PATH.")
+    parser.add_argument("--db", type=Path, default=None, help="SQLite database; defaults to the current database (the DB_PATH env value).")
     parser.add_argument(
         "--setting", action="append", type=parse_setting, metavar="NAME=V1,V2,...",
         help=f"A setting and the values to try; repeat for each. Default grid: {DEFAULT_GRID}.",
