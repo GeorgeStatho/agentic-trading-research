@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-from contextlib import closing
+from collections.abc import Iterable, Iterator
+from contextlib import closing, contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
@@ -38,7 +40,39 @@ def _enable_wal(conn: sqlite3.Connection, db_key: str) -> None:
         _WAL_ENABLED_PATHS.add(db_key)
 
 
-def get_connection(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
+@dataclass(frozen=True)
+class Database:
+    path: Path
+
+    def connect(self) -> sqlite3.Connection:
+        return get_connection(self.path)
+
+
+DEFAULT_DATABASE = Database(DB_PATH)
+# Per-context override, so other threads keep seeing the process default.
+_CURRENT_DATABASE: ContextVar[Database | None] = ContextVar("current_database", default=None)
+
+
+def current_database() -> Database:
+    return _CURRENT_DATABASE.get() or DEFAULT_DATABASE
+
+
+@contextmanager
+def use_database(db_path: Path | str) -> Iterator[Database]:
+    database = Database(Path(db_path))
+    token = _CURRENT_DATABASE.set(database)
+    try:
+        yield database
+    finally:
+        _CURRENT_DATABASE.reset(token)
+
+
+def database_path(db_path: Path | str | None = None) -> Path | str:
+    return current_database().path if db_path is None else db_path
+
+
+def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
+    db_path = database_path(db_path)
     conn = sqlite3.connect(db_path, timeout=DB_TIMEOUT_SECONDS)
     conn.row_factory = sqlite3.Row
     # Writes here always read before they insert, so a deferred transaction would have to
