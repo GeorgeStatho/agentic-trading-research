@@ -27,7 +27,7 @@ def main():
         os.environ["DB_PATH"] = str(Path(args.db).resolve())
     logging.basicConfig(level=logging.INFO)
     if args.command == "outcomes":
-        from db_helpers.market import list_unresolved_manager_decisions
+        from market_db_modules.history_records import list_unresolved_manager_decisions
         from services.outcome_reconciliation import reconcile_closed_outcomes
         from services.trading_gateway import AlpacaTradingGateway
         if not list_unresolved_manager_decisions():
@@ -41,13 +41,13 @@ def main():
                 gateway=gateway, trading_client=gateway.create_client(), apply=args.apply,
             )
     elif args.command == "provenance":
-        from db_helpers.news import backfill_news_provenance
+        from news_db_modules.provenance import backfill_news_provenance
         result = backfill_news_provenance()
     elif args.command == "regime":
         from services.market_regime import build_market_regime_snapshot
         result = build_market_regime_snapshot()
     else:
-        from db_helpers.market import backfill_gate_verdicts, list_shadow_gate_outcomes
+        from market_db_modules.shadow_gates import backfill_gate_verdicts, list_shadow_gate_outcomes
         result = {"verdicts_backfilled": backfill_gate_verdicts(),
                   "outcomes": list_shadow_gate_outcomes(limit=args.limit)}
     print(json.dumps(result, indent=2))

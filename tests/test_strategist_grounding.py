@@ -11,8 +11,8 @@ from agent_stages.strategist_grounding import (
 )
 from agent_stages.strategist_normalization import normalize_recommendation
 from db_common import get_connection
-from market_db import initialize_database as initialize_market_database
-from news_db import initialize_database as initialize_news_database
+from market_db_modules.bootstrap import initialize_database as initialize_market_database
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from news_db_modules.strategist_runs import record_strategist_run
 
 

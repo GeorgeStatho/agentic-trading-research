@@ -21,7 +21,7 @@ from agent_stages.manager import (  # noqa: E402
     replay_manager_decision_from_payload,
 )
 from db_common import DB_PATH  # noqa: E402
-from db_helpers.market import (  # noqa: E402
+from market_db_modules.manager_replay import (  # noqa: E402
     complete_manager_replay_evaluation,
     create_manager_replay_evaluation,
     list_replayable_manager_decisions,

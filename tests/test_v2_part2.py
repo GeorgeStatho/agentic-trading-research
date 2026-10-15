@@ -13,7 +13,9 @@ import unittest
 from unittest.mock import Mock, patch
 
 from db_common import get_connection
-from market_db import initialize_database, record_option_trade_execution, record_manager_decision_history
+from market_db_modules.bootstrap import initialize_database
+from market_db_modules.trade_executions import record_option_trade_execution
+from market_db_modules.history_records import record_manager_decision_history
 from market_db_modules.candidate_lifecycle import (record_candidate, record_candidate_snapshot,
     record_candidate_rejection, load_candidate_lifecycle, candidate_funnel)
 from market_db_modules.execution_telemetry import store_execution_telemetry, execution_telemetry_report

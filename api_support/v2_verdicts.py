@@ -15,7 +15,7 @@ from __future__ import annotations
 from contextlib import closing
 from typing import Any, Iterable
 
-from api_support.context import DB_PATH, get_connection
+from db_common import DB_PATH, get_connection
 from api_support.v2_status import GUARDED_FEATURES, SHADOW_ONLY_FEATURES
 
 # Reuses the rollout view's names so a stage cannot be called two things.

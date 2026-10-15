@@ -12,8 +12,9 @@ from unittest.mock import Mock, patch
 import agent_helpers.sector_opportunist as sector_helpers
 from agent_helpers import shared
 from agent_helpers.shared import Client, ModelAnswer, ModelQuotaExhausted, ask_classifier_model, get_model_client
-from db_helpers import initialize_market_database, initialize_news_database
-from market_db import add_sector
+from market_db_modules.bootstrap import initialize_database as initialize_market_database
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from market_db_modules.entities import add_sector
 from services.settings import (ClassifierFallbackSettings, FallbackModel, OpenAICompatibleSettings, Settings,
                                VertexSettings, use_settings)
 

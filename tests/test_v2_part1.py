@@ -10,11 +10,13 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from db_common import get_connection
-from market_db import (
-    initialize_database, record_manager_decision_history, list_decision_autopsy_ledger,
-    backfill_gate_verdicts, list_shadow_gate_outcomes,
-)
-from news_db import initialize_database as initialize_news, add_company_news_article, add_news_article
+from market_db_modules.bootstrap import initialize_database
+from market_db_modules.history_records import record_manager_decision_history
+from market_db_modules.autopsy import list_decision_autopsy_ledger
+from market_db_modules.shadow_gates import backfill_gate_verdicts, list_shadow_gate_outcomes
+from news_db_modules.bootstrap import initialize_database as initialize_news
+from news_db_modules.entity_articles import add_company_news_article
+from news_db_modules.article_store import add_news_article
 from news_db_modules.provenance import backfill_news_provenance
 from services.outcome_reconciliation import closed_round_trip, reconcile_closed_outcomes
 from services.regime_history import refresh_regime_history

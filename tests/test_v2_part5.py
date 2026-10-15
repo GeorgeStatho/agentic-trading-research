@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from db_common import get_connection
-from market_db import initialize_database
+from market_db_modules.bootstrap import initialize_database
 from market_db_modules.contract_research import execution_baseline, get_risk_cluster, record_observation, contract_report
 from services.contract_policy import ContractPolicy
 from services.liquidity_gate import evaluate_liquidity, filter_liquid_contracts

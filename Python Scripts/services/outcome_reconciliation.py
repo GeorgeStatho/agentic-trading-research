@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 from db_common import DB_PATH
-from db_helpers.market import (
+from market_db_modules.history_records import (
     list_unresolved_manager_decisions,
     record_manager_decision_closed_outcome,
 )

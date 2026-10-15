@@ -13,7 +13,7 @@ import requests
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 DATA_DIR = PROJECT_DIR / "Data"
 
-from db_helpers import load_macro_events
+from news_db_modules.macro import load_macro_events
 
 
 DEFAULT_HEADERS = {

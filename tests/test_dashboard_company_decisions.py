@@ -9,13 +9,11 @@ import unittest
 from unittest.mock import patch
 
 from db_common import get_connection
-from db_helpers import (
-    initialize_market_database,
-    initialize_news_database,
-    record_manager_decision_history,
-    record_strategist_run,
-)
-from market_db import add_company, add_industry, add_sector
+from market_db_modules.bootstrap import initialize_database as initialize_market_database
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from market_db_modules.history_records import record_manager_decision_history
+from news_db_modules.strategist_runs import record_strategist_run
+from market_db_modules.entities import add_company, add_industry, add_sector
 
 
 try:

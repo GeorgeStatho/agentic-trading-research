@@ -10,11 +10,15 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from db_common import get_connection
-from db_helpers import initialize_news_database
-from market_db import (add_company, add_industry, add_sector, initialize_database, record_historical_option_quote,
-                       record_historical_underlying_bar)
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from market_db_modules.entities import add_company, add_industry, add_sector
+from market_db_modules.bootstrap import initialize_database
+from market_db_modules.backtesting import (
+    record_historical_option_quote,
+    record_historical_underlying_bar,
+)
 from datetime import datetime, timezone
-from market_db import fetch_marketdata_eod_quotes_for_contracts
+from market_db_modules.backtest_marketdata import fetch_marketdata_eod_quotes_for_contracts
 from market_db_modules.backtesting import MODELLED_EOD_IV_PRICING_SOURCE, MODELLED_PRICING_SOURCE, run_decision_backtest
 from services import llm_backtest
 from services.config import FrontMainSettings

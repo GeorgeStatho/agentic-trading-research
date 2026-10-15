@@ -21,7 +21,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from api_support.common import safe_float
-from api_support.context import DB_PATH, get_connection, logger
+from db_common import DB_PATH, get_connection
+from api_support.context import logger
 
 DEFAULT_ACTIVITY_WINDOW_DAYS = 30
 DEFAULT_RUN_LIMIT = 5

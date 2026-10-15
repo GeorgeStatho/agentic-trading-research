@@ -4,12 +4,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from api_support.common import safe_float, safe_json_loads
-from api_support.context import (
-    DB_PATH,
-    SELECTED_OPTIONS_OUTPUT_PATH,
-    TRADE_EXECUTION_OUTPUT_PATH,
-    list_option_trade_executions,
-)
+from db_common import DB_PATH
+from api_support.context import SELECTED_OPTIONS_OUTPUT_PATH, TRADE_EXECUTION_OUTPUT_PATH
+from market_db_modules.queries import list_option_trade_executions
 
 EXECUTED_TRADES_MAX_AGE_DAYS = 30
 

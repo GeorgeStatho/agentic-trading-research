@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from db_helpers import DB_PATH, get_telemetry_summary, initialize_market_database, record_telemetry_installation
+from db_common import DB_PATH
+from market_db_modules.telemetry import get_telemetry_summary, record_telemetry_installation
+from market_db_modules.bootstrap import initialize_database as initialize_market_database
 
 
 def _is_bearer_token_authorized(

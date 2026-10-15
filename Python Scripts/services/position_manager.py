@@ -4,11 +4,11 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from db_helpers.market import (
+from market_db_modules.history_records import (
     expire_manager_decision_pnl,
-    get_latest_linked_manager_decision_for_option_symbol,
     update_manager_decision_latest_pnl,
 )
+from market_db_modules.history_links import get_latest_linked_manager_decision_for_option_symbol
 from services.config import FrontMainPaths, FrontMainSettings
 from services.io_utils import JsonFileWriter
 from services.trading_gateway import TradingClient
@@ -275,8 +275,8 @@ class OptionPositionManagerService:
         from services.execution_telemetry import reconcile_execution_telemetry
         from services.position_telemetry import ensure_tracked_positions, refresh_post_exit_returns
         from services.pipeline_version import build_pipeline_version
-        from db_helpers.market import record_position_observation
-        from db_helpers.market import position_entry_context
+        from market_db_modules.position_outcomes import record_position_observation
+        from market_db_modules.position_outcomes import position_entry_context
         management_result["execution_telemetry"] = observe(
             reconcile_execution_telemetry, gateway=self._trading_gateway, trading_client=trading_client)
         observe(ensure_tracked_positions)

@@ -14,7 +14,9 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "Data"
 
 from db_common import get_connection  # noqa: E402
-from market_db import fetch_marketdata_eod_option_quotes, initialize_database, run_backtest, record_historical_option_quote  # noqa: E402
+from market_db_modules.backtest_marketdata import fetch_marketdata_eod_option_quotes  # noqa: E402
+from market_db_modules.bootstrap import initialize_database  # noqa: E402
+from market_db_modules.backtesting import run_backtest, record_historical_option_quote  # noqa: E402
 from market_db_modules.backtest_marketdata import _request_marketdata_quotes  # noqa: E402
 from market_db_modules.marketdata_budget import MarketDataBudget, _window  # noqa: E402
 

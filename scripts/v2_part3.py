@@ -22,8 +22,10 @@ def main():
     load_env_file()
     if args.db:
         os.environ['DB_PATH'] = str(Path(args.db).resolve())
-    from market_db import initialize_database, freshness_outcome_report
-    from news_db import initialize_database as initialize_news, backfill_catalysts, catalyst_family_report
+    from market_db_modules.bootstrap import initialize_database
+    from market_db_modules.catalyst_research import freshness_outcome_report
+    from news_db_modules.bootstrap import initialize_database as initialize_news
+    from news_db_modules.catalysts import backfill_catalysts, catalyst_family_report
     initialize_database()
     initialize_news()
     if args.command == 'backfill':

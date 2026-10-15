@@ -12,7 +12,7 @@ from copy import deepcopy
 import json
 from typing import Any
 
-from db_helpers import get_connection
+from db_common import get_connection
 
 
 VALID_OPPORTUNIST_CONFIDENCE_LEVELS = {"high", "medium", "low"}

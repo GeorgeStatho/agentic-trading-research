@@ -23,8 +23,14 @@ from pipelines._orchestration import (
 )
 from pipelines.job_builder import build_industry_source_jobs, group_jobs_by_url, unique_job_urls
 
-from db_helpers import add_industry_news_article, get_all_industries, get_all_sectors, initialize_news_database
-from db_helpers.market import ensure_all_sector_market_data, ensure_industry_market_data, ensure_sector_market_data
+from news_db_modules.entity_articles import add_industry_news_article
+from market_db_modules.queries import get_all_industries, get_all_sectors
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from market_data.hydration import (
+    ensure_all_sector_market_data,
+    ensure_industry_market_data,
+    ensure_sector_market_data,
+)
 
 
 LOGGER = get_scrape_logger("industry_pipeline")

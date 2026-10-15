@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
-from db_helpers import DB_PATH, get_connection, validate_sql_identifier
+from db_common import DB_PATH, get_connection, validate_sql_identifier
 
 from agent_pipeline.ranking import (
     DEFAULT_TOP_COMPANY_COUNT,

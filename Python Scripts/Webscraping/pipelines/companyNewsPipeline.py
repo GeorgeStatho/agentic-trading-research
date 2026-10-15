@@ -34,14 +34,11 @@ from APIs.gurufocusAPI import get_stock_data as get_gurufocus_stock_data
 from market_data.yFinanceNews import extract_title_and_url, get_company_news_items
 from APIs.morningStarAPI import get_stock_data as get_morningstar_stock_data
 
-from db_helpers import (
-    add_company_news_article,
-    get_all_companies,
-    get_all_industries,
-    initialize_news_database,
-    link_company_to_article,
-)
-from db_helpers.market import ensure_all_sector_market_data, ensure_industry_market_data
+from news_db_modules.entity_articles import add_company_news_article
+from market_db_modules.queries import get_all_companies, get_all_industries
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from news_db_modules.links import link_company_to_article
+from market_data.hydration import ensure_all_sector_market_data, ensure_industry_market_data
 
 
 LOGGER = get_scrape_logger("company_pipeline")
@@ -410,7 +407,7 @@ def _get_top_processed_sector_keys(limit: int) -> list[str]:
     if normalized_limit <= 0:
         return []
 
-    from db_helpers import DB_PATH, get_connection
+    from db_common import DB_PATH, get_connection
 
     with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(
@@ -451,7 +448,7 @@ def _get_top_processed_industry_keys_for_sector(sector_key: str, limit: int) -> 
     if normalized_limit <= 0 or not normalized_sector_key:
         return []
 
-    from db_helpers import DB_PATH, get_connection
+    from db_common import DB_PATH, get_connection
 
     with closing(get_connection(DB_PATH)) as conn, conn:
         rows = conn.execute(

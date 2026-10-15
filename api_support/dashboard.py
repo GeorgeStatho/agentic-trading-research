@@ -8,12 +8,10 @@ from statistics import median
 from zoneinfo import ZoneInfo
 
 from agent_pipeline.ranking import get_current_rankings
-from db_helpers.market import (
-    get_latest_market_regime_snapshot,
-    get_telemetry_summary,
-    list_decision_expectancy_rows,
-)
-from db_helpers import DB_PATH, get_connection
+from market_db_modules.market_regime import get_latest_market_regime_snapshot
+from market_db_modules.telemetry import get_telemetry_summary
+from market_db_modules.queries import list_decision_expectancy_rows
+from db_common import DB_PATH, get_connection
 from performance_metrics import (
     DEFAULT_ANNUAL_RISK_FREE_RATE,
     compute_daily_returns,
@@ -1609,7 +1607,7 @@ def _build_thesis_validator_kpi_payload() -> dict:
 
     mode = str(os.getenv("THESIS_VALIDATOR_MODE", "shadow")).strip().lower() or "shadow"
     try:
-        from db_helpers.market import summarize_thesis_validator_health
+        from market_db_modules.thesis_validator import summarize_thesis_validator_health
 
         health = summarize_thesis_validator_health()
     except Exception as exc:

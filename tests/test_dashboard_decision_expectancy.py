@@ -12,11 +12,9 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "Data"
 
 from db_common import get_connection  # noqa: E402
-from market_db import (  # noqa: E402
-    initialize_database,
-    list_decision_expectancy_rows,
-    record_manager_decision_closed_outcome,
-)
+from market_db_modules.bootstrap import initialize_database  # noqa: E402
+from market_db_modules.queries import list_decision_expectancy_rows  # noqa: E402
+from market_db_modules.history_records import record_manager_decision_closed_outcome  # noqa: E402
 
 try:
     from flask import Flask

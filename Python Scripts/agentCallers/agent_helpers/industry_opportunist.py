@@ -7,15 +7,12 @@ from datetime import datetime
 from typing import Any
 
 from agent_builders.opportunist_payload import build_opportunist_input
-from db_helpers import (
-    DB_PATH,
-    add_industry_opportunist_impact,
-    get_all_industries,
-    get_connection,
-    initialize_news_database,
-    mark_industry_opportunist_article_processed,
-)
-from db_helpers.market import ensure_sector_market_data
+from db_common import DB_PATH, get_connection
+from news_db_modules.impacts import add_industry_opportunist_impact
+from market_db_modules.queries import get_all_industries
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from news_db_modules.processing import mark_industry_opportunist_article_processed
+from market_data.hydration import ensure_sector_market_data
 from agent_helpers.shared import ModelAnswer
 from agent_helpers.opportunist_support import (
     CURRENT_OPPORTUNIST_SCHEMA_VERSION,

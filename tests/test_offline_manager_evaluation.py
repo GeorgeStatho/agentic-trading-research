@@ -11,14 +11,10 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "Data"
 
 from db_common import get_connection  # noqa: E402
-from market_db import (  # noqa: E402
-    add_company,
-    add_industry,
-    add_sector,
-    initialize_database,
-    list_replayable_manager_decisions,
-    record_manager_decision_history,
-)
+from market_db_modules.entities import add_company, add_industry, add_sector  # noqa: E402
+from market_db_modules.bootstrap import initialize_database  # noqa: E402
+from market_db_modules.manager_replay import list_replayable_manager_decisions  # noqa: E402
+from market_db_modules.history_records import record_manager_decision_history  # noqa: E402
 from offline_manager_evaluation import (  # noqa: E402
     build_replay_variants,
     calculate_replay_metrics,

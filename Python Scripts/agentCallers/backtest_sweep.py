@@ -23,7 +23,7 @@ if __name__ == "__main__":
     load_process_settings()
 
 from db_common import DB_PATH  # noqa: E402
-from db_helpers.market import simulate_backtest_metrics  # noqa: E402
+from market_db_modules.backtesting import simulate_backtest_metrics  # noqa: E402
 
 
 SWEEPABLE_SETTINGS = (

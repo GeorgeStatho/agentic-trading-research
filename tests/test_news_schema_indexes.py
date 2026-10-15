@@ -6,8 +6,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from db_common import get_connection
-from market_db import initialize_database as initialize_market_database
-from news_db import add_news_article, initialize_database as initialize_news_database
+from market_db_modules.bootstrap import initialize_database as initialize_market_database
+from news_db_modules.article_store import add_news_article
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
 
 class NewsSchemaIndexTests(unittest.TestCase):

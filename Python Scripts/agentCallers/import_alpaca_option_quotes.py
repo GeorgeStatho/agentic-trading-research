@@ -10,7 +10,7 @@ if __name__ == "__main__":
     # Before importing modules that read configuration at import time.
     load_process_settings()
 
-from db_helpers.market import import_alpaca_option_quote_csv  # noqa: E402
+from market_db_modules.backtest_imports import import_alpaca_option_quote_csv  # noqa: E402
 
 
 def main() -> None:

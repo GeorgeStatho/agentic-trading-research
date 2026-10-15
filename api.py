@@ -21,7 +21,9 @@ from api_routes.thesis_validator import register_thesis_validator_routes
 from api_routes.trades import register_trade_routes
 from api_routes.v2_status import register_v2_status_routes
 from api_routes.forward_evaluation import register_forward_evaluation_routes
-from db_helpers import DB_PATH, initialize_market_database, initialize_news_database
+from db_common import DB_PATH
+from market_db_modules.bootstrap import initialize_database as initialize_market_database
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from services.telemetry import send_startup_ping_async
 
 

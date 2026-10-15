@@ -5,9 +5,13 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from db_common import DB_PATH, get_connection
-from db_helpers.market import ensure_position_outcome, list_post_exit_positions, resolve_post_exit_returns
+from market_db_modules.position_outcomes import (
+    ensure_position_outcome,
+    list_post_exit_positions,
+    resolve_post_exit_returns,
+)
 from services.regime_history import fetch_regime_history
-from db_helpers.market import resolve_position_benchmarks
+from market_db_modules.position_outcomes import resolve_position_benchmarks
 
 
 def ensure_tracked_positions(*, db_path=DB_PATH):

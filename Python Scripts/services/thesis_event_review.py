@@ -17,9 +17,16 @@ from zoneinfo import ZoneInfo
 
 from catalyst_models import timestamp
 from db_common import DB_PATH
-from db_helpers.market import (
-    claim_position_reviews, count_thesis_validator_exits_for_date, find_thesis_event_review, finish_discovery_item,
-    latest_thesis_verdict, list_open_position_theses_for_symbol, record_thesis_event_review, thesis_event_reviews,
+from market_db_modules.discovery_queue import claim_position_reviews, finish_discovery_item
+from market_db_modules.thesis_validator import (
+    count_thesis_validator_exits_for_date,
+    list_open_position_theses_for_symbol,
+)
+from market_db_modules.thesis_event_reviews import (
+    find_thesis_event_review,
+    latest_thesis_verdict,
+    record_thesis_event_review,
+    thesis_event_reviews,
 )
 from market_db_modules.evidence_thesis import latest_strategist_thesis_check
 from market_db_modules.foundation_store import digest

@@ -7,8 +7,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from db_helpers import initialize_market_database, initialize_news_database
-from market_db import add_company, add_industry, add_sector
+from market_db_modules.bootstrap import initialize_database as initialize_market_database
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from market_db_modules.entities import add_company, add_industry, add_sector
 
 
 try:

@@ -8,11 +8,8 @@ from agent_pipeline.main import get_current_pipeline_targets  # compatibility im
 from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 
 from api_support.common import parse_datetime, trim_text
-from api_support.context import (
-    ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE,
-    DB_PATH,
-    get_connection,
-)
+from api_support.context import ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE
+from db_common import DB_PATH, get_connection
 
 VALID_ANALYZED_COMPANY_NEWS_VIEWS = {"company", "sector", "industry", "macro"}
 ANALYZED_COMPANY_NEWS_MAX_ARTICLE_AGE_DAYS = DEFAULT_MAX_ARTICLE_AGE_DAYS * 2

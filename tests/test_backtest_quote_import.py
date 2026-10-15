@@ -10,7 +10,9 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "Data"
 
 from db_common import get_connection  # noqa: E402
-from market_db import import_alpaca_option_quote_csv, initialize_database, run_backtest  # noqa: E402
+from market_db_modules.backtest_imports import import_alpaca_option_quote_csv  # noqa: E402
+from market_db_modules.bootstrap import initialize_database  # noqa: E402
+from market_db_modules.backtesting import run_backtest  # noqa: E402
 
 
 class AlpacaQuoteCsvImportTests(unittest.TestCase):

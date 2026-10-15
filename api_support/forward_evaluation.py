@@ -13,7 +13,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any
 
-from api_support.context import DB_PATH, get_connection
+from db_common import DB_PATH, get_connection
 
 DEFAULT_WINDOW_DAYS = 30
 REQUIRED_TABLES = ("research_run_acceptance", "decision_observations", "forward_comparison_reports",

@@ -5,7 +5,9 @@ from datetime import datetime
 from typing import Any
 
 from agent_helpers.shared import normalize_time_window, published_at_in_window
-from db_helpers import DB_PATH, get_all_sectors, get_connection, initialize_news_database
+from db_common import DB_PATH, get_connection
+from market_db_modules.queries import get_all_sectors
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
 
 DEFAULT_MAX_ARTICLE_AGE_DAYS = 5

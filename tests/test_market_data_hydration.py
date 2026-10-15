@@ -12,14 +12,12 @@ DATA_DIR = ROOT_DIR / "Data"
 
 import market_data.hydration as hydration  # noqa: E402
 from db_common import use_database  # noqa: E402
-from market_db import (  # noqa: E402
-    add_company,
-    add_industry,
-    add_sector,
+from market_db_modules.entities import add_company, add_industry, add_sector  # noqa: E402
+from market_db_modules.refresh_state import (  # noqa: E402
     get_market_data_refresh_state,
-    initialize_database,
     record_market_data_refresh_state,
 )
+from market_db_modules.bootstrap import initialize_database  # noqa: E402
 
 
 class MarketDataHydrationTests(unittest.TestCase):

@@ -12,14 +12,14 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "Data"
 
 from db_common import get_connection  # noqa: E402
-from db_helpers import initialize_news_database  # noqa: E402
-from market_db import (  # noqa: E402
+from news_db_modules.bootstrap import initialize_database as initialize_news_database  # noqa: E402
+from market_db_modules.backtesting import (  # noqa: E402
     get_backtest_run,
-    initialize_database,
     record_historical_option_quote,
     run_backtest,
     simulate_backtest_metrics,
 )
+from market_db_modules.bootstrap import initialize_database  # noqa: E402
 from market_db_modules.backtesting import _apply_portfolio_limits, _merged_config, _metrics  # noqa: E402
 
 

@@ -8,8 +8,9 @@ from typing import Any
 
 from agent_helpers.shared import ask_llm_model, extract_json_object, get_model_client
 from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
-from api_support.context import DB_PATH, get_connection, initialize_market_database
-from db_helpers import initialize_news_database
+from db_common import DB_PATH, get_connection
+from market_db_modules.bootstrap import initialize_database as initialize_market_database
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from services.gemini_models import default_vertex_model
 from services.order_values import normalize_order_side, normalize_order_status
 

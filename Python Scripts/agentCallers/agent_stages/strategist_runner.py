@@ -12,7 +12,9 @@ from agent_builders.strategist_payload import (
     build_strategist_input,
 )
 from agent_helpers.shared import Client, ask_llm_model, extract_json_value, get_model_client
-from db_helpers import add_strategist_company_summary, initialize_news_database, record_strategist_run
+from news_db_modules.impacts import add_strategist_company_summary
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from news_db_modules.strategist_runs import record_strategist_run
 from agent_stages.strategist_grounding import validate_grounded_recommendation
 from agent_stages.strategist_normalization import (
     extract_recommendation,

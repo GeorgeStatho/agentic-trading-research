@@ -9,13 +9,10 @@ from typing import Any
 
 from agent_builders.company_opportunity import get_company_linked_articles, get_industry_company_groups
 from agent_helpers.shared import ModelAnswer, normalize_time_window, published_at_in_window
-from db_helpers import (
-    DB_PATH,
-    add_company_opportunist_impact,
-    get_connection,
-    initialize_news_database,
-    mark_company_opportunist_article_processed,
-)
+from db_common import DB_PATH, get_connection
+from news_db_modules.impacts import add_company_opportunist_impact
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from news_db_modules.processing import mark_company_opportunist_article_processed
 from agent_helpers.opportunist_support import (
     CURRENT_OPPORTUNIST_SCHEMA_VERSION,
     SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,

@@ -25,7 +25,7 @@ def main():
         os.environ['DB_PATH'] = str(Path(args.db).resolve())
     if getattr(args, 'symbol_budget', None) is not None:
         os.environ['V2_RESEARCH_SYMBOL_BUDGET'] = str(args.symbol_budget)
-    from market_db import initialize_database
+    from market_db_modules.bootstrap import initialize_database
     from market_db_modules.pricing_research import pricing_report, catalyst_stats
     from services.pricing_policy import PricingPolicy
     initialize_database()

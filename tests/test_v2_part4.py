@@ -10,8 +10,9 @@ import tempfile
 import unittest
 
 from db_common import get_connection
-from market_db import initialize_database
-from news_db import initialize_database as initialize_news, add_company_news_article
+from market_db_modules.bootstrap import initialize_database
+from news_db_modules.bootstrap import initialize_database as initialize_news
+from news_db_modules.entity_articles import add_company_news_article
 from market_db_modules.candidate_lifecycle import record_candidate
 from market_db_modules.pricing_research import (
     catalyst_stats, register_response_events, store_response, store_history,

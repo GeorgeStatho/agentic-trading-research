@@ -3,7 +3,8 @@ from __future__ import annotations
 from pipelines._regionNewsPipeline import DEFAULT_RSS_MAX_AGE_DAYS, make_region_pipeline
 from pipelines._shared import get_log_file_path
 
-from db_helpers import add_world_news_article, initialize_news_database
+from news_db_modules.global_articles import add_world_news_article
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
 
 WORLD_RSS_FEED_URL = "https://www.cnbc.com/id/100727362/device/rss/rss.html"

@@ -7,7 +7,7 @@ from datetime import timezone
 from urllib.parse import quote_plus
 
 from db_common import get_connection
-from news_db import add_failed_url, get_failed_url, remove_failed_url
+from news_db_modules.queries import add_failed_url, get_failed_url, remove_failed_url
 from processing.news_normalization import normalize_url
 from processing.scoring import (
     compute_directness_score,

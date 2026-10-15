@@ -10,16 +10,16 @@ from unittest.mock import patch
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "Data"
 
-from market_db import (  # noqa: E402
+from market_db_modules.thesis_validator import (  # noqa: E402
     close_position_thesis,
     count_thesis_validator_exits_for_date,
     get_open_position_thesis_for_option_symbol,
     get_thesis_validation_run_for_date,
-    initialize_database,
     record_position_thesis,
     record_thesis_validation_run,
     summarize_thesis_validator_health,
 )
+from market_db_modules.bootstrap import initialize_database  # noqa: E402
 from services.thesis_adjudicator import (  # noqa: E402
     adjudicate_thesis,
     apply_consistency_gate,

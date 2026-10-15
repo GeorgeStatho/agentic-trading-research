@@ -7,7 +7,8 @@ from typing import Any
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "Data"
 
-from market_db import add_company_price_snapshot, load_sector_tree
+from market_db_modules.snapshots import add_company_price_snapshot
+from market_db_modules.loaders import load_sector_tree
 from WritingToDataBase.stringtoJson import generalWrite
 from market_data.yfinance_client import (
     LOGGER,

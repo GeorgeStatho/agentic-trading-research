@@ -5,7 +5,11 @@ from dataclasses import dataclass
 import logging
 from typing import Any
 
-from db_helpers.market import record_candidate, record_candidate_snapshot, record_candidate_rejection
+from market_db_modules.candidate_lifecycle import (
+    record_candidate,
+    record_candidate_snapshot,
+    record_candidate_rejection,
+)
 from services.pipeline_version import build_pipeline_version
 
 LOGGER = logging.getLogger(__name__)

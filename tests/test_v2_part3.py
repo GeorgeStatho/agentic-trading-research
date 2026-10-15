@@ -10,8 +10,12 @@ import unittest
 from unittest.mock import patch
 
 from db_common import get_connection
-from market_db import initialize_database, record_manager_decision_history, record_option_trade_execution
-from news_db import initialize_database as initialize_news, add_company_news_article, add_company_opportunist_impact
+from market_db_modules.bootstrap import initialize_database
+from market_db_modules.history_records import record_manager_decision_history
+from market_db_modules.trade_executions import record_option_trade_execution
+from news_db_modules.bootstrap import initialize_database as initialize_news
+from news_db_modules.entity_articles import add_company_news_article
+from news_db_modules.impacts import add_company_opportunist_impact
 from news_db_modules.catalysts import build_catalyst_state, backfill_catalysts, enrich_impact
 from market_db_modules.candidate_lifecycle import record_candidate, record_candidate_rejection
 from market_db_modules.catalyst_research import record_catalyst_gate_observation, freshness_outcome_report

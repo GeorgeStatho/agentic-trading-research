@@ -282,7 +282,7 @@ def classify_market_regime(
 def _load_macro_calendar() -> tuple[list[dict[str, Any]], str | None]:
     try:
         from db_common import DB_PATH, get_connection
-        from news_db import initialize_database as initialize_news_database
+        from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
         initialize_news_database(db_path=DB_PATH)
         with closing(get_connection(DB_PATH)) as conn, conn:
@@ -401,7 +401,7 @@ def build_market_regime_snapshot(
         snapshot["reason_codes"] = list(dict.fromkeys([*snapshot["reason_codes"], refresh_reason]))
     if persist:
         try:
-            from market_db import record_market_regime_snapshot
+            from market_db_modules.market_regime import record_market_regime_snapshot
 
             snapshot["market_regime_run_id"] = record_market_regime_snapshot(snapshot)
         except Exception as exc:  # pragma: no cover - fail closed snapshot remains usable if audit storage is unavailable

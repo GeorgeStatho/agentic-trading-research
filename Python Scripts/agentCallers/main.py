@@ -21,7 +21,7 @@ from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 from agent_pipeline.main import run_agent_pipeline, run_agent_pipeline_from_existing_data
 from agent_stages.manager import MANAGER_STAGE_VERSION, decide_company_option_position
 from agent_stages.strategist import decide_company_purchase
-from db_helpers.market import record_manager_decision_history
+from market_db_modules.history_records import record_manager_decision_history
 from services.config import AgentPipelineSettings
 from services.market_regime import build_market_regime_snapshot
 from services.market_regime_gate import apply_market_regime_gate_to_manager_result

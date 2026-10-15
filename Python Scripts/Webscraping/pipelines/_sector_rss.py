@@ -6,7 +6,7 @@ import json
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 
-from db_helpers import DATA_DIR
+from db_common import DATA_DIR
 
 
 DEFAULT_RSS_MAX_AGE_DAYS = 3

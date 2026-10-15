@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from agent_helpers.shared import ModelAnswer, parse_published_at
-from db_helpers import DB_PATH, get_all_sectors, get_connection
-from db_helpers import (
-    add_us_news_sector_impact,
-    add_world_news_sector_impact,
+from db_common import DB_PATH, get_connection
+from market_db_modules.queries import get_all_sectors
+from news_db_modules.impacts import add_us_news_sector_impact, add_world_news_sector_impact
+from news_db_modules.processing import (
     mark_us_news_article_processed,
     mark_world_news_article_processed,
 )

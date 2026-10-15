@@ -9,7 +9,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from db_helpers import get_connection, initialize_market_database, initialize_news_database
+from db_common import get_connection
+from market_db_modules.bootstrap import initialize_database as initialize_market_database
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from api_support.exposure_map import (
     build_exposure_map_payload,
     calculate_position_risk_score,

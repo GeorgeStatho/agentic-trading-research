@@ -14,7 +14,7 @@ import math
 
 from catalyst_models import timestamp
 from db_common import DB_PATH
-from db_helpers.news import get_catalyst_revision
+from news_db_modules.catalysts import get_catalyst_revision
 from market_db_modules.foundation_store import digest
 from market_db_modules.pricing_research import catalyst_return_scenarios
 from market_db_modules.trade_economics import get_candidate_economics_report, record_candidate_economics_report

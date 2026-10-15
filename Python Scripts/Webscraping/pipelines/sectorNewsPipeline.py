@@ -19,7 +19,9 @@ from pipelines._sector_rss import (
 )
 from pipelines.job_builder import SectorSourceJob, build_sector_rss_jobs
 
-from db_helpers import add_sector_news_article, get_all_sectors, initialize_news_database
+from news_db_modules.entity_articles import add_sector_news_article
+from market_db_modules.queries import get_all_sectors
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
 
 LOGGER = get_scrape_logger("sector_pipeline")
