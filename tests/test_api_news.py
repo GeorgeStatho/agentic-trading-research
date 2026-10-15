@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from db_common import use_database
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from market_db_modules.entities import add_company, add_industry, add_sector
@@ -54,7 +55,7 @@ class DefaultCompanyListTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            with patch("api_support.news.DB_PATH", db_path):
+            with use_database(db_path):
                 payload = build_analyzed_company_news_payload(page=1, page_size=10)
 
         self.assertEqual([company["symbol"] for company in payload["companies"]], ["AAPL"])
@@ -170,7 +171,7 @@ class ApiNewsTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            with patch("api_support.news.DB_PATH", db_path):
+            with use_database(db_path):
                 payload = build_analyzed_company_news_payload(page=1, page_size=10)
 
         company_articles = payload["companies"][0]["company_news"]["articles"]
@@ -363,7 +364,7 @@ class ApiNewsTests(unittest.TestCase):
                         }
                     ]
                 },
-            ), patch("api_support.news.DB_PATH", db_path):
+            ), use_database(db_path):
                 payload = build_analyzed_company_news_payload(page=1, page_size=10)
 
         self.assertEqual(payload["company_count"], 1)
@@ -524,7 +525,7 @@ class ApiNewsTests(unittest.TestCase):
             with patch(
                 "api_support.news.get_current_pipeline_targets",
                 return_value={"selected_companies": []},
-            ), patch("api_support.news.DB_PATH", db_path):
+            ), use_database(db_path):
                 payload = build_analyzed_company_news_payload(
                     page=1,
                     page_size=10,

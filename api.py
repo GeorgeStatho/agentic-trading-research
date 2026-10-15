@@ -21,7 +21,6 @@ from api_routes.thesis_validator import register_thesis_validator_routes
 from api_routes.trades import register_trade_routes
 from api_routes.v2_status import register_v2_status_routes
 from api_routes.forward_evaluation import register_forward_evaluation_routes
-from db_common import DB_PATH
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from services.telemetry import send_startup_ping_async
@@ -55,7 +54,7 @@ register_forward_evaluation_routes(app)
 
 if __name__ == "__main__":
     # Read routes rely on this one setup instead of re-checking the schema on every request.
-    initialize_market_database(db_path=DB_PATH)
-    initialize_news_database(db_path=DB_PATH)
+    initialize_market_database()
+    initialize_news_database()
     send_startup_ping_async("api", logger=logger)
     app.run(host="0.0.0.0", port=5000, debug=False)

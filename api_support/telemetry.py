@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from db_common import DB_PATH
 from market_db_modules.telemetry import get_telemetry_summary, record_telemetry_installation
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 
@@ -47,8 +46,8 @@ def validate_startup_ping_payload(payload: Any) -> str | None:
 
 
 def record_startup_ping(payload: dict[str, Any]) -> dict[str, Any]:
-    initialize_market_database(db_path=DB_PATH)
-    record = record_telemetry_installation(payload, db_path=DB_PATH)
+    initialize_market_database()
+    record = record_telemetry_installation(payload)
     if record is None:
         raise ValueError("Telemetry payload could not be recorded.")
     return {
@@ -62,6 +61,6 @@ def record_startup_ping(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_telemetry_summary_payload(*, project: str | None = None) -> dict[str, Any]:
-    payload = get_telemetry_summary(project=project, db_path=DB_PATH)
+    payload = get_telemetry_summary(project=project)
     payload["status"] = "ok"
     return payload

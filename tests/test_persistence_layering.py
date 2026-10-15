@@ -86,6 +86,16 @@ class PersistenceLayeringTests(unittest.TestCase):
         ]
         self.assertEqual(offenders, [])
 
+    def test_api_layer_has_no_bound_db_path(self) -> None:
+        paths = sorted((ROOT_DIR / "api_support").rglob("*.py")) + [ROOT_DIR / "api.py"]
+        offenders = []
+        for path in paths:
+            for node in ast.walk(ast.parse(path.read_bytes())):
+                if isinstance(node, ast.Call) and node.args and _is_db_path(node.args[0]):
+                    offenders.append(f"{path.relative_to(ROOT_DIR)}:{node.lineno}")
+            offenders += [f"{path.relative_to(ROOT_DIR)}:{line}" for line in _db_path_defaults(path)]
+        self.assertEqual(offenders, [])
+
     def test_store_functions_follow_use_database(self) -> None:
         db_path = self.tmp / "market.db"
         before = _row_count(db_common.DB_PATH, "sectors")

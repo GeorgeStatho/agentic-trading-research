@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from db_common import get_connection
+from db_common import get_connection, use_database
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from market_db_modules.history_records import record_manager_decision_history
@@ -82,9 +82,7 @@ class DashboardCompanyDecisionsTests(unittest.TestCase):
         self.db_path = Path(self.temp_dir.name) / "company-decisions.db"
         initialize_market_database(db_path=self.db_path)
         initialize_news_database(db_path=self.db_path)
-        db_patch = patch("api_support.dashboard.DB_PATH", self.db_path)
-        db_patch.start()
-        self.addCleanup(db_patch.stop)
+        self.enterContext(use_database(self.db_path))
         self.now = datetime.now(timezone.utc)
 
     def _hours_ago(self, hours: float) -> str:

@@ -7,6 +7,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from db_common import use_database
+
 
 try:
     from flask import Flask
@@ -58,7 +60,7 @@ class ApiTelemetryTests(unittest.TestCase):
                     "TELEMETRY_RECEIVER_AUTH_TOKEN": "",
                 },
                 clear=False,
-            ), patch("api_support.telemetry.DB_PATH", db_path):
+            ), use_database(db_path):
                 first_response = client.post("/api/telemetry/startup", json=first_payload)
                 second_response = client.post("/api/telemetry/startup", json=second_payload)
                 summary_response = client.get("/api/telemetry/summary")
@@ -110,7 +112,7 @@ class ApiTelemetryTests(unittest.TestCase):
             clear=False,
         ):
             db_path = Path(temp_dir) / "telemetry.sqlite3"
-            with patch("api_support.telemetry.DB_PATH", db_path):
+            with use_database(db_path):
                 response = client.post("/api/telemetry/startup", json=payload)
 
         self.assertEqual(response.status_code, 200)

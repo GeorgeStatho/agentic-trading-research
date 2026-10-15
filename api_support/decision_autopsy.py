@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from api_support.common import safe_float, safe_json_loads
-from db_common import DB_PATH
 from api_support.v2_verdicts import shadow_verdicts_for_decisions
 from market_db_modules.autopsy import list_decision_autopsy_ledger
 
@@ -146,12 +145,12 @@ def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
 
 
 def build_decision_autopsy_payload(*, limit: int = 100) -> dict[str, Any]:
-    records = [_serialize_ledger_row(row) for row in list_decision_autopsy_ledger(limit=limit, db_path=DB_PATH)]
+    records = [_serialize_ledger_row(row) for row in list_decision_autopsy_ledger(limit=limit)]
     # One query for the page, not one per record. None means the lifecycle
     # tables cannot be read, which a reader must not mistake for "nothing
     # objected to this decision".
     verdicts = shadow_verdicts_for_decisions(
-        (record["manager_decision_history_id"] for record in records), db_path=DB_PATH
+        (record["manager_decision_history_id"] for record in records)
     )
     for record in records:
         record["v2_verdicts"] = (verdicts or {}).get(record["manager_decision_history_id"], [])

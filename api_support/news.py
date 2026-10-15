@@ -9,7 +9,7 @@ from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 
 from api_support.common import parse_datetime, trim_text
 from api_support.context import ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 
 VALID_ANALYZED_COMPANY_NEWS_VIEWS = {"company", "sector", "industry", "macro"}
 ANALYZED_COMPANY_NEWS_MAX_ARTICLE_AGE_DAYS = DEFAULT_MAX_ARTICLE_AGE_DAYS * 2
@@ -424,7 +424,7 @@ def build_analyzed_company_news_payload(
         article_age_reference_time
         - timedelta(days=ANALYZED_COMPANY_NEWS_MAX_ARTICLE_AGE_DAYS)
     ).isoformat()
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         company_news_source_mode = _resolve_company_news_source_mode(conn)
         normalized_company_lookup = normalize_company_lookup_query(company_lookup)
         company_lookup_by_id: dict[int, dict] = {}

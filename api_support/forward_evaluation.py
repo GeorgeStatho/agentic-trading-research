@@ -13,14 +13,14 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 
 DEFAULT_WINDOW_DAYS = 30
 REQUIRED_TABLES = ("research_run_acceptance", "decision_observations", "forward_comparison_reports",
                    "research_thesis_outcomes")
 
 
-def build_forward_evaluation_payload(*, window_days: int = DEFAULT_WINDOW_DAYS, db_path: Any = DB_PATH) -> dict:
+def build_forward_evaluation_payload(*, window_days: int = DEFAULT_WINDOW_DAYS, db_path: Any = None) -> dict:
     from market_db_modules.discovery_evaluation import route_ledger
     from market_db_modules.forward_comparison import latest_comparisons
     from market_db_modules.forward_evaluation import forward_status_from

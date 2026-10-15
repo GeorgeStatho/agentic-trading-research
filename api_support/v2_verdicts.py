@@ -15,7 +15,7 @@ from __future__ import annotations
 from contextlib import closing
 from typing import Any, Iterable
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from api_support.v2_status import GUARDED_FEATURES, SHADOW_ONLY_FEATURES
 
 # Reuses the rollout view's names so a stage cannot be called two things.
@@ -36,7 +36,7 @@ def _column_exists(conn, table: str, column: str) -> bool:
 
 
 def shadow_verdicts_for_decisions(
-    decision_ids: Iterable[Any], *, db_path=DB_PATH
+    decision_ids: Iterable[Any], *, db_path=None
 ) -> dict[int, list[dict]] | None:
     """Verdicts per `manager_decision_history.id`, or None when unreadable.
 

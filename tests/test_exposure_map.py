@@ -9,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from db_common import get_connection
+from db_common import get_connection, use_database
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from api_support.exposure_map import (
@@ -137,7 +137,7 @@ class ExposureMapTests(unittest.TestCase):
                     ((now - timedelta(days=11)).isoformat(),),
                 ).lastrowid
 
-            with patch("api_support.exposure_map.DB_PATH", db_path):
+            with use_database(db_path):
                 result = list_recent_exposure_articles(now=now)
 
         article_ids = [article["id"] for article in result["articles"]]
@@ -185,7 +185,7 @@ class ExposureMapTests(unittest.TestCase):
                 "position_impacts": [],
                 "uncertainties": ["Company-specific exemptions are unknown."],
             })
-            with patch("api_support.exposure_map.DB_PATH", db_path), patch(
+            with use_database(db_path), patch(
                 "api_support.exposure_map.get_model_client", return_value=object()
             ), patch("api_support.exposure_map.ask_llm_model", return_value=model_response):
                 payload = create_exposure_run(article_id)
@@ -250,7 +250,7 @@ class ExposureMapTests(unittest.TestCase):
                 "position_impacts": [],
                 "uncertainties": [],
             })
-            with patch("api_support.exposure_map.DB_PATH", db_path), patch(
+            with use_database(db_path), patch(
                 "api_support.exposure_map.get_model_client", return_value=object()
             ), patch("api_support.exposure_map.ask_llm_model", return_value=model_response):
                 create_exposure_run(article_id)
