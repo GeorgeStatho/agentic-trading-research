@@ -6,7 +6,6 @@ import logging
 from pathlib import Path
 import sqlite3
 
-from db_common import DB_PATH
 from services.research_contract import fingerprint
 
 
@@ -41,7 +40,7 @@ def policy_hash(stage, policy, code_hash):
     return fingerprint({'stage': stage, 'policy': values, 'code_hash': code_hash})
 
 
-def approved(stage, policy, *, db_path=DB_PATH, code_hash=None):
+def approved(stage, policy, *, db_path=None, code_hash=None):
     """`code_hash` lets a caller checking several stages hash the sources once."""
     try:
         with closing(sqlite3.connect(f'file:{Path(db_path).resolve()}?mode=ro', uri=True)) as conn:
@@ -52,7 +51,7 @@ def approved(stage, policy, *, db_path=DB_PATH, code_hash=None):
         return False
 
 
-def guard_policy(policy, stages, *, db_path=DB_PATH):
+def guard_policy(policy, stages, *, db_path=None):
     enforcing = {field: (required,) if isinstance(required, str) else required
                  for field, required in stages.items() if getattr(policy, field) == 'enforce'}
     if not enforcing:
@@ -101,7 +100,7 @@ def _differing_paths(expected, actual, prefix=''):
     return [] if expected == actual else [prefix or '<root>']
 
 
-def champion_check(candidate, *, db_path=DB_PATH):
+def champion_check(candidate, *, db_path=None):
     """(allowed, reason, differing manifest paths). Research candidates never deploy."""
     context = candidate.get('candidate_context') or {}
     if (candidate.get('research_run_id') or candidate.get('research_strategy')
@@ -126,6 +125,6 @@ def champion_check(candidate, *, db_path=DB_PATH):
     return False, 'champion_manifest_mismatch', _differing_paths(expected, actual)[:CHAMPION_MISMATCH_PATHS]
 
 
-def champion_allows(candidate, *, db_path=DB_PATH):
+def champion_allows(candidate, *, db_path=None):
     """Research candidates never deploy; a promoted manifest owns the capital path."""
     return champion_check(candidate, db_path=db_path)[0]

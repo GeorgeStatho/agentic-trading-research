@@ -11,7 +11,7 @@ import json
 import logging
 from zoneinfo import ZoneInfo
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from market_db_modules.forward_evaluation import claim_mark_session, finish_mark_session
 from market_db_modules.research_runs import DECISION_QUOTE_PROVIDER, collect_active_runs
 from services.forward_evaluation_policy import ForwardEvaluationPolicy
@@ -23,7 +23,7 @@ QUOTE_BATCH = 100
 SYMBOL_LIMIT = 2000
 
 
-def pending_mark_symbols(*, db_path=DB_PATH):
+def pending_mark_symbols(*, db_path=None):
     with closing(get_connection(db_path)) as conn:
         rows = conn.execute('''SELECT DISTINCT json_extract(result_json, '$.option_symbol') AS symbol
             FROM research_shadow_positions WHERE status='pending'
@@ -31,7 +31,7 @@ def pending_mark_symbols(*, db_path=DB_PATH):
     return [row['symbol'] for row in rows]
 
 
-def store_marks(quotes, *, at, db_path=DB_PATH):
+def store_marks(quotes, *, at, db_path=None):
     stored = 0
     with closing(get_connection(db_path)) as conn, conn:
         for symbol, quote in quotes.items():
@@ -70,7 +70,7 @@ def mark_window_opens(close_at, policy):
     return utc(close_at) - timedelta(minutes=policy.mark_lead_minutes)
 
 
-def collect_research_marks(*, at, close_at, fetch_quotes=fetch_latest_option_quotes, policy=None, db_path=DB_PATH):
+def collect_research_marks(*, at, close_at, fetch_quotes=fetch_latest_option_quotes, policy=None, db_path=None):
     policy = policy or ForwardEvaluationPolicy.from_env()
     if not policy.enabled:
         return {'status': 'disabled'}
@@ -97,7 +97,7 @@ def collect_research_marks(*, at, close_at, fetch_quotes=fetch_latest_option_quo
         return {'status': 'failed', 'session_date': session, 'error': str(exc)}
 
 
-def mark_status(*, limit=10, db_path=DB_PATH):
+def mark_status(*, limit=10, db_path=None):
     with closing(get_connection(db_path)) as conn:
         rows = [dict(row) for row in conn.execute(
             'SELECT * FROM research_mark_sessions ORDER BY session_date DESC LIMIT ?', (limit,))]

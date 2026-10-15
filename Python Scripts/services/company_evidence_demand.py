@@ -2,7 +2,7 @@
 from contextlib import closing
 from datetime import datetime, timezone
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from services.company_interest import reconcile_company_interest
 from market_db_modules.company_interest import active_company_ids, register_interest
 from market_db_modules.evidence_refresh import enqueue_refresh
@@ -30,7 +30,7 @@ def enqueue_company_interest(*, at, policy, db_path):
                 enqueue_refresh(conn, company_id, 'active_interest', str(period), at=at)
 
 
-def request_pipeline_evidence(symbols, *, scope='pipeline', at=None, db_path=DB_PATH):
+def request_pipeline_evidence(symbols, *, scope='pipeline', at=None, db_path=None):
     """Use the actual selection, including caller overrides, rather than reranking it."""
     at = timestamp(at or datetime.now(timezone.utc).isoformat())
     policy = CompanyEvidencePolicy.from_env()

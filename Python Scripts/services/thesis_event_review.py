@@ -16,7 +16,6 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from catalyst_models import timestamp
-from db_common import DB_PATH
 from market_db_modules.discovery_queue import claim_position_reviews, finish_discovery_item
 from market_db_modules.thesis_validator import (
     count_thesis_validator_exits_for_date,
@@ -88,7 +87,7 @@ def article_entry(article: dict[str, Any]) -> dict[str, Any]:
             'title': ' '.join(str(article.get('title') or '').split()), 'summary': text[:SUMMARY_MAX_CHARS]}
 
 
-def structured_entry_thesis(thesis: dict[str, Any], *, db_path=DB_PATH) -> dict[str, Any] | None:
+def structured_entry_thesis(thesis: dict[str, Any], *, db_path=None) -> dict[str, Any] | None:
     """Phase 4's checked thesis for the entry decision: observable invalidation conditions, not a template."""
     check = latest_strategist_thesis_check(thesis.get('candidate_id'), db_path=db_path)
     entry = (check or {}).get('thesis')
@@ -141,7 +140,7 @@ class EventThesisReviewService:
     def _now(self) -> str:
         return self._clock().astimezone(timezone.utc).isoformat()
 
-    def run(self, *, positions: list[dict[str, Any]], db_path=DB_PATH) -> dict[str, Any] | None:
+    def run(self, *, positions: list[dict[str, Any]], db_path=None) -> dict[str, Any] | None:
         """Review at most `items_per_cycle` settled events; None when there is nothing to do."""
         if self._policy.mode == 'off':
             return None

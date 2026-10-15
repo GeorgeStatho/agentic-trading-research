@@ -5,7 +5,6 @@ the rest on the collector's schedule, so evidence accumulates without anyone run
 """
 from datetime import datetime, timezone
 
-from db_common import DB_PATH
 from market_db_modules.forward_comparison import refresh_comparison_reports
 from market_db_modules.research_outcomes import collect_research_thesis_outcomes
 from services.candidate_lifecycle import observe
@@ -17,7 +16,7 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def run_forward_evaluation_cycle(*, clock=utc_now, db_path=DB_PATH):
+def run_forward_evaluation_cycle(*, clock=utc_now, db_path=None):
     policy = ForwardEvaluationPolicy.from_env()
     result = {'challenger': observe(run_challenger_evaluations, clock=clock, db_path=db_path)}
     if policy.enabled:

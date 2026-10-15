@@ -281,11 +281,11 @@ def classify_market_regime(
 
 def _load_macro_calendar() -> tuple[list[dict[str, Any]], str | None]:
     try:
-        from db_common import DB_PATH, get_connection
+        from db_common import get_connection
         from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
-        initialize_news_database(db_path=DB_PATH)
-        with closing(get_connection(DB_PATH)) as conn, conn:
+        initialize_news_database()
+        with closing(get_connection()) as conn, conn:
             rows = conn.execute(
                 """
                 SELECT event_name, event_date, event_time, country, currency, importance,

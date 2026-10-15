@@ -7,7 +7,7 @@ import json
 import logging
 
 from catalyst_models import timestamp
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 from market_db_modules.pricing_research import (
     load_histories, register_response_events, store_history, store_response, pricing_report,
 )
@@ -128,7 +128,7 @@ def capture_forward_returns(*, as_of, db_path):
                          (move * sign, move, response['outcome_at'], row['candidate_id']))
 
 
-def collect_catalyst_responses(*, as_of=None, policy=None, fetcher=fetch_response_history, refresh=True, db_path=DB_PATH):
+def collect_catalyst_responses(*, as_of=None, policy=None, fetcher=fetch_response_history, refresh=True, db_path=None):
     now = as_of or datetime.now(timezone.utc)
     policy = policy or PricingPolicy.from_env()
     register_response_events(as_of=now, db_path=db_path)

@@ -4,7 +4,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from market_db_modules.position_outcomes import (
     ensure_position_outcome,
     list_post_exit_positions,
@@ -14,14 +14,14 @@ from services.regime_history import fetch_regime_history
 from market_db_modules.position_outcomes import resolve_position_benchmarks
 
 
-def ensure_tracked_positions(*, db_path=DB_PATH):
+def ensure_tracked_positions(*, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         orders = conn.execute("SELECT order_id FROM option_trade_executions WHERE order_side='buy' AND filled_qty>0").fetchall()
     for order in orders:
         ensure_position_outcome(order['order_id'], db_path=db_path)
 
 
-def refresh_post_exit_returns(*, as_of=None, db_path=DB_PATH, fetcher=fetch_regime_history):
+def refresh_post_exit_returns(*, as_of=None, db_path=None, fetcher=fetch_regime_history):
     now = as_of or datetime.now(timezone.utc)
     today = now.astimezone(ZoneInfo('America/New_York')).date().isoformat()
     cache, report = {}, {'updated': 0, 'errors': []}

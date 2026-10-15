@@ -93,7 +93,7 @@ def build_replay_variants(
     *,
     autopsy_limit: int,
     autopsy_max_age_days: int,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], list[int]] | None:
     """Build baseline and feedback inputs from the same frozen decision snapshot.
 
@@ -158,7 +158,7 @@ def build_legacy_partial_replay_payload(
     *,
     autopsy_limit: int,
     autopsy_max_age_days: int,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> tuple[dict[str, Any], list[int]] | None:
     """Reconstruct a constrained prompt from legacy decision-time fields only."""
     manager_input = _json_object(decision.get("manager_input_json"))
@@ -322,7 +322,7 @@ def calculate_historical_outcome_audit_metrics(events: list[dict[str, Any]]) -> 
 def run_historical_outcome_audit(
     *,
     limit: int = 100,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     persist: bool = True,
 ) -> dict[str, Any]:
     """Audit resolved historical manager outcomes without invoking any model."""
@@ -396,7 +396,7 @@ def run_legacy_partial_replay(
     autopsy_limit: int | None = None,
     autopsy_max_age_days: int | None = None,
     client: Client | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     persist: bool = True,
     replay_decider: ReplayDecider | None = None,
 ) -> dict[str, Any]:
@@ -523,7 +523,7 @@ def run_offline_manager_evaluation(
     autopsy_limit: int | None = None,
     autopsy_max_age_days: int | None = None,
     client: Client | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     persist: bool = True,
     replay_decider: ReplayDecider | None = None,
 ) -> dict[str, Any]:

@@ -407,9 +407,9 @@ def _get_top_processed_sector_keys(limit: int) -> list[str]:
     if normalized_limit <= 0:
         return []
 
-    from db_common import DB_PATH, get_connection
+    from db_common import get_connection
 
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -448,9 +448,9 @@ def _get_top_processed_industry_keys_for_sector(sector_key: str, limit: int) -> 
     if normalized_limit <= 0 or not normalized_sector_key:
         return []
 
-    from db_common import DB_PATH, get_connection
+    from db_common import get_connection
 
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT

@@ -72,7 +72,7 @@ def get_company_opportunist_summary(
         max_age_days=max_age_days,
     )
 
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -308,7 +308,7 @@ def save_company_opportunist_batch_results(
         article_id = int(impact["article_id"])
         batch_impacts_by_article.setdefault(article_id, []).append(impact)
 
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         article_ids = [int(article["article_id"]) for article in article_batch]
         if article_ids:
             placeholders = ",".join("?" for _ in article_ids)

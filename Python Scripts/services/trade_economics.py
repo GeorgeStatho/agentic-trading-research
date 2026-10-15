@@ -13,7 +13,6 @@ import logging
 import math
 
 from catalyst_models import timestamp
-from db_common import DB_PATH
 from news_db_modules.catalysts import get_catalyst_revision
 from market_db_modules.foundation_store import digest
 from market_db_modules.pricing_research import catalyst_return_scenarios
@@ -119,7 +118,7 @@ def scenario_set(rows, horizon_days):
             'clusters': clusters, 'weights': [1 / (len(sizes) * sizes[label]) for label in clusters]}
 
 
-def load_scenarios(catalyst, horizon_days, *, as_of, db_path=DB_PATH):
+def load_scenarios(catalyst, horizon_days, *, as_of, db_path=None):
     if not catalyst.get('catalyst_family'):
         return {**NO_SCENARIOS, 'horizon_days': horizon_days}
     rows = catalyst_return_scenarios(catalyst['catalyst_family'], horizon_days, as_of=as_of,
@@ -317,7 +316,7 @@ def report_contracts(market_context, selected, *, side, limit):
     return chosen + others[:max(0, limit - len(chosen))]
 
 
-def report_catalyst(candidate_context, *, db_path=DB_PATH):
+def report_catalyst(candidate_context, *, db_path=None):
     state = ((candidate_context or {}).get('catalysts') or [{}])[0] or {}
     catalyst = {key: state.get(key) for key in ('catalyst_id', 'catalyst_family', 'direction', 'expected_horizon')}
     try:
@@ -352,7 +351,7 @@ def coverage_status(rows, selected):
     return 'complete' if complete else 'partial'
 
 
-def build_trade_economics_report(manager_result, *, policy, as_of, db_path=DB_PATH):
+def build_trade_economics_report(manager_result, *, policy, as_of, db_path=None):
     from agent_helpers.deterministic_option_selector.market import _get_reference_stock_price
     side = directional_decision(manager_result)
     context = manager_result.get('candidate_context') or {}
@@ -447,14 +446,14 @@ def economics_error_gate(decision, policy):
             'enforcement_mode': policy.mode, 'report_id': None, 'outcome': 'unavailable'}
 
 
-def persist_report(report, *, db_path=DB_PATH):
+def persist_report(report, *, db_path=None):
     if not report['candidate_id']:
         return None
     from services.candidate_lifecycle import observe
     return observe(record_candidate_economics_report, report, db_path=db_path)
 
 
-def apply_trade_economics(manager_result, *, policy, as_of=None, db_path=DB_PATH):
+def apply_trade_economics(manager_result, *, policy, as_of=None, db_path=None):
     """Attach the gate to every directional result while the feature is on.
 
     A failure becomes a blocking verdict rather than a missing one, because a missing optional
@@ -491,7 +490,7 @@ def underlying_reasons(report, arrival_underlying, *, now, policy):
     return (['economics_underlying_moved'] if abs(price - decision_spot) > allowed_move else []), metrics
 
 
-def event_reasons(report, *, db_path=DB_PATH):
+def event_reasons(report, *, db_path=None):
     catalyst = report['catalyst']
     if not catalyst.get('catalyst_id'):
         return [], {}
@@ -524,7 +523,7 @@ def repricing_reasons(report, arrival_option, *, spot, now, policy):
     return [], metrics
 
 
-def submission_checks(candidate, gate, arrival, *, now, db_path=DB_PATH):
+def submission_checks(candidate, gate, arrival, *, now, db_path=None):
     if not gate.get('report_id'):
         return ['economics_report_missing'], {}
     try:
@@ -553,7 +552,7 @@ def submission_checks(candidate, gate, arrival, *, now, db_path=DB_PATH):
     return reasons, metrics
 
 
-def recheck_trade_economics(candidate, arrival, *, as_of=None, db_path=DB_PATH):
+def recheck_trade_economics(candidate, arrival, *, as_of=None, db_path=None):
     """Is the decision-time report still valid at submission? None while the feature is off.
 
     Enforced candidates must carry a persisted, unexpired report whose event, underlying and

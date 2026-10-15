@@ -6,7 +6,7 @@ import json
 import re
 from urllib.parse import urlsplit
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.company_evidence import (
     get_company_fact, get_evidence_document, latest_evidence_package, record_evidence_package,
@@ -118,7 +118,7 @@ def _primary_root(company_id, catalyst_id, documents, known_roots, db_path):
     return [identity]
 
 
-def company_discovery_events(company, *, at, policy, db_path=DB_PATH):
+def company_discovery_events(company, *, at, policy, db_path=None):
     articles = company_event_articles(company['id'], at=at, stale_seconds=policy.stale_seconds, db_path=db_path)
     groups = defaultdict(list)
     for article in articles:
@@ -211,7 +211,7 @@ def _sector_event(company, *, at, policy, db_path):
             'minimum_legacy_articles': max(1, AgentPipelineSettings.from_env().minimum_high_confidence_company_articles)}
 
 
-def discover_company_events(*, sector_symbols=None, policy=None, at=None, db_path=DB_PATH):
+def discover_company_events(*, sector_symbols=None, policy=None, at=None, db_path=None):
     policy, at = policy or DiscoveryPolicy.from_env(), timestamp(at or utc_now())
     if policy.mode == 'disabled':
         return {'status': 'disabled', 'queue_ids': []}

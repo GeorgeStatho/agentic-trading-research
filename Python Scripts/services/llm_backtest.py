@@ -34,7 +34,6 @@ from statistics import median
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
-from db_common import DB_PATH
 from market_db_modules.backtest_marketdata import fetch_marketdata_eod_quotes_for_contracts
 from market_db_modules.llm_replay_store import (
     get_cached_llm_replay,
@@ -126,7 +125,7 @@ class CachedManagerReplay:
     model: str
     provider: str
     decide: Decider
-    db_path: Any = DB_PATH
+    db_path: Any = None
 
     def recommendation(self, payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         key = {"stage": STAGE, "provider": self.provider, "model": self.model,
@@ -141,7 +140,7 @@ class StrategistReplay:
     provider: str
     thesis_policy: EvidenceThesisPolicy
     decide: Decider
-    db_path: Any = DB_PATH
+    db_path: Any = None
 
     @property
     def prompt_version(self) -> str:
@@ -185,7 +184,7 @@ class ProductionRules:
         return self.selector_config is not None
 
     @classmethod
-    def for_candidate(cls, candidate_id: str | None, *, local: FrontMainSettings, db_path: Any = DB_PATH) -> "ProductionRules":
+    def for_candidate(cls, candidate_id: str | None, *, local: FrontMainSettings, db_path: Any = None) -> "ProductionRules":
         manifest = get_candidate_manifest(candidate_id, db_path=db_path)
         if manifest is None:
             return cls(local)
@@ -222,7 +221,7 @@ def frozen_buying_power(payload: dict[str, Any]) -> float:
 
 
 def selection_market_context(payload: dict[str, Any], recommendation: dict[str, Any],
-                             candidate_id: str | None, *, db_path: Any = DB_PATH) -> dict[str, Any] | None:
+                             candidate_id: str | None, *, db_path: Any = None) -> dict[str, Any] | None:
     """The market context production would have selected from; None when that chain was never saved.
 
     Like production, a non-directional answer or a bucket of `none` keeps the pre-decision chain.
@@ -313,7 +312,7 @@ def evaluate_answer(decision: dict[str, Any], payload: dict[str, Any], recommend
     return outcome, backtest_decision(decision, result, max_premium_dollars=cap)
 
 
-def fill_missing_daily_closes(symbols: set[str], *, since: str, db_path: Any = DB_PATH,
+def fill_missing_daily_closes(symbols: set[str], *, since: str, db_path: Any = None,
                               fetch: Callable[[str], tuple[str, list[dict[str, Any]]]] = fetch_daily_history) -> dict[str, Any]:
     """Store daily history for traded symbols that have none, so model-priced exits can be marked."""
     missing = symbols_without_daily_bars(symbols, since=since, db_path=db_path)
@@ -371,7 +370,7 @@ def quote_windows(traded: list[dict[str, Any]], *, max_hold_hours: int) -> list[
     return windows
 
 
-def fetch_quotes_for_trades(traded: list[dict[str, Any]], *, max_hold_hours: int, db_path: Any = DB_PATH) -> dict[str, Any]:
+def fetch_quotes_for_trades(traded: list[dict[str, Any]], *, max_hold_hours: int, db_path: Any = None) -> dict[str, Any]:
     """Real end-of-day quotes for the replay's own contracts, within the MarketData credit budget."""
     result = fetch_marketdata_eod_quotes_for_contracts(quote_windows(traded, max_hold_hours=max_hold_hours), db_path=db_path)
     gap_reasons: dict[str, int] = {}
@@ -415,7 +414,7 @@ def run_llm_backtest(
     replay_strategist: bool = False,
     decide: Decider | None = None,
     decide_strategist: Decider | None = None,
-    db_path: Any = DB_PATH,
+    db_path: Any = None,
 ) -> dict[str, Any]:
     """Replay `model` (or `stored`) over the window and record the trades as a backtest run.
 

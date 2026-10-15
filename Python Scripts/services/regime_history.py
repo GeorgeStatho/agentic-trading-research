@@ -5,7 +5,6 @@ import logging
 import math
 from datetime import datetime, timezone
 
-from db_common import DB_PATH
 from market_db_modules.market_regime import load_regime_bars, store_regime_bars
 from agent_helpers.market_context.common import REQUEST_HANDLER, yf
 from agent_helpers.market_context.underlying_bars import (
@@ -61,7 +60,7 @@ def fetch_daily_history(symbol, *, fetcher=fetch_regime_history):
     return provider, [bar for raw in raw_bars if (bar := _normalize_bar(raw)) is not None]
 
 
-def refresh_regime_history(symbol, *, as_of=None, db_path=DB_PATH, fetcher=fetch_regime_history):
+def refresh_regime_history(symbol, *, as_of=None, db_path=None, fetcher=fetch_regime_history):
     now = as_of or datetime.now(timezone.utc)
     cached = load_regime_bars(symbol, as_of=now, db_path=db_path)
     # Refresh on each new UTC date. Failure retains timestamps on the cached bars
