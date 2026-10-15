@@ -32,7 +32,7 @@ import logging
 import time
 from statistics import median
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from db_common import DB_PATH
 from db_helpers.market import (
@@ -316,9 +316,15 @@ def evaluate_answer(decision: dict[str, Any], payload: dict[str, Any], recommend
 def fill_missing_daily_closes(symbols: set[str], *, since: str, db_path: Any = DB_PATH,
                               fetch: Callable[[str], tuple[str, list[dict[str, Any]]]] = fetch_daily_history) -> dict[str, Any]:
     """Store daily history for traded symbols that have none, so model-priced exits can be marked."""
-    missing = symbols_without_daily_bars(symbols, since=since, db_path=db_path)
+    return store_daily_history(symbols_without_daily_bars(symbols, since=since, db_path=db_path), db_path=db_path,
+                               fetch=fetch)
+
+
+def store_daily_history(symbols: set[str], *, db_path: Any = DB_PATH,
+                        fetch: Callable[[str], tuple[str, list[dict[str, Any]]]] = fetch_daily_history) -> dict[str, Any]:
+    """Download and store each symbol's daily history; a provider failure is reported, not raised."""
     fetched, failed = [], {}
-    for symbol in sorted(missing):
+    for symbol in sorted(symbols):
         try:
             provider, bars = fetch(symbol)
             store_regime_bars(symbol, bars, provider=provider, db_path=db_path)
@@ -401,6 +407,126 @@ def space_decisions_per_symbol(decisions: list[dict[str, Any]], *, min_hours: fl
     return kept
 
 
+@dataclass(frozen=True)
+class ReplayedAnswer:
+    """A decision, the input its manager answered and that answer; or the outcome explaining why there is none."""
+    decision: dict[str, Any]
+    payload: dict[str, Any] | None
+    recommendation: dict[str, Any] | None = None
+    unavailable: str | None = None
+
+
+@dataclass
+class ReplayRun:
+    """The decisions in a window and the cached model, or production's stored answers, that answer them."""
+    model: str
+    window: list[dict[str, Any]]
+    replayable: list[dict[str, Any]]
+    decisions: list[dict[str, Any]]
+    min_hours_between: float
+    thesis_policy: EvidenceThesisPolicy
+    replay: CachedManagerReplay | None
+    strategist: StrategistReplay | None
+    db_path: Any = DB_PATH
+
+    @classmethod
+    def build(cls, *, model: str, start_at: str | None = None, end_at: str | None = None, limit: int | None = None,
+              min_hours_between: float = 0, replay_strategist: bool = False, decide: Decider | None = None,
+              decide_strategist: Decider | None = None, db_path: Any = DB_PATH) -> "ReplayRun":
+        stored = model == STORED_MODEL
+        if stored and replay_strategist:
+            raise ValueError(f"replay_strategist needs a model to replay; '{STORED_MODEL}' reuses production's answers")
+        models = get_settings().models
+        thesis_policy = EvidenceThesisPolicy.from_env()
+        replay = None if stored else CachedManagerReplay(
+            model=model, provider=_normalize_provider(models.manager.provider),
+            decide=decide or manager_decider(model), db_path=db_path)
+        strategist = StrategistReplay(
+            model=model, provider=_normalize_provider(models.strategist.provider), thesis_policy=thesis_policy,
+            decide=decide_strategist or strategist_decider(model, thesis_policy), db_path=db_path) if replay_strategist else None
+        window = list_frozen_manager_decisions(start_at=start_at, end_at=end_at, limit=limit, db_path=db_path)
+        # Older decisions predate frozen inputs; dropped before spacing so they never take a replayable one's slot.
+        replayable = [decision for decision in window if frozen_payload(decision) is not None]
+        decisions = space_decisions_per_symbol(replayable, min_hours=min_hours_between) if min_hours_between > 0 else replayable
+        return cls(model, window, replayable, decisions, min_hours_between, thesis_policy, replay, strategist, db_path)
+
+    @property
+    def stored(self) -> bool:
+        return self.replay is None
+
+    def answers(self, tally: "ReplayTally") -> Iterator[ReplayedAnswer]:
+        """Each decision's answer, in order. One bad answer is recorded; a run of failures stops the run."""
+        consecutive_failures = 0
+        progress = ProgressEstimate(total=len(self.decisions))
+        for index, decision in enumerate(self.decisions, start=1):
+            payload = frozen_payload(decision)
+            strategist_input = (get_frozen_strategist_input(decision.get("candidate_id"), db_path=self.db_path)
+                                if self.strategist is not None else None)
+            if self.strategist is not None and strategist_input is None:
+                yield ReplayedAnswer(decision, payload, unavailable="missing_strategist_input")
+            else:
+                try:
+                    asked_at = time.monotonic()
+                    payload, recommendation, cached = self._answer(decision, payload, strategist_input, tally)
+                    if not cached:
+                        progress.record_model_call(time.monotonic() - asked_at)
+                    consecutive_failures = 0
+                except Exception as exc:
+                    consecutive_failures += 1
+                    LOGGER.warning("Replay failed for decision %s: %s", decision["id"], exc)
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        raise ModelUnavailable(f"{consecutive_failures} replays failed in a row; last error: {exc}") from exc
+                    recommendation = None
+                if recommendation is None:
+                    yield ReplayedAnswer(decision, payload, unavailable="model_error")
+                else:
+                    tally.changed_direction += recommendation.get("decision") != str(decision.get("manager_decision") or "").lower()
+                    yield ReplayedAnswer(decision, payload, recommendation)
+            if index % PROGRESS_EVERY == 0:
+                LOGGER.info(progress.report(index, now=datetime.now().astimezone()))
+
+    def _answer(self, decision: dict[str, Any], payload: dict[str, Any], strategist_input: dict[str, Any] | None,
+                tally: "ReplayTally") -> tuple[dict[str, Any], dict[str, Any], bool]:
+        """The manager input (with any replayed strategist), its answer, and whether no model was called."""
+        strategist_cached = True
+        if self.strategist is not None:
+            strategist_answer, strategist_cached = self.strategist.recommendation(strategist_input)
+            tally.strategist_cached_answers += strategist_cached
+            production_strategist = (payload.get("strategist_recommendation") or {}).get("decision")
+            tally.strategist_changed_decision += strategist_answer.get("decision") != production_strategist
+            payload = self.strategist.manager_payload(payload, strategist_answer)
+        if self.stored:
+            tally.cached_answers += 1
+            return payload, stored_recommendation(decision), True
+        recommendation, cached = self.replay.recommendation(payload)
+        tally.cached_answers += cached
+        return payload, recommendation, cached and strategist_cached
+
+    def summary(self, tally: "ReplayTally") -> dict[str, Any]:
+        return {
+            "source_decision_count": len(self.decisions),
+            "missing_frozen_input_count": len(self.window) - len(self.replayable),
+            "min_hours_between_same_symbol": self.min_hours_between,
+            "spaced_out_decision_count": len(self.replayable) - len(self.decisions),
+            "outcomes": tally.outcomes,
+            "changed_direction_count": tally.changed_direction,
+            "cached_answer_count": tally.cached_answers,
+            "strategist_replay": {
+                "model": self.model,
+                "prompt_version": self.strategist.prompt_version,
+                "provider": self.strategist.provider,
+                "changed_decision_count": tally.strategist_changed_decision,
+                "cached_answer_count": tally.strategist_cached_answers,
+            } if self.strategist is not None else None,
+            "provider": STORED_MODEL if self.stored else self.replay.provider,
+        }
+
+
+def log_outcome(index: int, run: ReplayRun, answer: ReplayedAnswer, outcome: str) -> None:
+    decision = answer.decision
+    LOGGER.info("[%d/%d] %s %s -> %s", index, len(run.decisions), decision["symbol"], decision["decision_run_at"], outcome)
+
+
 def run_llm_backtest(
     *,
     model: str,
@@ -425,72 +551,29 @@ def run_llm_backtest(
     with a `stored` run using the same spacing. `replay_strategist` has `model` answer the strategist
     too, so the manager answers that strategist instead of production's.
     """
-    stored = model == STORED_MODEL
-    if stored and replay_strategist:
-        raise ValueError(f"replay_strategist needs a model to replay; '{STORED_MODEL}' reuses production's answers")
-    models = get_settings().models
-    replay = None if stored else CachedManagerReplay(model=model, provider=_normalize_provider(models.manager.provider),
-                                                     decide=decide or manager_decider(model), db_path=db_path)
-    thesis_policy = EvidenceThesisPolicy.from_env()
-    strategist = (StrategistReplay(model=model, provider=_normalize_provider(models.strategist.provider),
-                                   thesis_policy=thesis_policy,
-                                   decide=decide_strategist or strategist_decider(model, thesis_policy), db_path=db_path)
-                  if replay_strategist else None)
+    run = ReplayRun.build(model=model, start_at=start_at, end_at=end_at, limit=limit,
+                          min_hours_between=min_hours_between, replay_strategist=replay_strategist,
+                          decide=decide, decide_strategist=decide_strategist, db_path=db_path)
     local_settings = FrontMainSettings.from_env()
     latest_rules = ProductionRules(local_settings)
-    window = list_frozen_manager_decisions(start_at=start_at, end_at=end_at, limit=limit, db_path=db_path)
-    decisions = space_decisions_per_symbol(window, min_hours=min_hours_between) if min_hours_between > 0 else window
     tally = ReplayTally()
     traded: list[dict[str, Any]] = []
-    consecutive_failures = 0
-    progress = ProgressEstimate(total=len(decisions))
-    for index, decision in enumerate(decisions, start=1):
-        payload = frozen_payload(decision)
+    for index, answer in enumerate(run.answers(tally), start=1):
+        decision = answer.decision
         rules = ProductionRules.for_candidate(decision.get("candidate_id"), local=local_settings, db_path=db_path)
         if execute_medium_confidence:
             rules = rules.executing_medium_confidence()
         if rules.recorded:
             tally.recorded_settings += 1
             latest_rules = rules
-        strategist_input = (get_frozen_strategist_input(decision.get("candidate_id"), db_path=db_path)
-                            if strategist is not None and payload is not None else None)
-        if payload is None:
-            outcome = "missing_frozen_input"
-        elif strategist is not None and strategist_input is None:
-            outcome = "missing_strategist_input"
-        else:
-            try:
-                asked_at = time.monotonic()
-                strategist_cached = True
-                if strategist is not None:
-                    strategist_answer, strategist_cached = strategist.recommendation(strategist_input)
-                    tally.strategist_cached_answers += strategist_cached
-                    production_strategist = (payload.get("strategist_recommendation") or {}).get("decision")
-                    tally.strategist_changed_decision += strategist_answer.get("decision") != production_strategist
-                    payload = strategist.manager_payload(payload, strategist_answer)
-                recommendation, cached = (stored_recommendation(decision), True) if stored else replay.recommendation(payload)
-                if not (cached and strategist_cached):
-                    progress.record_model_call(time.monotonic() - asked_at)
-                consecutive_failures = 0
-            except Exception as exc:  # One bad answer is recorded; a dead server stops the run.
-                consecutive_failures += 1
-                LOGGER.warning("Replay failed for decision %s: %s", decision["id"], exc)
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                    raise ModelUnavailable(f"{consecutive_failures} replays failed in a row; last error: {exc}") from exc
-                recommendation, cached = None, False
-            if recommendation is None:
-                outcome = "model_error"
-            else:
-                tally.cached_answers += cached
-                tally.changed_direction += recommendation.get("decision") != str(decision.get("manager_decision") or "").lower()
-                outcome, trade = evaluate_answer(decision, payload, recommendation, rules, tally,
-                                                 thesis_policy=thesis_policy, db_path=db_path)
-                if trade is not None:
-                    traded.append(trade)
+        outcome = answer.unavailable
+        if outcome is None:
+            outcome, trade = evaluate_answer(decision, answer.payload, answer.recommendation, rules, tally,
+                                             thesis_policy=run.thesis_policy, db_path=db_path)
+            if trade is not None:
+                traded.append(trade)
         tally.count(outcome)
-        LOGGER.info("[%d/%d] %s %s -> %s", index, len(decisions), decision["symbol"], decision["decision_run_at"], outcome)
-        if index % PROGRESS_EVERY == 0:
-            LOGGER.info(progress.report(index, now=datetime.now().astimezone()))
+        log_outcome(index, run, answer, outcome)
     traded_symbols = {trade["symbol"] for trade in traded}
     since = traded[0]["decision_run_at"] if traded else ""
     bars = (fill_missing_daily_closes(traded_symbols, since=since, db_path=db_path) if fetch_missing_bars and traded
@@ -505,30 +588,17 @@ def run_llm_backtest(
         **(execution_config or {}),
         "strategy_version": STRATEGY_VERSION,
         "model": model,
-        "prompt_version": "stored-output" if stored else MANAGER_PROMPT_VERSION,
+        "prompt_version": "stored-output" if run.stored else MANAGER_PROMPT_VERSION,
         "risk_free_rate": TradeEconomicsPolicy.from_env().risk_free_rate,
         "data_source_versions": {"option_quotes": "historical_option_quotes",
                                  "fallback": "black_scholes_frozen_chain_daily_closes"},
     }
     replay_summary = {
-        "source_decision_count": len(decisions),
-        "min_hours_between_same_symbol": min_hours_between,
-        "spaced_out_decision_count": len(window) - len(decisions),
-        "outcomes": tally.outcomes,
-        "changed_direction_count": tally.changed_direction,
-        "cached_answer_count": tally.cached_answers,
-        "strategist_replay": {
-            "model": model,
-            "prompt_version": strategist.prompt_version,
-            "provider": strategist.provider,
-            "changed_decision_count": tally.strategist_changed_decision,
-            "cached_answer_count": tally.strategist_cached_answers,
-        } if strategist is not None else None,
-        "provider": STORED_MODEL if stored else replay.provider,
+        **run.summary(tally),
         "selector_version": SELECTOR_VERSION,
         "production_settings": {
             "recorded_decision_count": tally.recorded_settings,
-            "local_fallback_decision_count": len(decisions) - tally.recorded_settings,
+            "local_fallback_decision_count": len(run.decisions) - tally.recorded_settings,
             "execute_medium_confidence_trades": latest_rules.settings.execute_medium_confidence_trades,
             "overrides": ["execute_medium_confidence_trades"] if execute_medium_confidence else [],
             "portfolio_limits": limits,

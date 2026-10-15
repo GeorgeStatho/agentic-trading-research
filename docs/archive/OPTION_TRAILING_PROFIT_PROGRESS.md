@@ -18,7 +18,7 @@ Replace the old static "sell the whole position at take-profit" behavior with a 
 Implemented in:
 
 - [Python Scripts/services/config.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/services/config.py>)
-- [.env.example](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/.env.example>)
+- [.env.example](../../.env.example)
 
 Added:
 

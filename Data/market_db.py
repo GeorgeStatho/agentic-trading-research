@@ -66,6 +66,7 @@ from market_db_modules.backtesting import (
     record_historical_underlying_bar,
     run_backtest,
     run_decision_backtest,
+    daily_closes_after,
     simulate_backtest_metrics,
 )
 from market_db_modules.llm_replay_store import (
@@ -260,6 +261,7 @@ __all__ = [
     "replace_industry_company_rankings",
     "run_backtest",
     "run_decision_backtest",
+    "daily_closes_after",
     "get_cached_llm_replay",
     "get_candidate_manifest",
     "get_frozen_strategist_input",

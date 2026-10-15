@@ -91,6 +91,7 @@ from market_db import (
     update_manager_decision_latest_pnl,
     run_backtest,
     run_decision_backtest,
+    daily_closes_after,
     get_cached_llm_replay,
     get_candidate_manifest,
     get_frozen_strategist_input,

@@ -509,6 +509,13 @@ def _simulate_event(decision: dict[str, Any], snapshot: dict[str, Any], conn: sq
     )
 
 
+def daily_closes_after(symbol: str, after: datetime, *, until: datetime,
+                       db_path: Path | str = DB_PATH) -> list[tuple[datetime, float]]:
+    """Each trading day's close after `after`, through `until`, stamped 16:00 New York, oldest first."""
+    with closing(get_connection(db_path)) as conn:
+        return _daily_closes(conn, symbol.upper(), after, until)
+
+
 def _daily_closes(conn: sqlite3.Connection, symbol: str, after: datetime, until: datetime) -> list[tuple[datetime, float]]:
     """Underlying closes stamped at 16:00 New York on each bar's trading day, one per day."""
     rows = conn.execute(

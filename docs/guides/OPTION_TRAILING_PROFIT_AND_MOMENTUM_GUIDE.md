@@ -77,7 +77,11 @@ Those buckets drive:
 - force-expiry overrides
 - trailing giveback configuration
 
-So a `7_14` contract and a `45_60` contract can use different exit tuning.
+So a `12_20` contract and a `45_60` contract can use different exit tuning.
+
+The bucket is chosen once, from `entry_dte` in the position state (the DTE when the option
+manager first saw the position), not from the current DTE. A position therefore keeps its entry
+bucket's take-profit, stop-loss and giveback, and is force-exited at that bucket's forced-exit DTE.
 
 ## Core Trailing-Profit Settings
 
