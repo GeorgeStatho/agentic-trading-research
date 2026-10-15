@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 
 import agent_helpers.sector_opportunist as sector_helpers
 from agent_helpers import shared
+from db_common import use_database
 from agent_helpers.shared import Client, ModelAnswer, ModelQuotaExhausted, ask_classifier_model, get_model_client
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
@@ -142,7 +143,7 @@ class StoredModelTests(unittest.TestCase):
                          "VALUES (1, 'Wire', 'a1', 'Title', 'https://example.com/1')")
 
     def stored_processing_row(self, answer):
-        with patch.object(sector_helpers, "DB_PATH", self.db_path), \
+        with use_database(self.db_path), \
                 patch.object(sector_helpers, "initialize_news_database"):
             sector_helpers.save_sector_opportunist_batch_results([{"article_id": 1}], [],
                                                                  sector_id=self.sector_id, answer=answer)

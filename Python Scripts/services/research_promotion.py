@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 import sqlite3
 
+from db_common import database_path
 from services.research_contract import fingerprint
 
 
@@ -43,7 +44,7 @@ def policy_hash(stage, policy, code_hash):
 def approved(stage, policy, *, db_path=None, code_hash=None):
     """`code_hash` lets a caller checking several stages hash the sources once."""
     try:
-        with closing(sqlite3.connect(f'file:{Path(db_path).resolve()}?mode=ro', uri=True)) as conn:
+        with closing(sqlite3.connect(f'file:{Path(database_path(db_path)).resolve()}?mode=ro', uri=True)) as conn:
             row = conn.execute('SELECT 1 FROM research_gate_promotions WHERE stage=? AND policy_hash=? AND gate_value>0 AND sample_size>=100',
                                (stage, policy_hash(stage, policy, code_hash or source_hash()))).fetchone()
             return row is not None
@@ -107,7 +108,7 @@ def champion_check(candidate, *, db_path=None):
             or research_only_candidate(candidate.get('candidate_id') or context.get('candidate_id'))):
         return False, 'research_candidate', []
     try:
-        with closing(sqlite3.connect(f'file:{Path(db_path).resolve()}?mode=ro', uri=True)) as conn:
+        with closing(sqlite3.connect(f'file:{Path(database_path(db_path)).resolve()}?mode=ro', uri=True)) as conn:
             row = conn.execute('''SELECT r.manifest_json FROM research_champion c
                 LEFT JOIN research_runs r ON r.run_id=c.run_id WHERE c.singleton=1''').fetchone()
     except sqlite3.OperationalError as exc:

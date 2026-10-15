@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from agent_builders.opportunist_payload import build_opportunist_input
-from db_common import DB_PATH, get_connection
+from db_common import database_path, get_connection
 from news_db_modules.impacts import add_sector_opportunist_impact
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from news_db_modules.processing import mark_sector_opportunist_article_processed
@@ -78,7 +78,7 @@ def _sort_articles(deduped_articles: dict[int, dict[str, Any]]) -> list[dict[str
 def _filter_unprocessed_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return filter_unprocessed_articles(
         articles,
-        db_path=str(DB_PATH),
+        db_path=database_path(),
         table_name="sector_opportunist_article_processing",
         required_impact_fields=SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
         minimum_schema_version=CURRENT_OPPORTUNIST_SCHEMA_VERSION,

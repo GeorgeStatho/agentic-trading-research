@@ -8,9 +8,8 @@ def main():
     parser.add_argument('--db')
     parser.add_argument('command', choices=('scan', 'consume', 'status', 'checks', 'interest'))
     args = parser.parse_args()
-    from db_common import DB_PATH
     from market_db_modules.bootstrap import initialize_database
-    db_path = args.db or DB_PATH
+    db_path = args.db
     initialize_database(db_path=db_path)
     if args.command == 'scan':
         from services.event_discovery import discover_company_events

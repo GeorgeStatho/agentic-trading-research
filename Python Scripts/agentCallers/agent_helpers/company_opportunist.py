@@ -9,7 +9,7 @@ from typing import Any
 
 from agent_builders.company_opportunity import get_company_linked_articles, get_industry_company_groups
 from agent_helpers.shared import ModelAnswer, normalize_time_window, published_at_in_window
-from db_common import DB_PATH, get_connection
+from db_common import database_path, get_connection
 from news_db_modules.impacts import add_company_opportunist_impact
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from news_db_modules.processing import mark_company_opportunist_article_processed
@@ -156,7 +156,7 @@ def _sort_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _filter_unprocessed_articles(articles: list[dict[str, Any]], company_id: int) -> list[dict[str, Any]]:
     return filter_unprocessed_articles(
         articles,
-        db_path=str(DB_PATH),
+        db_path=database_path(),
         table_name="company_opportunist_article_processing",
         company_id=company_id,
         required_impact_fields=COMPANY_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,

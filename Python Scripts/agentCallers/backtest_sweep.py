@@ -22,7 +22,7 @@ if __name__ == "__main__":
     # Before importing modules that read configuration at import time.
     load_process_settings()
 
-from db_common import DB_PATH  # noqa: E402
+from db_common import database_path  # noqa: E402
 from market_db_modules.backtesting import simulate_backtest_metrics  # noqa: E402
 
 
@@ -200,7 +200,7 @@ def print_report(baseline: SweepRow, best: list[SweepRow], *, rank_by: str, vali
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Grid-search backtest exit and execution settings.")
-    parser.add_argument("--db", type=Path, default=Path(DB_PATH), help="SQLite database; defaults to DB_PATH.")
+    parser.add_argument("--db", type=Path, default=None, help="SQLite database; defaults to DB_PATH.")
     parser.add_argument(
         "--setting", action="append", type=parse_setting, metavar="NAME=V1,V2,...",
         help=f"A setting and the values to try; repeat for each. Default grid: {DEFAULT_GRID}.",
@@ -217,6 +217,7 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = _parse_args()
+    args.db = Path(database_path(args.db))
     if not args.db.is_file():
         print(f"Database not found: {args.db}", file=sys.stderr)
         return 2

@@ -13,6 +13,8 @@ from market_db_modules import bootstrap as market_bootstrap
 from market_db_modules import entities
 from news_db_modules import article_store
 from news_db_modules import bootstrap as news_bootstrap
+from services.research_lock import research_session_lock
+from services.research_promotion import approved, champion_check, policy_hash
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -23,6 +25,8 @@ SKIPPED_DIRS = {"graft", ".git", "__pycache__", ".venv", "venv", "env", ".superp
 
 
 def _is_db_path(node: ast.AST | None) -> bool:
+    if isinstance(node, ast.Attribute):
+        return node.attr == "DB_PATH" and isinstance(node.value, ast.Name) and node.value.id == "db_common"
     return isinstance(node, ast.Name) and node.id == "DB_PATH"
 
 
@@ -37,6 +41,16 @@ def _db_path_defaults(path: Path) -> list[int]:
             for statement in node.body:
                 if isinstance(statement, (ast.Assign, ast.AnnAssign)) and _is_db_path(statement.value):
                     lines.append(statement.lineno)
+    return lines
+
+
+def _bound_db_path_lines(path: Path) -> list[int]:
+    lines = _db_path_defaults(path)
+    for node in ast.walk(ast.parse(path.read_bytes())):
+        if isinstance(node, ast.Call) and any(_is_db_path(a) for a in node.args + [k.value for k in node.keywords]):
+            # db_common's own `DEFAULT_DATABASE = Database(DB_PATH)` is the one binding.
+            if not (path.name == "db_common.py" and isinstance(node.func, ast.Name) and node.func.id == "Database"):
+                lines.append(node.lineno)
     return lines
 
 
@@ -76,25 +90,28 @@ class PersistenceLayeringTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.tmp = Path(tmp.name)
 
-    def test_data_layer_has_no_db_path_defaults(self) -> None:
-        # db_common's module-level DB_PATH assignment is neither a default nor in a class body.
-        offenders = [
-            f"{path.relative_to(DATA_DIR)}:{line}"
-            for path in sorted(DATA_DIR.rglob("*.py"))
-            if "__pycache__" not in path.parts
-            for line in _db_path_defaults(path)
-        ]
+    def test_db_path_is_only_bound_in_db_common(self) -> None:
+        roots = [DATA_DIR, ROOT_DIR / "Python Scripts", ROOT_DIR / "api_support", ROOT_DIR / "scripts"]
+        paths = [path for root in roots for path in sorted(root.rglob("*.py"))
+                 if "__pycache__" not in path.parts and ROOT_DIR / "scripts" / "codemods" not in path.parents]
+        paths += [ROOT_DIR / "api.py", ROOT_DIR / "portfolio_history_service.py"]
+        offenders = [f"{path.relative_to(ROOT_DIR)}:{line}" for path in paths for line in _bound_db_path_lines(path)]
         self.assertEqual(offenders, [])
 
-    def test_api_layer_has_no_bound_db_path(self) -> None:
-        paths = sorted((ROOT_DIR / "api_support").rglob("*.py")) + [ROOT_DIR / "api.py"]
-        offenders = []
-        for path in paths:
-            for node in ast.walk(ast.parse(path.read_bytes())):
-                if isinstance(node, ast.Call) and any(_is_db_path(a) for a in node.args + [k.value for k in node.keywords]):
-                    offenders.append(f"{path.relative_to(ROOT_DIR)}:{node.lineno}")
-            offenders += [f"{path.relative_to(ROOT_DIR)}:{line}" for line in _db_path_defaults(path)]
-        self.assertEqual(offenders, [])
+    def test_promotion_checks_read_the_current_database_by_default(self) -> None:
+        db_path = self.tmp / "promotion.db"
+        with use_database(db_path):
+            market_bootstrap.initialize_database()
+            policy = {"min_value": 1}
+            with closing(sqlite3.connect(db_path)) as conn, conn:
+                conn.execute("INSERT INTO research_gate_promotions VALUES (?,?,?,?,?,?)",
+                             ("LIQUIDITY", policy_hash("LIQUIDITY", policy, "code"), "r", "2026-01-01", 120, 1.0))
+            self.assertTrue(approved("LIQUIDITY", policy, code_hash="code"))
+            self.assertEqual(champion_check({}), (True, "no_champion", []))
+
+    def test_research_session_lock_defaults_to_the_current_database(self) -> None:
+        with use_database(self.tmp / "lock.db"), research_session_lock(None, "x:y"):
+            self.assertTrue((self.tmp / ".research-locks" / "x_y").exists())
 
     def test_store_functions_follow_use_database(self) -> None:
         db_path = self.tmp / "market.db"

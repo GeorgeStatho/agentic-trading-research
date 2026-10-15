@@ -43,8 +43,7 @@ def main():
     outcomes.add_argument('--days', type=int, default=30, help='look-back window in days; 0 for all history')
     subparsers.add_parser('forward-cycle', help="run the collector's forward-evaluation step once")
     args = parser.parse_args()
-    from db_common import DB_PATH
-    db_path = args.db or DB_PATH
+    db_path = args.db
     if args.command == 'replay':
         from market_db_modules.research_runtime import replay_research_session
         result = replay_research_session(args.session_id, db_path=db_path)
