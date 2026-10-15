@@ -15,7 +15,11 @@ from news_db_modules import article_store
 from news_db_modules import bootstrap as news_bootstrap
 
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "Data"
+ROOT_DIR = Path(__file__).resolve().parents[1]
+DATA_DIR = ROOT_DIR / "Data"
+FACADE_MODULES = {"market_db", "news_db", "db", "db_helpers"}
+CONTEXT_FACADE_NAMES = {"DB_PATH", "get_connection", "initialize_market_database", "list_option_trade_executions"}
+SKIPPED_DIRS = {"graft", ".git", "__pycache__", ".venv", "venv", "env", ".superpowers"}
 
 
 def _is_db_path(node: ast.AST | None) -> bool:
@@ -34,6 +38,31 @@ def _db_path_defaults(path: Path) -> list[int]:
                 if isinstance(statement, (ast.Assign, ast.AnnAssign)) and _is_db_path(statement.value):
                     lines.append(statement.lineno)
     return lines
+
+
+def _is_facade(module: str) -> bool:
+    return module in FACADE_MODULES or module.startswith("db_helpers.")
+
+
+def _project_python_files() -> list[Path]:
+    return [
+        path for path in sorted(ROOT_DIR.rglob("*.py"))
+        if not SKIPPED_DIRS & set(path.relative_to(ROOT_DIR).parts)
+        and path.relative_to(ROOT_DIR).parts[:2] != ("scripts", "codemods")
+    ]
+
+
+def _facade_imports(path: Path) -> list[str]:
+    offenders = []
+    for node in ast.walk(ast.parse(path.read_bytes())):
+        if isinstance(node, ast.Import):
+            offenders += [alias.name for alias in node.names if _is_facade(alias.name)]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            if _is_facade(node.module):
+                offenders.append(node.module)
+            elif node.module == "api_support.context":
+                offenders += [f"{node.module}.{alias.name}" for alias in node.names if alias.name in CONTEXT_FACADE_NAMES]
+    return [f"{path.relative_to(ROOT_DIR)}:{offender}" for offender in offenders]
 
 
 def _row_count(db_path: Path, table: str) -> int:
@@ -83,6 +112,26 @@ class PersistenceLayeringTests(unittest.TestCase):
             entities.add_sector("x", "X", db_path=b)
         self.assertEqual(_row_count(b, "sectors"), 1)
         self.assertFalse(a.exists())
+
+
+    def test_no_module_imports_a_persistence_facade(self) -> None:
+        offenders = [offender for path in _project_python_files() for offender in _facade_imports(path)]
+        self.assertEqual(offenders, [])
+
+    def test_no_patch_string_targets_a_facade(self) -> None:
+        offenders = [
+            f"{path.relative_to(ROOT_DIR)}:{node.lineno}"
+            for path in sorted((ROOT_DIR / "tests").rglob("*.py"))
+            if path != Path(__file__).resolve()  # this file names the prefixes it forbids
+            for node in ast.walk(ast.parse(path.read_bytes()))
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            and node.value.startswith(("market_db.", "news_db.", "db_helpers."))
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_facade_files_are_gone(self) -> None:
+        facades = ["market_db.py", "news_db.py", "db.py", "db_helpers", "queryDB.py"]
+        self.assertEqual([name for name in facades if (DATA_DIR / name).exists()], [])
 
 
 if __name__ == "__main__":

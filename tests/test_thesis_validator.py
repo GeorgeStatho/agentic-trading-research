@@ -425,12 +425,12 @@ class ThesisValidatorServiceTests(unittest.TestCase):
         recorded_runs: list[dict] = []
         with (
             patch(
-                "db_helpers.market.get_open_position_thesis_for_option_symbol",
+                "market_db_modules.thesis_validator.get_open_position_thesis_for_option_symbol",
                 return_value={"id": 1, "symbol": "NVDA", "company_id": 7, "opened_at": "2026-08-20T14:00:00+00:00"},
             ),
-            patch("db_helpers.market.get_thesis_validation_run_for_date", return_value=None),
-            patch("db_helpers.market.count_thesis_validator_exits_for_date", return_value=0),
-            patch("db_helpers.market.record_thesis_validation_run", side_effect=recorded_runs.append),
+            patch("market_db_modules.thesis_validator.get_thesis_validation_run_for_date", return_value=None),
+            patch("market_db_modules.thesis_validator.count_thesis_validator_exits_for_date", return_value=0),
+            patch("market_db_modules.thesis_validator.record_thesis_validation_run", side_effect=recorded_runs.append),
             patch("services.thesis_evidence_pack.build_thesis_evidence_pack", return_value={"allowed_evidence_article_ids": []}),
             patch(
                 "services.thesis_adjudicator.adjudicate_thesis",
@@ -471,11 +471,11 @@ class ThesisValidatorServiceTests(unittest.TestCase):
         recorded_runs: list[dict] = []
         with (
             patch(
-                "db_helpers.market.get_open_position_thesis_for_option_symbol",
+                "market_db_modules.thesis_validator.get_open_position_thesis_for_option_symbol",
                 return_value={"id": 1, "symbol": "NVDA", "opened_at": "2026-08-20T14:00:00+00:00"},
             ),
-            patch("db_helpers.market.get_thesis_validation_run_for_date", return_value=None),
-            patch("db_helpers.market.record_thesis_validation_run", side_effect=recorded_runs.append),
+            patch("market_db_modules.thesis_validator.get_thesis_validation_run_for_date", return_value=None),
+            patch("market_db_modules.thesis_validator.record_thesis_validation_run", side_effect=recorded_runs.append),
             patch("services.thesis_adjudicator.adjudicate_thesis") as mock_adjudicate,
         ):
             summary = service.run_due_validation(positions=[position], now=late)

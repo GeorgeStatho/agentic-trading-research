@@ -160,11 +160,6 @@ class EvidenceStorageTests(unittest.TestCase):
         with closing(get_connection(self.db)) as conn:
             self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
 
-    def test_facades_expose_foundation_functions(self):
-        import market_db
-        import db_helpers
-        self.assertIs(market_db.record_evidence_package, db_helpers.record_evidence_package)
-
 
 class MigrationAndManifestTests(unittest.TestCase):
     def test_legacy_records_and_hashes_survive_additive_migration(self):
