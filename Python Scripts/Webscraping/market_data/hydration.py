@@ -1,0 +1,232 @@
+from __future__ import annotations
+
+from contextlib import closing
+import logging
+from datetime import datetime, timedelta, timezone
+
+from db_common import get_connection
+from market_db_modules.loaders import ensure_sector_definitions
+from market_db_modules.refresh_state import get_market_data_refresh_state, record_market_data_refresh_state
+
+
+try:
+    from market_data.yFinanceData import load_industry_from_yfinance, load_sector_from_yfinance
+except ImportError:  # pragma: no cover - optional runtime integration
+    load_industry_from_yfinance = None
+    load_sector_from_yfinance = None
+
+LOGGER = logging.getLogger("market_bootstrap")
+INDUSTRY_TOP_COMPANIES_REFRESH_RESOURCE = "industry_top_companies"
+INDUSTRY_TOP_COMPANIES_REFRESH_DAYS = 30
+
+
+def _find_sector_row(sector_identifier: str) -> dict | None:
+    ensure_sector_definitions()
+    needle = " ".join(str(sector_identifier or "").split()).strip().lower()
+    if not needle:
+        return None
+
+    with closing(get_connection()) as conn, conn:
+        rows = conn.execute(
+            """
+            SELECT id, sector_key, name
+            FROM sectors
+            ORDER BY name
+            """
+        ).fetchall()
+
+    for row in rows:
+        if str(row["sector_key"] or "").strip().lower() == needle:
+            return dict(row)
+    for row in rows:
+        if str(row["name"] or "").strip().lower() == needle:
+            return dict(row)
+    return None
+
+
+def _find_industry_row(industry_identifier: str) -> dict | None:
+    ensure_sector_definitions()
+    needle = " ".join(str(industry_identifier or "").split()).strip().lower()
+    if not needle:
+        return None
+
+    with closing(get_connection()) as conn, conn:
+        rows = conn.execute(
+            """
+            SELECT i.id, i.industry_key, i.name, i.sector_id, s.sector_key, s.name AS sector_name
+            FROM industries AS i
+            JOIN sectors AS s ON s.id = i.sector_id
+            ORDER BY s.name, i.name
+            """
+        ).fetchall()
+
+    for row in rows:
+        if str(row["industry_key"] or "").strip().lower() == needle:
+            return dict(row)
+    for row in rows:
+        if str(row["name"] or "").strip().lower() == needle:
+            return dict(row)
+    return None
+
+
+def _parse_refresh_timestamp(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _industry_top_companies_refresh_is_due(industry_key: str) -> bool:
+    refresh_state = get_market_data_refresh_state(
+        INDUSTRY_TOP_COMPANIES_REFRESH_RESOURCE,
+        industry_key,
+    )
+    if refresh_state is None:
+        return True
+
+    last_hydrated_at = _parse_refresh_timestamp(refresh_state["last_hydrated_at"])
+    if last_hydrated_at is None:
+        return True
+
+    refresh_cutoff = datetime.now(timezone.utc) - timedelta(days=INDUSTRY_TOP_COMPANIES_REFRESH_DAYS)
+    return last_hydrated_at <= refresh_cutoff
+
+
+def _record_industry_top_companies_refresh(industry_key: str) -> None:
+    record_market_data_refresh_state(
+        INDUSTRY_TOP_COMPANIES_REFRESH_RESOURCE,
+        industry_key,
+        last_hydrated_at=datetime.now(timezone.utc).isoformat(),
+        raw_json={"refresh_days": INDUSTRY_TOP_COMPANIES_REFRESH_DAYS},
+    )
+
+
+def ensure_sector_market_data(sector_identifier: str) -> dict | None:
+    sector = _find_sector_row(sector_identifier)
+    if sector is None:
+        return None
+
+    with closing(get_connection()) as conn, conn:
+        industry_row = conn.execute(
+            """
+            SELECT 1
+            FROM industries
+            WHERE sector_id = ?
+            LIMIT 1
+            """,
+            (int(sector["id"]),),
+        ).fetchone()
+
+    if industry_row is not None:
+        LOGGER.info(
+            "Market data already present for sector %s (%s)",
+            sector.get("name"),
+            sector.get("sector_key"),
+        )
+        return sector
+
+    if load_sector_from_yfinance is None:
+        LOGGER.warning(
+            "Skipping yfinance hydration for sector %s (%s) because the loader is unavailable",
+            sector.get("name"),
+            sector.get("sector_key"),
+        )
+        return sector
+
+    LOGGER.info(
+        "Hydrating market data for sector %s (%s) from yfinance",
+        sector.get("name"),
+        sector.get("sector_key"),
+    )
+    load_sector_from_yfinance(str(sector["sector_key"]))
+    LOGGER.info(
+        "Finished market data hydration for sector %s (%s)",
+        sector.get("name"),
+        sector.get("sector_key"),
+    )
+    return _find_sector_row(str(sector["sector_key"]))
+
+
+def ensure_all_sector_market_data() -> list[dict]:
+    ensure_sector_definitions()
+    with closing(get_connection()) as conn, conn:
+        sector_rows = conn.execute(
+            """
+            SELECT id, sector_key, name
+            FROM sectors
+            ORDER BY name
+            """
+        ).fetchall()
+
+    hydrated_sectors: list[dict] = []
+    total = len(sector_rows)
+    for index, row in enumerate(sector_rows, start=1):
+        sector_key = str(row["sector_key"] or "").strip()
+        if not sector_key:
+            continue
+        LOGGER.info(
+            "Bootstrapping market sector %s/%s: %s (%s)",
+            index,
+            total,
+            row["name"],
+            sector_key,
+        )
+        hydrated_sector = ensure_sector_market_data(sector_key)
+        if hydrated_sector is not None:
+            hydrated_sectors.append(hydrated_sector)
+            LOGGER.info(
+                "Completed market sector %s/%s: %s (%s)",
+                index,
+                total,
+                hydrated_sector.get("name"),
+                hydrated_sector.get("sector_key"),
+            )
+        else:
+            LOGGER.warning(
+                "Failed to resolve market sector %s/%s for key %s",
+                index,
+                total,
+                sector_key,
+            )
+    return hydrated_sectors
+
+
+def ensure_industry_market_data(industry_identifier: str) -> dict | None:
+    industry = _find_industry_row(industry_identifier)
+    if industry is not None:
+        industry_key = str(industry["industry_key"])
+        with closing(get_connection()) as conn, conn:
+            company_row = conn.execute(
+                """
+                SELECT 1
+                FROM companies
+                WHERE industry_id = ?
+                LIMIT 1
+                """,
+                (int(industry["id"]),),
+            ).fetchone()
+
+        if company_row is not None and not _industry_top_companies_refresh_is_due(industry_key):
+            return industry
+
+    if load_industry_from_yfinance is not None:
+        load_industry_from_yfinance(str(industry_identifier))
+        industry = _find_industry_row(industry_identifier)
+        if industry is not None:
+            _record_industry_top_companies_refresh(str(industry["industry_key"]))
+            return industry
+
+    if industry is not None:
+        return industry
+
+    sector = ensure_sector_market_data(str(industry_identifier))
+    if sector is None:
+        return None
+
+    return _find_industry_row(industry_identifier)

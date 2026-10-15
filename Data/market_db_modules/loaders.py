@@ -50,6 +50,27 @@ def load_sector_definitions_from_json(
     load_sector_definitions(payload, db_path=db_path)
 
 
+def ensure_sector_definitions(
+    json_path: Path | str = SECTOR_DEFINITIONS_PATH,
+    db_path: Path | str | None = None,
+) -> None:
+    initialize_database(db_path=db_path)
+    json_path = Path(json_path)
+    if not json_path.exists() or not json_path.read_text(encoding="utf-8").strip():
+        return
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        return
+
+    with closing(get_connection(db_path)) as conn:
+        existing_sector_keys = {
+            str(row["sector_key"]).strip().lower()
+            for row in conn.execute("SELECT sector_key FROM sectors").fetchall()
+        }
+    if {str(key).strip().lower() for key in payload}.difference(existing_sector_keys):
+        load_sector_definitions(payload, db_path=db_path)
+
+
 def _load_companies_for_industry(
     conn: sqlite3.Connection,
     *,
