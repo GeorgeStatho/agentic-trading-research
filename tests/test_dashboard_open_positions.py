@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from tests.db_fixtures import temporary_database
+
 
 try:
     from api_support.dashboard import build_open_positions_payload
@@ -17,6 +19,9 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific te
 
 @unittest.skipUnless(FLASK_AVAILABLE, "Flask is not installed in this environment.")
 class DashboardOpenPositionsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary_database(self)
+
     def test_option_rows_use_broker_mark_price_for_display_and_pl_when_available(self):
         raw_positions = [
             {

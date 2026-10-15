@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from tests.db_fixtures import temporary_database
+
 
 try:
     from api_support.dashboard import build_dashboard_kpis
@@ -17,6 +19,9 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific te
 
 @unittest.skipUnless(FLASK_AVAILABLE, "Flask is not installed in this environment.")
 class DashboardKpiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary_database(self)
+
     def test_dashboard_kpis_include_unique_install_count_from_telemetry(self):
         account_payload = {
             "equity": "10000",

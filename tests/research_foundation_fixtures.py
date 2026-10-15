@@ -1,18 +1,16 @@
 """Offline fixtures shared by foundation storage and comparison tests."""
 from contextlib import closing
 from dataclasses import asdict
-from pathlib import Path
-import tempfile
 from unittest.mock import patch
 
 from db_common import get_connection
-from market_db_modules.bootstrap import initialize_database
 from market_db_modules.candidate_lifecycle import record_candidate, record_candidate_snapshot
 from market_db_modules.research_observations import record_research_observation, get_research_observation
 from news_db_modules.catalysts import build_catalyst_state, store_catalyst_state
 from research_foundation_contracts import ResearchObservation
 from services.contract_policy import ContractPolicy
 from services.research_contract import canonical
+from tests.db_fixtures import temporary_database
 
 
 START = "2026-09-01T20:00:00+00:00"
@@ -22,10 +20,7 @@ CATALYST = "catalyst:earnings-fixture"
 
 
 def database(test):
-    temp = tempfile.TemporaryDirectory()
-    test.addCleanup(temp.cleanup)
-    db = Path(temp.name) / "foundation.db"
-    initialize_database(db_path=db)
+    db = temporary_database(test, "foundation.db")
     with closing(get_connection(db)) as conn, conn:
         conn.execute("INSERT INTO sectors(id,sector_key,name) VALUES (1,'technology','Technology')")
         conn.execute("INSERT INTO industries(id,sector_id,industry_key,name) VALUES (1,1,'chips','Chips')")

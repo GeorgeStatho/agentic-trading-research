@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import unittest
 
+from tests.db_fixtures import temporary_database
+
 from api_support.demo_mode import DEMO_ARTICLE_ID, DEMO_OPTION_SYMBOL, build_demo_mode_payload  # noqa: E402
 
 
 class DemoModeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary_database(self)
+
     def test_demo_payload_contains_a_complete_read_only_exposure_story(self) -> None:
         payload = build_demo_mode_payload()
 

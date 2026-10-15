@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from tests.db_fixtures import temporary_database
+
 
 try:
     from api_support.thesis_validator import (
@@ -51,6 +53,9 @@ def _stored_run(**overrides) -> dict:
 
 @unittest.skipUnless(FLASK_AVAILABLE, "Flask is not installed in this environment.")
 class ThesisValidatorPayloadTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary_database(self)
+
     def test_payload_summarizes_runs_without_heavy_blobs(self) -> None:
         health = {"position_day_count": 4, "flip_rate": 0.0, "action_rate": 0.25, "grounding_rate": 1.0}
         with (
@@ -89,6 +94,9 @@ class ThesisValidatorPayloadTests(unittest.TestCase):
 
 @unittest.skipUnless(FLASK_AVAILABLE, "Flask is not installed in this environment.")
 class OpenPositionsThesisVerdictTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary_database(self)
+
     def test_option_rows_carry_latest_thesis_verdict(self) -> None:
         from api_support.dashboard import build_open_positions_payload
 

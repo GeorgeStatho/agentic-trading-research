@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from tests.db_fixtures import temporary_database
+
 from api_support.backtest import create_backtest_run, fetch_backtest_eod_quotes  # noqa: E402
 
 try:
@@ -17,6 +19,9 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific te
 
 
 class BacktestRunSupportTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary_database(self)
+
     def test_all_history_passes_no_limit_and_preserves_date_filters(self) -> None:
         with patch("api_support.backtest.run_backtest", return_value={"events": []}) as runner:
             create_backtest_run({"limit": None, "start_at": "2026-01-01", "end_at": "2026-09-24"})
@@ -35,6 +40,9 @@ class BacktestRunSupportTests(unittest.TestCase):
 
 
 class BacktestEodFetchSupportTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary_database(self)
+
     def test_fetches_with_server_side_defaults_and_read_only_result(self) -> None:
         provider_result = {
             "fetch_run_id": 8,
@@ -74,6 +82,7 @@ class BacktestEodFetchSupportTests(unittest.TestCase):
 @unittest.skipUnless(FLASK_AVAILABLE, "Flask is not installed in this environment.")
 class BacktestEodFetchRouteTests(unittest.TestCase):
     def setUp(self) -> None:
+        temporary_database(self)
         self.app = Flask(__name__)
         register_backtest_routes(self.app)
         self.client = self.app.test_client()

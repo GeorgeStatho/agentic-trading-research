@@ -170,6 +170,29 @@ class PersistenceLayeringTests(unittest.TestCase):
         ]
         self.assertEqual(offenders, [])
 
+    def test_tests_do_not_write_the_session_database(self) -> None:
+        modules = ["test_api_backtest_eod_fetch", "test_api_thesis_validator", "test_dashboard_kpis",
+                   "test_dashboard_open_positions", "test_demo_mode"]
+        own_database = [name for name in modules
+                        if not re.search(r"\b(temporary_database|use_database)\(", (ROOT_DIR / "tests" / f"{name}.py").read_text(encoding="utf-8"))]
+        self.assertEqual(own_database, [], "these modules do not set up their own database")
+
+        def counts() -> list[int]:
+            with closing(sqlite3.connect(db_common.DB_PATH)) as conn:
+                found = []
+                for table in ("manager_decision_history", "option_trade_executions", "companies"):
+                    try:
+                        found.append(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+                    except sqlite3.OperationalError:
+                        found.append(0)
+                return found
+
+        before = counts()
+        suite = unittest.TestLoader().loadTestsFromNames([f"tests.{name}" for name in modules])
+        result = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0).run(suite)
+        self.assertTrue(result.wasSuccessful())
+        self.assertEqual(counts(), before)
+
     def test_facade_files_are_gone(self) -> None:
         facades = ["market_db.py", "news_db.py", "db.py", "db_helpers", "queryDB.py"]
         self.assertEqual([name for name in facades if (DATA_DIR / name).exists()], [])

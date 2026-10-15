@@ -6,14 +6,11 @@ from datetime import datetime, timedelta, timezone
 import json
 import logging
 import math
-from pathlib import Path
 import sqlite3
-import tempfile
 import unittest
 from unittest.mock import patch
 
 from db_common import get_connection
-from market_db_modules.bootstrap import initialize_database
 from market_db_modules.candidate_lifecycle import record_candidate, record_candidate_rejection
 from market_db_modules.trade_economics import (
     get_candidate_economics_report, record_candidate_economics_report, trade_economics_summary,
@@ -27,6 +24,7 @@ from services.trade_economics import (
     apply_trade_economics, holding_rule, independence_clusters, recheck_trade_economics, scenario_set, selected_row,
 )
 from services.trade_economics_policy import TradeEconomicsPolicy
+from tests.db_fixtures import temporary_database
 
 
 NOW = datetime(2026, 9, 21, 15, tzinfo=timezone.utc)
@@ -52,10 +50,7 @@ def scenario_rows(returns, *, same_day=False):
 
 
 def database(test):
-    temp = tempfile.TemporaryDirectory()
-    test.addCleanup(temp.cleanup)
-    db = Path(temp.name) / 'economics.db'
-    initialize_database(db_path=db)
+    db = temporary_database(test, 'economics.db')
     with closing(get_connection(db)) as conn, conn:
         conn.execute("INSERT INTO sectors(id,sector_key,name) VALUES (1,'technology','Technology')")
         conn.execute("INSERT INTO industries(id,sector_id,industry_key,name) VALUES (1,1,'chips','Chips')")
