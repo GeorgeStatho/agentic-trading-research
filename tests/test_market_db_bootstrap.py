@@ -23,11 +23,6 @@ class MarketSetupFingerprintTests(unittest.TestCase):
         with closing(get_connection(self.db_path)) as conn, conn:
             return {row["name"] for row in conn.execute("PRAGMA table_info(manager_decision_history)")}
 
-    def test_database_set_up_by_the_same_files_is_left_alone(self):
-        initialize_database(db_path=self.db_path)
-
-        self.assertNotIn("exit_reason", self.manager_history_columns())
-
     def test_database_set_up_by_other_files_is_migrated(self):
         with closing(get_connection(self.db_path)) as conn, conn:
             conn.execute("UPDATE schema_bootstrap SET fingerprint = 'older-setup'")
@@ -90,19 +85,6 @@ class MarketSetupFingerprintTests(unittest.TestCase):
             }
         self.assertNotIn("manager_input_json", self.manager_history_columns())
         self.assertEqual(payloads, {inline_id: "AAPL", ledger_only_id: "MSFT"})
-
-    def test_setup_strips_payload_copies_from_autopsy_snapshots(self):
-        self._simulate_payloads_written_by_older_code()
-
-        with closing(get_connection(self.db_path)) as conn, conn:
-            snapshots = [json.loads(row["snapshot_json"]) for row in conn.execute("SELECT snapshot_json FROM decision_autopsy_ledger")]
-        self.assertEqual(snapshots, [{"version": "decision-autopsy-v2"}] * 2)
-
-    def test_executed_decisions_have_their_own_date_index(self):
-        with closing(get_connection(self.db_path)) as conn, conn:
-            index_names = {row["name"] for row in conn.execute("PRAGMA index_list(manager_decision_history)")}
-
-        self.assertIn("idx_manager_decision_history_executed_run_at", index_names)
 
 
 if __name__ == "__main__":

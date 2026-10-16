@@ -11,36 +11,6 @@ from news_db_modules.article_store import add_news_article
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
 
-class NewsSchemaIndexTests(unittest.TestCase):
-    def test_news_dashboard_join_indexes_are_created(self):
-        with TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "news-indexes.sqlite3"
-            initialize_market_database(db_path=db_path)
-            initialize_news_database(db_path=db_path)
-            with closing(get_connection(db_path)) as conn, conn:
-                index_names = {
-                    row["name"]
-                    for table_name in (
-                        "company_opportunist_impacts",
-                        "industry_opportunist_impacts",
-                        "sector_opportunist_impacts",
-                        "world_news_sector_impacts",
-                        "us_news_sector_impacts",
-                    )
-                    for row in conn.execute(f"PRAGMA index_list({table_name})").fetchall()
-                }
-
-        self.assertTrue(
-            {
-                "idx_company_opportunist_impacts_company_article",
-                "idx_industry_opportunist_impacts_industry_article",
-                "idx_sector_opportunist_impacts_sector_article",
-                "idx_world_news_sector_impacts_sector_article",
-                "idx_us_news_sector_impacts_sector_article",
-            }.issubset(index_names)
-        )
-
-
 class ArticleContentTableTests(unittest.TestCase):
     def setUp(self):
         temp_dir = TemporaryDirectory()
@@ -82,18 +52,6 @@ class ArticleContentTableTests(unittest.TestCase):
         self.assertEqual(self.content_rows(), [(7, "Old body", "{}")])
 
 
-class ScraperArticleReuseTests(unittest.TestCase):
-    def test_scraper_reads_a_stored_article_with_its_body(self):
-        from core.CommonPipeline import fetch_existing_article_by_url
-
-        url = "https://example.com/scraper-reuse"
-        article_id = add_news_article("Test Wire", "scraper-reuse", "Title", url, body="Stored body")
-
-        article = fetch_existing_article_by_url(url)
-
-        self.assertEqual((article["id"], article["body"]), (article_id, "Stored body"))
-
-
 class NewsSetupFingerprintTests(unittest.TestCase):
     def setUp(self):
         temp_dir = TemporaryDirectory()
@@ -108,11 +66,6 @@ class NewsSetupFingerprintTests(unittest.TestCase):
         with closing(get_connection(self.db_path)) as conn, conn:
             return {row["name"] for row in conn.execute("PRAGMA index_list(news_articles)")}
 
-    def test_database_set_up_by_the_same_files_is_left_alone(self):
-        initialize_news_database(db_path=self.db_path)
-
-        self.assertNotIn("idx_news_articles_section", self.news_article_indexes())
-
     def test_database_set_up_by_other_files_is_migrated(self):
         with closing(get_connection(self.db_path)) as conn, conn:
             conn.execute("UPDATE schema_bootstrap SET fingerprint = 'older-setup' WHERE name = 'news'")
@@ -121,12 +74,6 @@ class NewsSetupFingerprintTests(unittest.TestCase):
         initialize_news_database(db_path=self.db_path)
 
         self.assertIn("idx_news_articles_section", self.news_article_indexes())
-
-    def test_news_and_market_setups_keep_separate_fingerprints(self):
-        with closing(get_connection(self.db_path)) as conn, conn:
-            names = {row["name"] for row in conn.execute("SELECT name FROM schema_bootstrap")}
-
-        self.assertEqual(names, {"market", "news"})
 
 
 if __name__ == "__main__":

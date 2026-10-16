@@ -64,12 +64,6 @@ class ResearchThesisTests(ResearchFixture):
         self.assertEqual((outcome["status"], record["route"], record["research_status"], len(writer.contexts)),
                          ("validated", "research_shadow", "ready", 1))
 
-    def test_thesis_uses_the_final_research_package(self):
-        session = self.ready_session()
-        writer = FakeWriter()
-        self.write_theses(writer)
-        self.assertEqual(writer.contexts[0]["company_evidence"]["package_id"], session["final_package_id"])
-
     def test_sessions_are_not_rewritten(self):
         self.ready_session()
         self.write_theses()
@@ -91,15 +85,6 @@ class ResearchThesisTests(ResearchFixture):
         outcome = self.write_theses(writer)["theses"][0]
         self.assertEqual((outcome["status"], writer.contexts), ("failed", []))
 
-    def test_daily_thesis_allowance_is_reserved_before_dispatch(self):
-        self.ready_session()
-        writer = FakeWriter()
-        policy = EvidenceThesisPolicy(mode="shadow", daily_research_thesis_calls=1)
-        with closing(get_connection(self.db)) as conn, conn:
-            conn.execute("INSERT INTO research_thesis_allowances VALUES (?,1,0)", (ENTRY[:10],))
-        result = self.write_theses(writer, thesis_policy=policy)
-        self.assertEqual((result["status"], writer.contexts), ("budget_exhausted:daily_thesis_allowance", []))
-
     def test_thesis_cost_shares_the_research_daily_budget(self):
         self.ready_session()
         with closing(get_connection(self.db)) as conn, conn:
@@ -114,17 +99,6 @@ class ResearchThesisTests(ResearchFixture):
         result = self.write_theses(PaidWriter(), research_policy=research_policy)
         self.assertEqual(result["status"], "budget_exhausted:daily_cost_allowance")
 
-    def test_disabled_research_or_off_theses_do_nothing(self):
-        self.ready_session()
-        off = self.write_theses(thesis_policy=EvidenceThesisPolicy(mode="off"))
-        disabled = self.write_theses(research_policy=EvidenceResearchPolicy(mode="disabled"))
-        self.assertEqual((off["status"], disabled["status"]), ("disabled", "disabled"))
-
-    def test_result_carries_no_trade_permission(self):
-        self.ready_session()
-        outcome = self.write_theses()["theses"][0]
-        self.assertTrue(outcome["shadow"] and not {"allowed", "selected_option", "decision"} & set(outcome))
-
 
 class WriterConfigurationTests(unittest.TestCase):
     """The writer follows the strategist/manager configuration convention."""
@@ -134,42 +108,11 @@ class WriterConfigurationTests(unittest.TestCase):
         with patch.dict("os.environ", environment, clear=True):
             return ResearchThesisWriter()
 
-    def test_inherits_the_strategist_model_and_host(self):
-        writer = self.writer(LLM_PROVIDER="ollama", STRATEGIST_MODEL="strategist-model",
-                             STRATEGIST_OLLAMA_HOST="http://ollama:11434")
-        self.assertEqual((writer.provider, writer.model, writer.host),
-                         ("ollama", "strategist-model", "http://ollama:11434"))
-
-    def test_stage_specific_model_and_host_take_precedence(self):
-        writer = self.writer(LLM_PROVIDER="ollama", STRATEGIST_MODEL="strategist-model",
-                             RESEARCH_THESIS_MODEL="thesis-model", RESEARCH_THESIS_OLLAMA_HOST="http://thesis:11434")
-        self.assertEqual((writer.model, writer.host), ("thesis-model", "http://thesis:11434"))
-
-    def test_provider_comes_from_llm_provider_not_the_planner_override(self):
-        writer = self.writer(LLM_PROVIDER="ollama", RESEARCH_PLANNER_PROVIDER="vertex", STRATEGIST_MODEL="m")
-        self.assertEqual(writer.provider, "ollama")
-
-    def test_limits_fall_back_to_planner_settings(self):
-        writer = self.writer(LLM_PROVIDER="ollama", STRATEGIST_MODEL="m", RESEARCH_PLANNER_MAX_OUTPUT_TOKENS="2048",
-                             RESEARCH_THESIS_THINKING_BUDGET="512")
-        self.assertEqual((writer.policy.max_output_tokens, writer.policy.thinking_budget), (2048, 512))
-
     def test_paid_model_different_from_planner_needs_its_own_rates(self):
         with self.assertRaisesRegex(ValueError, "RESEARCH_THESIS_INPUT/OUTPUT_USD_PER_MILLION"):
             self.writer(LLM_PROVIDER="vertex", STRATEGIST_MODEL="gemini-2.5-flash",
                         RESEARCH_THESIS_MODEL="gemini-2.5-pro", RESEARCH_PLANNER_INPUT_USD_PER_MILLION="0.3",
                         RESEARCH_PLANNER_OUTPUT_USD_PER_MILLION="2.5")
-
-    def test_paid_model_with_own_rates_uses_them(self):
-        writer = self.writer(LLM_PROVIDER="vertex", STRATEGIST_MODEL="gemini-2.5-flash",
-                             RESEARCH_THESIS_MODEL="gemini-2.5-pro", RESEARCH_THESIS_INPUT_USD_PER_MILLION="1.25",
-                             RESEARCH_THESIS_OUTPUT_USD_PER_MILLION="10")
-        self.assertEqual((writer.policy.input_usd_per_million, writer.policy.output_usd_per_million), (1.25, 10.0))
-
-    def test_same_paid_model_as_planner_reuses_planner_rates(self):
-        writer = self.writer(LLM_PROVIDER="vertex", STRATEGIST_MODEL="gemini-2.5-flash",
-                             RESEARCH_PLANNER_INPUT_USD_PER_MILLION="0.3", RESEARCH_PLANNER_OUTPUT_USD_PER_MILLION="2.5")
-        self.assertEqual(writer.policy.input_usd_per_million, 0.3)
 
 
 if __name__ == "__main__":

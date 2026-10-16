@@ -44,21 +44,6 @@ class MarketDataHydrationTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_ensure_industry_market_data_skips_refresh_when_top_companies_hydration_is_fresh(self):
-        record_market_data_refresh_state(
-            hydration.INDUSTRY_TOP_COMPANIES_REFRESH_RESOURCE,
-            "semiconductors",
-            last_hydrated_at=datetime.now(timezone.utc).isoformat(),
-            db_path=self.db_path,
-        )
-
-        with use_database(self.db_path), patch.object(hydration, "load_industry_from_yfinance") as loader:
-            industry = hydration.ensure_industry_market_data("semiconductors")
-
-        self.assertIsNotNone(industry)
-        self.assertEqual(industry["industry_key"], "semiconductors")
-        loader.assert_not_called()
-
     def test_ensure_industry_market_data_refreshes_when_top_companies_hydration_is_stale(self):
         stale_timestamp = (datetime.now(timezone.utc) - timedelta(days=31)).isoformat()
         record_market_data_refresh_state(

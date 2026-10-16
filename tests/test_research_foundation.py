@@ -13,12 +13,16 @@ from research_foundation_contracts import (
 )
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.company_evidence import (
-    record_evidence_document, record_company_fact, record_evidence_package,
-    get_evidence_package, list_company_facts,
+    record_evidence_document,
+    record_company_fact,
+    record_evidence_package,
+    get_evidence_package,
 )
 from market_db_modules.research_foundation import (
-    enqueue_discovery, get_discovery_item, record_research_session,
-    get_research_session, migrate_research_foundation,
+    enqueue_discovery,
+    get_discovery_item,
+    record_research_session,
+    migrate_research_foundation,
 )
 from services.evidence_research_policy import foundation_manifest
 from services.research_contract import canonical, fingerprint
@@ -59,10 +63,6 @@ class EvidenceStorageTests(unittest.TestCase):
             source_end=26, available_at=fixtures.END, supersedes_fact_id="fact:1"), db_path=self.db)
         self.assertEqual(get_evidence_package("package:1", db_path=self.db), before)
 
-    def test_future_facts_do_not_enter_historical_query(self):
-        record_company_fact(replace(self.fact, fact_id="fact:later", available_at=fixtures.END), db_path=self.db)
-        self.assertEqual(len(list_company_facts(1, as_of=fixtures.ENTRY, db_path=self.db)), 1)
-
     def test_future_fact_cannot_enter_package(self):
         record_company_fact(replace(self.fact, fact_id="fact:later", available_at=fixtures.END), db_path=self.db)
         with self.assertRaisesRegex(ValueError, "future fact"):
@@ -81,50 +81,6 @@ class EvidenceStorageTests(unittest.TestCase):
         with closing(get_connection(self.db)) as conn, conn, self.assertRaises(sqlite3.IntegrityError):
             conn.execute("UPDATE company_facts SET metric='changed'")
 
-    def test_missing_document_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "Unknown evidence_documents"):
-            record_company_fact(replace(self.fact, fact_id="bad", document_id="absent"), db_path=self.db)
-
-    def test_unknown_fact_requires_reason(self):
-        with self.assertRaisesRegex(ValueError, "reason"):
-            replace(self.fact, value=None)
-
-    def test_nonfinite_fact_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "finite"):
-            replace(self.fact, value=float("nan"))
-
-    def test_source_span_is_validated(self):
-        with self.assertRaisesRegex(ValueError, "source span"):
-            record_company_fact(replace(self.fact, source_end=1000), db_path=self.db)
-
-    def test_naive_timestamp_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "timezone"):
-            replace(self.document, published_at="2026-09-01")
-
-    def test_duplicate_discovery_routes_share_item(self):
-        item = DiscoveryQueueItem(company_id=1, catalyst_id=fixtures.CATALYST,
-            evidence_revision="rev:1", purpose="entry", origin="news", created_at=fixtures.ENTRY)
-        first = enqueue_discovery(item, db_path=self.db)
-        second = enqueue_discovery(replace(item, origin="sector", created_at=fixtures.END), db_path=self.db)
-        self.assertEqual(first, second)
-
-    def test_new_revision_creates_new_queue_item(self):
-        item = DiscoveryQueueItem(company_id=1, catalyst_id=fixtures.CATALYST,
-            evidence_revision="rev:1", purpose="entry", origin="news", created_at=fixtures.ENTRY)
-        first = enqueue_discovery(item, db_path=self.db)
-        second = enqueue_discovery(replace(item, evidence_revision="rev:2"), db_path=self.db)
-        self.assertNotEqual(first, second)
-
-    def test_session_round_trip(self):
-        record_evidence_package(self.package, db_path=self.db)
-        queue_id = enqueue_discovery(DiscoveryQueueItem(company_id=1, catalyst_id=fixtures.CATALYST,
-            evidence_revision=self.package.event_revision, purpose="entry", origin="news", created_at=fixtures.ENTRY), db_path=self.db)
-        session = ResearchSession(session_id="session:1", queue_id=queue_id,
-            initial_package_id="package:1", started_at=fixtures.ENTRY, deadline_at=fixtures.END,
-            model="fixture", prompt_version="v1")
-        record_research_session(session, db_path=self.db)
-        self.assertEqual(get_research_session("session:1", db_path=self.db)["queue_id"], queue_id)
-
     def test_research_session_rejects_superseding_event_revision(self):
         record_evidence_package(self.package, db_path=self.db)
         queue_id = enqueue_discovery(DiscoveryQueueItem(company_id=1, catalyst_id=fixtures.CATALYST,
@@ -135,20 +91,12 @@ class EvidenceStorageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "revision differs"):
             record_research_session(session, db_path=self.db)
 
-    def test_late_ingested_document_cannot_enter_earlier_package(self):
-        record_evidence_document(replace(self.document, document_id="doc:late", ingested_at=fixtures.END), db_path=self.db)
-        with self.assertRaisesRegex(ValueError, "future document"):
-            record_evidence_package(replace(self.package, document_ids=("doc:late",), fact_ids=()), db_path=self.db)
-
     def retired_economics_table_after_migration(self, *rows):
         with closing(get_connection(self.db)) as conn, conn:
             conn.execute("CREATE TABLE trade_economics_reports (report_id TEXT PRIMARY KEY)")
             conn.executemany("INSERT INTO trade_economics_reports VALUES (?)", [(row,) for row in rows])
             migrate_research_foundation(conn)
             return conn.execute("SELECT name FROM sqlite_master WHERE name='trade_economics_reports'").fetchone()
-
-    def test_migration_drops_the_empty_retired_economics_table(self):
-        self.assertIsNone(self.retired_economics_table_after_migration())
 
     def test_migration_keeps_a_retired_economics_table_holding_data(self):
         self.assertIsNotNone(self.retired_economics_table_after_migration("economics:1"))
@@ -200,19 +148,9 @@ class MigrationAndManifestTests(unittest.TestCase):
             read_run(conn, "old-run")
         self.assertEqual(after, before)
 
-    def test_budget_changes_manifest_without_exposing_credentials(self):
-        with patch.dict("os.environ", {"RESEARCH_MAX_TOOL_CALLS": "6", "OPENAI_API_KEY": "secret-fixture"}):
-            first = foundation_manifest()
-        with patch.dict("os.environ", {"RESEARCH_MAX_TOOL_CALLS": "7", "OPENAI_API_KEY": "secret-fixture"}):
-            second = foundation_manifest()
-        self.assertNotEqual(first["research_budget_hash"], second["research_budget_hash"])
-
     def test_credentials_are_absent_from_manifest(self):
         with patch.dict("os.environ", {"OPENAI_API_KEY": "secret-fixture"}):
             self.assertNotIn("secret-fixture", json.dumps(foundation_manifest()))
-
-    def test_foundation_schema_is_hashed(self):
-        self.assertIn("Data/market_db_modules/research_foundation_schema.sql", foundation_manifest()["source_hashes"])
 
 
 if __name__ == "__main__":

@@ -579,4 +579,7 @@ the local ones are reported as `selector_config_mismatch`. `--fetch-missing-bars
 traded symbols that have none. `--min-hours-between N` replays a company's decision only when it is N hours
 after the last one replayed for it, chosen by time alone; compare it with a `stored` run using the same N. `--replay-strategist` has the model answer
 each decision's frozen strategist input too (`strategist_runs`, by candidate) and hands that answer to
-the manager exactly as production does; strategist answers are cached separately.
+the manager exactly as production does; strategist answers are cached separately. `--score-direction`
+(`services/llm_direction_score.py`) grades the same replayed answers by the stock's return over the next 5 and 10
+trading-day closes instead of trading options, so decisions from before the bucket-chain snapshots (frozen inputs
+start 2026-07-21) can be compared too; it reports how every scored stock moved as the bar a model must beat.

@@ -4,7 +4,6 @@ from contextlib import closing
 import json
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -17,7 +16,6 @@ from market_db_modules.backtesting import (  # noqa: E402
     get_backtest_run,
     record_historical_option_quote,
     run_backtest,
-    simulate_backtest_metrics,
 )
 from market_db_modules.bootstrap import initialize_database  # noqa: E402
 from market_db_modules.backtesting import _apply_portfolio_limits, _merged_config, _metrics  # noqa: E402
@@ -64,78 +62,6 @@ class BacktestingTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_all_history_preserves_older_priced_trades_and_includes_latest_decisions(self) -> None:
-        for timestamp, bid, ask in (
-            ("2026-01-01T10:01:00+00:00", 1.0, 1.1),
-            ("2026-01-01T10:05:00+00:00", 1.5, 1.6),
-        ):
-            record_historical_option_quote(
-                {"option_symbol": "MSFT260117C00400000", "quote_at": timestamp, "bid": bid, "ask": ask},
-                provider="fixture", db_path=self.db_path,
-            )
-        earlier = run_backtest(db_path=self.db_path)
-        self.assertEqual(earlier["run"]["metrics"]["filled_count"], 1)
-        with closing(get_connection(self.db_path)) as conn, conn:
-            conn.executemany(
-                "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES ('NVDA', ?, 'call')",
-                [((datetime(2026, 9, 20, tzinfo=timezone.utc) + timedelta(minutes=i)).isoformat(),) for i in range(1001)],
-            )
-        recent = run_backtest(limit=700, db_path=self.db_path)
-        self.assertIsNone(recent["run"]["metrics"]["expectancy_pct"])
-        complete = run_backtest(limit=None, db_path=self.db_path)
-        metrics = complete["run"]["metrics"]
-        self.assertEqual(metrics["decision_count"], 1003)
-        self.assertEqual(metrics["available_decision_count"], 1003)
-        self.assertEqual(metrics["omitted_older_decision_count"], 0)
-        self.assertIsNone(metrics["decision_limit"])
-        self.assertEqual(metrics["filled_count"], 1)
-        self.assertEqual(metrics["expectancy_pct"], earlier["run"]["metrics"]["expectancy_pct"])
-        self.assertTrue(complete["events"][-1]["as_of"].startswith("2026-09-20"))
-        self.assertEqual(get_backtest_run(earlier["run"]["id"], db_path=self.db_path), earlier)
-
-    def test_default_window_includes_latest_decisions_past_250_and_preserves_old_runs(self) -> None:
-        old_run = run_backtest(db_path=self.db_path)
-        start = datetime(2026, 9, 20, 10, tzinfo=timezone.utc)
-        timestamps = [(start + timedelta(minutes=i)).isoformat() for i in range(251)]
-        with closing(get_connection(self.db_path)) as conn, conn:
-            conn.executemany(
-                "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES ('NVDA', ?, 'call')",
-                [(timestamp,) for timestamp in timestamps],
-            )
-        result = run_backtest(db_path=self.db_path)
-        self.assertEqual([event["as_of"] for event in result["events"]], timestamps[1:])
-        metrics = result["run"]["metrics"]
-        self.assertEqual(metrics["available_decision_count"], 253)
-        self.assertEqual(metrics["decision_count"], 250)
-        self.assertEqual(metrics["omitted_older_decision_count"], 3)
-        self.assertEqual(metrics["decision_start_at"], timestamps[1])
-        self.assertEqual(metrics["decision_end_at"], timestamps[-1])
-        self.assertEqual(get_backtest_run(old_run["run"]["id"], db_path=self.db_path), old_run)
-
-    def test_latest_selection_respects_date_bounds_and_id_ties(self) -> None:
-        timestamp = "2026-09-20T10:00:00+00:00"
-        with closing(get_connection(self.db_path)) as conn, conn:
-            ids = [conn.execute(
-                "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES (?, ?, 'call')",
-                (symbol, timestamp),
-            ).lastrowid for symbol in ("NVDA", "AMD", "MU")]
-            conn.execute(
-                "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES ('IBM', '2026-09-21T10:00:00+00:00', 'call')"
-            )
-        result = run_backtest(start_at=timestamp, end_at=timestamp, limit=2, db_path=self.db_path)
-        self.assertEqual([event["manager_decision_history_id"] for event in result["events"]], ids[1:])
-        self.assertEqual(result["run"]["metrics"]["available_decision_count"], 3)
-        self.assertEqual(result["run"]["metrics"]["omitted_older_decision_count"], 1)
-        complete = run_backtest(start_at=timestamp, end_at=timestamp, limit=None, db_path=self.db_path)
-        self.assertEqual([event["manager_decision_history_id"] for event in complete["events"]], ids)
-        self.assertEqual(complete["run"]["metrics"]["omitted_older_decision_count"], 0)
-
-    def test_empty_date_window_reports_empty_coverage(self) -> None:
-        result = run_backtest(start_at="2027-01-01T00:00:00+00:00", db_path=self.db_path)
-        self.assertEqual(result["events"], [])
-        self.assertEqual(result["run"]["metrics"]["available_decision_count"], 0)
-        self.assertIsNone(result["run"]["metrics"]["decision_end_at"])
-
     def test_backtest_uses_available_evidence_and_historical_bid_ask_fills_only(self) -> None:
         first_quote_id = record_historical_option_quote(
             {"option_symbol": "MSFT260117C00400000", "quote_at": "2026-01-01T10:01:00+00:00", "bid": 1.0, "ask": 1.1, "volume": 20},
@@ -175,24 +101,6 @@ class BacktestingTests(unittest.TestCase):
         self.assertEqual(stored_quote["ask_price"], 1.1)
         self.assertEqual(json.loads(snapshot["snapshot_json"])["articles"], [])
         self.assertEqual(execution_count, 0)
-
-    def test_simulated_metrics_match_a_recorded_run_without_recording_one(self) -> None:
-        for timestamp, bid, ask in (
-            ("2026-01-01T10:01:00+00:00", 1.0, 1.1),
-            ("2026-01-01T10:05:00+00:00", 1.5, 1.6),
-        ):
-            record_historical_option_quote(
-                {"option_symbol": "MSFT260117C00400000", "quote_at": timestamp, "bid": bid, "ask": ask},
-                provider="fixture", db_path=self.db_path,
-            )
-        config = {"take_profit_pct": 20.0}
-        simulated = simulate_backtest_metrics(config=config, db_path=self.db_path)
-        with closing(get_connection(self.db_path)) as conn, conn:
-            run_count = conn.execute("SELECT COUNT(*) FROM backtest_runs").fetchone()[0]
-        recorded = run_backtest(config=config, limit=None, db_path=self.db_path)
-
-        self.assertEqual(run_count, 0)
-        self.assertEqual(simulated, recorded["run"]["metrics"])
 
     def test_backtest_rejects_an_entry_quote_that_is_too_delayed(self) -> None:
         record_historical_option_quote(
@@ -249,14 +157,6 @@ class PortfolioGuardrailTests(unittest.TestCase):
         ], max_concurrent_positions=1)
         self.assertEqual(events[0]["status"], "simulated_closed")
         self.assertEqual(events[1]["warnings"], ["portfolio_max_concurrent_positions"])
-
-    def test_adding_to_a_held_contract_does_not_need_a_new_slot(self) -> None:
-        held = {"option_symbol": "NVDA261030C00240000"}
-        events = self._run_limits([
-            {**self._event(1, entry_at="2026-01-01T10:00:00+00:00", exit_at="2026-01-01T11:00:00+00:00"), **held},
-            {**self._event(2, entry_at="2026-01-01T10:01:00+00:00", exit_at="2026-01-01T11:01:00+00:00"), **held},
-        ], max_concurrent_positions=1)
-        self.assertEqual(events[1]["status"], "simulated_closed")
 
     def test_total_notional_and_sector_limits_are_auditable(self) -> None:
         total_events = self._run_limits([

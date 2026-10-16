@@ -171,8 +171,7 @@ class PersistenceLayeringTests(unittest.TestCase):
         self.assertEqual(offenders, [])
 
     def test_tests_do_not_write_the_session_database(self) -> None:
-        modules = ["test_api_backtest_eod_fetch", "test_api_thesis_validator", "test_dashboard_kpis",
-                   "test_dashboard_open_positions", "test_demo_mode"]
+        modules = ["test_api_backtest_eod_fetch", "test_api_thesis_validator", "test_dashboard_open_positions"]
         own_database = [name for name in modules
                         if not re.search(r"\b(temporary_database|use_database)\(", (ROOT_DIR / "tests" / f"{name}.py").read_text(encoding="utf-8"))]
         self.assertEqual(own_database, [], "these modules do not set up their own database")

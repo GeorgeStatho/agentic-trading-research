@@ -278,7 +278,7 @@ https://dashboard.example.com/#/dashboard
 ### 5. Common development commands
 
 ```bash
-python3 scripts/project.py test tests.test_exposure_map tests.test_demo_mode
+python3 scripts/project.py test tests.test_exposure_map tests.test_settings
 python3 scripts/project.py dashboard build
 python3 scripts/project.py demo-url
 ```

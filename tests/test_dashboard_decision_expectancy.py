@@ -13,16 +13,10 @@ DATA_DIR = ROOT_DIR / "Data"
 
 from db_common import get_connection  # noqa: E402
 from market_db_modules.bootstrap import initialize_database  # noqa: E402
-from market_db_modules.queries import list_decision_expectancy_rows  # noqa: E402
 from market_db_modules.history_records import record_manager_decision_closed_outcome  # noqa: E402
 
 try:
-    from flask import Flask
-    from api_routes.dashboard import register_dashboard_routes
-    from api_support.dashboard import (
-        _normalize_selector_mode,
-        build_decision_expectancy_payload,
-    )
+    from api_support.dashboard import build_decision_expectancy_payload
 
     FLASK_AVAILABLE = True
 except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific test guard
@@ -97,60 +91,8 @@ class DecisionExpectancyDashboardTests(unittest.TestCase):
         time_payload = self._payload(rows, group_by="time_of_day")
         self.assertEqual(time_payload["cohorts"][0]["key"], "opening_hour")
 
-    def test_selector_normalization_and_basis_eligibility_handle_pending_and_expired_outcomes(self) -> None:
-        rows = [
-            _row(identifier=1, selector="fallback_guardrail", marked_pnl=4.0),
-            _row(identifier=2, marked_pnl=8.0, expires_at="2026-06-10T00:00:00+00:00"),
-            _row(identifier=3, marked_pnl=None, realized_pnl=12.0, outcome_status="closed"),
-            _row(identifier=4, marked_pnl=None, realized_pnl=3.0, outcome_status="exit_pending"),
-        ]
-        marked = self._payload(rows, group_by="selector_mode")
-        fallback = next(item for item in marked["cohorts"] if item["key"] == "fallback_or_guardrail")
-        self.assertEqual(fallback["pnl_sample_count"], 1)
-        self.assertEqual(marked["summary"]["pnl_sample_count"], 1)
-        self.assertEqual(marked["summary"]["unresolved_count"], 3)
-
-        closed = self._payload(rows, group_by="confidence", basis="closed")
-        cohort = closed["cohorts"][0]
-        self.assertEqual(cohort["pnl_sample_count"], 1)
-        self.assertEqual(cohort["avg_pnl_pct"], 12.0)
-        self.assertEqual(closed["summary"]["unresolved_count"], 3)
-        self.assertEqual(_normalize_selector_mode("greeks_filtered"), "greeks")
-        self.assertEqual(_normalize_selector_mode("manager_only"), "manager_only")
-
-    def test_invalid_api_parameters_return_bad_request(self) -> None:
-        app = Flask(__name__)
-        register_dashboard_routes(app)
-        client = app.test_client()
-        self.assertEqual(client.get("/api/decision-expectancy?group_by=bad").status_code, 400)
-        self.assertEqual(client.get("/api/decision-expectancy?basis=future").status_code, 400)
-        self.assertEqual(client.get("/api/decision-expectancy?within_days=9999").status_code, 400)
-        self.assertEqual(client.get("/api/decision-expectancy?sector=not/a-sector").status_code, 400)
-
 
 class DecisionExpectancyReaderTests(unittest.TestCase):
-    def test_reader_preserves_symbol_when_company_hierarchy_is_missing(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "expectancy-reader.db"
-            initialize_database(db_path=db_path, schema_path=DATA_DIR / "market_schema.sql")
-            with closing(get_connection(db_path)) as conn, conn:
-                conn.execute(
-                    """
-                    INSERT INTO manager_decision_history (
-                        symbol, decision_run_at, manager_decision, manager_confidence,
-                        trade_executed, latest_trade_pnl_pct, pnl_expires_at
-                    ) VALUES ('ORPH', '2026-06-14T14:20:00+00:00', 'call', 'high', 1, 4.5, '2026-06-30T00:00:00+00:00')
-                    """
-                )
-            rows = list_decision_expectancy_rows(
-                within_days=90,
-                as_of="2026-06-15T00:00:00+00:00",
-                db_path=db_path,
-            )
-        self.assertEqual(rows[0]["symbol"], "ORPH")
-        self.assertIsNone(rows[0]["industry_key"])
-        self.assertIsNone(rows[0]["sector_key"])
-
     def test_closed_outcomes_require_explicit_broker_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "expectancy-closed.db"

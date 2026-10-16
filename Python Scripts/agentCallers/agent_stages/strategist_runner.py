@@ -204,6 +204,52 @@ def _parse_strategist_response(raw_response: str, payload: dict[str, Any]) -> tu
     return validate_grounded_recommendation(recommendation, grounding=payload.get("grounding", {})), raw_recommendation
 
 
+def decide_strategist_recommendation(
+    payload: dict[str, Any],
+    *,
+    client: Client,
+    model: str,
+    thesis_policy: EvidenceThesisPolicy,
+    candidate_context: dict[str, Any] | None = None,
+    system_prompt_override: str | None = None,
+    task_override: str | None = None,
+) -> dict[str, Any]:
+    """The strategist's decision on a finished payload, shared by live runs and replays.
+
+    Nothing is persisted: the thesis check comes back unsaved for the caller to keep or drop.
+    """
+    include_thesis = thesis_policy.requests_thesis
+    if not payload_has_evidence(payload):
+        no_evidence = build_no_evidence_result(payload["company"], context_snapshot=build_context_snapshot(payload))
+        thesis_check = (not_requested_check(payload, "no_evidence", route=THESIS_ROUTE, policy=thesis_policy)
+                        if include_thesis else None)
+        return {"recommendation": no_evidence["recommendation"], "thesis_check": thesis_check,
+                "raw_response": None, "no_evidence": True}
+
+    system_prompt, user_prompt = build_strategist_prompt(
+        payload,
+        system_prompt_override=system_prompt_override,
+        task_override=task_override,
+        include_thesis=include_thesis,
+    )
+    from services.candidate_lifecycle import checkpoint
+    checkpoint(candidate_context, "strategist_prompt", {"model": model,
+               "system_prompt": system_prompt, "user_prompt": user_prompt})
+    raw_response = ask_model(client=client, model=model, system_prompt=system_prompt,
+                             user_prompt=user_prompt, include_thesis=include_thesis)
+    try:
+        recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
+        thesis_check = (check_evidence_thesis((raw_recommendation or {}).get("evidence_thesis"), payload,
+                                              route=THESIS_ROUTE, policy=thesis_policy)
+                        if include_thesis else None)
+    except Exception as exc:
+        # Carried on the original exception so live can record the failed run without changing its type.
+        exc.raw_response = raw_response
+        raise
+    return {"recommendation": recommendation, "thesis_check": thesis_check,
+            "raw_response": raw_response, "no_evidence": False}
+
+
 def replay_strategist_decision_from_payload(
     payload: dict[str, Any],
     *,
@@ -218,22 +264,17 @@ def replay_strategist_decision_from_payload(
     """
     model = model or _stage_model().model
     thesis_policy = thesis_policy or EvidenceThesisPolicy.from_env()
-    include_thesis = thesis_policy.requests_thesis
-    payload = copy.deepcopy(payload)
-    result = {"model": model, "prompt_version": strategist_prompt_version(thesis_policy), "thesis_check": None}
-    if not payload_has_evidence(payload):
-        no_evidence = build_no_evidence_result(payload["company"], context_snapshot=build_context_snapshot(payload))
-        if include_thesis:
-            result["thesis_check"] = not_requested_check(payload, "no_evidence", route=THESIS_ROUTE, policy=thesis_policy)
-        return {**result, "recommendation": no_evidence["recommendation"], "replay_skipped": "no_evidence"}
-    system_prompt, user_prompt = build_strategist_prompt(payload, include_thesis=include_thesis)
-    raw_response = ask_model(client=client or get_default_client(), model=model, system_prompt=system_prompt,
-                             user_prompt=user_prompt, include_thesis=include_thesis)
-    recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
-    if include_thesis:
-        result["thesis_check"] = check_evidence_thesis((raw_recommendation or {}).get("evidence_thesis"), payload,
-                                                       route=THESIS_ROUTE, policy=thesis_policy)
-    return {**result, "recommendation": recommendation}
+    decision = decide_strategist_recommendation(
+        copy.deepcopy(payload),
+        client=client or get_default_client(),
+        model=model,
+        thesis_policy=thesis_policy,
+    )
+    result = {"model": model, "prompt_version": strategist_prompt_version(thesis_policy),
+              "thesis_check": decision["thesis_check"], "recommendation": decision["recommendation"]}
+    if decision["no_evidence"]:
+        result["replay_skipped"] = "no_evidence"
+    return result
 
 
 def attach_thesis_check(recommendation: dict[str, Any], check: dict[str, Any], evaluation_id: str | None) -> dict[str, Any]:
@@ -261,7 +302,6 @@ def decide_company_purchase(
     model = model or _stage_model().model
     client = client or get_default_client()
     thesis_policy = thesis_policy or EvidenceThesisPolicy.from_env()
-    include_thesis = thesis_policy.requests_thesis
     prompt_version = strategist_prompt_version(thesis_policy)
     payload = build_strategist_input(
         company_identifier,
@@ -280,66 +320,33 @@ def decide_company_purchase(
     company = payload["company"]
     context_snapshot = build_context_snapshot(payload)
 
-    if not payload_has_evidence(payload):
-        result = build_no_evidence_result(company, context_snapshot=context_snapshot)
-        if include_thesis:
-            result["recommendation"] = _attach_thesis_check(
-                result["recommendation"],
-                not_requested_check(payload, "no_evidence", route=THESIS_ROUTE, policy=thesis_policy),
-                company=company, candidate_context=candidate_context, model=model, prompt_version=prompt_version,
-            )
-        strategist_run_reference = _save_strategist_summary(
-            company=company,
-            context_snapshot=context_snapshot,
-            recommendation=result["recommendation"],
-            model=model,
-            input_payload=payload,
-            prompt_version=prompt_version,
-        )
-        return {
-            **result,
-            "grounding": payload.get("grounding", {}),
-            "manager_evidence_payload": _build_manager_evidence_payload(payload),
-            "strategist_run_reference": strategist_run_reference,
-        }
-
-    system_prompt, user_prompt = build_strategist_prompt(
-        payload,
-        system_prompt_override=system_prompt_override,
-        task_override=task_override,
-        include_thesis=include_thesis,
-    )
-    raw_response: str | None = None
-    raw_recommendation: dict[str, Any] | None = None
-    checkpoint(candidate_context, "strategist_prompt", {"model": model,
-               "system_prompt": system_prompt, "user_prompt": user_prompt})
     try:
-        raw_response = ask_model(
+        decision = decide_strategist_recommendation(
+            payload,
             client=client,
             model=model,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            include_thesis=include_thesis,
+            thesis_policy=thesis_policy,
+            candidate_context=candidate_context,
+            system_prompt_override=system_prompt_override,
+            task_override=task_override,
         )
-
-        recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
     except Exception as exc:
         _record_failed_strategist_run(
             company=company,
             input_payload=payload,
             model=model,
             prompt_version=prompt_version,
-            raw_response=raw_response,
+            raw_response=getattr(exc, "raw_response", None),
             error=exc,
         )
         raise
 
-    if include_thesis:
+    recommendation = decision["recommendation"]
+    if decision["thesis_check"] is not None:
         # The legacy decision stands; the gate after the manager applies any deferral.
         recommendation = _attach_thesis_check(
             recommendation,
-            check_evidence_thesis((raw_recommendation or {}).get("evidence_thesis"), payload,
-                                  route=THESIS_ROUTE, policy=thesis_policy),
+            decision["thesis_check"],
             company=company, candidate_context=candidate_context, model=model, prompt_version=prompt_version,
         )
     result = {
@@ -354,7 +361,7 @@ def decide_company_purchase(
         model=model,
         input_payload=payload,
         prompt_version=prompt_version,
-        raw_response=raw_response,
+        raw_response=decision["raw_response"],
     )
     return {
         **result,

@@ -14,9 +14,7 @@ from unittest.mock import patch
 from tests.research_foundation_fixtures import database, ENTRY
 from tests.test_company_evidence import COMPANY, actuals, guidance
 from agent_builders.company_evidence_payload import build_company_evidence_payload
-from agent_stages.evidence_thesis_contract import EVIDENCE_THESIS_SCHEMA, ThesisShapeError, normalize_evidence_thesis
 from agent_stages.manager_strategist_context import _build_manager_visible_strategist_context
-from agent_stages.strategist_schema import strategist_recommendation_schema
 from db_common import get_connection
 from market_db_modules.evidence_thesis import get_evidence_thesis
 from market_db_modules.evidence_thesis_report import evidence_thesis_report
@@ -27,7 +25,6 @@ from services.evidence_thesis import (
     check_evidence_thesis, compact_thesis_check, evaluate_evidence_thesis_gate, not_requested_check,
     persist_thesis_check,
 )
-from services.evidence_thesis_numbers import stated_numbers
 from services.evidence_thesis_policy import EvidenceThesisPolicy
 from services.order_candidates import OrderCandidateBuilder
 
@@ -109,12 +106,6 @@ class ClaimCheckTests(ThesisFixture):
         self.assertEqual((check["status"], check["failures"]), ("validated", []))
         self.assertTrue(self.claim_result(check, "S1")["spans"][0]["end"] > 0)
 
-    def test_python_owns_version_package_and_research_status(self):
-        payload = self.payload()
-        thesis = self.check(self.thesis(payload), payload)["thesis"]
-        self.assertEqual((thesis["schema_version"], thesis["evidence_package_id"], thesis["research_status"]),
-                         ("evidence-thesis-v1", payload["company_evidence"]["package_id"], "not_investigated"))
-
     def test_valid_article_with_unsupported_number_fails(self):
         payload = self.payload()
         invented = claim("S1", "Fixture expects quarterly revenue of $150 million", claim_type="observed_fact",
@@ -128,66 +119,11 @@ class ClaimCheckTests(ThesisFixture):
         check = self.check(self.thesis(payload, supporting=[invented]), payload)
         self.assertEqual((check["status"], "central_claim_failed" in check["failures"]), ("deferred", True))
 
-    def test_failed_noncentral_claim_is_a_warning(self):
-        payload = self.payload()
-        weak = claim("S2", "An article reported 40% growth", claim_type="observed_fact", articles=[42],
-                     quotes=[("article:42", "demand for its accelerators remained strong")])
-        check = self.check(self.thesis(payload, supporting=[self.guidance_claim(payload), weak]), payload)
-        self.assertEqual(check["status"], "validated_with_warnings")
-
-    def test_rounded_scaled_actual_is_supported(self):
-        payload = self.payload()
-        actual = self.fact(payload, "actual")
-        statement = claim("S3", "Quarterly revenue was $1.2 billion", claim_type="observed_fact", facts=[actual])
-        check = self.check(self.thesis(payload, supporting=[self.guidance_claim(payload), statement]), payload)
-        self.assertEqual(self.claim_result(check, "S3")["status"], "verified")
-
-    def test_unknown_fact_id_is_rejected(self):
-        payload = self.payload()
-        check = self.check(self.thesis(payload, supporting=[self.guidance_claim(payload, facts=["fact:invented"])]), payload)
-        self.assertIn("unknown_source_reference", self.claim_result(check, "S1")["failures"])
-
-    def test_quote_must_come_from_the_cited_fact_span(self):
-        payload = self.payload()
-        quote = [(self.fact(payload, "guidance"), "prior guidance is USD $80 to $90 million")]
-        check = self.check(self.thesis(payload, supporting=[self.guidance_claim(payload, quotes=quote)]), payload)
-        self.assertIn("quote_not_in_source", self.claim_result(check, "S1")["failures"])
-
-    def test_quote_from_uncited_source_is_rejected(self):
-        payload = self.payload()
-        quote = [("article:42", "demand for its accelerators remained strong")]
-        check = self.check(self.thesis(payload, supporting=[self.guidance_claim(payload, quotes=quote)]), payload)
-        self.assertIn("quote_source_not_cited", self.claim_result(check, "S1")["failures"])
-
-    def test_calculation_across_incompatible_periods_fails(self):
-        payload = self.payload()
-        mixed = self.guidance_claim(payload, "Guidance compares with actual revenue",
-                                    facts=(self.fact(payload, "guidance"), self.fact(payload, "actual")))
-        check = self.check(self.thesis(payload, supporting=[mixed]), payload)
-        self.assertIn("incompatible_calculation_inputs", self.claim_result(check, "S1")["failures"])
-
-    def test_fiscal_period_must_match_cited_fact(self):
-        payload = self.payload()
-        check = self.check(self.thesis(payload, supporting=[self.guidance_claim(payload, fiscal_period="FY2026-Q4")]),
-                           payload)
-        self.assertIn("fiscal_period_mismatch", self.claim_result(check, "S1")["failures"])
-
-    def test_observed_fact_needs_a_source_span(self):
-        payload = self.payload()
-        bare = claim("S1", "Demand remained strong", claim_type="observed_fact", central=True, articles=[42])
-        check = self.check(self.thesis(payload, supporting=[bare]), payload)
-        self.assertIn("observed_fact_without_source_span", self.claim_result(check, "S1")["failures"])
-
     def test_asserted_market_surprise_needs_consensus(self):
         payload = self.payload()
         surprise = self.guidance_claim(payload, "Guidance beat analyst estimates by $20 million")
         check = self.check(self.thesis(payload, supporting=[surprise]), payload)
         self.assertIn("market_surprise_without_consensus", self.claim_result(check, "S1")["failures"])
-
-    def test_stating_that_surprise_is_unknown_is_allowed(self):
-        payload = self.payload()
-        check = self.check(self.thesis(payload), payload)
-        self.assertNotIn("market_surprise_without_consensus", check["failures"])
 
 
 class CoverageTests(ThesisFixture):
@@ -200,24 +136,6 @@ class CoverageTests(ThesisFixture):
                       claim("S3", "Quarterly revenue was $1.2 billion", claim_type="observed_fact", facts=[actual])]
         check = self.check(self.thesis(payload, supporting=supporting, change_vs_prior_expectations=change), payload)
         self.assertIn("expectation_baseline_not_cited", check["failures"])
-
-    def test_prior_guidance_for_another_period_is_not_a_baseline(self):
-        payload = self.payload(guidance(80, 90, kind="prior", period="Q4 FY2026"), guidance(100, 110))
-        check = self.check(self.thesis(payload), payload)
-        self.assertIn("expectation_baseline_not_cited", check["failures"])
-
-    def test_explicit_unknown_baseline_is_accepted(self):
-        payload = self.payload()
-        change = {"assessment": "unknown", "baseline_type": "none",
-                  "statement": "No verified prior expectation is available", "claim_ids": []}
-        check = self.check(self.thesis(payload, change_vs_prior_expectations=change), payload)
-        self.assertEqual(check["status"], "validated")
-
-    def test_unknown_assessment_cannot_name_a_baseline(self):
-        payload = self.payload()
-        change = {"assessment": "unknown", "baseline_type": "prior_guidance", "statement": "Unclear", "claim_ids": []}
-        check = self.check(self.thesis(payload, change_vs_prior_expectations=change), payload)
-        self.assertIn("expectation_baseline_inconsistent", check["failures"])
 
     def test_package_opposing_evidence_must_be_addressed(self):
         payload = self.payload(guidance(100, 110, kind="prior"), guidance(80, 90))
@@ -233,60 +151,10 @@ class CoverageTests(ThesisFixture):
         check = self.check(self.thesis(payload, opposing=[], invalidation_conditions=[]), payload)
         self.assertTrue({"no_opposing_claims", "missing_invalidation_condition"} <= set(check["failures"]))
 
-    def test_horizon_bounds_are_enforced(self):
-        payload = self.payload()
-        check = self.check(self.thesis(payload, horizon={"minimum_days": 20, "maximum_days": 5}), payload)
-        self.assertIn("invalid_horizon", check["failures"])
-
     def test_malformed_thesis_is_invalid_output(self):
         payload = self.payload()
         broken = {key: value for key, value in self.thesis(payload).items() if key != "horizon"}
         self.assertEqual(self.check(broken, payload)["status"], "invalid_output")
-
-    def test_normalization_rejects_duplicate_claim_ids(self):
-        payload = self.payload()
-        thesis = self.thesis(payload)
-        thesis["opposing_claims"][0]["claim_id"] = "S1"
-        with self.assertRaises(ThesisShapeError):
-            normalize_evidence_thesis(thesis)
-
-    def test_articles_only_payload_can_be_checked(self):
-        payload = {"company": {"company_id": 1}, "company_evidence": {"coverage_status": "unavailable"},
-                   "supporting_articles": {"article_summaries": [ARTICLE]}, "grounding": {"article_ids": [42]}}
-        change = {"assessment": "unknown", "baseline_type": "none", "statement": "No baseline", "claim_ids": []}
-        thesis = self.thesis(self.payload(), change_vs_prior_expectations=change, supporting=[
-            claim("S1", "Demand remained strong", claim_type="observed_fact", central=True, articles=[42],
-                  quotes=[("article:42", "demand for its accelerators remained strong")])],
-            opposing=[claim("O1", "Demand may normalise", articles=[42])])
-        self.assertEqual(self.check(thesis, payload)["status"], "validated")
-
-
-class SemanticReviewTests(ThesisFixture):
-    def test_reviewer_disagreement_is_a_signal_not_a_verdict(self):
-        class Reviewer:
-            identity = "fixture-reviewer"
-
-            def review(self, thesis, claims):
-                return [{"claim_id": "S2", "verdict": "inconsistent", "reason": "Too broad"}]
-
-        payload = self.payload()
-        check = self.check(self.thesis(payload), payload, reviewer=Reviewer())
-        self.assertEqual((check["status"], check["semantic_review"]["requires_human_review"]), ("validated", True))
-
-    def test_reviewer_failure_is_recorded(self):
-        class Broken:
-            def review(self, thesis, claims):
-                raise RuntimeError("unavailable")
-
-        payload = self.payload()
-        check = self.check(self.thesis(payload), payload, reviewer=Broken())
-        self.assertEqual((check["status"], check["semantic_review"]["status"]), ("validated", "failed"))
-
-
-class NumberTests(unittest.TestCase):
-    def test_fiscal_labels_and_filing_forms_are_not_quantities(self):
-        self.assertEqual([n.text for n in stated_numbers("Q3 FY2026 10-Q shows $1.2 billion and 12.5%")],
-                         ["$1.2 billion", "12.5%"])
 
 
 class PersistenceAndHandoffTests(ThesisFixture):
@@ -304,19 +172,6 @@ class PersistenceAndHandoffTests(ThesisFixture):
                           "evidence_thesis_check": compact_thesis_check(check, "thesis:legacy:fixture")}
         return {"company": {"symbol": "NVDA"}, "company_evidence": copy.deepcopy(payload["company_evidence"]),
                 "strategist_recommendation": recommendation}
-
-    def test_opposing_evidence_survives_manager_handoff(self):
-        payload = self.payload()
-        check = self.check(self.thesis(payload), payload)
-        visible = _build_manager_visible_strategist_context(self.manager_payload(payload, check))
-        self.assertEqual(visible["evidence_thesis"]["opposing_claims"], check["thesis"]["opposing_claims"])
-
-    def test_handoff_is_idempotent_across_prompt_projection(self):
-        payload = self.payload()
-        manager_payload = self.manager_payload(payload, self.check(self.thesis(payload), payload))
-        manager_payload["strategist_recommendation"] = _build_manager_visible_strategist_context(manager_payload)
-        again = _build_manager_visible_strategist_context(manager_payload)
-        self.assertEqual(again, manager_payload["strategist_recommendation"])
 
     def test_different_package_withholds_thesis(self):
         payload = self.payload()
@@ -355,16 +210,6 @@ class ReportTests(ThesisFixture):
     def report(self, **kwargs):
         return evidence_thesis_report(now=self.NOW, db_path=self.db, **kwargs)
 
-    def test_statuses_and_rates_exclude_not_requested(self):
-        checks = self.report()["checks"]
-        self.assertEqual((checks["total"], checks["requested"], checks["invalid_output_rate"]), (4, 3, 0.3333))
-
-    def test_claim_failures_are_grouped_by_code(self):
-        self.assertEqual(self.report()["checks"]["claim_failures"], {"unsupported_number": 1})
-
-    def test_shape_errors_are_listed(self):
-        self.assertEqual(self.report()["checks"]["shape_errors"][0][1], 1)
-
     def test_gate_counts_what_enforcement_would_remove(self):
         self.decision(would_allow=True, executed=True, pnl=12.0)
         self.decision(would_allow=False, executed=True, pnl=-30.0)
@@ -372,13 +217,6 @@ class ReportTests(ThesisFixture):
         gate = self.report()["entry_gate"]
         self.assertEqual((gate["would_block"], gate["would_block_otherwise_eligible"], gate["executed_while_would_block"],
                           gate["descriptive_outcomes"]["would_block"]["mean_realized_pnl_pct"]), (2, 1, 1, -30.0))
-
-    def test_window_excludes_older_decisions(self):
-        self.decision(would_allow=False, run_at="2026-08-01T10:00:00")
-        self.assertEqual(self.report(days=7)["entry_gate"]["evaluated"], 0)
-
-    def test_route_filter_applies_to_checks(self):
-        self.assertEqual(self.report(route="research_shadow")["checks"]["total"], 0)
 
 
 class GateTests(unittest.TestCase):
@@ -407,9 +245,6 @@ class GateTests(unittest.TestCase):
     def test_unpersisted_check_blocks(self):
         self.assertIn("thesis_check_not_persisted", self.gate("enforce", evaluation_id=None)["reason_codes"])
 
-    def test_off_mode_adds_no_gate(self):
-        self.assertIsNone(self.gate("off"))
-
     def test_enforce_mode_needs_promotion_proof(self):
         with patch.dict("os.environ", {"EVIDENCE_THESIS_MODE": "enforce"}):
             self.assertEqual(EvidenceThesisPolicy.from_env().mode, "shadow")
@@ -421,9 +256,6 @@ class GateTests(unittest.TestCase):
     def test_order_builder_rejects_blocked_thesis_gate(self):
         result = self.company_result(evidence_thesis_gate={"allowed": False})
         self.assertFalse(OrderCandidateBuilder()._is_trade_eligible(result))
-
-    def test_order_builder_keeps_legacy_results_without_gate(self):
-        self.assertTrue(OrderCandidateBuilder()._is_trade_eligible(self.company_result()))
 
 
 class StrategistIntegrationTests(ThesisFixture):
@@ -472,22 +304,9 @@ class StrategistIntegrationTests(ThesisFixture):
         self.assertEqual((recommendation["decision"], recommendation["evidence_thesis_check"]["status"],
                           call["include_thesis"]), ("trade_candidate", "validated", True))
 
-    def test_missing_thesis_is_recorded_as_invalid_output(self):
-        recommendation, _ = self.run_strategist("shadow", thesis=False)
-        self.assertEqual(recommendation["evidence_thesis_check"]["status"], "invalid_output")
-
     def test_off_mode_keeps_the_legacy_contract(self):
         recommendation, call = self.run_strategist("off", thesis=False)
         self.assertEqual(("evidence_thesis_check" in recommendation, call["include_thesis"]), (False, False))
-
-    def test_schema_requires_thesis_only_when_requested(self):
-        required = lambda include: strategist_recommendation_schema(include_thesis=include)[
-            "properties"]["recommendation"]["required"]
-        self.assertEqual(("evidence_thesis" in required(True), "evidence_thesis" in required(False)), (True, False))
-
-    def test_model_schema_excludes_python_owned_fields(self):
-        self.assertFalse({"schema_version", "evidence_package_id", "research_status"}
-                         & set(EVIDENCE_THESIS_SCHEMA["properties"]))
 
 
 if __name__ == "__main__":

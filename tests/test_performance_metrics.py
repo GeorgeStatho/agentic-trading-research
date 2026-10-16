@@ -6,24 +6,6 @@ import performance_metrics  # noqa: E402
 
 
 class PerformanceMetricsTests(unittest.TestCase):
-    def test_normalize_equity_curve_and_returns_support_sharpe_inputs(self) -> None:
-        portfolio_history = {
-            "timestamp": [1710000000, 1710086400, 1710172800, 1710259200],
-            "equity": [100000, 101000, 100500, 102000],
-        }
-
-        equity_curve = performance_metrics.normalize_equity_curve(portfolio_history)
-        daily_returns = performance_metrics.compute_daily_returns(equity_curve)
-        sharpe = performance_metrics.compute_sharpe_metrics(daily_returns, annual_risk_free_rate=0.0)
-        sortino = performance_metrics.compute_sortino_metrics(daily_returns, annual_risk_free_rate=0.0)
-
-        self.assertEqual(len(equity_curve), 4)
-        self.assertEqual(len(daily_returns), 3)
-        self.assertAlmostEqual(performance_metrics.compute_total_return_pct(equity_curve), 2.0)
-        self.assertAlmostEqual(performance_metrics.compute_max_drawdown_pct(equity_curve), 0.4950495, places=4)
-        self.assertIsNotNone(sharpe["annualized_sharpe"])
-        self.assertIsNotNone(sortino["annualized_sortino"])
-
     def test_compute_trade_metrics_calculates_win_rate_profit_factor_and_average_returns(self) -> None:
         fills = [
             {

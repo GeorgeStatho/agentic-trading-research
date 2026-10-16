@@ -18,7 +18,7 @@ python3 scripts/project.py run backtest-sweep --db path/to.db --split-at 2026-09
 
 # Validate Python or the dashboard
 python3 scripts/project.py test
-python3 scripts/project.py test tests.test_exposure_map tests.test_demo_mode
+python3 scripts/project.py test tests.test_exposure_map tests.test_settings
 python3 scripts/project.py dashboard build
 
 # Share the deterministic demo walkthrough
