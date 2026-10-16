@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { formatDate, formatDecimal, formatSignedPercent } from './format'
+import PageHeader from './pageHeader'
+import { useFetchedResource } from './useRemoteResource'
 import './decisionExpectancy.css'
 
 /** This page prints an em dash rather than "N/A" for cohorts with no samples. */
@@ -72,27 +74,14 @@ function DecisionExpectancyPage() {
   const [decision, setDecision] = useState('all')
   const [confidence, setConfidence] = useState('all')
   const [sector, setSector] = useState('')
-  const [payload, setPayload] = useState<Payload | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
   const [sortKey, setSortKey] = useState<SortKey>('expectancy_pct')
   const [sortAscending, setSortAscending] = useState(false)
-
-  useEffect(() => {
-    let active = true
-    setLoading(true)
-    getExpectancy({ basis, groupBy, withinDays, minSamples, decision, confidence, sector })
-      .then((nextPayload) => {
-        if (!active) return
-        setPayload(nextPayload)
-        setError(null)
-      })
-      .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : 'Failed to load decision expectancy.')
-      })
-      .finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
-  }, [basis, groupBy, withinDays, minSamples, decision, confidence, sector])
+  // A new loader per filter set re-reads the cohorts; the hook keeps the last payload until it arrives.
+  const load = useMemo(
+    () => () => getExpectancy({ basis, groupBy, withinDays, minSamples, decision, confidence, sector }),
+    [basis, groupBy, withinDays, minSamples, decision, confidence, sector],
+  )
+  const { payload, error, isLoading: loading } = useFetchedResource(load, { errorMessage: 'Failed to load decision expectancy.' })
 
   const cohorts = useMemo(() => [...(payload?.cohorts ?? [])].sort((left, right) => {
     const leftValue = left[sortKey]
@@ -112,10 +101,11 @@ function DecisionExpectancyPage() {
   }
 
   return <main className="decision-expectancy">
-    <section className="decision-expectancy__hero">
-      <div><p>Decision Expectancy</p><h1>Deterministic Outcome Cohorts</h1><span>Read-only analytics from manager decisions and stored outcomes. This feature never submits an order.</span></div>
-      {payload ? <small>As of {formatCohortDate(payload.as_of)}</small> : null}
-    </section>
+    <PageHeader
+      title="Decision expectancy"
+      description="Average P&L of executed decisions, grouped into cohorts. Read-only; never submits an order."
+      meta={payload ? `As of ${formatCohortDate(payload.as_of)}` : null}
+    />
 
     <section className="decision-expectancy__controls" aria-label="Decision expectancy filters">
       <label>Basis<select value={basis} onChange={(event) => setBasis(event.target.value as Basis)}><option value="marked">Marked P/L</option><option value="closed">Closed realized P/L</option></select></label>

@@ -2,7 +2,7 @@
 .forward-eval__comparison { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: color-mix(in srgb, var(--bg) 94%, #202838); }
 .forward-eval__comparison header { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 0; border: 0; }
 .forward-eval__comparison header strong { color: var(--text-h); }
-.forward-eval__comparison header small { display: block; margin-top: 3px; color: var(--text-dim); font-size: .72rem; }
+.forward-eval__comparison header small { display: block; margin-top: 3px; color: var(--text-dim); font-size: .75rem; }
 .forward-eval__verdict--accepted { color: #86efac; border-color: color-mix(in srgb, #22c55e 34%, var(--border)); }
 .forward-eval__verdict--not_accepted { color: #fca5a5; border-color: color-mix(in srgb, #dc2626 34%, var(--border)); }
 .forward-eval__verdict--interim { color: #93c5fd; border-color: color-mix(in srgb, #3b82f6 32%, var(--border)); }

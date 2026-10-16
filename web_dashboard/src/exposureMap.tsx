@@ -222,7 +222,7 @@ function buildFlowEdges(edges: GraphEdge[]): FlowEdge[] {
       stroke: scoreColor(edge.direction),
       strokeWidth: Math.max(1.5, Math.min(8, 1.5 + edge.score / 16)),
     },
-    labelStyle: { fill: '#c4ccda', fontSize: 11, fontWeight: 600 },
+    labelStyle: { fill: '#c4ccda', fontSize: 12, fontWeight: 600 },
     labelBgStyle: { fill: '#171c28', fillOpacity: 0.92 },
     labelBgPadding: [5, 3],
     data: { label: edge.label, score: edge.score },
@@ -407,7 +407,7 @@ function ExposureMapPage({ demoMode = false }: { demoMode?: boolean }) {
   }
 
   const fitGraph = () => {
-    flowInstance?.fitView({ padding: 0.2, duration: 250 })
+    flowInstance?.fitView({ padding: 0.2, duration: 250, maxZoom: 1 })
   }
 
   return (
@@ -511,12 +511,16 @@ function ExposureMapPage({ demoMode = false }: { demoMode?: boolean }) {
               nodes={flowNodes}
               edges={flowEdges}
               nodeTypes={nodeTypes}
+              colorMode="dark"
               fitView
+              // A lone article node otherwise zooms to 2x and looks oversized.
+              fitViewOptions={{ maxZoom: 1 }}
               minZoom={0.3}
+              maxZoom={1.5}
               onInit={setFlowInstance}
               onNodeClick={(_, node) => setSelectedNode(node.data as GraphNode)}
             >
-              <Background color="#3d4658" gap={22} size={1} />
+              <Background color="var(--outline-variant)" gap={22} size={1} />
               <Controls showFitView={false} />
             </ReactFlow>
           </div>

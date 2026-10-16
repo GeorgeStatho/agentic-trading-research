@@ -50,29 +50,37 @@ function RiskControlsPanel() {
     );
   }
 
-  return (
-    <section className="risk-controls-panel">
-      <div className="risk-controls-panel__header">
-        <div>
-          <p className="risk-controls-panel__eyebrow">Risk Controls</p>
-          <h2>Current bot settings</h2>
-        </div>
-        <span className="risk-controls-panel__badge">Read only</span>
-      </div>
+  const missing = payload.controls.filter((control) => control.status !== 'configured').length;
 
-      <div className="risk-controls-grid">
-        {payload.controls.map((control) => (
-          <article
-            key={control.label}
-            className={`risk-control-card risk-control-card--${control.status === 'configured' ? 'configured' : 'missing'}`}
-          >
-            <p className="risk-control-card__label">{control.label}</p>
-            <p className="risk-control-card__value">{control.value}</p>
-            <p className="risk-control-card__detail">{control.detail}</p>
-          </article>
-        ))}
+  // Static configuration, so it starts collapsed and never pushes live state off screen.
+  return (
+    <details className="risk-controls-panel">
+      <summary>
+        <span className="risk-controls-panel__title">Risk settings</span>
+        <span className="risk-controls-panel__summary-meta">
+          {payload.controls.length} rules{missing ? ` · ${missing} not configured` : ''} · Read only
+        </span>
+      </summary>
+      <div className="risk-controls-panel__table-wrap">
+        <table className="risk-controls-table">
+          <thead>
+            <tr><th scope="col">Rule</th><th scope="col">Setting</th><th scope="col">What it does</th></tr>
+          </thead>
+          <tbody>
+            {payload.controls.map((control) => (
+              <tr key={control.label}>
+                <th scope="row">{control.label}</th>
+                <td className="risk-controls-table__value">
+                  {control.value}
+                  {control.status !== 'configured' ? <small className="risk-controls-table__missing">Not configured</small> : null}
+                </td>
+                <td className="risk-controls-table__detail">{control.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-    </section>
+    </details>
   );
 }
 
