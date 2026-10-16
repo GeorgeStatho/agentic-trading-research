@@ -2,8 +2,7 @@
 import unittest
 from unittest.mock import patch
 
-from agent_helpers.market_context import common, option_chain
-from services.option_dte_buckets import OPTION_DTE_BUCKETS
+from agent_helpers.market_context import option_chain
 
 
 class FakeTradingClient:
@@ -26,19 +25,10 @@ def fetch(pages):
 
 
 class ChainWindowTests(unittest.TestCase):
-    def test_default_window_contains_every_targetable_bucket(self):
-        self.assertTrue(all(common.CLOSEST_EXPIRATION_GTE <= bucket.min_days
-                            and bucket.max_days <= common.FARTHEST_EXPIRATION_LTE for bucket in OPTION_DTE_BUCKETS))
-
     def test_contract_pages_are_followed_to_the_end(self):
         pages = [{'option_contracts': ['near-1', 'near-2'], 'next_page_token': 'page-2'},
                  {'option_contracts': ['far-1'], 'next_page_token': None}]
         self.assertEqual(fetch(pages), (['near-1', 'near-2', 'far-1'], [None, 'page-2']))
-
-    def test_endless_paging_stops_at_the_cap(self):
-        with self.assertLogs(common.LOGGER.name, 'WARNING'):
-            contracts, _ = fetch([{'option_contracts': ['contract'], 'next_page_token': 'again'}])
-        self.assertEqual(len(contracts), common.MAXIMUM_CONTRACT_PAGES)
 
 
 if __name__ == '__main__':

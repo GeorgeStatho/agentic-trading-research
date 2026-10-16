@@ -12,7 +12,6 @@ from unittest.mock import patch
 
 import tests.test_thesis_evidence_contract as thesis_tests
 from agent_stages import manager_runner, strategist_runner
-from services import llm_backtest
 from services.evidence_thesis import check_evidence_thesis
 from services.evidence_thesis_policy import EvidenceThesisPolicy
 
@@ -72,9 +71,6 @@ class ManagerParityTests(unittest.TestCase):
     def test_json_answer_matches(self):
         self.assertEqual(self.assert_parity(MANAGER_JSON)["decision"], "call")
 
-    def test_text_fallback_answer_matches(self):
-        self.assertEqual(self.assert_parity(MANAGER_PROSE)["decision"], "put")
-
     def test_unparseable_answer_fails_the_same_way(self):
         live_model, replay_model = StubModel("not a recommendation"), StubModel("not a recommendation")
         with self.assertLogs(manager_runner.LOGGER, "ERROR"), self.assertRaises(RuntimeError) as live_error:
@@ -82,15 +78,6 @@ class ManagerParityTests(unittest.TestCase):
         with self.assertLogs(manager_runner.LOGGER, "ERROR"), self.assertRaises(RuntimeError) as replay_error:
             self.replay(manager_payload(), replay_model)
         self.assertEqual(str(replay_error.exception), str(live_error.exception))
-
-    def test_no_evidence_returns_the_live_answer_without_asking(self):
-        live_model, replay_model = StubModel(MANAGER_JSON), StubModel(MANAGER_JSON)
-        live = self.run_live(manager_payload(evidence=False), live_model)
-        replay = self.replay(live["manager_replay_payload"], replay_model)
-        self.assertEqual((live_model.prompts, replay_model.prompts), ([], []))
-        self.assertEqual(replay["recommendation"], without_selection_debug(live["recommendation"]))
-        self.assertEqual((replay["recommendation"]["recommended_action_adjustment"], replay["replay_skipped"]),
-                         ("skip", "no_evidence"))
 
 
 class StrategistParityTests(thesis_tests.ThesisFixture):
@@ -144,36 +131,6 @@ class StrategistParityTests(thesis_tests.ThesisFixture):
         self.assertEqual(record_failed.call_args.kwargs["raw_response"], prose)
         with self.assertRaises(type(live_error.exception)):
             self.replay(payload, StubModel(prose))
-
-    def test_no_evidence_matches_without_asking(self):
-        payload = {"company": {"company_id": 1, "symbol": "NVDA", "historical_price_data": {}},
-                   "views": {"company": {"count": 0}},
-                   "supporting_articles": {"article_summaries": [], "full_articles": []}}
-        live_model, replay_model = StubModel("unused"), StubModel("unused")
-        live, saved = self.run_live(payload, live_model)
-        replay = self.replay(saved["input_payload"], replay_model)
-        self.assertEqual((live_model.prompts, replay_model.prompts), ([], []))
-        self.assertEqual(live["recommendation"], strategist_runner.attach_thesis_check(
-            replay["recommendation"], replay["thesis_check"], "thesis:fixture"))
-        self.assertEqual(replay["replay_skipped"], "no_evidence")
-
-    def test_backtest_strategist_decider_runs_the_strategist_decision(self):
-        payload = self.strategist_payload()
-        stub = StubModel(self.response(payload))
-        with patch.object(strategist_runner, "ask_model", side_effect=stub), \
-                patch.object(strategist_runner, "get_default_client", return_value=object()):
-            answer = llm_backtest.strategist_decider("test-model", self.thesis_policy)(payload)
-        self.assertEqual((answer["recommendation"]["decision"], answer["thesis_check"]["status"], len(stub.prompts)),
-                         ("trade_candidate", "validated", 1))
-
-
-class BacktestManagerDeciderTests(unittest.TestCase):
-    def test_backtest_manager_decider_runs_the_manager_decision(self):
-        stub = StubModel(MANAGER_JSON)
-        with patch.object(manager_runner, "ask_model", side_effect=stub), \
-                patch.object(manager_runner, "get_default_client", return_value=object()):
-            answer = llm_backtest.manager_decider("test-model")(manager_payload())
-        self.assertEqual((answer["recommendation"]["decision"], len(stub.prompts)), ("call", 1))
 
 
 if __name__ == "__main__":

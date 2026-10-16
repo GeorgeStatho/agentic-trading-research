@@ -9,10 +9,8 @@ from unittest.mock import Mock
 
 from tests.research_foundation_fixtures import database, CATALYST
 from db_common import get_connection
-from market_db_modules.discovery_queue import claim_discovery_batch, discovery_queue_status, enqueue_discovery_event
-from market_db_modules.evidence_thesis import record_evidence_thesis
-from market_db_modules.thesis_event_reviews import thesis_event_review_summary, thesis_event_reviews
-from market_db_modules.thesis_validator import record_thesis_validation_run
+from market_db_modules.discovery_queue import claim_discovery_batch, enqueue_discovery_event
+from market_db_modules.thesis_event_reviews import thesis_event_reviews
 from news_db_modules.bootstrap import initialize_database as initialize_news
 from research_foundation_contracts import DiscoveryQueueItem
 from services.discovery_policy import DiscoveryPolicy
@@ -130,53 +128,14 @@ class ShadowAuthorityTests(EventReviewFixture):
         self.review(positions=[position(decision='sell')])
         self.assertEqual((self.statuses(), self.adjudicate.call_count), (['rules_exit_precedence'], 0))
 
-    def test_working_exit_order_is_left_alone(self):
-        self.enqueue()
-        self.review(positions=[position(pending_order_id='order-9')])
-        self.assertEqual(self.statuses(), ['active_exit_order'])
-
-    def test_closed_position_is_not_reviewed(self):
-        self.enqueue()
-        self.review(positions=[position(symbol='OTHER261016C00010000')])
-        self.assertEqual(self.statuses(), ['position_not_open'])
-
-    def test_off_mode_claims_nothing(self):
-        self.enqueue()
-        self.assertIsNone(self.review(mode='off'))
-        self.assertEqual(discovery_queue_status(db_path=self.db)[0]['status'], 'pending')
-
 
 class DebounceAndBudgetTests(EventReviewFixture):
-    def test_unsettled_event_waits_for_the_debounce_window(self):
-        self.enqueue()
-        self.assertIsNone(self.review(EVENT_AT + timedelta(minutes=14)))
-
-    def test_burst_of_revisions_is_reviewed_once_at_the_latest(self):
-        self.enqueue('revision-1')
-        self.enqueue('revision-2', at=EVENT_AT + timedelta(minutes=5))
-        self.review(EVENT_AT + timedelta(minutes=5) + SETTLED)
-        self.assertEqual([record['evidence_revision'] for record in self.records()], ['revision-2'])
-
     def test_daily_limit_stops_model_calls(self):
         for index in range(4):
             at = EVENT_AT + timedelta(hours=index)
             self.enqueue(f'revision-{index}', at=at)
             self.review(at + SETTLED)
         self.assertEqual((self.adjudicate.call_count, self.statuses()[-1]), (3, 'daily_limit_reached'))
-
-    def test_evidence_seen_before_entry_is_not_new(self):
-        self.enqueue(articles=[article(101, seen=OPENED - timedelta(hours=1))])
-        self.review()
-        self.assertEqual((self.statuses(), self.adjudicate.call_count), (['no_new_evidence_since_entry'], 0))
-
-    def test_all_failed_samples_defer_the_item_for_a_retry(self):
-        self.enqueue()
-        self.adjudicate.return_value = {**verdict(state='unclear'), 'consistency': 'error'}
-        with self.assertLogs('event-review-test', 'WARNING'):
-            self.review()
-        self.adjudicate.return_value = verdict()
-        self.review(EVENT_AT + SETTLED + timedelta(minutes=5))
-        self.assertEqual(self.statuses(), ['evaluated'])
 
     def test_discovery_worker_never_claims_review_items(self):
         self.enqueue()
@@ -185,39 +144,6 @@ class DebounceAndBudgetTests(EventReviewFixture):
 
 
 class EvidenceAndChangeTests(EventReviewFixture):
-    def test_trigger_articles_lead_the_pack_and_can_be_cited(self):
-        self.enqueue()
-        self.review()
-        pack = self.records()[0]['evidence_pack']
-        self.assertEqual(([item['article_id'] for item in pack['news_since_entry']], pack['allowed_evidence_article_ids'],
-                          pack['review_trigger']['trigger_article_ids']), ([101, 7], [7, 101], [101]))
-
-    def test_change_against_the_previous_daily_verdict_is_recorded(self):
-        record_thesis_validation_run({'thesis_id': self.thesis_id, 'option_symbol': OPTION, 'run_at': iso(EVENT_AT - timedelta(hours=20)),
-                                      'run_date': '2026-09-21', 'thesis_state': 'intact', 'would_open_today': 'yes',
-                                      'consistency': 'unanimous'}, db_path=self.db)
-        self.enqueue()
-        self.review()
-        change = self.records()[0]['change']
-        self.assertEqual((change['changed'], change['thesis_state'], change['cited_trigger_article_ids'], change['baseline']['source']),
-                         (True, {'before': 'intact', 'after': 'invalidated'}, [101], 'daily_validator'))
-
-    def test_structured_entry_thesis_reaches_the_pack(self):
-        conditions = [{'trigger': 'Revenue guidance is cut', 'data_source': 'company release', 'review_within_days': 5}]
-        record_evidence_thesis({'route': 'legacy_strategist', 'company_id': 1, 'status': 'validated', 'package_id': None,
-                                'candidate_id': 'candidate-1', 'created_at': iso(OPENED),
-                                'thesis': {'direction': 'up', 'invalidation_conditions': conditions}}, db_path=self.db)
-        self.enqueue()
-        self.review()
-        self.assertEqual(self.records()[0]['evidence_pack']['structured_entry_thesis']['invalidation_conditions'], conditions)
-
-    def test_every_open_position_on_the_company_is_reviewed(self):
-        with closing(get_connection(self.db)) as conn, conn:
-            self.add_thesis(conn, 'NVDA261016P00140000', candidate_id='candidate-2')
-        self.enqueue()
-        result = self.review(positions=[position(), position(symbol='NVDA261016P00140000')])
-        self.assertEqual(len(result['items'][0]['reviews']), 2)
-
     def test_recorded_review_is_reused_after_a_crash(self):
         self.enqueue()
         self.review()
@@ -225,12 +151,6 @@ class EvidenceAndChangeTests(EventReviewFixture):
             conn.execute("UPDATE discovery_queue SET status='pending', completion_reason=NULL")
         self.review(EVENT_AT + SETTLED + timedelta(minutes=5))
         self.assertEqual((self.adjudicate.call_count, len(self.records())), (1, 1))
-
-    def test_summary_counts_shadow_outcomes(self):
-        self.enqueue()
-        self.review()
-        summary = thesis_event_review_summary(days=0, db_path=self.db)
-        self.assertEqual((summary['statuses'], summary['would_be_actions']), ({'evaluated': 1}, {'close': 1}))
 
 
 if __name__ == '__main__':

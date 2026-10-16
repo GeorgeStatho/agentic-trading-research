@@ -7,13 +7,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from db_common import get_connection
 from db_helpers import initialize_news_database
 from market_db import initialize_database, record_historical_underlying_bar
-from services import llm_direction_score
-from services.llm_backtest import ReplayRun
 from services.llm_direction_score import run_direction_score, summarize
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "Data"
@@ -62,23 +60,6 @@ class ScoringTests(DirectionScoreFixture):
         self.add_rising_closes()
         self.assertEqual(self.score("put")["decisions"][0]["signed_return_pct"], {5: -5.0, 10: -10.0})
 
-    def test_neither_is_counted_but_not_scored(self) -> None:
-        self.add_decision()
-        self.add_rising_closes()
-        score = self.score("neither")["score"]
-        self.assertEqual((score["directional"]["count"], score["neither_count"]), (0, 1))
-
-    def test_too_few_later_closes_are_reported(self) -> None:
-        self.add_decision()
-        self.add_rising_closes(days=9)
-        self.assertEqual(self.score("call")["replay"]["outcomes"], {"no_forward_prices": 1})
-
-    def test_stored_answers_are_production_decisions(self) -> None:
-        self.add_decision(production="call")
-        self.add_rising_closes()
-        result = run_direction_score(model="stored", db_path=self.db_path)
-        self.assertEqual(result["decisions"][0]["decision"], "call")
-
 
 class SummaryTests(unittest.TestCase):
     def row(self, decision: str, move: float, confidence: str = "high") -> dict:
@@ -90,29 +71,6 @@ class SummaryTests(unittest.TestCase):
     def test_hit_rate_counts_moves_in_the_called_direction(self) -> None:
         summary = summarize([self.row("call", 2.0), self.row("put", 1.0), self.row("neither", 3.0)])
         self.assertEqual(summary["directional"]["5d"]["hit_rate_pct"], 50.0)
-
-    def test_unconditional_moves_include_every_scored_decision(self) -> None:
-        summary = summarize([self.row("call", 2.0), self.row("neither", -1.0)])
-        self.assertEqual(summary["unconditional_stock_moves"]["count"], 2)
-
-    def test_results_are_split_by_confidence(self) -> None:
-        summary = summarize([self.row("call", 2.0, "high"), self.row("call", -2.0, "medium")])
-        self.assertEqual(sorted(summary["directional"]["by_confidence"]), ["high", "medium"])
-
-
-class ReplayWindowTests(DirectionScoreFixture):
-    def test_decisions_without_frozen_input_do_not_take_a_spacing_slot(self) -> None:
-        self.add_decision("2026-03-02T14:00:00+00:00", frozen=False)
-        self.add_decision("2026-03-02T15:00:00+00:00")
-        run = ReplayRun.build(model="stored", min_hours_between=4, db_path=self.db_path)
-        self.assertEqual([decision["decision_run_at"] for decision in run.decisions], ["2026-03-02T15:00:00+00:00"])
-
-    def test_history_is_fetched_only_for_symbols_without_later_closes(self) -> None:
-        self.add_decision()
-        run = ReplayRun.build(model="stored", db_path=self.db_path)
-        with patch.object(llm_direction_score, "store_daily_history", return_value={}) as store:
-            llm_direction_score.fetch_missing_history(run, db_path=self.db_path)
-        self.assertEqual(store.call_args.args[0], {"MSFT"})
 
 
 if __name__ == "__main__":

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
-import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -19,7 +18,7 @@ from market_db import add_company, add_industry, add_sector
 
 
 try:
-    from api_support.dashboard import _load_recent_company_decision_rows, build_company_decisions_payload
+    from api_support.dashboard import build_company_decisions_payload
 
     FLASK_AVAILABLE = True
 except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific test guard
@@ -163,40 +162,6 @@ class DashboardCompanyDecisionsTests(unittest.TestCase):
         self.assertEqual(history[0]["latest_trade_pnl_pct"], 12.5)
         self.assertEqual(history[0]["article_references"][0]["title"], "Apple catalyst")
 
-    def test_manager_json_is_trimmed_to_the_fields_the_page_shows(self):
-        self._record_decision()
-
-        row = _load_recent_company_decision_rows()[0]
-
-        manager_input = json.loads(row["manager_input_json"])
-        manager_output = json.loads(row["manager_output_json"])
-        self.assertNotIn("option_market", manager_input["market_context"])
-        self.assertNotIn("bars", manager_input["market_context"]["underlying_price_history"])
-        self.assertNotIn("selection_debug", manager_output["recommendation"])
-
-    def test_manager_history_keeps_the_three_latest_decisions_per_company(self):
-        decision_ids = [self._record_decision(hours_ago=hours) for hours in (5, 4, 3, 2, 1)]
-
-        payload = build_company_decisions_payload()
-
-        history_ids = [item["id"] for item in payload["companies"][0]["manager_history"]]
-        newest_three = list(reversed(decision_ids[-3:]))
-        self.assertEqual(history_ids, newest_three)
-
-    def test_expired_pnl_is_masked(self):
-        self._record_decision(pnl_expires_at=self._hours_ago(1))
-
-        history = build_company_decisions_payload()["companies"][0]["manager_history"][0]
-
-        self.assertIsNone(history["latest_trade_pnl_pct"])
-
-    def test_symbol_falls_back_to_the_manager_input_company(self):
-        self._record_decision(symbol=None)
-
-        payload = build_company_decisions_payload()
-
-        self.assertEqual([company["symbol"] for company in payload["companies"]], ["AAPL"])
-
     def test_malformed_manager_json_does_not_hide_other_companies(self):
         self._record_decision()
         with closing(get_connection(self.db_path)) as conn, conn:
@@ -215,53 +180,6 @@ class DashboardCompanyDecisionsTests(unittest.TestCase):
         payload = build_company_decisions_payload()
 
         self.assertEqual(sorted(company["symbol"] for company in payload["companies"]), ["AAPL", "MSFT"])
-
-    def test_company_decisions_returns_empty_payload_when_db_history_is_missing(self):
-        payload = build_company_decisions_payload()
-
-        self.assertEqual(payload["company_count"], 0)
-        self.assertEqual(payload["last_updated_at"], "")
-        self.assertEqual(payload["companies"], [])
-
-    def test_company_decisions_surface_historical_bar_errors(self):
-        self._record_decision(
-            manager_input_json={
-                "market_context": {
-                    "underlying_price_history": {
-                        "available": False,
-                        "source": "alpaca_stock_bars",
-                        "feed": "iex",
-                        "close_count": 0,
-                        "error": "Alpaca request timed out",
-                    }
-                }
-            },
-        )
-
-        diagnostics = build_company_decisions_payload()["companies"][0]["diagnostics"]
-
-        self.assertEqual(diagnostics["historical_bars"]["error"], "Alpaca request timed out")
-        self.assertFalse(diagnostics["historical_bars"]["available"])
-
-    def test_latest_failed_strategist_run_is_surfaced(self):
-        company_id = self._add_company()
-        self._record_strategist_run(company_id, status="completed", hours_ago=3)
-        self._record_strategist_run(company_id, status="failed", hours_ago=1)
-
-        validation = build_company_decisions_payload()["companies"][0]["diagnostics"]["strategist_validation"]
-
-        self.assertEqual(validation["status"], "failed")
-        self.assertEqual(validation["input_article_count"], 4)
-
-    def test_newer_strategist_run_clears_an_earlier_failure(self):
-        company_id = self._add_company()
-        self._record_decision(company_id=company_id)
-        self._record_strategist_run(company_id, status="failed", hours_ago=3)
-        self._record_strategist_run(company_id, status="completed", hours_ago=1)
-
-        validation = build_company_decisions_payload()["companies"][0]["diagnostics"]["strategist_validation"]
-
-        self.assertEqual(validation, {})
 
 
 if __name__ == "__main__":

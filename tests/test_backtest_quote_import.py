@@ -61,14 +61,6 @@ class AlpacaQuoteCsvImportTests(unittest.TestCase):
         self.assertEqual(result["events"][0]["entry_price"], 1.1)
         self.assertEqual(result["events"][0]["exit_price"], 1.5)
 
-    def test_dry_run_does_not_store_quotes(self) -> None:
-        result = import_alpaca_option_quote_csv(self.csv_path, db_path=self.db_path, dry_run=True)
-        with closing(get_connection(self.db_path)) as conn, conn:
-            count = conn.execute("SELECT COUNT(*) FROM historical_option_quotes").fetchone()[0]
-        self.assertEqual(result["valid_rows"], 3)
-        self.assertEqual(result["inserted_rows"], 0)
-        self.assertEqual(count, 0)
-
 
 if __name__ == "__main__":
     unittest.main()

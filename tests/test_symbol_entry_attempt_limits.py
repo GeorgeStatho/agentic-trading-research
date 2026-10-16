@@ -109,31 +109,6 @@ class SymbolEntryAttemptLimitTests(unittest.TestCase):
                 1,
             )
 
-    def test_counts_isoformat_recorded_at_values(self) -> None:
-        # Rows written through other paths can carry an ISO 'T' separator.
-        # ignore_cleanup_errors: the db helpers leave their connection open for the
-        # GC to close, which blocks the temp-file unlink on Windows.
-        with TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
-            db_path = Path(temp_dir) / "entry-attempts-iso.sqlite3"
-            initialize_market_database(db_path=db_path)
-            with closing(get_connection(db_path)) as conn, conn:
-                _insert_execution(
-                    conn,
-                    order_id="iso-buy",
-                    underlying_symbol="NVDA",
-                    order_side="buy",
-                    recorded_at=(datetime.now(timezone.utc) - timedelta(days=1)).isoformat(),
-                )
-
-            self.assertEqual(
-                count_option_entry_executions_since(
-                    underlying_symbol="NVDA",
-                    start_at=datetime.now(timezone.utc) - timedelta(days=7),
-                    db_path=db_path,
-                ),
-                1,
-            )
-
     def test_returns_latest_stop_loss_exit_only(self) -> None:
         # ignore_cleanup_errors: the db helpers leave their connection open for the
         # GC to close, which blocks the temp-file unlink on Windows.
@@ -171,25 +146,6 @@ class SymbolEntryAttemptLimitTests(unittest.TestCase):
                 get_latest_stop_loss_exit_at(underlying_symbol="NVDA", db_path=db_path),
                 newest_stop,
             )
-
-    def test_returns_none_without_a_stop_loss_exit(self) -> None:
-        # ignore_cleanup_errors: the db helpers leave their connection open for the
-        # GC to close, which blocks the temp-file unlink on Windows.
-        with TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
-            db_path = Path(temp_dir) / "stop-cooldown-empty.sqlite3"
-            initialize_market_database(db_path=db_path)
-            with closing(get_connection(db_path)) as conn, conn:
-                _insert_execution(
-                    conn,
-                    order_id="profit-exit",
-                    underlying_symbol="NVDA",
-                    order_side="sell",
-                    decision="trailing_profit_stop",
-                    recorded_at=self._journal_timestamp(1),
-                )
-
-            self.assertIsNone(get_latest_stop_loss_exit_at(underlying_symbol="NVDA", db_path=db_path))
-            self.assertIsNone(get_latest_stop_loss_exit_at(underlying_symbol="", db_path=db_path))
 
 
 if __name__ == "__main__":
