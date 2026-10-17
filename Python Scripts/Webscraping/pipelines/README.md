@@ -379,7 +379,7 @@ This module is the compatibility and convenience layer that most pipelines impor
 
 It pulls together:
 
-- crawl functions from `engine/`
+- the `ArticleExtractionResult` type from `engine/` (fetching goes through `engine/page_fetch.py`, not through this module)
 - scoring and normalization helpers
 - DB lookups for existing articles and failed URLs
 - shared configuration values such as max article counts and age limits
