@@ -5,6 +5,7 @@ import logging
 import unittest
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 from functools import partial
 from unittest.mock import patch
 
@@ -12,6 +13,7 @@ from db_common import get_connection
 from market_db_modules.entities import add_sector
 from news_db_modules.links import link_sector_to_article, link_us_article
 from pipelines._article_follow import NewsEntity, save_followed_article_links
+from pipelines._regionNewsPipeline import make_region_pipeline
 from pipelines._orchestration import direct_article_save_request, run_article_save_requests
 from pipelines._shared import ArticleExtractionResult
 from tests.db_fixtures import temporary_database
@@ -129,6 +131,33 @@ class ArticleFollowTests(unittest.TestCase):
                     )
 
                 self.assertEqual(dict(counts), {key: 2})
+
+    def test_region_rss_description_becomes_summary_and_links_us_article(self):
+        description = "Stocks rally on earnings"
+        rss_xml = (
+            "<rss><channel><item>"
+            f"<link>{self.url}</link><description>{description}</description>"
+            f"<pubDate>{format_datetime(datetime.now(timezone.utc))}</pubDate>"
+            "</item></channel></rss>"
+        )
+        pipeline = make_region_pipeline(
+            logger_name="test_region",
+            region_slug="us",
+            region_label="U.S. News",
+            rss_feed_url="https://example.invalid/rss",
+            link=link_us_article,
+        )
+
+        with patch("pipelines._regionNewsPipeline.fetch_rss_feed_xml", return_value=rss_xml), patch(
+            "pipelines._orchestration.fetch_articles_with_preferred_extractors",
+            return_value={self.url: _result(self.url)},
+        ), patch("builtins.print"):
+            saved = pipeline["get_news_from_rss"](max_age_days=3)
+
+        self.assertEqual(saved, 1)
+        (row,) = self._article_state()
+        self.assertEqual(row["summary"], description)
+        self.assertEqual(len(_rows("SELECT 1 FROM us_news_articles")), 1)
 
 
 if __name__ == "__main__":
