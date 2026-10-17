@@ -20,7 +20,7 @@ from pipelines._orchestration import (
     run_article_save_requests,
     run_mixed_job_orchestration,
 )
-from pipelines._shared import ArticleExtractionResult
+from engine.article_extraction import ArticleExtractionResult
 from tests.db_fixtures import temporary_database
 
 LOGGER = logging.getLogger("test")

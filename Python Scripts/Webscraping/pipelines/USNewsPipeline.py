@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pipelines._regionNewsPipeline import DEFAULT_RSS_MAX_AGE_DAYS, make_region_pipeline
-from pipelines._shared import get_log_file_path
+from core.scrape_logging import get_log_file_path
 
 from news_db_modules.links import link_us_article
 from news_db_modules.bootstrap import initialize_database as initialize_news_database

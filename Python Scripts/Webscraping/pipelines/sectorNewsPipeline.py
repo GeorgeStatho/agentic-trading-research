@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import partial
 
 from pipelines._article_follow import NewsEntity
-from pipelines._shared import get_log_file_path, get_scrape_logger
+from core.scrape_logging import get_log_file_path, get_scrape_logger
 from pipelines._orchestration import ArticleSaveRequest, direct_article_save_request, run_article_save_requests
 from pipelines._sector_rss import (
     DEFAULT_RSS_MAX_AGE_DAYS,

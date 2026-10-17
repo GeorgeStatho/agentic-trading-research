@@ -4,25 +4,20 @@ import re
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, cast
 from urllib.parse import urlsplit
 
-from pipelines._shared import (
-    ArticleExtractionResult,
+from core.CommonPipeline import (
     MAX_ARTICLE_AGE_DAYS,
-    build_content_hash,
     clear_failed_url,
     compute_article_scores,
     fetch_existing_article_by_url,
-    get_max_article_age_days,
-    get_source_metadata,
-    is_allowed_source,
     is_recent_article,
-    normalize_title,
-    normalize_url,
     record_failed_url,
-    cast,
 )
+from engine.article_extraction import ArticleExtractionResult
+from processing.news_normalization import build_content_hash, normalize_title, normalize_url
+from sources.source_config import get_max_article_age_days, get_source_metadata, is_allowed_source
 from db_common import get_connection
 from news_db_modules.article_store import add_news_article
 

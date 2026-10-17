@@ -4,7 +4,8 @@ import json
 from typing import NotRequired, TypedDict
 
 from pipelines._constants import FOOL_EXCHANGE_SLUGS
-from pipelines._shared import build_source_url, supports_source_type
+from core.CommonPipeline import build_source_url
+from sources.source_config import supports_source_type
 from sources.urlFactories import COMPANY_NEWS_SOURCES, INDUSTRY_NEWS_SOURCES
 
 

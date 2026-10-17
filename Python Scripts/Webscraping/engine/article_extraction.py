@@ -6,8 +6,6 @@ from datetime import datetime
 from datetime import timezone
 from typing import Iterable
 
-import requests
-import scrapy
 from scrapy.http import HtmlResponse, Request, Response
 
 from core.scrape_logging import get_scrape_logger
@@ -257,36 +255,3 @@ def extract_rendered_pages_parallel(
     )
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
         return list(executor.map(extract_rendered_page, rendered_pages))
-
-
-def extract_article(url: str, timeout: int = 20) -> ArticleExtractionResult:
-    # Extract the article from the raw response and return a stable value.
-    headers = {
-        "User-Agent": DEFAULT_USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.google.com/",
-    }
-    LOGGER.info("Fetching article URL %s", url)
-    try:
-        response = requests.get(url, timeout=timeout, headers=headers)
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        LOGGER.warning("Article fetch failed for %s: %s", url, exc)
-        return ArticleExtractionResult(
-            url=url,
-            success=False,
-            error=str(exc),
-        )
-
-    scrapy_response = scrapy.http.HtmlResponse(
-        url=response.url,
-        body=response.content,
-        encoding=response.encoding or "utf-8",
-    )
-    result = extract_from_response(scrapy_response)
-    if result.success:
-        LOGGER.info("Article extracted successfully for %s", result.url)
-    else:
-        LOGGER.warning("Article extraction failed for %s: %s", result.url, result.error)
-    return result

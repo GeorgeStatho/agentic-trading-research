@@ -4,7 +4,7 @@ from typing import Callable
 
 from engine.page_fetch import fetch_feed
 from pipelines._article_follow import NewsEntity
-from pipelines._shared import get_log_file_path, get_scrape_logger
+from core.scrape_logging import get_log_file_path, get_scrape_logger
 from pipelines._orchestration import direct_article_save_request, run_article_save_requests
 from pipelines._sector_rss import DEFAULT_RSS_MAX_AGE_DAYS, extract_recent_rss_items
 

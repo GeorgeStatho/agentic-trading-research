@@ -137,16 +137,6 @@ async def _log_cnbc_search_debug(page, url: str) -> None:
     )
 
 
-def _get_sync_playwright():
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise RuntimeError(
-            "Playwright backend requested, but the Playwright Python package is not installed."
-        ) from exc
-    return sync_playwright
-
-
 def _get_async_playwright():
     try:
         from playwright.async_api import async_playwright

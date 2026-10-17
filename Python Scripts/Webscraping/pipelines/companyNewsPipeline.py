@@ -4,13 +4,9 @@ from contextlib import closing
 from functools import partial
 from typing import Any
 
-from pipelines._shared import (
-    MAX_ARTICLE_AGE_DAYS,
-    filter_article_links,
-    get_log_file_path,
-    get_scrape_logger,
-    supports_source_type,
-)
+from core.CommonPipeline import filter_article_links
+from core.scrape_logging import get_log_file_path, get_scrape_logger
+from sources.source_config import supports_source_type
 from pipelines._article_follow import NewsEntity
 from pipelines._internal import is_blacklisted_cnbc_link
 from pipelines._orchestration import (

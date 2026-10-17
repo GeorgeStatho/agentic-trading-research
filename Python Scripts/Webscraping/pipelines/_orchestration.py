@@ -8,8 +8,8 @@ from pipelines._article_follow import (
     collect_article_urls_to_fetch,
     save_followed_article_links,
 )
+from core.CommonPipeline import MAX_ARTICLES_PER_SEARCH_PAGE
 from engine.page_fetch import fetch_articles, fetch_source_pages
-from pipelines._shared import MAX_ARTICLES_PER_SEARCH_PAGE
 from pipelines.job_builder import group_jobs_by_url, unique_job_urls
 
 

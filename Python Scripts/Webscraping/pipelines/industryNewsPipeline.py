@@ -2,13 +2,9 @@ from __future__ import annotations
 
 from functools import partial
 
-from pipelines._shared import (
-    MAX_ARTICLE_AGE_DAYS,
-    filter_article_links,
-    get_log_file_path,
-    get_scrape_logger,
-    supports_source_type,
-)
+from core.CommonPipeline import filter_article_links
+from core.scrape_logging import get_log_file_path, get_scrape_logger
+from sources.source_config import supports_source_type
 from engine.listing_page_helper import extract_listing_article_links
 from pipelines._constants import INDUSTRY_NAME_STOPWORDS
 from pipelines._article_follow import NewsEntity
