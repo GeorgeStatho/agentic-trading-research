@@ -108,7 +108,7 @@ Current note:
 
 ### [__init__.py](__init__.py)
 
-Re-exports the extractor functions so the rest of the system can import them from one place.
+Package marker for the folder. Import extractors from their own modules, for example `extractors.cnbc`.
 
 ## How The Folder Fits Into The System
 

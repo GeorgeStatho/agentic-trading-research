@@ -33,7 +33,6 @@ The pipeline code is now split into layers:
   - `_sector_rss.py`
   - `_regionNewsPipeline.py`
 - shared setup/constants/helpers
-  - `_shared.py`
   - `_constants.py`
   - `_internal.py`
   - `job_builder.py`
@@ -373,20 +372,6 @@ What these functions do:
 
 This keeps the pipeline files from having to know how URLs are assembled.
 
-### [_shared.py](_shared.py)
-
-This module is the compatibility and convenience layer that most pipelines import from.
-
-It pulls together:
-
-- the `ArticleExtractionResult` type from `engine/` (fetching goes through `engine/page_fetch.py`, not through this module)
-- scoring and normalization helpers
-- DB lookups for existing articles and failed URLs
-- shared configuration values such as max article counts and age limits
-- logger setup
-
-The goal is not business logic. The goal is to give the pipeline layer one stable import surface for common dependencies.
-
 ### [_internal.py](_internal.py)
 
 This module contains shared pipeline helper logic that is internal to the pipeline layer.
@@ -397,7 +382,7 @@ Examples include:
 - normalized text matching
 - helper functions that decide whether a link text or href matches a target entity
 
-This is where small reusable pieces live when they are too pipeline-specific for `_shared.py` but too common to duplicate in every entity pipeline.
+This is where small reusable pieces live when they are too pipeline-specific for `core/` but too common to duplicate in every entity pipeline.
 
 ### [_constants.py](_constants.py)
 
@@ -405,8 +390,6 @@ This module contains pipeline-specific constants such as:
 
 - industry stopwords, used by `_build_industry_match_variants(...)`
 - Fool exchange slugs, used by `job_builder.py`
-
-It also still holds a `COMPANY_NAME_SUFFIXES` set that nothing imports now.
 
 ### [macroNewsPipeline.py](macroNewsPipeline.py)
 

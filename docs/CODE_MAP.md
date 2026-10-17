@@ -60,7 +60,6 @@ Manager a
 │   │   │   ├── article_scraper.py
 │   │   │   ├── article_extraction.py
 │   │   │   ├── listing_page_helper.py
-│   │   │   ├── Normalization.py
 │   │   │   └── playwright_runner.py
 │   │   ├── extractors/
 │   │   │   ├── barrons.py
@@ -89,8 +88,7 @@ Manager a
 │   │   │   ├── _internal.py
 │   │   │   ├── _orchestration.py
 │   │   │   ├── _regionNewsPipeline.py
-│   │   │   ├── _sector_rss.py
-│   │   │   └── _shared.py
+│   │   │   └── _sector_rss.py
 │   │   └── market_data/
 │   │       ├── hydration.py
 │   │       ├── yfinance_client.py

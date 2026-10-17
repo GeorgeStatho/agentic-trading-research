@@ -46,7 +46,6 @@ The most important current files are:
 - [pipelines/_article_follow.py](pipelines/_article_follow.py)
 - [pipelines/_sector_rss.py](pipelines/_sector_rss.py)
 - [pipelines/_regionNewsPipeline.py](pipelines/_regionNewsPipeline.py)
-- [pipelines/_shared.py](pipelines/_shared.py)
 - [pipelines/_internal.py](pipelines/_internal.py)
 - [pipelines/_constants.py](pipelines/_constants.py)
 - [engine/article_scraper.py](engine/article_scraper.py)
@@ -108,16 +107,6 @@ The most important field is `source_type`.
 The sector, U.S., and world pipelines now use the `article` path heavily because they start from CNBC RSS feeds rather than from search pages.
 
 ## Shared Helpers
-
-[pipelines/_shared.py](pipelines/_shared.py) is mostly a stable import surface. It re-exports the helpers the pipelines rely on, including:
-
-- `filter_article_links(...)`
-- `fetch_existing_article_by_url(...)`
-- `compute_article_scores(...)`
-- `is_recent_article(...)`
-- `is_allowed_source(...)`
-- `supports_source_type(...)`
-- `get_source_metadata(...)`
 
 [pipelines/_internal.py](pipelines/_internal.py) contains small pipeline-only helpers such as:
 
@@ -518,10 +507,9 @@ If you want to understand the system with the least confusion, read the files in
 2. [pipelines/job_builder.py](pipelines/job_builder.py)
 3. [pipelines/_orchestration.py](pipelines/_orchestration.py)
 4. [pipelines/_article_follow.py](pipelines/_article_follow.py)
-5. [pipelines/_shared.py](pipelines/_shared.py)
-6. [pipelines/_internal.py](pipelines/_internal.py)
-7. [engine/article_scraper.py](engine/article_scraper.py)
-8. [engine/article_extraction.py](engine/article_extraction.py)
-9. [pipelines/industryNewsPipeline.py](pipelines/industryNewsPipeline.py)
+5. [pipelines/_internal.py](pipelines/_internal.py)
+6. [engine/article_scraper.py](engine/article_scraper.py)
+7. [engine/article_extraction.py](engine/article_extraction.py)
+8. [pipelines/industryNewsPipeline.py](pipelines/industryNewsPipeline.py)
 
 That order gives you the company pipeline first, then the shared machinery, then the industry variant. The RSS-based sector, U.S., and world pipelines are covered in their own section above.

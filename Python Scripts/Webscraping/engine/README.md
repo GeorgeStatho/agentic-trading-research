@@ -122,10 +122,6 @@ Main pieces:
 - `_extract_published_at(response)`
   - checks common metadata tags and `time` elements
 
-- `extract_article(url)`
-  - a direct single-URL requests-based helper
-  - useful outside the batch crawler path
-
 Current site-specific extraction dispatch includes:
 
 - MarketWatch
@@ -146,10 +142,6 @@ It:
 - checks source allowlist and `listing` support
 - enforces article URL patterns
 - matches topic text against link text or URL
-
-### [Normalization.py](Normalization.py)
-
-Compatibility shim for older imports that still expect the old module path.
 
 ### [__init__.py](__init__.py)
 
