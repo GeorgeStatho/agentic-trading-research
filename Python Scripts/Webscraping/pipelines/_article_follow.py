@@ -13,7 +13,6 @@ from pipelines._shared import (
     build_content_hash,
     clear_failed_url,
     compute_article_scores,
-    crawl_article_pages,
     fetch_existing_article_by_url,
     get_max_article_age_days,
     get_source_metadata,
@@ -27,20 +26,7 @@ from pipelines._shared import (
 from db_common import get_connection
 from news_db_modules.article_store import add_news_article
 
-from APIs.foolAPI import get_article_content as get_fool_article_content
-from APIs.gurufocusAPI import get_article_content as get_gurufocus_article_content
-from APIs.InvestingAPI import get_article_content as get_investing_article_content
-from APIs.morningStarAPI import get_article_content as get_morningstar_article_content
-
 CNBc_URL_DATE_RE = re.compile(r"/(?P<year>\d{4})/(?P<month>\d{2})/(?P<day>\d{2})/")
-
-ARTICLE_CONTENT_FETCHERS: tuple[tuple[str, Callable[[str], dict[str, Any]]], ...] = (
-    ("fool.com", get_fool_article_content),
-    ("investing.com", get_investing_article_content),
-    ("morningstar.com", get_morningstar_article_content),
-    ("gurufocus.com", get_gurufocus_article_content),
-)
-
 
 def _extract_cnbc_url_published_at(url: str) -> str | None:
     lowered = str(url or "").strip().lower()
@@ -105,79 +91,6 @@ def collect_article_urls_to_fetch(
         seen_urls.add(href)
 
     return urls_to_fetch
-
-
-def _get_article_content_fetcher(url: str) -> Callable[[str], dict[str, Any]] | None:
-    hostname = (urlsplit(str(url or "")).hostname or "").lower()
-    for domain, fetcher in ARTICLE_CONTENT_FETCHERS:
-        if hostname == domain or hostname.endswith(f".{domain}"):
-            return fetcher
-    return None
-
-
-def _extract_article_result_from_api_payload(payload: dict[str, Any], fallback_url: str) -> ArticleExtractionResult:
-    # Extract the article result from api payload from the raw response and return a stable value.
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(data, dict):
-        return ArticleExtractionResult(
-            url=fallback_url,
-            success=False,
-            error="API article extractor returned an unexpected payload shape.",
-        )
-
-    title = str(data.get("title") or "").strip()
-    body = str(data.get("body") or "").strip()
-    published_at = str(data.get("published_at") or "").strip()
-    url = str(data.get("url") or fallback_url).strip() or fallback_url
-
-    if not title or not body:
-        return ArticleExtractionResult(
-            url=url,
-            title=title,
-            text=body,
-            published_at=published_at,
-            success=False,
-            error="API article extractor returned empty title or body.",
-        )
-
-    return ArticleExtractionResult(
-        url=url,
-        title=title,
-        text=body,
-        published_at=published_at,
-        success=True,
-    )
-
-
-def fetch_articles_with_preferred_extractors(
-    urls: list[str],
-    *,
-    logger=None,
-) -> dict[str, ArticleExtractionResult]:
-    # Fetch the articles with preferred extractors and normalize the result for the next stage.
-    fetched_articles: dict[str, ArticleExtractionResult] = {}
-    fallback_urls: list[str] = []
-
-    for url in urls:
-        fetcher = _get_article_content_fetcher(url)
-        if fetcher is None:
-            fallback_urls.append(url)
-            continue
-
-        try:
-            payload = fetcher(url)
-            fetched_articles[url] = _extract_article_result_from_api_payload(payload, url)
-            if logger is not None and fetched_articles[url].success:
-                logger.info("Fetched article via API extractor for %s", url)
-        except Exception as exc:
-            if logger is not None:
-                logger.warning("API article extractor failed for %s: %s", url, exc)
-            fallback_urls.append(url)
-
-    if fallback_urls:
-        fetched_articles.update(crawl_article_pages(fallback_urls))
-
-    return fetched_articles
 
 
 @dataclass(frozen=True)

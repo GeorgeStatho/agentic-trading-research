@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Callable
 
+from engine.page_fetch import fetch_feed
 from pipelines._article_follow import NewsEntity
 from pipelines._shared import get_log_file_path, get_scrape_logger
 from pipelines._orchestration import direct_article_save_request, run_article_save_requests
-from pipelines._sector_rss import DEFAULT_RSS_MAX_AGE_DAYS, extract_recent_rss_items, fetch_rss_feed_xml
+from pipelines._sector_rss import DEFAULT_RSS_MAX_AGE_DAYS, extract_recent_rss_items
 
 
 LOGGER = get_scrape_logger("region_pipeline")
@@ -55,8 +56,7 @@ def make_region_pipeline(
         return _save_items([(url, None) for url in urls if str(url).strip()])
 
     def get_news_from_rss(max_age_days: int = DEFAULT_RSS_MAX_AGE_DAYS) -> int:
-        rss_xml = fetch_rss_feed_xml(rss_feed_url)
-        return _save_items(extract_recent_rss_items(rss_xml, max_age_days=max_age_days))
+        return _save_items(extract_recent_rss_items(fetch_feed(rss_feed_url), max_age_days=max_age_days))
 
     return {
         "get_news": get_news,

@@ -16,7 +16,7 @@ from core.CommonPipeline import (
 )
 from core.scrape_logging import get_log_file_path, get_scrape_logger
 from processing.news_normalization import build_content_hash, normalize_title, normalize_url
-from engine.Normalization import ArticleExtractionResult, crawl_article_pages, crawl_articles
+from engine.Normalization import ArticleExtractionResult
 from sources.source_config import (
     get_max_article_age_days,
     get_source_metadata,

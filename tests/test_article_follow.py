@@ -10,11 +10,16 @@ from functools import partial
 from unittest.mock import patch
 
 from db_common import get_connection
+from engine.page_fetch import FixtureFetcher, use_fetcher
 from market_db_modules.entities import add_sector
 from news_db_modules.links import link_sector_to_article, link_us_article
 from pipelines._article_follow import NewsEntity, save_followed_article_links
 from pipelines._regionNewsPipeline import make_region_pipeline
-from pipelines._orchestration import direct_article_save_request, run_article_save_requests
+from pipelines._orchestration import (
+    direct_article_save_request,
+    run_article_save_requests,
+    run_mixed_job_orchestration,
+)
 from pipelines._shared import ArticleExtractionResult
 from tests.db_fixtures import temporary_database
 
@@ -110,12 +115,11 @@ class ArticleFollowTests(unittest.TestCase):
         self.assertEqual(_rows("SELECT 1 FROM news_articles"), [])
 
     def test_missing_result_saves_nothing_and_never_fetches(self):
-        with patch("pipelines._article_follow.crawl_article_pages", side_effect=AssertionError("fetched")), patch(
-            "pipelines._article_follow.fetch_articles_with_preferred_extractors", side_effect=AssertionError("fetched")
-        ):
+        with use_fetcher(FixtureFetcher()) as fixture:
             saved = self._save(self.sector, "desc", {})
 
         self.assertEqual(saved, 0)
+        self.assertEqual(fixture.requested, [])
         self.assertEqual(_rows("SELECT 1 FROM news_articles"), [])
 
     def test_run_article_save_requests_keys_counts_by_entity(self):
@@ -125,7 +129,7 @@ class ArticleFollowTests(unittest.TestCase):
                 fetched = {url: _result(url) for url in urls}
                 requests = [direct_article_save_request(url, self.sector) for url in urls]
 
-                with patch("pipelines._orchestration.fetch_articles_with_preferred_extractors", return_value=fetched):
+                with use_fetcher(FixtureFetcher(articles=fetched)):
                     counts = run_article_save_requests(
                         save_requests=requests, logger=LOGGER, by_source_type=by_source_type
                     )
@@ -148,16 +152,62 @@ class ArticleFollowTests(unittest.TestCase):
             link=link_us_article,
         )
 
-        with patch("pipelines._regionNewsPipeline.fetch_rss_feed_xml", return_value=rss_xml), patch(
-            "pipelines._orchestration.fetch_articles_with_preferred_extractors",
-            return_value={self.url: _result(self.url)},
-        ), patch("builtins.print"):
+        fixture = FixtureFetcher(feeds={"https://example.invalid/rss": rss_xml}, articles={self.url: _result(self.url)})
+        with use_fetcher(fixture), patch("builtins.print"):
             saved = pipeline["get_news_from_rss"](max_age_days=3)
 
         self.assertEqual(saved, 1)
         (row,) = self._article_state()
         self.assertEqual(row["summary"], description)
         self.assertEqual(len(_rows("SELECT 1 FROM us_news_articles")), 1)
+
+    def test_mixed_orchestration_saves_search_page_link_and_direct_article(self):
+        search_url = "https://www.cnbc.com/finance/"
+        listed_url, direct_url = _recent_url("listed"), _recent_url("direct")
+        jobs = [
+            {"url": search_url, "source_type": "search"},
+            {"url": direct_url, "source_type": "article"},
+        ]
+        page = {
+            "request_url": search_url, "url": search_url, "success": True, "status": 200,
+            "links": [{"href": listed_url, "text": "listed"}],
+        }
+        fixture = FixtureFetcher(
+            pages={search_url: page},
+            articles={url: _result(url) for url in (listed_url, direct_url)},
+        )
+
+        with use_fetcher(fixture):
+            counts = run_mixed_job_orchestration(
+                jobs=jobs,
+                logger=LOGGER,
+                entity_from_job=lambda job: self.sector,
+                candidate_links_for=lambda page, job: page["links"],
+                by_source_type=True,
+            )
+
+        self.assertEqual(dict(counts), {(self.sector_id, "search"): 1, (self.sector_id, "article"): 1})
+        self.assertEqual(fixture.requested, [search_url, listed_url, direct_url])
+
+    def test_missing_page_or_article_saves_nothing_and_records_no_failure(self):
+        # A crashed backend yields absent results; only an explicit success=False result may enter failed_urls.
+        search_url = "https://www.cnbc.com/finance/"
+        jobs = [
+            {"url": search_url, "source_type": "search"},
+            {"url": self.url, "source_type": "article"},
+        ]
+
+        with use_fetcher(FixtureFetcher()):
+            counts = run_mixed_job_orchestration(
+                jobs=jobs,
+                logger=LOGGER,
+                entity_from_job=lambda job: self.sector,
+                candidate_links_for=lambda page, job: page["links"],
+            )
+
+        self.assertEqual(sum(counts.values()), 0)
+        self.assertEqual(_rows("SELECT 1 FROM news_articles"), [])
+        self.assertEqual(_rows("SELECT 1 FROM failed_urls"), [])
 
 
 if __name__ == "__main__":

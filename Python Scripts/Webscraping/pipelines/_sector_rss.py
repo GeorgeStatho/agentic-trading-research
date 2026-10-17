@@ -3,14 +3,16 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import json
-from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 
 from bs4 import BeautifulSoup
 
+from core.scrape_logging import get_scrape_logger
 from db_common import DATA_DIR
+from engine.page_fetch import fetch_feed
 
 
+LOGGER = get_scrape_logger("sector_rss")
 DEFAULT_RSS_MAX_AGE_DAYS = 3
 RSS_FEED_MAP_PATH = DATA_DIR / "sector_rss_feeds.json"
 
@@ -38,18 +40,6 @@ def get_sector_feed_urls(sector: dict) -> list[str]:
     return matching_urls
 
 
-def fetch_rss_feed_xml(rss_url: str, timeout_seconds: int = 20) -> str:
-    request = Request(
-        rss_url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (compatible; StockTradingExperiment/1.0; +https://www.cnbc.com/)",
-            "Accept": "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
-        },
-    )
-    with urlopen(request, timeout=timeout_seconds) as response:
-        return response.read().decode("utf-8", errors="replace")
-
-
 def _parse_rss_pub_date(pub_date: str) -> datetime | None:
     value = str(pub_date or "").strip()
     if not value:
@@ -67,11 +57,17 @@ def _parse_rss_pub_date(pub_date: str) -> datetime | None:
 
 
 def extract_recent_rss_items(
-    rss_xml: str,
+    rss_xml: str | None,
     max_age_days: int = DEFAULT_RSS_MAX_AGE_DAYS,
 ) -> list[tuple[str, str | None]]:
     # Extract the recent (link, description) pairs from the raw response and return a stable value.
-    root = ET.fromstring(rss_xml)
+    if not rss_xml:
+        return []
+    try:
+        root = ET.fromstring(rss_xml)
+    except ET.ParseError as exc:
+        LOGGER.warning("Skipping unparseable RSS feed: %s", exc)
+        return []
     now = datetime.now(timezone.utc)
     items: list[tuple[str, str | None]] = []
 
@@ -104,8 +100,7 @@ def get_recent_sector_feed_items(
     seen_urls: set[str] = set()
 
     for rss_feed_url in rss_feed_urls:
-        rss_xml = fetch_rss_feed_xml(rss_feed_url)
-        for url, description in extract_recent_rss_items(rss_xml, max_age_days=max_age_days):
+        for url, description in extract_recent_rss_items(fetch_feed(rss_feed_url), max_age_days=max_age_days):
             if url in seen_urls:
                 continue
             seen_urls.add(url)

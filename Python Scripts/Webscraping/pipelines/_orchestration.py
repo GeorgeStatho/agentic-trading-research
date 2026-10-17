@@ -6,10 +6,10 @@ from typing import Any, Callable, TypedDict
 from pipelines._article_follow import (
     NewsEntity,
     collect_article_urls_to_fetch,
-    fetch_articles_with_preferred_extractors,
     save_followed_article_links,
 )
-from pipelines._shared import MAX_ARTICLES_PER_SEARCH_PAGE, crawl_articles
+from engine.page_fetch import fetch_articles, fetch_source_pages
+from pipelines._shared import MAX_ARTICLES_PER_SEARCH_PAGE
 from pipelines.job_builder import group_jobs_by_url, unique_job_urls
 
 
@@ -136,9 +136,7 @@ def run_article_save_requests(
         save_requests,
         should_include_link=should_include_link,
     )
-    fetched_articles = (
-        fetch_articles_with_preferred_extractors(article_urls, logger=logger) if article_urls else {}
-    )
+    fetched_articles = fetch_articles(article_urls) if article_urls else {}
 
     for request in save_requests:
         entity = request["entity"]
@@ -166,7 +164,7 @@ def run_mixed_job_orchestration(
 ) -> dict:
     # Crawl search/listing pages for candidate links, add direct article jobs, then save everything.
     search_jobs = [job for job in jobs if job["source_type"] in {"search", "listing"}]
-    crawled_pages = crawl_articles(unique_job_urls(search_jobs)) if search_jobs else []
+    crawled_pages = fetch_source_pages(unique_job_urls(search_jobs)) if search_jobs else []
 
     save_requests = build_search_article_save_requests(
         crawled_pages=crawled_pages,
