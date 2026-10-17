@@ -29,7 +29,7 @@ The Yahoo market-data side is responsible for:
 - cleaning and normalizing that data
 - storing it in the market database
 
-There is also a Yahoo news helper now, but it is only used as an extra article discovery input for the company pipeline. It does not drive the full pipeline by itself.
+Yahoo news and the Fool, Morningstar, and GuruFocus APIs are extra article discovery inputs for the company pipeline. None of them drives the full pipeline by itself.
 
 ## Folder Layout
 
@@ -42,6 +42,8 @@ The most important current files are:
 - [pipelines/worldNewsPipeline.py](pipelines/worldNewsPipeline.py)
 - [pipelines/macroNewsPipeline.py](pipelines/macroNewsPipeline.py)
 - [pipelines/job_builder.py](pipelines/job_builder.py)
+- [pipelines/_orchestration.py](pipelines/_orchestration.py)
+- [pipelines/_article_follow.py](pipelines/_article_follow.py)
 - [pipelines/_sector_rss.py](pipelines/_sector_rss.py)
 - [pipelines/_regionNewsPipeline.py](pipelines/_regionNewsPipeline.py)
 - [pipelines/_shared.py](pipelines/_shared.py)
@@ -125,7 +127,7 @@ The sector, U.S., and world pipelines now use the `article` path heavily because
 - CNBC blacklist checks
 - "does this link text or URL actually mention the target thing?" logic
 
-[pipelines/_constants.py](pipelines/_constants.py) holds shared constants such as company suffixes and industry stopwords.
+[pipelines/_constants.py](pipelines/_constants.py) holds shared constants such as industry stopwords and Fool exchange slugs.
 
 ## Company Pipeline Flow
 
@@ -152,10 +154,13 @@ Each company record carries the metadata needed for matching and persistence:
 
 ### Step 2: Build jobs
 
-`_build_company_jobs(company)` combines two sources of jobs:
+`_build_company_jobs(company)` combines three sources of jobs:
 
 1. normal configured company source jobs from `build_company_source_jobs([company])`
-2. Yahoo-discovered article jobs from `yFinanceNews.py`
+2. article jobs from the Fool, Morningstar, and GuruFocus stock-data APIs (`_build_api_jobs(...)`)
+3. Yahoo-discovered article jobs from `yFinanceNews.py`
+
+The API portion calls each API's `get_stock_data(symbol, limit=10)`, collects the `(title, url)` pairs from its `articles`, `analysis`, and `transcripts` lists, and turns them into `article` jobs. A failing API is logged and skipped.
 
 The Yahoo portion works like this:
 
@@ -164,14 +169,14 @@ The Yahoo portion works like this:
 3. only URLs from already-allowed scraper sources survive that filter
 4. `build_yahoo_news_jobs(...)` turns those pairs into normal `article` jobs
 
-That means Yahoo is now acting as an extra article discovery source, not as a special storage path.
+That means the APIs and Yahoo act as extra article discovery sources, not as special storage paths.
 
 ### Step 3: Split jobs by type
 
-`_process_company_jobs(...)` splits the full job list into:
+`_process_company_jobs(...)` hands the full job list to `run_mixed_job_orchestration(...)`, which splits it into:
 
-- `search_jobs`
-- `direct_article_jobs`
+- `search` jobs (plus `listing` jobs for industries)
+- `article` jobs
 
 This is one of the most important design ideas in the current company pipeline.
 
@@ -179,7 +184,7 @@ Some inputs are discovery pages.
 
 Some inputs are already article URLs.
 
-The pipeline keeps those separate until it is time to batch the article crawl.
+The pipeline keeps those separate until it is time to batch the article fetch. The split and the rest of the flow are handled by `run_mixed_job_orchestration(...)` in [pipelines/_orchestration.py](pipelines/_orchestration.py), which the industry pipeline uses too.
 
 ### Step 4: Crawl all search pages together
 
@@ -209,65 +214,36 @@ The company pipeline does not follow every discovered link.
 It first runs `_filter_company_candidate_links(...)`, which applies:
 
 1. the shared `filter_article_links(...)` rules
-2. company-specific match rules
-3. CNBC blacklist rules
+2. CNBC blacklist rules
 
-The company-specific match rules are built from `_build_company_match_variants(...)`.
+It no longer drops links just because the link text is a weak company-name match; the links already come from company-specific search pages.
 
-Those variants include combinations of:
+### Step 6: Build one shared article batch
 
-- company name
-- company name with suffixes trimmed
-- company ticker symbol
+After the search pages are crawled, `build_search_article_save_requests(...)` turns the filtered links into `ArticleSaveRequest` objects. Direct article jobs (Yahoo and the APIs) become requests of the same shape through `direct_article_save_request(...)`.
 
-The goal is to avoid following generic market pages that do not really mention the target company.
-
-### Step 6: Build one shared article crawl batch
-
-This is the current important behavior in the company pipeline.
-
-After the search pages are crawled, the pipeline builds a single combined list of article-save requests in `_build_article_save_requests(...)`.
-
-That combined list includes:
-
-- filtered article links discovered from the search pages
-- Yahoo article jobs that were already direct article URLs
-
-Then `_collect_article_urls_to_fetch(...)` extracts the article URLs that still need network fetches and skips:
+Then `run_article_save_requests(...)` collects the article URLs that still need network fetches and skips:
 
 - disallowed sources
+- CNBC articles whose URL date is too old
 - already-saved articles
 - duplicates
 
-Then the pipeline runs one shared article crawl:
+Then it fetches them once with `fetch_articles_with_preferred_extractors(...)`. Fool, Investing, Morningstar, and GuruFocus URLs go through their `APIs/` article-content functions; everything else, and any API failure, goes through `crawl_article_pages(article_urls)`.
 
-- `crawl_article_pages(article_urls)`
-
-This keeps Yahoo-discovered article URLs in the same article crawl batch as the URLs discovered from normal search pages.
+This keeps API-discovered and Yahoo-discovered article URLs in the same fetch batch as the URLs discovered from normal search pages.
 
 ### Step 7: Save followed articles
 
-Each article-save request is processed by `_save_followed_article_links(...)`.
+Each save request is processed by `save_followed_article_links(...)` in [pipelines/_article_follow.py](pipelines/_article_follow.py).
 
-That function is the main "final mile" of the company pipeline.
+That function is the main "final mile" of every news pipeline. For each candidate article link it:
 
-For each candidate article link it:
+1. skips disallowed sources and enforces recency rules
+2. if the article already exists in `news_articles`, only adds a link row for this company and leaves the article row untouched
+3. otherwise uses the pre-fetched article results, computes article scores, and inserts the article and its company link in one transaction
 
-1. checks whether the article already exists
-2. reuses existing article content when possible
-3. otherwise uses the pre-fetched article crawl results
-4. enforces recency rules
-5. computes article scores
-6. saves the article and company link with `add_company_news_article(...)`
-
-Important detail:
-
-This function can work in two modes:
-
-- standalone mode, where it fetches article pages itself
-- batch mode, where pre-fetched article results are passed in
-
-The current company pipeline uses the batch mode so article crawling stays consolidated.
+The entity-specific part is a `NewsEntity` (kind, id, label, identity fields, and a link function such as `link_company_to_article`) handed in by the pipeline. It works from the batch that `run_article_save_requests(...)` fetched.
 
 ## Industry Pipeline Flow
 
@@ -277,26 +253,24 @@ The main entrypoint is:
 
 This lives in [pipelines/industryNewsPipeline.py](pipelines/industryNewsPipeline.py).
 
-The industry pipeline is similar to the company pipeline, but it is not identical.
+The industry pipeline runs the same shared orchestration as the company pipeline: `run_mixed_job_orchestration(...)`, then one combined article fetch and `save_followed_article_links(...)`.
 
 ### What is the same
 
-It still:
+It:
 
 - builds structured jobs
 - crawls source pages
 - extracts candidate links
 - filters candidate links by relevance
-- follows article pages
-- scores and saves articles
+- fetches all article pages in one batch
+- scores and saves articles through the shared code
 
 ### What is different
 
-The industry pipeline currently does not have the Yahoo news integration that the company pipeline has.
+The industry pipeline does not have the Yahoo or API article discovery that the company pipeline has. Its jobs are only configured `listing` and `search` pages.
 
-It also still follows article pages more locally inside `_save_followed_article_links(...)` for each batch of candidate links, instead of doing the newer "one combined article crawl batch" approach that the company pipeline now uses.
-
-So if you are comparing the two pipelines and feeling like they are similar-but-not-the-same, that is because they really are in slightly different evolutionary stages.
+It also defines its own relevance rules (see below) and passes `by_source_type=True`, so it reports saved counts separately for `listing` and `search` pages.
 
 ### Industry matching logic
 
@@ -319,6 +293,15 @@ It is not the same "search page -> candidate links -> article follow" pattern.
 Instead, it parses a structured macro/economic source and stores event-like records rather than normal article records.
 
 So if you are trying to understand the article scraping architecture, the company and industry pipelines are the right starting point.
+
+## Sector, U.S., and World Pipelines
+
+These three start from CNBC RSS feeds instead of search pages, so they skip the source-page crawl entirely.
+
+- [pipelines/sectorNewsPipeline.py](pipelines/sectorNewsPipeline.py) reads the feeds mapped to a sector in `Data/sector_rss_feeds.json`.
+- [pipelines/USNewsPipeline.py](pipelines/USNewsPipeline.py) and [pipelines/worldNewsPipeline.py](pipelines/worldNewsPipeline.py) each read one fixed feed through `make_region_pipeline(...)` in [pipelines/_regionNewsPipeline.py](pipelines/_regionNewsPipeline.py).
+
+For each recent RSS item they build a `direct_article_save_request(...)`, with the item's RSS description as the summary, and call `run_article_save_requests(...)`. After that it is the same fetch and `save_followed_article_links(...)` path described above, with a `NewsEntity` for the sector, U.S. news, or world news.
 
 ## Scraping Engine
 
@@ -427,15 +410,20 @@ For the news pipeline, the main database concepts are:
 - `news_articles`
 - `company_news_articles`
 - `industry_news_articles`
+- `sector_news_articles`
+- `us_news_articles`
+- `world_news_articles`
 - `failed_urls`
 
-The company pipeline writes through:
+`news_articles` holds each article once. The other five are link tables that connect an article to a company, industry, sector, the U.S. feed, or the world feed.
 
-- `add_company_news_article(...)`
+Every pipeline writes through `save_followed_article_links(...)`:
 
-The industry pipeline writes through:
+- a new article is inserted with `add_news_article(...)` and linked to its entity in one transaction
+- an already-saved article only gets a link row, so `news_articles` is untouched
+- the link row comes from the entity's link function in `news_db_modules/links.py`: `link_company_to_article`, `link_industry_to_article`, `link_sector_to_article`, `link_us_article`, or `link_world_article`
 
-- `add_industry_news_article(...)`
+A new article's `summary` is the link text: the anchor text from a search or listing page, the RSS description for sector, U.S., and world articles, or `None`. The entity name is never stored as a summary. Older rows that still hold one (for example `World News`) can be cleared with [../../scripts/clear_placeholder_summaries.py](../../scripts/clear_placeholder_summaries.py), which is a dry run unless you pass `--apply`.
 
 Failed fetches or extraction failures are written to `failed_urls` so later runs can avoid repeatedly hitting known-bad URLs.
 
@@ -496,14 +484,12 @@ This is a separate database path from the article/news scraper.
 
 ## Current Differences To Keep In Mind
 
-If the code feels a little uneven, that is a fair read. Right now:
+All the news pipelines now run the same shared code: `run_article_save_requests(...)` fetches the combined article batch and `save_followed_article_links(...)` saves it. What still differs is how each pipeline discovers articles:
 
-- the company pipeline is the most recently reworked pipeline
-- the company pipeline uses explicit jobs and a shared article crawl batch
-- the industry pipeline still follows the older pattern in some places
-- Yahoo news is only a discovery input, not a first-class standalone scraping pipeline
-
-That means "the pipeline" is not one perfectly uniform thing yet. It is a shared architecture with a few paths at different levels of refactor maturity.
+- the company pipeline uses configured search pages plus API and Yahoo article jobs
+- the industry pipeline uses configured listing and search pages
+- the sector, U.S., and world pipelines use CNBC RSS feeds only
+- Yahoo news and the Fool, Morningstar, and GuruFocus APIs are discovery inputs for the company pipeline, not standalone scraping pipelines
 
 ## Quick Trace Example: `get_company_news(...)`
 
@@ -511,14 +497,14 @@ If you want one concrete path to keep in your head, this is the current company 
 
 1. resolve the company from the database
 2. build search jobs from configured sources
-3. fetch Yahoo news items and convert allowed title/URL pairs into direct article jobs
+3. fetch Fool, Morningstar, GuruFocus, and Yahoo news items and convert allowed title/URL pairs into direct article jobs
 4. crawl all search pages together
 5. extract links from those pages
 6. filter the candidate links for company relevance
-7. combine those filtered links with the Yahoo direct article jobs
-8. crawl all article URLs together in one article-page batch
-9. reuse existing articles when possible
-10. score and save the surviving articles
+7. combine those filtered links with the direct article jobs
+8. fetch all article URLs together in one batch (API extractors first, `crawl_article_pages` otherwise)
+9. link already-saved articles to the company; score and insert the new ones
+10. return the saved count for the company
 
 ## Suggested Reading Order
 
@@ -526,10 +512,12 @@ If you want to understand the system with the least confusion, read the files in
 
 1. [pipelines/companyNewsPipeline.py](pipelines/companyNewsPipeline.py)
 2. [pipelines/job_builder.py](pipelines/job_builder.py)
-3. [pipelines/_shared.py](pipelines/_shared.py)
-4. [pipelines/_internal.py](pipelines/_internal.py)
-5. [engine/article_scraper.py](engine/article_scraper.py)
-6. [engine/article_extraction.py](engine/article_extraction.py)
-7. [pipelines/industryNewsPipeline.py](pipelines/industryNewsPipeline.py)
+3. [pipelines/_orchestration.py](pipelines/_orchestration.py)
+4. [pipelines/_article_follow.py](pipelines/_article_follow.py)
+5. [pipelines/_shared.py](pipelines/_shared.py)
+6. [pipelines/_internal.py](pipelines/_internal.py)
+7. [engine/article_scraper.py](engine/article_scraper.py)
+8. [engine/article_extraction.py](engine/article_extraction.py)
+9. [pipelines/industryNewsPipeline.py](pipelines/industryNewsPipeline.py)
 
-That order gives you the current "happy path" first, then the shared machinery, then the older parallel pipeline.
+That order gives you the company pipeline first, then the shared machinery, then the industry variant. The RSS-based sector, U.S., and world pipelines are covered in their own section above.
