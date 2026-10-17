@@ -68,7 +68,7 @@ The easiest way to understand the news pipelines is to separate them into three 
 
 Planning decides what URLs should be visited.
 
-Crawling fetches those URLs and returns structured page results.
+Crawling fetches those URLs and returns structured page results. Pipelines do this only through [engine/page_fetch.py](engine/page_fetch.py).
 
 Extraction and persistence decide which results are worth keeping, normalize the article content, score it, and write it to the database.
 
@@ -111,8 +111,6 @@ The sector, U.S., and world pipelines now use the `article` path heavily because
 
 [pipelines/_shared.py](pipelines/_shared.py) is mostly a stable import surface. It re-exports the helpers the pipelines rely on, including:
 
-- `crawl_articles(...)`
-- `crawl_article_pages(...)`
 - `filter_article_links(...)`
 - `fetch_existing_article_by_url(...)`
 - `compute_article_scores(...)`
@@ -188,11 +186,11 @@ The pipeline keeps those separate until it is time to batch the article fetch. T
 
 ### Step 4: Crawl all search pages together
 
-If there are search jobs, the pipeline groups them by URL and crawls all source pages in one call:
+If there are search jobs, the pipeline groups them by URL and fetches all source pages in one call:
 
-- `crawl_articles(urls)`
+- `fetch_source_pages(urls)`
 
-This happens in [engine/article_scraper.py](engine/article_scraper.py).
+This is defined in [engine/page_fetch.py](engine/page_fetch.py), which hands the URLs to `crawl_articles(urls)` in [engine/article_scraper.py](engine/article_scraper.py). A crashed crawl returns no pages and logs a warning instead of raising.
 
 This source-page crawl returns one structured result per crawled page, including:
 
@@ -229,7 +227,7 @@ Then `run_article_save_requests(...)` collects the article URLs that still need 
 - already-saved articles
 - duplicates
 
-Then it fetches them once with `fetch_articles_with_preferred_extractors(...)`. Fool, Investing, Morningstar, and GuruFocus URLs go through their `APIs/` article-content functions; everything else, and any API failure, goes through `crawl_article_pages(article_urls)`.
+Then it fetches them once with `fetch_articles(article_urls)` from [engine/page_fetch.py](engine/page_fetch.py). Fool, Investing, Morningstar, and GuruFocus URLs go through their `APIs/` article-content functions; everything else, and any API failure, goes through `crawl_article_pages(...)`.
 
 This keeps API-discovered and Yahoo-discovered article URLs in the same fetch batch as the URLs discovered from normal search pages.
 
@@ -301,13 +299,15 @@ These three start from CNBC RSS feeds instead of search pages, so they skip the 
 - [pipelines/sectorNewsPipeline.py](pipelines/sectorNewsPipeline.py) reads the feeds mapped to a sector in `Data/sector_rss_feeds.json`.
 - [pipelines/USNewsPipeline.py](pipelines/USNewsPipeline.py) and [pipelines/worldNewsPipeline.py](pipelines/worldNewsPipeline.py) each read one fixed feed through `make_region_pipeline(...)` in [pipelines/_regionNewsPipeline.py](pipelines/_regionNewsPipeline.py).
 
+Each feed is read with `fetch_feed(url)` from [engine/page_fetch.py](engine/page_fetch.py). A feed that cannot be fetched or parsed yields no items, so one bad feed does not stop the others.
+
 For each recent RSS item they build a `direct_article_save_request(...)`, with the item's RSS description as the summary, and call `run_article_save_requests(...)`. After that it is the same fetch and `save_followed_article_links(...)` path described above, with a `NewsEntity` for the sector, U.S. news, or world news.
 
 ## Scraping Engine
 
-[engine/article_scraper.py](engine/article_scraper.py) is the crawling engine.
+[engine/page_fetch.py](engine/page_fetch.py) is the one fetch entry point for the pipelines. It provides `fetch_source_pages(urls)`, `fetch_articles(urls)` and `fetch_feed(url)`, picks the site API or the crawler by hostname, and contains backend failures. See [engine/README.md](engine/README.md) for the details, including the "missing, not failed" rule below.
 
-It provides two public helpers:
+[engine/article_scraper.py](engine/article_scraper.py) is the crawling engine behind it. It chooses Scrapy or Playwright internally, and provides two public helpers:
 
 - `crawl_articles(urls)`
 - `crawl_article_pages(urls)`
@@ -425,7 +425,11 @@ Every pipeline writes through `save_followed_article_links(...)`:
 
 A new article's `summary` is the link text: the anchor text from a search or listing page, the RSS description for sector, U.S., and world articles, or `None`. The entity name is never stored as a summary. Older rows that still hold one (for example `World News`) can be cleared with [../../scripts/clear_placeholder_summaries.py](../../scripts/clear_placeholder_summaries.py), which is a dry run unless you pass `--apply`.
 
-Failed fetches or extraction failures are written to `failed_urls` so later runs can avoid repeatedly hitting known-bad URLs.
+Fetched pages whose extraction failed are written to `failed_urls` so later runs can avoid repeatedly hitting known-bad URLs. A URL that is missing from the fetch result because a backend crashed is not recorded there; it is only logged and tried again next run. An outage therefore shows up as "saved 0" plus warnings in the logs.
+
+## Testing Offline
+
+Wrap a pipeline call in `with use_fetcher(FixtureFetcher(pages=..., articles=..., feeds=...)):` (both from `engine.page_fetch`) to run it without the network. See [pipelines/README.md](pipelines/README.md#testing-pipelines-offline).
 
 ## Logging
 
@@ -498,11 +502,11 @@ If you want one concrete path to keep in your head, this is the current company 
 1. resolve the company from the database
 2. build search jobs from configured sources
 3. fetch Fool, Morningstar, GuruFocus, and Yahoo news items and convert allowed title/URL pairs into direct article jobs
-4. crawl all search pages together
+4. fetch all search pages together with `fetch_source_pages(...)`
 5. extract links from those pages
 6. filter the candidate links for company relevance
 7. combine those filtered links with the direct article jobs
-8. fetch all article URLs together in one batch (API extractors first, `crawl_article_pages` otherwise)
+8. fetch all article URLs together in one batch with `fetch_articles(...)` (API extractors first, `crawl_article_pages` otherwise)
 9. link already-saved articles to the company; score and insert the new ones
 10. return the saved count for the company
 

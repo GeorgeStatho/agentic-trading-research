@@ -56,10 +56,10 @@ The common flow now looks like this:
 3. The pipeline splits those jobs into:
    - search-style jobs, where a source page must be crawled first
    - direct article jobs, where the article URL is already known
-4. `_orchestration.py` runs the search-page crawl batch with `crawl_articles(...)`.
+4. `_orchestration.py` runs the search-page batch with `fetch_source_pages(...)` from [../engine/page_fetch.py](../engine/page_fetch.py).
 5. The pipeline-specific candidate-link filter decides which links from each page are worth following.
 6. `_orchestration.py` converts those links into normalized `ArticleSaveRequest` objects, and turns direct article jobs into the same shape with `direct_article_save_request(...)`.
-7. `run_article_save_requests(...)` combines every request's links into one article URL batch (skipping disallowed, stale, already-saved and duplicate URLs) and fetches that batch once.
+7. `run_article_save_requests(...)` combines every request's links into one article URL batch (skipping disallowed, stale, already-saved and duplicate URLs) and fetches that batch once with `fetch_articles(...)` (also `page_fetch`).
 8. `save_followed_article_links(...)` in `_article_follow.py` then replays each request against the fetched results. For each link:
    - an article already in `news_articles` only gets a new row in the entity's link table
    - a new article is scored, inserted into `news_articles`, and linked to the entity in the same transaction
@@ -71,10 +71,12 @@ That means the two-stage crawl behavior is shared by every pipeline:
 
 There is also a simpler RSS-first flow used by the sector, U.S., and world pipelines. It has no stage 1:
 
-1. fetch a CNBC RSS feed
+1. fetch a CNBC RSS feed with `fetch_feed(...)` from `page_fetch`
 2. extract recent `(article URL, description)` pairs
 3. wrap each pair in a direct article save request, with the description as the summary
 4. run one shared fetch/save batch through `run_article_save_requests(...)`
+
+Pipelines never crawl or open URLs themselves; every fetch goes through [../engine/page_fetch.py](../engine/page_fetch.py). It contains failures: a crashed backend leaves the affected URLs missing from the result, and a missing page, article or feed is skipped and only logged. Only a page that was fetched but extracted with `success=False` is recorded in `failed_urls`. So an outage shows up as "saved 0" plus warnings in the logs, and the same URLs are tried again on the next run. See [../engine/README.md](../engine/README.md).
 
 Already-saved articles are not classified up front. They are detected inside `save_followed_article_links(...)`, which links them without re-fetching or re-scoring.
 
@@ -239,7 +241,6 @@ Key pieces:
 
 - `NewsEntity`
 - `collect_article_urls_to_fetch(...)`
-- `fetch_articles_with_preferred_extractors(...)`
 - `save_followed_article_links(...)`
 
 `NewsEntity` is the one description of "who is this article for" that every pipeline passes in:
@@ -261,10 +262,7 @@ What `collect_article_urls_to_fetch(...)` does:
 - respects the per-request article limit
 - returns only the URLs that still need fetching
 
-What `fetch_articles_with_preferred_extractors(...)` does:
-
-- fetches `fool.com`, `investing.com`, `morningstar.com`, and `gurufocus.com` URLs through their `APIs/` article-content functions
-- sends every other URL, and any API failure, to `crawl_article_pages(...)`
+This module does not fetch anything. Choosing between a site API and the crawler for an article URL now lives in `fetch_articles(...)` in [../engine/page_fetch.py](../engine/page_fetch.py).
 
 What `save_followed_article_links(...)` does, per candidate link:
 
@@ -272,7 +270,7 @@ What `save_followed_article_links(...)` does, per candidate link:
 - for an article that is already saved, links it to the entity through `entity.link` and leaves `news_articles` untouched
 - for a new article, reads the fetched `ArticleExtractionResult`, computes scores, and calls `add_news_article(...)` plus `entity.link` in one transaction
 - stores the link text as `summary` and `NewsEntity.identity` plus the common tail as `raw_json`
-- records failed fetches in `failed_urls`
+- records fetched-but-failed extractions in `failed_urls`; a URL that is missing from the fetched batch (backend outage) is only skipped, not recorded
 
 This module is intentionally generic. It does not know whether it is saving company, industry, or sector articles. The caller provides the `NewsEntity` and, optionally, a link inclusion rule.
 
@@ -306,10 +304,10 @@ What each helper does:
 - `collect_save_request_article_urls(...)`
   - computes the combined article URL batch across many save requests
 - `run_article_save_requests(...)`
-  - fetches the combined article batch once, then replays each save request through `save_followed_article_links(...)`; counts are keyed by entity id, or by `(entity id, source_type)` with `by_source_type=True`
+  - fetches the combined article batch once with `fetch_articles(...)`, then replays each save request through `save_followed_article_links(...)`; counts are keyed by entity id, or by `(entity id, source_type)` with `by_source_type=True`
 - `run_mixed_job_orchestration(...)`
   - handles the common two-pass pipeline:
-    - crawl search pages first
+    - fetch the search pages first with `fetch_source_pages(...)`
     - build save requests
     - combine them with direct article requests
     - run one article fetch/save pass
@@ -324,7 +322,6 @@ Key functions:
 
 - `load_sector_rss_feed_map()`
 - `get_sector_feed_urls(...)`
-- `fetch_rss_feed_xml(...)`
 - `extract_recent_rss_items(...)`
 - `get_recent_sector_feed_items(...)`
 
@@ -332,8 +329,10 @@ What it does:
 
 - loads the sector-to-RSS-feed mapping from `Data/sector_rss_feeds.json`
 - resolves which RSS feeds belong to a sector
-- fetches RSS XML from CNBC
+- fetches each feed through `fetch_feed(...)` in `page_fetch`
 - extracts only `(article URL, description)` items newer than the configured age window
+
+`extract_recent_rss_items(...)` returns `[]` for a missing feed (`None` or empty text) and, with a logged warning, for broken XML. One bad feed therefore does not stop the other feeds of a sector.
 
 This keeps RSS parsing and feed resolution out of the sector pipeline entrypoint file.
 
@@ -343,7 +342,7 @@ This module is a small shared base for fixed-feed CNBC region pipelines such as 
 
 `make_region_pipeline(...)` takes a region slug, label, RSS feed URL, and link function, builds the region's `NewsEntity`, and returns `get_news` and `get_news_from_rss` functions. They handle:
 
-- fixed RSS feed fetching
+- fixed RSS feed fetching through `fetch_feed(...)` (a missing feed saves 0 and does not raise)
 - recent `(URL, description)` extraction
 - direct article save requests, with the RSS description as the summary
 - one shared article fetch/save batch, limited to CNBC URLs
@@ -414,6 +413,20 @@ It also still holds a `COMPANY_NAME_SUFFIXES` set that nothing imports now.
 This is the macro/economic data pipeline.
 
 It is separate from the company, industry, and sector article pipelines and should be thought of as its own workflow.
+
+## Testing Pipelines Offline
+
+Because all fetching goes through `page_fetch`, a pipeline can run end to end without the network by swapping the fetcher:
+
+```python
+from engine.page_fetch import FixtureFetcher, use_fetcher
+
+fixture = FixtureFetcher(pages={...}, articles={...}, feeds={...})
+with use_fetcher(fixture):
+    saved = get_us_news_from_rss()
+```
+
+`fixture.requested` lists every URL the pipeline asked for. URLs without a fixture come back missing, like a backend outage. See [../../../tests/test_article_follow.py](../../../tests/test_article_follow.py) for examples. Use `tests/db_fixtures.temporary_database(self)` for the database.
 
 ## How To Read The Pipeline Code
 

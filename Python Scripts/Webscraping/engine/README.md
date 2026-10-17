@@ -8,6 +8,7 @@ If `pipelines/` decides what should happen, `engine/` is where the low-level pag
 
 The code in this folder is responsible for:
 
+- providing one fetch entry point for the pipelines (`page_fetch.py`)
 - running Scrapy crawls
 - extracting links from source pages
 - turning article HTML into normalized article results
@@ -16,9 +17,44 @@ The code in this folder is responsible for:
 
 ## Files
 
+### [page_fetch.py](page_fetch.py)
+
+This is the one entry point pipelines use to get pages from the network. Pipelines import these three functions and never call `crawl_articles` / `crawl_article_pages` or `urlopen` directly:
+
+- `fetch_source_pages(urls)`
+  - returns the list of page result dicts for search/listing pages
+- `fetch_articles(urls)`
+  - returns `dict[str, ArticleExtractionResult]`; the dict can carry extra keys, such as redirect final URLs
+- `fetch_feed(url)`
+  - returns the RSS/XML body as text, or `None`
+
+Each call is forwarded to the current fetcher. By default that is `LiveFetcher`, which routes like this:
+
+- `source_pages` -> `crawl_articles(urls)`
+- `articles` -> the site API first, chosen by hostname (`fool.com`, `investing.com`, `morningstar.com`, `gurufocus.com`, via `ARTICLE_CONTENT_FETCHERS`), otherwise `crawl_article_pages(urls)`. A URL whose API call raises goes to the crawler instead. An API payload that is malformed or has an empty title/body is kept as a `success=False` result, not retried on the crawler.
+- `feed` -> a plain `urlopen` GET (20 second timeout, utf-8 with replacement)
+
+Whether Scrapy or Playwright does the crawling is decided inside `article_scraper.py`; `page_fetch` does not know about it.
+
+Failure containment: `LiveFetcher` catches any `Exception` from a backend, logs a warning, and returns nothing for the affected URLs (`[]`, a dict without them, or `None`). `KeyboardInterrupt` still propagates. A crashed backend therefore never raises into a pipeline.
+
+This leads to the "missing, not failed" rule:
+
+- a URL that is absent from the result (the backend crashed or was unavailable) is only logged. The pipeline does not write it to `failed_urls`, so it is tried again on the next run.
+- a page that was fetched but came back with `success=False` is a real failure. It is recorded in `failed_urls`, and skipped once it has failed 3 times.
+
+The reason is that an infrastructure outage should not blacklist good URLs. The operational consequence is that a total outage shows up as "saved 0" plus warnings in the logs, not as an exception.
+
+For tests, `use_fetcher(fetcher)` is a context manager that swaps the current fetcher (held in a `ContextVar`, so it does not carry into new threads). `FixtureFetcher(pages=..., articles=..., feeds=...)` answers from dicts, returns only the URLs it has fixtures for (so absent URLs behave like a crashed backend), never touches the network, and records every requested URL in `requested`:
+
+```python
+with use_fetcher(FixtureFetcher(feeds={feed_url: xml}, articles={url: result})):
+    saved = get_us_news_from_rss()
+```
+
 ### [article_scraper.py](article_scraper.py)
 
-This is the main crawl runner.
+This is the main crawl runner. Pipelines reach it only through `page_fetch.py`.
 
 Important public helpers:
 
@@ -26,12 +62,15 @@ Important public helpers:
   - used for source-page crawling
   - runs the Scrapy process in-process
   - supports keyboard stop handling
+  - uses Playwright for the URLs that need it, and falls back to Scrapy if the Playwright backend raises any `Exception`
 
 - `crawl_article_pages(urls)`
   - used for article-page crawling
-  - runs the crawl in a subprocess
+  - runs the Scrapy crawl in a subprocess
   - returns `dict[str, ArticleExtractionResult]`
   - exists mainly to avoid Twisted reactor restart issues when doing follow-up article crawls
+  - Playwright and Scrapy results are merged into one dict; a failing Playwright backend sends its URLs to Scrapy
+  - a worker process that dies no longer leaves the call hanging
 
 Important internal pieces:
 
@@ -120,11 +159,11 @@ Package marker for the folder.
 
 Typical flow:
 
-1. a pipeline gives source URLs to `crawl_articles(...)`
+1. a pipeline gives source URLs to `fetch_source_pages(...)` in `page_fetch.py`, which calls `crawl_articles(...)`
 2. `ArticleSpider` fetches those pages and emits page results with discovered links
 3. the pipeline filters those links and decides which article URLs to follow
-4. the article URLs are handed to `crawl_article_pages(...)`
-5. the subprocess crawl returns normalized `ArticleExtractionResult` objects
+4. the article URLs are handed to `fetch_articles(...)`, which tries the site APIs and sends the rest to `crawl_article_pages(...)`
+5. the crawl returns normalized `ArticleExtractionResult` objects
 6. the pipeline scores and saves those results
 
 ## Mental Model
@@ -132,5 +171,7 @@ Typical flow:
 `engine/` is the runtime machinery.
 
 It is not where business rules for companies or industries live.
+
+`page_fetch.py` is the seam between the two layers: pipelines ask it for pages, and tests swap it for a `FixtureFetcher`.
 
 It is where "fetch this page" and "turn this HTML into a structured result" live.
