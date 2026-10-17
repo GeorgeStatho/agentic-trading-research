@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from functools import partial
+
 from pipelines._shared import (
-    MAX_ARTICLES_PER_SEARCH_PAGE,
     MAX_ARTICLE_AGE_DAYS,
     filter_article_links,
     get_log_file_path,
@@ -10,20 +11,14 @@ from pipelines._shared import (
 )
 from engine.listing_page_helper import extract_listing_article_links
 from pipelines._constants import INDUSTRY_NAME_STOPWORDS
-from pipelines._entity_adapters import (
-    make_bucketed_count_accumulator,
-    make_direct_request_builder,
-    make_entity_article_saver,
-    make_request_saver,
-    make_search_request_builder,
-)
+from pipelines._article_follow import NewsEntity
 from pipelines._internal import is_blacklisted_cnbc_link, link_matches_variants, normalize_match_text
 from pipelines._orchestration import (
     run_mixed_job_orchestration,
 )
-from pipelines.job_builder import build_industry_source_jobs, group_jobs_by_url, unique_job_urls
+from pipelines.job_builder import build_industry_source_jobs
 
-from news_db_modules.entity_articles import add_industry_news_article
+from news_db_modules.links import link_industry_to_article
 from market_db_modules.queries import get_all_industries, get_all_sectors
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from market_data.hydration import (
@@ -136,101 +131,35 @@ def _filter_industry_candidate_links(page_url: str, links: list[dict], industry:
     return filtered
 
 
-_save_followed_article_links = make_entity_article_saver(
-    logger=LOGGER,
-    entity_kind="industry",
-    entity_label=lambda industry: industry["name"],
-    save_article=lambda *, entity, source_page_url, context, **extra: add_industry_news_article(
-        industry_id=entity["id"],
-        source=context["source"],
-        article_key=context["article_key"],
-        title=context["title"],
-        source_url=context["href"],
-        source_page_url=source_page_url,
-        summary=context["link"].get("text"),
-        body=context["body"],
-        published_at=context["published_at"],
-        age_days=context["score_bundle"].get("age_days"),
-        recency_score=context["score_bundle"].get("recency_score"),
-        source_reputation_score=context["score_bundle"].get("source_reputation_score"),
-        directness_score=context["score_bundle"].get("directness_score"),
-        confirmation_score=context["score_bundle"].get("confirmation_score"),
-        independent_source_count=context["score_bundle"].get("independent_source_count"),
-        factuality_score=context["score_bundle"].get("factuality_score"),
-        evidence_score=context["score_bundle"].get("evidence_score"),
-        raw_json=context["raw_json"],
-    ),
-    build_raw_json=lambda *, entity, source_page_url, context, **extra: {
-        "industry_id": entity["id"],
-        "industry_key": entity["industry_key"],
-        "industry_name": entity["name"],
-        "source_page_url": source_page_url,
-        "link": context["link"],
-        "normalized_url": context["normalized_href"],
-        "normalized_title": context["normalized_article_title"],
-        "content_hash": context["content_hash"],
-        "source_metadata": context["source_metadata"],
-        "scores": context["score_bundle"],
-        "extracted_article": context["extracted_article_payload"],
-    },
-)
+def _industry_entity(industry: dict) -> NewsEntity:
+    return NewsEntity(
+        kind="industry",
+        id=industry["id"],
+        label=industry["name"],
+        identity={
+            "industry_id": industry["id"],
+            "industry_key": industry["industry_key"],
+            "industry_name": industry["name"],
+        },
+        link=partial(link_industry_to_article, industry["id"]),
+    )
 
 
-_build_industry_search_save_requests = make_search_request_builder(
-    logger=LOGGER,
-    should_process_page=lambda page: True,
-    build_candidate_links=lambda page, job: (
-        extract_listing_article_links(page["url"], page["links"], job["industry"]["name"])
-        if job["source_type"] == "listing"
-        else _filter_industry_candidate_links(page["url"], page["links"], job["industry"])
-    ) if supports_source_type(page["url"], job["source_type"]) else [],
-    build_request_payload=lambda job: {
-        "industry": job["industry"],
-        "source_type": job["source_type"],
-    },
-    entity_from_job=lambda job: job["industry"],
-    max_articles=MAX_ARTICLES_PER_SEARCH_PAGE,
-    failure_message=lambda page, job: (
-        "Source page crawl failed for industry %s at %s: %s",
-        (job["industry"]["name"], page.get("url"), page.get("error")),
-    ),
-)
-
-
-_build_industry_direct_article_save_requests = make_direct_request_builder(
-    entity_from_job=lambda job: job["industry"],
-    text_from_job=lambda job: job.get("search_term") or job["industry"]["name"],
-    build_request_payload=lambda job: {
-        "industry": job["industry"],
-        "source_type": job["source_type"],
-    },
-)
-
-
-_save_industry_request = make_request_saver(
-    save_followed_links=_save_followed_article_links,
-    entity_from_payload=lambda payload: payload["industry"],
-)
-
-
-_accumulate_industry_saved_counts = make_bucketed_count_accumulator(
-    bucket_from_request=lambda request: str(request["payload"]["source_type"]),
-    initial_buckets={"listing": 0, "search": 0},
-)
+def _industry_candidate_links(page: dict, job: dict) -> list[dict]:
+    if not supports_source_type(page["url"], job["source_type"]):
+        return []
+    if job["source_type"] == "listing":
+        return extract_listing_article_links(page["url"], page["links"], job["industry"]["name"])
+    return _filter_industry_candidate_links(page["url"], page["links"], job["industry"])
 
 
 def _process_industry_jobs(jobs: list[dict]) -> dict:
-    search_jobs = [job for job in jobs if job["source_type"] in {"listing", "search"}]
-    direct_article_jobs = [job for job in jobs if job["source_type"] == "article"]
     return run_mixed_job_orchestration(
-        search_jobs=search_jobs,
-        direct_article_jobs=direct_article_jobs,
-        group_jobs_by_url=group_jobs_by_url,
-        unique_job_urls=unique_job_urls,
-        build_search_save_requests=_build_industry_search_save_requests,
-        build_direct_article_save_requests=_build_industry_direct_article_save_requests,
-        save_request=_save_industry_request,
-        accumulate_saved_count=_accumulate_industry_saved_counts,
+        jobs=jobs,
+        logger=LOGGER,
+        entity_from_job=lambda job: _industry_entity(job["industry"]),
+        candidate_links_for=_industry_candidate_links,
+        by_source_type=True,
     )
 
 
@@ -312,9 +241,8 @@ def get_industry_news(industry_identifier: str) -> int:
     jobs = build_industry_source_jobs([industry])
     saved_counts = _process_industry_jobs(jobs)
 
-    industry_counts = saved_counts.get(industry["id"], {"listing": 0, "search": 0})
-    listing_saved = industry_counts["listing"]
-    search_saved = industry_counts["search"]
+    listing_saved = saved_counts.get((industry["id"], "listing"), 0)
+    search_saved = saved_counts.get((industry["id"], "search"), 0)
     total_saved = listing_saved + search_saved
     LOGGER.info(
         "Finished single-industry scrape for %s (%s): saved %s articles. Log file: %s",
@@ -353,9 +281,8 @@ def get_sector_industry_news(sector_identifier: str) -> int:
 
     total_saved = 0
     for industry in industries:
-        industry_counts = saved_counts.get(industry["id"], {"listing": 0, "search": 0})
-        listing_saved = industry_counts["listing"]
-        search_saved = industry_counts["search"]
+        listing_saved = saved_counts.get((industry["id"], "listing"), 0)
+        search_saved = saved_counts.get((industry["id"], "search"), 0)
         industry_total = listing_saved + search_saved
         total_saved += industry_total
         print(f"Saved {listing_saved} listing-page articles for {industry['name']}")
@@ -383,11 +310,10 @@ def get_all_industry_news() -> None:
     saved_counts = _process_industry_jobs(jobs)
 
     for industry in industries:
-        industry_counts = saved_counts.get(industry["id"], {"listing": 0, "search": 0})
-        listing_saved = industry_counts["listing"]
+        listing_saved = saved_counts.get((industry["id"], "listing"), 0)
         print(f"Saved {listing_saved} listing-page articles for {industry['name']}")
 
-        search_saved = industry_counts["search"]
+        search_saved = saved_counts.get((industry["id"], "search"), 0)
         print(f"Saved {search_saved} search-page articles for {industry['name']}")
     LOGGER.info("Finished all-industry scrape. Log file: %s", get_log_file_path())
     print(f"Scrape log written to {get_log_file_path()}")
