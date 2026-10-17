@@ -6,6 +6,8 @@ import json
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 
+from bs4 import BeautifulSoup
+
 from db_common import DATA_DIR
 
 
@@ -64,11 +66,14 @@ def _parse_rss_pub_date(pub_date: str) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def extract_recent_rss_urls(rss_xml: str, max_age_days: int = DEFAULT_RSS_MAX_AGE_DAYS) -> list[str]:
-    # Extract the recent rss urls from the raw response and return a stable value.
+def extract_recent_rss_items(
+    rss_xml: str,
+    max_age_days: int = DEFAULT_RSS_MAX_AGE_DAYS,
+) -> list[tuple[str, str | None]]:
+    # Extract the recent (link, description) pairs from the raw response and return a stable value.
     root = ET.fromstring(rss_xml)
     now = datetime.now(timezone.utc)
-    urls: list[str] = []
+    items: list[tuple[str, str | None]] = []
 
     for item in root.findall("./channel/item"):
         link = str(item.findtext("link") or "").strip()
@@ -83,27 +88,27 @@ def extract_recent_rss_urls(rss_xml: str, max_age_days: int = DEFAULT_RSS_MAX_AG
         if age_days > max_age_days:
             continue
 
-        urls.append(link)
+        description = BeautifulSoup(item.findtext("description") or "", "html.parser").get_text(" ", strip=True)
+        items.append((link, description or None))
 
-    return urls
+    return items
 
 
-def get_recent_sector_feed_article_urls(
+def get_recent_sector_feed_items(
     sector: dict,
     *,
     max_age_days: int = DEFAULT_RSS_MAX_AGE_DAYS,
-) -> list[str]:
+) -> list[tuple[str, str | None]]:
     rss_feed_urls = get_sector_feed_urls(sector)
-    article_urls: list[str] = []
+    feed_items: list[tuple[str, str | None]] = []
     seen_urls: set[str] = set()
 
     for rss_feed_url in rss_feed_urls:
         rss_xml = fetch_rss_feed_xml(rss_feed_url)
-        feed_urls = extract_recent_rss_urls(rss_xml, max_age_days=max_age_days)
-        for url in feed_urls:
+        for url, description in extract_recent_rss_items(rss_xml, max_age_days=max_age_days):
             if url in seen_urls:
                 continue
             seen_urls.add(url)
-            article_urls.append(url)
+            feed_items.append((url, description))
 
-    return article_urls
+    return feed_items

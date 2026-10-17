@@ -29,6 +29,7 @@ class SectorSourceJob(TypedDict):
     sector: dict
     source_name: str
     source_type: str
+    summary: str | None
 
 
 PipelineJob = CompanySourceJob | IndustrySourceJob | SectorSourceJob
@@ -204,7 +205,7 @@ def build_industry_source_jobs(industries: list[dict]) -> list[IndustrySourceJob
 
 def build_sector_rss_jobs(
     sector: dict,
-    urls: list[str],
+    items: list[tuple[str, str | None]],
     *,
     source_name: str = "cnbc_rss",
     source_type: str = "article",
@@ -213,7 +214,7 @@ def build_sector_rss_jobs(
     jobs: list[SectorSourceJob] = []
     seen_urls: set[str] = set()
 
-    for url in urls:
+    for url, summary in items:
         normalized_url = str(url).strip()
         if not normalized_url or normalized_url in seen_urls:
             continue
@@ -226,6 +227,7 @@ def build_sector_rss_jobs(
                 "sector": sector,
                 "source_name": source_name,
                 "source_type": source_type,
+                "summary": summary,
             }
         )
         seen_urls.add(normalized_url)

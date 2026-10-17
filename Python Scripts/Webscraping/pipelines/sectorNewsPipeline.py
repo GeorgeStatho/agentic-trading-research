@@ -14,8 +14,7 @@ from pipelines._entity_adapters import (
 from pipelines._orchestration import run_article_save_requests
 from pipelines._sector_rss import (
     DEFAULT_RSS_MAX_AGE_DAYS,
-    extract_recent_rss_urls,
-    get_recent_sector_feed_article_urls,
+    get_recent_sector_feed_items,
 )
 from pipelines.job_builder import SectorSourceJob, build_sector_rss_jobs
 
@@ -27,7 +26,6 @@ from news_db_modules.bootstrap import initialize_database as initialize_news_dat
 LOGGER = get_scrape_logger("sector_pipeline")
 __all__ = [
     "DEFAULT_RSS_MAX_AGE_DAYS",
-    "extract_recent_rss_urls",
     "get_all_sector_news",
     "get_sector_news",
     "get_sector_news_from_rss",
@@ -145,18 +143,18 @@ def _build_sector_jobs(sector: dict, urls: list[str]) -> list[SectorSourceJob]:
     )
     # Keep both sets as jobs so existing articles can still be linked to the
     # sector, while the shared article-follow path skips re-fetching them.
-    return build_sector_rss_jobs(sector, [*existing_urls, *uncrawled_urls])
+    return build_sector_rss_jobs(sector, [(url, None) for url in [*existing_urls, *uncrawled_urls]])
 
 
 def _build_sector_jobs_from_rss(sector: dict, max_age_days: int = DEFAULT_RSS_MAX_AGE_DAYS) -> list[SectorSourceJob]:
-    article_urls = get_recent_sector_feed_article_urls(sector, max_age_days=max_age_days)
+    items = get_recent_sector_feed_items(sector, max_age_days=max_age_days)
     LOGGER.info(
         "Collected %s unique RSS article URLs for sector %s (%s)",
-        len(article_urls),
+        len(items),
         sector["name"],
         sector["sector_key"],
     )
-    return _build_sector_jobs(sector, article_urls)
+    return _build_sector_jobs(sector, [url for url, _ in items])
 
 
 def _build_all_sector_jobs_from_rss(sectors: list[dict], max_age_days: int = DEFAULT_RSS_MAX_AGE_DAYS) -> list[SectorSourceJob]:
