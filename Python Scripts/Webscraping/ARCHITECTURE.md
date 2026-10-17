@@ -11,16 +11,25 @@ pipelines -> engine/page_fetch -> engine/article_scraper (-> playwright_runner) 
 ## Modules
 
 - `pipelines/` holds the entry points (`*NewsPipeline.py`). `_orchestration.py`
-  batches crawls per job; `_article_follow.py` follows article links, scores
-  them, and persists them for a `NewsEntity`.
-- `engine/page_fetch.py` is the single fetch entry point. Pipelines never call
-  Scrapy, Playwright, or an API directly; a swappable fetcher (live or fixture)
-  sits behind it. It dispatches to `engine/article_scraper.py` (Scrapy, with
-  `engine/playwright_runner.py` for rendered pages) or `APIs/*`.
+  runs one source-page crawl over the unique URLs of all jobs, then one batched
+  article fetch; `_article_follow.py` follows article links, scores them, and
+  persists them for a `NewsEntity`.
+- `engine/page_fetch.py` is the single fetch entry point: pipelines never crawl
+  or open source pages, article pages, or RSS feeds themselves. A swappable
+  fetcher (live or fixture) sits behind it and dispatches to
+  `engine/article_scraper.py` (Scrapy, with `engine/playwright_runner.py` for
+  rendered pages) or `APIs/*`. A failing backend is logged and its URLs are
+  left out of the result (missing, not recorded as failed); nothing raises into
+  a pipeline. The exceptions are the company pipeline's discovery calls (site
+  API `get_stock_data`, yfinance) and the separate macro data pipeline
+  (`requests`).
 - `extractors/` parses individual sites. `engine/article_extraction.py` calls the
   extractor modules directly, for example `extractors.cnbc`.
-- `sources/` is source policy: `source_config.py` reads `config/source.json`,
-  and `urlFactories.py` builds search and feed URLs.
+- `sources/` is source policy: `source_config.py` reads `config/source.json` at
+  the repo root, and `urlFactories.py` holds the source URL-template dicts.
+  `core/CommonPipeline.py` (`build_source_url`) builds the URLs; RSS feed URLs
+  live in `pipelines/_sector_rss.py` (from `Data/sector_rss_feeds.json`) and
+  the US and world pipelines.
 - `processing/` scores and normalizes articles and URLs.
 - `core/` has the shared pipeline helpers (`CommonPipeline.py`) and scrape logging.
 - `market_data/` fetches and hydrates market data (yfinance).
