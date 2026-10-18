@@ -366,6 +366,7 @@ class StrategistResult(TypedDict):
     grounding: dict[str, Any]
     manager_evidence_payload: dict[str, Any]
     strategist_run_reference: dict[str, Any]
+    response_diagnostic: NotRequired[dict[str, Any]]
 
 
 class ManagerRecommendation(TypedDict):
@@ -412,6 +413,7 @@ class ManagerResult(TypedDict):
     trade_economics_gate: NotRequired[GateVerdict]
     candidate_context: NotRequired[dict[str, Any] | None]
     candidate_id: NotRequired[str | None]
+    response_diagnostic: NotRequired[dict[str, Any]]
     manager_decision_history_id: NotRequired[int]
 
 

@@ -3,6 +3,7 @@
 A field added to a schema but not to its prompt example or its TypedDict, or a gate added
 to the registry but not carried to orders, fails here instead of drifting silently.
 """
+import copy
 import json
 import unittest
 
@@ -29,6 +30,23 @@ def prompt_example(system_and_user_prompt):
 
 
 STRATEGIST_PAYLOAD = {"company": {"symbol": "NVDA", "historical_price_data": {}}, "supporting_articles": {}}
+COMPACT_PAYLOAD = {
+    "company": {"symbol": "NVDA", "historical_price_data": {}},
+    "grounding": {"article_ids": [101, 102, 103]},
+    "views": {"company": {"count": 1, "agent_conclusions": [{"article_id": 101, "source_url": "http://x/1", "note": "n"}]}},
+    "supporting_articles": {
+        "article_summaries": [{"article_id": 101, "agent_signals": {"a": 1}, "source_url": "http://x/1"},
+                              {"article_id": 102, "agent_signals": {"a": 2}, "source_url": "http://x/2"}],
+        "full_articles": [{"article_id": 101, "agent_signals": {"a": 1}, "source_url": "http://x/1", "body": "text"},
+                          {"article_id": 103, "agent_signals": {}, "source_url": "http://x/3"}],
+    },
+    "company_evidence": {"documents": [{"document_id": "d1"}], "facts": [{
+        "fact_id": "f1", "document_id": "d1", "source_excerpt": "Revenue rose", "superseded": False, "count": 0,
+        "company_id": 7, "schema_version": 2, "extraction_version": 3, "source_start": 1, "source_end": 9,
+        "unit": None, "tags": [], "meta": {}, "note": ""}]},
+}
+
+
 MANAGER_RESPONSE = {"decision": "call", "confidence": "high", "thesis_confidence": "high", "timing_confidence": "medium",
                     "execution_confidence": "low", "target_dte_bucket": "20_30", "technical_confirmation": "strong",
                     "entry_quality": "good", "recommended_action_adjustment": "approve", "overextension_risk": "low",
@@ -56,6 +74,24 @@ class StrategistContractTests(unittest.TestCase):
         # Sent as Vertex response_schema, gemini-3.8-flash returns 400 INVALID_ARGUMENT for the thesis
         # schema when maxItems is present. response_json_schema (planner transport) accepts it.
         self.assertNotIn('"maxItems"', json.dumps(strategist_recommendation_schema(include_thesis=True)))
+
+    def test_compact_prompt_keeps_grounding_and_drops_noise(self):
+        before = copy.deepcopy(COMPACT_PAYLOAD)
+        user = build_strategist_prompt(COMPACT_PAYLOAD, include_thesis=True)[1]
+        self.assertEqual(COMPACT_PAYLOAD, before)
+        for dropped in ("agent_signals", "source_url"):
+            self.assertNotIn(dropped, user)
+        payload = json.loads(user)
+        self.assertEqual(payload["grounding"], COMPACT_PAYLOAD["grounding"])
+        self.assertEqual({a["article_id"] for section in payload["supporting_articles"].values() for a in section}, {101, 102, 103})
+        supporting = payload["supporting_articles"]
+        self.assertEqual([a["article_id"] for a in supporting["article_summaries"]], [102])
+        self.assertEqual([a["article_id"] for a in supporting["full_articles"]], [101, 103])
+
+    def test_compact_facts_keep_excerpt_and_falsy_values(self):
+        fact = json.loads(build_strategist_prompt(COMPACT_PAYLOAD)[1])["company_evidence"]["facts"][0]
+        self.assertEqual(fact, {"fact_id": "f1", "document_id": "d1", "source_excerpt": "Revenue rose",
+                                "superseded": False, "count": 0})
 
 
 class GateRegistryTests(unittest.TestCase):

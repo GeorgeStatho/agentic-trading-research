@@ -53,6 +53,57 @@ def build_context_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _drop(item: Any, keys: tuple[str, ...]) -> Any:
+    return {k: v for k, v in item.items() if k not in keys} if isinstance(item, dict) else item
+
+
+def _compact_supporting_articles(supporting: dict[str, Any]) -> dict[str, Any]:
+    # Copy without agent_signals/source_url; an article already in full_articles is not repeated as a summary.
+    if not isinstance(supporting, dict):
+        return supporting
+    drop = ("agent_signals", "source_url")
+    full = [_drop(a, drop) for a in supporting.get("full_articles") or []]
+    full_ids = {a.get("article_id") for a in full if isinstance(a, dict)}
+    result = dict(supporting)
+    if "full_articles" in supporting:
+        result["full_articles"] = full
+    if "article_summaries" in supporting:
+        result["article_summaries"] = [
+            _drop(a, drop) for a in supporting["article_summaries"] or []
+            if not (isinstance(a, dict) and a.get("article_id") in full_ids)
+        ]
+    return result
+
+
+def _compact_views(views: dict[str, Any]) -> dict[str, Any]:
+    # Copy without source_url on each agent conclusion.
+    if not isinstance(views, dict):
+        return views
+    return {
+        name: {**view, "agent_conclusions": [_drop(c, ("source_url",)) for c in view["agent_conclusions"]]}
+        if isinstance(view, dict) and isinstance(view.get("agent_conclusions"), list) else view
+        for name, view in views.items()
+    }
+
+
+def _compact_company_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
+    # Copy with pipeline-only and empty (None, {}, [], "") fact fields removed; False and 0 are kept.
+    if not isinstance(evidence, dict) or not isinstance(evidence.get("facts"), list):
+        return evidence
+    pipeline = ("company_id", "schema_version", "extraction_version", "source_start", "source_end")
+    facts = [
+        {k: v for k, v in fact.items()
+         if k not in pipeline and not (v is None or (isinstance(v, (dict, list, str)) and not v))}
+        if isinstance(fact, dict) else fact
+        for fact in evidence["facts"]
+    ]
+    return {**evidence, "facts": facts}
+
+
+def _serialize_user_payload(user_payload: dict[str, Any]) -> str:
+    return json.dumps(user_payload, ensure_ascii=False, separators=(",", ":"))
+
+
 def build_strategist_prompt(
     payload: dict[str, Any],
     *,
@@ -147,11 +198,11 @@ def build_strategist_prompt(
         "peer_groups": payload.get("peer_groups", {}),
         "filters": payload.get("filters", {}),
         "opportunist_rollup": payload.get("opportunist_rollup", {}),
-        "views": payload.get("views", {}),
-        "supporting_articles": payload.get("supporting_articles", {}),
+        "views": _compact_views(payload.get("views", {})),
+        "supporting_articles": _compact_supporting_articles(payload.get("supporting_articles", {})),
         "market_context": payload.get("market_context", {}),
         "grounding": payload.get("grounding", {}),
-        "company_evidence": payload.get("company_evidence", {}),
+        "company_evidence": _compact_company_evidence(payload.get("company_evidence", {})),
         "required_output": {
             "recommendation": {
                 "decision": "trade_candidate|watchlist|do_not_trade",
@@ -185,7 +236,7 @@ def build_strategist_prompt(
     }
     if include_thesis:
         user_payload["required_output"]["recommendation"]["evidence_thesis"] = REQUIRED_OUTPUT_EXAMPLE
-    return system_prompt, json.dumps(user_payload, ensure_ascii=True)
+    return system_prompt, _serialize_user_payload(user_payload)
 
 
 def build_no_evidence_result(company: dict[str, Any], *, context_snapshot: dict[str, Any]) -> dict[str, Any]:
