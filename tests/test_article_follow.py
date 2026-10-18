@@ -13,7 +13,10 @@ from db_common import get_connection
 from engine.page_fetch import FixtureFetcher, use_fetcher
 from market_db_modules.entities import add_sector
 from news_db_modules.links import link_sector_to_article, link_us_article
-from pipelines._article_follow import NewsEntity, save_followed_article_links
+from news_db_modules.article_store import add_news_article
+from news_db_modules.queries import add_failed_url
+from pipelines._article_follow import NewsEntity, save_link_verdicts
+from pipelines._link_policy import LinkBatch, judge_links
 from pipelines._regionNewsPipeline import make_region_pipeline
 from pipelines._orchestration import (
     direct_article_save_request,
@@ -58,13 +61,14 @@ class ArticleFollowTests(unittest.TestCase):
 
     def _save(self, entity, text, fetched, url=None):
         url = url or self.url
-        return save_followed_article_links(
+        (verdicts,) = judge_links([LinkBatch([{"href": url, "text": text}], 5)])
+        return save_link_verdicts(
             source_page_url="https://www.cnbc.com/finance/",
-            candidate_links=[{"href": url, "text": text}],
+            verdicts=verdicts,
             entity=entity,
-            max_articles=5,
             fetched_articles=fetched,
             logger=LOGGER,
+            outcomes={},
         )
 
     def _article_state(self):
@@ -135,6 +139,95 @@ class ArticleFollowTests(unittest.TestCase):
                     )
 
                 self.assertEqual(dict(counts), {key: 2})
+
+    def _run_direct_jobs(self, url, entities, fetcher):
+        jobs = [{"url": url, "source_type": "article", "entity": entity} for entity in entities]
+        with use_fetcher(fetcher):
+            return run_mixed_job_orchestration(
+                jobs=jobs,
+                logger=LOGGER,
+                entity_from_job=lambda job: job["entity"],
+                candidate_links_for=lambda page, job: [],
+            )
+
+    def _run_search_page(self, links, reuse_filter_for=None):
+        search_url = "https://www.cnbc.com/search/?query=x"
+        page = {"request_url": search_url, "url": search_url, "success": True, "status": 200, "links": links}
+        fixture = FixtureFetcher(
+            pages={search_url: page},
+            articles={link["href"]: _result(link["href"]) for link in links},
+        )
+        with use_fetcher(fixture):
+            counts = run_mixed_job_orchestration(
+                jobs=[{"url": search_url, "source_type": "search"}],
+                logger=LOGGER,
+                entity_from_job=lambda job: self.sector,
+                candidate_links_for=lambda page, job: page["links"],
+                reuse_filter_for=reuse_filter_for,
+            )
+        return counts[self.sector_id], fixture
+
+    def _seed_existing_and_new_links(self):
+        existing = _recent_url("existing")
+        existing_id = add_news_article(
+            source="cnbc.com", article_key=existing, title="E", source_url=existing,
+            published_at=datetime.now(timezone.utc).isoformat(),
+        )
+        links = [{"href": existing, "text": "existing"}]
+        links += [{"href": _recent_url(f"new-{i}"), "text": f"new {i}"} for i in range(11)]
+        return existing, existing_id, links
+
+    def test_search_page_reuses_existing_for_free_and_fetches_ten_new(self):
+        existing, existing_id, links = self._seed_existing_and_new_links()
+
+        saved, fixture = self._run_search_page(links)
+
+        self.assertEqual(saved, 11)
+        self.assertNotIn(existing, fixture.requested)
+        self.assertEqual(len(fixture.requested) - 1, 10)  # the search page plus 10 new articles
+        linked = _rows("SELECT article_id FROM sector_news_articles WHERE sector_id = ?", self.sector_id)
+        self.assertIn(existing_id, [row["article_id"] for row in linked])
+        self.assertEqual(len(linked), 11)
+
+    def test_search_page_reuse_filter_can_reject_existing_article(self):
+        _, existing_id, links = self._seed_existing_and_new_links()
+
+        saved, _ = self._run_search_page(links, reuse_filter_for=lambda job: lambda link: False)
+
+        self.assertEqual(saved, 10)
+        linked = _rows("SELECT article_id FROM sector_news_articles WHERE sector_id = ?", self.sector_id)
+        self.assertNotIn(existing_id, [row["article_id"] for row in linked])
+
+    def test_url_shared_by_two_requests_is_fetched_and_inserted_once(self):
+        fixture = FixtureFetcher(articles={self.url: _result(self.url)})
+
+        counts = self._run_direct_jobs(self.url, [self.sector, self.us], fixture)
+
+        self.assertEqual(fixture.requested, [self.url])
+        self.assertEqual(counts[self.sector_id] + counts[0], 2)
+        (row,) = self._article_state()
+        self.assertEqual(json.loads(row["raw_json"])["sector_key"], "technology")
+        self.assertEqual(len(_rows("SELECT 1 FROM sector_news_articles")), 1)
+        self.assertEqual(len(_rows("SELECT 1 FROM us_news_articles")), 1)
+
+    def test_direct_job_with_exhausted_failures_is_never_fetched(self):
+        for _ in range(3):
+            add_failed_url(self.url, stage="article_follow", error="HTTP 500")
+        fixture = FixtureFetcher(articles={self.url: _result(self.url)})
+
+        counts = self._run_direct_jobs(self.url, [self.sector], fixture)
+
+        self.assertEqual(fixture.requested, [])
+        self.assertEqual(sum(counts.values()), 0)
+
+    def test_failed_fetch_shared_by_two_requests_is_recorded_once(self):
+        fixture = FixtureFetcher(articles={self.url: _result(self.url, success=False, error="HTTP 500")})
+
+        counts = self._run_direct_jobs(self.url, [self.sector, self.us], fixture)
+
+        self.assertEqual(sum(counts.values()), 0)
+        (row,) = _rows("SELECT failure_count FROM failed_urls")
+        self.assertEqual(row["failure_count"], 1)
 
     def test_region_rss_description_becomes_summary_and_links_us_article(self):
         description = "Stocks rally on earnings"
