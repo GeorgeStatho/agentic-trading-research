@@ -109,6 +109,10 @@ def run_article_save_requests(
 
     for request, verdicts in zip(save_requests, verdicts_by_request):
         entity = request["entity"]
+        if request["source_type"] == "article":
+            for verdict in verdicts:
+                if verdict.reason == "not_article_url":
+                    logger.info("Skipping not_article_url article %s for %s %s", verdict.href, entity.kind, entity.label)
         key = (entity.id, request["source_type"]) if by_source_type else entity.id
         saved_counts[key] += save_link_verdicts(
             source_page_url=request["source_page_url"],

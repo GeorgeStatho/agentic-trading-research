@@ -220,6 +220,29 @@ class ArticleFollowTests(unittest.TestCase):
         self.assertEqual(fixture.requested, [])
         self.assertEqual(sum(counts.values()), 0)
 
+    def test_direct_url_outside_article_patterns_is_logged_and_not_fetched(self):
+        url = "https://www.fool.com/about/careers/"
+        fixture = FixtureFetcher(articles={url: _result(url)})
+
+        with self.assertLogs(LOGGER, level="INFO") as logs:
+            counts = self._run_direct_jobs(url, [self.sector], fixture)
+
+        self.assertEqual(fixture.requested, [])
+        self.assertEqual(sum(counts.values()), 0)
+        self.assertTrue(any("not_article_url" in line and url in line for line in logs.output))
+
+    def test_stale_fetch_shared_by_two_requests_is_neither_saved_nor_recorded(self):
+        fixture = FixtureFetcher(articles={self.url: _result(self.url, days_old=30)})
+
+        counts = self._run_direct_jobs(self.url, [self.sector, self.us], fixture)
+
+        self.assertEqual(sum(counts.values()), 0)
+        self.assertEqual(fixture.requested, [self.url])
+        self.assertEqual(_rows("SELECT 1 FROM news_articles"), [])
+        self.assertEqual(_rows("SELECT 1 FROM sector_news_articles"), [])
+        self.assertEqual(_rows("SELECT 1 FROM us_news_articles"), [])
+        self.assertEqual(_rows("SELECT 1 FROM failed_urls"), [])
+
     def test_failed_fetch_shared_by_two_requests_is_recorded_once(self):
         fixture = FixtureFetcher(articles={self.url: _result(self.url, success=False, error="HTTP 500")})
 

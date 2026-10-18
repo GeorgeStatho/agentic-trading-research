@@ -49,6 +49,12 @@ class LinkPolicyTests(unittest.TestCase):
                 verdict = self._one(link, **kwargs)
                 self.assertEqual((verdict.action, verdict.reason), ("skip", reason))
 
+    def test_fool_api_article_paths_pass_the_pattern_check(self):
+        for prefix in ("investing", "market", "retirement", "money", "personal-finance"):
+            with self.subTest(prefix=prefix):
+                verdict = self._one(_link(f"https://www.fool.com/{prefix}/2026/01/02/some-story/"))
+                self.assertEqual(verdict.action, "fetch")
+
     def test_duplicate_within_batch_including_utm_variant(self):
         url = _url("dup")
         verdicts = self._judge([_link(url), _link(url + "?utm_source=x"), _link(url)])
