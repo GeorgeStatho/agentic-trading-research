@@ -62,34 +62,6 @@ def list_company_news_articles(company_id: int, db_path: Path | str | None = Non
     return [dict(row) for row in rows]
 
 
-def get_failed_url(url: str, db_path: Path | str | None = None) -> dict | None:
-    normalized = normalize_url(url)
-    if not normalized:
-        return None
-
-    initialize_database(db_path=db_path)
-    with closing(get_connection(db_path)) as conn, conn:
-        row = conn.execute(
-            """
-            SELECT
-                id,
-                url,
-                normalized_url,
-                stage,
-                last_error,
-                failure_count,
-                is_permanent,
-                created_at,
-                updated_at
-            FROM failed_urls
-            WHERE normalized_url = ?
-            LIMIT 1
-            """,
-            (normalized,),
-        ).fetchone()
-    return dict(row) if row is not None else None
-
-
 def get_saved_and_failed_urls(
     normalized_urls: list[str], db_path: Path | str | None = None
 ) -> tuple[dict[str, dict], dict[str, dict]]:
