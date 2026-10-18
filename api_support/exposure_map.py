@@ -8,8 +8,9 @@ from typing import Any
 
 from agent_helpers.shared import ask_llm_model, extract_json_object, get_model_client
 from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
-from api_support.context import DB_PATH, get_connection, initialize_market_database
-from db_helpers import initialize_news_database
+from db_common import get_connection
+from market_db_modules.bootstrap import initialize_database as initialize_market_database
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from services.gemini_models import default_vertex_model
 from services.order_values import normalize_order_side, normalize_order_status
 
@@ -104,8 +105,8 @@ def resolve_exposure_map_model(model: Any = None) -> str:
 
 
 def _initialize_databases() -> None:
-    initialize_market_database(db_path=DB_PATH)
-    initialize_news_database(db_path=DB_PATH)
+    initialize_market_database()
+    initialize_news_database()
 
 
 def _normalize_level(value: Any, valid_values: set[str], fallback: str) -> str:
@@ -799,7 +800,7 @@ def create_exposure_run(article_id: int, *, force: bool = False, model: str | No
     selected_model = resolve_exposure_map_model(model)
     if not selected_model:
         raise ValueError("An exposure-map model is required.")
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         article = _load_article(conn, normalized_article_id)
         if article is None:
             raise LookupError("Article not found.")
@@ -829,7 +830,7 @@ def create_exposure_run(article_id: int, *, force: bool = False, model: str | No
             positions=positions,
         )
     except Exception as exc:
-        with closing(get_connection(DB_PATH)) as conn, conn:
+        with closing(get_connection()) as conn, conn:
             _store_failed_run(
                 conn,
                 article_id=normalized_article_id,
@@ -838,7 +839,7 @@ def create_exposure_run(article_id: int, *, force: bool = False, model: str | No
                 error=exc,
             )
         raise
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         run_id = _store_run(
             conn,
             article_id=normalized_article_id,
@@ -885,7 +886,7 @@ def _add_ancestor_nodes(conn, nodes: dict[str, dict[str, Any]], entity_node: dic
 
 def build_exposure_map_payload(article_id: int, *, run_id: int | None = None, conn=None) -> dict[str, Any]:
     owns_connection = conn is None
-    active_conn = conn or get_connection(DB_PATH)
+    active_conn = conn or get_connection()
     try:
         article = _load_article(active_conn, int(article_id))
         if article is None:
@@ -1026,7 +1027,7 @@ def list_recent_exposure_articles(
 ) -> dict[str, Any]:
     reference_time = now or datetime.now(timezone.utc)
     cutoff = reference_time - timedelta(days=EXPOSURE_MAP_MAX_ARTICLE_AGE_DAYS)
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT id, title, summary, source, source_url, published_at, evidence_score

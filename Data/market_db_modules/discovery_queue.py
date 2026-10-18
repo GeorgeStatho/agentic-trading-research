@@ -4,12 +4,12 @@ from datetime import datetime, timedelta
 import json
 from uuid import uuid4
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from research_foundation_contracts import timestamp
 from .foundation_store import canonical, digest, insert_record, record_data
 
 
-def enqueue_discovery_event(item, event, *, expires_at, db_path=DB_PATH):
+def enqueue_discovery_event(item, event, *, expires_at, db_path=None):
     data = record_data(item)
     identity = {key: data[key] for key in ('company_id', 'catalyst_id', 'evidence_revision', 'purpose')}
     queue_id = 'queue:' + digest(identity)
@@ -93,7 +93,7 @@ def _ranked_due(conn, at, aging_per_hour, work=DISCOVERY_WORK):
     return sorted(ranked, key=lambda row: (-row['priority'], row['created_at'], row['queue_id']))
 
 
-def preview_discovery_queue(*, at, limit=20, aging_per_hour=1, db_path=DB_PATH):
+def preview_discovery_queue(*, at, limit=20, aging_per_hour=1, db_path=None):
     with closing(get_connection(db_path)) as conn:
         if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='discovery_queue_details'").fetchone():
             return []
@@ -130,7 +130,7 @@ def _lease(conn, rows, owner, *, at, policy):
     return rows
 
 
-def claim_discovery_batch(owner, *, at, policy, db_path=DB_PATH):
+def claim_discovery_batch(owner, *, at, policy, db_path=None):
     if not owner.strip():
         raise ValueError('A queue worker needs an owner identity')
     at = timestamp(at)
@@ -140,7 +140,7 @@ def claim_discovery_batch(owner, *, at, policy, db_path=DB_PATH):
         return _lease(conn, _reserve_batch(_ranked_due(conn, at, policy.aging_per_hour), policy), owner, at=at, policy=policy)
 
 
-def claim_position_reviews(owner, *, at, policy, debounce_seconds, limit, db_path=DB_PATH):
+def claim_position_reviews(owner, *, at, policy, debounce_seconds, limit, db_path=None):
     """Lease settled position-review items, highest priority first.
 
     An item settles once it is `debounce_seconds` old. A newer revision of the same event
@@ -169,7 +169,7 @@ def require_discovery_lease(conn, queue_id, token, at):
     return row
 
 
-def renew_discovery_lease(queue_id, token, *, at, seconds, db_path=DB_PATH):
+def renew_discovery_lease(queue_id, token, *, at, seconds, db_path=None):
     if seconds <= 0:
         raise ValueError('Lease extension must be positive')
     with closing(get_connection(db_path)) as conn, conn:
@@ -180,7 +180,7 @@ def renew_discovery_lease(queue_id, token, *, at, seconds, db_path=DB_PATH):
     return expiry
 
 
-def finish_discovery_item(queue_id, token, *, status, reason, at, policy, db_path=DB_PATH):
+def finish_discovery_item(queue_id, token, *, status, reason, at, policy, db_path=None):
     if status not in {'completed', 'deferred', 'expired', 'failed'} or not reason.strip():
         raise ValueError('Queue completion needs a valid status and reason')
     with closing(get_connection(db_path)) as conn, conn:
@@ -196,7 +196,7 @@ def finish_discovery_item(queue_id, token, *, status, reason, at, policy, db_pat
     return status
 
 
-def discovery_queue_status(*, db_path=DB_PATH):
+def discovery_queue_status(*, db_path=None):
     with closing(get_connection(db_path)) as conn:
         return [dict(row) for row in conn.execute('''SELECT q.queue_id,q.company_id,c.symbol,q.purpose,q.status,
             q.attempts,q.next_attempt_at,q.lease_owner,q.lease_expires_at,q.completion_reason,d.expires_at,

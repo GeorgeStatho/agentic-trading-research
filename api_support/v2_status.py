@@ -21,7 +21,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from api_support.common import safe_float
-from api_support.context import DB_PATH, get_connection, logger
+from db_common import database_path, get_connection
+from api_support.context import logger
 
 DEFAULT_ACTIVITY_WINDOW_DAYS = 30
 DEFAULT_RUN_LIMIT = 5
@@ -156,8 +157,9 @@ def build_v2_status_payload(
     *,
     window_days: int = DEFAULT_ACTIVITY_WINDOW_DAYS,
     run_limit: int = DEFAULT_RUN_LIMIT,
-    db_path: Any = DB_PATH,
+    db_path: Any = None,
 ) -> dict:
+    db_path = database_path(db_path)
     now = datetime.now(timezone.utc)
     since = (now - timedelta(days=window_days)).isoformat()
     policies = _load_policies()

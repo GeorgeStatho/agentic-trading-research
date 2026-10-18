@@ -2,7 +2,6 @@
 from datetime import datetime, timezone
 
 from catalyst_models import timestamp
-from db_common import DB_PATH
 from market_db_modules.candidate_lifecycle import record_candidate_snapshot, record_candidate_rejection
 from market_db_modules.pricing_research import catalyst_stats, load_histories, record_price_observation, candidate_sector_symbol
 from services.candidate_lifecycle import GateResult
@@ -11,14 +10,14 @@ from services.price_response import evaluate_price_absorption
 from services.pricing_policy import HORIZON_DAYS, PricingPolicy
 
 
-def persist_gate(context, gate, *, as_of, db_path=DB_PATH):
+def persist_gate(context, gate, *, as_of, db_path=None):
     record_candidate_snapshot(context, gate['stage'], gate, cutoff=as_of.isoformat(), db_path=db_path)
     if gate['would_allow'] is False:
         record_candidate_rejection(context, GateResult(False, gate['stage'], gate['reason_codes'][0],
                                                       gate['metrics'], gate['thresholds']), shadow=True, db_path=db_path)
 
 
-def record_candidate_price_response(context, *, db_path=DB_PATH):
+def record_candidate_price_response(context, *, db_path=None):
     policy = PricingPolicy.from_env()
     as_of = timestamp(context['created_at'])
     state = context['catalysts'][0]
@@ -33,7 +32,7 @@ def record_candidate_price_response(context, *, db_path=DB_PATH):
     return gate
 
 
-def apply_option_hurdle_to_manager_result(manager_result, *, as_of=None, db_path=DB_PATH):
+def apply_option_hurdle_to_manager_result(manager_result, *, as_of=None, db_path=None):
     context = manager_result.get('candidate_context')
     if not context:
         return manager_result

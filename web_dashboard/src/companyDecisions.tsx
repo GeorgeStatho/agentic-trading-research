@@ -1,7 +1,8 @@
 import { useState } from 'react';
 
 import { fetchPolledJson } from './api';
-import { formatDateTime, formatPercent, formatText } from './format';
+import { formatDateTime, formatDteBucket, formatPercent, formatText, formatToken, formatTokenList } from './format';
+import PageHeader from './pageHeader';
 import { usePolledResource } from './useRemoteResource';
 import './companyDecisions.css';
 
@@ -203,23 +204,17 @@ function CompanyDecisionsPage() {
   return (
     <main className="company-decisions">
       <section className="company-decisions__panel">
-        <div className="company-decisions__header">
-          <div>
-            <p className="company-decisions__eyebrow">Decision Archive</p>
-            <h2>Stored company decisions</h2>
-          </div>
-          <div className="company-decisions__meta">
-            <span>{payload.company_count} companies</span>
-            <span>Last run: {formatDateTime(payload.last_updated_at)}</span>
-          </div>
-        </div>
+        <PageHeader
+          title="Decision ledger"
+          description="The latest strategist and manager decision stored for each company. Read-only; refreshes every minute."
+          meta={`${payload.company_count} companies · last run ${formatDateTime(payload.last_updated_at)}`}
+        />
 
         <div className="company-decisions__metrics" aria-label="Stored decision summary">
           <article><span>Stored</span><strong>{payload.company_count}</strong></article>
           <article className="company-decisions__metric company-decisions__metric--positive"><span>Calls</span><strong>{decisionCounts.call}</strong></article>
           <article className="company-decisions__metric company-decisions__metric--negative"><span>Puts</span><strong>{decisionCounts.put}</strong></article>
           <article><span>No trade</span><strong>{decisionCounts.neither}</strong></article>
-          <p><i /> Read-only history · refreshes every minute</p>
         </div>
 
         <section className="company-decisions__controls" aria-label="Decision archive filters">
@@ -272,10 +267,10 @@ function CompanyDecisionsPage() {
                     <p className="company-decisions__name">{formatText(company.name)}</p>
                     <div className="company-decisions__decision-summary">
                       <span className={`company-decisions__decision-badge company-decisions__decision-badge--${decisionTone(company.strategist.decision)}`}>
-                        Strategist · {formatText(company.strategist.decision)}
+                        Strategist · {formatToken(company.strategist.decision)}
                       </span>
                       <span className={`company-decisions__decision-badge company-decisions__decision-badge--${decisionTone(company.manager.decision)}`}>
-                        Manager · {formatText(company.manager.decision)}
+                        Manager · {formatToken(company.manager.decision)}
                       </span>
                     </div>
                   </div>
@@ -288,7 +283,7 @@ function CompanyDecisionsPage() {
                   <section className="company-decisions__stage">
                     <p className="company-decisions__stage-label">Strategist</p>
                     <p className="company-decisions__stage-main">
-                      {formatText(company.strategist.decision)}
+                      {formatToken(company.strategist.decision)}
                     </p>
                     <p className="company-decisions__detail">Confidence: {formatText(company.strategist.confidence)}</p>
                     <p className="company-decisions__text">
@@ -310,12 +305,12 @@ function CompanyDecisionsPage() {
                     <div className="company-decisions__subsection">
                       <p className="company-decisions__subheading">Market regime gate</p>
                       <dl className="company-decisions__facts">
-                        <div><dt>Regime</dt><dd>{formatText(company.manager.market_regime_gate?.regime_state)}</dd></div>
+                        <div><dt>Regime</dt><dd>{formatToken(company.manager.market_regime_gate?.regime_state)}</dd></div>
                         <div><dt>Status</dt><dd>{company.manager.market_regime_gate?.allowed === true ? 'Allowed' : company.manager.market_regime_gate?.allowed === false ? 'Blocked' : 'Not recorded'}</dd></div>
-                        <div><dt>Mode</dt><dd>{formatText(company.manager.market_regime_gate?.enforcement_mode)}</dd></div>
+                        <div><dt>Mode</dt><dd>{formatToken(company.manager.market_regime_gate?.enforcement_mode)}</dd></div>
                         <div><dt>Policy</dt><dd>{formatText(company.manager.market_regime_gate?.policy_version)}</dd></div>
                       </dl>
-                      {company.manager.market_regime_gate?.reason_codes?.length ? <p className="company-decisions__text">Regime reasons: {company.manager.market_regime_gate.reason_codes.join(', ')}</p> : null}
+                      {company.manager.market_regime_gate?.reason_codes?.length ? <p className="company-decisions__text">Regime reasons: {formatTokenList(company.manager.market_regime_gate.reason_codes)}</p> : null}
                     </div>
                     <div className="company-decisions__subsection">
                       <p className="company-decisions__subheading">Risks</p>
@@ -326,7 +321,7 @@ function CompanyDecisionsPage() {
                   <section className="company-decisions__stage">
                     <p className="company-decisions__stage-label">Manager</p>
                     <p className="company-decisions__stage-main">
-                      {formatText(company.manager.decision)}
+                      {formatToken(company.manager.decision)}
                     </p>
                     <p className="company-decisions__detail">Confidence: {formatText(company.manager.confidence)}</p>
                     <p className="company-decisions__text">
@@ -338,11 +333,11 @@ function CompanyDecisionsPage() {
                         <div><dt>Policy</dt><dd>{formatText(company.manager.entry_gate?.policy_version)}</dd></div>
                         <div><dt>Status</dt><dd>{company.manager.entry_gate?.allowed === true ? 'Allowed' : company.manager.entry_gate?.allowed === false ? 'Blocked' : 'Not recorded'}</dd></div>
                         <div><dt>Evidence</dt><dd>{company.manager.entry_gate?.evidence?.citation_count ?? 'N/A'} citations / {company.manager.entry_gate?.evidence?.independent_source_count ?? 'N/A'} sources</dd></div>
-                        <div><dt>Trend</dt><dd>{formatText(company.manager.entry_gate?.technical?.trend_state)}</dd></div>
-                        <div><dt>Relative strength</dt><dd>{formatText(company.manager.entry_gate?.technical?.relative_strength_confirmation)}</dd></div>
-                        <div><dt>Volume</dt><dd>{formatText(company.manager.entry_gate?.technical?.volume_confirmation)}</dd></div>
+                        <div><dt>Trend</dt><dd>{formatToken(company.manager.entry_gate?.technical?.trend_state)}</dd></div>
+                        <div><dt>Relative strength</dt><dd>{formatToken(company.manager.entry_gate?.technical?.relative_strength_confirmation)}</dd></div>
+                        <div><dt>Volume</dt><dd>{formatToken(company.manager.entry_gate?.technical?.volume_confirmation)}</dd></div>
                       </dl>
-                      {company.manager.entry_gate?.reason_codes?.length ? <p className="company-decisions__text">Blocked by: {company.manager.entry_gate.reason_codes.join(', ')}</p> : null}
+                      {company.manager.entry_gate?.reason_codes?.length ? <p className="company-decisions__text">Blocked by: {formatTokenList(company.manager.entry_gate.reason_codes)}</p> : null}
                     </div>
                     {company.diagnostics?.historical_bars?.error ? (
                       <div className="company-decisions__diagnostic company-decisions__diagnostic--error">
@@ -361,8 +356,8 @@ function CompanyDecisionsPage() {
                           <dd>{formatText(company.manager.manager_decision_history_id)}</dd>
                         </div>
                         <div>
-                          <dt>Target DTE bucket</dt>
-                          <dd>{formatText(company.manager.target_dte_bucket)}</dd>
+                          <dt>Target DTE</dt>
+                          <dd>{formatDteBucket(company.manager.target_dte_bucket)}</dd>
                         </div>
                         <div>
                           <dt>Option contract</dt>
@@ -378,7 +373,7 @@ function CompanyDecisionsPage() {
                         </div>
                         <div>
                           <dt>Source</dt>
-                          <dd>{formatText(company.manager.selected_option_source)}</dd>
+                          <dd>{formatToken(company.manager.selected_option_source)}</dd>
                         </div>
                       </dl>
                     </div>
@@ -392,7 +387,7 @@ function CompanyDecisionsPage() {
                             <article key={`${company.symbol}-${entry.id}`} className="company-decisions__history-item">
                               <div className="company-decisions__history-header">
                                 <p className="company-decisions__history-main">
-                                  {formatText(entry.manager_decision)} / {formatText(entry.manager_confidence)}
+                                  {formatToken(entry.manager_decision)} / {formatText(entry.manager_confidence)}
                                 </p>
                                 <p className="company-decisions__history-time">
                                   {formatDateTime(entry.decision_run_at)}
@@ -401,7 +396,7 @@ function CompanyDecisionsPage() {
                               <dl className="company-decisions__facts">
                                 <div>
                                   <dt>DTE bucket</dt>
-                                  <dd>{formatText(entry.target_dte_bucket)}</dd>
+                                  <dd>{formatDteBucket(entry.target_dte_bucket)}</dd>
                                 </div>
                                 <div>
                                   <dt>Trade executed</dt>
@@ -413,7 +408,7 @@ function CompanyDecisionsPage() {
                                 </div>
                                 <div>
                                   <dt>Outcome</dt>
-                                  <dd>{formatText(entry.resolved_outcome_label)}</dd>
+                                  <dd>{formatToken(entry.resolved_outcome_label)}</dd>
                                 </div>
                                 <div>
                                   <dt>Order id</dt>

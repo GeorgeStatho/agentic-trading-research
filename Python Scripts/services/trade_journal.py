@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from db_helpers.market import record_option_trade_execution
+from market_db_modules.trade_executions import record_option_trade_execution
 from services.order_values import normalize_order_side, normalize_order_status
 from services.execution_telemetry import capture_execution_context
 

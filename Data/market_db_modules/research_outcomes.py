@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from statistics import mean, median
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from services.price_response import measure_response
 from services.pricing_policy import RESPONSE_HORIZONS
 from services.research_contract import canonical, utc
@@ -58,13 +58,13 @@ def _theses(conn, *, since=None, unresolved_only=False, limit=None):
     return rows
 
 
-def research_outcome_symbols(*, db_path=DB_PATH):
+def research_outcome_symbols(*, db_path=None):
     """Tickers whose thesis outcomes still need price history."""
     with closing(get_connection(db_path)) as conn:
         return sorted({row['symbol'] for row in _theses(conn, unresolved_only=True)})
 
 
-def collect_research_thesis_outcomes(*, as_of=None, db_path=DB_PATH):
+def collect_research_thesis_outcomes(*, as_of=None, db_path=None):
     initialize_database(db_path=db_path)
     at = utc(as_of or datetime.now(timezone.utc))
     with closing(get_connection(db_path)) as conn:
@@ -100,7 +100,7 @@ def _summary(outcomes):
             'hit_rate': sum(value > 0 for value in resolved) / len(resolved) if resolved else None}
 
 
-def research_route_report(*, days=30, as_of=None, db_path=DB_PATH):
+def research_route_report(*, days=30, as_of=None, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn:
         return research_route_summary(conn, days=days, as_of=as_of)

@@ -16,10 +16,16 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from catalyst_models import timestamp
-from db_common import DB_PATH
-from db_helpers.market import (
-    claim_position_reviews, count_thesis_validator_exits_for_date, find_thesis_event_review, finish_discovery_item,
-    latest_thesis_verdict, list_open_position_theses_for_symbol, record_thesis_event_review, thesis_event_reviews,
+from market_db_modules.discovery_queue import claim_position_reviews, finish_discovery_item
+from market_db_modules.thesis_validator import (
+    count_thesis_validator_exits_for_date,
+    list_open_position_theses_for_symbol,
+)
+from market_db_modules.thesis_event_reviews import (
+    find_thesis_event_review,
+    latest_thesis_verdict,
+    record_thesis_event_review,
+    thesis_event_reviews,
 )
 from market_db_modules.evidence_thesis import latest_strategist_thesis_check
 from market_db_modules.foundation_store import digest
@@ -81,7 +87,7 @@ def article_entry(article: dict[str, Any]) -> dict[str, Any]:
             'title': ' '.join(str(article.get('title') or '').split()), 'summary': text[:SUMMARY_MAX_CHARS]}
 
 
-def structured_entry_thesis(thesis: dict[str, Any], *, db_path=DB_PATH) -> dict[str, Any] | None:
+def structured_entry_thesis(thesis: dict[str, Any], *, db_path=None) -> dict[str, Any] | None:
     """Phase 4's checked thesis for the entry decision: observable invalidation conditions, not a template."""
     check = latest_strategist_thesis_check(thesis.get('candidate_id'), db_path=db_path)
     entry = (check or {}).get('thesis')
@@ -134,7 +140,7 @@ class EventThesisReviewService:
     def _now(self) -> str:
         return self._clock().astimezone(timezone.utc).isoformat()
 
-    def run(self, *, positions: list[dict[str, Any]], db_path=DB_PATH) -> dict[str, Any] | None:
+    def run(self, *, positions: list[dict[str, Any]], db_path=None) -> dict[str, Any] | None:
         """Review at most `items_per_cycle` settled events; None when there is nothing to do."""
         if self._policy.mode == 'off':
             return None

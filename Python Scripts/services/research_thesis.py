@@ -6,7 +6,6 @@ reserved call without a recorded check is never retried: its outcome is unknown.
 from datetime import datetime, timezone
 import subprocess
 
-from db_common import DB_PATH
 from market_db_modules.company_evidence import get_evidence_package
 from market_db_modules.evidence_thesis import (
     charge_research_thesis_usage, pending_research_theses, research_thesis_reservation, reserve_research_thesis,
@@ -122,7 +121,7 @@ class ResearchThesisRun:
                 "cost_status": "estimated_from_usage" if estimated is not None else "unknown"}
 
 
-def process_research_theses(*, policy=None, research_policy=None, writer=None, clock=utc_now, limit=6, db_path=DB_PATH):
+def process_research_theses(*, policy=None, research_policy=None, writer=None, clock=utc_now, limit=6, db_path=None):
     policy = policy or EvidenceThesisPolicy.from_env()
     research_policy = research_policy or EvidenceResearchPolicy.from_env()
     if policy.mode == "off" or research_policy.mode == "disabled":

@@ -18,8 +18,8 @@ from services.option_dte_buckets import (
     TIME_HORIZON_TO_DTE_BUCKET,
     resolve_dte_bucket_for_days,
 )
-from db_helpers.market import close_position_thesis
-from db_helpers.market import record_position_thesis
+from market_db_modules.thesis_validator import close_position_thesis
+from market_db_modules.thesis_validator import record_position_thesis
 from services.pricing_policy import HORIZON_DAYS
 
 

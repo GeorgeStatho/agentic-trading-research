@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 
-from db_helpers import DB_PATH, get_connection, initialize_market_database, list_option_trade_executions
 from services.config import AlpacaSettings, ApiPaths, ApiSettings, OptionPositionSettings
 
 

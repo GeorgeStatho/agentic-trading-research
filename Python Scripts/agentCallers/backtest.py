@@ -9,7 +9,7 @@ if __name__ == "__main__":
     # Before importing modules that read configuration at import time.
     load_process_settings()
 
-from db_helpers.market import run_backtest  # noqa: E402
+from market_db_modules.backtesting import run_backtest  # noqa: E402
 
 
 def main() -> None:

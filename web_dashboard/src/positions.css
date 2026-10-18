@@ -139,7 +139,7 @@
 .positions-table__protection-label {
   color: var(--on-surface-variant);
   font-family: var(--mono);
-  font-size: 0.68rem;
+  font-size: .75rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }

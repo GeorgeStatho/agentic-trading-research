@@ -1,10 +1,10 @@
 """Frozen catalyst-gate observations and executed-outcome coverage reports."""
 from contextlib import closing
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 from .bootstrap import initialize_database
 
 
-def record_catalyst_gate_observation(context, gate, *, db_path=DB_PATH):
+def record_catalyst_gate_observation(context, gate, *, db_path=None):
     initialize_database(db_path=db_path)
     metrics = gate['metrics']
     with closing(get_connection(db_path)) as conn, conn:
@@ -16,7 +16,7 @@ def record_catalyst_gate_observation(context, gate, *, db_path=DB_PATH):
              json_text(metrics), json_text(gate['thresholds'])))
 
 
-def freshness_outcome_report(*, start=None, end=None, db_path=DB_PATH):
+def freshness_outcome_report(*, start=None, end=None, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         rows = [dict(row) for row in conn.execute('''WITH cohort AS (

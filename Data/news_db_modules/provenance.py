@@ -8,7 +8,7 @@ import re
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from .shared import normalize_url
 from processing.scoring import confirmation_score, compute_evidence_score
 from sources.source_config import get_source_metadata
@@ -186,7 +186,7 @@ def _refresh_cluster_scores(catalyst, *, conn):
         """, (count, confirmation, evidence, parent if parent != row["id"] else None, row["id"]))
 
 
-def backfill_news_provenance(*, db_path=DB_PATH) -> dict:
+def backfill_news_provenance(*, db_path=None) -> dict:
     from .bootstrap import initialize_database
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:

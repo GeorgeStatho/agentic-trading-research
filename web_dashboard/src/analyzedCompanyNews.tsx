@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { formatNumber, formatText } from './format';
+import PageHeader from './pageHeader';
 import './analyzedCompanyNews.css';
 
 type ConfidenceLevel = 'all' | 'high' | 'medium' | 'low';
@@ -564,51 +565,15 @@ function AnalyzedCompanyNewsPage() {
 
   return (
     <main className="company-news-page">
-      <section className="company-news-hero">
-        <div>
-          <p className="company-news-hero__eyebrow">Opportunist Coverage</p>
-          <h1>Analyzed News Context</h1>
-          <p className="company-news-hero__text">
-            {payload?.lookup_active
-              ? `Review the connected ${activeViewMeta.label.toLowerCase()} coverage for ${payload.lookup_query}.`
-              : 'Review company analysis separately from sector, industry, and macro coverage. The selector below changes which news layer is displayed for the currently loaded page.'}
-          </p>
-          <div className="company-news-hero__status">
-            <span><i /> Grounded analysis only</span>
-            <span>Refreshes every minute</span>
-          </div>
-        </div>
-        <div className="company-news-hero__stats" aria-label="Company news summary">
-          <article className="company-news-stat">
-            <p className="company-news-stat__label">{payload?.lookup_active ? 'Matches' : 'Companies'}</p>
-            <p className="company-news-stat__value">
-              {formatCount(payload?.lookup_active ? payload?.lookup_match_count ?? 0 : payload?.company_count ?? 0)}
-            </p>
-          </article>
-          <article className="company-news-stat">
-            <p className="company-news-stat__label">Loaded This Page</p>
-            <p className="company-news-stat__value">{formatCount(payload?.page_company_count ?? 0)}</p>
-          </article>
-          <article className="company-news-stat">
-            <p className="company-news-stat__label">Visible articles</p>
-            <p className="company-news-stat__value">{formatCount(visibleArticleCount)}</p>
-          </article>
-          <article className="company-news-stat">
-            <p className="company-news-stat__label">High confidence</p>
-            <p className="company-news-stat__value">{formatCount(visibleHighConfidenceCount)}</p>
-          </article>
-          <article className="company-news-stat">
-            <p className="company-news-stat__label">Active layer</p>
-            <p className="company-news-stat__value company-news-stat__value--timestamp">{activeViewMeta.title}</p>
-          </article>
-          <article className="company-news-stat">
-            <p className="company-news-stat__label">Updated</p>
-            <p className="company-news-stat__value company-news-stat__value--timestamp">
-              {payload ? formatDateTime(payload.as_of) : 'Loading'}
-            </p>
-          </article>
-        </div>
-      </section>
+      <PageHeader
+        title="Company news"
+        description={payload?.lookup_active
+          ? `The connected ${activeViewMeta.label.toLowerCase()} coverage for ${payload.lookup_query}. Grounded analysis only.`
+          : 'Company analysis, kept apart from sector, industry and macro coverage. Grounded analysis only; refreshes every minute.'}
+        meta={payload
+          ? `${formatCount(payload.lookup_active ? payload.lookup_match_count ?? 0 : payload.company_count ?? 0)} ${payload.lookup_active ? 'matches' : 'companies'} · ${formatCount(visibleArticleCount)} visible articles · ${formatCount(visibleHighConfidenceCount)} high confidence · updated ${formatDateTime(payload.as_of)}`
+          : 'Loading…'}
+      />
 
       <section className="company-news-view-selector" aria-label="News view selector">
         {VIEW_OPTIONS.map((view) => (
@@ -818,24 +783,7 @@ function AnalyzedCompanyNewsPage() {
                           <p className="company-news-article__source">
                             {formatLabel(article.source, 'Unknown source')} / {formatDateTime(article.published_at)}
                           </p>
-                          <div className="company-news-article__chips">
-                            {visibleAssessments.length > 0 ? (
-                              visibleAssessments.map((assessment, index) => (
-                                <span
-                                  key={`${article.article_id}-${assessment.created_at}-${assessment.news_scope}-${index}`}
-                                  className={`company-news-chip company-news-chip--${assessment.confidence || 'neutral'}`}
-                                >
-                                  {assessment.confidence || 'unknown'}
-                                </span>
-                              ))
-                            ) : (
-                              <span
-                                className={`company-news-chip company-news-chip--status company-news-chip--status-${article.analysis_status}`}
-                              >
-                                {formatAnalysisStatusLabel(article.analysis_status)}
-                              </span>
-                            )}
-                          </div>
+                          {/* Confidence and status chips live once, with the assessment below. */}
                         </div>
 
                         <h4>

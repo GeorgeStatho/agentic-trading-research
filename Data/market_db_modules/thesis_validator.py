@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, clean_text, coerce_float, get_connection, json_text
+from db_common import clean_text, coerce_float, get_connection, json_text
 from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
 from catalyst_schema import stamp_candidate_catalyst
@@ -40,7 +40,7 @@ def _run_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 def record_position_thesis(
     thesis: dict[str, Any],
     *,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int | None:
     """Persist a Phase 0 thesis record; idempotent per open option symbol."""
@@ -118,7 +118,7 @@ def record_position_thesis(
 def get_open_position_thesis_for_option_symbol(
     option_symbol: str,
     *,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any] | None:
     normalized_symbol = clean_text(option_symbol)
@@ -146,7 +146,7 @@ def get_open_position_thesis_for_option_symbol(
 def list_open_position_theses_for_symbol(
     symbol: str,
     *,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[dict[str, Any]]:
     """Every open thesis on an underlying; one company can hold several option positions."""
     normalized_symbol = clean_text(symbol)
@@ -165,7 +165,7 @@ def close_position_thesis(
     option_symbol: str,
     *,
     closed_at: Any = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> bool:
     normalized_symbol = clean_text(option_symbol)
@@ -191,7 +191,7 @@ def close_position_thesis(
 def record_thesis_validation_run(
     run: dict[str, Any],
     *,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int | None:
     """Persist one adjudication run; unique per (thesis_id, run_date)."""
@@ -276,7 +276,7 @@ def get_thesis_validation_run_for_date(
     *,
     thesis_id: int,
     run_date: str,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any] | None:
     normalized_id = coerce_int(thesis_id)
@@ -303,7 +303,7 @@ def get_thesis_validation_run_for_date(
 def count_thesis_validator_exits_for_date(
     run_date: str,
     *,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int:
     normalized_date = clean_text(run_date)
@@ -331,7 +331,7 @@ def count_thesis_validator_exits_for_date(
 def list_thesis_validation_runs(
     *,
     limit: int = 200,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     if conn is None:
@@ -353,7 +353,7 @@ def list_thesis_validation_runs(
 
 def get_latest_thesis_validation_runs_by_option_symbol(
     *,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Latest run per option symbol, without the heavy evidence/sample blobs."""
@@ -399,7 +399,7 @@ def get_latest_thesis_validation_runs_by_option_symbol(
 def summarize_thesis_validator_health(
     *,
     max_age_days: int = 60,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     """Shadow-promotion health metrics: flip rate, action rate, grounding rate."""

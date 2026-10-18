@@ -3,7 +3,7 @@ from contextlib import closing
 from datetime import datetime, timedelta
 import json
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from .company_evidence import latest_evidence_package
 from .company_interest import active_company_ids
 
@@ -12,7 +12,7 @@ def table_exists(conn, name):
     return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
 
 
-def discovery_companies(symbols, *, company_ids=(), db_path=DB_PATH):
+def discovery_companies(symbols, *, company_ids=(), db_path=None):
     if not symbols and not company_ids:
         return []
     with closing(get_connection(db_path)) as conn:
@@ -21,7 +21,7 @@ def discovery_companies(symbols, *, company_ids=(), db_path=DB_PATH):
         return [dict(row) for row in rows if '*' in symbols or row['symbol'].upper() in symbols or row['id'] in company_ids]
 
 
-def review_company_ids(*, at, db_path=DB_PATH):
+def review_company_ids(*, at, db_path=None):
     with closing(get_connection(db_path)) as conn:
         positions = {row[0] for row in conn.execute('''SELECT c.id FROM position_theses p JOIN companies c
             ON UPPER(c.symbol)=UPPER(p.symbol) WHERE p.status='open' AND julianday(p.opened_at)<=julianday(?)''', (at,))}
@@ -32,7 +32,7 @@ def review_company_ids(*, at, db_path=DB_PATH):
     return positions, watchlist
 
 
-def company_event_articles(company_id, *, at, stale_seconds, db_path=DB_PATH):
+def company_event_articles(company_id, *, at, stale_seconds, db_path=None):
     with closing(get_connection(db_path)) as conn:
         if not table_exists(conn, 'news_articles') or not table_exists(conn, 'company_news_articles'):
             return []
@@ -46,7 +46,7 @@ def company_event_articles(company_id, *, at, stale_seconds, db_path=DB_PATH):
             ORDER BY a.id''', (company_id, at, at, stale_seconds, at))]
 
 
-def select_discovery_companies(policy, *, at, lane='events', limit=None, db_path=DB_PATH):
+def select_discovery_companies(policy, *, at, lane='events', limit=None, db_path=None):
     """Reserve half the scan for least-recently-seen companies; prioritize the rest."""
     positions, watchlist = review_company_ids(at=at, db_path=db_path)
     with closing(get_connection(db_path)) as conn:
@@ -91,26 +91,26 @@ def select_discovery_companies(policy, *, at, lane='events', limit=None, db_path
     return selected
 
 
-def mark_discovery_scanned(company_id, *, at, lane='events', db_path=DB_PATH):
+def mark_discovery_scanned(company_id, *, at, lane='events', db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('''INSERT INTO discovery_scan_state VALUES (?,?,?) ON CONFLICT(lane,company_id)
             DO UPDATE SET scanned_at=excluded.scanned_at''', (lane, company_id, at))
 
 
-def get_catalyst(catalyst_id, *, db_path=DB_PATH):
+def get_catalyst(catalyst_id, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         row = conn.execute('SELECT state_json FROM catalysts WHERE catalyst_id=?', (catalyst_id,)).fetchone()
     return json.loads(row[0]) if row else None
 
 
-def latest_discovery_event(company_id, catalyst_id, *, db_path=DB_PATH):
+def latest_discovery_event(company_id, catalyst_id, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         row = conn.execute('''SELECT * FROM discovery_events WHERE company_id=? AND catalyst_id=?
             ORDER BY observed_at DESC,rowid DESC LIMIT 1''', (company_id, catalyst_id)).fetchone()
     return dict(row) if row else None
 
 
-def sector_support_articles(company_id, *, at, stale_seconds, db_path=DB_PATH):
+def sector_support_articles(company_id, *, at, stale_seconds, db_path=None):
     with closing(get_connection(db_path)) as conn:
         if not table_exists(conn, 'company_opportunist_impacts'):
             return []
@@ -123,7 +123,7 @@ def sector_support_articles(company_id, *, at, stale_seconds, db_path=DB_PATH):
                                                 (company_id, at, at, at, stale_seconds, at))]
 
 
-def watchlist_snapshot(company_id, *, at, db_path=DB_PATH):
+def watchlist_snapshot(company_id, *, at, db_path=None):
     with closing(get_connection(db_path)) as conn:
         if not table_exists(conn, 'strategist_company_summaries'):
             return None

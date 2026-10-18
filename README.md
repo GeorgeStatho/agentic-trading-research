@@ -280,7 +280,7 @@ https://dashboard.example.com/#/dashboard
 ### 5. Common development commands
 
 ```bash
-python3 scripts/project.py test tests.test_exposure_map tests.test_demo_mode
+python3 scripts/project.py test tests.test_exposure_map tests.test_settings
 python3 scripts/project.py dashboard build
 python3 scripts/project.py demo-url
 ```
@@ -435,7 +435,7 @@ Count unique installs by unique `install_id` values on your telemetry receiver. 
 - [Python Scripts/services/trade_journal.py](Python%20Scripts/services/trade_journal.py): records successful live option submissions into SQLite
 - [Python Scripts/trading_support](Python%20Scripts/trading_support): split trading helpers for client setup, account diagnostics, option management, and stock/order helpers
 - [Data/market_schema.sql](Data/market_schema.sql): market-side SQLite schema, including the executed-trade journal table
-- [Data/market_db.py](Data/market_db.py): market-side DB writes and executed-trade query helpers
+- [Data/market_db_modules/](Data/market_db_modules): market-side DB writes and executed-trade query helpers
 - [docker-compose.bootstrap.yml](docker-compose.bootstrap.yml): temporary Compose override used for first-time Let's Encrypt bootstrap
 - [scripts/setup-https.sh](scripts/setup-https.sh): one-command first-time HTTPS setup helper for `dashboard.example.com`
 - [Python Scripts/news_collector_main.py](Python%20Scripts/news_collector_main.py): scrape/classification refresh loop

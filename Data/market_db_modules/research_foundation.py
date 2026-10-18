@@ -2,7 +2,7 @@
 from contextlib import closing
 from pathlib import Path
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from research_foundation_contracts import DiscoveryQueueItem, ResearchSession
 from .foundation_store import digest, insert_record, load_record, read_record, record_data
 from .bootstrap import initialize_database
@@ -32,7 +32,7 @@ def drop_unused_economics_table(conn):
         conn.execute("DROP TABLE trade_economics_reports")
 
 
-def enqueue_discovery(item: DiscoveryQueueItem, *, db_path=DB_PATH):
+def enqueue_discovery(item: DiscoveryQueueItem, *, db_path=None):
     initialize_database(db_path=db_path)
     data = record_data(item)
     identity_fields = ("company_id", "catalyst_id", "evidence_revision", "purpose")
@@ -50,11 +50,11 @@ def enqueue_discovery(item: DiscoveryQueueItem, *, db_path=DB_PATH):
     return queue_id
 
 
-def get_discovery_item(queue_id, *, db_path=DB_PATH):
+def get_discovery_item(queue_id, *, db_path=None):
     return load_record(db_path, "discovery_queue", "queue_id", queue_id)
 
 
-def record_research_session(session: ResearchSession, *, db_path=DB_PATH):
+def record_research_session(session: ResearchSession, *, db_path=None):
     initialize_database(db_path=db_path)
     data = record_data(session)
     with closing(get_connection(db_path)) as conn, conn:
@@ -73,5 +73,5 @@ def record_research_session(session: ResearchSession, *, db_path=DB_PATH):
         })
 
 
-def get_research_session(session_id, *, db_path=DB_PATH):
+def get_research_session(session_id, *, db_path=None):
     return load_record(db_path, "research_sessions", "session_id", session_id)

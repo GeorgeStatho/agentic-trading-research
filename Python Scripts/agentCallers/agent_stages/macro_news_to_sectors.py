@@ -22,7 +22,7 @@ from agent_helpers.shared import (
     extract_json_object,
     get_model_client,
 )
-from db_helpers import initialize_news_database
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
 
 def _stage_model() -> StageModel:

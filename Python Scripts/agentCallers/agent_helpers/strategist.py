@@ -14,7 +14,8 @@ from agent_helpers.opportunist_payload import (
     get_sector_rss_news,
 )
 from agent_helpers.shared import normalize_time_window, published_at_in_window
-from db_helpers import DB_PATH, get_connection, initialize_news_database
+from db_common import get_connection
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
 
 __all__ = [
@@ -148,7 +149,7 @@ def get_sector_news_for_company_sector(
 
 def _load_high_confidence_sector_rows(sector_id: int) -> list[dict[str, Any]]:
     # Load the high confidence sector rows once so the downstream logic can stay focused on orchestration.
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -220,7 +221,7 @@ def get_high_confidence_sector_news(
 
 def _load_high_confidence_industry_rows(industry_id: int) -> list[dict[str, Any]]:
     # Load the high confidence industry rows once so the downstream logic can stay focused on orchestration.
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -292,7 +293,7 @@ def get_high_confidence_industry_news(
 
 def _load_high_confidence_company_rows(company_id: int) -> list[dict[str, Any]]:
     # Load the high confidence company rows once so the downstream logic can stay focused on orchestration.
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT

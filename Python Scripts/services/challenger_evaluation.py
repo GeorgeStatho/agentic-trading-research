@@ -11,7 +11,7 @@ import json
 import logging
 import time
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from market_db_modules.forward_evaluation import (
     FINAL_EVALUATIONS, cohort_registrations, create_paired_candidate, paired_candidate_id, paired_evaluation,
     pending_paired_observations, reserve_challenger_calls, update_paired_evaluation,
@@ -65,7 +65,7 @@ class ImplementationIdentity:
         return None
 
 
-def stage_payloads(candidate_id, stages, *, db_path=DB_PATH):
+def stage_payloads(candidate_id, stages, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         rows = conn.execute(f'''SELECT stage, snapshot_hash, snapshot_json FROM candidate_snapshots
             WHERE candidate_id=? AND stage IN ({",".join("?" for _ in stages)})''', (candidate_id, *stages)).fetchall()
@@ -78,7 +78,7 @@ def stage_payloads(candidate_id, stages, *, db_path=DB_PATH):
     return payloads
 
 
-def incumbent_outputs(candidate_id, source, *, db_path=DB_PATH):
+def incumbent_outputs(candidate_id, source, *, db_path=None):
     """What the production models actually said, placed on the observation's shared inputs."""
     payloads = stage_payloads(candidate_id, INCUMBENT_STAGES, db_path=db_path)
     if set(payloads) != set(INCUMBENT_STAGES):
@@ -248,7 +248,7 @@ class DailyCallLimit(Exception):
 
 
 def run_challenger_evaluations(*, policy=None, strategist=None, manager=None, persist_check=None, identity=None,
-                               clock=utc_now, db_path=DB_PATH):
+                               clock=utc_now, db_path=None):
     policy = policy or ChallengerPolicy.from_env()
     if not policy.enabled:
         return {'status': 'disabled'}

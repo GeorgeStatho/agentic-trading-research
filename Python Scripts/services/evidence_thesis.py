@@ -8,7 +8,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 
-from db_common import DB_PATH
 from agent_stages.evidence_thesis_contract import THESIS_SCHEMA_VERSION, ThesisShapeError, normalize_evidence_thesis
 from services.evidence_thesis_checks import build_thesis_sources, check_thesis
 from services.evidence_thesis_policy import EvidenceThesisPolicy
@@ -48,7 +47,7 @@ def _status(failures, claims):
 
 
 def check_evidence_thesis(raw_thesis, payload, *, route, research_status=LEGACY_RESEARCH_STATUS,
-                          policy=None, reviewer=None, db_path=DB_PATH):
+                          policy=None, reviewer=None, db_path=None):
     """Return the complete, persistable check record for one model-authored thesis."""
     policy = policy or EvidenceThesisPolicy.from_env()
     package_id = (payload.get("company_evidence") or {}).get("package_id")
@@ -101,7 +100,7 @@ def compact_thesis_check(check, evaluation_id):
 
 
 def persist_thesis_check(check, *, company_id, candidate_id=None, research_session_id=None,
-                         context=None, db_path=DB_PATH):
+                         context=None, db_path=None):
     """Persist the check; return its ID or None. A missing ID later blocks an enforced gate."""
     try:
         return record_evidence_thesis(

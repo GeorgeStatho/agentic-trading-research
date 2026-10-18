@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from contextlib import closing
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
 from urllib.parse import quote_plus
 
-from db_common import get_connection
-from news_db import add_failed_url, get_failed_url, remove_failed_url
-from processing.news_normalization import normalize_url
+from news_db_modules.queries import add_failed_url, remove_failed_url
 from processing.scoring import (
     compute_directness_score,
     compute_evidence_score,
@@ -17,42 +14,11 @@ from processing.scoring import (
     recency_score,
 )
 from core.scrape_logging import get_scrape_logger
-from sources.source_config import get_article_patterns, is_allowed_source
 
 
 MAX_ARTICLES_PER_SEARCH_PAGE = 10
 MAX_ARTICLE_AGE_DAYS = 14
 LOGGER = get_scrape_logger("common_pipeline")
-
-
-def filter_article_links(page_url: str, links: list[dict], skip_existing: bool = True) -> list[dict]:
-    # Filter the article links down to the rows this helper should keep.
-    if not is_allowed_source(page_url):
-        LOGGER.warning("Skipping source page %s because the source is not allowed", page_url)
-        return []
-
-    patterns = get_article_patterns(page_url)
-
-    filtered_links: list[dict] = []
-    seen_hrefs: set[str] = set()
-    for link in links:
-        href = link.get("href", "")
-        if not href or href in seen_hrefs:
-            continue
-        if not is_allowed_source(href):
-            continue
-        if patterns and not any(pattern in href for pattern in patterns):
-            continue
-        if should_skip_failed_url(href):
-            LOGGER.info("Skipping previously failed URL %s discovered from %s", href, page_url)
-            continue
-        if skip_existing and fetch_existing_article_by_url(href) is not None:
-            LOGGER.info("Skipping already-saved article URL %s discovered from %s", href, page_url)
-            continue
-        filtered_links.append(link)
-        seen_hrefs.add(href)
-
-    return filtered_links
 
 
 def is_recent_article(published_at: str | None, max_age_days: int = MAX_ARTICLE_AGE_DAYS) -> bool:
@@ -136,61 +102,11 @@ def build_source_url(search_term: str, source_config: dict) -> str:
     return base_url
 
 
-def fetch_existing_article_by_url(url: str) -> dict | None:
-    # Fetch the existing article by url and normalize the result for the next stage.
-    normalized = normalize_url(url)
-    if not normalized:
-        return None
-
-    with closing(get_connection()) as conn, conn:
-        row = conn.execute(
-            """
-            SELECT
-                na.id,
-                na.source,
-                na.article_key,
-                na.title,
-                na.normalized_title,
-                na.summary,
-                content.body,
-                na.normalized_url,
-                na.content_hash,
-                na.published_at,
-                na.section,
-                na.age_days,
-                na.recency_score,
-                na.source_reputation_score,
-                na.directness_score,
-                na.confirmation_score,
-                na.independent_source_count,
-                na.factuality_score,
-                na.evidence_score,
-                na.source_url
-            FROM news_articles AS na
-            LEFT JOIN news_article_content AS content ON content.article_id = na.id
-            WHERE na.normalized_url = ?
-            LIMIT 1
-            """,
-            (normalized,),
-        ).fetchone()
-
-    return dict(row) if row is not None else None
-
-
 def _is_permanent_failure(error: str | None) -> bool:
     if not error:
         return False
     normalized_error = error.lower()
     return "http 403" in normalized_error or "http 404" in normalized_error
-
-
-def should_skip_failed_url(url: str) -> bool:
-    failed_row = get_failed_url(url)
-    if failed_row is None:
-        return False
-    if int(failed_row.get("is_permanent") or 0) == 1:
-        return True
-    return int(failed_row.get("failure_count") or 0) >= 3
 
 
 def record_failed_url(url: str, stage: str, error: str | None) -> None:

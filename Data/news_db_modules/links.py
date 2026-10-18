@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import closing
 from pathlib import Path
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from .provenance import update_article_provenance
 
 
@@ -11,7 +11,7 @@ def _upsert_link(
     table_name: str,
     conflict_columns: tuple[str, ...],
     values: tuple[object, ...],
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     if conn is None:
@@ -47,7 +47,7 @@ def link_industry_to_article(
     industry_id: int,
     article_id: int,
     source_page_url: str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _upsert_link(
@@ -63,7 +63,7 @@ def link_company_to_article(
     company_id: int,
     article_id: int,
     source_page_url: str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _upsert_link(
@@ -79,7 +79,7 @@ def link_sector_to_article(
     sector_id: int,
     article_id: int,
     source_page_url: str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _upsert_link(
@@ -94,7 +94,7 @@ def link_sector_to_article(
 def link_us_article(
     article_id: int,
     source_page_url: str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _upsert_link(
@@ -109,7 +109,7 @@ def link_us_article(
 def link_world_article(
     article_id: int,
     source_page_url: str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _upsert_link(

@@ -7,13 +7,10 @@ from datetime import datetime
 from typing import Any
 
 from agent_builders.opportunist_payload import build_opportunist_input
-from db_helpers import (
-    DB_PATH,
-    add_sector_opportunist_impact,
-    get_connection,
-    initialize_news_database,
-    mark_sector_opportunist_article_processed,
-)
+from db_common import database_path, get_connection
+from news_db_modules.impacts import add_sector_opportunist_impact
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from news_db_modules.processing import mark_sector_opportunist_article_processed
 from agent_helpers.shared import ModelAnswer
 from agent_helpers.opportunist_support import (
     CURRENT_OPPORTUNIST_SCHEMA_VERSION,
@@ -81,7 +78,7 @@ def _sort_articles(deduped_articles: dict[int, dict[str, Any]]) -> list[dict[str
 def _filter_unprocessed_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return filter_unprocessed_articles(
         articles,
-        db_path=str(DB_PATH),
+        db_path=database_path(),
         table_name="sector_opportunist_article_processing",
         required_impact_fields=SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
         minimum_schema_version=CURRENT_OPPORTUNIST_SCHEMA_VERSION,
@@ -176,7 +173,7 @@ def save_sector_opportunist_batch_results(
         article_id = int(impact["article_id"])
         batch_impacts_by_article.setdefault(article_id, []).append(impact)
 
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         article_ids = [int(article["article_id"]) for article in article_batch]
         if article_ids:
             placeholders = ",".join("?" for _ in article_ids)

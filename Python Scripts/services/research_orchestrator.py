@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 import time
 import subprocess
 
-from db_common import DB_PATH
 from market_db_modules.company_evidence import get_evidence_package, record_evidence_package
 from market_db_modules.foundation_store import digest
 from market_db_modules.research_foundation import get_discovery_item, get_research_session, record_research_session
@@ -56,7 +55,7 @@ def _initial_package(candidate, item, db_path):
 
 
 class ResearchOrchestrator:
-    def __init__(self, *, planner=None, policy=None, db_path=DB_PATH, clock=utc_now, monotonic=time.monotonic, sleep=time.sleep):
+    def __init__(self, *, planner=None, policy=None, db_path=None, clock=utc_now, monotonic=time.monotonic, sleep=time.sleep):
         self.planner = planner or ResearchPlanner()
         self.policy = policy or EvidenceResearchPolicy.from_env()
         self.db_path, self.clock, self.monotonic = db_path, clock, monotonic
@@ -357,7 +356,7 @@ class ResearchOrchestrator:
                 'reported_cost_estimate_usd': self.progress.get('reported_cost_estimate_usd', 0), 'unresolved_questions': self.progress['unresolved']}
 
 
-def process_research_queue(*, policy=None, planner=None, clock=utc_now, limit=6, db_path=DB_PATH):
+def process_research_queue(*, policy=None, planner=None, clock=utc_now, limit=6, db_path=None):
     policy = policy or EvidenceResearchPolicy.from_env()
     if policy.mode == 'disabled':
         return {'status': 'disabled', 'sessions': []}

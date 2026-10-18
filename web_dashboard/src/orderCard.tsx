@@ -1,4 +1,5 @@
 import { fetchPolledJson } from './api';
+import { formatDateTime, formatToken } from './format';
 import { useFetchedResource } from './useRemoteResource';
 import './card.css';
 
@@ -29,14 +30,14 @@ function getExecutedTradeRows(payload: ExecutedTradesResponse): ExecutedTrade[] 
 }
 
 function executedTradeToText(trade: ExecutedTrade): string {
-  const normalizedDecision = trade.decision.toUpperCase();
+  const decisionText = formatToken(trade.decision).toLowerCase();
   const companyName = trade.company_name || 'Unknown company';
   const strikeText = trade.strike_price == null ? 'unknown strike' : `strike ${trade.strike_price}`;
   const expirationText = trade.expiration_date || 'unknown expiration';
   const statusText = trade.order_status || 'unknown';
-  const submittedText = trade.submitted_at ? ` Submitted at ${trade.submitted_at}.` : '';
+  const submittedText = trade.submitted_at ? ` Submitted ${formatDateTime(trade.submitted_at)}.` : '';
 
-  return `Option order ${normalizedDecision} for ${trade.underlying_symbol} (${companyName}) used contract ${trade.option_symbol} expiring on ${expirationText} at ${strikeText} with status ${statusText}.${submittedText}`;
+  return `Option order (${decisionText}) for ${trade.underlying_symbol} (${companyName}) used contract ${trade.option_symbol} expiring on ${expirationText} at ${strikeText} with status ${statusText}.${submittedText}`;
 }
 
 function OrderCard({ trade }: { trade: ExecutedTrade }) {
@@ -45,7 +46,7 @@ function OrderCard({ trade }: { trade: ExecutedTrade }) {
       <div className="order-card__header">
         <div>
           <p className="order-card__eyebrow">{trade.company_name || 'Executed option order'}</p>
-          <h3 className="order-card__title">{trade.underlying_symbol} {trade.decision.toUpperCase()}</h3>
+          <h3 className="order-card__title">{trade.underlying_symbol} · {formatToken(trade.decision)}</h3>
         </div>
         <span className="order-card__status">{trade.order_status || 'Unknown status'}</span>
       </div>

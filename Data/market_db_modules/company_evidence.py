@@ -2,13 +2,13 @@
 from contextlib import closing
 from hashlib import sha256
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from research_foundation_contracts import CompanyFact, EvidenceDocument, EvidencePackage, timestamp
 from .bootstrap import initialize_database
 from .foundation_store import insert_record, load_record, read_record, record_data
 
 
-def record_evidence_document(document: EvidenceDocument, *, db_path=DB_PATH):
+def record_evidence_document(document: EvidenceDocument, *, db_path=None):
     data = record_data(document)
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
@@ -23,7 +23,7 @@ def record_evidence_document(document: EvidenceDocument, *, db_path=DB_PATH):
         })
 
 
-def record_company_fact(fact: CompanyFact, *, db_path=DB_PATH):
+def record_company_fact(fact: CompanyFact, *, db_path=None):
     data = record_data(fact)
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
@@ -46,7 +46,7 @@ def record_company_fact(fact: CompanyFact, *, db_path=DB_PATH):
         })
 
 
-def record_evidence_package(package: EvidencePackage, *, db_path=DB_PATH):
+def record_evidence_package(package: EvidencePackage, *, db_path=None):
     data = record_data(package)
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
@@ -78,19 +78,19 @@ def record_evidence_package(package: EvidencePackage, *, db_path=DB_PATH):
     return package.package_id
 
 
-def get_evidence_package(package_id, *, db_path=DB_PATH):
+def get_evidence_package(package_id, *, db_path=None):
     return load_record(db_path, "evidence_packages", "package_id", package_id)
 
 
-def get_evidence_document(document_id, *, db_path=DB_PATH):
+def get_evidence_document(document_id, *, db_path=None):
     return load_record(db_path, "evidence_documents", "document_id", document_id)
 
 
-def get_company_fact(fact_id, *, db_path=DB_PATH):
+def get_company_fact(fact_id, *, db_path=None):
     return load_record(db_path, "company_facts", "fact_id", fact_id)
 
 
-def latest_evidence_package(company_id, *, as_of, db_path=DB_PATH):
+def latest_evidence_package(company_id, *, as_of, db_path=None):
     with closing(get_connection(db_path)) as conn:
         if conn.execute("SELECT 1 FROM sqlite_master WHERE name='evidence_packages' AND type='table'").fetchone() is None:
             return None
@@ -103,7 +103,7 @@ def latest_evidence_package(company_id, *, as_of, db_path=DB_PATH):
         return read_record(conn, 'evidence_packages', 'package_id', row['package_id']) if row else None
 
 
-def list_company_documents(company_id, *, as_of, db_path=DB_PATH):
+def list_company_documents(company_id, *, as_of, db_path=None):
     with closing(get_connection(db_path)) as conn:
         rows = conn.execute('''SELECT DISTINCT d.document_id FROM evidence_documents d
             JOIN evidence_package_documents pd USING(document_id)
@@ -113,7 +113,7 @@ def list_company_documents(company_id, *, as_of, db_path=DB_PATH):
         return [read_record(conn, 'evidence_documents', 'document_id', row['document_id']) for row in rows]
 
 
-def list_company_facts(company_id, *, as_of, db_path=DB_PATH):
+def list_company_facts(company_id, *, as_of, db_path=None):
     cutoff = timestamp(as_of)
     with closing(get_connection(db_path)) as conn:
         rows = conn.execute("""SELECT fact_id FROM company_facts WHERE company_id=?

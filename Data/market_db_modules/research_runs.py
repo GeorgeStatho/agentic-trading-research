@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from uuid import uuid4
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from services.research_contract import (ResearchPolicy, STRATEGIES, canonical, fingerprint,
                                         strategy_decisions, utc)
 from services.research_inputs import baseline_contract, load_inputs, replay_missing_selection
@@ -58,7 +58,7 @@ def insert_run(conn, manifest, *, at, kind='frozen_forward', target_candidates=2
 
 
 def start_run(manifest, *, kind='frozen_forward', target_candidates=200, policy=None,
-              db_path=DB_PATH, now=None, observation_protocol=OBSERVATION_PROTOCOL):
+              db_path=None, now=None, observation_protocol=OBSERVATION_PROTOCOL):
     initialize_database(db_path=db_path)
     at = utc(now or datetime.now(timezone.utc)).isoformat()
     with closing(get_connection(db_path)) as conn, conn:
@@ -231,7 +231,7 @@ def candidate_finished(conn, candidate_id, as_of):
     return bool(terminal or rejected)
 
 
-def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
+def collect_run(run_id, *, as_of=None, db_path=None):
     at = utc(as_of or datetime.now(timezone.utc)).isoformat()
     with closing(get_connection(db_path)) as conn, conn:
         # Serialize enrollment and its N-candidate boundary across collectors.
@@ -337,7 +337,7 @@ def collect_run(run_id, *, as_of=None, db_path=DB_PATH):
             'information_cutoff_time': at, 'capital_deployed': 0}
 
 
-def collect_active_runs(*, as_of=None, db_path=DB_PATH):
+def collect_active_runs(*, as_of=None, db_path=None):
     """Called by the existing periodic response collector; stale runs stay frozen."""
     with closing(get_connection(db_path)) as conn, conn:
         run_ids = [row[0] for row in conn.execute('''SELECT run_id FROM research_runs

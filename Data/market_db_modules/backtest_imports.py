@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from db_common import DB_PATH, clean_text, coerce_float, get_connection, json_text
+from db_common import clean_text, coerce_float, get_connection, json_text
 
 from .bootstrap import initialize_database
 
@@ -112,7 +112,7 @@ def import_alpaca_option_quote_csv(
     csv_path: Path | str,
     *,
     provider: str = "alpaca_csv",
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     batch_size: int = 1_000,
     dry_run: bool = False,
     max_error_samples: int = 25,

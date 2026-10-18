@@ -4,8 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from db_common import DB_PATH
-from db_helpers.market import (
+from market_db_modules.history_records import (
     list_unresolved_manager_decisions,
     record_manager_decision_closed_outcome,
 )
@@ -84,7 +83,7 @@ def closed_round_trip(orders: list[dict], entry_order_id: str) -> dict | None:
     return None
 
 
-def reconcile_closed_outcomes(*, gateway, trading_client, db_path=DB_PATH, apply=True) -> dict:
+def reconcile_closed_outcomes(*, gateway, trading_client, db_path=None, apply=True) -> dict:
     decisions = list_unresolved_manager_decisions(db_path=db_path)
     report = {"examined": len(decisions), "resolved": 0, "ready": [], "unresolved": []}
     if not decisions:

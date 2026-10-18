@@ -4,7 +4,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, clean_text, get_connection, json_text
+from db_common import clean_text, get_connection, json_text
 from .bootstrap import initialize_database
 
 
@@ -26,7 +26,7 @@ def add_macro_event(
     previous: str | None = None,
     source_url: str | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     values = (
@@ -105,7 +105,7 @@ def add_macro_event(
 
 def load_macro_events(
     events: list[dict[str, Any]],
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> None:
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:

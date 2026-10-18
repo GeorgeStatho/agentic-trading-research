@@ -7,7 +7,7 @@ import json
 import math
 from statistics import median
 
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 from .bootstrap import initialize_database
 from catalyst_schema import stamp_candidate_catalyst
 from zoneinfo import ZoneInfo
@@ -29,7 +29,7 @@ def _time(value):
         return None
 
 
-def ensure_position_outcome(order_id, *, db_path=DB_PATH):
+def ensure_position_outcome(order_id, *, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         row = conn.execute('''SELECT e.*, h.id AS decision_id, t.id AS thesis_id,
@@ -65,7 +65,7 @@ def ensure_position_outcome(order_id, *, db_path=DB_PATH):
         return outcome_id
 
 
-def record_position_observation(snapshot, *, observed_at=None, version=None, db_path=DB_PATH):
+def record_position_observation(snapshot, *, observed_at=None, version=None, db_path=None):
     initialize_database(db_path=db_path)
     observed_at = observed_at or datetime.now(timezone.utc).isoformat()
     now = _time(observed_at)
@@ -133,7 +133,7 @@ def close_position_outcome(decision_id, *, realized_pnl_pct, closed_at, exit_rea
         (closed_at, realized_pnl_pct, exit_reason, decision_id))
 
 
-def list_post_exit_positions(*, db_path=DB_PATH):
+def list_post_exit_positions(*, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         return [dict(row) for row in conn.execute('''SELECT * FROM position_outcomes WHERE closed_at IS NOT NULL
@@ -142,7 +142,7 @@ def list_post_exit_positions(*, db_path=DB_PATH):
                  AND underlying_symbol IS NOT NULL''')]
 
 
-def resolve_post_exit_returns(position_id, bars, *, checked_on, sessions=None, db_path=DB_PATH):
+def resolve_post_exit_returns(position_id, bars, *, checked_on, sessions=None, db_path=None):
     """Returns are close-to-close underlying returns, counted in observed exchange sessions.
 
     Daily provider bars supply the session calendar; never substitute weekdays for holidays.
@@ -171,7 +171,7 @@ def resolve_post_exit_returns(position_id, bars, *, checked_on, sessions=None, d
         return bool(values)
 
 
-def exit_attribution_report(*, db_path=DB_PATH):
+def exit_attribution_report(*, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute('''SELECT primary_exit_reason, mfe_option, realized_pnl_pct FROM position_outcomes
@@ -188,7 +188,7 @@ def exit_attribution_report(*, db_path=DB_PATH):
             for reason, group in groups.items()]
 
 
-def resolve_position_benchmarks(position_id, histories, *, checked_on, db_path=DB_PATH):
+def resolve_position_benchmarks(position_id, histories, *, checked_on, db_path=None):
     """Attribute holding-period daily-close returns; preserve the exact source bars.
 
     Residual is underlying minus sector (or SPY when no sector is mapped), not
@@ -229,7 +229,7 @@ def resolve_position_benchmarks(position_id, histories, *, checked_on, db_path=D
         return True
 
 
-def position_entry_context(option_symbol, *, db_path=DB_PATH):
+def position_entry_context(option_symbol, *, db_path=None):
     """Only associate exits with an unambiguous entry lifetime."""
     with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute('SELECT candidate_id, pipeline_version_json FROM position_outcomes '

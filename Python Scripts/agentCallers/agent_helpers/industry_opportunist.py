@@ -7,15 +7,12 @@ from datetime import datetime
 from typing import Any
 
 from agent_builders.opportunist_payload import build_opportunist_input
-from db_helpers import (
-    DB_PATH,
-    add_industry_opportunist_impact,
-    get_all_industries,
-    get_connection,
-    initialize_news_database,
-    mark_industry_opportunist_article_processed,
-)
-from db_helpers.market import ensure_sector_market_data
+from db_common import database_path, get_connection
+from news_db_modules.impacts import add_industry_opportunist_impact
+from market_db_modules.queries import get_all_industries
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from news_db_modules.processing import mark_industry_opportunist_article_processed
+from market_data.hydration import ensure_sector_market_data
 from agent_helpers.shared import ModelAnswer
 from agent_helpers.opportunist_support import (
     CURRENT_OPPORTUNIST_SCHEMA_VERSION,
@@ -98,7 +95,7 @@ def _sort_articles(deduped_articles: dict[int, dict[str, Any]]) -> list[dict[str
 def _filter_unprocessed_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return filter_unprocessed_articles(
         articles,
-        db_path=str(DB_PATH),
+        db_path=database_path(),
         table_name="industry_opportunist_article_processing",
         required_impact_fields=SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
         minimum_schema_version=CURRENT_OPPORTUNIST_SCHEMA_VERSION,
@@ -203,7 +200,7 @@ def save_industry_opportunist_batch_results(
         article_id = int(impact["article_id"])
         batch_impacts_by_article.setdefault(article_id, []).append(impact)
 
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         article_ids = [int(article["article_id"]) for article in article_batch]
         scoped_industry_ids = sorted({int(industry_id) for industry_id in valid_industry_ids})
         if article_ids and scoped_industry_ids:

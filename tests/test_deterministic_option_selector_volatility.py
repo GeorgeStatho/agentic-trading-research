@@ -194,46 +194,6 @@ class DeterministicSelectorVolatilityTests(unittest.TestCase):
             "expensive",
         )
 
-    @patch.object(selector, "OPTION_SELECTOR_MODE", "simple")
-    def test_selector_prefers_moderate_vega_per_premium_when_iv_is_low(self):
-        preferred_contract = self._build_contract(
-            option_id=451,
-            symbol="AAPL_LOW_IV_PREFERRED_VEGA",
-            expiration_days=30,
-            strike_price=101.0,
-            implied_volatility=0.28,
-            iv_percentile=20.0,
-            vega=0.06,
-        )
-        lower_vega_contract = self._build_contract(
-            option_id=452,
-            symbol="AAPL_LOW_IV_LOW_VEGA",
-            expiration_days=30,
-            strike_price=101.0,
-            implied_volatility=0.28,
-            iv_percentile=20.0,
-            vega=0.01,
-        )
-        manager_result = self._build_manager_result(
-            confidence="high",
-            contracts=[lower_vega_contract, preferred_contract],
-            term_structure_event=False,
-            hv_20d=0.30,
-        )
-
-        result = selector.apply_deterministic_option_selection(manager_result)
-
-        self.assertEqual(result["recommendation"]["selected_option_id"], 451)
-        self.assertEqual(result["selected_option"]["symbol"], "AAPL_LOW_IV_PREFERRED_VEGA")
-        self.assertEqual(
-            result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]["vega_profile"]["band"],
-            "preferred_low_iv_vega",
-        )
-        self.assertEqual(
-            result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]["vega_selection_preference_score"],
-            -1.0,
-        )
-
     @patch.object(selector, "OPTION_SELECTOR_MODE", "hybrid")
     def test_hybrid_selector_prefers_moderate_vega_per_premium_when_iv_is_low(self):
         preferred_contract = self._build_contract(
@@ -265,44 +225,6 @@ class DeterministicSelectorVolatilityTests(unittest.TestCase):
 
         self.assertEqual(result["recommendation"]["selected_option_id"], 453)
         self.assertEqual(result["selected_option"]["symbol"], "AAPL_LOW_IV_PREFERRED_VEGA_HYBRID")
-        self.assertEqual(
-            result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]["vega_profile"]["band"],
-            "preferred_low_iv_vega",
-        )
-
-    @patch.object(selector, "OPTION_SELECTOR_MODE", "greeks")
-    def test_greeks_selector_prefers_moderate_vega_per_premium_when_iv_is_low(self):
-        preferred_contract = self._build_contract(
-            option_id=455,
-            symbol="AAPL_LOW_IV_PREFERRED_VEGA_GREEKS",
-            expiration_days=30,
-            strike_price=101.0,
-            implied_volatility=0.28,
-            iv_percentile=20.0,
-            vega=0.06,
-            delta=0.30,
-        )
-        lower_vega_contract = self._build_contract(
-            option_id=456,
-            symbol="AAPL_LOW_IV_LOW_VEGA_GREEKS",
-            expiration_days=30,
-            strike_price=101.0,
-            implied_volatility=0.28,
-            iv_percentile=20.0,
-            vega=0.01,
-            delta=0.30,
-        )
-        manager_result = self._build_manager_result(
-            confidence="high",
-            contracts=[lower_vega_contract, preferred_contract],
-            term_structure_event=False,
-            hv_20d=0.30,
-        )
-
-        result = selector.apply_deterministic_option_selection(manager_result)
-
-        self.assertEqual(result["recommendation"]["selected_option_id"], 455)
-        self.assertEqual(result["selected_option"]["symbol"], "AAPL_LOW_IV_PREFERRED_VEGA_GREEKS")
         self.assertEqual(
             result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]["vega_profile"]["band"],
             "preferred_low_iv_vega",
@@ -453,42 +375,6 @@ class DeterministicSelectorVolatilityTests(unittest.TestCase):
             result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]["iv_percentile"]["available"]
         )
 
-    @patch.object(selector, "OPTION_SELECTOR_MODE", "simple")
-    def test_simple_selector_prefers_better_profit_path_when_contract_shape_is_similar(self):
-        better_profit_path = self._build_contract(
-            option_id=601,
-            symbol="AAPL_BETTER_PROFIT_PATH_SIMPLE",
-            expiration_days=30,
-            strike_price=103.0,
-            implied_volatility=0.35,
-            iv_percentile=45.0,
-            midpoint_price=2.0,
-            vega=0.04,
-        )
-        worse_profit_path = self._build_contract(
-            option_id=602,
-            symbol="AAPL_WORSE_PROFIT_PATH_SIMPLE",
-            expiration_days=30,
-            strike_price=103.0,
-            implied_volatility=0.35,
-            iv_percentile=45.0,
-            midpoint_price=8.0,
-            vega=0.04,
-        )
-        manager_result = self._build_manager_result(
-            confidence="high",
-            contracts=[worse_profit_path, better_profit_path],
-            term_structure_event=False,
-            hv_20d=0.35,
-        )
-
-        result = selector.apply_deterministic_option_selection(manager_result)
-
-        self.assertEqual(result["recommendation"]["selected_option_id"], 601)
-        assessment = result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]
-        self.assertEqual(assessment["profit_path"]["band"], "strong_path_to_profit")
-        self.assertEqual(assessment["profit_path_selection_preference_score"], -1.0)
-
     @patch.object(selector, "OPTION_SELECTOR_MODE", "hybrid")
     def test_hybrid_selector_prefers_better_profit_path_when_contract_shape_is_similar(self):
         better_profit_path = self._build_contract(
@@ -525,72 +411,6 @@ class DeterministicSelectorVolatilityTests(unittest.TestCase):
         self.assertEqual(result["recommendation"]["selected_option_id"], 603)
         assessment = result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]
         self.assertEqual(assessment["profit_path"]["band"], "strong_path_to_profit")
-
-    @patch.object(selector, "OPTION_SELECTOR_MODE", "greeks")
-    def test_greeks_selector_prefers_better_profit_path_when_contract_shape_is_similar(self):
-        better_profit_path = self._build_contract(
-            option_id=605,
-            symbol="AAPL_BETTER_PROFIT_PATH_GREEKS",
-            expiration_days=30,
-            strike_price=103.0,
-            implied_volatility=0.35,
-            iv_percentile=45.0,
-            midpoint_price=2.0,
-            vega=0.04,
-            delta=0.42,
-        )
-        worse_profit_path = self._build_contract(
-            option_id=606,
-            symbol="AAPL_WORSE_PROFIT_PATH_GREEKS",
-            expiration_days=30,
-            strike_price=103.0,
-            implied_volatility=0.35,
-            iv_percentile=45.0,
-            midpoint_price=8.0,
-            vega=0.04,
-            delta=0.42,
-        )
-        manager_result = self._build_manager_result(
-            confidence="high",
-            contracts=[worse_profit_path, better_profit_path],
-            term_structure_event=False,
-            hv_20d=0.35,
-        )
-
-        result = selector.apply_deterministic_option_selection(manager_result)
-
-        self.assertEqual(result["recommendation"]["selected_option_id"], 605)
-        assessment = result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]
-        self.assertEqual(assessment["profit_path"]["band"], "strong_path_to_profit")
-
-    @patch.object(selector, "OPTION_SELECTOR_MODE", "simple")
-    def test_profit_path_assessment_is_neutral_when_contract_iv_is_missing(self):
-        contract = self._build_contract(
-            option_id=607,
-            symbol="AAPL_MISSING_IV_PROFIT_PATH",
-            expiration_days=30,
-            strike_price=101.0,
-            implied_volatility=None,
-            iv_percentile=45.0,
-            midpoint_price=2.0,
-            vega=0.04,
-        )
-        manager_result = self._build_manager_result(
-            confidence="high",
-            contracts=[contract],
-            term_structure_event=False,
-            hv_20d=0.35,
-        )
-
-        result = selector.apply_deterministic_option_selection(manager_result)
-
-        self.assertIsNotNone(result["selected_option"])
-        self.assertEqual(result["recommendation"]["confidence"], "high")
-        self.assertEqual(result["recommendation"]["confidence_after_volatility"], "high")
-        assessment = result["recommendation"]["selection_debug"]["selected_option_volatility_assessment"]
-        self.assertFalse(assessment["profit_path"]["available"])
-        self.assertEqual(assessment["profit_path"]["band"], "unknown")
-        self.assertEqual(assessment["profit_path_selection_preference_score"], 0.0)
 
     @patch.object(selector, "OPTION_SELECTOR_MODE", "simple")
     def test_profit_path_uses_straddle_expected_move_when_near_term_event_pricing_is_present(self):

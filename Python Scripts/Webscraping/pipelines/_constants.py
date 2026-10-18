@@ -1,23 +1,3 @@
-COMPANY_NAME_SUFFIXES = {
-    "inc",
-    "incorporated",
-    "corp",
-    "corporation",
-    "co",
-    "company",
-    "plc",
-    "ltd",
-    "limited",
-    "lp",
-    "llc",
-    "sa",
-    "nv",
-    "se",
-    "holdings",
-    "holding",
-    "group",
-}
-
 FOOL_EXCHANGE_SLUGS = {
     "NASDAQ": "nasdaq",
     "NMS": "nasdaq",

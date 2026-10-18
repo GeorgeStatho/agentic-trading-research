@@ -7,7 +7,7 @@ import json
 import logging
 
 from catalyst_models import timestamp
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 from market_db_modules.pricing_research import (
     load_histories, register_response_events, store_history, store_response, pricing_report,
 )
@@ -25,21 +25,37 @@ EVENT_BUDGET = 250
 FORWARD_BUDGET = 250
 
 
-def fetch_response_history(symbol, timeframe):
+def fetch_response_history(symbol, timeframe, *, period='1mo'):
     if timeframe == '1d':
         return fetch_regime_history(symbol)
     if yf is None or REQUEST_HANDLER is None:
         raise RuntimeError('No hourly history provider available')
     ticker = REQUEST_HANDLER.run(yf.Ticker, symbol, _context=f'Ticker({symbol})')
     history = REQUEST_HANDLER.run(
-        lambda: ticker.history(period='1mo', interval='1h', auto_adjust=False, prepost=False),
-        _context=f'history({symbol},1mo,1h)',
+        lambda: ticker.history(period=period, interval='1h', auto_adjust=False, prepost=False),
+        _context=f'history({symbol},{period},1h)',
     )
     if history is None or history.empty:
         raise RuntimeError(f'No hourly history returned for {symbol}')
     return 'yfinance', [{'bar_at': str(at), 'close': row['Close'], 'open': row.get('Open'),
                          'high': row.get('High'), 'low': row.get('Low'), 'volume': row.get('Volume')}
                         for at, row in history.iterrows()]
+
+
+def store_fetched_history(symbol, timeframe, fetcher, *, as_of, db_path):
+    """Fetch one series and cache only bars completed by `as_of`; errors are reported, not raised."""
+    try:
+        provider, bars = fetcher(symbol, timeframe)
+        valid = []
+        for bar in bars:
+            end = completed_at({**bar, 'timeframe': timeframe})
+            if positive(bar.get('close')) and end and end <= as_of:
+                valid.append({**bar, 'bar_at': timestamp(bar['bar_at']).isoformat(), 'available_at': end.isoformat()})
+        store_history(symbol, valid, provider=provider, timeframe=timeframe, captured_at=as_of, db_path=db_path)
+        return {'provider': provider, 'bars': len(valid), 'status': 'ok' if valid else 'empty'}
+    except Exception as exc:
+        LOGGER.warning('Catalyst history unavailable for %s %s: %s', symbol, timeframe, exc)
+        return {'status': 'error', 'error': str(exc)}
 
 
 def refresh_universe_history(*, as_of, policy, fetcher, db_path):
@@ -49,6 +65,9 @@ def refresh_universe_history(*, as_of, policy, fetcher, db_path):
         universe.update(benchmarks)
         # Research-route thesis outcomes are measured on the same cached history.
         universe.update(research_outcome_symbols(db_path=db_path))
+        # Traded underlyings too, so the news-lag report prices publish/entry/exit from hourly bars.
+        universe.update(row[0] for row in conn.execute(
+            'SELECT DISTINCT underlying_symbol FROM option_trade_executions WHERE underlying_symbol IS NOT NULL'))
         if universe:
             universe.add('SPY')
             benchmarks.add('SPY')
@@ -57,20 +76,8 @@ def refresh_universe_history(*, as_of, policy, fetcher, db_path):
     # Oldest attempt first prevents a large alphabetical universe starving later names.
     selected = sorted(eligible, key=lambda symbol: (attempts.get(symbol, ''), symbol not in benchmarks, symbol))[:policy.symbol_budget]
     for symbol in selected:
-        details = {}
-        for timeframe in ('1d', '1h'):
-            try:
-                provider, bars = fetcher(symbol, timeframe)
-                valid = []
-                for bar in bars:
-                    end = completed_at({**bar, 'timeframe': timeframe})
-                    if positive(bar.get('close')) and end and end <= as_of:
-                        valid.append({**bar, 'bar_at': timestamp(bar['bar_at']).isoformat(), 'available_at': end.isoformat()})
-                store_history(symbol, valid, provider=provider, timeframe=timeframe, captured_at=as_of, db_path=db_path)
-                details[timeframe] = {'provider': provider, 'bars': len(valid), 'status': 'ok' if valid else 'empty'}
-            except Exception as exc:
-                LOGGER.warning('Catalyst history unavailable for %s %s: %s', symbol, timeframe, exc)
-                details[timeframe] = {'status': 'error', 'error': str(exc)}
+        details = {timeframe: store_fetched_history(symbol, timeframe, fetcher, as_of=as_of, db_path=db_path)
+                   for timeframe in ('1d', '1h')}
         with closing(get_connection(db_path)) as conn, conn:
             conn.execute('''INSERT INTO pricing_history_refreshes VALUES (?, ?, ?, ?)
                 ON CONFLICT(symbol) DO UPDATE SET attempted_at=excluded.attempted_at,
@@ -128,7 +135,7 @@ def capture_forward_returns(*, as_of, db_path):
                          (move * sign, move, response['outcome_at'], row['candidate_id']))
 
 
-def collect_catalyst_responses(*, as_of=None, policy=None, fetcher=fetch_response_history, refresh=True, db_path=DB_PATH):
+def collect_catalyst_responses(*, as_of=None, policy=None, fetcher=fetch_response_history, refresh=True, db_path=None):
     now = as_of or datetime.now(timezone.utc)
     policy = policy or PricingPolicy.from_env()
     register_response_events(as_of=now, db_path=db_path)

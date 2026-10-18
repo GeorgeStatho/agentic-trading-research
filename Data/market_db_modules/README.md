@@ -1,6 +1,6 @@
 # Market DB Modules
 
-This folder contains the internal implementation modules for [`market_db.py`](../market_db.py).
+This folder contains the market persistence modules. Callers import from them directly; there is no facade.
 
 ## Structure
 
@@ -17,6 +17,6 @@ This folder contains the internal implementation modules for [`market_db.py`](..
 
 ## Import guidance
 
-- External callers should keep importing from `market_db`.
-- Modules in this folder are internal implementation details and use package-relative imports.
-- If you add a new public helper, export it from [`market_db.py`](../market_db.py) to preserve the stable facade.
+- Import from the owning module, e.g. `market_db_modules.queries`.
+- Modules in this folder use package-relative imports.
+- Store functions take `db_path=None`, meaning the current database (`db_common.current_database()`). Do not add a re-export module.

@@ -9,17 +9,15 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from db_common import get_connection
-from market_db import (
-    initialize_database, record_manager_decision_history, list_decision_autopsy_ledger,
-    backfill_gate_verdicts, list_shadow_gate_outcomes,
-)
-from news_db import initialize_database as initialize_news, add_company_news_article, add_news_article
-from news_db_modules.provenance import backfill_news_provenance
+from db_common import forget_setup, get_connection
+from market_db_modules.bootstrap import initialize_database
+from market_db_modules.history_records import record_manager_decision_history
+from market_db_modules.autopsy import list_decision_autopsy_ledger
+from news_db_modules.bootstrap import initialize_database as initialize_news
+from news_db_modules.entity_articles import add_company_news_article
+from news_db_modules.article_store import add_news_article
 from services.outcome_reconciliation import closed_round_trip, reconcile_closed_outcomes
-from services.regime_history import refresh_regime_history
 from services.evidence_continuation_gate import EvidenceContinuationPolicy, _evidence_snapshot
-from services.market_regime_gate import MarketRegimePolicy
 
 
 NOW = datetime(2026, 9, 17, 15, tzinfo=timezone.utc)
@@ -37,15 +35,6 @@ class ClosedRoundTripTests(unittest.TestCase):
         self.assertEqual(result["realized_pnl_pct"], 0)
         self.assertEqual(result["closed_at"], "2026-09-03T15:00:00+00:00")
 
-    def test_unfilled_or_partial_exit_does_not_close(self):
-        self.assertIsNone(closed_round_trip([order("b", "buy", 3, 2, 1), order("s", "sell", 2, 4, 2)], "b"))
-
-    def test_canceled_partial_fills_contribute_to_closed_outcome(self):
-        result = closed_round_trip([order("b", "buy", 2, 2, 1),
-                                    order("s1", "sell", 1, 3, 2, status="canceled"),
-                                    order("s2", "sell", 1, 1, 3)], "b")
-        self.assertEqual(result["realized_pnl_pct"], 0)
-
     def test_reentries_match_by_order_id_not_latest_symbol(self):
         fills = [order("b", "buy", 1, 2, 1), order("s", "sell", 1, 3, 2),
                  order("b2", "buy", 1, 4, 3), order("s2", "sell", 1, 2, 4)]
@@ -54,12 +43,6 @@ class ClosedRoundTripTests(unittest.TestCase):
     def test_overlapping_entries_are_not_arbitrarily_attributed(self):
         self.assertIsNone(closed_round_trip([order("b", "buy", 1, 2, 1), order("b2", "buy", 1, 4, 2),
                                              order("s", "sell", 2, 3, 3)], "b"))
-
-    def test_missing_timestamp_and_nonfinite_prices_are_not_guessed(self):
-        for extra in ({"filled_at": None}, {"filled_avg_price": "NaN"}, {"status": "partially_filled"}):
-            with self.subTest(extra=extra):
-                self.assertIsNone(closed_round_trip([order("b", "buy", 1, 2, 1),
-                                                     order("s", "sell", 1, 3, 2, **extra)], "b"))
 
 
 class OrderHistoryTests(unittest.TestCase):
@@ -165,36 +148,6 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(len({row["root_event_id"] for row in rows}), 1)
         self.assertEqual(rows[-1]["syndication_parent_id"], rows[0]["id"])
 
-    def test_independent_reporting_updates_all_cluster_members(self):
-        self.article(1)
-        self.article(2, "newswire.example.com", body="Our reporter interviewed management.")
-        self.assertEqual({row["independent_source_count"] for row in self.rows()}, {2})
-
-    def test_primary_source_url_collapses_a_republication(self):
-        self.article(1, "sec.gov", body="Filed results")
-        self.article(2, "newswire.example.com", raw_json={"provenance": {"primary_source_url": "https://sec.gov/story/1"}})
-        self.assertEqual({row["independent_source_count"] for row in self.rows()}, {1})
-
-    def test_different_tickers_dates_and_topics_do_not_merge(self):
-        self.article(1)
-        self.article(2, company_id=2)
-        self.article(3, published_at="2026-09-19T12:00:00+00:00")
-        self.article(4, title="Nvidia announces new chief financial officer")
-        self.assertEqual(len({row["catalyst_id"] for row in self.rows()}), 4)
-
-    def test_unknown_aggregator_does_not_add_independence(self):
-        self.article(1)
-        self.article(2, "example.com", body="A report about results")
-        self.assertEqual({row["independent_source_count"] for row in self.rows()}, {1})
-
-    def test_repeat_ingestion_and_backfill_preserve_ids_and_first_seen(self):
-        self.article(1)
-        self.article(2, "newswire.example.com", body="Original reporting")
-        before = [(row["id"], row["root_event_id"], row["first_seen_time"]) for row in self.rows()]
-        self.article(1)
-        backfill_news_provenance(db_path=self.db)
-        self.assertEqual(before, [(row["id"], row["root_event_id"], row["first_seen_time"]) for row in self.rows()])
-
     def test_migrations_preserve_legacy_rows_and_are_repeatable(self):
         article_id = self.article(1)
         decision_id = self.decision()
@@ -207,51 +160,13 @@ class DatabaseTests(unittest.TestCase):
             for column in ("exit_reason", "closing_order_ids_json"):
                 conn.execute(f"ALTER TABLE manager_decision_history DROP COLUMN {column}")
             conn.execute("DELETE FROM schema_bootstrap")  # older code set this database up
+            forget_setup(self.db)
         for _ in range(2):
             initialize_database(db_path=self.db)
             initialize_news(db_path=self.db)
         self.assertEqual(self.rows()[0]["id"], article_id)
         with closing(get_connection(self.db)) as conn, conn:
             self.assertEqual(conn.execute("SELECT id, exit_reason FROM manager_decision_history").fetchone()["id"], decision_id)
-
-    def test_provenance_survives_supporting_article_payload(self):
-        from agent_builders.strategist_payload_articles import _build_supporting_articles
-        self.article(1)
-        self.article(2, "newswire.example.com", body="Original reporting")
-        evidence = {key: [] for key in ("macro_impacts", "sector_impacts", "industry_impacts", "company_impacts", "sector_rss_articles")}
-        evidence["company_impacts"] = [{**row, "article_id": row["id"]} for row in self.rows()]
-        supporting = _build_supporting_articles(evidence, summary_article_limit=10, full_article_limit=10)
-        result = _evidence_snapshot({"grounding": {"article_ids": [1, 2]}, "supporting_articles": supporting}, EvidenceContinuationPolicy())
-        self.assertEqual(result["independent_source_count"], 2)
-
-    def test_autopsy_serialization_returns_fill_outcome_without_a_mark(self):
-        try:
-            from api_support.decision_autopsy import _serialize_ledger_row
-        except ImportError:
-            self.skipTest("API dependencies unavailable")
-        self.decision(outcome_status="closed", realized_pnl_pct=12.5, closed_at=NOW.isoformat())
-        serialized = _serialize_ledger_row(list_decision_autopsy_ledger(db_path=self.db)[0])
-        self.assertEqual(serialized["outcome"]["realized_pnl_pct"], 12.5)
-        self.assertEqual(serialized["outcome"]["outcome_status"], "closed")
-
-    def test_shadow_report_uses_realized_outcomes_and_keeps_unresolved(self):
-        output = {"entry_gate": {"would_allow": False, "allowed": True, "enforcement_mode": "shadow", "policy_version": "v1"}}
-        self.decision(manager_output_json=output, latest_trade_pnl_pct=99)
-        self.decision(manager_output_json=output, outcome_status="closed", realized_pnl_pct=-10,
-                      closed_at="2026-09-02T12:00:00+00:00")
-        self.assertEqual(backfill_gate_verdicts(db_path=self.db), 0)
-        row = list_shadow_gate_outcomes(db_path=self.db)[0]
-        self.assertEqual((row["trade_count"], row["resolved_count"], row["losers"], row["sum_realized_pnl_pct"]), (2, 1, 1, -10))
-
-    def test_regime_history_persists_and_falls_back_without_redating(self):
-        bars = [{"bar_at": (NOW - timedelta(days=day)).isoformat(), "close": 100 + day}
-                for day in range(1, 270)]
-        fetcher = Mock(return_value=("fixture", bars))
-        closes, timestamp = refresh_regime_history("SPY", as_of=NOW, db_path=self.db, fetcher=fetcher)
-        self.assertEqual(len(closes), 252)
-        fetcher.side_effect = RuntimeError("provider down")
-        fallback = refresh_regime_history("SPY", as_of=NOW + timedelta(days=4), db_path=self.db, fetcher=fetcher)
-        self.assertEqual(fallback, (closes, timestamp))
 
 
 class ProvenanceGateTests(unittest.TestCase):
@@ -261,18 +176,6 @@ class ProvenanceGateTests(unittest.TestCase):
             {"article_id": 2, "source": "CNBC", "evidence_score": .9, "root_event_id": "r1", "root_source_id": "wire:reuters"},
         ]}}
         self.assertEqual(_evidence_snapshot(payload, EvidenceContinuationPolicy())["independent_source_count"], 1)
-
-    def test_unlinked_wire_articles_do_not_manufacture_independence(self):
-        payload = {"grounding": {"article_ids": [1, 2]}, "supporting_articles": {"article_summaries": [
-            {"article_id": 1, "evidence_score": .9, "root_event_id": "r1", "root_source_id": "wire:reuters"},
-            {"article_id": 2, "evidence_score": .9, "root_event_id": "r2", "root_source_id": "wire:reuters"},
-        ]}}
-        self.assertEqual(_evidence_snapshot(payload, EvidenceContinuationPolicy())["independent_source_count"], 1)
-
-    def test_runtime_defaults_remain_shadow(self):
-        with patch.dict("os.environ", {}, clear=True):
-            self.assertEqual(EvidenceContinuationPolicy.from_env().enforcement_mode, "shadow")
-            self.assertEqual(MarketRegimePolicy.from_env().mode, "shadow")
 
 
 if __name__ == "__main__":

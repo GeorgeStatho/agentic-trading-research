@@ -82,7 +82,7 @@ def _symbol_move_since(symbol: str, *, since: datetime) -> dict[str, Any]:
 
 def _resolve_sector_etf_symbol(thesis: dict[str, Any]) -> str:
     from agent_helpers.market_context.equities import _resolve_company_sector_etf
-    from db_helpers.market import get_company_sector_key
+    from market_db_modules.portfolio_risk import get_company_sector_key
 
     sector_key = get_company_sector_key(
         symbol=str(thesis.get("symbol") or "").strip().upper(),
@@ -124,7 +124,7 @@ def _news_since_entry(
         return []
 
     from agent_helpers.shared import published_at_in_window
-    from db_helpers.news import list_company_news_articles
+    from news_db_modules.queries import list_company_news_articles
 
     articles = list_company_news_articles(company_id)
     seen_keys: set[str] = set()

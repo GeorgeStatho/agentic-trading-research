@@ -8,7 +8,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import json
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from .evidence_thesis import TERMINAL_RESEARCH_STATUSES
 from .foundation_store import digest
 
@@ -126,7 +126,7 @@ def _research_route_summary(conn):
     return {"sessions_awaiting_thesis": pending, "unresolved_reservations": reserved}
 
 
-def evidence_thesis_report(*, days=7, route=None, now=None, db_path=DB_PATH):
+def evidence_thesis_report(*, days=7, route=None, now=None, db_path=None):
     """Summarise the last ``days`` days (all history when ``days`` is 0)."""
     if type(days) is not int or days < 0:
         raise ValueError("days must be a non-negative integer")

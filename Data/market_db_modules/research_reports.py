@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import json
 from statistics import mean
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from services.research_contract import STRATEGIES, canonical, direction, fingerprint, utc
 from services.research_promotion import GATE_BLOCKS, policy_hash, source_hash
 from services.shadow_portfolio import evaluate_gate, expectancy
@@ -67,7 +67,7 @@ def strategy_table(rows):
     return result, paired
 
 
-def monthly_report(run_id, month, *, as_of=None, db_path=DB_PATH):
+def monthly_report(run_id, month, *, as_of=None, db_path=None):
     # Reject malformed months before they can silently select an empty cohort.
     if month != 'all':
         datetime.strptime(month, '%Y-%m')
@@ -161,7 +161,7 @@ def _promotion_report(conn, report_id):
     return report, run
 
 
-def promote_gate(report_id, stage, *, db_path=DB_PATH):
+def promote_gate(report_id, stage, *, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('BEGIN IMMEDIATE')
         report, run = _promotion_report(conn, report_id)
@@ -176,7 +176,7 @@ def promote_gate(report_id, stage, *, db_path=DB_PATH):
     return {'stage': stage, 'report_id': report_id, 'sample_size': gate['n_evaluable'], 'gate_value': gate['gate_value']}
 
 
-def promote_champion(report_id, *, incumbent_report_id=None, db_path=DB_PATH):
+def promote_champion(report_id, *, incumbent_report_id=None, db_path=None):
     """Promote a tested production manifest; baseline models remain zero-capital."""
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('BEGIN IMMEDIATE')

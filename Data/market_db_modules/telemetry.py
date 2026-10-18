@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, clean_text, get_connection, json_text
+from db_common import clean_text, get_connection, json_text
 from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
 
@@ -14,7 +14,7 @@ from .shared import coerce_int, normalize_timestamp
 def record_telemetry_installation(
     payload: dict[str, Any],
     *,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
@@ -102,7 +102,7 @@ def record_telemetry_installation(
 def get_telemetry_summary(
     *,
     project: str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> dict[str, Any]:
     initialize_database(db_path=db_path)
     normalized_project = clean_text(project)

@@ -33,21 +33,11 @@ Stock-trading-experiment/
 Strategist thesis
 Trade economics
 Manager a
-│   ├── db.py
 │   ├── db_common.py
-│   ├── market_db.py
-│   ├── news_db.py
 │   ├── market_schema.sql
 │   ├── news_schema.sql
-│   ├── queryDB.py
 │   ├── macro_events.json
-│   ├── logs/
-│   └── db_helpers/
-│       ├── __init__.py
-│       ├── common.py
-│       ├── market.py
-│       ├── news.py
-│       └── queries.py
+│   └── logs/
 ├── Python Scripts/
 │   ├── main.py
 │   ├── MarketData.py
@@ -69,8 +59,6 @@ Manager a
 │   │   ├── engine/
 │   │   │   ├── article_scraper.py
 │   │   │   ├── article_extraction.py
-│   │   │   ├── listing_page_helper.py
-│   │   │   ├── Normalization.py
 │   │   │   └── playwright_runner.py
 │   │   ├── extractors/
 │   │   │   ├── barrons.py
@@ -99,9 +87,9 @@ Manager a
 │   │   │   ├── _internal.py
 │   │   │   ├── _orchestration.py
 │   │   │   ├── _regionNewsPipeline.py
-│   │   │   ├── _sector_rss.py
-│   │   │   └── _shared.py
+│   │   │   └── _sector_rss.py
 │   │   └── market_data/
+│   │       ├── hydration.py
 │   │       ├── yfinance_client.py
 │   │       ├── yFinanceData.py
 │   │       ├── yFinanceNews.py
@@ -155,28 +143,25 @@ Manager a
 
 ### Data Layer
 
-- `Data/db.py`
-  - Thin re-export layer for both `market_db.py` and `news_db.py`.
 - `Data/db_common.py`
-  - Shared SQLite connection and schema helpers.
-- `Data/market_db.py`
-  - Market-side persistence for sectors, industries, companies, rankings, and snapshots.
-- `Data/news_db.py`
+  - Shared SQLite connection and schema helpers, plus the swappable current database (`current_database()`, `use_database(path)`, `forget_setup()`).
+- `Data/market_db_modules/`
+  - Market-side persistence for sectors, industries, companies, rankings, and snapshots. `queries.py` holds `get_all_sectors/industries/companies`.
+- `Data/news_db_modules/`
   - News-side persistence for articles, macro events, impact tables, strategist summaries, and processing markers.
-- `Data/db_helpers/`
-  - Stable import surface for the rest of the app.
-  - `market.py` re-exports market DB operations.
-  - `news.py` re-exports news DB operations.
-  - `queries.py` exposes common lookup functions like `get_all_companies()`.
+- `Python Scripts/Webscraping/market_data/hydration.py`
+  - yfinance `ensure_*_market_data` hydration of the market database.
+- `tests/db_fixtures.py`
+  - `temporary_database(test)`: gives a test its own current database.
 
 Mental model:
 
 ```text
 scripts / pipelines / agents
         ↓
-  db_helpers/*
+market_db_modules/* + news_db_modules/*
         ↓
- market_db.py + news_db.py
+     db_common.py
         ↓
      SQLite + schema.sql
 ```
@@ -219,7 +204,7 @@ extractors/* + engine/article_extraction.py
         ↓
 processing/news_normalization.py + processing/scoring.py
         ↓
-Data/news_db.py
+Data/news_db_modules/*
 ```
 
 Important note:
@@ -269,7 +254,7 @@ agent_stages/*
         ↓
 agent_helpers/*
         ↓
-agent_builders/* + db_helpers/*
+agent_builders/* + market_db_modules/* + news_db_modules/*
         ↓
 Ollama + SQLite + Alpaca
 ```
@@ -323,8 +308,8 @@ If you want to understand the repo quickly, these are the main starting points:
   - best place to understand current multi-stage agent orchestration
 - `Python Scripts/agentCallers/agent_stages/manager.py`
   - final decision-support stage
-- `Data/db_helpers/__init__.py`
-  - stable DB access surface
+- `Data/db_common.py`
+  - current database and connection handling
 
 
 ## 4. Dependency Map By Folder
@@ -332,11 +317,8 @@ If you want to understand the repo quickly, these are the main starting points:
 ### `Data/`
 
 ```text
-db_helpers/__init__.py
-  ├── common.py
-  ├── market.py -> market_db.py
-  ├── news.py -> news_db.py
-  └── queries.py
+market_db_modules/*, news_db_modules/*
+  └── db_common.py
 ```
 
 ### `Python Scripts/Webscraping/`
@@ -348,7 +330,7 @@ engine/*
   ↓
 extractors/* + processing/*
   ↓
-Data/news_db.py
+Data/news_db_modules/*
 ```
 
 ### `Python Scripts/agentCallers/`
@@ -364,7 +346,7 @@ agent_helpers/*
   ↓
 agent_builders/* + agent_analysis/*
   ↓
-db_helpers/* + Ollama + Alpaca
+market_db_modules/* + news_db_modules/* + Ollama + Alpaca
 ```
 
 
@@ -374,7 +356,7 @@ If you are onboarding to the current codebase, this order gives the clearest pic
 
 1. `README.md`
 2. `Python Scripts/Webscraping/README.md`
-3. `Data/db_helpers/__init__.py`
+3. `Data/db_common.py`
 4. `Python Scripts/agentCallers/README.md`
 5. `Python Scripts/agentCallers/agent_pipeline/main.py`
 6. `Python Scripts/agentCallers/agent_stages/strategist.py`
@@ -594,4 +576,7 @@ the local ones are reported as `selector_config_mismatch`. `--fetch-missing-bars
 traded symbols that have none. `--min-hours-between N` replays a company's decision only when it is N hours
 after the last one replayed for it, chosen by time alone; compare it with a `stored` run using the same N. `--replay-strategist` has the model answer
 each decision's frozen strategist input too (`strategist_runs`, by candidate) and hands that answer to
-the manager exactly as production does; strategist answers are cached separately.
+the manager exactly as production does; strategist answers are cached separately. `--score-direction`
+(`services/llm_direction_score.py`) grades the same replayed answers by the stock's return over the next 5 and 10
+trading-day closes instead of trading options, so decisions from before the bucket-chain snapshots (frozen inputs
+start 2026-07-21) can be compared too; it reports how every scored stock moved as the bar a model must beat.

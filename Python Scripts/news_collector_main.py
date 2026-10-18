@@ -18,14 +18,10 @@ if __name__ == "__main__":
     load_process_settings()
 
 from agent_pipeline.main import run_news_collection_pipeline
-from db_helpers import (
-    ensure_all_sector_market_data,
-    get_all_companies,
-    get_all_industries,
-    get_all_sectors,
-    initialize_market_database,
-    initialize_news_database,
-)
+from market_data.hydration import ensure_all_sector_market_data
+from market_db_modules.queries import get_all_companies, get_all_industries, get_all_sectors
+from market_db_modules.bootstrap import initialize_database as initialize_market_database
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from services.startup_readiness import StartupReadinessChecker
 from services.telemetry import send_startup_ping_async
 

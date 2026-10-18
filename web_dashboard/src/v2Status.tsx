@@ -1,5 +1,6 @@
 import ForwardEvaluationPanel from './forwardEvaluation.tsx';
 import { formatCurrency, formatDate } from './format';
+import PageHeader from './pageHeader';
 import { usePolledResource } from './useRemoteResource';
 import { V2SafeguardCounts, V2SafeguardNotices } from './v2Safeguards.tsx';
 import { getV2Status } from './v2StatusApi';
@@ -192,13 +193,10 @@ function V2StatusPage({ demoMode = false }: { demoMode?: boolean }) {
   if (demoMode) {
     return (
       <main className="v2-status">
-        <section className="v2-status__hero">
-          <div>
-            <p>V2 Rollout · demo</p>
-            <h1>Forward evaluation walkthrough</h1>
-            <span>Only the forward-evaluation panel has a demo; live controls and runs are not shown.</span>
-          </div>
-        </section>
+        <PageHeader
+          title="Forward evaluation walkthrough"
+          description="Demo: only the forward-evaluation panel has one; live controls and runs are not shown."
+        />
         <section className="forward-eval__demo">
           Seeded fictional walkthrough. No cohort, challenger, comparison or order exists behind these numbers.
         </section>
@@ -214,17 +212,11 @@ function LiveV2StatusPage() {
 
   return (
     <main className="v2-status">
-      <section className="v2-status__hero">
-        <div>
-          <p>V2 Rollout</p>
-          <h1>What the new architecture is doing</h1>
-          <span>
-            Every V2 control stays in shadow until a counterfactual proof, bound to its current thresholds and source,
-            says otherwise. This page reads that state; it changes nothing.
-          </span>
-        </div>
-        {payload ? <small>As of {formatDate(payload.as_of, { placeholder: 'unknown' })}</small> : null}
-      </section>
+      <PageHeader
+        title="V2 rollout"
+        description="Every V2 control stays in shadow until a counterfactual proof, bound to its current thresholds and source, says otherwise. Read-only."
+        meta={payload ? `As of ${formatDate(payload.as_of, { placeholder: 'unknown' })}` : null}
+      />
 
       {error ? <section className="v2-status__empty">{error}</section> : null}
       {!payload && !error ? <section className="v2-status__empty">Reading the current V2 modes and evidence…</section> : null}

@@ -4,7 +4,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 
 
 def _upsert_related_record(
@@ -12,7 +12,7 @@ def _upsert_related_record(
     key_columns: tuple[str, ...],
     payload_columns: tuple[str, ...],
     values: tuple[object, ...],
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     extra_update_sql: str | None = None,
     conn=None,
 ) -> int:
@@ -76,7 +76,7 @@ def add_world_news_sector_impact(
     confidence: str | None = None,
     reason: str | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _upsert_related_record(
@@ -95,7 +95,7 @@ def add_us_news_sector_impact(
     confidence: str | None = None,
     reason: str | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _upsert_related_record(
@@ -116,7 +116,7 @@ def add_industry_opportunist_impact(
     impact_magnitude: str | None = None,
     reason: str | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _upsert_related_record(
@@ -145,7 +145,7 @@ def add_company_opportunist_impact(
     impact_magnitude: str | None = None,
     reason: str | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _upsert_related_record(
@@ -174,7 +174,7 @@ def add_sector_opportunist_impact(
     impact_magnitude: str | None = None,
     reason: str | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _upsert_related_record(
@@ -204,7 +204,7 @@ def add_strategist_company_summary(
     risks: Any | None = None,
     model: str | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _upsert_related_record(

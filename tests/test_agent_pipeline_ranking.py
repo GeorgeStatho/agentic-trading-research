@@ -4,11 +4,6 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from agent_analysis.industry_interest import (  # noqa: E402
-    getIndustryScores,
-    getTopThreeIndustries,
-    get_processed_industry_interest,
-)
 from agent_analysis.sector_interest import (  # noqa: E402
     getSectorScores,
     getTopThreeSectors,
@@ -102,86 +97,6 @@ class SectorRankingTests(VerboseTestCase):
         self.assertNotIn("medium", scores)
         self.assertEqual(top_three, [("technology", 1), ("energy", 1), ("healthcare", 1)])
         self.log_pass("sector ranking counted only high-confidence impacts when building scores and top-three output")
-
-
-class IndustryRankingTests(VerboseTestCase):
-    @patch("agent_analysis.industry_interest.initialize_news_database")
-    @patch("agent_analysis.industry_interest.find_sector")
-    @patch("agent_analysis.industry_interest.get_connection")
-    def test_processed_industry_interest_respects_sector_and_window(
-        self,
-        mock_get_connection,
-        mock_find_sector,
-        _mock_init_db,
-    ):
-        mock_find_sector.return_value = {"id": 19, "sector_key": "technology", "name": "Technology"}
-        rows = [
-            {
-                "article_id": 201,
-                "industry_id": 7,
-                "confidence": "high",
-                "impact_direction": "positive",
-                "impact_magnitude": "major",
-                "reason": "Recent semis impact",
-                "impact_created_at": "2026-05-13T12:00:00+00:00",
-                "industry_key": "semiconductors",
-                "industry_name": "Semiconductors",
-                "sector_id": 19,
-                "sector_key": "technology",
-                "sector_name": "Technology",
-                "published_at": "2026-05-13T12:00:00+00:00",
-                "processed_at": "2026-05-13T12:05:00+00:00",
-                "model": "test-model",
-            },
-            {
-                "article_id": 202,
-                "industry_id": 8,
-                "confidence": "high",
-                "impact_direction": "positive",
-                "impact_magnitude": "major",
-                "reason": "Old software impact",
-                "impact_created_at": "2026-05-02T12:00:00+00:00",
-                "industry_key": "software",
-                "industry_name": "Software",
-                "sector_id": 19,
-                "sector_key": "technology",
-                "sector_name": "Technology",
-                "published_at": "2026-05-02T12:00:00+00:00",
-                "processed_at": "2026-05-02T12:05:00+00:00",
-                "model": "test-model",
-            },
-        ]
-        mock_get_connection.return_value = _FakeConnection(rows)
-
-        processed = get_processed_industry_interest(
-            "technology",
-            end_time=datetime(2026, 5, 13, 13, 0, tzinfo=timezone.utc),
-            max_age_days=3,
-        )
-
-        self.assertEqual(len(processed), 1)
-        self.assertEqual(processed[0]["industry_key"], "semiconductors")
-        self.log_pass("industry-interest loader respected both the target sector and the recency window")
-
-    @patch("agent_analysis.industry_interest.get_processed_industry_interest")
-    def test_industry_scores_and_top_three_only_count_high_confidence(self, mock_processed_interest):
-        mock_processed_interest.return_value = [
-            {"industry_key": "semiconductors", "confidence": "high"},
-            {"industry_key": "software", "confidence": "high"},
-            {"industry_key": "software", "confidence": "medium"},
-            {"industry_key": "hardware", "confidence": "high"},
-            {"industry_key": "services", "confidence": "high"},
-        ]
-
-        scores = getIndustryScores("technology")
-        top_three = getTopThreeIndustries(scores)
-
-        self.assertEqual(scores["software"], 1)
-        self.assertEqual(
-            top_three,
-            [("semiconductors", 1), ("software", 1), ("hardware", 1)],
-        )
-        self.log_pass("industry ranking counted only high-confidence rows when computing scores and top-three output")
 
 
 if __name__ == "__main__":

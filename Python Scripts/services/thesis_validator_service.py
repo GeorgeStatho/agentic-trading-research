@@ -131,7 +131,7 @@ class ThesisValidatorService:
         submit_full_exit: Callable[..., Any] | None,
         submit_partial_exit: Callable[..., Any] | None,
     ) -> dict[str, Any] | None:
-        from db_helpers.market import (
+        from market_db_modules.thesis_validator import (
             get_open_position_thesis_for_option_symbol,
             get_thesis_validation_run_for_date,
             record_thesis_validation_run,
@@ -268,7 +268,7 @@ class ThesisValidatorService:
         verdict: dict[str, Any] | None,
         position_summary: dict[str, Any],
     ) -> dict[str, Any]:
-        from db_helpers.market import count_thesis_validator_exits_for_date
+        from market_db_modules.thesis_validator import count_thesis_validator_exits_for_date
 
         arbiter = decide_thesis_arbiter_action(
             rules_exit_active=False,

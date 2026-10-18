@@ -3,7 +3,7 @@ from contextlib import closing
 from copy import deepcopy
 import json
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from market_db_modules.company_evidence import get_company_fact, get_evidence_package, record_evidence_package
 from market_db_modules.foundation_store import canonical, digest
 from market_db_modules.research_foundation import get_discovery_item, get_research_session
@@ -15,7 +15,7 @@ from services.discovery_admission import evaluate_discovery_admission
 from services.discovery_policy import DiscoveryPolicy
 
 
-def prepare_research_continuations(*, limit, db_path=DB_PATH):
+def prepare_research_continuations(*, limit, db_path=None):
     """Idempotent recovery also handles a collector restart after saving its package."""
     with closing(get_connection(db_path)) as conn:
         requests = [dict(row) for row in conn.execute('''SELECT r.* FROM company_evidence_requests r

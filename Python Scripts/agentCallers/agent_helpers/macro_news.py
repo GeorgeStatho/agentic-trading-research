@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from agent_helpers.shared import ModelAnswer, parse_published_at
-from db_helpers import DB_PATH, get_all_sectors, get_connection
-from db_helpers import (
-    add_us_news_sector_impact,
-    add_world_news_sector_impact,
+from db_common import get_connection
+from market_db_modules.queries import get_all_sectors
+from news_db_modules.impacts import add_us_news_sector_impact, add_world_news_sector_impact
+from news_db_modules.processing import (
     mark_us_news_article_processed,
     mark_world_news_article_processed,
 )
@@ -49,7 +49,7 @@ def _load_unprocessed_macro_news_rows(news_scope: str) -> list[dict[str, Any]]:
     membership_table = config["membership_table"]
     processing_table = config["processing_table"]
 
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             f"""
             SELECT
@@ -138,7 +138,7 @@ def save_batch_results(
         article_id = int(pair["article_id"])
         batch_pairs_by_article.setdefault(article_id, []).append(pair)
 
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         for pair in pairs:
             impact_saver(
                 article_id=int(pair["article_id"]),

@@ -8,11 +8,9 @@ If `pipelines/` is where the orchestration lives, `core/` is where the basic reu
 
 The code in this folder is responsible for:
 
-- common article-link filtering rules
-- duplicate detection against the news database
 - recency checks
 - deterministic scoring helpers
-- failed-URL tracking
+- failed-URL recording
 - scrape log configuration
 
 ## Files
@@ -23,15 +21,8 @@ This is the main shared utility module for the news pipelines.
 
 Important responsibilities:
 
-- `filter_article_links(...)`
-  - takes raw discovered links from a crawled page
-  - keeps only links from allowed sources
-  - enforces source-specific article URL patterns
-  - skips previously failed URLs
-  - can skip already-saved article URLs
-
 - `is_recent_article(...)`
-  - checks whether an article publish time is inside the allowed age window
+  - checks whether an article publish time is inside the allowed age window; `pipelines/_link_policy.py` applies it to URL and stored dates, `pipelines/_article_follow.py` to the extracted date. The window is the per-source `max_article_age_days`, defaulting to `MAX_ARTICLE_AGE_DAYS`
 
 - `article_age_days(...)`
   - computes how old an article is in days
@@ -43,13 +34,8 @@ Important responsibilities:
 - `build_source_url(...)`
   - fills source URL templates with an encoded query string
 
-- `fetch_existing_article_by_url(...)`
-  - normalizes the URL
-  - looks it up in `news_articles`
-  - returns the existing stored article if present
-
-- `record_failed_url(...)`, `clear_failed_url(...)`, `should_skip_failed_url(...)`
-  - maintain the `failed_urls` tracking behavior
+- `record_failed_url(...)`, `clear_failed_url(...)`
+  - maintain the `failed_urls` rows; whether a failed URL is skipped is decided by `pipelines/_link_policy.py` (3 failures, or permanent)
 
 Important constants:
 
@@ -79,9 +65,9 @@ Typical flow:
 
 1. a pipeline crawls a source page
 2. it gets back many discovered links
-3. `filter_article_links(...)` removes obviously bad ones
-4. the pipeline checks the survivors for topic relevance
-5. article pages are fetched
+3. the pipeline keeps the relevant links
+4. `judge_links(...)` in `pipelines/_link_policy.py` gives every link a fetch, reuse or skip verdict
+5. the `fetch` articles are fetched
 6. `compute_article_scores(...)` builds the evidence-related fields
 7. failures are written through the failed-URL helpers
 

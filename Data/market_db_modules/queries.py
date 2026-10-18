@@ -6,11 +6,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, clean_text, get_connection
+from db_common import clean_text, get_connection
+from .loaders import ensure_sector_definitions
 from .shared import coerce_int, normalize_timestamp
 
 
-def list_companies_by_industry(industry_key: str, db_path: Path | str = DB_PATH) -> list[sqlite3.Row]:
+def list_companies_by_industry(industry_key: str, db_path: Path | str | None = None) -> list[sqlite3.Row]:
     with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
             """
@@ -28,7 +29,7 @@ def list_companies_by_industry(industry_key: str, db_path: Path | str = DB_PATH)
 def list_industry_company_rankings(
     industry_key: str,
     ranking_type: str,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[sqlite3.Row]:
     with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(
@@ -56,7 +57,7 @@ def list_company_price_snapshots(
     symbol: str,
     *,
     limit: int = 20,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[sqlite3.Row]:
     normalized_symbol = clean_text(symbol)
     if normalized_symbol is None:
@@ -94,7 +95,7 @@ def list_recent_manager_decision_history(
     limit: int = 20,
     within_days: int | None = None,
     include_expired_pnl: bool = False,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[sqlite3.Row]:
     normalized_symbol = clean_text(underlying_symbol)
     normalized_company_id = coerce_int(company_id)
@@ -180,7 +181,7 @@ def list_decision_expectancy_rows(
     *,
     within_days: int = 90,
     as_of: datetime | str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[sqlite3.Row]:
     """Return unmasked executed-decision outcomes for deterministic analytics."""
     normalized_as_of = normalize_timestamp(as_of)
@@ -229,7 +230,7 @@ def list_option_trade_executions(
     underlying_symbol: str | None = None,
     within_days: int | None = None,
     limit: int = 100,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> list[sqlite3.Row]:
     normalized_symbol = clean_text(underlying_symbol)
     query = """
@@ -284,3 +285,67 @@ def list_option_trade_executions(
     with closing(get_connection(db_path)) as conn, conn:
         rows = conn.execute(query, tuple(parameters)).fetchall()
     return rows
+
+
+def get_all_sectors(db_path: Path | str | None = None) -> list[dict]:
+    ensure_sector_definitions(db_path=db_path)
+    with closing(get_connection(db_path)) as conn, conn:
+        rows = conn.execute(
+            """
+            SELECT
+                id,
+                sector_key,
+                name
+            FROM sectors
+            ORDER BY name
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_all_industries(db_path: Path | str | None = None) -> list[dict]:
+    ensure_sector_definitions(db_path=db_path)
+    with closing(get_connection(db_path)) as conn, conn:
+        rows = conn.execute(
+            """
+            SELECT
+                i.id,
+                i.industry_key,
+                i.name,
+                i.symbol,
+                i.market_weight,
+                s.sector_key,
+                s.name AS sector_name
+            FROM industries AS i
+            JOIN sectors AS s ON s.id = i.sector_id
+            ORDER BY s.name, i.name
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_all_companies(db_path: Path | str | None = None) -> list[dict]:
+    ensure_sector_definitions(db_path=db_path)
+    with closing(get_connection(db_path)) as conn, conn:
+        rows = conn.execute(
+            """
+            SELECT
+                c.id,
+                c.symbol,
+                c.name,
+                c.rating,
+                c.market_weight,
+                c.raw_json,
+                i.id AS industry_id,
+                i.industry_key,
+                i.name AS industry_name,
+                s.id AS sector_id,
+                s.sector_key,
+                s.name AS sector_name
+            FROM companies AS c
+            JOIN industries AS i ON i.id = c.industry_id
+            JOIN sectors AS s ON s.id = i.sector_id
+            ORDER BY s.name, i.name, c.name
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]

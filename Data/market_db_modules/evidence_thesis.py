@@ -2,7 +2,7 @@
 from contextlib import closing
 import json
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from research_foundation_contracts import timestamp
 from .foundation_store import canonical, digest, insert_record, load_record
 from .research_runtime import ResearchBudgetExceeded, daily_reserved_cost
@@ -18,7 +18,7 @@ def evidence_thesis_id(record):
     return "thesis:legacy:" + digest(record)
 
 
-def record_evidence_thesis(record, *, db_path=DB_PATH):
+def record_evidence_thesis(record, *, db_path=None):
     data = json.loads(canonical({**record, "created_at": timestamp(record["created_at"])}))
     identity = evidence_thesis_id(data)
     data["evaluation_id"] = identity
@@ -32,11 +32,11 @@ def record_evidence_thesis(record, *, db_path=DB_PATH):
     return identity
 
 
-def get_evidence_thesis(evaluation_id, *, db_path=DB_PATH):
+def get_evidence_thesis(evaluation_id, *, db_path=None):
     return load_record(db_path, "evidence_thesis_checks", "evaluation_id", evaluation_id)
 
 
-def latest_strategist_thesis_check(candidate_id, *, db_path=DB_PATH):
+def latest_strategist_thesis_check(candidate_id, *, db_path=None):
     """The legacy-route thesis check written for a candidate, if Phase 4 ran for it."""
     if not candidate_id:
         return None
@@ -47,7 +47,7 @@ def latest_strategist_thesis_check(candidate_id, *, db_path=DB_PATH):
     return get_evidence_thesis(row["evaluation_id"], db_path=db_path) if row else None
 
 
-def pending_research_theses(*, limit, db_path=DB_PATH):
+def pending_research_theses(*, limit, db_path=None):
     """Terminal research sessions without a thesis check, oldest first."""
     placeholders = ",".join("?" for _ in TERMINAL_RESEARCH_STATUSES)
     with closing(get_connection(db_path)) as conn:
@@ -58,13 +58,13 @@ def pending_research_theses(*, limit, db_path=DB_PATH):
     return [row["session_id"] for row in rows]
 
 
-def research_thesis_reservation(session_id, *, db_path=DB_PATH):
+def research_thesis_reservation(session_id, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         row = conn.execute("SELECT * FROM research_thesis_progress WHERE session_id=?", (session_id,)).fetchone()
     return {**dict(row), "reservation": json.loads(row["reservation_json"])} if row else None
 
 
-def reserve_research_thesis(session_id, reservation, *, at, daily_calls, daily_cost_budget, db_path=DB_PATH):
+def reserve_research_thesis(session_id, reservation, *, at, daily_calls, daily_cost_budget, db_path=None):
     """Reserve one thesis call before dispatch, sharing the research daily cost budget."""
     day = timestamp(at)[:10]
     cost = reservation["cost_reserved_usd"]
@@ -82,7 +82,7 @@ def reserve_research_thesis(session_id, reservation, *, at, daily_calls, daily_c
     return day
 
 
-def charge_research_thesis_usage(day, extra_cost, *, db_path=DB_PATH):
+def charge_research_thesis_usage(day, extra_cost, *, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute("UPDATE research_thesis_allowances SET reserved_cost=reserved_cost+? WHERE day=?",
                      (extra_cost, day))

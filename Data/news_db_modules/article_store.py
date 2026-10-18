@@ -4,7 +4,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 from .provenance import update_article_provenance
 from .shared import (
     build_content_hash,
@@ -34,7 +34,7 @@ def add_news_article(
     factuality_score: float | None = None,
     evidence_score: float | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     normalized_url = normalize_url(source_url)

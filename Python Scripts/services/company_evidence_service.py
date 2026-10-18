@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import os
 from urllib.parse import urlparse
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.company_collection import (
     collection_state, get_issuer_mapping, save_collection_state, update_issuer_mapping,
@@ -21,7 +21,7 @@ from services.company_evidence_demand import enqueue_company_interest
 from services.research_lock import ResearchSessionBusy, research_session_lock
 
 
-def collect_company(company, adapters, policy, *, db_path=DB_PATH, clock=utc_now):
+def collect_company(company, adapters, policy, *, db_path=None, clock=utc_now):
     documents, gaps, outcomes = [], [], {}
     for adapter in adapters:
         state = collection_state(adapter.name, str(company['id']), db_path=db_path)
@@ -59,7 +59,7 @@ def collect_company(company, adapters, policy, *, db_path=DB_PATH, clock=utc_now
     return {'company_id': company['id'], 'symbol': company['symbol'], 'package_id': package_id, 'providers': outcomes}
 
 
-def collect_company_evidence(*, db_path=DB_PATH, policy=None, clock=utc_now, consensus_adapter=None):
+def collect_company_evidence(*, db_path=None, policy=None, clock=utc_now, consensus_adapter=None):
     policy = policy or CompanyEvidencePolicy.from_env()
     if not policy.enabled:
         return {'status': 'disabled', 'companies': []}

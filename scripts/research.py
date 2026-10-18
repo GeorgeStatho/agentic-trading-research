@@ -42,9 +42,13 @@ def main():
     outcomes = subparsers.add_parser('research-outcomes', help='research-route thesis outcomes, cost and latency (read-only)')
     outcomes.add_argument('--days', type=int, default=30, help='look-back window in days; 0 for all history')
     subparsers.add_parser('forward-cycle', help="run the collector's forward-evaluation step once")
+    news_lag = subparsers.add_parser('news-lag',
+                                     help='news-to-order lag buckets, pre/post-entry underlying move and option P&L (read-only)')
+    news_lag.add_argument('--days', type=int, default=0, help='look-back window in days; 0 for all history')
+    news_lag.add_argument('--fetch-missing', action='store_true',
+                          help='first cache daily and ~2 years of hourly bars for traded underlyings (network)')
     args = parser.parse_args()
-    from db_common import DB_PATH
-    db_path = args.db or DB_PATH
+    db_path = args.db or None
     if args.command == 'replay':
         from market_db_modules.research_runtime import replay_research_session
         result = replay_research_session(args.session_id, db_path=db_path)
@@ -97,6 +101,14 @@ def main():
             parser.error('--days must be 0 or positive')
         from market_db_modules.research_outcomes import research_route_report
         result = research_route_report(days=args.days, db_path=db_path)
+    elif args.command == 'news-lag':
+        if args.days < 0:
+            parser.error('--days must be 0 or positive')
+        from market_db_modules.news_lag_report import fetch_missing_history, news_lag_report
+        fetched = fetch_missing_history(days=args.days, db_path=db_path) if args.fetch_missing else None
+        result = news_lag_report(days=args.days, db_path=db_path)
+        if fetched is not None:
+            result['fetched_history'] = fetched
     elif args.command == 'forward-cycle':
         from services.forward_evaluation import run_forward_evaluation_cycle
         result = run_forward_evaluation_cycle(db_path=db_path)

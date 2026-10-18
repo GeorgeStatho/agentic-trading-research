@@ -7,7 +7,8 @@ from pathlib import Path
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "Data"
 
-from db_helpers.market import add_company_price_snapshot, initialize_market_database
+from market_db_modules.snapshots import add_company_price_snapshot
+from market_db_modules.bootstrap import initialize_database as initialize_market_database
 
 STOCKS_FILE = DATA_DIR / "stocks_data.json"
 

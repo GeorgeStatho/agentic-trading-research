@@ -20,8 +20,7 @@ from agent_stages.manager import (  # noqa: E402
     MANAGER_PROMPT_VERSION,
     replay_manager_decision_from_payload,
 )
-from db_common import DB_PATH  # noqa: E402
-from db_helpers.market import (  # noqa: E402
+from market_db_modules.manager_replay import (  # noqa: E402
     complete_manager_replay_evaluation,
     create_manager_replay_evaluation,
     list_replayable_manager_decisions,
@@ -93,7 +92,7 @@ def build_replay_variants(
     *,
     autopsy_limit: int,
     autopsy_max_age_days: int,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], list[int]] | None:
     """Build baseline and feedback inputs from the same frozen decision snapshot.
 
@@ -158,7 +157,7 @@ def build_legacy_partial_replay_payload(
     *,
     autopsy_limit: int,
     autopsy_max_age_days: int,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> tuple[dict[str, Any], list[int]] | None:
     """Reconstruct a constrained prompt from legacy decision-time fields only."""
     manager_input = _json_object(decision.get("manager_input_json"))
@@ -322,7 +321,7 @@ def calculate_historical_outcome_audit_metrics(events: list[dict[str, Any]]) -> 
 def run_historical_outcome_audit(
     *,
     limit: int = 100,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     persist: bool = True,
 ) -> dict[str, Any]:
     """Audit resolved historical manager outcomes without invoking any model."""
@@ -396,7 +395,7 @@ def run_legacy_partial_replay(
     autopsy_limit: int | None = None,
     autopsy_max_age_days: int | None = None,
     client: Client | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     persist: bool = True,
     replay_decider: ReplayDecider | None = None,
 ) -> dict[str, Any]:
@@ -523,7 +522,7 @@ def run_offline_manager_evaluation(
     autopsy_limit: int | None = None,
     autopsy_max_age_days: int | None = None,
     client: Client | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     persist: bool = True,
     replay_decider: ReplayDecider | None = None,
 ) -> dict[str, Any]:
@@ -636,7 +635,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default=get_settings().models.manager.model, help="Configured provider model to replay.")
     parser.add_argument("--autopsy-limit", type=int, default=get_settings().manager_context.resolved_autopsy_limit)
     parser.add_argument("--autopsy-max-age-days", type=int, default=get_settings().manager_context.resolved_autopsy_max_age_days)
-    parser.add_argument("--db-path", type=Path, default=DB_PATH)
+    parser.add_argument("--db-path", type=Path, default=None)
     parser.add_argument("--no-persist", action="store_true", help="Print results without writing evaluation records.")
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(

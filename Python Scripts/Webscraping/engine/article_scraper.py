@@ -18,7 +18,13 @@ from engine.article_extraction import (
     extract_from_response,
     extract_rendered_pages_parallel,
 )
+from extractors.barrons import extract_barrons_search_links, response_looks_like_barrons_search
+from extractors.cnbc import extract_cnbc_search_links, response_looks_like_cnbc_search
 from core.scrape_logging import get_log_file_path, get_scrape_logger, get_scrapy_log_settings
+from extractors.fool import extract_fool_quote_links, response_looks_like_fool_quote
+from extractors.investing import extract_investing_search_links, response_looks_like_investing_search
+from extractors.marketwatch import extract_marketwatch_search_links, response_looks_like_marketwatch_search
+from extractors.morningstar import extract_morningstar_search_links, response_looks_like_morningstar_search
 try:
     from engine.playwright_runner import (
         fetch_rendered_pages,
@@ -41,8 +47,7 @@ DEFAULT_RENDERED_EXTRACTION_WORKERS = 6
 
 
 def _is_yahoo_finance_url(url: str) -> bool:
-    del url
-    return False
+    return "finance.yahoo.com" in (url or "").lower()
 
 
 def _get_rendered_extraction_workers() -> int:
@@ -132,8 +137,18 @@ class _KeyboardStopMonitor:
 
 
 def extract_search_links(response: Response) -> list[dict[str, str]]:
-    # Public branch intentionally uses only generic link extraction. The
-    # production repo contains source-specific discovery logic.
+    if response_looks_like_barrons_search(response):
+        return extract_barrons_search_links(response)
+    if response_looks_like_marketwatch_search(response):
+        return extract_marketwatch_search_links(response)
+    if response_looks_like_morningstar_search(response):
+        return extract_morningstar_search_links(response)
+    if response_looks_like_cnbc_search(response):
+        return extract_cnbc_search_links(response)
+    if response_looks_like_investing_search(response):
+        return extract_investing_search_links(response)
+    if response_looks_like_fool_quote(response):
+        return extract_fool_quote_links(response)
     return extract_links(response)
 
 
@@ -187,7 +202,7 @@ def _build_scraped_item(response: Response, *, request_url: str | None = None) -
 
     discovered_links = extract_search_links(response)
     return {
-        "request_url": request_url or response.request.url if response.request else response.url,
+        "request_url": request_url or (response.request.url if response.request else response.url),
         "url": result.url,
         "title": result.title,
         "text": result.text,
@@ -228,7 +243,7 @@ def _build_item_from_rendered_extraction(rendered_extraction: RenderedPageExtrac
 
     discovered_links = extract_search_links(response)
     return {
-        "request_url": request_url or response.request.url if response.request else response.url,
+        "request_url": request_url or (response.request.url if response.request else response.url),
         "url": article_result.url,
         "title": article_result.title,
         "text": article_result.text,
@@ -307,9 +322,10 @@ class ArticleSpider(scrapy.Spider):
             }
             request_meta = {}
             if _is_yahoo_finance_url(url):
-                # Public demo branch does not currently use any source-specific
-                # cookie handling, but this branch stays in place so the
-                # request flow remains structurally easy to extend.
+                # Yahoo Finance sometimes returns response headers/cookies that
+                # trip Scrapy/Twisted during cookie processing on Windows.
+                # Skip cookie merging for these article requests so we can get
+                # the page body through to the extractor.
                 request_meta["dont_merge_cookies"] = True
             self.logger.info("Requesting %s", url)
             yield Request(
@@ -340,6 +356,16 @@ class ArticleSpider(scrapy.Spider):
         }
 
 
+def _crawl_with_playwright(urls: list[str]) -> list[dict]:
+    return [
+        _build_item_from_rendered_extraction(rendered_extraction)
+        for rendered_extraction in extract_rendered_pages_parallel(
+            fetch_rendered_pages(urls),
+            max_workers=_get_rendered_extraction_workers(),
+        )
+    ]
+
+
 def crawl_articles(urls: list[str]) -> list[dict]:
     # Run the article crawl for the prepared jobs and return normalized results for the save pipeline.
     if not urls:
@@ -357,14 +383,8 @@ def crawl_articles(urls: list[str]) -> list[dict]:
             len(scrapy_urls),
         )
         try:
-            rendered_items = [
-                _build_item_from_rendered_extraction(rendered_extraction)
-                for rendered_extraction in extract_rendered_pages_parallel(
-                    fetch_rendered_pages(playwright_urls),
-                    max_workers=_get_rendered_extraction_workers(),
-                )
-            ]
-        except RuntimeError as exc:
+            rendered_items = _crawl_with_playwright(playwright_urls)
+        except Exception as exc:
             LOGGER.warning(
                 "Playwright source-page crawl unavailable; falling back to Scrapy for %s URLs: %s",
                 len(playwright_urls),
@@ -450,6 +470,7 @@ def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
     if not urls:
         return {}
 
+    results: dict[str, ArticleExtractionResult] = {}
     if should_use_playwright_backend():
         playwright_urls = [url for url in urls if should_use_playwright_for_url(url)]
         scrapy_urls = [url for url in urls if not should_use_playwright_for_url(url)]
@@ -460,19 +481,20 @@ def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
             len(scrapy_urls),
         )
 
-        results: dict[str, ArticleExtractionResult] = {}
         if playwright_urls:
-            crawled_pages = [
-                _build_item_from_rendered_extraction(rendered_extraction)
-                for rendered_extraction in extract_rendered_pages_parallel(
-                    fetch_rendered_pages(playwright_urls),
-                    max_workers=_get_rendered_extraction_workers(),
+            try:
+                results = _build_article_results(_crawl_with_playwright(playwright_urls))
+                urls = scrapy_urls
+            except Exception as exc:
+                LOGGER.warning(
+                    "Playwright article-page crawl failed; sending %s URLs through Scrapy: %s",
+                    len(playwright_urls),
+                    exc,
                 )
-            ]
-            results.update(_build_article_results(crawled_pages))
-        if not scrapy_urls:
+        else:
+            urls = scrapy_urls
+        if not urls:
             return results
-        urls = scrapy_urls
 
     ctx = multiprocessing.get_context("spawn")
     result_queue = ctx.SimpleQueue()
@@ -485,6 +507,12 @@ def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
     # parent, which looks like the crawl "never closes" even though Scrapy has
     # already finished.
     try:
+        while result_queue.empty() and worker.is_alive():
+            worker.join(0.5)
+        if result_queue.empty():
+            raise RuntimeError(
+                f"Article crawl subprocess exited with code {worker.exitcode} without returning a result"
+            )
         result: dict = result_queue.get()
         worker.join()
     except (KeyboardInterrupt, InterruptedError):
@@ -502,5 +530,5 @@ def crawl_article_pages(urls: list[str]) -> dict[str, ArticleExtractionResult]:
     if result.get("error"):
         raise RuntimeError(f"Article crawl subprocess failed: {result['error']}")
 
-    crawled_pages = result.get("items", [])
-    return _build_article_results(crawled_pages)
+    results.update(_build_article_results(result.get("items", [])))
+    return results

@@ -11,7 +11,7 @@ Serves the dashboard two views of the validator's output:
 import os
 from datetime import datetime, timezone
 
-from db_helpers.market import (
+from market_db_modules.thesis_validator import (
     get_latest_thesis_validation_runs_by_option_symbol,
     list_thesis_validation_runs,
     summarize_thesis_validator_health,

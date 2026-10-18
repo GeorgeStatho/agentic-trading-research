@@ -8,7 +8,7 @@ import json
 import logging
 
 from catalyst_models import CatalystState, HALF_LIFE_MINUTES, PRIMARY_SOURCE_TYPES, classify_catalyst, timestamp
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 
 LOGGER = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ def store_catalyst_state(state, *, conn):
 CATALYST_REVISION_FIELDS = ('catalyst_family', 'direction', 'latest_root_event_time', 'independent_root_count')
 
 
-def get_catalyst_revision(catalyst_id, *, db_path=DB_PATH):
+def get_catalyst_revision(catalyst_id, *, db_path=None):
     """The fields whose change makes earlier decision inputs out of date; None if unknown."""
     with closing(get_connection(db_path)) as conn:
         row = conn.execute(f"SELECT {', '.join(CATALYST_REVISION_FIELDS)} FROM catalysts WHERE catalyst_id=?",
@@ -165,7 +165,7 @@ def enrich_impact(impact, article_id, *, conn):
     return enriched
 
 
-def backfill_catalysts(*, db_path=DB_PATH):
+def backfill_catalysts(*, db_path=None):
     from .provenance import backfill_news_provenance
     from catalyst_schema import IMPACT_TABLES
     report = backfill_news_provenance(db_path=db_path)
@@ -188,7 +188,7 @@ def backfill_catalysts(*, db_path=DB_PATH):
     return report
 
 
-def catalyst_family_report(*, db_path=DB_PATH):
+def catalyst_family_report(*, db_path=None):
     from .bootstrap import initialize_database
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:

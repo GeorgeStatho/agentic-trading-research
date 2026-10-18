@@ -1,7 +1,6 @@
 """Bounded database-only projection. Safe to replay without credentials or HTTP."""
 from datetime import datetime, timezone
 
-from db_common import DB_PATH
 from market_db_modules.company_evidence import (
     get_company_fact, get_evidence_document, get_evidence_package, latest_evidence_package,
 )
@@ -12,7 +11,7 @@ MAX_PAYLOAD_FACTS = 48
 MAX_EXCERPT_CHARACTERS = 600
 
 
-def build_company_evidence_payload(company_id, *, as_of=None, package_id=None, db_path=DB_PATH):
+def build_company_evidence_payload(company_id, *, as_of=None, package_id=None, db_path=None):
     cutoff = as_of or datetime.now(timezone.utc).isoformat()
     package = (get_evidence_package(package_id, db_path=db_path) if package_id
                else latest_evidence_package(company_id, as_of=cutoff, db_path=db_path))

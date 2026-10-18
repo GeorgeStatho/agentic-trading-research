@@ -7,7 +7,6 @@ could never name the worker's configuration.
 import copy
 from datetime import datetime, timezone
 
-from db_common import DB_PATH
 from market_db_modules.foundation_store import digest
 from market_db_modules.forward_evaluation import ensure_cohort
 from research_foundation_contracts import DECISION_OBSERVATION_PROTOCOL
@@ -44,7 +43,7 @@ def paired_manifest(base, *, role, challenger=None):
     return manifest
 
 
-def ensure_production_cohort(manifest, *, policy=None, acceptance=None, at=None, db_path=DB_PATH):
+def ensure_production_cohort(manifest, *, policy=None, acceptance=None, at=None, db_path=None):
     """Called before each production candidate is recorded, so no candidate predates its cohort."""
     policy = policy or ForwardEvaluationPolicy.from_env()
     if not policy.enabled or not manifest or not manifest.get('pipeline_version'):
@@ -54,7 +53,7 @@ def ensure_production_cohort(manifest, *, policy=None, acceptance=None, at=None,
                          at=at or utc_now(), db_path=db_path)
 
 
-def ensure_comparison_cohort(base, challenger, *, acceptance=None, at=None, db_path=DB_PATH):
+def ensure_comparison_cohort(base, challenger, *, acceptance=None, at=None, db_path=None):
     """The incumbent and challenger runs open together, with the same window and criteria."""
     return ensure_cohort({'incumbent': paired_manifest(base, role='incumbent'),
                           'challenger': paired_manifest(base, role='challenger', challenger=challenger)},

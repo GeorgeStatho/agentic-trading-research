@@ -34,8 +34,8 @@ from agent_helpers.market_context import (
     build_market_context,
 )
 from agent_contracts import ManagerInputPayload
-from db_common import DB_PATH
-from db_helpers.market import list_decision_autopsy_ledger, list_recent_manager_decision_history
+from market_db_modules.autopsy import list_decision_autopsy_ledger
+from market_db_modules.queries import list_recent_manager_decision_history
 
 
 __all__ = [
@@ -154,7 +154,7 @@ def build_resolved_autopsy_insights(
     limit: int,
     max_age_days: int,
     as_of: datetime | str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     exclude_decision_history_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Return outcome feedback that was resolved before a replay decision time."""

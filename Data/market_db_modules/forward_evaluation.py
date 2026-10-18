@@ -3,7 +3,7 @@ from contextlib import closing
 from datetime import timedelta
 import json
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from research_foundation_contracts import OBSERVATION_PROTOCOL
 from services.research_contract import utc
 from services.research_promotion import PAIRED_PREFIX, source_hash
@@ -37,7 +37,7 @@ def _active_cohort(conn, roles, *, base_pipeline_version, challenger_id, policy_
 
 
 def ensure_cohort(manifests_by_role, *, base_pipeline_version, challenger_id, acceptance, at,
-                  observation_protocol=OBSERVATION_PROTOCOL, db_path=DB_PATH):
+                  observation_protocol=OBSERVATION_PROTOCOL, db_path=None):
     """Return the open cohort for these strategies, opening one (all roles at once) if needed.
 
     Every run starts before any decision it can enroll, and freezes its acceptance criteria.
@@ -72,7 +72,7 @@ def ensure_cohort(manifests_by_role, *, base_pipeline_version, challenger_id, ac
     return {'cohort_id': cohort_id, 'window_start': at, 'window_end': window_end, 'runs': runs, 'opened': True}
 
 
-def cohort_registrations(cohort_id, *, db_path=DB_PATH):
+def cohort_registrations(cohort_id, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         rows = conn.execute('SELECT * FROM research_run_acceptance WHERE cohort_id=?', (cohort_id,)).fetchall()
     result = {}
@@ -85,13 +85,13 @@ def cohort_registrations(cohort_id, *, db_path=DB_PATH):
     return result
 
 
-def record_decision_observation(candidate_id, *, observation_id, cohort_id, status, at, reason=None, db_path=DB_PATH):
+def record_decision_observation(candidate_id, *, observation_id, cohort_id, status, at, reason=None, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('INSERT OR IGNORE INTO decision_observations VALUES (?,?,?,?,?,?)',
                      (candidate_id, observation_id, cohort_id, status, reason, iso(at)))
 
 
-def pending_paired_observations(challenger_id, *, limit, db_path=DB_PATH):
+def pending_paired_observations(challenger_id, *, limit, db_path=None):
     """This challenger's recorded observations, oldest first, still lacking a final evaluation.
 
     Cohorts of an earlier challenger configuration are left alone rather than run with its models.
@@ -106,7 +106,7 @@ def pending_paired_observations(challenger_id, *, limit, db_path=DB_PATH):
     return [dict(row) for row in rows]
 
 
-def paired_evaluation(observation_id, role, *, db_path=DB_PATH):
+def paired_evaluation(observation_id, role, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         row = conn.execute('SELECT * FROM paired_evaluations WHERE observation_id=? AND role=?',
                            (observation_id, role)).fetchone()
@@ -114,7 +114,7 @@ def paired_evaluation(observation_id, role, *, db_path=DB_PATH):
 
 
 def update_paired_evaluation(observation_id, role, *, cohort_id, run_id, status, at, candidate_id=None,
-                             reason=None, attempt=False, model_calls=0, latency_seconds=None, db_path=DB_PATH):
+                             reason=None, attempt=False, model_calls=0, latency_seconds=None, db_path=None):
     """Record progress; a final status is never overwritten."""
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute(f'''INSERT INTO paired_evaluations VALUES (?,?,?,?,?,?,?,?,?,?,?)
@@ -127,7 +127,7 @@ def update_paired_evaluation(observation_id, role, *, cohort_id, run_id, status,
                       model_calls, latency_seconds, iso(at), *FINAL_EVALUATIONS))
 
 
-def reserve_challenger_calls(calls, *, limit, at, db_path=DB_PATH):
+def reserve_challenger_calls(calls, *, limit, at, db_path=None):
     """Reserve before dispatch; a reservation is spent even if the call then fails."""
     day = iso(at)[:10]
     with closing(get_connection(db_path)) as conn, conn:
@@ -144,7 +144,7 @@ def paired_candidate_id(observation_id, role, run_id):
     return PAIRED_PREFIX + role + ':' + digest({'observation_id': observation_id, 'run_id': run_id})
 
 
-def create_paired_candidate(observation, *, role, run_id, manifest, at, db_path=DB_PATH):
+def create_paired_candidate(observation, *, role, run_id, manifest, at, db_path=None):
     """A research-only candidate bound to the shared observation before any of its snapshots."""
     candidate_id = paired_candidate_id(observation['observation_id'], role, run_id)
     states = observation['source_snapshot']['catalysts']
@@ -171,20 +171,20 @@ def create_paired_candidate(observation, *, role, run_id, manifest, at, db_path=
             'observation_cutoff': observation['information_cutoff_time']}
 
 
-def claim_mark_session(session_date, *, at, db_path=DB_PATH):
+def claim_mark_session(session_date, *, at, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         return conn.execute("INSERT OR IGNORE INTO research_mark_sessions VALUES (?,?,'running',NULL)",
                             (session_date, iso(at))).rowcount == 1
 
 
-def finish_mark_session(session_date, *, status, summary, db_path=DB_PATH):
+def finish_mark_session(session_date, *, status, summary, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('UPDATE research_mark_sessions SET status=?, summary_json=? WHERE session_date=?',
                      (status, canonical(summary), session_date))
 
 
-def forward_status(*, db_path=DB_PATH, limit=10):
+def forward_status(*, db_path=None, limit=10):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn:
         return forward_status_from(conn, limit=limit)

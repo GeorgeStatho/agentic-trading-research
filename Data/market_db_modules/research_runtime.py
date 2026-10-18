@@ -2,7 +2,7 @@
 from contextlib import closing
 import json
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from .foundation_store import canonical, digest, read_record
 from .evidence_refresh import enqueue_refresh
 from .research_work import session_covers_event
@@ -27,18 +27,18 @@ def daily_reserved_cost(conn, day):
     return research + thesis
 
 
-def load_research_progress(session_id, *, db_path=DB_PATH):
+def load_research_progress(session_id, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         return read_record(conn, 'research_session_progress', 'session_id', session_id)
 
 
-def initialize_research_progress(progress, *, db_path=DB_PATH):
+def initialize_research_progress(progress, *, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('INSERT OR IGNORE INTO research_session_progress VALUES (?,?,?)',
                      (progress['session_id'], digest(progress), canonical(progress)))
 
 
-def research_checkpoint(session, progress, event, *, at, allowance=None, cost_adjustment=None, refresh_request=None, db_path=DB_PATH):
+def research_checkpoint(session, progress, event, *, at, allowance=None, cost_adjustment=None, refresh_request=None, db_path=None):
     """Reserve before dispatch; append the journal and progress in the same transaction."""
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('BEGIN IMMEDIATE')
@@ -71,7 +71,7 @@ def research_checkpoint(session, progress, event, *, at, allowance=None, cost_ad
         _write(conn, 'research_session_progress', progress)
 
 
-def replay_research_session(session_id, *, db_path=DB_PATH):
+def replay_research_session(session_id, *, db_path=None):
     """Read the recorded trace only. Never invoke a planner, adapter or current evidence lookup."""
     with closing(get_connection(db_path)) as conn:
         session = read_record(conn, 'research_sessions', 'session_id', session_id)
@@ -87,7 +87,7 @@ def replay_research_session(session_id, *, db_path=DB_PATH):
                 'shadow': True}
 
 
-def pending_research_candidates(*, limit, db_path=DB_PATH):
+def pending_research_candidates(*, limit, db_path=None):
     with closing(get_connection(db_path)) as conn:
         rows = conn.execute('''SELECT payload_json,payload_hash,created_at FROM (
             SELECT c.payload_json,c.payload_hash,c.created_at FROM discovery_shadow_candidates c
@@ -109,7 +109,7 @@ def pending_research_candidates(*, limit, db_path=DB_PATH):
         return results
 
 
-def research_event_superseded(queue_id, *, session_id=None, db_path=DB_PATH):
+def research_event_superseded(queue_id, *, session_id=None, db_path=None):
     with closing(get_connection(db_path)) as conn:
         item = read_record(conn, 'discovery_queue', 'queue_id', queue_id)
         latest = conn.execute('''SELECT evidence_revision,payload_json,payload_hash FROM discovery_events

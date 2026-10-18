@@ -4,7 +4,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import json
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from research_foundation_contracts import timestamp
 from .bootstrap import initialize_database
 from .foundation_store import canonical, digest, insert_record, load_record, read_record
@@ -13,7 +13,7 @@ from .foundation_store import canonical, digest, insert_record, load_record, rea
 ECONOMICS_STAGES = ('TRADE_ECONOMICS', 'TRADE_ECONOMICS_SUBMISSION')
 
 
-def record_candidate_economics_report(report, *, db_path=DB_PATH):
+def record_candidate_economics_report(report, *, db_path=None):
     """Store once under a content identity; the package must belong to the candidate's company."""
     initialize_database(db_path=db_path)
     data = json.loads(canonical({**report, 'created_at': timestamp(report['created_at']),
@@ -39,7 +39,7 @@ def record_candidate_economics_report(report, *, db_path=DB_PATH):
             'valid_until': data['valid_until']})
 
 
-def get_candidate_economics_report(report_id, *, db_path=DB_PATH):
+def get_candidate_economics_report(report_id, *, db_path=None):
     return load_record(db_path, 'candidate_economics_reports', 'report_id', report_id)
 
 
@@ -51,7 +51,7 @@ def _window(column, since):
     return (f' AND julianday({column})>=julianday(?)', [since]) if since else ('', [])
 
 
-def trade_economics_summary(*, days=7, db_path=DB_PATH):
+def trade_economics_summary(*, days=7, db_path=None):
     """Descriptive monitoring only; promotion still needs Part 6 counterfactual reports."""
     since = _since(days)
     clause, values = _window('created_at', since)

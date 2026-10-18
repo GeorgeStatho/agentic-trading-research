@@ -4,7 +4,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-from db_common import DB_PATH, clean_text, coerce_float, get_connection
+from db_common import clean_text, coerce_float, get_connection
 from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
 
@@ -27,7 +27,7 @@ def get_company_sector_key(
     *,
     symbol: str | None = None,
     company_id: int | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> str:
     """Return the persisted sector for a company, falling back to ``unknown``."""
     normalized_symbol = clean_text(symbol)
@@ -55,7 +55,7 @@ def get_company_sector_key(
 def get_realized_option_loss_since(
     *,
     start_at: datetime | str,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> float:
     """Sum persisted, broker-confirmed option losses after a time boundary."""
     normalized_start = normalize_timestamp(start_at)
@@ -90,7 +90,7 @@ def count_option_entry_executions_since(
     *,
     underlying_symbol: str,
     start_at: datetime | str,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> int:
     """Count journaled option BUY submissions for one underlying after a boundary.
 
@@ -119,7 +119,7 @@ def count_option_entry_executions_since(
 def get_latest_stop_loss_exit_at(
     *,
     underlying_symbol: str,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
 ) -> str | None:
     """Return the most recent journaled stop-loss exit time for one underlying.
 

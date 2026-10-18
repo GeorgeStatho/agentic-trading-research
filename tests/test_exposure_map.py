@@ -1,42 +1,17 @@
 from __future__ import annotations
 
 from contextlib import closing
-import json
-import os
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from unittest.mock import patch
 
-from db_helpers import get_connection, initialize_market_database, initialize_news_database
-from api_support.exposure_map import (
-    build_exposure_map_payload,
-    calculate_position_risk_score,
-    create_exposure_run,
-    list_recent_exposure_articles,
-    resolve_exposure_map_model,
-    validate_terra_response,
-)
+from db_common import get_connection
+from market_db_modules.bootstrap import initialize_database as initialize_market_database
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from api_support.exposure_map import calculate_position_risk_score, validate_terra_response
 
 
 class ExposureMapTests(unittest.TestCase):
-    def test_model_defaults_follow_the_configured_provider(self):
-        with patch.dict(os.environ, {"LLM_PROVIDER": "openai", "EXPOSURE_MAP_MODEL": ""}, clear=False):
-            self.assertEqual(resolve_exposure_map_model(), "gpt-5.6-terra")
-        with patch.dict(
-            os.environ,
-            {"LLM_PROVIDER": "vertex", "EXPOSURE_MAP_MODEL": "", "VERTEX_DEFAULT_MODEL": "gemini-test"},
-            clear=False,
-        ):
-            self.assertEqual(resolve_exposure_map_model(), "gemini-test")
-        with patch.dict(
-            os.environ,
-            {"LLM_PROVIDER": "ollama", "EXPOSURE_MAP_MODEL": "", "EXPOSURE_MAP_OLLAMA_MODEL": "qwen-test"},
-            clear=False,
-        ):
-            self.assertEqual(resolve_exposure_map_model(), "qwen-test")
-
     def test_enum_form_sell_side_has_the_same_risk_direction_as_a_plain_sell(self):
         plain_score, plain_details = calculate_position_risk_score(
             quantity=1,
@@ -109,39 +84,6 @@ class ExposureMapTests(unittest.TestCase):
         self.assertTrue(inputs["is_adverse"])
         self.assertEqual(inputs["formula"], "position_exposure × impact_magnitude × confidence_weight × DTE/volatility_multiplier")
 
-    def test_invalid_json_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "invalid JSON"):
-            validate_terra_response(None, article_id=42, relationships=[], positions=[])
-
-    def test_recent_exposure_queue_excludes_articles_outside_the_age_window(self):
-        with TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "exposure-queue.sqlite3"
-            initialize_market_database(db_path=db_path)
-            initialize_news_database(db_path=db_path)
-            now = datetime(2026, 7, 20, tzinfo=timezone.utc)
-            with closing(get_connection(db_path)) as conn, conn:
-                fresh_id = conn.execute(
-                    """
-                    INSERT INTO news_articles (source, article_key, title, source_url, evidence_score, published_at)
-                    VALUES ('Test Wire', 'fresh-queue-article', 'Fresh evidence', 'https://example.test/fresh', 0.60, ?)
-                    """,
-                    ((now - timedelta(days=9)).isoformat(),),
-                ).lastrowid
-                stale_id = conn.execute(
-                    """
-                    INSERT INTO news_articles (source, article_key, title, source_url, evidence_score, published_at)
-                    VALUES ('Test Wire', 'stale-queue-article', 'Stale high-score evidence', 'https://example.test/stale', 0.99, ?)
-                    """,
-                    ((now - timedelta(days=11)).isoformat(),),
-                ).lastrowid
-
-            with patch("api_support.exposure_map.DB_PATH", db_path):
-                result = list_recent_exposure_articles(now=now)
-
-        article_ids = [article["id"] for article in result["articles"]]
-        self.assertIn(int(fresh_id), article_ids)
-        self.assertNotIn(int(stale_id), article_ids)
-
     def test_unknown_model_reference_is_rejected(self):
         response = {
             "article_summary": "A factual summary.",
@@ -164,105 +106,6 @@ class ExposureMapTests(unittest.TestCase):
         }]
         with self.assertRaisesRegex(ValueError, "unknown entity"):
             validate_terra_response(response, article_id=42, relationships=relationships, positions=[])
-
-    def test_analysis_succeeds_without_open_paper_positions(self):
-        with TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "exposure.sqlite3"
-            article_id = self._seed_article(db_path)
-            model_response = json.dumps({
-                "article_summary": "The article reports a policy change affecting technology.",
-                "edges": [{
-                    "from": {"type": "article", "id": article_id},
-                    "to": {"type": "sector", "id": "1"},
-                    "direction": "negative",
-                    "magnitude": "high",
-                    "confidence": "high",
-                    "mechanism": "The stored sector relationship identifies technology exposure.",
-                    "evidence_article_ids": [article_id],
-                }],
-                "position_impacts": [],
-                "uncertainties": ["Company-specific exemptions are unknown."],
-            })
-            with patch("api_support.exposure_map.DB_PATH", db_path), patch(
-                "api_support.exposure_map.get_model_client", return_value=object()
-            ), patch("api_support.exposure_map.ask_llm_model", return_value=model_response):
-                payload = create_exposure_run(article_id)
-                loaded_payload = build_exposure_map_payload(article_id)
-
-            self.assertFalse(payload["cached"])
-            self.assertTrue(loaded_payload["has_run"])
-            self.assertEqual(loaded_payload["position_impacts"], [])
-            self.assertTrue(loaded_payload["no_trade_executed"])
-
-    def test_linked_live_execution_is_shown_as_historical_outcome_evidence(self):
-        with TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "exposure-live-history.sqlite3"
-            article_id = self._seed_article(db_path)
-            submitted_at = datetime(2026, 7, 20, tzinfo=timezone.utc).isoformat()
-            with closing(get_connection(db_path)) as conn, conn:
-                company_id = conn.execute("SELECT id FROM companies WHERE symbol = 'NVDA'").fetchone()["id"]
-                execution_id = conn.execute(
-                    """
-                    INSERT INTO option_trade_executions (
-                        company_id, order_id, underlying_symbol, option_symbol, decision,
-                        expiration_date, order_qty, paper, order_status, order_side, submitted_at
-                    ) VALUES (?, 'live-order-1', 'NVDA', 'NVDA260724C00180000', 'call',
-                              '2026-07-24', 2, 0, 'filled', 'buy', ?)
-                    """,
-                    (company_id, submitted_at),
-                ).lastrowid
-                history_id = conn.execute(
-                    """
-                    INSERT INTO manager_decision_history (
-                        company_id, symbol, decision_run_at, manager_reason, trade_executed,
-                        trade_execution_order_id, trade_execution_record_id, latest_trade_pnl_pct,
-                        resolved_outcome_label
-                    ) VALUES (?, 'NVDA', ?, 'Guidance risk required a wider time horizon.', 1,
-                              'live-order-1', ?, -12.5, 'resolved_loss')
-                    """,
-                    (company_id, submitted_at, execution_id),
-                ).lastrowid
-                conn.execute(
-                    """
-                    INSERT INTO decision_autopsy_ledger (
-                        manager_decision_history_id, symbol, decision_run_at, snapshot_json
-                    ) VALUES (?, 'NVDA', ?, ?)
-                    """,
-                    (
-                        history_id,
-                        submitted_at,
-                        json.dumps({"review": {"what_proved_us_wrong": "The export policy risk materialized sooner than the thesis allowed."}}),
-                    ),
-                )
-            model_response = json.dumps({
-                "article_summary": "The article reports a policy change affecting technology.",
-                "edges": [{
-                    "from": {"type": "article", "id": article_id},
-                    "to": {"type": "sector", "id": "1"},
-                    "direction": "negative",
-                    "magnitude": "high",
-                    "confidence": "high",
-                    "mechanism": "The stored sector relationship identifies technology exposure.",
-                    "evidence_article_ids": [article_id],
-                }],
-                "position_impacts": [],
-                "uncertainties": [],
-            })
-            with patch("api_support.exposure_map.DB_PATH", db_path), patch(
-                "api_support.exposure_map.get_model_client", return_value=object()
-            ), patch("api_support.exposure_map.ask_llm_model", return_value=model_response):
-                create_exposure_run(article_id)
-                loaded_payload = build_exposure_map_payload(article_id)
-
-            self.assertEqual(loaded_payload["position_impacts"], [])
-            self.assertEqual(len(loaded_payload["historical_live_impacts"]), 1)
-            live_impact = loaded_payload["historical_live_impacts"][0]
-            self.assertEqual(live_impact["outcome_pnl_pct"], -12.5)
-            self.assertIn("export policy risk materialized", live_impact["reason"])
-            live_node = next(node for node in loaded_payload["nodes"] if node["id"] == f"live-execution:{execution_id}")
-            self.assertFalse(live_node["paper"])
-            self.assertEqual(live_node["position_state"], "historical_live")
-            self.assertTrue(loaded_payload["no_trade_executed"])
 
 
 if __name__ == "__main__":

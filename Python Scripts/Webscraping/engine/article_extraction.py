@@ -6,8 +6,6 @@ from datetime import datetime
 from datetime import timezone
 from typing import Iterable
 
-import requests
-import scrapy
 from scrapy.http import HtmlResponse, Request, Response
 
 from core.scrape_logging import get_scrape_logger
@@ -116,11 +114,61 @@ def _extract_published_at(response: Response) -> str:
 
 def extract_from_response(response: Response) -> ArticleExtractionResult:
     # Extract the from response from the raw response and return a stable value.
-    title = response.css("article h1::text, main h1::text, h1::text, title::text").get(default="").strip()
+    lowered_url = response.url.lower()
+
+    if "markets.example.com" in lowered_url:
+        from extractors.marketwatch import extract_marketwatch_article
+
+        marketwatch_result = extract_marketwatch_article(response)
+        if marketwatch_result.success:
+            return marketwatch_result
+
+    if "research.example.com" in lowered_url:
+        from extractors.morningstar import extract_morningstar_article
+
+        morningstar_result = extract_morningstar_article(response)
+        if morningstar_result.success:
+            return morningstar_result
+
+    if "weekly.example.com" in lowered_url:
+        from extractors.barrons import extract_barrons_article
+
+        barrons_result = extract_barrons_article(response)
+        if barrons_result.success:
+            return barrons_result
+
+    if "newswire.example.com" in lowered_url:
+        from extractors.cnbc import extract_cnbc_article
+
+        cnbc_result = extract_cnbc_article(response)
+        if cnbc_result.success:
+            return cnbc_result
+
+    if "calendar.example.com" in lowered_url:
+        from extractors.investing import extract_investing_article
+
+        investing_result = extract_investing_article(response)
+        if investing_result.success:
+            return investing_result
+
+    if "investor.example.com" in lowered_url:
+        from extractors.fool import extract_fool_article
+
+        fool_result = extract_fool_article(response)
+        if fool_result.success:
+            return fool_result
+
+    if "finance.yahoo.com" in lowered_url:
+        from extractors.yahoo import extract_yahoo_article
+
+        yahoo_result = extract_yahoo_article(response)
+        if yahoo_result.success:
+            return yahoo_result
+
+    title = response.css("title::text").get(default="").strip()
     published_at = _extract_published_at(response)
 
     paragraph_candidates = [
-        "[data-article-body] p::text",
         "article p::text",
         "main p::text",
         "[role='main'] p::text",
@@ -128,7 +176,6 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
         ".post-content p::text",
         ".entry-content p::text",
         ".story-body p::text",
-        ".content p::text",
         "body p::text",
     ]
 
@@ -150,7 +197,7 @@ def extract_from_response(response: Response) -> ArticleExtractionResult:
         text="",
         published_at=published_at,
         success=False,
-        error="No article text found with the public demo selectors.",
+        error="No article text found with the current selectors.",
     )
 
 
@@ -208,36 +255,3 @@ def extract_rendered_pages_parallel(
     )
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
         return list(executor.map(extract_rendered_page, rendered_pages))
-
-
-def extract_article(url: str, timeout: int = 20) -> ArticleExtractionResult:
-    # Extract the article from the raw response and return a stable value.
-    headers = {
-        "User-Agent": DEFAULT_USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://example.com/",
-    }
-    LOGGER.info("Fetching article URL %s", url)
-    try:
-        response = requests.get(url, timeout=timeout, headers=headers)
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        LOGGER.warning("Article fetch failed for %s: %s", url, exc)
-        return ArticleExtractionResult(
-            url=url,
-            success=False,
-            error=str(exc),
-        )
-
-    scrapy_response = scrapy.http.HtmlResponse(
-        url=response.url,
-        body=response.content,
-        encoding=response.encoding or "utf-8",
-    )
-    result = extract_from_response(scrapy_response)
-    if result.success:
-        LOGGER.info("Article extracted successfully for %s", result.url)
-    else:
-        LOGGER.warning("Article extraction failed for %s: %s", result.url, result.error)
-    return result
