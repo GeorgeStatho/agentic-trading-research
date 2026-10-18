@@ -94,7 +94,11 @@
         "/investing/",
         "/earnings/",
         "/research/",
-        "/news/"
+        "/news/",
+        "/market/",
+        "/retirement/",
+        "/money/",
+        "/personal-finance/"
       ],
       "max_article_age_days": 14,
       "provenance_source_type": "commentary"

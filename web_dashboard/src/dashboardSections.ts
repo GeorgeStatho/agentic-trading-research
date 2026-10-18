@@ -17,13 +17,14 @@ export type DashboardSection = {
 };
 
 export const DASHBOARD_SECTIONS: readonly DashboardSection[] = [
+  // Live state first; static configuration last.
   { id: 'dashboard-top', label: 'Overview', icon: 'dashboard' },
   { id: 'account-snapshot', label: 'Account Snapshot', icon: 'chart' },
-  { id: 'risk-management', label: 'Risk Controls', icon: 'shield' },
-  { id: 'safeguards', label: 'V2 Safeguards', icon: 'lock' },
+  { id: 'open-positions', label: 'Open Positions', icon: 'briefcase' },
   { id: 'live-feed', label: 'Main Script', icon: 'feed' },
   { id: 'decision-context', label: 'Why It Traded', icon: 'note' },
   { id: 'portfolio-history', label: 'Equity History', icon: 'trend' },
-  { id: 'open-positions', label: 'Open Positions', icon: 'briefcase' },
   { id: 'execution-logs', label: 'Executed Orders', icon: 'history' },
+  { id: 'safeguards', label: 'V2 Safeguards', icon: 'lock' },
+  { id: 'risk-management', label: 'Risk Settings', icon: 'shield' },
 ];

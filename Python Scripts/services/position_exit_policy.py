@@ -3,7 +3,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 
 from catalyst_models import timestamp
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from services.contract_policy import ContractPolicy
 from services.execution_telemetry import number
 
@@ -65,7 +65,7 @@ def fetch_dated_position_iv(position):
             'quote_at': str(_get_field(_get_field(snapshot, 'latest_quote'), 'timestamp') or '')} if snapshot else {}
 
 
-def build_position_exit_context(option_symbol, parsed, stock_quote, *, as_of=None, db_path=DB_PATH,
+def build_position_exit_context(option_symbol, parsed, stock_quote, *, as_of=None, db_path=None,
                                 iv_fetcher=fetch_dated_position_iv):
     from market_db_modules.bootstrap import initialize_database
     initialize_database(db_path=db_path)

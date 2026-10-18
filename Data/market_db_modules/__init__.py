@@ -1,1 +1,1 @@
-"""Internal modules that back the public `market_db` facade."""
+"""Market persistence modules; import from the owning module."""

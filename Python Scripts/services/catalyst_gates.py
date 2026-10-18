@@ -7,7 +7,7 @@ import os
 
 from catalyst_models import timestamp, DECAY_BASIS
 from processing.scoring import recency_score
-from db_helpers.market import record_catalyst_gate_observation
+from market_db_modules.catalyst_research import record_catalyst_gate_observation
 from services.research_promotion import guard_policy
 
 

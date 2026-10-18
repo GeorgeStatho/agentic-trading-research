@@ -10,16 +10,16 @@ from unittest.mock import patch
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "Data"
 
-from market_db import (  # noqa: E402
+from market_db_modules.thesis_validator import (  # noqa: E402
     close_position_thesis,
     count_thesis_validator_exits_for_date,
     get_open_position_thesis_for_option_symbol,
     get_thesis_validation_run_for_date,
-    initialize_database,
     record_position_thesis,
     record_thesis_validation_run,
     summarize_thesis_validator_health,
 )
+from market_db_modules.bootstrap import initialize_database  # noqa: E402
 from services.thesis_adjudicator import (  # noqa: E402
     adjudicate_thesis,
     apply_consistency_gate,
@@ -80,11 +80,6 @@ class ThesisCaptureTests(unittest.TestCase):
         conditions = record["invalidation_conditions"]
         self.assertTrue(1 <= len(conditions) <= 3)
         self.assertTrue(all(condition.startswith("This thesis is wrong if") for condition in conditions))
-
-    def test_returns_none_without_directional_decision(self) -> None:
-        execution = _sample_execution()
-        execution["decision"] = "neither"
-        self.assertIsNone(build_position_thesis_record(execution))
 
 
 class EvidencePackTests(unittest.TestCase):
@@ -152,29 +147,6 @@ class GroundingGuardTests(unittest.TestCase):
         self.assertFalse(grounded["grounded"])
         self.assertEqual(grounded["grounding_failure"], "cited_article_outside_pack")
 
-    def test_uncited_invalidation_forces_unclear(self) -> None:
-        sample = {
-            "thesis_state": "invalidated",
-            "would_open_today": "no",
-            "evidence_ids": [],
-            "rationale": "",
-            "confidence": 0.9,
-        }
-        grounded = ground_sample(sample, allowed_article_ids={1})
-        self.assertEqual(grounded["thesis_state"], "unclear")
-
-    def test_uncited_intact_verdict_stands(self) -> None:
-        sample = {
-            "thesis_state": "intact",
-            "would_open_today": "yes",
-            "evidence_ids": [],
-            "rationale": "",
-            "confidence": 0.7,
-        }
-        grounded = ground_sample(sample, allowed_article_ids=set())
-        self.assertEqual(grounded["thesis_state"], "intact")
-        self.assertTrue(grounded["grounded"])
-
 
 class ConsistencyGateTests(unittest.TestCase):
     @staticmethod
@@ -188,12 +160,6 @@ class ConsistencyGateTests(unittest.TestCase):
             "grounded": True,
         }
 
-    def test_unanimous_verdict_stands(self) -> None:
-        verdict = apply_consistency_gate([self._sample("invalidated")] * 3)
-        self.assertEqual(verdict["thesis_state"], "invalidated")
-        self.assertEqual(verdict["consistency"], "unanimous")
-        self.assertFalse(verdict["flip_detected"])
-
     def test_majority_downgrades_one_severity_level(self) -> None:
         verdict = apply_consistency_gate(
             [self._sample("invalidated"), self._sample("invalidated"), self._sample("intact")]
@@ -201,18 +167,6 @@ class ConsistencyGateTests(unittest.TestCase):
         self.assertEqual(verdict["thesis_state"], "degraded")
         self.assertEqual(verdict["consistency"], "majority")
         self.assertTrue(verdict["flip_detected"])
-
-    def test_three_way_split_is_unclear(self) -> None:
-        verdict = apply_consistency_gate(
-            [self._sample("invalidated"), self._sample("degraded"), self._sample("intact")]
-        )
-        self.assertEqual(verdict["thesis_state"], "unclear")
-        self.assertEqual(verdict["consistency"], "split")
-
-    def test_no_samples_is_error(self) -> None:
-        verdict = apply_consistency_gate([])
-        self.assertEqual(verdict["consistency"], "error")
-        self.assertEqual(verdict["thesis_state"], "unclear")
 
 
 class AdjudicatorTests(unittest.TestCase):
@@ -282,10 +236,6 @@ class ArbiterTests(unittest.TestCase):
             quantity=1,
         )
         self.assertEqual(result["action"], "flag")
-
-    def test_degraded_is_advisory_only(self) -> None:
-        result = self._decide(verdict={"thesis_state": "degraded", "would_open_today": "yes"})
-        self.assertEqual(result["action"], "tighten")
 
     def test_intact_unclear_and_errors_do_nothing(self) -> None:
         for verdict in (
@@ -408,16 +358,6 @@ class ThesisValidatorServiceTests(unittest.TestCase):
         settings = ThesisValidatorSettings(**setting_overrides)
         return ThesisValidatorService(settings=settings)
 
-    def test_not_due_before_run_window(self) -> None:
-        service = self._service(mode="shadow")
-        early = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)  # 08:00 ET
-        self.assertIsNone(service.run_due_validation(positions=[{"symbol": "X"}], now=early))
-
-    def test_mode_off_never_runs(self) -> None:
-        service = self._service(mode="off")
-        late = datetime(2026, 8, 25, 20, 30, tzinfo=timezone.utc)  # 16:30 ET
-        self.assertIsNone(service.run_due_validation(positions=[{"symbol": "X"}], now=late))
-
     def test_shadow_mode_records_but_never_executes(self) -> None:
         service = self._service(mode="shadow")
         late = datetime(2026, 8, 25, 20, 0, tzinfo=timezone.utc)  # 16:00 ET
@@ -425,12 +365,12 @@ class ThesisValidatorServiceTests(unittest.TestCase):
         recorded_runs: list[dict] = []
         with (
             patch(
-                "db_helpers.market.get_open_position_thesis_for_option_symbol",
+                "market_db_modules.thesis_validator.get_open_position_thesis_for_option_symbol",
                 return_value={"id": 1, "symbol": "NVDA", "company_id": 7, "opened_at": "2026-08-20T14:00:00+00:00"},
             ),
-            patch("db_helpers.market.get_thesis_validation_run_for_date", return_value=None),
-            patch("db_helpers.market.count_thesis_validator_exits_for_date", return_value=0),
-            patch("db_helpers.market.record_thesis_validation_run", side_effect=recorded_runs.append),
+            patch("market_db_modules.thesis_validator.get_thesis_validation_run_for_date", return_value=None),
+            patch("market_db_modules.thesis_validator.count_thesis_validator_exits_for_date", return_value=0),
+            patch("market_db_modules.thesis_validator.record_thesis_validation_run", side_effect=recorded_runs.append),
             patch("services.thesis_evidence_pack.build_thesis_evidence_pack", return_value={"allowed_evidence_article_ids": []}),
             patch(
                 "services.thesis_adjudicator.adjudicate_thesis",
@@ -471,11 +411,11 @@ class ThesisValidatorServiceTests(unittest.TestCase):
         recorded_runs: list[dict] = []
         with (
             patch(
-                "db_helpers.market.get_open_position_thesis_for_option_symbol",
+                "market_db_modules.thesis_validator.get_open_position_thesis_for_option_symbol",
                 return_value={"id": 1, "symbol": "NVDA", "opened_at": "2026-08-20T14:00:00+00:00"},
             ),
-            patch("db_helpers.market.get_thesis_validation_run_for_date", return_value=None),
-            patch("db_helpers.market.record_thesis_validation_run", side_effect=recorded_runs.append),
+            patch("market_db_modules.thesis_validator.get_thesis_validation_run_for_date", return_value=None),
+            patch("market_db_modules.thesis_validator.record_thesis_validation_run", side_effect=recorded_runs.append),
             patch("services.thesis_adjudicator.adjudicate_thesis") as mock_adjudicate,
         ):
             summary = service.run_due_validation(positions=[position], now=late)

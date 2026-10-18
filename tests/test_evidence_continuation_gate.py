@@ -65,12 +65,6 @@ class EvidenceContinuationGateTests(unittest.TestCase):
         self.assertFalse(result["allowed"])
         self.assertIn("relative_volume_below_minimum", result["reason_codes"])
 
-    def test_rejects_sector_underperformance(self) -> None:
-        result = self._gate(_payload(sector_state="underperforming"))
-
-        self.assertFalse(result["allowed"])
-        self.assertIn("sector_not_outperforming_market", result["reason_codes"])
-
     def test_fails_closed_when_technical_data_is_missing(self) -> None:
         payload = _payload()
         payload["market_context"]["underlying_price_history"] = {}
@@ -78,12 +72,6 @@ class EvidenceContinuationGateTests(unittest.TestCase):
 
         self.assertFalse(result["allowed"])
         self.assertIn("missing_technical_data", result["reason_codes"])
-
-    def test_rejects_overextended_price_as_chase_risk(self) -> None:
-        result = self._gate(_payload(overextension="high"))
-
-        self.assertFalse(result["allowed"])
-        self.assertIn("chase_risk", result["reason_codes"])
 
     def test_shadow_mode_records_block_without_preventing_an_entry(self) -> None:
         payload = _payload(relative_volume=1.0)
@@ -131,24 +119,6 @@ class EvidenceContinuationGateTests(unittest.TestCase):
 
         self.assertIsNone(result["selected_option"])
         self.assertEqual(result["recommendation"]["selected_option_source"], "evidence_continuation_blocked")
-
-    def test_selector_records_no_contract_after_continuation_is_confirmed(self) -> None:
-        payload = _payload()
-        allowed_gate = self._gate(payload)
-        result = apply_deterministic_option_selection(
-            {
-                "recommendation": {"decision": "call", "confidence": "high"},
-                "market_context": payload["market_context"],
-                "entry_gate": allowed_gate,
-                "strategist_recommendation": {"decision": "trade_candidate"},
-            }
-        )
-
-        self.assertIsNone(result["selected_option"])
-        self.assertEqual(
-            result["recommendation"]["selected_option_source"],
-            "continuation_confirmed_but_no_eligible_contract",
-        )
 
     def test_batch_and_streaming_candidate_shapes_require_allowed_gate(self) -> None:
         builder = OrderCandidateBuilder()

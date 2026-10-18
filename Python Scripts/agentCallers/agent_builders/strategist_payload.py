@@ -5,7 +5,7 @@ import json
 
 from agent_contracts import PayloadFilters, StrategistInputPayload, StrategistViewsPayload
 from agent_helpers.strategist import DEFAULT_MAX_ARTICLE_AGE_DAYS, build_strategist_evidence_sections
-from db_helpers import initialize_news_database
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
 from agent_builders.strategist_payload_articles import (
     _build_supporting_articles,

@@ -4,7 +4,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any, Callable
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from .article_store import add_news_article
 from .links import link_us_article, link_world_article
 
@@ -30,7 +30,7 @@ def _add_global_news_article(
     factuality_score: float | None = None,
     evidence_score: float | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     if conn is None:
@@ -101,7 +101,7 @@ def add_us_news_article(
     factuality_score: float | None = None,
     evidence_score: float | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _add_global_news_article(
@@ -148,7 +148,7 @@ def add_world_news_article(
     factuality_score: float | None = None,
     evidence_score: float | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _add_global_news_article(

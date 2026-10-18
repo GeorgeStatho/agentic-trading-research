@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-from contextlib import closing
+from collections.abc import Iterable, Iterator
+from contextlib import closing, contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
@@ -38,7 +40,39 @@ def _enable_wal(conn: sqlite3.Connection, db_key: str) -> None:
         _WAL_ENABLED_PATHS.add(db_key)
 
 
-def get_connection(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
+@dataclass(frozen=True)
+class Database:
+    path: Path
+
+    def connect(self) -> sqlite3.Connection:
+        return get_connection(self.path)
+
+
+DEFAULT_DATABASE = Database(DB_PATH)
+# Per-context override, so other threads keep seeing the process default.
+_CURRENT_DATABASE: ContextVar[Database | None] = ContextVar("current_database", default=None)
+
+
+def current_database() -> Database:
+    return _CURRENT_DATABASE.get() or DEFAULT_DATABASE
+
+
+@contextmanager
+def use_database(db_path: Path | str) -> Iterator[Database]:
+    database = Database(Path(db_path))
+    token = _CURRENT_DATABASE.set(database)
+    try:
+        yield database
+    finally:
+        _CURRENT_DATABASE.reset(token)
+
+
+def database_path(db_path: Path | str | None = None) -> Path | str:
+    return current_database().path if db_path is None else db_path
+
+
+def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
+    db_path = database_path(db_path)
     conn = sqlite3.connect(db_path, timeout=DB_TIMEOUT_SECONDS)
     conn.row_factory = sqlite3.Row
     # Writes here always read before they insert, so a deferred transaction would have to
@@ -52,7 +86,7 @@ def get_connection(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
     return conn
 
 
-def initialize_schema(db_path: Path | str, schema_path: Path | str) -> None:
+def initialize_schema(db_path: Path | str | None, schema_path: Path | str) -> None:
     schema = Path(schema_path).read_text(encoding="utf-8")
     with closing(get_connection(db_path)) as conn, conn:
         conn.executescript(schema)
@@ -97,6 +131,46 @@ def record_setup_fingerprint(conn: sqlite3.Connection, name: str, fingerprint: s
     conn.execute("""INSERT INTO schema_bootstrap (name, fingerprint, applied_at) VALUES (?, ?, ?)
         ON CONFLICT(name) DO UPDATE SET fingerprint = excluded.fingerprint, applied_at = excluded.applied_at""",
                  (name, fingerprint, datetime.now(timezone.utc).isoformat()))
+
+
+# (setup name, realpath, fingerprint) -> (st_dev, st_ino) of the file that was confirmed current.
+# The inode, not a timestamp, because a WAL checkpoint changes the times constantly.
+_CURRENT_SETUPS: dict[tuple[str, str, str], tuple[int, int]] = {}
+
+
+def _setup_key(name: str, db_path: Path | str, fingerprint: str) -> tuple[str, str, str]:
+    return name, os.path.realpath(os.fspath(db_path)), fingerprint
+
+
+def _file_identity(db_path: Path | str) -> tuple[int, int] | None:
+    try:
+        stat = os.stat(db_path)
+    except OSError:
+        return None
+    return stat.st_dev, stat.st_ino
+
+
+def setup_is_current(name: str, db_path: Path | str, fingerprint: str) -> bool:
+    """True when this process already confirmed this very file is set up; a deleted or renamed-over file is not."""
+    identity = _file_identity(db_path)
+    return identity is not None and _CURRENT_SETUPS.get(_setup_key(name, db_path, fingerprint)) == identity
+
+
+def mark_setup_current(name: str, db_path: Path | str, fingerprint: str) -> None:
+    # A path that cannot be stat'ed (":memory:") is never remembered.
+    identity = _file_identity(db_path)
+    if identity is not None:
+        _CURRENT_SETUPS[_setup_key(name, db_path, fingerprint)] = identity
+
+
+def forget_setup(db_path: Path | str | None = None) -> None:
+    """Drop the memo for one database, or for all of them. Call it after restoring a file in place."""
+    if db_path is None:
+        _CURRENT_SETUPS.clear()
+        return
+    real = os.path.realpath(os.fspath(db_path))
+    for key in [key for key in _CURRENT_SETUPS if key[1] == real]:
+        del _CURRENT_SETUPS[key]
 
 
 def validate_sql_identifier(value: str) -> str:

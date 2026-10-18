@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 from catalyst_schema import stamp_candidate_catalyst
 
 
@@ -20,7 +20,7 @@ def record_strategist_run(
     status: str,
     error_message: str | None = None,
     created_at: str | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     if conn is None:

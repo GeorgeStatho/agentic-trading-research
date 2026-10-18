@@ -6,7 +6,7 @@ from hashlib import sha256
 import json
 from uuid import uuid4
 
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 from .bootstrap import initialize_database
 from .research_observations import bind_candidate_observation
 from .research_observations import read_observation
@@ -21,7 +21,7 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def record_candidate(symbol, version, *, evidence=None, observation_id=None, db_path=DB_PATH):
+def record_candidate(symbol, version, *, evidence=None, observation_id=None, db_path=None):
     initialize_database(db_path=db_path)
     candidate_id, created_at = str(uuid4()), now_iso()
     observation = None
@@ -70,7 +70,7 @@ def record_candidate(symbol, version, *, evidence=None, observation_id=None, db_
                 'source_snapshot': observation['source_snapshot']} if observation else {})}
 
 
-def record_candidate_snapshot(context, stage, payload, *, cutoff=None, db_path=DB_PATH):
+def record_candidate_snapshot(context, stage, payload, *, cutoff=None, db_path=None):
     # A research evaluation's context names the database its candidate lives in.
     db_path = context.get('db_path') or db_path
     initialize_database(db_path=db_path)
@@ -92,7 +92,7 @@ def record_candidate_snapshot(context, stage, payload, *, cutoff=None, db_path=D
              SNAPSHOT_VERSION, snapshot_hash, serialized))
 
 
-def record_candidate_rejection(context, result, *, shadow=False, db_path=DB_PATH):
+def record_candidate_rejection(context, result, *, shadow=False, db_path=None):
     if result.passed:
         return
     db_path = context.get('db_path') or db_path
@@ -110,7 +110,7 @@ def record_candidate_rejection(context, result, *, shadow=False, db_path=DB_PATH
             stamp_candidate_catalyst(conn, 'candidate_rejections', rejection['id'], context['candidate_id'])
 
 
-def load_candidate_lifecycle(candidate_id, *, db_path=DB_PATH):
+def load_candidate_lifecycle(candidate_id, *, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         snapshots = [dict(row) for row in conn.execute(
@@ -128,7 +128,7 @@ def load_candidate_lifecycle(candidate_id, *, db_path=DB_PATH):
                 'SELECT * FROM position_outcomes WHERE candidate_id=? ORDER BY id', (candidate_id,))]}
 
 
-def candidate_funnel(*, date, db_path=DB_PATH):
+def candidate_funnel(*, date, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
         stages = [dict(row) for row in conn.execute('''

@@ -78,3 +78,18 @@ def register_dashboard_routes(app) -> None:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:
             return internal_error("Failed to load decision expectancy.", exc)
+
+    @app.get("/api/news-lag")
+    def news_lag():
+        # Read-only and offline: hourly bars are cached by the collector or `research.py news-lag --fetch-missing`.
+        try:
+            days = int(request.args.get("days", "0"))
+            if days < 0:
+                raise ValueError("days must be 0 or positive.")
+            from market_db_modules.news_lag_report import news_lag_report
+
+            return jsonify(news_lag_report(days=days)), 200
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            return internal_error("Failed to load the news-lag report.", exc)

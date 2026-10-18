@@ -2,12 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from db_helpers import get_all_companies, get_all_industries, list_company_news_articles
-from db_helpers.market import (
-    ensure_industry_market_data,
-    list_companies_by_industry,
-    list_industry_company_rankings,
-)
+from market_db_modules.queries import get_all_companies, get_all_industries
+from news_db_modules.queries import list_company_news_articles
+from market_data.hydration import ensure_industry_market_data
+from market_db_modules.queries import list_companies_by_industry, list_industry_company_rankings
 from agent_contracts import (
     CompanyLinkedArticlesPayload,
     CompanySummary,

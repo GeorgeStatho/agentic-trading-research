@@ -5,7 +5,8 @@ from datetime import datetime
 from typing import Any
 
 from agent_helpers.shared import normalize_time_window, published_at_in_window
-from db_helpers import DB_PATH, get_connection, initialize_news_database
+from db_common import get_connection
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
 
 def get_processed_sector_interest(
@@ -22,7 +23,7 @@ def get_processed_sector_interest(
         max_age_days=max_age_days,
     )
 
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT

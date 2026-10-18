@@ -4,7 +4,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import json
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from research_foundation_contracts import timestamp
 from .bootstrap import initialize_database
 from .foundation_store import canonical, digest, insert_record
@@ -17,7 +17,7 @@ def thesis_event_review_id(thesis_id, queue_id):
     return 'event-review:' + digest([int(thesis_id), str(queue_id)])
 
 
-def record_thesis_event_review(review, *, db_path=DB_PATH):
+def record_thesis_event_review(review, *, db_path=None):
     initialize_database(db_path=db_path)
     data = json.loads(canonical({**review, 'reviewed_at': timestamp(review['reviewed_at'])}))
     data['review_id'] = thesis_event_review_id(data['thesis_id'], data['queue_id'])
@@ -39,19 +39,19 @@ def _records(conn, sql, values):
     return records
 
 
-def find_thesis_event_review(review_id, *, db_path=DB_PATH):
+def find_thesis_event_review(review_id, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         found = _records(conn, 'SELECT * FROM thesis_event_reviews WHERE review_id=?', (review_id,))
     return found[0] if found else None
 
 
-def thesis_event_reviews(thesis_id, *, db_path=DB_PATH):
+def thesis_event_reviews(thesis_id, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         return _records(conn, 'SELECT * FROM thesis_event_reviews WHERE thesis_id=? ORDER BY reviewed_at',
                         (int(thesis_id),))
 
 
-def latest_thesis_verdict(thesis_id, *, db_path=DB_PATH):
+def latest_thesis_verdict(thesis_id, *, db_path=None):
     """The most recent adjudicated verdict from either the daily validator or an event review."""
     with closing(get_connection(db_path)) as conn:
         daily = conn.execute('''SELECT id, run_at, thesis_state, would_open_today FROM thesis_validation_runs
@@ -70,7 +70,7 @@ def latest_thesis_verdict(thesis_id, *, db_path=DB_PATH):
     return max(candidates, key=lambda item: item['reviewed_at']) if candidates else None
 
 
-def thesis_event_review_summary(*, days=7, db_path=DB_PATH):
+def thesis_event_review_summary(*, days=7, db_path=None):
     """Descriptive shadow-period counts; no review here ever executed an exit."""
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat() if days else None
     with closing(get_connection(db_path)) as conn:

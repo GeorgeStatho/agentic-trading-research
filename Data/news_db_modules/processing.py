@@ -4,14 +4,14 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 
 
 def _mark_article_processed(
     table_name: str,
     key_columns: tuple[str, ...],
     values: tuple[object, ...],
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     if conn is None:
@@ -46,7 +46,7 @@ def mark_world_news_article_processed(
     article_id: int,
     model: str | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _mark_article_processed(
@@ -62,7 +62,7 @@ def mark_us_news_article_processed(
     article_id: int,
     model: str | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _mark_article_processed(
@@ -78,7 +78,7 @@ def mark_industry_opportunist_article_processed(
     article_id: int,
     model: str | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _mark_article_processed(
@@ -95,7 +95,7 @@ def mark_company_opportunist_article_processed(
     company_id: int,
     model: str | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _mark_article_processed(
@@ -111,7 +111,7 @@ def mark_sector_opportunist_article_processed(
     article_id: int,
     model: str | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _mark_article_processed(

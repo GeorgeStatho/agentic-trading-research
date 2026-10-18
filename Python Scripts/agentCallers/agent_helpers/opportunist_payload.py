@@ -5,7 +5,9 @@ from datetime import datetime
 from typing import Any
 
 from agent_helpers.shared import normalize_time_window, published_at_in_window
-from db_helpers import DB_PATH, get_all_sectors, get_connection, initialize_news_database
+from db_common import get_connection
+from market_db_modules.queries import get_all_sectors
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
 
 DEFAULT_MAX_ARTICLE_AGE_DAYS = 5
@@ -40,7 +42,7 @@ def find_sector(sector_identifier: str) -> dict[str, Any] | None:
 
 def _load_sector_rss_rows(sector_id: int) -> list[dict[str, Any]]:
     # Load the sector rss rows once so the downstream logic can stay focused on orchestration.
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -156,7 +158,7 @@ def get_high_confidence_macro_news_for_sector(
         max_age_days=max_age_days,
     )
 
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT

@@ -144,9 +144,29 @@ def _refresh_market_context_for_target_dte_bucket(
     return refreshed_market_context, refresh_debug
 
 
+_NO_EVIDENCE_RECOMMENDATION: dict[str, Any] = {
+    "decision": "neither",
+    "confidence": "low",
+    "target_dte_bucket": "none",
+    "technical_confirmation": "weak",
+    "entry_quality": "poor",
+    "recommended_action_adjustment": "skip",
+    "overextension_risk": "medium",
+    "options_pricing_risk": "medium",
+    "selected_option_id": None,
+    "selected_expiration_date": None,
+    "selected_strike_price": None,
+    "selected_option_source": "manager_decision_only",
+    "reason": "There was not enough processed article evidence or live market/account context available to support a call or put decision.",
+    "technical_summary": "Technical context was not sufficient to confirm an actionable catalyst-driven setup.",
+    "risk_summary": "Insufficient evidence and incomplete live context made timing and options risk unattractive.",
+}
+
+
 def _build_no_evidence_result(
     company: dict[str, Any],
     *,
+    recommendation: dict[str, Any],
     context_snapshot: dict[str, Any],
     market_context: dict[str, Any],
 ) -> dict[str, Any]:
@@ -155,21 +175,7 @@ def _build_no_evidence_result(
         "context_snapshot": context_snapshot,
         "market_context": market_context,
         "recommendation": {
-            "decision": "neither",
-            "confidence": "low",
-            "target_dte_bucket": "none",
-            "technical_confirmation": "weak",
-            "entry_quality": "poor",
-            "recommended_action_adjustment": "skip",
-            "overextension_risk": "medium",
-            "options_pricing_risk": "medium",
-            "selected_option_id": None,
-            "selected_expiration_date": None,
-            "selected_strike_price": None,
-            "selected_option_source": "manager_decision_only",
-            "reason": "There was not enough processed article evidence or live market/account context available to support a call or put decision.",
-            "technical_summary": "Technical context was not sufficient to confirm an actionable catalyst-driven setup.",
-            "risk_summary": "Insufficient evidence and incomplete live context made timing and options risk unattractive.",
+            **recommendation,
             "selection_debug": {
                 "manager_module_path": __file__,
                 "manager_stage_version": MANAGER_STAGE_VERSION,
@@ -178,6 +184,67 @@ def _build_no_evidence_result(
         },
         "selected_option": None,
     }
+
+
+def decide_manager_recommendation(
+    payload: dict[str, Any],
+    *,
+    client: Client,
+    model: str,
+    candidate_context: dict[str, Any] | None = None,
+    system_prompt_override: str | None = None,
+    task_override: str | None = None,
+) -> dict[str, Any]:
+    """The manager's decision on a finished payload, shared by live runs and replays.
+
+    Returns the normalized recommendation and whether the no-evidence short circuit
+    answered instead of the model.
+    """
+    if not payload_has_evidence(payload):
+        return {"recommendation": copy.deepcopy(_NO_EVIDENCE_RECOMMENDATION), "no_evidence": True}
+
+    system_prompt, user_prompt = build_manager_prompt(
+        payload,
+        system_prompt_override=system_prompt_override,
+        task_override=task_override,
+    )
+    response_diagnostic: dict[str, Any] = {}
+    from services.candidate_lifecycle import checkpoint
+    checkpoint(candidate_context, "manager_prompt", {"model": model,
+               "system_prompt": system_prompt, "user_prompt": user_prompt})
+    raw_response = ask_model(
+        client=client,
+        model=model,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response_diagnostic=response_diagnostic,
+    )
+
+    parsed = extract_json_value(raw_response)
+    recommendation = normalize_recommendation(
+        extract_recommendation(parsed),
+        strategist_recommendation=payload.get("strategist_recommendation", {}),
+    )
+    if recommendation is None:
+        recommendation = normalize_recommendation(
+            extract_recommendation_from_text(raw_response),
+            strategist_recommendation=payload.get("strategist_recommendation", {}),
+        )
+    if recommendation is None:
+        company = payload.get("company") if isinstance(payload.get("company"), dict) else {}
+        diagnostic = build_model_response_diagnostic(
+            raw_response,
+            response_diagnostic=response_diagnostic,
+        )
+        diagnostic["stage"] = "manager"
+        diagnostic["company_symbol"] = str(company.get("symbol") or "").strip().upper()
+        LOGGER.error("Manager response diagnostic: %s", diagnostic)
+        raise RuntimeError(
+            "Manager model returned an invalid response. "
+            "Expected a JSON object with recommendation.decision/confidence/reason. "
+            "See the preceding manager response diagnostic for the parse error and completion metadata."
+        )
+    return {"recommendation": recommendation, "no_evidence": False, "response_diagnostic": response_diagnostic}
 
 
 def replay_manager_decision_from_payload(
@@ -193,40 +260,15 @@ def replay_manager_decision_from_payload(
     """
     if not isinstance(payload, dict) or not isinstance(payload.get("company"), dict):
         raise ValueError("A frozen manager replay payload with company context is required.")
-    model = model or get_settings().models.manager.model
-
-    replay_payload = copy.deepcopy(payload)
-    if not payload_has_evidence(replay_payload):
-        return {
-            "recommendation": {
-                "decision": "neither",
-                "confidence": "low",
-                "target_dte_bucket": "none",
-                "reason": "Frozen manager payload did not contain enough evidence for a directional replay.",
-            },
-            "replay_skipped": "no_evidence",
-        }
-
-    system_prompt, user_prompt = build_manager_prompt(replay_payload)
-    raw_response = ask_model(
+    decision = decide_manager_recommendation(
+        copy.deepcopy(payload),
         client=client or get_default_client(),
-        model=model,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
+        model=model or get_settings().models.manager.model,
     )
-    parsed = extract_json_value(raw_response)
-    recommendation = normalize_recommendation(
-        extract_recommendation(parsed),
-        strategist_recommendation=replay_payload.get("strategist_recommendation", {}),
-    )
-    if recommendation is None:
-        recommendation = normalize_recommendation(
-            extract_recommendation_from_text(raw_response),
-            strategist_recommendation=replay_payload.get("strategist_recommendation", {}),
-        )
-    if recommendation is None:
-        raise RuntimeError("Manager replay model returned an invalid recommendation response.")
-    return {"recommendation": recommendation, "replay_prompt_version": MANAGER_PROMPT_VERSION}
+    result = {"recommendation": decision["recommendation"], "replay_prompt_version": MANAGER_PROMPT_VERSION}
+    if decision["no_evidence"]:
+        result["replay_skipped"] = "no_evidence"
+    return result
 
 
 def decide_company_option_position(
@@ -284,9 +326,20 @@ def decide_company_option_position(
     from services.candidate_lifecycle import checkpoint
     checkpoint(candidate_context, "pre_manager", {"payload": payload, "model": model})
 
-    if not payload_has_evidence(payload):
+    decision = decide_manager_recommendation(
+        payload,
+        client=client,
+        model=model,
+        candidate_context=candidate_context,
+        system_prompt_override=system_prompt_override,
+        task_override=task_override,
+    )
+    recommendation = decision["recommendation"]
+
+    if decision["no_evidence"]:
         no_evidence_result = _build_no_evidence_result(
             company,
+            recommendation=recommendation,
             context_snapshot=context_snapshot,
             market_context=market_context,
         )
@@ -304,47 +357,8 @@ def decide_company_option_position(
             "manager_model": model,
             "manager_prompt_version": MANAGER_PROMPT_VERSION,
             "market_regime": market_context.get("market_regime", {}),
+            "response_diagnostic": decision.get("response_diagnostic", {}),
         }
-
-    system_prompt, user_prompt = build_manager_prompt(
-        payload,
-        system_prompt_override=system_prompt_override,
-        task_override=task_override,
-    )
-    response_diagnostic: dict[str, Any] = {}
-    checkpoint(candidate_context, "manager_prompt", {"model": model,
-               "system_prompt": system_prompt, "user_prompt": user_prompt})
-    raw_response = ask_model(
-        client=client,
-        model=model,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        response_diagnostic=response_diagnostic,
-    )
-
-    parsed = extract_json_value(raw_response)
-    recommendation = normalize_recommendation(
-        extract_recommendation(parsed),
-        strategist_recommendation=payload.get("strategist_recommendation", {}),
-    )
-    if recommendation is None:
-        recommendation = normalize_recommendation(
-            extract_recommendation_from_text(raw_response),
-            strategist_recommendation=payload.get("strategist_recommendation", {}),
-        )
-    if recommendation is None:
-        diagnostic = build_model_response_diagnostic(
-            raw_response,
-            response_diagnostic=response_diagnostic,
-        )
-        diagnostic["stage"] = "manager"
-        diagnostic["company_symbol"] = str(company.get("symbol") or "").strip().upper()
-        LOGGER.error("Manager response diagnostic: %s", diagnostic)
-        raise RuntimeError(
-            "Manager model returned an invalid response. "
-            "Expected a JSON object with recommendation.decision/confidence/reason. "
-            "See the preceding manager response diagnostic for the parse error and completion metadata."
-        )
 
     market_context, upstream_bucket_refresh_debug = _refresh_market_context_for_target_dte_bucket(
         company=company,
@@ -404,4 +418,5 @@ def decide_company_option_position(
         "manager_model": model,
         "manager_prompt_version": MANAGER_PROMPT_VERSION,
         "market_regime": market_context.get("market_regime", {}),
+        "response_diagnostic": decision.get("response_diagnostic", {}),
     }

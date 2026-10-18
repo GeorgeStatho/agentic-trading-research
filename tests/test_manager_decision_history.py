@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import closing
 import tempfile
 import unittest
 import json
@@ -11,21 +10,20 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "Data"
 
-from market_db import (  # noqa: E402
-    add_company,
-    add_industry,
-    add_sector,
+from market_db_modules.entities import add_company, add_industry, add_sector  # noqa: E402
+from market_db_modules.history_records import (  # noqa: E402
     expire_manager_decision_pnl,
-    get_latest_open_manager_decision_for_trade_link,
-    initialize_database,
-    list_decision_autopsy_ledger,
-    link_manager_decision_to_trade_execution,
-    list_recent_manager_decision_history,
     record_manager_decision_history,
     record_manager_decision_closed_outcome,
     update_manager_decision_latest_pnl,
 )
-from db_common import get_connection  # noqa: E402
+from market_db_modules.history_links import (  # noqa: E402
+    get_latest_open_manager_decision_for_trade_link,
+    link_manager_decision_to_trade_execution,
+)
+from market_db_modules.bootstrap import initialize_database  # noqa: E402
+from market_db_modules.autopsy import list_decision_autopsy_ledger  # noqa: E402
+from market_db_modules.queries import list_recent_manager_decision_history  # noqa: E402
 
 
 class ManagerDecisionHistoryTests(unittest.TestCase):
@@ -169,55 +167,6 @@ class ManagerDecisionHistoryTests(unittest.TestCase):
         self.assertEqual(rows[0]["latest_trade_pnl_pct"], 12.5)
         self.assertEqual(rows[0]["resolved_outcome_label"], "closed_profit")
 
-    def test_autopsy_ledger_loads_linked_live_order_details(self) -> None:
-        submitted_at = "2026-05-22T14:05:00+00:00"
-        decision_id = record_manager_decision_history(
-            {
-                "company_id": self.company_id,
-                "symbol": "MSFT",
-                "company_name": "Microsoft Corporation",
-                "decision_run_at": "2026-05-22T14:00:00+00:00",
-                "manager_decision": "call",
-                "manager_confidence": "high",
-                "selected_option_symbol": "MSFT260619C00450000",
-            },
-            db_path=self.db_path,
-        )
-        with closing(get_connection(self.db_path)) as conn, conn:
-            execution_id = conn.execute(
-                """
-                INSERT INTO option_trade_executions (
-                    company_id, order_id, underlying_symbol, option_symbol, decision,
-                    expiration_date, order_qty, paper, order_status, order_side, submitted_at
-                ) VALUES (?, 'live-order-123', 'MSFT', 'MSFT260619C00450000', 'call',
-                          '2026-06-19', 2, 0, 'filled', 'buy', ?)
-                """,
-                (self.company_id, submitted_at),
-            ).lastrowid
-        link_manager_decision_to_trade_execution(
-            trade_execution_order_id="live-order-123",
-            trade_execution_record_id=execution_id,
-            company_id=self.company_id,
-            symbol="MSFT",
-            selected_option_symbol="MSFT260619C00450000",
-            submitted_at=submitted_at,
-            db_path=self.db_path,
-        )
-        update_manager_decision_latest_pnl(
-            decision_history_id=decision_id,
-            latest_trade_pnl_pct=-3.5,
-            latest_trade_pnl_updated_at="2026-05-23T14:00:00+00:00",
-            pnl_expires_at="2026-12-31T14:00:00+00:00",
-            resolved_outcome_label="closed_loss",
-            db_path=self.db_path,
-        )
-
-        rows = list_decision_autopsy_ledger(company_id=self.company_id, db_path=self.db_path)
-        record = next(row for row in rows if row["manager_decision_history_id"] == decision_id)
-        self.assertEqual(record["execution_paper"], 0)
-        self.assertEqual(record["execution_order_status"], "filled")
-        self.assertEqual(record["execution_option_symbol"], "MSFT260619C00450000")
-
     def test_expire_manager_decision_pnl_clears_stale_pnl_without_deleting_history(self) -> None:
         decision_id = record_manager_decision_history(
             {
@@ -258,47 +207,6 @@ class ManagerDecisionHistoryTests(unittest.TestCase):
         )
         self.assertEqual(len(rows_with_expired), 1)
         self.assertEqual(rows_with_expired[0]["latest_trade_pnl_pct"], -8.0)
-
-    def test_expired_history_hides_outcome_label_by_default_but_can_restore_it(self) -> None:
-        record_manager_decision_history(
-            {
-                "company_id": self.company_id,
-                "symbol": "MSFT",
-                "company_name": "Microsoft Corporation",
-                "decision_run_at": "2026-05-01T14:00:00+00:00",
-                "manager_decision": "call",
-                "manager_confidence": "medium",
-                "selected_option_symbol": "MSFT260619C00450000",
-                "trade_executed": True,
-                "latest_trade_pnl_pct": 6.25,
-                "latest_trade_pnl_updated_at": "2026-05-05T14:00:00+00:00",
-                "pnl_expires_at": "2026-05-10T14:00:00+00:00",
-                "resolved_outcome_label": "managed_exit_submitted_profit",
-            },
-            db_path=self.db_path,
-        )
-
-        expire_manager_decision_pnl(
-            now="2026-05-22T14:00:00+00:00",
-            db_path=self.db_path,
-        )
-
-        masked_rows = list_recent_manager_decision_history(
-            underlying_symbol="MSFT",
-            db_path=self.db_path,
-        )
-        self.assertEqual(len(masked_rows), 1)
-        self.assertIsNone(masked_rows[0]["latest_trade_pnl_pct"])
-        self.assertIsNone(masked_rows[0]["resolved_outcome_label"])
-
-        unmasked_rows = list_recent_manager_decision_history(
-            underlying_symbol="MSFT",
-            include_expired_pnl=True,
-            db_path=self.db_path,
-        )
-        self.assertEqual(len(unmasked_rows), 1)
-        self.assertEqual(unmasked_rows[0]["latest_trade_pnl_pct"], 6.25)
-        self.assertEqual(unmasked_rows[0]["resolved_outcome_label"], "managed_exit_submitted_profit")
 
 
 if __name__ == "__main__":

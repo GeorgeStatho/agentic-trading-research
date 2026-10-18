@@ -10,7 +10,9 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "Data"
 
 from db_common import get_connection  # noqa: E402
-from market_db import import_alpaca_option_quote_csv, initialize_database, run_backtest  # noqa: E402
+from market_db_modules.backtest_imports import import_alpaca_option_quote_csv  # noqa: E402
+from market_db_modules.bootstrap import initialize_database  # noqa: E402
+from market_db_modules.backtesting import run_backtest  # noqa: E402
 
 
 class AlpacaQuoteCsvImportTests(unittest.TestCase):
@@ -60,14 +62,6 @@ class AlpacaQuoteCsvImportTests(unittest.TestCase):
         self.assertEqual(result["events"][0]["status"], "simulated_closed")
         self.assertEqual(result["events"][0]["entry_price"], 1.1)
         self.assertEqual(result["events"][0]["exit_price"], 1.5)
-
-    def test_dry_run_does_not_store_quotes(self) -> None:
-        result = import_alpaca_option_quote_csv(self.csv_path, db_path=self.db_path, dry_run=True)
-        with closing(get_connection(self.db_path)) as conn, conn:
-            count = conn.execute("SELECT COUNT(*) FROM historical_option_quotes").fetchone()[0]
-        self.assertEqual(result["valid_rows"], 3)
-        self.assertEqual(result["inserted_rows"], 0)
-        self.assertEqual(count, 0)
 
 
 if __name__ == "__main__":

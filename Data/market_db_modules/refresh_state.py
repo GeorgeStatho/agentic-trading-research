@@ -5,14 +5,14 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from db_common import DB_PATH, clean_text, get_connection, json_text
+from db_common import clean_text, get_connection, json_text
 from .shared import normalize_timestamp
 
 
 def get_market_data_refresh_state(
     resource_type: str,
     resource_key: str,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> sqlite3.Row | None:
     normalized_type = clean_text(resource_type)
@@ -45,7 +45,7 @@ def record_market_data_refresh_state(
     *,
     last_hydrated_at: Any | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> None:
     normalized_type = clean_text(resource_type)

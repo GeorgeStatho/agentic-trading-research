@@ -315,6 +315,7 @@ def _record_vertex_response_diagnostic(
         for key in (
             "prompt_token_count",
             "candidates_token_count",
+            "thoughts_token_count",
             "total_token_count",
             "cached_content_token_count",
         ):

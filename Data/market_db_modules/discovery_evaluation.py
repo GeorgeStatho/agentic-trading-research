@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from statistics import mean, median
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from services.research_contract import utc
 from services.research_promotion import research_only_candidate
 from .bootstrap import initialize_database
@@ -106,7 +106,7 @@ def _group_outcomes(rows, responses):
     return summary
 
 
-def discovery_route_ledger(*, days=30, as_of=None, db_path=DB_PATH):
+def discovery_route_ledger(*, days=30, as_of=None, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn:
         return route_ledger(conn, days=days, as_of=as_of)

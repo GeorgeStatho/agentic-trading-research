@@ -3,17 +3,20 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Callable, TypedDict
 
-from pipelines._article_follow import collect_article_urls_to_fetch, fetch_articles_with_preferred_extractors
-from pipelines._shared import crawl_articles
+from pipelines._article_follow import NewsEntity, save_link_verdicts
+from pipelines._link_policy import LinkBatch, judge_links
+from core.CommonPipeline import MAX_ARTICLES_PER_SEARCH_PAGE
+from engine.page_fetch import fetch_articles, fetch_source_pages
+from pipelines.job_builder import group_jobs_by_url, unique_job_urls
 
 
 class ArticleSaveRequest(TypedDict):
     source_page_url: str
     candidate_links: list[dict]
-    entity: dict
-    entity_id: int
+    entity: NewsEntity
     max_articles: int
-    payload: dict[str, Any]
+    source_type: str
+    may_reuse: Callable[[dict], bool] | None
 
 
 def _page_has_usable_links(page: dict[str, Any]) -> bool:
@@ -21,15 +24,25 @@ def _page_has_usable_links(page: dict[str, Any]) -> bool:
     return isinstance(links, list) and len(links) > 0
 
 
+def direct_article_save_request(url: str, entity: NewsEntity, summary: str | None = None) -> ArticleSaveRequest:
+    return {
+        "source_page_url": url,
+        "candidate_links": [{"href": url, "text": summary}],
+        "entity": entity,
+        "max_articles": 1,
+        "source_type": "article",
+        "may_reuse": None,
+    }
+
+
 def build_search_article_save_requests(
     *,
     crawled_pages: list[dict],
     jobs_by_url: dict[str, list[dict]],
     logger,
-    should_process_page: Callable[[dict], bool],
-    build_candidate_links: Callable[[dict, dict], list[dict]],
-    build_request: Callable[[dict, dict, list[dict]], ArticleSaveRequest],
-    handle_page_failure: Callable[[dict, list[dict]], None] | None = None,
+    entity_from_job: Callable[[dict], NewsEntity],
+    candidate_links_for: Callable[[dict, dict], list[dict]],
+    reuse_filter_for: Callable[[dict], Callable[[dict], bool]] | None = None,
 ) -> list[ArticleSaveRequest]:
     # Assemble the search article save requests so downstream callers can work from one normalized shape.
     requests: list[ArticleSaveRequest] = []
@@ -47,117 +60,100 @@ def build_search_article_save_requests(
         status = page.get("status")
         fetch_succeeded = status is not None and int(status) < 400
         if not page.get("success") and not (fetch_succeeded and _page_has_usable_links(page)):
-            if handle_page_failure is not None:
-                handle_page_failure(page, matching_jobs)
-            continue
-        if not should_process_page(page):
+            for job in matching_jobs:
+                entity = entity_from_job(job)
+                logger.warning(
+                    "Source page crawl failed for %s %s at %s: %s",
+                    entity.kind,
+                    entity.label,
+                    page.get("url"),
+                    page.get("error"),
+                )
             continue
 
         for job in matching_jobs:
-            candidate_links = build_candidate_links(page, job)
-            requests.append(build_request(page, job, candidate_links))
+            requests.append(
+                {
+                    "source_page_url": page["url"],
+                    "candidate_links": candidate_links_for(page, job),
+                    "entity": entity_from_job(job),
+                    "max_articles": MAX_ARTICLES_PER_SEARCH_PAGE,
+                    "source_type": job["source_type"],
+                    "may_reuse": reuse_filter_for(job) if reuse_filter_for is not None else None,
+                }
+            )
 
     return requests
-
-
-def build_direct_article_save_requests(
-    *,
-    jobs: list[dict],
-    build_request: Callable[[dict], ArticleSaveRequest],
-) -> list[ArticleSaveRequest]:
-    return [build_request(job) for job in jobs]
-
-
-def collect_save_request_article_urls(
-    save_requests: list[ArticleSaveRequest],
-    *,
-    should_include_link: Callable[[str, dict], bool] | None = None,
-) -> list[str]:
-    # Collect the save request article urls into one cleaned result for the next step.
-    urls_to_fetch: list[str] = []
-    seen_urls: set[str] = set()
-
-    for request in save_requests:
-        added_for_request = 0
-        max_articles = int(request["max_articles"])
-        for link in request["candidate_links"]:
-            if added_for_request >= max_articles:
-                break
-
-            href = str(link.get("href") or "").strip()
-            if not href:
-                continue
-            if href in seen_urls:
-                added_for_request += 1
-                continue
-
-            batch_urls = collect_article_urls_to_fetch(
-                [link],
-                1,
-                should_include_link=should_include_link,
-            )
-            if not batch_urls:
-                continue
-
-            urls_to_fetch.extend(batch_urls)
-            seen_urls.update(batch_urls)
-            added_for_request += 1
-
-    return urls_to_fetch
 
 
 def run_article_save_requests(
     *,
     save_requests: list[ArticleSaveRequest],
-    save_request: Callable[[ArticleSaveRequest, dict], int],
+    logger,
     should_include_link: Callable[[str, dict], bool] | None = None,
-    accumulate_saved_count: Callable[[dict, ArticleSaveRequest, int], None] | None = None,
+    by_source_type: bool = False,
 ) -> dict:
-    # Orchestrate the article save requests flow and return the next useful result for the caller.
+    # Judge every link, fetch the needed articles in one batch, then save each request; counts are keyed by entity id (or (id, source_type)).
     saved_counts: dict = defaultdict(int)
-    article_urls = collect_save_request_article_urls(
-        save_requests,
+    verdicts_by_request = judge_links(
+        [LinkBatch(r["candidate_links"], r["max_articles"], r["may_reuse"]) for r in save_requests],
         should_include_link=should_include_link,
     )
-    fetched_articles = fetch_articles_with_preferred_extractors(article_urls) if article_urls else {}
+    urls_to_fetch: dict[str, str] = {}
+    for verdicts in verdicts_by_request:
+        for verdict in verdicts:
+            if verdict.action == "fetch":
+                urls_to_fetch.setdefault(verdict.normalized_url, verdict.href)
+    fetched_articles = fetch_articles(list(urls_to_fetch.values())) if urls_to_fetch else {}
+    outcomes: dict[str, int | None] = {}
 
-    for request in save_requests:
-        saved = save_request(request, fetched_articles)
-        if accumulate_saved_count is not None:
-            accumulate_saved_count(saved_counts, request, saved)
-        else:
-            saved_counts[request["entity_id"]] += saved
+    for request, verdicts in zip(save_requests, verdicts_by_request):
+        entity = request["entity"]
+        if request["source_type"] == "article":
+            for verdict in verdicts:
+                if verdict.reason == "not_article_url":
+                    logger.info("Skipping not_article_url article %s for %s %s", verdict.href, entity.kind, entity.label)
+        key = (entity.id, request["source_type"]) if by_source_type else entity.id
+        saved_counts[key] += save_link_verdicts(
+            source_page_url=request["source_page_url"],
+            verdicts=verdicts,
+            entity=entity,
+            fetched_articles=fetched_articles,
+            logger=logger,
+            outcomes=outcomes,
+        )
 
     return saved_counts
 
 
 def run_mixed_job_orchestration(
     *,
-    search_jobs: list[dict],
-    direct_article_jobs: list[dict],
-    group_jobs_by_url: Callable[[list[dict]], dict[str, list[dict]]],
-    unique_job_urls: Callable[[list[dict]], list[str]],
-    build_search_save_requests: Callable[[list[dict], dict[str, list[dict]]], list[ArticleSaveRequest]],
-    build_direct_article_save_requests: Callable[[list[dict]], list[ArticleSaveRequest]],
-    save_request: Callable[[ArticleSaveRequest, dict], int],
-    should_include_link: Callable[[str, dict], bool] | None = None,
-    accumulate_saved_count: Callable[[dict, ArticleSaveRequest, int], None] | None = None,
+    jobs: list[dict],
+    logger,
+    entity_from_job: Callable[[dict], NewsEntity],
+    candidate_links_for: Callable[[dict, dict], list[dict]],
+    by_source_type: bool = False,
+    reuse_filter_for: Callable[[dict], Callable[[dict], bool]] | None = None,
 ) -> dict:
-    # Orchestrate the mixed job orchestration flow and return the next useful result for the caller.
-    crawled_pages: list[dict] = []
+    # Crawl search/listing pages for candidate links, add direct article jobs, then save everything.
+    search_jobs = [job for job in jobs if job["source_type"] in {"search", "listing"}]
+    crawled_pages = fetch_source_pages(unique_job_urls(search_jobs)) if search_jobs else []
 
-    if search_jobs:
-        jobs_by_url = group_jobs_by_url(search_jobs)
-        urls = unique_job_urls(search_jobs)
-        crawled_pages = crawl_articles(urls)
-    else:
-        jobs_by_url = {}
-
-    save_requests = build_search_save_requests(crawled_pages, jobs_by_url)
-    save_requests.extend(build_direct_article_save_requests(direct_article_jobs))
+    save_requests = build_search_article_save_requests(
+        crawled_pages=crawled_pages,
+        jobs_by_url=group_jobs_by_url(search_jobs),
+        logger=logger,
+        entity_from_job=entity_from_job,
+        candidate_links_for=candidate_links_for,
+        reuse_filter_for=reuse_filter_for,
+    )
+    save_requests.extend(
+        direct_article_save_request(job["url"], entity_from_job(job))
+        for job in jobs
+        if job["source_type"] == "article"
+    )
     return run_article_save_requests(
         save_requests=save_requests,
-        save_request=save_request,
-        should_include_link=should_include_link,
-        accumulate_saved_count=accumulate_saved_count,
+        logger=logger,
+        by_source_type=by_source_type,
     )

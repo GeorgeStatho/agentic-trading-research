@@ -2,7 +2,6 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from db_common import DB_PATH
 from market_db_modules.discovery_candidates import persist_discovery_candidate
 from market_db_modules.discovery_queue import claim_discovery_batch, finish_discovery_item, preview_discovery_queue
 from research_foundation_contracts import timestamp
@@ -19,7 +18,7 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def discovery_targets(*, policy=None, at=None, db_path=DB_PATH):
+def discovery_targets(*, policy=None, at=None, db_path=None):
     policy = policy or DiscoveryPolicy.from_env()
     if policy.mode == 'disabled':
         return []
@@ -30,7 +29,7 @@ def discovery_targets(*, policy=None, at=None, db_path=DB_PATH):
              'source_groups': item['origins'], 'discovery_shadow': True} for item in items]
 
 
-def build_discovery_research_input(item, *, db_path=DB_PATH):
+def build_discovery_research_input(item, *, db_path=None):
     from agent_builders.company_evidence_payload import build_company_evidence_payload
     event = item['event']
     evidence = (build_company_evidence_payload(item['company_id'], package_id=event['package_id'],
@@ -45,7 +44,7 @@ def build_discovery_research_input(item, *, db_path=DB_PATH):
             'research_predecessor_revision': event.get('predecessor_revision')}
 
 
-def process_discovery_queue(*, policy=None, owner=None, clock=utc_now, version=None, db_path=DB_PATH):
+def process_discovery_queue(*, policy=None, owner=None, clock=utc_now, version=None, db_path=None):
     policy = policy or DiscoveryPolicy.from_env()
     if policy.mode == 'disabled':
         return {'status': 'disabled', 'candidates': []}
@@ -75,7 +74,7 @@ def process_discovery_queue(*, policy=None, owner=None, clock=utc_now, version=N
     return {'status': 'shadow', 'candidates': results, 'failures': failures}
 
 
-def run_discovery_shadow_cycle(*, sector_symbols=(), policy=None, clock=utc_now, db_path=DB_PATH):
+def run_discovery_shadow_cycle(*, sector_symbols=(), policy=None, clock=utc_now, db_path=None):
     policy = policy or DiscoveryPolicy.from_env()
     if policy.mode == 'disabled':
         return {'status': 'disabled', 'candidates': []}

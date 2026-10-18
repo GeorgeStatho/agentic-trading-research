@@ -11,6 +11,7 @@ if __name__ == "__main__":
     load_process_settings()
 
 from services.llm_backtest import STORED_MODEL, run_llm_backtest  # noqa: E402
+from services.llm_direction_score import HORIZONS, run_direction_score  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
@@ -38,12 +39,23 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--replay-strategist", action="store_true",
                         help="Have --model answer the strategist too, on each decision's frozen strategist input; the "
                              "manager then answers that strategist instead of production's. Not valid with 'stored'.")
+    parser.add_argument("--score-direction", action="store_true",
+                        help="Instead of trading options, score each answer's direction by the stock's return over the "
+                             f"next {' and '.join(map(str, HORIZONS))} trading-day closes. Works on decisions before "
+                             "option-chain snapshots began; nothing but cached answers is stored.")
+    parser.add_argument("--output", default="", help="With --score-direction, also write every scored decision to this JSON file.")
     parser.add_argument("--take-profit-pct", type=float)
     parser.add_argument("--stop-loss-pct", type=float)
     parser.add_argument("--max-hold-hours", type=int)
     parser.add_argument("--entry-slippage-bps", type=float)
     parser.add_argument("--exit-slippage-bps", type=float)
-    return parser.parse_args()
+    args = parser.parse_args()
+    trading_only = [name for name in ("execute_medium_confidence", "fetch_option_quotes", "take_profit_pct", "stop_loss_pct",
+                                      "max_hold_hours", "entry_slippage_bps", "exit_slippage_bps")
+                    if getattr(args, name) not in (None, False)]
+    if args.score_direction and trading_only:
+        parser.error(f"--score-direction does not trade options; remove {', '.join('--' + n.replace('_', '-') for n in trading_only)}")
+    return args
 
 
 def _summary(result: dict) -> dict:
@@ -53,9 +65,22 @@ def _summary(result: dict) -> dict:
             "metrics": metrics}
 
 
+def _score_direction(args: argparse.Namespace) -> None:
+    result = run_direction_score(model=args.model, start_at=args.start_at or None, end_at=args.end_at or None,
+                                 limit=args.limit, min_hours_between=args.min_hours_between,
+                                 replay_strategist=args.replay_strategist, fetch_missing_bars=args.fetch_missing_bars)
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as handle:
+            json.dump(result, handle, indent=2, default=str)
+    print(json.dumps({key: value for key, value in result.items() if key != "decisions"}, indent=2, default=str))
+
+
 def main() -> None:
     args = _parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    if args.score_direction:
+        _score_direction(args)
+        return
     execution_config = {key: value for key, value in {
         "take_profit_pct": args.take_profit_pct,
         "stop_loss_pct": args.stop_loss_pct,

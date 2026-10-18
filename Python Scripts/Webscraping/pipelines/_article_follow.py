@@ -1,200 +1,111 @@
 from __future__ import annotations
 
-import re
-from datetime import datetime, timezone
-from typing import Any, Callable
-from urllib.parse import urlsplit
+from contextlib import closing
+from dataclasses import dataclass
+from typing import Any, Callable, cast
 
-from pipelines._shared import (
-    ArticleExtractionResult,
-    MAX_ARTICLE_AGE_DAYS,
-    build_content_hash,
+from core.CommonPipeline import (
     clear_failed_url,
     compute_article_scores,
-    crawl_article_pages,
-    fetch_existing_article_by_url,
-    get_max_article_age_days,
-    get_source_metadata,
-    is_allowed_source,
     is_recent_article,
-    normalize_title,
-    normalize_url,
     record_failed_url,
-    cast,
 )
+from engine.article_extraction import ArticleExtractionResult
+from processing.news_normalization import build_content_hash, normalize_title, normalize_url
+from pipelines._link_policy import LinkVerdict
+from sources.source_config import get_source_metadata
+from db_common import get_connection
+from news_db_modules.article_store import add_news_article
+
+@dataclass(frozen=True)
+class NewsEntity:
+    kind: str  # "company" | "industry" | "sector" | "us" | "world"
+    id: int
+    label: str
+    identity: dict
+    link: Callable[..., int]  # called as link(article_id=, source_page_url=, conn=)
 
 
-from APIs.foolAPI import get_article_content as get_fool_article_content
-from APIs.gurufocusAPI import get_article_content as get_gurufocus_article_content
-from APIs.InvestingAPI import get_article_content as get_investing_article_content
-from APIs.morningStarAPI import get_article_content as get_morningstar_article_content
-
-CNBc_URL_DATE_RE = re.compile(r"/(?P<year>\d{4})/(?P<month>\d{2})/(?P<day>\d{2})/")
-
-ARTICLE_CONTENT_FETCHERS: tuple[tuple[str, Callable[[str], dict[str, Any]]], ...] = (
-    ("investor.example.com", get_fool_article_content),
-    ("calendar.example.com", get_investing_article_content),
-    ("research.example.com", get_morningstar_article_content),
-    ("value.example.com", get_gurufocus_article_content),
-)
+def _persist(entity: NewsEntity, source_page_url: str, article_id: int | None = None, **article: Any) -> int:
+    # Insert the article unless it already exists, then link it to the entity in the same transaction.
+    with closing(get_connection()) as conn, conn:
+        if article_id is None:
+            article_id = add_news_article(**article, conn=conn)
+        entity.link(article_id=article_id, source_page_url=source_page_url, conn=conn)
+    return article_id
 
 
-def _extract_cnbc_url_published_at(url: str) -> str | None:
-    lowered = str(url or "").strip().lower()
-    if "newswire.example.com" not in lowered:
+LOGGED_SKIP_REASONS = ("blacklisted", "failed_url", "stale_existing", "stale_url_date", "irrelevant_existing")
+
+
+def _insert_fetched_article(
+    *, verdict: LinkVerdict, article: ArticleExtractionResult, source_page_url: str, entity: NewsEntity, logger
+) -> int | None:
+    # Score and insert one freshly fetched article; None means it was rejected (failed or stale).
+    href = verdict.href
+    if not article.success:
+        record_failed_url(href, "article_follow", article.error)
+        logger.warning(
+            "Article follow failed for %s %s at %s: %s", entity.kind, entity.label, href, article.error
+        )
+        return None
+    clear_failed_url(href)
+    if not is_recent_article(article.published_at, max_age_days=verdict.max_age_days):
+        logger.info("Skipping stale fetched article %s for %s %s", href, entity.kind, entity.label)
         return None
 
-    match = CNBc_URL_DATE_RE.search(urlsplit(lowered).path)
-    if match is None:
-        return None
-
-    try:
-        published_at = datetime(
-            int(match.group("year")),
-            int(match.group("month")),
-            int(match.group("day")),
-            tzinfo=timezone.utc,
-        )
-    except ValueError:
-        return None
-
-    return published_at.isoformat()
-
-
-def _should_skip_article_fetch_for_age(url: str, *, max_age_days: int) -> bool:
-    inferred_published_at = _extract_cnbc_url_published_at(url)
-    if not inferred_published_at:
-        return False
-    return not is_recent_article(inferred_published_at, max_age_days=max_age_days)
-
-
-def collect_article_urls_to_fetch(
-    candidate_links: list[dict],
-    max_articles: int,
-    *,
-    max_age_days: int = MAX_ARTICLE_AGE_DAYS,
-    should_include_link: Callable[[str, dict], bool] | None = None,
-) -> list[str]:
-    # Collect the article urls to fetch into one cleaned result for the next step.
-    urls_to_fetch: list[str] = []
-    seen_urls: set[str] = set()
-
-    for link in candidate_links:
-        if len(urls_to_fetch) >= max_articles:
-            break
-
-        href = str(link.get("href") or "").strip()
-        if not href:
-            continue
-        if should_include_link is not None and not should_include_link(href, link):
-            continue
-        if not is_allowed_source(href):
-            continue
-        article_max_age_days = get_max_article_age_days(href, max_age_days)
-        if _should_skip_article_fetch_for_age(href, max_age_days=article_max_age_days):
-            continue
-        if fetch_existing_article_by_url(href) is not None:
-            continue
-        if href in seen_urls:
-            continue
-
-        urls_to_fetch.append(href)
-        seen_urls.add(href)
-
-    return urls_to_fetch
-
-
-def _get_article_content_fetcher(url: str) -> Callable[[str], dict[str, Any]] | None:
-    hostname = (urlsplit(str(url or "")).hostname or "").lower()
-    for domain, fetcher in ARTICLE_CONTENT_FETCHERS:
-        if hostname == domain or hostname.endswith(f".{domain}"):
-            return fetcher
-    return None
-
-
-def _extract_article_result_from_api_payload(payload: dict[str, Any], fallback_url: str) -> ArticleExtractionResult:
-    # Extract the article result from api payload from the raw response and return a stable value.
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(data, dict):
-        return ArticleExtractionResult(
-            url=fallback_url,
-            success=False,
-            error="API article extractor returned an unexpected payload shape.",
-        )
-
-    title = str(data.get("title") or "").strip()
-    body = str(data.get("body") or "").strip()
-    published_at = str(data.get("published_at") or "").strip()
-    url = str(data.get("url") or fallback_url).strip() or fallback_url
-
-    if not title or not body:
-        return ArticleExtractionResult(
-            url=url,
-            title=title,
-            text=body,
-            published_at=published_at,
-            success=False,
-            error="API article extractor returned empty title or body.",
-        )
-
-    return ArticleExtractionResult(
-        url=url,
+    link = verdict.link
+    normalized_href = verdict.normalized_url
+    title = article.title or link.get("text") or href
+    source_metadata = get_source_metadata(href)
+    score_bundle = compute_article_scores(article, link, href, source_metadata)
+    raw_json = {
+        **entity.identity,
+        "source_page_url": source_page_url,
+        "link": link,
+        "normalized_url": normalized_href,
+        "normalized_title": normalize_title(title),
+        "content_hash": build_content_hash(article.text),
+        "source_metadata": source_metadata,
+        "scores": score_bundle,
+        "extracted_article": {
+            "url": article.url,
+            "title": article.title,
+            "text": article.text,
+            "published_at": article.published_at,
+            "success": article.success,
+            "error": article.error,
+            "reused_existing_article": False,
+        },
+    }
+    article_id = _persist(
+        entity,
+        source_page_url,
+        source=source_metadata["domain"],
+        article_key=normalized_href or href,
         title=title,
-        text=body,
-        published_at=published_at,
-        success=True,
+        source_url=href,
+        summary=link.get("text"),
+        body=article.text,
+        published_at=article.published_at or None,
+        raw_json=raw_json,
+        **score_bundle,
     )
+    logger.info("Fetched new article %s for %s %s", href, entity.kind, entity.label)
+    return article_id
 
 
-def fetch_articles_with_preferred_extractors(
-    urls: list[str],
-    *,
-    logger=None,
-) -> dict[str, ArticleExtractionResult]:
-    # Fetch the articles with preferred extractors and normalize the result for the next stage.
-    fetched_articles: dict[str, ArticleExtractionResult] = {}
-    fallback_urls: list[str] = []
-
-    for url in urls:
-        fetcher = _get_article_content_fetcher(url)
-        if fetcher is None:
-            fallback_urls.append(url)
-            continue
-
-        try:
-            payload = fetcher(url)
-            fetched_articles[url] = _extract_article_result_from_api_payload(payload, url)
-            if logger is not None and fetched_articles[url].success:
-                logger.info("Fetched article via API extractor for %s", url)
-        except Exception as exc:
-            if logger is not None:
-                logger.warning("API article extractor failed for %s: %s", url, exc)
-            fallback_urls.append(url)
-
-    if fallback_urls:
-        fetched_articles.update(crawl_article_pages(fallback_urls))
-
-    return fetched_articles
-
-
-def save_followed_article_links(
+def save_link_verdicts(
     *,
     source_page_url: str,
-    candidate_links: list[dict],
-    entity: dict,
-    entity_kind: str,
-    entity_label: str,
+    verdicts: list[LinkVerdict],
+    entity: NewsEntity,
+    fetched_articles: dict[str, ArticleExtractionResult],
     logger,
-    save_article: Callable[[dict[str, Any]], Any],
-    build_raw_json: Callable[[dict[str, Any]], dict[str, Any]],
-    max_articles: int,
-    max_age_days: int = MAX_ARTICLE_AGE_DAYS,
-    fetched_articles: dict[str, ArticleExtractionResult] | None = None,
-    should_include_link: Callable[[str, dict], bool] | None = None,
+    outcomes: dict[str, int | None],
 ) -> int:
-    # Persist the followed article results, related article records, and scoring metadata in one transaction-like flow.
-    saved_count = 0
-    fetched_articles = dict(fetched_articles or {})
+    # Link reused articles and insert new ones for one entity. `outcomes` is shared by every request in a run
+    # (normalized_url -> article id, or None if rejected) so a url is fetched, inserted and recorded only once.
     normalized_fetched_articles: dict[str, ArticleExtractionResult] = {}
     for fetched_url, fetched_article in fetched_articles.items():
         normalized_fetched_url = normalize_url(fetched_url)
@@ -203,179 +114,58 @@ def save_followed_article_links(
 
     logger.info(
         "Processing %s candidate article links for %s %s from %s",
-        len(candidate_links),
-        entity_kind,
-        entity_label,
+        len(verdicts),
+        entity.kind,
+        entity.label,
         source_page_url,
     )
 
-    if not fetched_articles:
-        urls_to_fetch = collect_article_urls_to_fetch(
-            candidate_links,
-            max_articles,
-            max_age_days=max_age_days,
-            should_include_link=should_include_link,
-        )
-        if urls_to_fetch:
-            logger.info(
-                "Fetching %s article pages for %s %s",
-                len(urls_to_fetch),
-                entity_kind,
-                entity_label,
-            )
-            fetched_articles = fetch_articles_with_preferred_extractors(
-                urls_to_fetch,
-                logger=logger,
-            )
-
-    for link in candidate_links:
-        if saved_count >= max_articles:
-            logger.info(
-                "Reached article limit of %s for %s %s from %s",
-                max_articles,
-                entity_kind,
-                entity_label,
-                source_page_url,
-            )
-            break
-
-        href = str(link.get("href") or "").strip()
-        if not href:
-            continue
-        if should_include_link is not None and not should_include_link(href, link):
-            continue
-        if not is_allowed_source(href):
-            logger.info("Skipping disallowed article URL %s for %s %s", href, entity_kind, entity_label)
+    saved_count = 0
+    limit_skips = 0
+    for verdict in verdicts:
+        href = verdict.href
+        if verdict.action == "skip":
+            if verdict.reason == "limit":
+                limit_skips += 1
+            elif verdict.reason in LOGGED_SKIP_REASONS:
+                logger.info("Skipping %s article %s for %s %s", verdict.reason, href, entity.kind, entity.label)
             continue
 
-        article_max_age_days = get_max_article_age_days(href, max_age_days)
-        normalized_href = normalize_url(href)
-        existing_article = fetch_existing_article_by_url(href)
-
-        if existing_article is not None:
-            existing_article_id = existing_article.get("id")
-            existing_published_at = existing_article.get("published_at")
-            if existing_published_at is not None and not isinstance(existing_published_at, str):
-                existing_published_at = str(existing_published_at)
-            if not is_recent_article(existing_published_at, max_age_days=article_max_age_days):
-                logger.info("Skipping stale existing article %s for %s %s", href, entity_kind, entity_label)
+        if verdict.action == "reuse":
+            _persist(entity, source_page_url, article_id=verdict.article_id)
+            logger.info("Reusing existing article %s for %s %s", href, entity.kind, entity.label)
+        elif verdict.normalized_url in outcomes:
+            article_id = outcomes[verdict.normalized_url]
+            if article_id is None:
                 continue
-
-            title = existing_article.get("title") or link.get("text") or href
-            article_key = existing_article.get("article_key") or normalized_href or href
-            source_metadata = get_source_metadata(existing_article.get("source_url") or href)
-            source = existing_article.get("source") or source_metadata["domain"]
-            normalized_article_title = existing_article.get("normalized_title") or normalize_title(title)
-            content_hash = existing_article.get("content_hash") or build_content_hash(existing_article.get("body") or "")
-            score_bundle = {
-                "age_days": existing_article.get("age_days"),
-                "recency_score": existing_article.get("recency_score"),
-                "source_reputation_score": existing_article.get("source_reputation_score"),
-                "directness_score": existing_article.get("directness_score"),
-                "confirmation_score": existing_article.get("confirmation_score"),
-                "independent_source_count": existing_article.get("independent_source_count"),
-                "factuality_score": existing_article.get("factuality_score"),
-                "evidence_score": existing_article.get("evidence_score"),
-            }
-            body = existing_article.get("body")
-            published_at = existing_published_at
-            extracted_article_payload = {
-                "url": existing_article.get("source_url") or href,
-                "title": existing_article.get("title"),
-                "text": existing_article.get("body"),
-                "published_at": existing_published_at,
-                "success": True,
-                "error": "",
-                "reused_existing_article": True,
-            }
-            logger.info("Reusing existing article %s for %s %s", href, entity_kind, entity_label)
+            _persist(entity, source_page_url, article_id=article_id)
+            logger.info("Linked article %s fetched earlier in this run for %s %s", href, entity.kind, entity.label)
         else:
-            existing_article_id = None
-            article = cast(ArticleExtractionResult | None, fetched_articles.get(href))
-            if article is None:
-                article = cast(
-                    ArticleExtractionResult | None,
-                    normalized_fetched_articles.get(normalize_url(href)),
-                )
+            article = cast(
+                ArticleExtractionResult | None,
+                fetched_articles.get(href) or normalized_fetched_articles.get(verdict.normalized_url),
+            )
             if article is None:
                 logger.warning(
-                    "Missing crawled article result for %s %s at %s",
-                    entity_kind,
-                    entity_label,
-                    href,
+                    "Missing crawled article result for %s %s at %s", entity.kind, entity.label, href
                 )
                 continue
-            if not article.success:
-                record_failed_url(href, "article_follow", article.error)
-                logger.warning(
-                    "Article follow failed for %s %s at %s: %s",
-                    entity_kind,
-                    entity_label,
-                    href,
-                    article.error,
-                )
-                continue
-            clear_failed_url(href)
-            if not is_recent_article(article.published_at, max_age_days=article_max_age_days):
-                logger.info("Skipping stale fetched article %s for %s %s", href, entity_kind, entity_label)
+            article_id = _insert_fetched_article(
+                verdict=verdict, article=article, source_page_url=source_page_url, entity=entity, logger=logger
+            )
+            outcomes[verdict.normalized_url] = article_id
+            if article_id is None:
                 continue
 
-            title = article.title or link.get("text") or href
-            article_key = normalized_href or href
-            source_metadata = get_source_metadata(href)
-            source = source_metadata["domain"]
-            normalized_article_title = normalize_title(title)
-            content_hash = build_content_hash(article.text)
-            score_bundle = compute_article_scores(article, link, href, source_metadata)
-            body = article.text
-            published_at = article.published_at or None
-            extracted_article_payload = {
-                "url": article.url,
-                "title": article.title,
-                "text": article.text,
-                "published_at": article.published_at,
-                "success": article.success,
-                "error": article.error,
-                "reused_existing_article": False,
-            }
-            logger.info("Fetched new article %s for %s %s", href, entity_kind, entity_label)
-
-        context = {
-            "entity": entity,
-            "entity_kind": entity_kind,
-            "entity_label": entity_label,
-            "source_page_url": source_page_url,
-            "link": link,
-            "href": href,
-            "source": source,
-            "article_key": article_key,
-            "title": title,
-            "body": body,
-            "published_at": published_at,
-            "normalized_href": normalized_href,
-            "normalized_article_title": normalized_article_title,
-            "content_hash": content_hash,
-            "source_metadata": source_metadata,
-            "score_bundle": score_bundle,
-            "extracted_article_payload": extracted_article_payload,
-            "existing_article_id": existing_article_id,
-            "reused_existing_article": bool(existing_article_id),
-        }
-
-        save_article(
-            {
-                **context,
-                "raw_json": build_raw_json(context),
-            }
-        )
         saved_count += 1
-        logger.info(
-            "Saved article %s for %s %s (%s/%s saved for this page)",
-            href,
-            entity_kind,
-            entity_label,
-            saved_count,
-            max_articles,
-        )
+        logger.info("Saved article %s for %s %s (%s saved for this page)", href, entity.kind, entity.label, saved_count)
 
+    if limit_skips:
+        logger.info(
+            "Skipped %s article links over the fetch limit for %s %s from %s",
+            limit_skips,
+            entity.kind,
+            entity.label,
+            source_page_url,
+        )
     return saved_count

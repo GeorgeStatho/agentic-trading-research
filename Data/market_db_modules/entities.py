@@ -5,14 +5,14 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Optional
 
-from db_common import DB_PATH, get_connection, json_text
+from db_common import get_connection, json_text
 
 
 def add_sector(
     sector_key: str,
     name: str,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int:
     values = (sector_key, name, json_text(raw_json))
@@ -41,7 +41,7 @@ def add_industry(
     symbol: Optional[str] = None,
     market_weight: Optional[float] = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int:
     values = (sector_id, industry_key, name, symbol, market_weight, json_text(raw_json))
@@ -81,7 +81,7 @@ def add_company(
     rating: Optional[str] = None,
     market_weight: Optional[float] = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int:
     values = (industry_id, symbol, name, rating, market_weight, json_text(raw_json))
@@ -118,7 +118,7 @@ def replace_industry_company_rankings(
     industry_id: int,
     ranking_type: str,
     ranked_companies: list[tuple[int, int, Any | None]],
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> None:
     if conn is None:

@@ -3,12 +3,12 @@ from contextlib import closing
 from hashlib import sha256
 import json
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from research_foundation_contracts import timestamp
 from .foundation_store import canonical, digest
 
 
-def cached_response(provider, url, *, db_path=DB_PATH):
+def cached_response(provider, url, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         row = conn.execute("""SELECT * FROM company_provider_responses WHERE provider=? AND url=?
             ORDER BY observed_at DESC,rowid DESC LIMIT 1""", (provider, url)).fetchone()
@@ -20,7 +20,7 @@ def cached_response(provider, url, *, db_path=DB_PATH):
     return result
 
 
-def cache_response(provider, url, body, observed_at, *, db_path=DB_PATH):
+def cache_response(provider, url, body, observed_at, *, db_path=None):
     content_hash = sha256(body.encode()).hexdigest()
     identity = 'response:' + digest([provider, url, content_hash])
     with closing(get_connection(db_path)) as conn, conn:
@@ -30,21 +30,21 @@ def cache_response(provider, url, body, observed_at, *, db_path=DB_PATH):
     return dict(row)
 
 
-def collection_state(provider, scope, *, db_path=DB_PATH):
+def collection_state(provider, scope, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         row = conn.execute('SELECT value_json FROM company_collection_state WHERE provider=? AND scope=?',
                            (provider, scope)).fetchone()
     return json.loads(row['value_json']) if row else {}
 
 
-def save_collection_state(provider, scope, value, at, *, db_path=DB_PATH):
+def save_collection_state(provider, scope, value, at, *, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('''INSERT INTO company_collection_state VALUES (?,?,?,?)
             ON CONFLICT(provider,scope) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at''',
                      (provider, scope, canonical(value), timestamp(at)))
 
 
-def reserve_provider_request(provider, at, *, daily_limit, interval_seconds, db_path=DB_PATH):
+def reserve_provider_request(provider, at, *, daily_limit, interval_seconds, db_path=None):
     """Reserve before dispatch, including retries; serialize collectors sharing this DB."""
     day = at.strftime('%Y-%m-%d')
     with closing(get_connection(db_path)) as conn, conn:
@@ -63,7 +63,7 @@ def reserve_provider_request(provider, at, *, daily_limit, interval_seconds, db_
     return slot - at.timestamp()
 
 
-def update_issuer_mapping(company_id, symbol, cik, source, at, *, db_path=DB_PATH):
+def update_issuer_mapping(company_id, symbol, cik, source, at, *, db_path=None):
     cik = str(cik).zfill(10)
     if not cik.isdigit() or len(cik) != 10 or int(cik) == 0:
         raise ValueError('Invalid SEC issuer identifier')
@@ -77,7 +77,7 @@ def update_issuer_mapping(company_id, symbol, cik, source, at, *, db_path=DB_PAT
                      (company_id, symbol.upper(), cik, source, timestamp(at)))
 
 
-def get_issuer_mapping(company_id, *, db_path=DB_PATH):
+def get_issuer_mapping(company_id, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         row = conn.execute('SELECT * FROM company_issuer_mappings WHERE company_id=?', (company_id,)).fetchone()
     return dict(row) if row else None

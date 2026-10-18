@@ -4,7 +4,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any, Callable
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from .article_store import add_news_article
 from .links import link_company_to_article, link_industry_to_article, link_sector_to_article
 
@@ -32,7 +32,7 @@ def _add_entity_news_article(
     factuality_score: float | None = None,
     evidence_score: float | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     if conn is None:
@@ -113,7 +113,7 @@ def add_industry_news_article(
     factuality_score: float | None = None,
     evidence_score: float | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _add_entity_news_article(
@@ -163,7 +163,7 @@ def add_company_news_article(
     factuality_score: float | None = None,
     evidence_score: float | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _add_entity_news_article(
@@ -213,7 +213,7 @@ def add_sector_news_article(
     factuality_score: float | None = None,
     evidence_score: float | None = None,
     raw_json: Any | None = None,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     conn=None,
 ) -> int:
     return _add_entity_news_article(

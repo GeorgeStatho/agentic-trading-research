@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import json
 import logging
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from market_db_modules.foundation_store import digest
 from market_db_modules.forward_evaluation import record_decision_observation
 from market_db_modules.research_observations import record_research_observation
@@ -32,7 +32,7 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def frozen_stage_payloads(candidate_id, *, db_path=DB_PATH):
+def frozen_stage_payloads(candidate_id, *, db_path=None):
     """The hash-checked strategist and manager inputs production checkpointed for this candidate."""
     with closing(get_connection(db_path)) as conn:
         rows = conn.execute(f'''SELECT stage, snapshot_hash, snapshot_json FROM candidate_snapshots
@@ -73,7 +73,7 @@ def observation_cutoff(captured_at, chains):
 
 
 def freeze_decision_observation(candidate_context, *, policy, acceptance=None, fetch_chains=None,
-                                per_type_limit=None, clock=utc_now, db_path=DB_PATH):
+                                per_type_limit=None, clock=utc_now, db_path=None):
     """Record the shared observation for one production decision; never raises into the cycle."""
     candidate_id = (candidate_context or {}).get('candidate_id')
     if policy is None or not policy.enabled or not candidate_id or research_only_candidate(candidate_id):

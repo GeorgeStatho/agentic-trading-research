@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from agent_contracts import CompanyScopePayload
-from db_helpers import get_all_companies
+from market_db_modules.queries import get_all_companies
 from agent_builders.strategist_payload_price import _build_company_price_context
 
 

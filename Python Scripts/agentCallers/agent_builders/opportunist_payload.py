@@ -11,7 +11,7 @@ from agent_helpers.opportunist_payload import (
     get_high_confidence_macro_news_for_sector,
     get_sector_rss_news,
 )
-from db_helpers import initialize_news_database
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from agent_contracts import OpportunistInputPayload, OpportunistSectorPayload, PayloadFilters
 
 

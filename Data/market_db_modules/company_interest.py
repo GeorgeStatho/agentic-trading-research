@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 from contextlib import closing
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from research_foundation_contracts import timestamp
 from .foundation_store import digest
 
@@ -44,7 +44,7 @@ def signal_discovery(conn, company_id, source, version, *, at):
             next_check_at=excluded.next_check_at,reason=NULL''', (company_id, at, at))
 
 
-def due_discovery_checks(*, at, limit, db_path=DB_PATH):
+def due_discovery_checks(*, at, limit, db_path=None):
     with closing(get_connection(db_path)) as conn:
         return [dict(row) for row in conn.execute('''SELECT c.id,c.symbol,c.name,
             i.industry_key,i.name AS industry_name,s.sector_key,d.generation,d.dependency_request_id
@@ -56,7 +56,7 @@ def due_discovery_checks(*, at, limit, db_path=DB_PATH):
             ORDER BY d.requested_at,c.id LIMIT ?''', (at, at, at, limit))]
 
 
-def finish_discovery_check(company, *, at, next_at, reason, dependency=None, db_path=DB_PATH):
+def finish_discovery_check(company, *, at, next_at, reason, dependency=None, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('''UPDATE discovery_checks SET status=?,checked_at=?,next_check_at=?,requested_at=?,reason=?,
             dependency_request_id=? WHERE company_id=? AND generation=?''',

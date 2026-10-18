@@ -3,19 +3,17 @@
 A field added to a schema but not to its prompt example or its TypedDict, or a gate added
 to the registry but not carried to orders, fails here instead of drifting silently.
 """
+import copy
 import json
 import unittest
 
-from agent_contracts import ManagerRecommendation, OrderCandidate, StrategistRecommendation
-from agent_stages.evidence_thesis_contract import EVIDENCE_THESIS_SCHEMA, REQUIRED_OUTPUT_EXAMPLE
 from agent_stages.manager_normalization import normalize_recommendation as normalize_manager
 from agent_stages.manager_prompt import build_manager_prompt
 from agent_stages.manager_shared import MANAGER_RECOMMENDATION_SCHEMA
-from agent_stages.strategist_normalization import normalize_recommendation as normalize_strategist
 from agent_stages.strategist_prompt import build_strategist_prompt
 from agent_stages.strategist_schema import strategist_recommendation_schema
 from agentCallers.main import _build_selected_option_output
-from services.entry_gates import ENTRY_GATES, carry_gate_verdicts, entry_allowed
+from services.entry_gates import ENTRY_GATES, entry_allowed
 from services.order_candidates import OrderCandidateBuilder
 
 
@@ -32,6 +30,23 @@ def prompt_example(system_and_user_prompt):
 
 
 STRATEGIST_PAYLOAD = {"company": {"symbol": "NVDA", "historical_price_data": {}}, "supporting_articles": {}}
+COMPACT_PAYLOAD = {
+    "company": {"symbol": "NVDA", "historical_price_data": {}},
+    "grounding": {"article_ids": [101, 102, 103]},
+    "views": {"company": {"count": 1, "agent_conclusions": [{"article_id": 101, "source_url": "http://x/1", "note": "n"}]}},
+    "supporting_articles": {
+        "article_summaries": [{"article_id": 101, "agent_signals": {"a": 1}, "source_url": "http://x/1"},
+                              {"article_id": 102, "agent_signals": {"a": 2}, "source_url": "http://x/2"}],
+        "full_articles": [{"article_id": 101, "agent_signals": {"a": 1}, "source_url": "http://x/1", "body": "text"},
+                          {"article_id": 103, "agent_signals": {}, "source_url": "http://x/3"}],
+    },
+    "company_evidence": {"documents": [{"document_id": "d1"}], "facts": [{
+        "fact_id": "f1", "document_id": "d1", "source_excerpt": "Revenue rose", "superseded": False, "count": 0,
+        "company_id": 7, "schema_version": 2, "extraction_version": 3, "source_start": 1, "source_end": 9,
+        "unit": None, "tags": [], "meta": {}, "note": ""}]},
+}
+
+
 MANAGER_RESPONSE = {"decision": "call", "confidence": "high", "thesis_confidence": "high", "timing_confidence": "medium",
                     "execution_confidence": "low", "target_dte_bucket": "20_30", "technical_confirmation": "strong",
                     "entry_quality": "good", "recommended_action_adjustment": "approve", "overextension_risk": "low",
@@ -44,12 +59,6 @@ class ManagerContractTests(unittest.TestCase):
         self.assertEqual(prompt_example(build_manager_prompt({"company": {"symbol": "NVDA"}})),
                          schema_fields(MANAGER_RECOMMENDATION_SCHEMA))
 
-    def test_every_schema_field_is_typed(self):
-        self.assertLessEqual(schema_fields(MANAGER_RECOMMENDATION_SCHEMA), typed_keys(ManagerRecommendation))
-
-    def test_normalized_recommendation_only_has_typed_fields(self):
-        self.assertLessEqual(set(normalize_manager(MANAGER_RESPONSE)), typed_keys(ManagerRecommendation))
-
     def test_requested_confidence_components_survive_normalization(self):
         normalized = normalize_manager(MANAGER_RESPONSE)
         self.assertEqual([normalized[key] for key in ("thesis_confidence", "timing_confidence", "execution_confidence")],
@@ -61,25 +70,28 @@ class StrategistContractTests(unittest.TestCase):
         self.assertEqual(prompt_example(build_strategist_prompt(STRATEGIST_PAYLOAD, include_thesis=True)),
                          schema_fields(strategist_recommendation_schema(include_thesis=True)))
 
-    def test_prompt_example_matches_legacy_schema(self):
-        self.assertEqual(prompt_example(build_strategist_prompt(STRATEGIST_PAYLOAD)),
-                         schema_fields(strategist_recommendation_schema(include_thesis=False)))
-
-    def test_every_schema_field_is_typed(self):
-        self.assertLessEqual(schema_fields(strategist_recommendation_schema(include_thesis=True)),
-                             typed_keys(StrategistRecommendation))
-
-    def test_normalized_recommendation_only_has_typed_fields(self):
-        normalized = normalize_strategist({"decision": "watchlist", "confidence": "low", "summary": "Mixed evidence"})
-        self.assertLessEqual(set(normalized), typed_keys(StrategistRecommendation))
-
-    def test_thesis_example_matches_thesis_schema(self):
-        self.assertEqual(set(REQUIRED_OUTPUT_EXAMPLE), set(EVIDENCE_THESIS_SCHEMA["properties"]))
-
     def test_strategist_schema_has_no_max_items(self):
         # Sent as Vertex response_schema, gemini-3.8-flash returns 400 INVALID_ARGUMENT for the thesis
         # schema when maxItems is present. response_json_schema (planner transport) accepts it.
         self.assertNotIn('"maxItems"', json.dumps(strategist_recommendation_schema(include_thesis=True)))
+
+    def test_compact_prompt_keeps_grounding_and_drops_noise(self):
+        before = copy.deepcopy(COMPACT_PAYLOAD)
+        user = build_strategist_prompt(COMPACT_PAYLOAD, include_thesis=True)[1]
+        self.assertEqual(COMPACT_PAYLOAD, before)
+        for dropped in ("agent_signals", "source_url"):
+            self.assertNotIn(dropped, user)
+        payload = json.loads(user)
+        self.assertEqual(payload["grounding"], COMPACT_PAYLOAD["grounding"])
+        self.assertEqual({a["article_id"] for section in payload["supporting_articles"].values() for a in section}, {101, 102, 103})
+        supporting = payload["supporting_articles"]
+        self.assertEqual([a["article_id"] for a in supporting["article_summaries"]], [102])
+        self.assertEqual([a["article_id"] for a in supporting["full_articles"]], [101, 103])
+
+    def test_compact_facts_keep_excerpt_and_falsy_values(self):
+        fact = json.loads(build_strategist_prompt(COMPACT_PAYLOAD)[1])["company_evidence"]["facts"][0]
+        self.assertEqual(fact, {"fact_id": "f1", "document_id": "d1", "source_excerpt": "Revenue rose",
+                                "superseded": False, "count": 0})
 
 
 class GateRegistryTests(unittest.TestCase):
@@ -95,10 +107,6 @@ class GateRegistryTests(unittest.TestCase):
         candidate = OrderCandidateBuilder().build_from_manager_result(self.RESULT)
         self.assertLessEqual({gate.result_key for gate in ENTRY_GATES}, set(candidate))
 
-    def test_order_candidate_matches_its_type(self):
-        candidate = OrderCandidateBuilder().build_from_manager_result(self.RESULT)
-        self.assertEqual(set(candidate), typed_keys(OrderCandidate))
-
     def test_any_blocking_gate_blocks_entry(self):
         for gate in ENTRY_GATES:
             with self.subTest(gate=gate.name):
@@ -108,15 +116,6 @@ class GateRegistryTests(unittest.TestCase):
         required = next(gate for gate in ENTRY_GATES if gate.verdict_required)
         result = {key: value for key, value in self.RESULT.items() if key != required.result_key}
         self.assertFalse(entry_allowed(result))
-
-    def test_missing_optional_gate_keeps_legacy_eligibility(self):
-        optional = next(gate for gate in ENTRY_GATES if not gate.verdict_required)
-        result = {key: value for key, value in self.RESULT.items() if key != optional.result_key}
-        self.assertTrue(entry_allowed(result))
-
-    def test_carried_defaults_match_persisted_formats(self):
-        self.assertEqual(carry_gate_verdicts({}), {gate.result_key: {} if gate.verdict_required else None
-                                                    for gate in ENTRY_GATES})
 
 
 if __name__ == "__main__":

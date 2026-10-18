@@ -8,12 +8,10 @@ from statistics import median
 from zoneinfo import ZoneInfo
 
 from agent_pipeline.ranking import get_current_rankings
-from db_helpers.market import (
-    get_latest_market_regime_snapshot,
-    get_telemetry_summary,
-    list_decision_expectancy_rows,
-)
-from db_helpers import DB_PATH, get_connection
+from market_db_modules.market_regime import get_latest_market_regime_snapshot
+from market_db_modules.telemetry import get_telemetry_summary
+from market_db_modules.queries import list_decision_expectancy_rows
+from db_common import get_connection
 from performance_metrics import (
     DEFAULT_ANNUAL_RISK_FREE_RATE,
     compute_daily_returns,
@@ -240,7 +238,7 @@ def _load_latest_strategist_run_statuses() -> dict[int, dict]:
     reads the already-persisted strategist run directly to show that failure.
     """
     try:
-        with closing(get_connection(DB_PATH)) as conn, conn:
+        with closing(get_connection()) as conn, conn:
             # status follows the large payload columns, so only the latest run per
             # company is read; the subquery resolves it from the index alone.
             rows = conn.execute(
@@ -435,7 +433,7 @@ _COMPANY_DECISION_ROWS_SQL = f"""
 def _load_recent_company_decision_rows() -> list[dict]:
     """Return each company's latest manager decisions with trimmed manager JSON."""
     now = datetime.now(timezone.utc)
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             _COMPANY_DECISION_ROWS_SQL,
             {
@@ -1609,7 +1607,7 @@ def _build_thesis_validator_kpi_payload() -> dict:
 
     mode = str(os.getenv("THESIS_VALIDATOR_MODE", "shadow")).strip().lower() or "shadow"
     try:
-        from db_helpers.market import summarize_thesis_validator_health
+        from market_db_modules.thesis_validator import summarize_thesis_validator_health
 
         health = summarize_thesis_validator_health()
     except Exception as exc:

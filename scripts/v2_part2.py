@@ -29,8 +29,10 @@ def main():
     if args.db:
         os.environ['DB_PATH'] = str(Path(args.db).resolve())
     logging.basicConfig(level=logging.INFO)
-    from market_db import (initialize_database, execution_telemetry_report, candidate_funnel,
-                                   load_candidate_lifecycle, exit_attribution_report)
+    from market_db_modules.bootstrap import initialize_database
+    from market_db_modules.execution_telemetry import execution_telemetry_report
+    from market_db_modules.candidate_lifecycle import candidate_funnel, load_candidate_lifecycle
+    from market_db_modules.position_outcomes import exit_attribution_report
     initialize_database()
     if args.command == 'execution':
         result = execution_telemetry_report(start=args.start, end=args.end)

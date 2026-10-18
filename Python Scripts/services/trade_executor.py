@@ -11,15 +11,16 @@ from zoneinfo import ZoneInfo
 from services.common import safe_float
 from services.config import FrontMainSettings
 
-from db_helpers.market import (
+from market_db_modules.portfolio_risk import (
     count_option_entry_executions_since,
     get_company_sector_key,
     get_latest_stop_loss_exit_at,
     get_realized_option_loss_since,
-    link_manager_decision_to_trade_execution,
 )
+from market_db_modules.history_links import link_manager_decision_to_trade_execution
 from services.trading_gateway import TradingClient
-from db_helpers.market import store_execution_telemetry, ensure_position_outcome
+from market_db_modules.execution_telemetry import store_execution_telemetry
+from market_db_modules.position_outcomes import ensure_position_outcome
 from services.candidate_lifecycle import observe
 from services.catalyst_gates import catalyst_admission_allowed
 from services.execution_telemetry import capture_execution_context

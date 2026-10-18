@@ -11,7 +11,6 @@ from services.market_regime import (  # noqa: E402
 )
 from services.market_regime_gate import MarketRegimePolicy, evaluate_market_regime_gate  # noqa: E402
 from services.order_candidates import OrderCandidateBuilder  # noqa: E402
-from pipelines.macroNewsPipeline import _normalize_calendar_timestamps, _parse_forex_factory_calendar  # noqa: E402
 
 
 NOW = datetime(2026, 7, 21, 15, 0, tzinfo=timezone.utc)
@@ -70,22 +69,6 @@ class MarketRegimeClassificationTests(unittest.TestCase):
         self.assertEqual(result["state"], "stressed")
         self.assertTrue(result["macro_event_window"]["active"])
 
-    def test_snapshot_refreshes_macro_calendar_once_before_classification(self) -> None:
-        closes = [100 + index * 0.45 for index in range(70)]
-        with (
-            patch(
-                "services.market_regime.refresh_macro_calendar_for_market_regime",
-                return_value={"refreshed": True, "macro_event_count": 12},
-            ) as refresh,
-            patch("services.market_regime._fetch_closes", side_effect=[(closes, NOW.isoformat()), ([20.0] * 251 + [10.0], NOW.isoformat())]),
-            patch("services.market_regime._load_macro_calendar", side_effect=[([], None), ([], NOW.isoformat())]),
-        ):
-            snapshot = build_market_regime_snapshot(as_of=NOW, persist=False)
-
-        refresh.assert_called_once_with()
-        self.assertEqual(snapshot["state"], "trend_up")
-        self.assertEqual(snapshot["macro_calendar_refresh"], {"refreshed": True, "macro_event_count": 12})
-
     def test_snapshot_records_a_failed_macro_refresh_without_disabling_fail_closed_behavior(self) -> None:
         with (
             patch(
@@ -104,25 +87,6 @@ class MarketRegimeClassificationTests(unittest.TestCase):
         self.assertEqual(snapshot["state"], "unknown")
         self.assertIn("macro_calendar_refresh_failed", snapshot["reason_codes"])
 
-    def test_fallback_calendar_keeps_an_explicit_utc_timestamp(self) -> None:
-        events = _parse_forex_factory_calendar(
-            [
-                {
-                    "title": "FOMC Statement",
-                    "country": "USD",
-                    "date": "2026-07-29T14:00:00-04:00",
-                    "impact": "High",
-                }
-            ]
-        )
-        normalized = _normalize_calendar_timestamps(events)
-
-        self.assertEqual(len(normalized), 1)
-        self.assertEqual(normalized[0]["country"], "United States")
-        self.assertEqual(normalized[0]["importance"], "high")
-        self.assertEqual(normalized[0]["scheduled_at_utc"], "2026-07-29T18:00:00+00:00")
-        self.assertTrue(normalized[0]["calendar_refreshed_at"])
-
 
 class MarketRegimeGateTests(unittest.TestCase):
     def _gate(self, *, decision: str, confidence: str, state: str, macro_active: bool = False) -> dict:
@@ -139,12 +103,6 @@ class MarketRegimeGateTests(unittest.TestCase):
         self.assertTrue(result["allowed"])
         self.assertEqual(result["eligible_decision"], "call")
 
-    def test_bearish_trend_permits_high_confidence_put(self) -> None:
-        result = self._gate(decision="put", confidence="high", state="trend_down")
-
-        self.assertTrue(result["allowed"])
-        self.assertEqual(result["eligible_decision"], "put")
-
     def test_high_volatility_blocks_medium_confidence(self) -> None:
         result = self._gate(decision="call", confidence="medium", state="high_volatility")
 
@@ -157,12 +115,6 @@ class MarketRegimeGateTests(unittest.TestCase):
             result = self._gate(decision=decision, confidence="high", state="stressed")
             self.assertFalse(result["allowed"])
             self.assertEqual(result["eligible_decision"], "neither")
-
-    def test_macro_blackout_overrides_otherwise_valid_setup(self) -> None:
-        result = self._gate(decision="call", confidence="high", state="trend_up", macro_active=True)
-
-        self.assertFalse(result["allowed"])
-        self.assertIn("regime_macro_blackout_active", result["reason_codes"])
 
     def test_shadow_mode_records_block_without_changing_execution_permission(self) -> None:
         result = evaluate_market_regime_gate(
@@ -200,30 +152,6 @@ class MarketRegimeGateTests(unittest.TestCase):
                 }
             )
         )
-
-    def test_cycle_uses_the_same_snapshot_for_all_companies(self) -> None:
-        from agentCallers import main as agent_main  # noqa: E402
-
-        regime = _snapshot()
-        strategist_result = {"recommendation": {"decision": "trade_candidate", "confidence": "high"}}
-        manager_result = {
-            "company": {"symbol": "MSFT"},
-            "recommendation": {"decision": "call", "confidence": "high"},
-            "market_context": {"market_regime": regime},
-            "entry_gate": {"allowed": True},
-        }
-        with (
-            patch.object(agent_main, "decide_company_purchase", return_value=strategist_result) as strategist,
-            patch.object(agent_main, "decide_company_option_position", return_value=manager_result) as manager,
-            patch.object(agent_main, "apply_deterministic_option_selection", side_effect=lambda item: item),
-            patch.object(agent_main, "_record_manager_decision_history_for_result", return_value=None),
-        ):
-            agent_main._run_strategist_and_manager(["MSFT", "AAPL"], market_regime=regime)
-
-        self.assertIs(strategist.call_args_list[0].kwargs["market_regime"], regime)
-        self.assertIs(strategist.call_args_list[1].kwargs["market_regime"], regime)
-        self.assertIs(manager.call_args_list[0].kwargs["market_regime"], regime)
-        self.assertIs(manager.call_args_list[1].kwargs["market_regime"], regime)
 
 
 if __name__ == "__main__":

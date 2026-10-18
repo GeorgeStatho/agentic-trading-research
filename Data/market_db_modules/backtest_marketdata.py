@@ -15,7 +15,7 @@ try:
 except ImportError:  # pragma: no cover - dependency is installed in runtime images
     requests = None
 
-from db_common import DB_PATH, coerce_float, get_connection, json_text
+from db_common import coerce_float, get_connection, json_text
 
 from .backtest_imports import _normalized_option_symbol, _normalized_timestamp
 from .backtesting import _parse_timestamp
@@ -264,7 +264,7 @@ def _request_marketdata_quotes(
 
 def fetch_marketdata_eod_option_quotes(
     *,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     start_at: str | None = None,
     end_at: str | None = None,
     limit: int = 100,
@@ -358,7 +358,7 @@ def fetch_marketdata_eod_option_quotes(
 def fetch_marketdata_eod_quotes_for_contracts(
     windows: list[dict[str, Any]],
     *,
-    db_path: Path | str = DB_PATH,
+    db_path: Path | str | None = None,
     timeout_seconds: float = 30.0,
     force: bool = False,
     token: str | None = None,

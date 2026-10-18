@@ -31,7 +31,7 @@ def _isolate_environment():
 def _initialize_default_database():
     # Execution guards deliberately reject a missing database, so the default must exist.
     from market_db_modules.bootstrap import initialize_database
-    from news_db import initialize_database as initialize_news_database
+    from news_db_modules.bootstrap import initialize_database as initialize_news_database
     initialize_database()
     initialize_news_database()
 

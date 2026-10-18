@@ -9,13 +9,10 @@ from typing import Any
 
 from agent_builders.company_opportunity import get_company_linked_articles, get_industry_company_groups
 from agent_helpers.shared import ModelAnswer, normalize_time_window, published_at_in_window
-from db_helpers import (
-    DB_PATH,
-    add_company_opportunist_impact,
-    get_connection,
-    initialize_news_database,
-    mark_company_opportunist_article_processed,
-)
+from db_common import database_path, get_connection
+from news_db_modules.impacts import add_company_opportunist_impact
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from news_db_modules.processing import mark_company_opportunist_article_processed
 from agent_helpers.opportunist_support import (
     CURRENT_OPPORTUNIST_SCHEMA_VERSION,
     SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
@@ -75,7 +72,7 @@ def get_company_opportunist_summary(
         max_age_days=max_age_days,
     )
 
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         rows = conn.execute(
             """
             SELECT
@@ -159,7 +156,7 @@ def _sort_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _filter_unprocessed_articles(articles: list[dict[str, Any]], company_id: int) -> list[dict[str, Any]]:
     return filter_unprocessed_articles(
         articles,
-        db_path=str(DB_PATH),
+        db_path=database_path(),
         table_name="company_opportunist_article_processing",
         company_id=company_id,
         required_impact_fields=COMPANY_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
@@ -311,7 +308,7 @@ def save_company_opportunist_batch_results(
         article_id = int(impact["article_id"])
         batch_impacts_by_article.setdefault(article_id, []).append(impact)
 
-    with closing(get_connection(DB_PATH)) as conn, conn:
+    with closing(get_connection()) as conn, conn:
         article_ids = [int(article["article_id"]) for article in article_batch]
         if article_ids:
             placeholders = ",".join("?" for _ in article_ids)

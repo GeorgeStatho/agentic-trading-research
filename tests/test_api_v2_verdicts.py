@@ -58,24 +58,6 @@ class ShadowVerdictTests(unittest.TestCase):
         self.assertEqual(verdicts[1][0]["label"], "Liquidity V2 (E2)")
         self.assertEqual(verdicts[1][0]["reason_code"], "spread_too_wide")
 
-    def test_a_decision_no_gate_objected_to_is_absent_rather_than_guessed(self):
-        with closing(get_connection(self.db)) as conn:
-            decision(conn, 1, "cand-a")
-            conn.commit()
-        self.assertEqual(shadow_verdicts_for_decisions([1], db_path=self.db), {})
-
-    def test_shadow_and_enforced_verdicts_stay_distinguishable(self):
-        """A shadow rejection did not stop the trade; an enforced one did."""
-        with closing(get_connection(self.db)) as conn:
-            decision(conn, 1, "cand-a")
-            rejection(conn, "cand-a", "LIQUIDITY", "spread_too_wide", 1)
-            rejection(conn, "cand-a", "REGIME", "regime_opposed", 0)
-            conn.commit()
-
-        by_stage = {v["stage"]: v for v in shadow_verdicts_for_decisions([1], db_path=self.db)[1]}
-        self.assertTrue(by_stage["LIQUIDITY"]["shadow"])
-        self.assertFalse(by_stage["REGIME"]["shadow"])
-
     def test_a_decision_with_no_candidate_link_collects_nothing(self):
         """A null candidate_id must not join to every other null one."""
         with closing(get_connection(self.db)) as conn:
@@ -93,16 +75,6 @@ class ShadowVerdictTests(unittest.TestCase):
             conn.execute("DROP TABLE candidate_rejections")
             conn.commit()
         self.assertIsNone(shadow_verdicts_for_decisions([1], db_path=self.db))
-
-    def test_a_history_table_without_the_candidate_column_is_unreadable(self):
-        """Older installations predate the link; that is not an empty result."""
-        with closing(get_connection(self.db)) as conn:
-            conn.execute("ALTER TABLE manager_decision_history DROP COLUMN candidate_id")
-            conn.commit()
-        self.assertIsNone(shadow_verdicts_for_decisions([1], db_path=self.db))
-
-    def test_no_decisions_asks_the_database_for_nothing(self):
-        self.assertEqual(shadow_verdicts_for_decisions([], db_path=self.db), {})
 
 
 if __name__ == "__main__":

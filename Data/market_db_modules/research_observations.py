@@ -2,7 +2,7 @@
 from contextlib import closing
 import json
 
-from db_common import DB_PATH, get_connection
+from db_common import get_connection
 from research_foundation_contracts import ResearchObservation, timestamp
 from .foundation_store import canonical, digest, insert_record, read_record, record_data
 from .bootstrap import initialize_database
@@ -36,7 +36,7 @@ def source_witness(observation):
     return {"source_snapshot_hash": digest(observation["source_snapshot"])}
 
 
-def record_research_observation(observation: ResearchObservation, *, db_path=DB_PATH):
+def record_research_observation(observation: ResearchObservation, *, db_path=None):
     initialize_database(db_path=db_path)
     data = record_data(observation)
     with closing(get_connection(db_path)) as conn, conn:
@@ -72,7 +72,7 @@ def read_observation(conn, observation_id):
     return data
 
 
-def get_research_observation(observation_id, *, db_path=DB_PATH):
+def get_research_observation(observation_id, *, db_path=None):
     with closing(get_connection(db_path)) as conn:
         return read_observation(conn, observation_id)
 

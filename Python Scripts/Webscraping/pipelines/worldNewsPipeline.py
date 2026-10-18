@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from pipelines._regionNewsPipeline import DEFAULT_RSS_MAX_AGE_DAYS, make_region_pipeline
-from pipelines._shared import get_log_file_path
+from core.scrape_logging import get_log_file_path
 
-from db_helpers import add_world_news_article, initialize_news_database
+from news_db_modules.links import link_world_article
+from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
 
 WORLD_RSS_FEED_URL = "https://newswire.example.com/demo/rss.xml"
@@ -12,7 +13,7 @@ _PIPELINE = make_region_pipeline(
     region_slug="world",
     region_label="World News",
     rss_feed_url=WORLD_RSS_FEED_URL,
-    save_article=add_world_news_article,
+    link=link_world_article,
 )
 
 

@@ -2,6 +2,8 @@
 from contextlib import contextmanager
 from pathlib import Path
 
+from db_common import database_path
+
 
 class ResearchSessionBusy(RuntimeError):
     pass
@@ -9,7 +11,7 @@ class ResearchSessionBusy(RuntimeError):
 
 @contextmanager
 def research_session_lock(db_path, session_id):
-    directory = Path(db_path).resolve().parent / '.research-locks'
+    directory = Path(database_path(db_path)).resolve().parent / '.research-locks'
     directory.mkdir(exist_ok=True)
     path = directory / session_id.replace(':', '_')
     with path.open('a+b') as handle:

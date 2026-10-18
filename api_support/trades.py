@@ -4,12 +4,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from api_support.common import safe_float, safe_json_loads
-from api_support.context import (
-    DB_PATH,
-    SELECTED_OPTIONS_OUTPUT_PATH,
-    TRADE_EXECUTION_OUTPUT_PATH,
-    list_option_trade_executions,
-)
+from db_common import current_database
+from api_support.context import SELECTED_OPTIONS_OUTPUT_PATH, TRADE_EXECUTION_OUTPUT_PATH
+from market_db_modules.queries import list_option_trade_executions
 
 EXECUTED_TRADES_MAX_AGE_DAYS = 30
 
@@ -146,7 +143,6 @@ def build_executed_trades_payload(
         underlying_symbol=underlying_symbol,
         within_days=EXECUTED_TRADES_MAX_AGE_DAYS,
         limit=limit,
-        db_path=DB_PATH,
     )
 
     trades: list[dict[str, Any]] = []
@@ -184,7 +180,7 @@ def build_executed_trades_payload(
 
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
-        "db_path": str(DB_PATH),
+        "db_path": str(current_database().path),
         "underlying_symbol": str(underlying_symbol or "").strip().upper(),
         "limit": max(1, int(limit)),
         "count": len(trades),

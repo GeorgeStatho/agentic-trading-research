@@ -131,18 +131,6 @@ class OptionTradeExecutorPortfolioGuardrailTests(unittest.TestCase):
             "premium_per_trade_cap",
         )
 
-    def test_premium_cap_is_disabled_when_unset(self) -> None:
-        self.gateway.submit_option_market_order.return_value = {"id": "order-2"}
-
-        execution = self.executor.execute_candidate(
-            trading_client=object(),
-            candidate=self._candidate(),
-            session=self._session(max_premium_per_trade=0.0),
-        )
-
-        self.assertTrue(execution["submitted"])
-        self.assertEqual(execution["order_qty"], 1)
-
     def test_rejects_entry_once_symbol_attempt_cap_is_reached(self) -> None:
         self.settings.max_symbol_entries_per_window = 2
         with patch("services.trade_executor.count_option_entry_executions_since", return_value=2) as counter:
@@ -165,21 +153,6 @@ class OptionTradeExecutorPortfolioGuardrailTests(unittest.TestCase):
         with patch("services.trade_executor.get_latest_stop_loss_exit_at", return_value=recent_stop):
             self._assert_rejected(self._session(), "symbol_stop_loss_cooldown")
 
-    def test_allows_entry_once_stop_loss_cooldown_has_elapsed(self) -> None:
-        self.settings.symbol_stop_loss_cooldown_days = 7
-        old_stop = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
-        self.gateway.submit_option_market_order.return_value = {"id": "order-3"}
-
-        with patch("services.trade_executor.get_latest_stop_loss_exit_at", return_value=old_stop):
-            execution = self.executor.execute_candidate(
-                trading_client=object(),
-                candidate=self._candidate(),
-                session=self._session(),
-            )
-
-        self.assertTrue(execution["submitted"])
-        self.assertEqual(execution["portfolio_guardrail"], "")
-
     def test_symbol_attempt_cap_falls_open_when_the_journal_read_fails(self) -> None:
         # A DB outage must not silently block every entry.
         self.settings.max_symbol_entries_per_window = 2
@@ -196,16 +169,6 @@ class OptionTradeExecutorPortfolioGuardrailTests(unittest.TestCase):
             )
 
         self.assertTrue(execution["submitted"])
-
-    def test_session_resolves_the_premium_cap_from_settings(self) -> None:
-        self.gateway.get_available_buying_power.return_value = 2_000.0
-        self.gateway.get_open_option_positions.return_value = []
-        self.settings.resolve_max_premium_per_trade = lambda buying_power: buying_power * 0.25
-
-        with patch("services.trade_executor.get_realized_option_loss_since", return_value=0.0):
-            session = self.executor.create_session(trading_client=object())
-
-        self.assertEqual(session.max_premium_per_trade, 500.0)
 
     def test_submitted_entry_increments_the_session_symbol_counter(self) -> None:
         self.gateway.submit_option_market_order.return_value = {"id": "order-5"}

@@ -154,7 +154,7 @@ does the fetching and parsing:
 ```mermaid
 flowchart LR
     src["sources/<br/>source_config, urlFactories"] --> jobs["pipelines/job_builder<br/>+ _orchestration, _sector_rss"]
-    jobs --> eng["engine/<br/>article_scraper, listing_page_helper,<br/>playwright_runner (rendered fallback)"]
+    jobs --> eng["engine/<br/>article_scraper,<br/>playwright_runner (rendered fallback)"]
     eng --> exx["extractors/<br/>cnbc, yahoo, barrons, fool,<br/>marketwatch, investing, morningstar"]
     exx --> proc["processing/<br/>news_normalization, scoring"]
     proc --> ndb[("news_db_modules<br/>article_store, provenance roots,<br/>catalysts")]
@@ -455,15 +455,9 @@ One SQLite file (`DB_PATH`). Schemas are additive, idempotent
 flowchart TD
     callers["pipelines, agent stages, services,<br/>api_support, scripts/*.py"] --> helpers
 
-    subgraph helpers["Import surfaces"]
-        dbh["Data/db_helpers/<br/>common, market, news, queries"]
-        mdb["Data/market_db.py"]
-        ndb["Data/news_db.py"]
-        dbc["Data/db_common.py<br/>(connection, schema helpers)"]
+    subgraph helpers["Shared"]
+        dbc["Data/db_common.py<br/>(current database, connection, setup)"]
     end
-
-    dbh --> mdb & ndb
-    mdb & ndb --> dbc
 
     subgraph mmods["Data/market_db_modules/"]
         direction TB
@@ -483,8 +477,7 @@ flowchart TD
         n4["strategist_runs"]
     end
 
-    mdb --> mmods
-    ndb --> nmods
+    mmods & nmods --> dbc
 
     subgraph schema["Schemas"]
         s1["market_schema.sql + *_schema.sql modules"]
