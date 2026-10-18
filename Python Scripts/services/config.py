@@ -466,6 +466,9 @@ class AgentPipelineSettings:
 
     ranking_max_age_days: int | None
     minimum_high_confidence_company_articles: int
+    # A strategist answer is reused for unchanged evidence while younger than this; 0 disables reuse.
+    strategist_reuse_max_age_minutes: int = 0
+    strategist_reuse_max_price_move_pct: float = 2.0
 
     @classmethod
     def from_env(cls) -> AgentPipelineSettings:
@@ -475,4 +478,6 @@ class AgentPipelineSettings:
                 "PIPELINE_MIN_HIGH_CONFIDENCE_COMPANY_ARTICLES",
                 1,
             ),
+            strategist_reuse_max_age_minutes=env_non_negative_int("STRATEGIST_REUSE_MAX_AGE_MINUTES", 0),
+            strategist_reuse_max_price_move_pct=env_float("STRATEGIST_REUSE_MAX_PRICE_MOVE_PCT", 2.0),
         )
