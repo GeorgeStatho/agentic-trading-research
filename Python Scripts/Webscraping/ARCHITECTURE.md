@@ -12,8 +12,10 @@ pipelines -> engine/page_fetch -> engine/article_scraper (-> playwright_runner) 
 
 - `pipelines/` holds the entry points (`*NewsPipeline.py`). `_orchestration.py`
   runs one source-page crawl over the unique URLs of all jobs, then one batched
-  article fetch; `_article_follow.py` follows article links, scores them, and
-  persists them for a `NewsEntity`.
+  article fetch; `_link_policy.py` gives every candidate link one verdict
+  (fetch, reuse or skip) before anything is fetched, using one batched DB
+  lookup per run; `_article_follow.py` scores and persists the verdicts for a
+  `NewsEntity`.
 - `engine/page_fetch.py` is the single fetch entry point: pipelines never crawl
   or open source pages, article pages, or RSS feeds themselves. A swappable
   fetcher (live or fixture) sits behind it and dispatches to
@@ -41,4 +43,8 @@ pipelines -> engine/page_fetch -> engine/article_scraper (-> playwright_runner) 
 - Source-specific behavior belongs in source policy or an extractor, not a
   pipeline.
 - Persist normalized URLs and link an existing article to each relevant entity.
+- Link policy lives in `pipelines/_link_policy.py`: recency uses the per-source
+  `max_article_age_days` (URL date, stored date, extracted date); the RSS
+  3-day window is only a feed discovery window; failed URLs are skipped on
+  every path.
 - Import from the owning module; there are no re-export modules.

@@ -56,12 +56,12 @@ The common flow now looks like this:
    - search-style jobs, where a source page must be crawled first
    - direct article jobs, where the article URL is already known
 4. `_orchestration.py` runs the search-page batch with `fetch_source_pages(...)` from [../engine/page_fetch.py](../engine/page_fetch.py).
-5. The pipeline-specific candidate-link filter decides which links from each page are worth following.
+5. The pipeline-specific candidate-link builder returns the links from each page (company: all of them; industry: only the ones that match the industry).
 6. `_orchestration.py` converts those links into normalized `ArticleSaveRequest` objects, and turns direct article jobs into the same shape with `direct_article_save_request(...)`.
-7. `run_article_save_requests(...)` combines every request's links into one article URL batch (skipping disallowed, stale, already-saved and duplicate URLs) and fetches that batch once with `fetch_articles(...)` (also `page_fetch`).
-8. `save_followed_article_links(...)` in `_article_follow.py` then replays each request against the fetched results. For each link:
-   - an article already in `news_articles` only gets a new row in the entity's link table
-   - a new article is scored, inserted into `news_articles`, and linked to the entity in the same transaction
+7. `run_article_save_requests(...)` gives every link one verdict with `judge_links(...)` in `_link_policy.py` (one batched DB lookup for the whole run), then fetches the unique `fetch` URLs once with `fetch_articles(...)` (also `page_fetch`).
+8. `save_link_verdicts(...)` in `_article_follow.py` then replays each request's verdicts against the fetched results:
+   - a `reuse` verdict (an article already in `news_articles`) only gets a new row in the entity's link table
+   - a `fetch` verdict is scored, inserted into `news_articles`, and linked to the entity in the same transaction; a URL shared by several requests is inserted once and linked for each
 
 That means the two-stage crawl behavior is shared by every pipeline:
 
@@ -77,7 +77,15 @@ There is also a simpler RSS-first flow used by the sector, U.S., and world pipel
 
 Pipelines never crawl or open URLs themselves; every fetch goes through [../engine/page_fetch.py](../engine/page_fetch.py). It contains failures: a crashed backend leaves the affected URLs missing from the result, and a missing page, article or feed is skipped and only logged. Only a page that was fetched but extracted with `success=False` is recorded in `failed_urls`. So an outage shows up as "saved 0" plus warnings in the logs, and the same URLs are tried again on the next run. See [../engine/README.md](../engine/README.md).
 
-Already-saved articles are not classified up front. They are detected inside `save_followed_article_links(...)`, which links them without re-fetching or re-scoring.
+Every link is classified up front, before anything is fetched, by `judge_links(...)` in `_link_policy.py`:
+
+- `fetch`: a new article to download, up to `max_articles` per request (10 per search page, 1 per direct job)
+- `reuse`: an article already saved and recent; it is only linked, never re-fetched or re-scored, and it does not count toward the limit (saved counts include it)
+- `skip`, with a reason: `no_href`, `duplicate` (same normalized URL earlier in the same request), `excluded` (the caller's `should_include_link` said no), `disallowed_source`, `not_article_url` (matches none of the source's article patterns), `blacklisted`, `stale_url_date`, `stale_existing`, `irrelevant_existing`, `failed_url` or `limit`
+
+The checks run in that order. One `get_saved_and_failed_urls(...)` call per run looks up all surviving URLs. A URL that failed 3 times, or permanently, is skipped on every path (search pages, listing pages and direct jobs).
+
+Recency has three steps: the date in a CNBC URL and the stored date of an existing article are checked in `judge_links(...)` against the per-source `max_article_age_days` (default 14 days); the extracted publish date is checked in `save_link_verdicts(...)` after the fetch. The RSS 3-day window (`DEFAULT_RSS_MAX_AGE_DAYS`) only decides which feed items are discovered.
 
 ## How Articles Are Saved
 
@@ -112,8 +120,10 @@ Important internal pieces:
 
 - `_company_entity(...)`
   - builds the company's `NewsEntity` (kind `company`, linked with `link_company_to_article`)
-- `_filter_company_candidate_links(...)`
-  - applies the shared link filter and the CNBC blacklist; it does not check the link text for a company-name match
+- `_company_candidate_links(...)`
+  - returns every link of a supported search page; it does not check the link text for a company-name match
+- `_company_reuse_filter(...)`
+  - builds the `may_reuse` rule for search pages: an already-saved article is linked only if the company name (also without corporate suffixes such as Inc) or a ticker of 3+ characters appears as whole words in the link text or URL
 - `_build_api_jobs(...)`
   - turns Fool, Morningstar, and GuruFocus API results into direct `article` jobs
 - `_build_company_jobs(...)`
@@ -154,7 +164,9 @@ Important internal pieces:
 - `_build_industry_match_variants(...)`
   - builds practical industry match terms from the industry name and key
 - `_filter_industry_candidate_links(...)`
-  - applies shared structural filtering, then industry-specific relevance matching
+  - keeps only the links whose text or URL matches an industry variant
+- `_listing_topic_links(...)`
+  - keeps listing-page links whose text or URL contains the industry name
 - `_industry_entity(...)`
   - builds the industry's `NewsEntity` (kind `industry`, linked with `link_industry_to_article`)
 - `_find_industry(...)`
@@ -239,8 +251,7 @@ This module contains the low-level article follow/save mechanics shared by all e
 Key pieces:
 
 - `NewsEntity`
-- `collect_article_urls_to_fetch(...)`
-- `save_followed_article_links(...)`
+- `save_link_verdicts(...)`
 
 `NewsEntity` is the one description of "who is this article for" that every pipeline passes in:
 
@@ -249,29 +260,29 @@ Key pieces:
 - `identity`: the entity fields written at the front of `raw_json`
 - `link`: the `news_db_modules.links` function that connects an article to this entity, called as `link(article_id=, source_page_url=, conn=)`
 
-What `collect_article_urls_to_fetch(...)` does:
+This module does not fetch anything and does not decide which links to follow; that is `_link_policy.py`. Choosing between a site API and the crawler for an article URL now lives in `fetch_articles(...)` in [../engine/page_fetch.py](../engine/page_fetch.py).
 
-- walks a list of candidate links
-- skips empty URLs
-- skips links rejected by the optional `should_include_link` rule
-- skips disallowed sources
-- skips CNBC URLs whose dated path is already too old
-- skips URLs already in the DB
-- skips duplicates
-- respects the per-request article limit
-- returns only the URLs that still need fetching
+What `save_link_verdicts(...)` does, per verdict (it ignores `skip` verdicts except to log them):
 
-This module does not fetch anything. Choosing between a site API and the crawler for an article URL now lives in `fetch_articles(...)` in [../engine/page_fetch.py](../engine/page_fetch.py).
-
-What `save_followed_article_links(...)` does, per candidate link:
-
-- skips links that fail the allowlist or the recency check
-- for an article that is already saved, links it to the entity through `entity.link` and leaves `news_articles` untouched
-- for a new article, reads the fetched `ArticleExtractionResult`, computes scores, and calls `add_news_article(...)` plus `entity.link` in one transaction
+- for a `reuse` verdict, links the saved article to the entity through `entity.link` and leaves `news_articles` untouched
+- for a `fetch` verdict whose URL was already handled earlier in the run (the shared `outcomes` map), only links the same article, or skips it if that attempt was rejected; the stored row and `raw_json` are never overwritten
+- for a first-seen `fetch` verdict, reads the fetched `ArticleExtractionResult`, checks the extracted date with the verdict's `max_age_days`, computes scores, and calls `add_news_article(...)` plus `entity.link` in one transaction
 - stores the link text as `summary` and `NewsEntity.identity` plus the common tail as `raw_json`
-- records fetched-but-failed extractions in `failed_urls`; a URL that is missing from the fetched batch (backend outage) is only skipped, not recorded
+- records fetched-but-failed extractions in `failed_urls`; a URL that is missing from the fetched batch (backend outage) is only logged, not recorded
 
-This module is intentionally generic. It does not know whether it is saving company, industry, or sector articles. The caller provides the `NewsEntity` and, optionally, a link inclusion rule.
+This module is intentionally generic. It does not know whether it is saving company, industry, or sector articles. The caller provides the `NewsEntity` and the verdicts.
+
+### [_link_policy.py](_link_policy.py)
+
+This module gives every candidate link one verdict before anything is fetched.
+
+Key pieces:
+
+- `LinkVerdict`: the link, its stripped `href` and `normalized_url`, the `action` (`fetch`, `reuse` or `skip`), the skip `reason`, the per-source `max_age_days`, and the `article_id` of a reused article
+- `LinkBatch`: the links of one save request, its `max_articles` cap on `fetch` verdicts, and an optional `may_reuse` rule
+- `judge_links(batches, should_include_link=None)`: returns one list of verdicts per batch, in input order
+
+`judge_links(...)` is a pure decision: no logging and no DB writes. It runs the database-free checks for every batch first, then makes exactly one `get_saved_and_failed_urls(...)` call (from `news_db_modules/queries.py`) for the survivors, and only then applies the existing-article, failed-URL and limit rules. The reasons are listed in the data-flow section above. The same URL can be `fetch` in two batches; the orchestration layer fetches it once.
 
 ### [_orchestration.py](_orchestration.py)
 
@@ -282,7 +293,6 @@ Key types and functions:
 - `ArticleSaveRequest`
 - `direct_article_save_request(...)`
 - `build_search_article_save_requests(...)`
-- `collect_save_request_article_urls(...)`
 - `run_article_save_requests(...)`
 - `run_mixed_job_orchestration(...)`
 
@@ -293,17 +303,16 @@ Key types and functions:
 - `entity` (a `NewsEntity`)
 - `max_articles`
 - `source_type`
+- `may_reuse` (optional rule deciding whether an already-saved article found on a page may be linked; `None` for direct jobs)
 
 What each helper does:
 
 - `direct_article_save_request(url, entity, summary=None)`
   - turns one known article URL into a save request; `summary` becomes the link text
 - `build_search_article_save_requests(...)`
-  - turns crawled source/search/listing pages into save requests, using the pipeline's `entity_from_job` and `candidate_links_for` callbacks
-- `collect_save_request_article_urls(...)`
-  - computes the combined article URL batch across many save requests
+  - turns crawled source/search/listing pages into save requests, using the pipeline's `entity_from_job` and `candidate_links_for` callbacks and, optionally, `reuse_filter_for(job)` for `may_reuse`
 - `run_article_save_requests(...)`
-  - fetches the combined article batch once with `fetch_articles(...)`, then replays each save request through `save_followed_article_links(...)`; counts are keyed by entity id, or by `(entity id, source_type)` with `by_source_type=True`
+  - judges all links with `judge_links(...)`, fetches the unique `fetch` URLs once with `fetch_articles(...)`, then replays each save request's verdicts through `save_link_verdicts(...)`; counts are keyed by entity id, or by `(entity id, source_type)` with `by_source_type=True`
 - `run_mixed_job_orchestration(...)`
   - handles the common two-pass pipeline:
     - fetch the search pages first with `fetch_source_pages(...)`
@@ -378,7 +387,7 @@ This module contains shared pipeline helper logic that is internal to the pipeli
 
 Examples include:
 
-- URL blacklists
+- the CNBC URL blacklist (applied by `_link_policy.py`)
 - normalized text matching
 - helper functions that decide whether a link text or href matches a target entity
 

@@ -194,41 +194,33 @@ This source-page crawl returns one structured result per crawled page, including
 
 For search pages, the key field is `links`.
 
-### Step 5: Filter candidate links
+### Step 5: Collect candidate links
 
-The company pipeline does not follow every discovered link.
-
-It first runs `_filter_company_candidate_links(...)`, which applies:
-
-1. the shared `filter_article_links(...)` rules
-2. CNBC blacklist rules
-
-It no longer drops links just because the link text is a weak company-name match; the links already come from company-specific search pages.
+`_company_candidate_links(...)` returns the links of a search page whose source supports `search`, unfiltered. The links already come from company-specific search pages, so the link text is not checked for a company-name match. Whether each link is worth following is decided in step 6, by one verdict per link.
 
 ### Step 6: Build one shared article batch
 
 After the search pages are crawled, `build_search_article_save_requests(...)` turns the filtered links into `ArticleSaveRequest` objects. Direct article jobs (Yahoo and the APIs) become requests of the same shape through `direct_article_save_request(...)`.
 
-Then `run_article_save_requests(...)` collects the article URLs that still need network fetches and skips:
+Then `run_article_save_requests(...)` gives every link one verdict with `judge_links(...)` in [pipelines/_link_policy.py](pipelines/_link_policy.py), before anything is fetched. A verdict is `fetch`, `reuse` or `skip`, and a skip carries a reason: `no_href`, `duplicate`, `excluded`, `disallowed_source`, `not_article_url`, `blacklisted`, `stale_url_date`, `stale_existing`, `irrelevant_existing`, `failed_url` or `limit`. The whole run uses one batched database lookup for saved articles and failed URLs.
 
-- disallowed sources
-- CNBC articles whose URL date is too old
-- already-saved articles
-- duplicates
+- An article that is already saved and recent is `reuse`: it only gets a link row. Reuse is free: it does not count toward the 10-new-articles-per-page limit, and saved counts include it. On a company search page, a reused article must also name the company (name or ticker, as whole words, in the link text or URL); this guards against "trending" links on CNBC quote pages. Direct jobs and industry links reuse without that check.
+- A URL that failed 3 times, or permanently (HTTP 403 or 404), is skipped on every path.
+- Recency uses the per-source maximum age (`max_article_age_days` in `config/source.json`, default 14 days): the date in a CNBC URL, the stored date of a saved article, and, after fetching, the extracted date. The RSS 3-day window is only a discovery window for choosing feed items.
 
-Then it fetches them once with `fetch_articles(article_urls)` from [engine/page_fetch.py](engine/page_fetch.py). Fool, Investing, Morningstar, and GuruFocus URLs go through their `APIs/` article-content functions; everything else, and any API failure, goes through `crawl_article_pages(...)`.
+Then it fetches the `fetch` verdicts once, deduplicated by normalized URL, with `fetch_articles(article_urls)` from [engine/page_fetch.py](engine/page_fetch.py). Fool, Investing, Morningstar, and GuruFocus URLs go through their `APIs/` article-content functions; everything else, and any API failure, goes through `crawl_article_pages(...)`.
 
 This keeps API-discovered and Yahoo-discovered article URLs in the same fetch batch as the URLs discovered from normal search pages.
 
 ### Step 7: Save followed articles
 
-Each save request is processed by `save_followed_article_links(...)` in [pipelines/_article_follow.py](pipelines/_article_follow.py).
+Each save request's verdicts are processed by `save_link_verdicts(...)` in [pipelines/_article_follow.py](pipelines/_article_follow.py).
 
-That function is the main "final mile" of every news pipeline. For each candidate article link it:
+That function is the main "final mile" of every news pipeline. It only walks `fetch` and `reuse` verdicts:
 
-1. skips disallowed sources and enforces recency rules
-2. if the article already exists in `news_articles`, only adds a link row for this company and leaves the article row untouched
-3. otherwise uses the pre-fetched article results, computes article scores, and inserts the article and its company link in one transaction
+1. a `reuse` verdict only adds a link row for this company and leaves the article row untouched
+2. a `fetch` verdict uses the pre-fetched article result, checks the extracted date, computes article scores, and inserts the article and its company link in one transaction
+3. a URL that appears in several requests of the same run is inserted once; later requests only add their link row (the shared `outcomes` map)
 
 The entity-specific part is a `NewsEntity` (kind, id, label, identity fields, and a link function such as `link_company_to_article`) handed in by the pipeline. It works from the batch that `run_article_save_requests(...)` fetched.
 
@@ -240,7 +232,7 @@ The main entrypoint is:
 
 This lives in [pipelines/industryNewsPipeline.py](pipelines/industryNewsPipeline.py).
 
-The industry pipeline runs the same shared orchestration as the company pipeline: `run_mixed_job_orchestration(...)`, then one combined article fetch and `save_followed_article_links(...)`.
+The industry pipeline runs the same shared orchestration as the company pipeline: `run_mixed_job_orchestration(...)`, then one combined article fetch and `save_link_verdicts(...)`.
 
 ### What is the same
 
@@ -249,7 +241,7 @@ It:
 - builds structured jobs
 - crawls source pages
 - extracts candidate links
-- filters candidate links by relevance
+- keeps only the candidate links that match the industry
 - fetches all article pages in one batch
 - scores and saves articles through the shared code
 
@@ -269,7 +261,7 @@ It looks for:
 - industry key
 - simplified token combinations
 
-It also uses the CNBC blacklist helper from `_internal.py`.
+Listing pages are narrower: `_listing_topic_links(...)` keeps links whose text or URL contains the industry name. Source, article-pattern, blacklist, recency and failed-URL checks all happen later in `judge_links(...)`.
 
 ## Macro Pipeline Flow
 
@@ -290,7 +282,7 @@ These three start from CNBC RSS feeds instead of search pages, so they skip the 
 
 Each feed is read with `fetch_feed(url)` from [engine/page_fetch.py](engine/page_fetch.py). A feed that cannot be fetched or parsed yields no items, so one bad feed does not stop the others.
 
-For each recent RSS item they build a `direct_article_save_request(...)`, with the item's RSS description as the summary, and call `run_article_save_requests(...)`. After that it is the same fetch and `save_followed_article_links(...)` path described above, with a `NewsEntity` for the sector, U.S. news, or world news.
+For each recent RSS item they build a `direct_article_save_request(...)`, with the item's RSS description as the summary, and call `run_article_save_requests(...)`. After that it is the same fetch and `save_link_verdicts(...)` path described above, with a `NewsEntity` for the sector, U.S. news, or world news.
 
 ## Scraping Engine
 
@@ -406,7 +398,7 @@ For the news pipeline, the main database concepts are:
 
 `news_articles` holds each article once. The other five are link tables that connect an article to a company, industry, sector, the U.S. feed, or the world feed.
 
-Every pipeline writes through `save_followed_article_links(...)`:
+Every pipeline writes through `save_link_verdicts(...)`:
 
 - a new article is inserted with `add_news_article(...)` and linked to its entity in one transaction
 - an already-saved article only gets a link row, so `news_articles` is untouched
@@ -414,7 +406,7 @@ Every pipeline writes through `save_followed_article_links(...)`:
 
 A new article's `summary` is the link text: the anchor text from a search or listing page, the RSS description for sector, U.S., and world articles, or `None`. The entity name is never stored as a summary. Older rows that still hold one (for example `World News`) can be cleared with [../../scripts/clear_placeholder_summaries.py](../../scripts/clear_placeholder_summaries.py), which is a dry run unless you pass `--apply`.
 
-Fetched pages whose extraction failed are written to `failed_urls` so later runs can avoid repeatedly hitting known-bad URLs. A URL that is missing from the fetch result because a backend crashed is not recorded there; it is only logged and tried again next run. An outage therefore shows up as "saved 0" plus warnings in the logs.
+Fetched pages whose extraction failed are written to `failed_urls`. A URL that has failed 3 times, or permanently (HTTP 403 or 404), gets a `failed_url` skip verdict on every path, so later runs do not hit known-bad URLs again. A URL that is missing from the fetch result because a backend crashed is not recorded there; it is only logged and tried again next run. An outage therefore shows up as "saved 0" plus warnings in the logs.
 
 ## Testing Offline
 
@@ -477,7 +469,7 @@ This is a separate database path from the article/news scraper.
 
 ## Current Differences To Keep In Mind
 
-All the news pipelines now run the same shared code: `run_article_save_requests(...)` fetches the combined article batch and `save_followed_article_links(...)` saves it. What still differs is how each pipeline discovers articles:
+All the news pipelines now run the same shared code: `run_article_save_requests(...)` fetches the combined article batch and `save_link_verdicts(...)` saves it. What still differs is how each pipeline discovers articles:
 
 - the company pipeline uses configured search pages plus API and Yahoo article jobs
 - the industry pipeline uses configured listing and search pages

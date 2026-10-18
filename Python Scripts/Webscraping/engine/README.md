@@ -13,7 +13,6 @@ The code in this folder is responsible for:
 - extracting links from source pages
 - turning article HTML into normalized article results
 - handling the article crawl subprocess path
-- supporting listing-page link extraction
 
 ## Files
 
@@ -41,7 +40,7 @@ Failure containment: `LiveFetcher` catches any `Exception` from a backend, logs 
 This leads to the "missing, not failed" rule:
 
 - a URL that is absent from the result (the backend crashed or was unavailable) is only logged. The pipeline does not write it to `failed_urls`, so it is tried again on the next run.
-- a page that was fetched but came back with `success=False` is a real failure. It is recorded in `failed_urls`, and skipped once it has failed 3 times.
+- a page that was fetched but came back with `success=False` is a real failure. It is recorded in `failed_urls`, and `pipelines/_link_policy.py` gives it a `failed_url` skip verdict, on every path, once it has failed 3 times (or permanently, for HTTP 403 and 404).
 
 The reason is that an infrastructure outage should not blacklist good URLs. The operational consequence is that a total outage shows up as "saved 0" plus warnings in the logs, not as an exception.
 
@@ -131,18 +130,6 @@ Current site-specific extraction dispatch includes:
 - Fool
 - Yahoo
 
-### [listing_page_helper.py](listing_page_helper.py)
-
-This file contains `extract_listing_article_links(...)`.
-
-It is a smaller helper for sources that are listing pages rather than query-driven search pages.
-
-It:
-
-- checks source allowlist and `listing` support
-- enforces article URL patterns
-- matches topic text against link text or URL
-
 ### [__init__.py](__init__.py)
 
 Package marker for the folder.
@@ -153,7 +140,7 @@ Typical flow:
 
 1. a pipeline gives source URLs to `fetch_source_pages(...)` in `page_fetch.py`, which calls `crawl_articles(...)`
 2. `ArticleSpider` fetches those pages and emits page results with discovered links
-3. the pipeline filters those links and decides which article URLs to follow
+3. the pipeline keeps the relevant links and `judge_links(...)` decides which article URLs to follow
 4. the article URLs are handed to `fetch_articles(...)`, which tries the site APIs and sends the rest to `crawl_article_pages(...)`
 5. the crawl returns normalized `ArticleExtractionResult` objects
 6. the pipeline scores and saves those results
