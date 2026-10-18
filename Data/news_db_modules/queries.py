@@ -90,6 +90,38 @@ def get_failed_url(url: str, db_path: Path | str | None = None) -> dict | None:
     return dict(row) if row is not None else None
 
 
+def get_saved_and_failed_urls(
+    normalized_urls: list[str], db_path: Path | str | None = None
+) -> tuple[dict[str, dict], dict[str, dict]]:
+    # Look up many normalized urls at once: saved articles (lowest id wins) and failed_urls rows.
+    if not normalized_urls:
+        return {}, {}
+
+    initialize_database(db_path=db_path)
+    saved: dict[str, dict] = {}
+    failed: dict[str, dict] = {}
+    with closing(get_connection(db_path)) as conn:
+        for start in range(0, len(normalized_urls), 500):
+            chunk = normalized_urls[start:start + 500]
+            placeholders = ",".join("?" * len(chunk))
+            for row in conn.execute(
+                f"SELECT id, normalized_url, published_at FROM news_articles "
+                f"WHERE normalized_url IN ({placeholders}) ORDER BY id",
+                chunk,
+            ):
+                saved.setdefault(row["normalized_url"], {"id": row["id"], "published_at": row["published_at"]})
+            for row in conn.execute(
+                f"SELECT normalized_url, failure_count, is_permanent FROM failed_urls "
+                f"WHERE normalized_url IN ({placeholders})",
+                chunk,
+            ):
+                failed[row["normalized_url"]] = {
+                    "failure_count": row["failure_count"],
+                    "is_permanent": row["is_permanent"],
+                }
+    return saved, failed
+
+
 def add_failed_url(
     url: str,
     stage: str | None = None,
