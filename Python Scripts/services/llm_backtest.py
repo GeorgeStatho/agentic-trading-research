@@ -20,7 +20,10 @@ Model answers are cached per frozen input, so re-running with new execution sett
 the model again. By default only the manager is replayed and the strategist's recorded output stays
 in the payload. With `replay_strategist`, the model also answers the strategist's frozen input, and
 that answer replaces production's in the manager input, projected exactly as production hands it
-over. Trade economics is not replayed; it is shadow-only in production. No broker is called.
+over. With `strategist_reuse_max_age_minutes`, a symbol's replayed strategist answer is reused for its
+later decisions under production's reuse rule (unchanged evidence and regime, a small price move, younger
+than the limit), measured against this replay's own earlier answers in time order. Trade economics is not
+replayed; it is shadow-only in production. No broker is called.
 """
 from __future__ import annotations
 
@@ -52,8 +55,8 @@ from agent_helpers.shared import _normalize_provider
 from agent_stages.manager_runner import MANAGER_PROMPT_VERSION, replay_manager_decision_from_payload
 from agent_stages.manager_strategist_context import _build_manager_visible_strategist_context
 from agent_stages.strategist_runner import (attach_thesis_check, replay_strategist_decision_from_payload,
-                                            strategist_prompt_version)
-from services.config import FrontMainSettings
+                                            strategist_answer_reusable, strategist_prompt_version)
+from services.config import AgentPipelineSettings, FrontMainSettings
 from services.entry_gates import carry_gate_verdicts
 from services.evaluation_clock import evaluated_at
 from services.evidence_continuation_gate import evaluate_evidence_continuation_gate
@@ -141,10 +144,27 @@ class StrategistReplay:
     thesis_policy: EvidenceThesisPolicy
     decide: Decider
     db_path: Any = None
+    reuse_max_age_minutes: int = 0
+    reuse_max_price_move_pct: float = 2.0
+    # Each symbol's last answer that came from the model (or its cache): (decided_at, input, answer).
+    answered: dict[str, tuple[datetime, dict[str, Any], dict[str, Any]]] = field(default_factory=dict, repr=False)
 
     @property
     def prompt_version(self) -> str:
         return strategist_prompt_version(self.thesis_policy)
+
+    def answer(self, strategist_input: dict[str, Any], *, symbol: str,
+               decided_at: datetime) -> tuple[dict[str, Any], bool, bool]:
+        """(answer, cached, reused). Production's reuse rule over this replay's earlier answers, then the model."""
+        previous = self.answered.get(symbol)
+        if previous is not None and strategist_answer_reusable(
+                previous[1], strategist_input, age_minutes=(decided_at - previous[0]).total_seconds() / 60,
+                max_age_minutes=self.reuse_max_age_minutes, max_price_move_pct=self.reuse_max_price_move_pct):
+            return copy.deepcopy(previous[2]), False, True
+        answer, cached = self.recommendation(strategist_input)
+        if self.reuse_max_age_minutes > 0:
+            self.answered[symbol] = (decided_at, strategist_input, answer)
+        return answer, cached, False
 
     def recommendation(self, strategist_input: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         key = {"stage": STRATEGIST_STAGE, "provider": self.provider, "model": self.model,
@@ -285,6 +305,7 @@ class ReplayTally:
     cached_answers: int = 0
     strategist_changed_decision: int = 0
     strategist_cached_answers: int = 0
+    strategist_reused_answers: int = 0
     recorded_settings: int = 0
     selector_differences: set[str] = field(default_factory=set)
 
@@ -431,10 +452,13 @@ class ReplayRun:
     @classmethod
     def build(cls, *, model: str, start_at: str | None = None, end_at: str | None = None, limit: int | None = None,
               min_hours_between: float = 0, replay_strategist: bool = False, decide: Decider | None = None,
-              decide_strategist: Decider | None = None, db_path: Any = None) -> "ReplayRun":
+              decide_strategist: Decider | None = None, strategist_reuse_max_age_minutes: int = 0,
+              db_path: Any = None) -> "ReplayRun":
         stored = model == STORED_MODEL
         if stored and replay_strategist:
             raise ValueError(f"replay_strategist needs a model to replay; '{STORED_MODEL}' reuses production's answers")
+        if strategist_reuse_max_age_minutes > 0 and not replay_strategist:
+            raise ValueError("strategist_reuse_max_age_minutes applies only with replay_strategist")
         models = get_settings().models
         thesis_policy = EvidenceThesisPolicy.from_env()
         replay = None if stored else CachedManagerReplay(
@@ -442,7 +466,10 @@ class ReplayRun:
             decide=decide or manager_decider(model), db_path=db_path)
         strategist = StrategistReplay(
             model=model, provider=_normalize_provider(models.strategist.provider), thesis_policy=thesis_policy,
-            decide=decide_strategist or strategist_decider(model, thesis_policy), db_path=db_path) if replay_strategist else None
+            decide=decide_strategist or strategist_decider(model, thesis_policy), db_path=db_path,
+            reuse_max_age_minutes=strategist_reuse_max_age_minutes,
+            reuse_max_price_move_pct=AgentPipelineSettings.from_env().strategist_reuse_max_price_move_pct,
+        ) if replay_strategist else None
         window = list_frozen_manager_decisions(start_at=start_at, end_at=end_at, limit=limit, db_path=db_path)
         # Older decisions predate frozen inputs; dropped before spacing so they never take a replayable one's slot.
         replayable = [decision for decision in window if frozen_payload(decision) is not None]
@@ -489,8 +516,12 @@ class ReplayRun:
         """The manager input (with any replayed strategist), its answer, and whether no model was called."""
         strategist_cached = True
         if self.strategist is not None:
-            strategist_answer, strategist_cached = self.strategist.recommendation(strategist_input)
+            strategist_answer, strategist_cached, reused = self.strategist.answer(
+                strategist_input, symbol=decision["symbol"],
+                decided_at=datetime.fromisoformat(decision["decision_run_at"]))
             tally.strategist_cached_answers += strategist_cached
+            tally.strategist_reused_answers += reused
+            strategist_cached = strategist_cached or reused
             production_strategist = (payload.get("strategist_recommendation") or {}).get("decision")
             tally.strategist_changed_decision += strategist_answer.get("decision") != production_strategist
             payload = self.strategist.manager_payload(payload, strategist_answer)
@@ -516,6 +547,8 @@ class ReplayRun:
                 "provider": self.strategist.provider,
                 "changed_decision_count": tally.strategist_changed_decision,
                 "cached_answer_count": tally.strategist_cached_answers,
+                "reuse_max_age_minutes": self.strategist.reuse_max_age_minutes,
+                "reused_answer_count": tally.strategist_reused_answers,
             } if self.strategist is not None else None,
             "provider": STORED_MODEL if self.stored else self.replay.provider,
         }
@@ -540,6 +573,7 @@ def run_llm_backtest(
     replay_strategist: bool = False,
     decide: Decider | None = None,
     decide_strategist: Decider | None = None,
+    strategist_reuse_max_age_minutes: int = 0,
     db_path: Any = None,
 ) -> dict[str, Any]:
     """Replay `model` (or `stored`) over the window and record the trades as a backtest run.
@@ -548,11 +582,13 @@ def run_llm_backtest(
     production-faithful replay; the summary records the override. `min_hours_between` replays only
     decisions spaced that far apart per symbol (see `space_decisions_per_symbol`); compare such a run
     with a `stored` run using the same spacing. `replay_strategist` has `model` answer the strategist
-    too, so the manager answers that strategist instead of production's.
+    too, so the manager answers that strategist instead of production's. `strategist_reuse_max_age_minutes`
+    reuses those answers under production's reuse rule (see the module docstring).
     """
     run = ReplayRun.build(model=model, start_at=start_at, end_at=end_at, limit=limit,
                           min_hours_between=min_hours_between, replay_strategist=replay_strategist,
-                          decide=decide, decide_strategist=decide_strategist, db_path=db_path)
+                          decide=decide, decide_strategist=decide_strategist,
+                          strategist_reuse_max_age_minutes=strategist_reuse_max_age_minutes, db_path=db_path)
     local_settings = FrontMainSettings.from_env()
     latest_rules = ProductionRules(local_settings)
     tally = ReplayTally()

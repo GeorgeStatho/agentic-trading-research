@@ -201,6 +201,30 @@ def _last_price(payload: dict[str, Any]) -> float | None:
     return float(price) if isinstance(price, (int, float)) and price > 0 else None
 
 
+def strategist_answer_reusable(
+    previous: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    age_minutes: float,
+    max_age_minutes: int,
+    max_price_move_pct: float,
+) -> bool:
+    """Whether the answer to `previous` still stands for `payload`: same evidence and regime, little price move.
+
+    Shared by live runs and backtest replays so both reuse under one rule.
+    """
+    if max_age_minutes <= 0 or not 0 <= age_minutes < max_age_minutes:
+        return False
+    if _strategist_evidence_hash(previous) != _strategist_evidence_hash(payload):
+        return False
+    if _regime_state(previous) != _regime_state(payload):
+        return False
+    previous_price, price = _last_price(previous), _last_price(payload)
+    if previous_price is None or price is None:
+        return False
+    return abs(price / previous_price - 1) * 100 < max_price_move_pct
+
+
 def _reusable_strategist_answer(
     payload: dict[str, Any],
     *,
@@ -224,17 +248,9 @@ def _reusable_strategist_answer(
     if answered_at.tzinfo is None:
         answered_at = answered_at.replace(tzinfo=timezone.utc)
     age_minutes = (datetime.now(timezone.utc) - answered_at).total_seconds() / 60
-    if not 0 <= age_minutes < settings.strategist_reuse_max_age_minutes:
-        return None
-    previous = anchor["input_payload"]
-    if _strategist_evidence_hash(previous) != _strategist_evidence_hash(payload):
-        return None
-    if _regime_state(previous) != _regime_state(payload):
-        return None
-    previous_price, price = _last_price(previous), _last_price(payload)
-    if previous_price is None or price is None:
-        return None
-    if abs(price / previous_price - 1) * 100 >= settings.strategist_reuse_max_price_move_pct:
+    if not strategist_answer_reusable(anchor["input_payload"], payload, age_minutes=age_minutes,
+                                      max_age_minutes=settings.strategist_reuse_max_age_minutes,
+                                      max_price_move_pct=settings.strategist_reuse_max_price_move_pct):
         return None
     return anchor, round(age_minutes, 1)
 

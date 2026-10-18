@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import closing
 import json
 from dataclasses import replace
+from datetime import datetime, timedelta
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,6 +21,7 @@ from market_db_modules.backtesting import (
 from market_db_modules.backtesting import run_decision_backtest
 from services import llm_backtest
 from services.config import FrontMainSettings
+from services.evidence_thesis_policy import EvidenceThesisPolicy
 from services.llm_backtest import ModelUnavailable, ProductionRules, run_llm_backtest
 from services.order_candidates import OrderCandidateBuilder
 
@@ -179,6 +181,35 @@ class StrategistReplayTests(DatabaseFixture):
     def test_the_manager_answers_the_replayed_strategist(self) -> None:
         _, manager, _ = self.run_replay()
         self.assertEqual(manager.call_args.args[0]["strategist_recommendation"]["decision"], "do_not_trade")
+
+    def test_replayed_answers_are_reused_under_the_production_rule(self) -> None:
+        def strategist_input(price: float, reason: str = "Guidance raised") -> dict:
+            return {"company": {"symbol": "MSFT", "market_data": {"last_price": price}},
+                    "views": {"company_view": {"agent_conclusions": [{"article_id": 7, "reason": reason}]}},
+                    "grounding": {"article_ids": [7]}, "market_context": {"market_regime": {"state": "range"}}}
+
+        def replay(reuse_minutes: int) -> tuple[list[bool], Mock]:
+            decide = Mock(return_value={"recommendation": {"decision": "watchlist"}})
+            strategist = llm_backtest.StrategistReplay(
+                model=f"local-{reuse_minutes}", provider="fixture", thesis_policy=EvidenceThesisPolicy.from_env(),
+                decide=decide, db_path=self.db_path, reuse_max_age_minutes=reuse_minutes)
+            start = datetime.fromisoformat(DECISION_AT)
+            asked = [(timedelta(0), strategist_input(400.0)), (timedelta(minutes=30), strategist_input(401.0)),
+                     (timedelta(minutes=60), strategist_input(401.0, "Guidance cut")),
+                     (timedelta(minutes=200), strategist_input(401.5, "Guidance cut"))]
+            reused = [strategist.answer(payload, symbol="MSFT", decided_at=start + offset)[2] for offset, payload in asked]
+            return reused, decide
+
+        reused, decide = replay(120)
+        self.assertEqual(reused, [False, True, False, False])
+        self.assertEqual(decide.call_count, 3)
+        reused, decide = replay(0)
+        self.assertEqual(reused, [False] * 4)
+        self.assertEqual(decide.call_count, 4)
+
+    def test_reuse_needs_strategist_replay(self) -> None:
+        with self.assertRaises(ValueError):
+            run_llm_backtest(model="local", strategist_reuse_max_age_minutes=120, db_path=self.db_path)
 
 
 class RecommendationEligibilityTests(unittest.TestCase):

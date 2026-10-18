@@ -39,6 +39,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--replay-strategist", action="store_true",
                         help="Have --model answer the strategist too, on each decision's frozen strategist input; the "
                              "manager then answers that strategist instead of production's. Not valid with 'stored'.")
+    parser.add_argument("--strategist-reuse-minutes", type=int, default=0,
+                        help="With --replay-strategist, reuse a symbol's replayed strategist answer for later decisions "
+                             "under production's reuse rule (unchanged evidence and regime, price move under "
+                             "STRATEGIST_REUSE_MAX_PRICE_MOVE_PCT) while it is younger than this many minutes. "
+                             "Match production's STRATEGIST_REUSE_MAX_AGE_MINUTES (default 0: always ask).")
     parser.add_argument("--score-direction", action="store_true",
                         help="Instead of trading options, score each answer's direction by the stock's return over the "
                              f"next {' and '.join(map(str, HORIZONS))} trading-day closes. Works on decisions before "
@@ -53,6 +58,8 @@ def _parse_args() -> argparse.Namespace:
     trading_only = [name for name in ("execute_medium_confidence", "fetch_option_quotes", "take_profit_pct", "stop_loss_pct",
                                       "max_hold_hours", "entry_slippage_bps", "exit_slippage_bps")
                     if getattr(args, name) not in (None, False)]
+    if args.strategist_reuse_minutes and not args.replay_strategist:
+        parser.error("--strategist-reuse-minutes needs --replay-strategist")
     if args.score_direction and trading_only:
         parser.error(f"--score-direction does not trade options; remove {', '.join('--' + n.replace('_', '-') for n in trading_only)}")
     return args
@@ -68,7 +75,8 @@ def _summary(result: dict) -> dict:
 def _score_direction(args: argparse.Namespace) -> None:
     result = run_direction_score(model=args.model, start_at=args.start_at or None, end_at=args.end_at or None,
                                  limit=args.limit, min_hours_between=args.min_hours_between,
-                                 replay_strategist=args.replay_strategist, fetch_missing_bars=args.fetch_missing_bars)
+                                 replay_strategist=args.replay_strategist, fetch_missing_bars=args.fetch_missing_bars,
+                                 strategist_reuse_max_age_minutes=args.strategist_reuse_minutes)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=2, default=str)
@@ -92,7 +100,8 @@ def main() -> None:
                               limit=args.limit, execution_config=execution_config,
                               fetch_missing_bars=args.fetch_missing_bars, fetch_option_quotes=args.fetch_option_quotes,
                               execute_medium_confidence=args.execute_medium_confidence,
-                              min_hours_between=args.min_hours_between, replay_strategist=args.replay_strategist)
+                              min_hours_between=args.min_hours_between, replay_strategist=args.replay_strategist,
+                              strategist_reuse_max_age_minutes=args.strategist_reuse_minutes)
     print(json.dumps(_summary(result), indent=2, default=str))
 
 

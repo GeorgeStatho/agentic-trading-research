@@ -116,12 +116,14 @@ def run_direction_score(
     fetch_missing_bars: bool = False,
     decide: Decider | None = None,
     decide_strategist: Decider | None = None,
+    strategist_reuse_max_age_minutes: int = 0,
     db_path: Any = None,
 ) -> dict[str, Any]:
     """Replay `model` (or `stored`) over the window and score each answer's direction by the stock's next moves."""
     run = ReplayRun.build(model=model, start_at=start_at, end_at=end_at, limit=limit,
                           min_hours_between=min_hours_between, replay_strategist=replay_strategist,
-                          decide=decide, decide_strategist=decide_strategist, db_path=db_path)
+                          decide=decide, decide_strategist=decide_strategist,
+                          strategist_reuse_max_age_minutes=strategist_reuse_max_age_minutes, db_path=db_path)
     bars = fetch_missing_history(run, db_path=db_path) if fetch_missing_bars else None
     tally = ReplayTally()
     rows: list[dict[str, Any]] = []
