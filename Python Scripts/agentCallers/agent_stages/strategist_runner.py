@@ -84,6 +84,7 @@ def ask_model(
     user_prompt: str,
     *,
     include_thesis: bool = False,
+    response_diagnostic: dict[str, Any] | None = None,
 ) -> str:
     return ask_llm_model(
         client,
@@ -94,6 +95,7 @@ def ask_model(
         host_label=_stage_model().ollama_host,
         thinking_level=_stage_model().thinking_level,
         response_schema=strategist_recommendation_schema(include_thesis=include_thesis),
+        response_diagnostic=response_diagnostic,
     )
 
 
@@ -235,8 +237,10 @@ def decide_strategist_recommendation(
     from services.candidate_lifecycle import checkpoint
     checkpoint(candidate_context, "strategist_prompt", {"model": model,
                "system_prompt": system_prompt, "user_prompt": user_prompt})
+    response_diagnostic: dict[str, Any] = {}
     raw_response = ask_model(client=client, model=model, system_prompt=system_prompt,
-                             user_prompt=user_prompt, include_thesis=include_thesis)
+                             user_prompt=user_prompt, include_thesis=include_thesis,
+                             response_diagnostic=response_diagnostic)
     try:
         recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
         thesis_check = (check_evidence_thesis((raw_recommendation or {}).get("evidence_thesis"), payload,
@@ -247,7 +251,7 @@ def decide_strategist_recommendation(
         exc.raw_response = raw_response
         raise
     return {"recommendation": recommendation, "thesis_check": thesis_check,
-            "raw_response": raw_response, "no_evidence": False}
+            "raw_response": raw_response, "no_evidence": False, "response_diagnostic": response_diagnostic}
 
 
 def replay_strategist_decision_from_payload(
@@ -368,4 +372,5 @@ def decide_company_purchase(
         "grounding": payload.get("grounding", {}),
         "manager_evidence_payload": _build_manager_evidence_payload(payload),
         "strategist_run_reference": strategist_run_reference,
+        "response_diagnostic": decision.get("response_diagnostic", {}),
     }

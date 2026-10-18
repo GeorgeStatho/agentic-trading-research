@@ -244,7 +244,7 @@ def decide_manager_recommendation(
             "Expected a JSON object with recommendation.decision/confidence/reason. "
             "See the preceding manager response diagnostic for the parse error and completion metadata."
         )
-    return {"recommendation": recommendation, "no_evidence": False}
+    return {"recommendation": recommendation, "no_evidence": False, "response_diagnostic": response_diagnostic}
 
 
 def replay_manager_decision_from_payload(
@@ -357,6 +357,7 @@ def decide_company_option_position(
             "manager_model": model,
             "manager_prompt_version": MANAGER_PROMPT_VERSION,
             "market_regime": market_context.get("market_regime", {}),
+            "response_diagnostic": decision.get("response_diagnostic", {}),
         }
 
     market_context, upstream_bucket_refresh_debug = _refresh_market_context_for_target_dte_bucket(
@@ -417,4 +418,5 @@ def decide_company_option_position(
         "manager_model": model,
         "manager_prompt_version": MANAGER_PROMPT_VERSION,
         "market_regime": market_context.get("market_regime", {}),
+        "response_diagnostic": decision.get("response_diagnostic", {}),
     }
