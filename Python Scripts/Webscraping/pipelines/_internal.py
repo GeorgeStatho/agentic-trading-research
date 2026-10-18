@@ -24,17 +24,13 @@ def is_blacklisted_cnbc_link(href: str) -> bool:
     )
 
 
+def link_match_texts(link: dict) -> tuple[str, str]:
+    # Normalized link text and normalized host+path, the two places a relevance match can come from.
+    parsed_href = urlsplit(str(link.get("href") or ""))
+    href_match_text = " ".join(part for part in (parsed_href.netloc, parsed_href.path) if part)
+    return normalize_match_text(link.get("text")), normalize_match_text(href_match_text)
+
+
 def link_matches_variants(link: dict, variants: set[str]) -> bool:
-    href = str(link.get("href") or "")
-    normalized_text = normalize_match_text(link.get("text"))
-    parsed_href = urlsplit(href)
-    href_match_text = " ".join(
-        part
-        for part in (
-            parsed_href.netloc,
-            parsed_href.path,
-        )
-        if part
-    )
-    normalized_href = normalize_match_text(href_match_text)
+    normalized_text, normalized_href = link_match_texts(link)
     return any(variant in normalized_text or variant in normalized_href for variant in variants)

@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from contextlib import closing
 from functools import partial
-from typing import Any
+from typing import Any, Callable
 
-from core.CommonPipeline import filter_article_links
 from core.scrape_logging import get_log_file_path, get_scrape_logger
 from sources.source_config import supports_source_type
 from pipelines._article_follow import NewsEntity
-from pipelines._internal import is_blacklisted_cnbc_link
+from pipelines._internal import link_match_texts, normalize_match_text
 from pipelines._orchestration import (
     run_mixed_job_orchestration,
 )
@@ -105,25 +104,28 @@ def _build_api_jobs(company: dict) -> list[CompanySourceJob]:
     return jobs
 
 
-def _filter_company_candidate_links(page_url: str, links: list[dict], company: dict) -> list[dict]:
-    # Start from the shared source/article-pattern filter. We still keep
-    # explicit CNBC blacklist protection, but we no longer drop links just
-    # because the visible text is a weak company-name match.
-    base_candidates = filter_article_links(page_url, links)
-    if not base_candidates:
-        return []
+CORPORATE_SUFFIXES = frozenset(
+    "inc incorporated corp corporation co company plc ltd limited lp llc sa nv se holdings holding group".split()
+)
+MIN_REUSE_VARIANT_LENGTH = 3
 
-    filtered: list[dict] = []
-    for link in base_candidates:
-        href = str(link.get("href") or "")
-        if not href:
-            continue
-        if is_blacklisted_cnbc_link(href):
-            LOGGER.info("Skipping blacklisted CNBC URL %s for company %s", href, company["symbol"])
-            continue
-        filtered.append(link)
 
-    return filtered
+def _company_reuse_filter(company: dict) -> Callable[[dict], bool]:
+    # An already-saved article found on a search page is reused only if the company is named in the link.
+    name_tokens = normalize_match_text(company.get("name")).split()
+    trimmed_tokens = list(name_tokens)
+    while trimmed_tokens and trimmed_tokens[-1] in CORPORATE_SUFFIXES:
+        trimmed_tokens.pop()
+    variants = {
+        f" {variant} "
+        for variant in (" ".join(name_tokens), " ".join(trimmed_tokens), normalize_match_text(company.get("symbol")))
+        if len(variant) >= MIN_REUSE_VARIANT_LENGTH
+    }
+
+    def may_reuse(link: dict) -> bool:
+        return any(variant in f" {text} " for text in link_match_texts(link) for variant in variants)
+
+    return may_reuse
 
 
 def _company_entity(company: dict, search_term: str) -> NewsEntity:
@@ -148,7 +150,7 @@ def _company_entity(company: dict, search_term: str) -> NewsEntity:
 def _company_candidate_links(page: dict, job: dict) -> list[dict]:
     if not supports_source_type(page["url"], "search"):
         return []
-    return _filter_company_candidate_links(page["url"], page["links"], job["company"])
+    return list(page.get("links") or [])
 
 
 def _build_company_jobs(company: dict) -> list[CompanySourceJob]:
@@ -185,6 +187,7 @@ def _process_company_jobs(jobs: list[CompanySourceJob]) -> dict[int, int]:
         logger=LOGGER,
         entity_from_job=lambda job: _company_entity(job["company"], job["search_term"]),
         candidate_links_for=_company_candidate_links,
+        reuse_filter_for=lambda job: _company_reuse_filter(job["company"]),
     )
 
 

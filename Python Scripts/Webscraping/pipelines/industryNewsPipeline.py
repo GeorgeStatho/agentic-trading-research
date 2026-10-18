@@ -2,13 +2,11 @@ from __future__ import annotations
 
 from functools import partial
 
-from core.CommonPipeline import filter_article_links
 from core.scrape_logging import get_log_file_path, get_scrape_logger
 from sources.source_config import supports_source_type
-from engine.listing_page_helper import extract_listing_article_links
 from pipelines._constants import INDUSTRY_NAME_STOPWORDS
 from pipelines._article_follow import NewsEntity
-from pipelines._internal import is_blacklisted_cnbc_link, link_matches_variants, normalize_match_text
+from pipelines._internal import link_matches_variants, normalize_match_text
 from pipelines._orchestration import (
     run_mixed_job_orchestration,
 )
@@ -95,36 +93,21 @@ def _build_industry_match_variants(industry: dict) -> set[str]:
     return {variant for variant in expanded_variants if len(variant) >= 4}
 
 
-def _filter_industry_candidate_links(page_url: str, links: list[dict], industry: dict) -> list[dict]:
-    # Filter the industry candidate links down to the rows this helper should keep.
-    base_candidates = filter_article_links(page_url, links)
-    if not base_candidates:
-        return []
-
+def _filter_industry_candidate_links(links: list[dict], industry: dict) -> list[dict]:
+    # Keep only the links whose text or url names the industry.
     variants = _build_industry_match_variants(industry)
-    if not variants:
-        return []
+    return [link for link in links if link_matches_variants(link, variants)]
 
-    filtered: list[dict] = []
-    for link in base_candidates:
-        href = str(link.get("href") or "")
-        if not href:
-            continue
-        if is_blacklisted_cnbc_link(href):
-            LOGGER.info("Skipping blacklisted CNBC URL %s for industry %s", href, industry["name"])
-            continue
 
-        if link_matches_variants(link, variants):
-            filtered.append(link)
-            continue
-
-        LOGGER.info(
-            "Skipping weak industry match URL %s for industry %s because the link text did not match the industry name",
-            href,
-            industry["name"],
-        )
-
-    return filtered
+def _listing_topic_links(links: list[dict], topic: str) -> list[dict]:
+    normalized_topic = " ".join((topic or "").lower().split())
+    return [
+        link
+        for link in links
+        if not normalized_topic
+        or normalized_topic in " ".join(str(link.get("text") or "").lower().split())
+        or normalized_topic in str(link.get("href") or "").lower()
+    ]
 
 
 def _industry_entity(industry: dict) -> NewsEntity:
@@ -145,8 +128,8 @@ def _industry_candidate_links(page: dict, job: dict) -> list[dict]:
     if not supports_source_type(page["url"], job["source_type"]):
         return []
     if job["source_type"] == "listing":
-        return extract_listing_article_links(page["url"], page["links"], job["industry"]["name"])
-    return _filter_industry_candidate_links(page["url"], page["links"], job["industry"])
+        return _listing_topic_links(page["links"], job["industry"]["name"])
+    return _filter_industry_candidate_links(page["links"], job["industry"])
 
 
 def _process_industry_jobs(jobs: list[dict]) -> dict:
