@@ -200,7 +200,7 @@ For search pages, the key field is `links`.
 
 ### Step 6: Build one shared article batch
 
-After the search pages are crawled, `build_search_article_save_requests(...)` turns the filtered links into `ArticleSaveRequest` objects. Direct article jobs (Yahoo and the APIs) become requests of the same shape through `direct_article_save_request(...)`.
+After the search pages are crawled, `build_search_article_save_requests(...)` turns the candidate links into `ArticleSaveRequest` objects. Direct article jobs (Yahoo and the APIs) become requests of the same shape through `direct_article_save_request(...)`.
 
 Then `run_article_save_requests(...)` gives every link one verdict with `judge_links(...)` in [pipelines/_link_policy.py](pipelines/_link_policy.py), before anything is fetched. A verdict is `fetch`, `reuse` or `skip`, and a skip carries a reason: `no_href`, `duplicate`, `excluded`, `disallowed_source`, `not_article_url`, `blacklisted`, `stale_url_date`, `stale_existing`, `irrelevant_existing`, `failed_url` or `limit`. The whole run uses one batched database lookup for saved articles and failed URLs.
 
@@ -485,9 +485,9 @@ If you want one concrete path to keep in your head, this is the current company 
 3. fetch Fool, Morningstar, GuruFocus, and Yahoo news items and convert allowed title/URL pairs into direct article jobs
 4. fetch all search pages together with `fetch_source_pages(...)`
 5. extract links from those pages
-6. filter the candidate links for company relevance
-7. combine those filtered links with the direct article jobs
-8. fetch all article URLs together in one batch with `fetch_articles(...)` (API extractors first, `crawl_article_pages` otherwise)
+6. keep every link of a supported search page as a candidate (company relevance only gates reuse of already-saved articles)
+7. combine those candidate links with the direct article jobs
+8. judge every link (fetch, reuse or skip), then fetch the `fetch` URLs together in one batch with `fetch_articles(...)` (API extractors first, `crawl_article_pages` otherwise)
 9. link already-saved articles to the company; score and insert the new ones
 10. return the saved count for the company
 

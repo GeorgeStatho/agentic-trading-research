@@ -154,7 +154,7 @@ does the fetching and parsing:
 ```mermaid
 flowchart LR
     src["sources/<br/>source_config, urlFactories"] --> jobs["pipelines/job_builder<br/>+ _orchestration, _sector_rss"]
-    jobs --> eng["engine/<br/>article_scraper, listing_page_helper,<br/>playwright_runner (rendered fallback)"]
+    jobs --> eng["engine/<br/>article_scraper,<br/>playwright_runner (rendered fallback)"]
     eng --> exx["extractors/<br/>cnbc, yahoo, barrons, fool,<br/>marketwatch, investing, morningstar"]
     exx --> proc["processing/<br/>news_normalization, scoring"]
     proc --> ndb[("news_db_modules<br/>article_store, provenance roots,<br/>catalysts")]
