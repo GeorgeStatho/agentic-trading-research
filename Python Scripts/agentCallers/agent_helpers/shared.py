@@ -697,6 +697,13 @@ def _ask_chat_completions_model(
             "type": "json_schema",
             "json_schema": {"name": "structured_response", "schema": response_schema},
         }
+    if client.provider == "openai_compatible":
+        hosted = get_settings().openai_compatible
+        if hosted.temperature is not None:
+            request_kwargs["temperature"] = hosted.temperature
+        request_kwargs["max_tokens"] = hosted.max_tokens
+        if hosted.reasoning_effort:
+            request_kwargs["extra_body"] = {"reasoning": {"effort": hosted.reasoning_effort}}
 
     is_llamacpp = client.provider == "llamacpp"
     try:
@@ -716,12 +723,14 @@ def _ask_chat_completions_model(
 
     choice = response.choices[0] if response.choices else None
     content = choice.message.content if choice is not None else None
-    if not isinstance(content, str) or not content.strip():
-        raise RuntimeError(f"Model returned empty content: {response}")
-    if choice.finish_reason == "length":
+    # Before the empty check: reasoning can use the whole budget and leave no content.
+    if choice is not None and choice.finish_reason == "length":
         if is_llamacpp:
             raise RuntimeError("llama.cpp truncated the response; raise llama-server's context size (-c).")
         raise RuntimeError(f"{client.label} truncated the response from model '{model}'.")
+    if not isinstance(content, str) or not content.strip():
+        # A response can carry a long reasoning trace; keep the error readable.
+        raise RuntimeError(f"Model returned empty content: {str(response)[:1000]}")
 
     return content
 

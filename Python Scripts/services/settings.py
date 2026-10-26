@@ -25,6 +25,7 @@ DEFAULT_LLAMACPP_BASE_URL = "http://127.0.0.1:8080/v1"
 DEFAULT_STAGE_MODEL = "world-news-sectors"
 _MODEL_FALLBACKS = ("MACRO_NEWS_MODEL", "WORLD_NEWS_MODEL")
 _HOST_FALLBACKS = ("MACRO_NEWS_OLLAMA_HOST", "WORLD_NEWS_OLLAMA_HOST")
+REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 
 
 def _first(environ: Mapping[str, str], names: tuple[str, ...], default: str) -> str:
@@ -138,10 +139,23 @@ class OpenAICompatibleSettings:
     # Any hosted Chat Completions API (Mistral, Groq, OpenRouter, Cerebras). The key is read from
     # OPENAI_COMPATIBLE_API_KEY when the client is built, so it never reaches the pipeline manifest.
     base_url: str = ""
+    # Replaces each stage's temperature (0 for the pipeline stages), which can make reasoning models loop.
+    # None keeps the stage's own.
+    temperature: float | None = 1.0
+    # Sent as OpenRouter's reasoning effort; blank leaves it to the provider's default.
+    reasoning_effort: str = "high"
+    # Caps answer plus reasoning, so a looping model stops instead of billing to the provider's limit.
+    max_tokens: int = 32000
 
     @classmethod
     def from_environ(cls, environ) -> "OpenAICompatibleSettings":
-        return cls(base_url=environ.get("OPENAI_COMPATIBLE_BASE_URL", "").strip())
+        effort = environ.get("OPENAI_COMPATIBLE_REASONING_EFFORT", "high").strip().lower()
+        if effort and effort not in REASONING_EFFORTS:
+            raise ValueError(f"OPENAI_COMPATIBLE_REASONING_EFFORT must be one of {', '.join(REASONING_EFFORTS)}, or blank")
+        return cls(base_url=environ.get("OPENAI_COMPATIBLE_BASE_URL", "").strip(),
+                   temperature=_optional_temperature(environ, "OPENAI_COMPATIBLE_TEMPERATURE", 1.0),
+                   reasoning_effort=effort,
+                   max_tokens=_integer(environ, "OPENAI_COMPATIBLE_MAX_TOKENS", 32000, 1024))
 
 
 @dataclass(frozen=True)

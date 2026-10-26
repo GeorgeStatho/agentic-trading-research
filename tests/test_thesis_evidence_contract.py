@@ -119,6 +119,30 @@ class ClaimCheckTests(ThesisFixture):
         check = self.check(self.thesis(payload, supporting=[invented]), payload)
         self.assertEqual((check["status"], "central_claim_failed" in check["failures"]), ("deferred", True))
 
+    def view_only_payload(self):
+        # Article 77 reaches the model only through a view: its scraped title and summary, plus a model-written reason.
+        payload = self.payload()
+        signal = {"article_id": 77, "title": "Fixture can supply only half of what customers want",
+                  "summary": "Fixture can supply only half of what customers want",
+                  "reason": "The classifier thinks demand is outstripping supply by a wide margin."}
+        return {**payload, "views": {"company_view": {"agent_conclusions": [signal]}},
+                "grounding": {"article_ids": [42, 77]}}
+
+    def test_quote_of_a_view_only_article_title_is_verified(self):
+        payload = self.view_only_payload()
+        headline = claim("S1", "Fixture can supply only half of what customers want", claim_type="observed_fact",
+                         central=True, articles=[77],
+                         quotes=[("article:77", "Fixture can supply only half of what customers want")])
+        result = self.claim_result(self.check(self.thesis(payload, supporting=[headline]), payload), "S1")
+        self.assertEqual((result["status"], result["spans"][0]["field"]), ("verified", "title"))
+
+    def test_view_reason_is_not_source_text(self):
+        payload = self.view_only_payload()
+        paraphrase = claim("S1", "Demand is outstripping supply", claim_type="observed_fact", central=True,
+                           articles=[77], quotes=[("article:77", "demand is outstripping supply by a wide margin")])
+        result = self.claim_result(self.check(self.thesis(payload, supporting=[paraphrase]), payload), "S1")
+        self.assertIn("quote_not_in_source", result["failures"])
+
     def test_asserted_market_surprise_needs_consensus(self):
         payload = self.payload()
         surprise = self.guidance_claim(payload, "Guidance beat analyst estimates by $20 million")
