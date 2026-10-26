@@ -4,7 +4,6 @@ One thesis per research session, over the session's final package and frozen art
 reserved call without a recorded check is never retried: its outcome is unknown.
 """
 from datetime import datetime, timezone
-import subprocess
 
 from market_db_modules.company_evidence import get_evidence_package
 from market_db_modules.evidence_thesis import (
@@ -16,6 +15,7 @@ from services.evidence_research_policy import EvidenceResearchPolicy
 from services.evidence_thesis import check_evidence_thesis, not_requested_check, persist_thesis_check
 from services.evidence_thesis_policy import EvidenceThesisPolicy
 from services.research_lock import ResearchSessionBusy, research_session_lock
+from services.research_model_policy import billed
 from agent_stages.research_thesis_writer import ResearchThesisWriter
 
 
@@ -90,7 +90,7 @@ class ResearchThesisRun:
                 "writer_identity": getattr(writer, "identity", None), "reservation": reservation}
         try:
             raw = writer.write(self.payload, timeout=self.research_policy.max_seconds)
-        except (TimeoutError, subprocess.TimeoutExpired):
+        except TimeoutError:
             return self.skipped_after_call("deadline_exhausted", writer, reservation, day, call)
         except Exception as exc:
             reason = "provider_failure" if type(exc).__name__ == "ResearchProviderError" else "invalid_model_response"
@@ -112,7 +112,7 @@ class ResearchThesisRun:
     def charge_usage(self, writer, reservation, day):
         response = getattr(writer, "last_response", {}) or {}
         usage = response.get("usage", {})
-        estimated = writer.policy.usage_cost(usage) if reservation.get("provider") == "vertex" else 0
+        estimated = writer.policy.usage_cost(usage) if billed(reservation) else 0
         extra = max(0, (estimated or 0) - reservation["cost_reserved_usd"])
         if extra:
             charge_research_thesis_usage(day, extra, db_path=self.db_path)

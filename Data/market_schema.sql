@@ -235,6 +235,23 @@ CREATE TABLE IF NOT EXISTS llm_replay_cache (
     UNIQUE (stage, provider, model, prompt_version, input_hash)
 );
 
+-- One row per hosted OpenAI-compatible call: the upstream provider OpenRouter routed it to, its
+-- tokens and the cost OpenRouter reported, so provider choice can be checked against spend.
+CREATE TABLE IF NOT EXISTS llm_call_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    called_at TEXT NOT NULL,
+    model TEXT NOT NULL,
+    served_model TEXT,
+    upstream_provider TEXT,
+    generation_id TEXT,
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    reasoning_tokens INTEGER,
+    cached_tokens INTEGER,
+    cost_usd REAL
+);
+CREATE INDEX IF NOT EXISTS idx_llm_call_usage_called_at ON llm_call_usage(called_at);
+
 CREATE TABLE IF NOT EXISTS decision_evidence_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     manager_decision_history_id INTEGER NOT NULL UNIQUE,

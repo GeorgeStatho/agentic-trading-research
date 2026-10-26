@@ -146,16 +146,25 @@ class OpenAICompatibleSettings:
     reasoning_effort: str = "high"
     # Caps answer plus reasoning, so a looping model stops instead of billing to the provider's limit.
     max_tokens: int = 32000
+    # OpenRouter providers to try first, in order (e.g. ("wafer",)); empty leaves routing to OpenRouter.
+    provider_order: tuple[str, ...] = ()
+
+    @property
+    def is_openrouter(self) -> bool:
+        # The reasoning, provider and usage request fields are OpenRouter's; other APIs may reject them.
+        return "openrouter.ai" in self.base_url
 
     @classmethod
     def from_environ(cls, environ) -> "OpenAICompatibleSettings":
         effort = environ.get("OPENAI_COMPATIBLE_REASONING_EFFORT", "high").strip().lower()
         if effort and effort not in REASONING_EFFORTS:
             raise ValueError(f"OPENAI_COMPATIBLE_REASONING_EFFORT must be one of {', '.join(REASONING_EFFORTS)}, or blank")
+        order = environ.get("OPENAI_COMPATIBLE_PROVIDER_ORDER", "")
         return cls(base_url=environ.get("OPENAI_COMPATIBLE_BASE_URL", "").strip(),
                    temperature=_optional_temperature(environ, "OPENAI_COMPATIBLE_TEMPERATURE", 1.0),
                    reasoning_effort=effort,
-                   max_tokens=_integer(environ, "OPENAI_COMPATIBLE_MAX_TOKENS", 32000, 1024))
+                   max_tokens=_integer(environ, "OPENAI_COMPATIBLE_MAX_TOKENS", 32000, 1024),
+                   provider_order=tuple(name.strip().lower() for name in order.split(",") if name.strip()))
 
 
 @dataclass(frozen=True)

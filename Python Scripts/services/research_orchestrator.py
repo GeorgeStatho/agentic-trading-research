@@ -2,7 +2,6 @@
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 import time
-import subprocess
 
 from market_db_modules.company_evidence import get_evidence_package, record_evidence_package
 from market_db_modules.foundation_store import digest
@@ -17,6 +16,7 @@ from services.research_evidence import (
     coverage_outcome, evidence_identity, final_package, initial_evidence, merge_evidence, required_requests,
 )
 from services.research_lock import ResearchSessionBusy, research_session_lock
+from services.research_model_policy import billed
 from services.research_tools import OPERATIONS, ResearchTools
 from agent_stages.research_planner import ResearchPlanner
 from agent_stages.research_planner import ResearchProviderError
@@ -124,7 +124,7 @@ class ResearchOrchestrator:
             return self.investigate()
         except ResearchBudgetExceeded as exc:
             return self.finish('budget_exhausted', str(exc))
-        except (TimeoutError, subprocess.TimeoutExpired):
+        except TimeoutError:
             return self.finish('budget_exhausted', 'deadline_exhausted')
         except Exception as exc:
             self.progress['raw_plan'] = None
@@ -254,7 +254,7 @@ class ResearchOrchestrator:
         if not response:
             return
         usage = response.get('usage', {})
-        estimated_cost = self.planner.policy.usage_cost(usage) if reservation.get('provider') == 'vertex' else 0
+        estimated_cost = self.planner.policy.usage_cost(usage) if billed(reservation) else 0
         extra = max(0, (estimated_cost or 0) - reservation['cost_reserved_usd'])
         self.session['cost_consumed'] += extra
         self.progress['reported_cost_estimate_usd'] += estimated_cost or 0

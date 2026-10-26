@@ -87,15 +87,15 @@ The writer is configured like the strategist and manager stages:
 
 | Setting | Resolution |
 | --- | --- |
-| Provider | `LLM_PROVIDER` (`ollama` or `vertex`; the research transport does not support `openai`) |
+| Provider | `RESEARCH_THESIS_PROVIDER` → `STRATEGIST_PROVIDER` → `LLM_PROVIDER` (any shared provider) |
 | Model | `RESEARCH_THESIS_MODEL` → `STRATEGIST_MODEL` → `MACRO_NEWS_MODEL` → `WORLD_NEWS_MODEL`; Vertex falls back to `VERTEX_DEFAULT_MODEL` |
 | Ollama host | `RESEARCH_THESIS_OLLAMA_HOST` → `STRATEGIST_OLLAMA_HOST` → `MACRO_NEWS_OLLAMA_HOST` → `WORLD_NEWS_OLLAMA_HOST` → `http://127.0.0.1:11434` |
 | Token limits and rates | `RESEARCH_THESIS_<NAME>` for each `RESEARCH_PLANNER_<NAME>` limit/rate, falling back to the planner value |
 
-A Vertex thesis model that differs from the planner model must set
+A thesis model on a billed provider (Vertex, `openai`, or any provider with rates) that differs from the planner model must set
 `RESEARCH_THESIS_INPUT_USD_PER_MILLION` and `RESEARCH_THESIS_OUTPUT_USD_PER_MILLION`. Otherwise
 construction fails rather than reserving spend at another model's prices. The writer still
-uses the planner's deadline-bounded transport and reservation contract. Its calls count
+uses the planner's single-attempt, deadline-bounded model call and reservation contract. Its calls count
 against `RESEARCH_DAILY_THESIS_CALLS`, and its reserved cost shares `RESEARCH_DAILY_COST_BUDGET`
 with planner and retrieval calls. The resolved writer configuration, without credentials, is
 part of the pipeline foundation manifest.

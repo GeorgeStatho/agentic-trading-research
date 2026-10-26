@@ -20,10 +20,10 @@ RESPONSE_SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': 
 
 
 class ResearchThesisWriter(ResearchPlanner):
-    """Reuses the planner's transport, deadlines and cost reservation contract.
+    """Reuses the planner's single-attempt model call, deadlines and cost reservation contract.
 
-    Model selection follows the strategist/manager convention: LLM_PROVIDER, then
-    RESEARCH_THESIS_MODEL / RESEARCH_THESIS_OLLAMA_HOST falling back to the strategist's.
+    Model selection follows the strategist/manager convention: RESEARCH_THESIS_PROVIDER /
+    RESEARCH_THESIS_MODEL / RESEARCH_THESIS_OLLAMA_HOST, each falling back to the strategist's.
     """
     prompt_version = PROMPT_VERSION
     system_prompt = SYSTEM_PROMPT
@@ -35,7 +35,7 @@ class ResearchThesisWriter(ResearchPlanner):
                          host=host or thesis_host(), provider=provider,
                          policy=policy or ResearchModelPolicy.from_env(THESIS_PREFIX))
         planner_model = (configured_provider(), configured_model(configured_provider()))
-        if (self.provider == 'vertex' and (self.provider, self.model) != planner_model
+        if (self.policy.billed(self.provider) and (self.provider, self.model) != planner_model
                 and policy is None and not thesis_rates_configured()):
             # Planner rates price a different model; reserving with them could under-count spend.
             raise ValueError('Set RESEARCH_THESIS_INPUT/OUTPUT_USD_PER_MILLION for a thesis model '

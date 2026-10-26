@@ -12,6 +12,7 @@ import time
 from typing import Any
 from services.gemini_models import default_vertex_model, temperature_for, thinking_level_for, uses_thinking_levels
 from services.settings import get_settings
+from market_db_modules.llm_usage_store import record_llm_call_usage
 
 try:
     from google import genai
@@ -372,6 +373,20 @@ def _extract_status_code(exc: Exception) -> int | None:
     return None
 
 
+def provider_status_code(exc: BaseException) -> int | None:
+    """The HTTP status behind an ask_llm_model error, whose message wraps the provider's exception."""
+    for error in (exc, exc.__cause__):
+        if error is None:
+            continue
+        status = _extract_status_code(error)
+        # google-genai errors carry the status as ``code``.
+        code = getattr(error, "code", None)
+        status = status if status is not None else code if type(code) is int else None
+        if status is not None:
+            return status
+    return None
+
+
 def _is_vertex_rate_limited(exc: Exception) -> bool:
     status_code = _extract_status_code(exc)
     if status_code == 429:
@@ -539,6 +554,10 @@ def _ask_vertex_model(
     response_schema: dict[str, Any] | None,
     response_diagnostic: dict[str, Any] | None,
     thinking_level: str | None = None,
+    thinking_budget: int | None = None,
+    max_output_tokens: int | None = None,
+    timeout: float | None = None,
+    retry: bool = True,
 ) -> str:
     # Call the Vertex model with the shared request settings and translate provider errors into a stable message shape.
     if genai_types is None:
@@ -552,28 +571,40 @@ def _ask_vertex_model(
     config_kwargs: dict[str, Any] = {
         "temperature": temperature_for(resolved_model, temperature, vertex_settings.gemini3_temperature),
     }
-    # Gemini 2.5 keeps its default thinking budget; it does not accept a thinking level.
+    # Gemini 2.5 keeps its default thinking budget unless one is passed; it does not accept a thinking level.
     level = thinking_level_for(resolved_model, thinking_level or vertex_settings.thinking_level)
     if level and uses_thinking_levels(resolved_model):
         config_kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_level=level.upper())
+    elif thinking_budget is not None and not uses_thinking_levels(resolved_model):
+        config_kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=thinking_budget)
+    if max_output_tokens is not None:
+        config_kwargs["max_output_tokens"] = max_output_tokens
     if response_schema is not None:
         config_kwargs["response_mime_type"] = "application/json"
         # The Gemini API's response_schema rejects additionalProperties, which the stage schemas use;
         # its JSON Schema field accepts them. Vertex keeps the field production was validated with.
         schema_field = "response_json_schema" if client.provider == "gemini" else "response_schema"
         config_kwargs[schema_field] = response_schema
+    if timeout is not None or not retry:
+        # Per request, so the shared client's own settings stay as they are for every other stage.
+        config_kwargs["http_options"] = genai_types.HttpOptions(
+            timeout=max(1, int(timeout * 1000)) if timeout is not None else None,
+            retry_options=None if retry else genai_types.HttpRetryOptions(attempts=1),
+        )
 
     # A cached system instruction is baked into the cache, so it must not also be sent
-    # inline -- the provider rejects requests that set both.
-    cache_name = _cached_system_prompt_name(client, resolved_model, system_prompt)
+    # inline -- the provider rejects requests that set both. Creating a cache is a request of its own,
+    # so a single-attempt call never does.
+    cache_name = _cached_system_prompt_name(client, resolved_model, system_prompt) if retry else None
     if cache_name is not None:
         config_kwargs["cached_content"] = cache_name
     else:
         config_kwargs["system_instruction"] = system_prompt
 
     retry_delay_seconds = get_settings().vertex.retry_initial_delay_seconds
+    max_attempts = get_settings().vertex.max_attempts if retry else 1
 
-    for attempt in range(1, get_settings().vertex.max_attempts + 1):
+    for attempt in range(1, max_attempts + 1):
         try:
             response = client.raw_client.models.generate_content(
                 model=resolved_model,
@@ -601,7 +632,7 @@ def _ask_vertex_model(
                 config_kwargs["system_instruction"] = system_prompt
                 continue
 
-            if _is_retryable(exc) and attempt < get_settings().vertex.max_attempts:
+            if _is_retryable(exc) and attempt < max_attempts:
                 LOGGER.warning(
                     "%s %s for model '%s' (attempt %s/%s). "
                     "Sleeping %.1fs before retry.",
@@ -609,7 +640,7 @@ def _ask_vertex_model(
                     "is overloaded" if _is_overloaded(exc) else "rate limit hit",
                     resolved_model,
                     attempt,
-                    get_settings().vertex.max_attempts,
+                    max_attempts,
                     retry_delay_seconds,
                 )
                 time.sleep(retry_delay_seconds)
@@ -631,6 +662,59 @@ def _ask_vertex_model(
     return content
 
 
+def _strict_compatible(schema: Any) -> bool:
+    # OpenAI strict mode needs every object closed and every property required; it rejects other schemas.
+    if isinstance(schema, list):
+        return all(_strict_compatible(item) for item in schema)
+    if not isinstance(schema, dict):
+        return True
+    properties = schema.get("properties")
+    if isinstance(properties, dict) and (schema.get("additionalProperties") is not False
+                                         or set(schema.get("required", ())) != set(properties)):
+        return False
+    return all(_strict_compatible(value) for value in schema.values())
+
+
+def _record_usage(
+    response_diagnostic: dict[str, Any] | None,
+    provider: str,
+    *,
+    model_version: Any = None,
+    finish_reason: Any = None,
+    prompt: Any = None,
+    output: Any = None,
+    thoughts: Any = None,
+    total: Any = None,
+) -> None:
+    """Record token counts under the Vertex usage names, so callers read one shape for every provider.
+
+    ``output`` includes ``thoughts`` (the OpenAI convention); candidates are what remains.
+    """
+    if response_diagnostic is None:
+        return
+    response_diagnostic.update({"provider": provider, "finish_reason": _safe_response_value(finish_reason)})
+    if isinstance(model_version, str) and model_version:
+        response_diagnostic["model_version"] = model_version
+    thoughts = thoughts if isinstance(thoughts, int) else 0
+    counts = {
+        "prompt_token_count": prompt,
+        "candidates_token_count": output - thoughts if isinstance(output, int) else None,
+        "thoughts_token_count": thoughts if isinstance(output, int) else None,
+        "total_token_count": total,
+    }
+    response_diagnostic.update({key: value for key, value in counts.items() if isinstance(value, int)})
+
+
+def _request_client(client: Client, timeout: float | None, retry: bool) -> Any:
+    # The OpenAI SDK retries by default; with_options copies the client for this request only.
+    if timeout is None and retry:
+        return client.raw_client
+    options: dict[str, Any] = {} if retry else {"max_retries": 0}
+    if timeout is not None:
+        options["timeout"] = timeout
+    return client.raw_client.with_options(**options)
+
+
 def _ask_openai_model(
     client: Client,
     model: str,
@@ -640,6 +724,9 @@ def _ask_openai_model(
     temperature: float,
     response_schema: dict[str, Any] | None,
     response_diagnostic: dict[str, Any] | None,
+    max_output_tokens: int | None = None,
+    timeout: float | None = None,
+    retry: bool = True,
 ) -> str:
     resolved_model = _resolve_model_name(client.provider, model)
     request_kwargs: dict[str, Any] = {
@@ -653,23 +740,64 @@ def _ask_openai_model(
             "format": {
                 "type": "json_schema",
                 "name": "structured_response",
-                "strict": True,
+                "strict": _strict_compatible(response_schema),
                 "schema": response_schema,
             }
         }
+    if max_output_tokens is not None:
+        request_kwargs["max_output_tokens"] = max_output_tokens
 
     try:
-        response = client.raw_client.responses.create(**request_kwargs)
+        response = _request_client(client, timeout, retry).responses.create(**request_kwargs)
     except Exception as exc:
         raise RuntimeError(
             f"Could not complete the OpenAI request for model '{resolved_model}'. {exc}"
         ) from exc
 
+    usage = getattr(response, "usage", None)
+    incomplete = getattr(getattr(response, "incomplete_details", None), "reason", None)
+    _record_usage(response_diagnostic, client.provider, model_version=getattr(response, "model", None),
+                  finish_reason=incomplete or getattr(response, "status", None),
+                  prompt=getattr(usage, "input_tokens", None), output=getattr(usage, "output_tokens", None),
+                  thoughts=getattr(getattr(usage, "output_tokens_details", None), "reasoning_tokens", None),
+                  total=getattr(usage, "total_tokens", None))
     content = getattr(response, "output_text", None)
     if not isinstance(content, str) or not content.strip():
         raise RuntimeError(f"Model returned empty content: {response}")
 
     return content
+
+
+def _openrouter_options(hosted: Any) -> dict[str, Any]:
+    # usage.include makes OpenRouter report the call's cost alongside its tokens.
+    options: dict[str, Any] = {"usage": {"include": True}}
+    if hosted.reasoning_effort:
+        options["reasoning"] = {"effort": hosted.reasoning_effort}
+    if hosted.provider_order:
+        # Fallbacks keep a call alive when the preferred providers are down; the usage row names who answered.
+        options["provider"] = {"order": list(hosted.provider_order), "allow_fallbacks": True}
+    return options
+
+
+def _store_call_usage(model: str, response: Any, usage: Any) -> None:
+    """Record which upstream provider answered a hosted call and what it cost; never fails the call."""
+    record = {
+        "model": model,
+        "served_model": getattr(response, "model", None),
+        "upstream_provider": getattr(response, "provider", None),
+        "generation_id": getattr(response, "id", None),
+        "prompt_tokens": getattr(usage, "prompt_tokens", None),
+        "completion_tokens": getattr(usage, "completion_tokens", None),
+        "reasoning_tokens": getattr(getattr(usage, "completion_tokens_details", None), "reasoning_tokens", None),
+        "cached_tokens": getattr(getattr(usage, "prompt_tokens_details", None), "cached_tokens", None),
+        "cost_usd": getattr(usage, "cost", None),
+    }
+    LOGGER.info("%s answered %s: %s in, %s out (%s reasoning), cost $%s", record["upstream_provider"], model,
+                record["prompt_tokens"], record["completion_tokens"], record["reasoning_tokens"], record["cost_usd"])
+    try:
+        record_llm_call_usage(record)
+    except Exception:
+        LOGGER.warning("Could not record usage for model '%s'.", model, exc_info=True)
 
 
 def _ask_chat_completions_model(
@@ -681,6 +809,9 @@ def _ask_chat_completions_model(
     temperature: float,
     response_schema: dict[str, Any] | None,
     response_diagnostic: dict[str, Any] | None = None,
+    max_output_tokens: int | None = None,
+    timeout: float | None = None,
+    retry: bool = True,
 ) -> str:
     # llama-server and hosted OpenAI-compatible APIs share Chat Completions; llama-server compiles
     # a JSON schema into a grammar.
@@ -702,12 +833,14 @@ def _ask_chat_completions_model(
         if hosted.temperature is not None:
             request_kwargs["temperature"] = hosted.temperature
         request_kwargs["max_tokens"] = hosted.max_tokens
-        if hosted.reasoning_effort:
-            request_kwargs["extra_body"] = {"reasoning": {"effort": hosted.reasoning_effort}}
+        if hosted.is_openrouter:
+            request_kwargs["extra_body"] = _openrouter_options(hosted)
+    if max_output_tokens is not None:
+        request_kwargs["max_tokens"] = max_output_tokens
 
     is_llamacpp = client.provider == "llamacpp"
     try:
-        response = client.raw_client.chat.completions.create(**request_kwargs)
+        response = _request_client(client, timeout, retry).chat.completions.create(**request_kwargs)
     except Exception as exc:
         if _extract_status_code(exc) == 429:
             raise ModelQuotaExhausted(f"{client.label} rate or quota limit hit for model '{model}'. {exc}") from exc
@@ -717,11 +850,16 @@ def _ask_chat_completions_model(
             ) from exc
         raise RuntimeError(f"Could not complete the request to {client.label} for model '{model}'. {exc}") from exc
 
-    reported_model = getattr(response, "model", None)
-    if response_diagnostic is not None and isinstance(reported_model, str) and reported_model:
-        response_diagnostic.update({"provider": client.provider, "model_version": reported_model})
-
     choice = response.choices[0] if response.choices else None
+    usage = getattr(response, "usage", None)
+    _record_usage(response_diagnostic, client.provider, model_version=getattr(response, "model", None),
+                  finish_reason=getattr(choice, "finish_reason", None),
+                  prompt=getattr(usage, "prompt_tokens", None), output=getattr(usage, "completion_tokens", None),
+                  thoughts=getattr(getattr(usage, "completion_tokens_details", None), "reasoning_tokens", None),
+                  total=getattr(usage, "total_tokens", None))
+    if client.provider == "openai_compatible" and usage is not None:
+        _store_call_usage(model, response, usage)
+
     content = choice.message.content if choice is not None else None
     # Before the empty check: reasoning can use the whole budget and leave no content.
     if choice is not None and choice.finish_reason == "length":
@@ -746,9 +884,18 @@ def ask_llm_model(
     response_schema: dict[str, Any] | None = None,
     response_diagnostic: dict[str, Any] | None = None,
     thinking_level: str | None = None,
+    thinking_budget: int | None = None,
+    max_output_tokens: int | None = None,
+    timeout: float | None = None,
+    retry: bool = True,
 ) -> str:
     # Route model calls through the supported provider path and normalize the response and error handling for callers.
     # thinking_level applies to Gemini 3+ on Vertex and the Gemini API only; blank uses VERTEX_THINKING_LEVEL.
+    # thinking_budget applies only to Gemini models without thinking levels (2.5).
+    # The last four default to each provider's usual behaviour. retry=False sends exactly one request
+    # (no shared or SDK retries, no context-cache creation) for callers that own their retries and spend;
+    # timeout bounds that request in seconds. response_diagnostic receives token usage for every provider.
+    request_controls: dict[str, Any] = {"max_output_tokens": max_output_tokens, "timeout": timeout, "retry": retry}
     if client.provider in GOOGLE_GENAI_PROVIDERS:
         return _ask_vertex_model(
             client,
@@ -759,6 +906,8 @@ def ask_llm_model(
             response_schema=response_schema,
             response_diagnostic=response_diagnostic,
             thinking_level=thinking_level,
+            thinking_budget=thinking_budget,
+            **request_controls,
         )
 
     if client.provider == "openai":
@@ -770,6 +919,7 @@ def ask_llm_model(
             temperature=temperature,
             response_schema=response_schema,
             response_diagnostic=response_diagnostic,
+            **request_controls,
         )
 
     if client.provider in {"llamacpp", "openai_compatible"}:
@@ -781,6 +931,7 @@ def ask_llm_model(
             temperature=temperature,
             response_schema=response_schema,
             response_diagnostic=response_diagnostic,
+            **request_controls,
         )
 
     if client.provider != "ollama":
@@ -800,9 +951,13 @@ def ask_llm_model(
     #if there is a response schema for the llm, use it
     if response_schema is not None:
         chat_kwargs["format"] = response_schema
+    if max_output_tokens is not None:
+        chat_kwargs["options"]["num_predict"] = max_output_tokens
 
+    # The Ollama client only takes a timeout when it is built, so a timed call gets its own.
+    ollama = OllamaClient(host=client.host, timeout=timeout) if timeout is not None else client.raw_client
     try:
-        response = client.raw_client.chat(**chat_kwargs)
+        response = ollama.chat(**chat_kwargs)
     except Exception as exc:
         location = host_label or client.label or "the configured Ollama host"
         raise RuntimeError(
@@ -810,6 +965,12 @@ def ask_llm_model(
             f"Verify Ollama is running at {location} and that model '{model}' is installed."
         ) from exc
 
+    def field(name: str) -> Any:
+        return response.get(name) if hasattr(response, "get") else getattr(response, name, None)
+
+    # Ollama counts thinking inside eval_count.
+    _record_usage(response_diagnostic, client.provider, model_version=field("model"),
+                  finish_reason=field("done_reason"), prompt=field("prompt_eval_count"), output=field("eval_count"))
     message = response.get("message", {}) if hasattr(response, "get") else getattr(response, "message", None)
     if isinstance(message, dict):
         content = message.get("content")

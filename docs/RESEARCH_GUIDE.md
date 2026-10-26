@@ -46,7 +46,7 @@ database took about 3 s.
 | --- | --- | --- | --- |
 | `COMPANY_EVIDENCE_ENABLED` | `false` | `SEC_USER_AGENT` with an `@` contact | none |
 | `DISCOVERY_MODE` | `disabled` | Phase 1 for primary evidence; otherwise news only | none |
-| `RESEARCH_MODE` | `disabled` | `DISCOVERY_MODE=shadow`, a planner model and, on Vertex, a cost budget and rates | planner calls |
+| `RESEARCH_MODE` | `disabled` | `DISCOVERY_MODE=shadow`, a planner model and, on a billed provider, a cost budget and rates | planner calls |
 | `EVIDENCE_THESIS_MODE` | `shadow` | Nothing on the production route; the research route needs `RESEARCH_MODE=shadow` | inside the strategist call; research theses add calls |
 | `TRADE_ECONOMICS_MODE` | `shadow` | Price-response history from the collector for scenarios | none |
 | `EVENT_THESIS_REVIEW_MODE` | `shadow` | `DISCOVERY_MODE=shadow` (it creates the review items) | 3 adjudicator calls a review |
@@ -93,7 +93,8 @@ Enable in this order. Each step feeds the next, and each can run for a while on 
    ```dotenv
    RESEARCH_MODE=shadow
    RESEARCH_PLANNER_MODEL=<model>
-   # On Vertex also set RESEARCH_DAILY_COST_BUDGET and the per-million-token rates.
+   # On Vertex or openai (or a paid openai_compatible/gemini plan) also set RESEARCH_DAILY_COST_BUDGET
+   # and the per-million-token rates.
    ```
 
    It runs inside the worker's trading cycle (see Known issues).
