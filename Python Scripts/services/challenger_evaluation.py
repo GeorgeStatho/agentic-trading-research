@@ -12,6 +12,7 @@ import logging
 import time
 
 from db_common import get_connection
+from market_db_modules.candidate_lifecycle import stage_payloads
 from market_db_modules.forward_evaluation import (
     FINAL_EVALUATIONS, cohort_registrations, create_paired_candidate, paired_candidate_id, paired_evaluation,
     pending_paired_observations, reserve_challenger_calls, update_paired_evaluation,
@@ -63,19 +64,6 @@ class ImplementationIdentity:
         if any(manifest.get(key) != current[key] for key in ('strategist_prompt_version', 'manager_prompt_version')):
             return 'prompt_changed'
         return None
-
-
-def stage_payloads(candidate_id, stages, *, db_path=None):
-    with closing(get_connection(db_path)) as conn:
-        rows = conn.execute(f'''SELECT stage, snapshot_hash, snapshot_json FROM candidate_snapshots
-            WHERE candidate_id=? AND stage IN ({",".join("?" for _ in stages)})''', (candidate_id, *stages)).fetchall()
-    payloads = {}
-    for row in rows:
-        envelope = json.loads(row['snapshot_json'])
-        if digest(envelope) != row['snapshot_hash']:
-            raise ValueError('Candidate snapshot hash mismatch')
-        payloads[row['stage']] = envelope['payload']
-    return payloads
 
 
 def incumbent_outputs(candidate_id, source, *, db_path=None):

@@ -1,8 +1,8 @@
 """Adapt immutable T2 snapshots; never request new model output during replay."""
-from hashlib import sha256
 import json
 from statistics import mean
 
+from market_db_modules.foundation_store import verified_envelope
 from services.research_contract import assert_information_cutoff, direction, number, utc
 from services.entry_gates import ENTRY_GATES
 from agent_helpers.deterministic_option_selector import _pick_matching_contract
@@ -36,9 +36,7 @@ def load_inputs(conn, candidate, as_of):
                             (candidate['candidate_id'],)):
         if utc(row['captured_at']) > utc(as_of):
             continue
-        if sha256(row['snapshot_json'].encode()).hexdigest() != row['snapshot_hash']:
-            raise ValueError('Candidate snapshot hash mismatch')
-        envelope = json.loads(row['snapshot_json'])
+        envelope = verified_envelope(row)
         if (row['pipeline_version'] != json.loads(candidate['pipeline_version_json'])['pipeline_version']
                 or envelope.get('information_cutoff_time') != row['information_cutoff_time']):
             raise ValueError('Snapshot manifest or cutoff does not match its envelope')

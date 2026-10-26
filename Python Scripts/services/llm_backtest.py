@@ -38,11 +38,11 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Iterator
 
 from market_db_modules.backtest_marketdata import fetch_marketdata_eod_quotes_for_contracts
+from market_db_modules.foundation_store import SnapshotHashMismatch
 from market_db_modules.llm_replay_store import (
+    FrozenDecision,
+    frozen_manager_input,
     get_cached_llm_replay,
-    get_candidate_manifest,
-    get_frozen_strategist_input,
-    get_saved_bucket_chain,
     list_frozen_manager_decisions,
     store_cached_llm_replay,
     symbols_without_daily_bars,
@@ -94,12 +94,6 @@ Decider = Callable[[dict[str, Any]], dict[str, Any]]
 
 class ModelUnavailable(RuntimeError):
     pass
-
-
-def frozen_payload(decision: dict[str, Any]) -> dict[str, Any] | None:
-    manager_input = json.loads(decision.get("manager_input_json") or "{}")
-    payload = manager_input.get("replay_input")
-    return payload if isinstance(payload, dict) and isinstance(payload.get("company"), dict) else None
 
 
 def stored_recommendation(decision: dict[str, Any]) -> dict[str, Any]:
@@ -204,8 +198,7 @@ class ProductionRules:
         return self.selector_config is not None
 
     @classmethod
-    def for_candidate(cls, candidate_id: str | None, *, local: FrontMainSettings, db_path: Any = None) -> "ProductionRules":
-        manifest = get_candidate_manifest(candidate_id, db_path=db_path)
+    def for_manifest(cls, manifest: dict[str, Any] | None, *, local: FrontMainSettings) -> "ProductionRules":
         if manifest is None:
             return cls(local)
         runtime = manifest.get("runtime_settings") or {}
@@ -241,7 +234,7 @@ def frozen_buying_power(payload: dict[str, Any]) -> float:
 
 
 def selection_market_context(payload: dict[str, Any], recommendation: dict[str, Any],
-                             candidate_id: str | None, *, db_path: Any = None) -> dict[str, Any] | None:
+                             frozen: FrozenDecision) -> dict[str, Any] | None:
     """The market context production would have selected from; None when that chain was never saved.
 
     Like production, a non-directional answer or a bucket of `none` keeps the pre-decision chain.
@@ -250,10 +243,10 @@ def selection_market_context(payload: dict[str, Any], recommendation: dict[str, 
     bucket = normalize_target_dte_bucket(recommendation.get("target_dte_bucket")) or "none"
     if recommendation.get("decision") not in DIRECTIONAL or bucket == "none":
         return market
-    saved = get_saved_bucket_chain(candidate_id, db_path=db_path)
-    if saved is None or normalize_target_dte_bucket(saved["target_dte_bucket"]) != bucket:
+    option_market = frozen.bucket_chain(bucket)
+    if option_market is None:
         return None
-    market["option_market"] = copy.deepcopy(saved["option_market"])
+    market["option_market"] = copy.deepcopy(option_market)
     return market
 
 
@@ -313,11 +306,12 @@ class ReplayTally:
         self.outcomes[outcome] = self.outcomes.get(outcome, 0) + 1
 
 
-def evaluate_answer(decision: dict[str, Any], payload: dict[str, Any], recommendation: dict[str, Any],
-                    rules: ProductionRules, tally: ReplayTally, *, thesis_policy: EvidenceThesisPolicy,
-                    db_path: Any) -> tuple[str, dict[str, Any] | None]:
+def evaluate_answer(frozen: FrozenDecision, payload: dict[str, Any], recommendation: dict[str, Any],
+                    rules: ProductionRules, tally: ReplayTally, *,
+                    thesis_policy: EvidenceThesisPolicy) -> tuple[str, dict[str, Any] | None]:
     """One answer through production's selection and eligibility; returns the outcome and any trade."""
-    market = selection_market_context(payload, recommendation, decision.get("candidate_id"), db_path=db_path)
+    decision = frozen.decision
+    market = selection_market_context(payload, recommendation, frozen)
     if market is None:
         return "bucket_chain_unavailable", None
     differences = rules.selector_differences(selector_constants())
@@ -429,11 +423,15 @@ def space_decisions_per_symbol(decisions: list[dict[str, Any]], *, min_hours: fl
 
 @dataclass(frozen=True)
 class ReplayedAnswer:
-    """A decision, the input its manager answered and that answer; or the outcome explaining why there is none."""
+    """A decision, the input its manager answered and that answer; or the outcome explaining why there is none.
+
+    `frozen` is None only when the decision's frozen snapshots failed their hash check.
+    """
     decision: dict[str, Any]
     payload: dict[str, Any] | None
     recommendation: dict[str, Any] | None = None
     unavailable: str | None = None
+    frozen: FrozenDecision | None = None
 
 
 @dataclass
@@ -472,7 +470,7 @@ class ReplayRun:
         ) if replay_strategist else None
         window = list_frozen_manager_decisions(start_at=start_at, end_at=end_at, limit=limit, db_path=db_path)
         # Older decisions predate frozen inputs; dropped before spacing so they never take a replayable one's slot.
-        replayable = [decision for decision in window if frozen_payload(decision) is not None]
+        replayable = [decision for decision in window if frozen_manager_input(decision) is not None]
         decisions = space_decisions_per_symbol(replayable, min_hours=min_hours_between) if min_hours_between > 0 else replayable
         return cls(model, window, replayable, decisions, min_hours_between, thesis_policy, replay, strategist, db_path)
 
@@ -485,15 +483,20 @@ class ReplayRun:
         consecutive_failures = 0
         progress = ProgressEstimate(total=len(self.decisions))
         for index, decision in enumerate(self.decisions, start=1):
-            payload = frozen_payload(decision)
-            strategist_input = (get_frozen_strategist_input(decision.get("candidate_id"), db_path=self.db_path)
-                                if self.strategist is not None else None)
-            if self.strategist is not None and strategist_input is None:
-                yield ReplayedAnswer(decision, payload, unavailable="missing_strategist_input")
+            try:
+                frozen = FrozenDecision.load(decision, db_path=self.db_path)
+            except SnapshotHashMismatch:
+                LOGGER.warning("Frozen snapshot hash mismatch for decision %s", decision["id"])
+                frozen = None
+            payload = frozen_manager_input(decision)
+            if frozen is None:
+                yield ReplayedAnswer(decision, payload, unavailable="snapshot_hash_mismatch")
+            elif self.strategist is not None and frozen.strategist_input is None:
+                yield ReplayedAnswer(decision, payload, unavailable="missing_strategist_input", frozen=frozen)
             else:
                 try:
                     asked_at = time.monotonic()
-                    payload, recommendation, cached = self._answer(decision, payload, strategist_input, tally)
+                    payload, recommendation, cached = self._answer(decision, payload, frozen.strategist_input, tally)
                     if not cached:
                         progress.record_model_call(time.monotonic() - asked_at)
                     consecutive_failures = 0
@@ -504,10 +507,10 @@ class ReplayRun:
                         raise ModelUnavailable(f"{consecutive_failures} replays failed in a row; last error: {exc}") from exc
                     recommendation = None
                 if recommendation is None:
-                    yield ReplayedAnswer(decision, payload, unavailable="model_error")
+                    yield ReplayedAnswer(decision, payload, unavailable="model_error", frozen=frozen)
                 else:
                     tally.changed_direction += recommendation.get("decision") != str(decision.get("manager_decision") or "").lower()
-                    yield ReplayedAnswer(decision, payload, recommendation)
+                    yield ReplayedAnswer(decision, payload, recommendation, frozen=frozen)
             if index % PROGRESS_EVERY == 0:
                 LOGGER.info(progress.report(index, now=datetime.now().astimezone()))
 
@@ -594,8 +597,7 @@ def run_llm_backtest(
     tally = ReplayTally()
     traded: list[dict[str, Any]] = []
     for index, answer in enumerate(run.answers(tally), start=1):
-        decision = answer.decision
-        rules = ProductionRules.for_candidate(decision.get("candidate_id"), local=local_settings, db_path=db_path)
+        rules = ProductionRules.for_manifest(answer.frozen.manifest if answer.frozen else None, local=local_settings)
         if execute_medium_confidence:
             rules = rules.executing_medium_confidence()
         if rules.recorded:
@@ -603,8 +605,8 @@ def run_llm_backtest(
             latest_rules = rules
         outcome = answer.unavailable
         if outcome is None:
-            outcome, trade = evaluate_answer(decision, answer.payload, answer.recommendation, rules, tally,
-                                             thesis_policy=run.thesis_policy, db_path=db_path)
+            outcome, trade = evaluate_answer(answer.frozen, answer.payload, answer.recommendation, rules, tally,
+                                             thesis_policy=run.thesis_policy)
             if trade is not None:
                 traded.append(trade)
         tally.count(outcome)
@@ -617,7 +619,7 @@ def run_llm_backtest(
     quotes = (fetch_quotes_for_trades(traded, max_hold_hours=max_hold_hours, db_path=db_path)
               if fetch_option_quotes and traded else None)
     limits = latest_rules.portfolio_limits([power for trade in traded
-                                            if (power := frozen_buying_power(frozen_payload(trade) or {})) > 0])
+                                            if (power := frozen_buying_power(frozen_manager_input(trade) or {})) > 0])
     config = {
         **limits,
         **(execution_config or {}),

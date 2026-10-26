@@ -412,7 +412,8 @@ That split explains why the repo feels mixed: it contains both the older trading
   prompt and source manifests, hashed for historical identification.
 - `Python Scripts/services/candidate_lifecycle.py` and
   `Data/market_db_modules/candidate_lifecycle.py`: candidate IDs, immutable
-  checkpoints, canonical rejection storage, cohort funnels and hash-checked reads.
+  checkpoints, canonical rejection storage, cohort funnels and hash-checked reads
+  (`stage_payloads`; every snapshot reader checks rows with `foundation_store.verified_envelope`).
 - `Python Scripts/services/execution_telemetry.py` and
   `Data/market_db_modules/execution_telemetry.py`: quote capture, broker-fill
   reconciliation, coverage, fill rates and slippage reports.
@@ -566,7 +567,9 @@ See [Research Phase 7](RESEARCH_PHASE7.md).
 
 LLM replay backtests (`scripts/project.py llm-backtest`, `agentCallers/llm_backtest.py`) re-ask a manager model, such as a
 local llama.cpp model, on every stored decision's frozen input, then run production's continuation, selection, regime and
-thesis steps as of the decision time (`services/llm_backtest.py`). Directional answers select from the DTE-bucket chain that
+thesis steps as of the decision time (`services/llm_backtest.py`). Every frozen input a replay needs is read through
+`FrozenDecision` (`Data/market_db_modules/llm_replay_store.py`); a decision whose snapshots fail their hash check is
+reported as `snapshot_hash_mismatch` and the run continues. Directional answers select from the DTE-bucket chain that
 production saved in `candidate_snapshots`; answers in another bucket, and decisions before those snapshots, are reported as
 `bucket_chain_unavailable`. Trades are recorded as ordinary backtest runs (`run_decision_backtest`): stored quotes where they
 exist, otherwise Black-Scholes marks on daily closes. Answers are cached in `llm_replay_cache`; `--model stored` replays
@@ -575,7 +578,7 @@ from each candidate's recorded pipeline manifest; directional answers whose reco
 the local ones are reported as `selector_config_mismatch`. `--fetch-missing-bars` downloads daily history for
 traded symbols that have none. `--min-hours-between N` replays a company's decision only when it is N hours
 after the last one replayed for it, chosen by time alone; compare it with a `stored` run using the same N. `--replay-strategist` has the model answer
-each decision's frozen strategist input too (`strategist_runs`, by candidate) and hands that answer to
+each decision's frozen strategist input too (the candidate's `pre_strategist` checkpoint) and hands that answer to
 the manager exactly as production does; strategist answers are cached separately. `--score-direction`
 (`services/llm_direction_score.py`) grades the same replayed answers by the stock's return over the next 5 and 10
 trading-day closes instead of trading options, so decisions from before the bucket-chain snapshots (frozen inputs

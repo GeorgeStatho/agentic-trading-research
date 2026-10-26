@@ -19,6 +19,7 @@ from market_db_modules.backtesting import (
     record_historical_underlying_bar,
 )
 from market_db_modules.backtesting import run_decision_backtest
+from market_db_modules.candidate_lifecycle import record_candidate_snapshot
 from services import llm_backtest
 from services.config import FrontMainSettings
 from services.evidence_thesis_policy import EvidenceThesisPolicy
@@ -55,6 +56,18 @@ class DatabaseFixture(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
+
+    def add_candidate(self, candidate_id: str, decision_id: int, **snapshots: dict) -> None:
+        """Link the decision to a candidate that checkpointed `snapshots` (stage -> payload)."""
+        manifest = {"pipeline_version": "fixture"}
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("INSERT INTO candidates (candidate_id, symbol, created_at, catalyst_ids_json, article_ids_json, "
+                         "pipeline_version_json) VALUES (?, 'MSFT', ?, '[]', '[]', ?)",
+                         (candidate_id, DECISION_AT, json.dumps(manifest)))
+            conn.execute("UPDATE manager_decision_history SET candidate_id = ? WHERE id = ?", (candidate_id, decision_id))
+        for stage, payload in snapshots.items():
+            record_candidate_snapshot({"candidate_id": candidate_id, "pipeline_version": manifest}, stage, payload,
+                                      db_path=self.db_path)
 
     def add_closes(self, *closes: tuple[str, float]) -> None:
         for day, close in closes:
@@ -112,13 +125,11 @@ class ProductionRulesTests(unittest.TestCase):
                 "selector_config": {"ALLOW_RISKY_SIMPLE_FALLBACK": False}}
 
     def rules(self, manifest=MANIFEST) -> ProductionRules:
-        with patch.object(llm_backtest, "get_candidate_manifest", return_value=manifest):
-            return ProductionRules.for_candidate("candidate", local=self.LOCAL)
+        return ProductionRules.for_manifest(manifest, local=self.LOCAL)
 
     def test_recorded_settings_replace_local_ones(self) -> None:
         local = replace(self.LOCAL, execute_medium_confidence_trades=True)
-        with patch.object(llm_backtest, "get_candidate_manifest", return_value=self.MANIFEST):
-            rules = ProductionRules.for_candidate("candidate", local=local)
+        rules = ProductionRules.for_manifest(self.MANIFEST, local=local)
         self.assertFalse(rules.settings.execute_medium_confidence_trades)
 
 
@@ -148,6 +159,20 @@ class ReplayFunnelTests(DatabaseFixture):
         with self.assertRaises(ModelUnavailable):
             self.run_with(Mock(side_effect=RuntimeError("connection refused")))
 
+    def test_a_tampered_snapshot_is_reported_and_the_run_continues(self) -> None:
+        with closing(get_connection(self.db_path)) as conn, conn:
+            later_id = conn.execute(
+                "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES ('MSFT', ?, 'call')",
+                ("2026-03-02T16:00:00+00:00",),
+            ).lastrowid
+            conn.execute("INSERT INTO manager_decision_payloads (manager_decision_history_id, manager_input_json) "
+                         "VALUES (?, ?)", (later_id, json.dumps({"replay_input": {"company": {"symbol": "MSFT"}}})))
+        self.add_candidate("candidate-1", self.decision_id, pre_contract_selection={"recommendation": {}})
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("UPDATE candidate_snapshots SET snapshot_hash = 'tampered' WHERE candidate_id = 'candidate-1'")
+        result = self.run_with(Mock(return_value={"recommendation": TRADEABLE["recommendation"]}))
+        self.assertEqual(result["run"]["metrics"]["replay"]["outcomes"], {"snapshot_hash_mismatch": 1, "traded": 1})
+
 
 def decision(symbol: str, at: str) -> dict:
     return {"symbol": symbol, "decision_run_at": at}
@@ -162,13 +187,10 @@ class StrategistReplayTests(DatabaseFixture):
         manager_input = {"replay_input": {"company": {"symbol": "MSFT"},
                                           "strategist_recommendation": {"decision": "trade_candidate"}}}
         with closing(get_connection(self.db_path)) as conn, conn:
-            conn.execute("UPDATE manager_decision_history SET candidate_id = 'candidate-1' WHERE id = ?", (self.decision_id,))
             conn.execute("UPDATE manager_decision_payloads SET manager_input_json = ? WHERE manager_decision_history_id = ?",
                          (json.dumps(manager_input), self.decision_id))
-            conn.execute(
-                "INSERT INTO strategist_runs (candidate_id, company_id, model, prompt_version, input_article_ids_json, "
-                "input_payload_json, status) VALUES ('candidate-1', ?, 'production', 'v', '[]', ?, 'completed')",
-                (company_id, json.dumps({"company": {"symbol": "MSFT", "company_id": company_id}})))
+        self.add_candidate("candidate-1", self.decision_id,
+                           pre_strategist={"company": {"symbol": "MSFT", "company_id": company_id}})
 
     def run_replay(self, **options) -> tuple[dict, Mock, Mock]:
         manager = Mock(return_value={"recommendation": {"decision": "neither"}})

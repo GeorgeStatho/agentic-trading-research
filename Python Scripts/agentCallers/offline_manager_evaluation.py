@@ -20,6 +20,7 @@ from agent_stages.manager import (  # noqa: E402
     MANAGER_PROMPT_VERSION,
     replay_manager_decision_from_payload,
 )
+from market_db_modules.llm_replay_store import frozen_manager_input  # noqa: E402
 from market_db_modules.manager_replay import (  # noqa: E402
     complete_manager_replay_evaluation,
     create_manager_replay_evaluation,
@@ -99,9 +100,8 @@ def build_replay_variants(
     Feedback is strictly limited to resolved same-company autopsies whose P/L
     update had already occurred before this decision's timestamp.
     """
-    manager_input = _json_object(decision.get("manager_input_json"))
-    replay_input = manager_input.get("replay_input")
-    if not isinstance(replay_input, dict) or not isinstance(replay_input.get("company"), dict):
+    replay_input = frozen_manager_input(decision)
+    if replay_input is None:
         return None
 
     baseline_payload = copy.deepcopy(replay_input)

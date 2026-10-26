@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from db_common import get_connection, json_text
 from .bootstrap import initialize_database
+from .foundation_store import verified_envelope
 from .research_observations import bind_candidate_observation
 from .research_observations import read_observation
 from catalyst_schema import stamp_candidate_catalyst
@@ -92,6 +93,14 @@ def record_candidate_snapshot(context, stage, payload, *, cutoff=None, db_path=N
              SNAPSHOT_VERSION, snapshot_hash, serialized))
 
 
+def stage_payloads(candidate_id, stages, *, db_path=None):
+    """The hash-checked payloads this candidate checkpointed at `stages`, keyed by stage."""
+    with closing(get_connection(db_path)) as conn:
+        rows = conn.execute(f'''SELECT stage, snapshot_hash, snapshot_json FROM candidate_snapshots
+            WHERE candidate_id=? AND stage IN ({",".join("?" for _ in stages)})''', (candidate_id, *stages)).fetchall()
+    return {row['stage']: verified_envelope(row)['payload'] for row in rows}
+
+
 def record_candidate_rejection(context, result, *, shadow=False, db_path=None):
     if result.passed:
         return
@@ -116,9 +125,8 @@ def load_candidate_lifecycle(candidate_id, *, db_path=None):
         snapshots = [dict(row) for row in conn.execute(
             'SELECT * FROM candidate_snapshots WHERE candidate_id=? ORDER BY id', (candidate_id,))]
         for snapshot in snapshots:
-            if sha256(snapshot['snapshot_json'].encode()).hexdigest() != snapshot['snapshot_hash']:
-                raise ValueError('Candidate snapshot hash mismatch')
-            snapshot['snapshot'] = json.loads(snapshot.pop('snapshot_json'))
+            snapshot['snapshot'] = verified_envelope(snapshot)
+            del snapshot['snapshot_json']
         return {'candidate_id': candidate_id, 'catalysts': [dict(row) for row in conn.execute(
             'SELECT * FROM candidate_catalysts WHERE candidate_id=? ORDER BY is_primary DESC, catalyst_id', (candidate_id,))], 'snapshots': snapshots, 'rejections': [dict(row) for row in conn.execute(
             'SELECT * FROM candidate_rejections WHERE candidate_id=? ORDER BY id', (candidate_id,))],
