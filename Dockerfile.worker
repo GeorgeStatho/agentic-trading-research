@@ -32,6 +32,10 @@ RUN python -m pip install --upgrade pip setuptools wheel \
 
 RUN playwright install --with-deps chromium
 
+# The build's test step runs in parallel when pytest-xdist is present (pins match the dev extra in
+# pyproject.toml). Installed before COPY so code changes reuse this cached layer.
+RUN pip install "pytest>=8" "pytest-xdist>=3"
+
 COPY . .
 
 # PYTHONDONTWRITEBYTECODE stops Python writing .pyc files but it still reads them, so

@@ -7,16 +7,28 @@ from db_common import get_connection
 from research_foundation_contracts import OBSERVATION_PROTOCOL
 from services.research_contract import utc
 from services.research_promotion import PAIRED_PREFIX, source_hash
+from services.research_versions import require_current_evaluator
 from .bootstrap import initialize_database
 from .foundation_store import canonical, digest
 from .research_observations import bind_candidate_observation
-from .research_runs import insert_run
+from .research_runs import insert_run, read_run
 
 FINAL_EVALUATIONS = ('evaluated', 'abstained', 'unavailable')
 
 
 def iso(value):
     return utc(value).isoformat()
+
+
+def _evaluator_current(conn, run_id):
+    """False once a deploy changes the evaluator: collection refuses that run, so it can never mature."""
+    try:
+        run = read_run(conn, run_id)
+        # Only runs without a frozen evaluator fall back to the whole-source hash, which is costly to compute.
+        require_current_evaluator(run, None if run.get('evaluation_version') else source_hash())
+    except ValueError:
+        return False
+    return True
 
 
 def _active_cohort(conn, roles, *, base_pipeline_version, challenger_id, policy_hash, at):
@@ -29,7 +41,7 @@ def _active_cohort(conn, roles, *, base_pipeline_version, challenger_id, policy_
     for row in rows:
         cohorts.setdefault(row['cohort_id'], {})[row['role']] = dict(row)
     for cohort_id, members in cohorts.items():
-        if set(members) == set(roles):
+        if set(members) == set(roles) and all(_evaluator_current(conn, m['run_id']) for m in members.values()):
             first = next(iter(members.values()))
             return {'cohort_id': cohort_id, 'window_start': first['window_start'], 'window_end': first['window_end'],
                     'runs': {role: member['run_id'] for role, member in members.items()}}

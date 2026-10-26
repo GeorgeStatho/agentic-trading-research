@@ -89,7 +89,9 @@ class FrontMainPaths:
                     str(ROOT_DIR / "shared" / "agent_runner_output.json"),
                 )
             ),
-            selected_options_output_path=DATA_DIR / "selected_options_output.json",
+            selected_options_output_path=Path(
+                os.getenv("SELECTED_OPTIONS_OUTPUT_PATH", str(DATA_DIR / "selected_options_output.json"))
+            ),
             combined_output_path=DATA_DIR / "front_main_output.json",
         )
 
@@ -374,7 +376,9 @@ class ApiPaths:
                     str(ROOT_DIR / "shared" / "agent_runner_output.json"),
                 )
             ),
-            selected_options_output_path=DATA_DIR / "selected_options_output.json",
+            selected_options_output_path=Path(
+                os.getenv("SELECTED_OPTIONS_OUTPUT_PATH", str(DATA_DIR / "selected_options_output.json"))
+            ),
             option_position_management_output_path=Path(
                 os.getenv(
                     "OPTION_POSITION_MANAGEMENT_OUTPUT_PATH",

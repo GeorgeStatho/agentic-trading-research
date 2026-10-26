@@ -20,5 +20,7 @@ Data/logs/
 stock-backup-*
 *.tgz
 *.db.gz
+# Outputs of local runs. An image that ships one serves it until the container writes its own.
+Data/*_output.json
 # Google Cloud service-account keys must never be copied into an image.
 agentic-stock-research-*.json

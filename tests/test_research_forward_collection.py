@@ -252,6 +252,15 @@ class CohortTests(ForwardTestCase):
         again = ensure_production_cohort(BASE, acceptance=ACCEPTANCE, at=EVALUATED, db_path=self.db)
         self.assertEqual(first['cohort_id'], again['cohort_id'])
 
+    def test_changed_evaluator_opens_a_new_production_cohort(self):
+        first = ensure_production_cohort(BASE, acceptance=ACCEPTANCE, at=CUTOFF, db_path=self.db)
+        with patch('services.research_versions.evaluator_source_hash', return_value='changed-evaluator'):
+            again = ensure_production_cohort(BASE, acceptance=ACCEPTANCE, at=EVALUATED, db_path=self.db)
+            # The replacement must be collectable under the new evaluator, or it would stall the same way.
+            collect_run(again['runs']['production'], as_of=EVALUATED, db_path=self.db)
+        self.assertNotEqual(first['cohort_id'], again['cohort_id'])
+        self.assertTrue(again.get('opened'))
+
     def test_pre_registration_cannot_be_rewritten(self):
         cohort = ensure_comparison_cohort(BASE, CHALLENGER, acceptance=ACCEPTANCE, at=CUTOFF, db_path=self.db)
         with closing(get_connection(self.db)) as conn, self.assertRaises(Exception):
