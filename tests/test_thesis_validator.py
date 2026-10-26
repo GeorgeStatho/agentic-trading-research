@@ -347,7 +347,8 @@ class ThesisValidatorDbTests(unittest.TestCase):
             get_open_position_thesis_for_option_symbol("NVDA260619C00190000", db_path=self.db_path)
         )
 
-        health = summarize_thesis_validator_health(db_path=self.db_path)
+        # The health window counts back from today; widen it so the fixed 2026-08-25 run never ages out.
+        health = summarize_thesis_validator_health(max_age_days=36500, db_path=self.db_path)
         self.assertEqual(health["evaluated_count"], 1)
         self.assertEqual(health["grounding_rate"], 1.0)
         self.assertEqual(health["executed_exit_count"], 1)
