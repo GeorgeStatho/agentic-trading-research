@@ -15,3 +15,10 @@ Data/logs/
 .env
 .env.*
 !.env.example
+
+# Local database backups and snapshots (gigabytes). Runtime data lives in the db_data volume.
+stock-backup-*
+*.tgz
+*.db.gz
+# Google Cloud service-account keys must never be copied into an image.
+agentic-stock-research-*.json
