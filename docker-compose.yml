@@ -10,6 +10,9 @@ x-python-image: &python-image
   build:
     context: .
     dockerfile: Dockerfile.worker
+    # A local single-host image needs no provenance attestation; skipping it saves a
+    # metadata step per service on every build.
+    provenance: false
   image: agentic-trading-python:local
 
 services:

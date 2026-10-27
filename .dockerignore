@@ -1,4 +1,11 @@
 certbot/
+# Not used by the Python image: the dashboard builds from its own context, and the saved
+# pages are reference material. Excluding them keeps the build context small and fast to walk.
+web_dashboard/
+html_pages/
+graft/
+.pytest_cache/
+.superpowers/
 .git/
 __pycache__/
 Data/logs/
