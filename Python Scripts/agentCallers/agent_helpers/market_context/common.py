@@ -8,6 +8,7 @@ from typing import Any
 from services.option_dte_buckets import OPTION_DTE_BUCKETS
 from services.runtime_paths import DATA_DIR
 from services.settings import load_process_settings
+from services.common import safe_float
 
 
 if __name__ == "__main__":
@@ -92,15 +93,6 @@ def _env_flag(name: str, default: bool) -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
-def _safe_float(value: Any) -> float | None:
-    try:
-        if value in (None, ""):
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _serialize_scalar(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
@@ -131,7 +123,7 @@ def _get_field(source: Any, key: str, default: Any = None) -> Any:
 
 def _first_float(source: Any, *keys: str) -> float | None:
     for key in keys:
-        value = _safe_float(_get_field(source, key))
+        value = safe_float(_get_field(source, key))
         if value is not None:
             return value
     return None

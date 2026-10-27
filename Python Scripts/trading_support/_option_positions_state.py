@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from services.order_values import normalize_order_status
-from .utils import safe_float
 from services.option_position_state import get_position_state, update_position_state
 
 from ._option_positions_momentum import _momentum_negative_score
@@ -17,6 +16,7 @@ from ._option_positions_defaults import (
     PENDING_ORDER_OPEN_STATUSES,
     PendingExitConfig,
 )
+from services.common import safe_float
 
 
 def _resolve_option_position_state_path() -> Path:

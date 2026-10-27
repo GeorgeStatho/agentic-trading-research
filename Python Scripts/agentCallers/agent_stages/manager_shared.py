@@ -183,12 +183,3 @@ def normalize_option_id(value: Any) -> int | None:
     except ValueError:
         return None
     return normalized if normalized > 0 else None
-
-
-def coerce_float(value: Any) -> float | None:
-    try:
-        if value in (None, ""):
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None

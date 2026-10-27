@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 import logging
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -174,9 +173,6 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
             ],
         }
         fake_manage_current_option_positions = MagicMock(return_value=management_result)
-        fake_trading_module = SimpleNamespace(
-            ManageCurrentOptionPositions=fake_manage_current_option_positions
-        )
         mock_expire_manager_decision_pnl.return_value = 0
         mock_get_latest_linked_manager_decision.return_value = {"id": 91}
         mock_update_manager_decision_latest_pnl.return_value = True
@@ -199,7 +195,8 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
                 logger=MagicMock(spec=logging.Logger),
             )
 
-            with patch.dict(sys.modules, {"Trading": fake_trading_module}):
+            with patch("trading_support.option_positions.ManageCurrentOptionPositions",
+                       fake_manage_current_option_positions):
                 service.run_cycle(trading_client=object())
 
         mock_json_write.assert_called_once_with(output_path, management_result)
@@ -249,9 +246,6 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
             ],
         }
         fake_manage_current_option_positions = MagicMock(return_value=management_result)
-        fake_trading_module = SimpleNamespace(
-            ManageCurrentOptionPositions=fake_manage_current_option_positions
-        )
         mock_expire_manager_decision_pnl.return_value = 0
         mock_get_latest_linked_manager_decision.return_value = {"id": 44}
         mock_update_manager_decision_latest_pnl.return_value = True
@@ -274,7 +268,8 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
                 logger=MagicMock(spec=logging.Logger),
             )
 
-            with patch.dict(sys.modules, {"Trading": fake_trading_module}):
+            with patch("trading_support.option_positions.ManageCurrentOptionPositions",
+                       fake_manage_current_option_positions):
                 result = service.run_cycle(trading_client=object())
 
         mock_json_write.assert_called_once_with(output_path, management_result)

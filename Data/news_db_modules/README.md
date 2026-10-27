@@ -7,7 +7,6 @@ This folder contains the news persistence modules. Callers import from them dire
 - `article_store.py`: canonical article insert/update and dedupe logic
 - `bootstrap.py`: schema initialization and one-off migrations
 - `entity_articles.py`: company, industry, and sector article attachment helpers
-- `global_articles.py`: U.S. and world article attachment helpers
 - `impacts.py`: opportunist and strategist result persistence
 - `links.py`: link-table upserts between articles and scopes
 - `loaders.py`: bulk article loaders

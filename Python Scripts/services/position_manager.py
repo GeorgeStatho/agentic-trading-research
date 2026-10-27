@@ -197,7 +197,7 @@ class OptionPositionManagerService:
             return {"error": str(exc)}
 
     def run_cycle(self, *, trading_client: TradingClient) -> dict[str, Any]:
-        from Trading import ManageCurrentOptionPositions
+        from trading_support.option_positions import ManageCurrentOptionPositions
 
         management_result = ManageCurrentOptionPositions(
             execute_sales=self._settings.auto_close_option_positions,

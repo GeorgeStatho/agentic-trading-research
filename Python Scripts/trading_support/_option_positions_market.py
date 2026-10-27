@@ -8,7 +8,7 @@ from alpaca.data.requests import OptionLatestQuoteRequest, StockLatestQuoteReque
 
 from services.option_dte_buckets import DteBucket, resolve_dte_bucket_for_days
 
-from .utils import mid_price, safe_float
+from .utils import mid_price
 from ._option_positions_defaults import (
     DEFAULT_OPTION_TRAIL_7_14_GIVEBACK_PCT,
     ExitThresholds,
@@ -21,6 +21,7 @@ from ._option_positions_defaults import (
     OptionExitRule,
     TrailingProfitConfig,
 )
+from services.common import safe_float
 
 
 def _parse_option_symbol(symbol: str) -> dict[str, Any]:

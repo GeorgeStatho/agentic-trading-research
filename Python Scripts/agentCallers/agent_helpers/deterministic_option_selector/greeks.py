@@ -32,8 +32,9 @@ from .market import (
     _normalize_contract_type,
     _resolve_target_otm_distance,
 )
-from .normalize import _coerce_float, _normalize_decision, _normalize_option_id
+from .normalize import _normalize_decision, _normalize_option_id
 from .volatility import _assess_contract_volatility
+from services.common import safe_float
 
 
 def _passes_short_swing_filters(
@@ -49,7 +50,7 @@ def _passes_short_swing_filters(
         target_dte_bucket=target_dte_bucket,
         default_distance=PREFERRED_OTM_DISTANCE,
     )
-    strike_price = _coerce_float(contract.get("strike_price"))
+    strike_price = safe_float(contract.get("strike_price"))
     if strike_price is None:
         return False, ["missing_strike_price"]
 
@@ -93,7 +94,7 @@ def _passes_short_swing_filters(
     elif gamma < MIN_GAMMA:
         reasons.append("gamma_below_min")
 
-    open_interest = _coerce_float(contract.get("open_interest"))
+    open_interest = safe_float(contract.get("open_interest"))
     if open_interest is None:
         reasons.append("missing_open_interest")
     elif open_interest < MIN_OPEN_INTEREST:
@@ -140,11 +141,11 @@ def _short_swing_score(
         -(_get_greek(contract, "gamma") or 0.0),
         _distance_to_target_otm(
             normalized_decision,
-            _coerce_float(contract.get("strike_price")),
+            safe_float(contract.get("strike_price")),
             reference_stock_price,
             target_distance=target_otm_distance,
         ),
-        -(_coerce_float(contract.get("open_interest")) or 0.0),
+        -(safe_float(contract.get("open_interest")) or 0.0),
         float(volatility_assessment.get("profit_path_selection_preference_score", 0.0)),
         float(volatility_assessment.get("vega_selection_preference_score", 0.0)),
         str(contract.get("expiration_date") or "9999-12-31"),

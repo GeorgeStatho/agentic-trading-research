@@ -9,8 +9,8 @@ from ._option_positions_state import (
     _coerce_bool,
     _evaluate_momentum_history_exit,
 )
-from .utils import safe_float
 from services.position_exit_policy import shadow_exit_comparison
+from services.common import safe_float
 
 
 def _deterministic_option_exit_decision(

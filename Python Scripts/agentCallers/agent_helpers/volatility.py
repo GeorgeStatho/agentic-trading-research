@@ -1,4 +1,5 @@
 from __future__ import annotations
+from services.common import safe_float
 
 """Shared volatility helpers for selector and agent-stage market context.
 
@@ -26,15 +27,6 @@ __all__ = [
 ]
 
 
-def _coerce_float(value: Any) -> float | None:
-    try:
-        if value in (None, ""):
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _normalize_contract_type(value: Any) -> str:
     normalized = str(value or "").strip().lower()
     replacements = {
@@ -48,14 +40,14 @@ def _normalize_contract_type(value: Any) -> str:
 
 
 def _extract_implied_volatility(contract: dict[str, Any]) -> float | None:
-    implied_volatility = _coerce_float(contract.get("implied_volatility"))
+    implied_volatility = safe_float(contract.get("implied_volatility"))
     if implied_volatility is None or implied_volatility < 0:
         return None
     return implied_volatility
 
 
 def _extract_strike_price(contract: dict[str, Any]) -> float | None:
-    strike_price = _coerce_float(contract.get("strike_price"))
+    strike_price = safe_float(contract.get("strike_price"))
     if strike_price is None or strike_price <= 0:
         return None
     return strike_price
@@ -73,7 +65,7 @@ def _extract_expiration_date(contract: dict[str, Any]) -> date | None:
 
 def _extract_dte(contract: dict[str, Any]) -> int | None:
     for field_name in ("dte", "days_to_expiration", "daysTillExpiration"):
-        explicit_dte = _coerce_float(contract.get(field_name))
+        explicit_dte = safe_float(contract.get(field_name))
         if explicit_dte is not None:
             return int(round(explicit_dte))
     expiration_date = _extract_expiration_date(contract)
@@ -265,7 +257,7 @@ def compute_realized_volatility(
     normalized_window_days = max(2, int(window_days))
     valid_closes = [
         close
-        for close in (_coerce_float(value) for value in closes)
+        for close in (safe_float(value) for value in closes)
         if close is not None and close > 0
     ]
     if len(valid_closes) < normalized_window_days:
@@ -295,13 +287,13 @@ def compute_percentile_rank(
     be decimal ratios rather than percentages.
     """
 
-    normalized_current_value = _coerce_float(current_value)
+    normalized_current_value = safe_float(current_value)
     if normalized_current_value is None:
         return None
 
     normalized_history = [
         value
-        for value in (_coerce_float(raw_value) for raw_value in historical_values)
+        for value in (safe_float(raw_value) for raw_value in historical_values)
         if value is not None
     ]
     if not normalized_history:
@@ -326,8 +318,8 @@ def summarize_iv_vs_hv(
     returned ratio is ``implied_volatility / historical_volatility``.
     """
 
-    normalized_iv = _coerce_float(implied_volatility)
-    normalized_hv = _coerce_float(historical_volatility)
+    normalized_iv = safe_float(implied_volatility)
+    normalized_hv = safe_float(historical_volatility)
     if normalized_iv is None or normalized_iv < 0 or normalized_hv is None or normalized_hv <= 0:
         return {
             "available": False,

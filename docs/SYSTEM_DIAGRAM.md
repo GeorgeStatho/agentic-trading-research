@@ -471,7 +471,7 @@ flowchart TD
 
     subgraph nmods["Data/news_db_modules/"]
         direction TB
-        n1["article_store, global_articles,<br/>entity_articles, links"]
+        n1["article_store, entity_articles,<br/>links"]
         n2["macro, impacts, processing<br/>(opportunist classifications)"]
         n3["provenance (source roots),<br/>catalysts (state + decay)"]
         n4["strategist_runs"]

@@ -7,8 +7,8 @@ from datetime import date, datetime
 from typing import Any
 
 from .config import MAX_TARGET_OTM_DOLLARS, MIN_TARGET_OTM_DOLLARS
-from .normalize import _coerce_float
 from services.option_dte_buckets import get_bucket_target_otm_pct, normalize_target_dte_bucket
+from services.common import safe_float
 
 
 _SELECTION_DATE = ContextVar('selection_date', default=None)
@@ -61,7 +61,7 @@ def _normalize_contract_type(value: Any) -> str:
 def _get_reference_stock_price(market_context: dict[str, Any]) -> float | None:
     stock_snapshot = market_context.get("current_stock_price", {})
     for key in ("latest_trade_price", "price", "ask_price", "midpoint_price", "bid_price"):
-        price = _coerce_float(stock_snapshot.get(key))
+        price = safe_float(stock_snapshot.get(key))
         if price is not None and price > 0:
             return price
     return None
@@ -73,26 +73,26 @@ def _get_latest_quote(contract: dict[str, Any]) -> dict[str, Any]:
 
 
 def _get_bid_price(contract: dict[str, Any]) -> float | None:
-    return _coerce_float(_get_latest_quote(contract).get("bid_price"))
+    return safe_float(_get_latest_quote(contract).get("bid_price"))
 
 
 def _get_ask_price(contract: dict[str, Any]) -> float | None:
-    return _coerce_float(_get_latest_quote(contract).get("ask_price"))
+    return safe_float(_get_latest_quote(contract).get("ask_price"))
 
 
 def _get_contract_market_price(contract: dict[str, Any]) -> float | None:
     latest_quote = _get_latest_quote(contract)
-    midpoint = _coerce_float(latest_quote.get("midpoint_price"))
+    midpoint = safe_float(latest_quote.get("midpoint_price"))
     if midpoint is not None and midpoint > 0:
         return midpoint
 
-    bid = _coerce_float(latest_quote.get("bid_price"))
-    ask = _coerce_float(latest_quote.get("ask_price"))
+    bid = safe_float(latest_quote.get("bid_price"))
+    ask = safe_float(latest_quote.get("ask_price"))
     if bid is not None and ask is not None and bid > 0 and ask > 0:
         return (bid + ask) / 2.0
 
     for key in ("latest_trade_price", "close_price"):
-        price = _coerce_float(contract.get(key))
+        price = safe_float(contract.get(key))
         if price is not None and price > 0:
             return price
     return None
@@ -102,7 +102,7 @@ def _get_greek(contract: dict[str, Any], name: str) -> float | None:
     greeks = contract.get("greeks", {})
     if not isinstance(greeks, dict):
         return None
-    return _coerce_float(greeks.get(name))
+    return safe_float(greeks.get(name))
 
 
 def _get_dte(contract: dict[str, Any]) -> int | None:
@@ -117,7 +117,7 @@ def _get_dte(contract: dict[str, Any]) -> int | None:
 
 
 def _normalize_percentile(value: Any) -> float | None:
-    percentile = _coerce_float(value)
+    percentile = safe_float(value)
     if percentile is None:
         return None
     if 0.0 <= percentile <= 1.0:
@@ -128,7 +128,7 @@ def _normalize_percentile(value: Any) -> float | None:
 
 
 def _get_contract_implied_volatility(contract: dict[str, Any]) -> float | None:
-    implied_volatility = _coerce_float(contract.get("implied_volatility"))
+    implied_volatility = safe_float(contract.get("implied_volatility"))
     if implied_volatility is None or implied_volatility < 0:
         return None
     return implied_volatility
@@ -136,7 +136,7 @@ def _get_contract_implied_volatility(contract: dict[str, Any]) -> float | None:
 
 def _get_break_even_price(contract: dict[str, Any]) -> float | None:
     contract_type = _normalize_contract_type(contract.get("contract_type"))
-    strike_price = _coerce_float(contract.get("strike_price"))
+    strike_price = safe_float(contract.get("strike_price"))
     contract_price = _get_contract_market_price(contract)
     if strike_price is None or contract_price is None or contract_price <= 0:
         return None
@@ -210,13 +210,13 @@ def _get_underlying_historical_volatility(market_context: dict[str, Any]) -> flo
     underlying_price_history = market_context.get("underlying_price_history", {})
     if isinstance(underlying_price_history, dict):
         for key in ("historical_volatility_20d", "historical_volatility_60d"):
-            historical_volatility = _coerce_float(underlying_price_history.get(key))
+            historical_volatility = safe_float(underlying_price_history.get(key))
             if historical_volatility is not None and historical_volatility > 0:
                 return historical_volatility
 
     volatility_summary = _get_option_market_volatility_summary(market_context)
     for key in ("historical_volatility_20d", "historical_volatility_60d"):
-        historical_volatility = _coerce_float(volatility_summary.get(key))
+        historical_volatility = safe_float(volatility_summary.get(key))
         if historical_volatility is not None and historical_volatility > 0:
             return historical_volatility
     return None
@@ -271,7 +271,7 @@ def _get_straddle_implied_expected_move(
     for expiration_date, expiration_contracts in ranked_expirations:
         contracts_by_strike: dict[float, dict[str, dict[str, Any]]] = {}
         for candidate in expiration_contracts:
-            strike_price = _coerce_float(candidate.get("strike_price"))
+            strike_price = safe_float(candidate.get("strike_price"))
             contract_type = _normalize_contract_type(candidate.get("contract_type"))
             midpoint_price = _get_contract_market_price(candidate)
             if (

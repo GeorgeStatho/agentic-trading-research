@@ -36,9 +36,9 @@ from ._option_positions_strategy import (
     _round_option_sell_price_to_tick,
     _structured_exit_action,
 )
-from .utils import safe_float
 from services.candidate_lifecycle import observe
 from services.position_exit_policy import build_position_exit_context
+from services.common import safe_float
 
 _TRUSTED_ENTRY_UNDERLYING_PRICE_SOURCES = {
     "broker_fill",

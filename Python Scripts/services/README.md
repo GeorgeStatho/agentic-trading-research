@@ -35,7 +35,7 @@ The current trading runtime is layered rather than flat:
 
 So the practical call flow for open positions is:
 
-`FrontMainApplication` -> `OptionPositionManagerService` -> `Trading.ManageCurrentOptionPositions(...)` -> `trading_support.option_positions` facade -> split `_option_positions_*` helpers
+`FrontMainApplication` -> `OptionPositionManagerService` -> `trading_support.option_positions.ManageCurrentOptionPositions(...)` -> split `_option_positions_*` helpers
 
 Supporting modules like `common.py`, `io_utils.py`, `option_dte_buckets.py`, `option_momentum.py`, and `option_position_state.py` provide shared utility logic used across both the service layer and the lower-level trading helpers.
 
@@ -288,7 +288,7 @@ Importable class:
 Key method:
 
 - `run_cycle(trading_client)`
-  Calls the legacy `Trading.ManageCurrentOptionPositions(...)` function with the current service-layer settings and broker callbacks.
+  Calls `trading_support.option_positions.ManageCurrentOptionPositions(...)` with the current service-layer settings and broker callbacks.
 
 Important responsibilities:
 

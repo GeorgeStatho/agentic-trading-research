@@ -9,10 +9,10 @@ from services.settings import get_settings
 from .common import (
     IV_PERCENTILE_DTE_BUCKETS,
     LOGGER,
-    _safe_float,
     _serialize_scalar,
     compute_percentile_rank,
 )
+from services.common import safe_float
 
 
 def _load_option_iv_history_store(path: Path | None = None) -> dict[str, Any]:
@@ -57,7 +57,7 @@ def _normalize_iv_history_entries(
         if not isinstance(entry, dict):
             continue
         recorded_at = str(entry.get("recorded_at") or "").strip()
-        value = _safe_float(entry.get("value"))
+        value = safe_float(entry.get("value"))
         if not recorded_at or value is None:
             continue
         normalized_entries.append({"recorded_at": recorded_at, "value": round(value, 6)})
@@ -114,7 +114,7 @@ def _summarize_iv_by_dte_bucket(
     grouped_contracts: dict[str, list[dict[str, Any]]] = {}
     for contract in contracts:
         bucket_key = str(contract.get("dte_bucket") or "").strip()
-        implied_volatility = _safe_float(contract.get("implied_volatility"))
+        implied_volatility = safe_float(contract.get("implied_volatility"))
         if bucket_key and implied_volatility is not None and implied_volatility >= 0:
             grouped_contracts.setdefault(bucket_key, []).append(contract)
 
@@ -123,7 +123,7 @@ def _summarize_iv_by_dte_bucket(
         ranked_contracts = sorted(
             bucket_contracts,
             key=lambda contract: (
-                abs(((_safe_float(contract.get("strike_price")) or reference_stock_price or 0.0) - (reference_stock_price or 0.0)))
+                abs(((safe_float(contract.get("strike_price")) or reference_stock_price or 0.0) - (reference_stock_price or 0.0)))
                 if reference_stock_price is not None
                 else 0.0,
                 str(contract.get("expiration_date") or "9999-12-31"),
@@ -134,7 +134,7 @@ def _summarize_iv_by_dte_bucket(
         representative_ivs = [
             implied_volatility
             for implied_volatility in (
-                _safe_float(contract.get("implied_volatility"))
+                safe_float(contract.get("implied_volatility"))
                 for contract in ranked_contracts[: min(4, len(ranked_contracts))]
             )
             if implied_volatility is not None
@@ -167,7 +167,7 @@ def _annotate_contract_iv_percentiles(
 
         bucket_key = str(contract.get("dte_bucket") or "").strip()
         if not bucket_key:
-            bucket_key = _resolve_iv_percentile_dte_bucket(_safe_float(days_to_expiration))
+            bucket_key = _resolve_iv_percentile_dte_bucket(safe_float(days_to_expiration))
             contract["dte_bucket"] = bucket_key
 
         bucket_percentile = bucket_percentiles.get(bucket_key)
@@ -194,7 +194,7 @@ def _historical_values_from_iv_entries(
     return [
         float(entry["value"])
         for entry in _normalize_iv_history_entries(entries, max_entries=max_entries)
-        if _safe_float(entry.get("value")) is not None
+        if safe_float(entry.get("value")) is not None
     ]
 
 
@@ -330,13 +330,13 @@ def _enrich_with_alpaca_iv_percentiles(
 
     symbol_history = _record_option_iv_history(
         underlying_symbol,
-        atm_mean_iv=_safe_float(volatility_summary.get("atm_mean_iv")),
-        short_term_atm_iv=_safe_float(term_structure.get("short_term_atm_iv")),
-        longer_term_atm_iv=_safe_float(term_structure.get("longer_term_atm_iv")),
+        atm_mean_iv=safe_float(volatility_summary.get("atm_mean_iv")),
+        short_term_atm_iv=safe_float(term_structure.get("short_term_atm_iv")),
+        longer_term_atm_iv=safe_float(term_structure.get("longer_term_atm_iv")),
         bucket_atm_ivs={
             bucket_key: bucket_atm_iv
             for bucket_key, bucket_atm_iv in (
-                (bucket_key, _safe_float(bucket_summary.get("atm_mean_iv")))
+                (bucket_key, safe_float(bucket_summary.get("atm_mean_iv")))
                 for bucket_key, bucket_summary in dte_bucket_iv_summary.items()
             )
             if bucket_atm_iv is not None

@@ -12,7 +12,6 @@ from .manager_shared import (
     TIME_HORIZON_TO_DTE_BUCKET,
     VALID_CONFIDENCE_LEVELS,
     VALID_DECISIONS,
-    coerce_float,
     normalize_confidence,
     normalize_decision,
     normalize_target_dte_bucket,

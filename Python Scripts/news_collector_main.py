@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import os
 from dataclasses import dataclass
@@ -22,6 +21,7 @@ from market_data.hydration import ensure_all_sector_market_data
 from market_db_modules.queries import get_all_companies, get_all_industries, get_all_sectors
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from services.io_utils import JsonFileWriter
 from services.startup_readiness import StartupReadinessChecker
 from services.telemetry import send_startup_ping_async
 
@@ -52,14 +52,6 @@ class NewsCollectorSettings:
                 )
             ),
         )
-
-
-class JsonFileWriter:
-    @staticmethod
-    def write(path: Path, payload: Any) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=True, indent=2)
 
 
 def _run_cold_start_sanity_check() -> dict[str, Any]:

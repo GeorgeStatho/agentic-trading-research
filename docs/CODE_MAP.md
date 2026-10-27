@@ -40,8 +40,6 @@ Manager a
 │   └── logs/
 ├── Python Scripts/
 │   ├── main.py
-│   ├── MarketData.py
-│   ├── Trading.py
 │   ├── trading_support/
 │   │   ├── __init__.py
 │   │   ├── account.py
@@ -264,12 +262,8 @@ Ollama + SQLite + Alpaca
 
 - `Python Scripts/main.py`
   - Older trading loop with prediction-based buy/sell planning.
-- `Python Scripts/Trading.py`
-  - Thin compatibility facade that re-exports the legacy trading helpers.
 - `Python Scripts/trading_support/`
   - Focused trading modules split by concern: client setup, account diagnostics, stock orders, option contracts, and option position management.
-- `Python Scripts/MarketData.py`
-  - Quote, option, and streaming-related utilities.
 
 This side of the repo looks older than the agent pipeline and is more prototype-like.
 
@@ -290,7 +284,7 @@ web_dashboard/server.py
   ↓
 subprocess.Popen(...)
   ↓
-main.py or MarketData.py
+main.py
 ```
 
 
@@ -370,7 +364,7 @@ The repository currently has four layers living side by side:
 1. persistent storage in `Data/`
 2. deterministic ingestion in `Webscraping/`
 3. agentic reasoning in `agentCallers/`
-4. older execution/runtime scripts in `main.py`, `Trading.py`, and `MarketData.py`
+4. older execution/runtime scripts in `main.py` and `trading_support/`
 
 The newer architecture is centered around:
 
@@ -384,9 +378,7 @@ while the older architecture is centered around:
 
 ```text
 main.py
-  + Trading.py
   + trading_support/*
-  + MarketData.py
 ```
 
 That split explains why the repo feels mixed: it contains both the older trading prototype and the newer research-first pipeline.

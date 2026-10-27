@@ -5,7 +5,7 @@ from typing import Any
 from alpaca.trading.client import TradingClient
 
 from .clients import ALPACA_PAPER, get_default_trading_client
-from .utils import safe_float
+from services.common import safe_float
 
 
 def GetAccountDiagnostics(

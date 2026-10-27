@@ -24,8 +24,6 @@ The most important connection points are:
   Calls `ManageCurrentOptionPositions(...)` from `option_positions.py` and supplies the broker callbacks.
 - `services/trading_gateway.py`
   Provides the newer normalized Alpaca wrapper used by the service layer.
-- `Trading.py`
-  Preserves the older compatibility import path and still forwards into the option-position workflow.
 
 So if `services/` is the runtime control layer, `trading_support/` is the lower-level trading helper layer that knows how to inspect positions, compute exits, reconcile orders, and translate that into broker-facing actions.
 
@@ -255,7 +253,7 @@ There are two styles in the repo right now:
 - Newer service-layer orchestration
   Uses `services.front_main_application`, `services.position_manager`, `services.trade_executor`, and `services.trading_gateway`
 - Older direct helper usage
-  Uses `trading_support.*` functions and `Trading.py`
+  Uses `trading_support.*` functions directly
 
 Both still matter, but for new runtime orchestration work, the service layer is usually the better place to start.
 

@@ -10,16 +10,10 @@ deterministic option selector.
 
 from typing import Any
 
+from services.common import safe_float
 from services.evidence_continuation_policy import EvidenceContinuationPolicy
 from services.settings import get_settings
 from catalyst_models import PRIMARY_SOURCE_TYPES
-
-
-def _float(value: Any) -> float | None:
-    try:
-        return float(value) if value not in (None, "") else None
-    except (TypeError, ValueError):
-        return None
 
 
 def _text(value: Any) -> str:
@@ -44,7 +38,7 @@ def _evidence_snapshot(payload: dict[str, Any], policy: EvidenceContinuationPoli
     seen_article_ids = set()
     for article in _supporting_articles(payload):
         article_id = article.get("article_id")
-        score = _float(article.get("evidence_score"))
+        score = safe_float(article.get("evidence_score"))
         if not isinstance(article_id, int) or article_id <= 0 or article_id not in allowed_ids:
             invalid_grounding = True
             continue
@@ -62,10 +56,10 @@ def _evidence_snapshot(payload: dict[str, Any], policy: EvidenceContinuationPoli
         if root and origin and origin != 'unverified':
             group = article.get('catalyst_id') or 'legacy_unclassified'
             roots_by_catalyst.setdefault(group, set()).add(root if article.get('primary_ticker') else origin)
-            if article.get('source_type') in PRIMARY_SOURCE_TYPES and (_float(article.get('evidence_score')) or 0) >= .75:
+            if article.get('source_type') in PRIMARY_SOURCE_TYPES and (safe_float(article.get('evidence_score')) or 0) >= .75:
                 primary_exception = True
     independent_count = max((len(roots) for roots in roots_by_catalyst.values()), default=0)
-    scores = [_float(article.get("evidence_score")) for article in eligible_articles]
+    scores = [safe_float(article.get("evidence_score")) for article in eligible_articles]
     valid_grounding = bool(allowed_ids) and not invalid_grounding and len(eligible_articles) > 0
     return {
         "citation_count": len(eligible_articles),
@@ -104,7 +98,7 @@ def evaluate_evidence_continuation_gate(
     evidence = _evidence_snapshot(payload, policy)
     summary, indicators, sector_market = _technical_snapshot(market_context)
     volume = indicators.get("relative_volume") if isinstance(indicators.get("relative_volume"), dict) else {}
-    relative_volume = _float(volume.get("relative_volume_20d"))
+    relative_volume = safe_float(volume.get("relative_volume_20d"))
     sector_state = _text(sector_market.get("state"))
     overextension = _text(summary.get("overextension_risk")) or "unknown"
     technical = {
