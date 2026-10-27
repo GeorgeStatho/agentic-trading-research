@@ -6,7 +6,7 @@ import math
 from datetime import datetime, timezone
 
 from market_db_modules.market_regime import load_regime_bars, store_regime_bars
-from agent_helpers.market_context.common import REQUEST_HANDLER, yf
+from agent_helpers.market_context.alpaca_base import REQUEST_HANDLER, yf
 from agent_helpers.market_context.underlying_bars import (
     _extract_bar_close, _extract_bar_high, _extract_bar_low, _extract_bar_open,
     _extract_bar_timestamp, _extract_bar_volume, _fetch_daily_stock_bars,

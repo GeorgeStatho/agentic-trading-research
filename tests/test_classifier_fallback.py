@@ -9,8 +9,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import agent_helpers.sector_opportunist as sector_helpers
-from agent_helpers import shared
-from agent_helpers.shared import Client, ModelAnswer, ask_classifier_model
+from agent_helpers import llm_client
+from agent_helpers.llm_client import Client, ModelAnswer, ask_classifier_model
 from db_common import use_database
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
@@ -54,8 +54,8 @@ def chat_completion(content="{}", model="mistral-small-2506"):
 
 
 def classify(primary, *fallback_clients, fallback=FALLBACK):
-    with use_settings(vertex=FAST_RETRIES, classifier_fallback=fallback), patch.object(shared.time, "sleep"), \
-            patch.object(shared, "_get_classifier_fallback_client", side_effect=list(fallback_clients)):
+    with use_settings(vertex=FAST_RETRIES, classifier_fallback=fallback), patch.object(llm_client.time, "sleep"), \
+            patch.object(llm_client, "_get_classifier_fallback_client", side_effect=list(fallback_clients)):
         return ask_classifier_model(primary, "gemini-3.1-flash-lite", "system", "user")
 
 

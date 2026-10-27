@@ -22,7 +22,7 @@ from market_db_modules.queries import get_all_companies, get_all_industries, get
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from services.env_parsing import env_flag, env_positive_int
-from services.io_utils import JsonFileWriter
+from services.status_files import JsonFileWriter
 from services.startup_readiness import StartupReadinessChecker
 from services.telemetry import send_startup_ping_async
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from services.config import AlpacaSettings, ApiPaths, ApiSettings, OptionPositionSettings
+from services.trading_config import AlpacaSettings, ApiPaths, ApiSettings, OptionPositionSettings
 
 
 logger = logging.getLogger(__name__)

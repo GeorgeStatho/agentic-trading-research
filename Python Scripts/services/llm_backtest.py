@@ -51,12 +51,12 @@ from market_db_modules.backtesting import run_decision_backtest
 from market_db_modules.market_regime import store_regime_bars
 from agent_helpers.deterministic_option_selector import SELECTOR_VERSION, apply_deterministic_option_selection
 from agent_helpers.deterministic_option_selector.market import _get_reference_stock_price
-from agent_helpers.shared import _normalize_provider
+from agent_helpers.llm_client import _normalize_provider
 from agent_stages.manager_runner import MANAGER_PROMPT_VERSION, replay_manager_decision_from_payload
 from agent_stages.manager_strategist_context import _build_manager_visible_strategist_context
 from agent_stages.strategist_runner import (attach_thesis_check, replay_strategist_decision_from_payload,
                                             strategist_answer_reusable, strategist_prompt_version)
-from services.config import AgentPipelineSettings, FrontMainSettings
+from services.trading_config import AgentPipelineSettings, WorkerSettings
 from services.entry_gates import carry_gate_verdicts
 from services.evaluation_clock import evaluated_at
 from services.evidence_continuation_gate import evaluate_evidence_continuation_gate
@@ -190,7 +190,7 @@ class StrategistReplay:
 @dataclass(frozen=True)
 class ProductionRules:
     """The settings a decision ran under: its recorded manifest's, or local ones when none exists."""
-    settings: FrontMainSettings
+    settings: WorkerSettings
     selector_config: dict[str, Any] | None = None
 
     @property
@@ -198,7 +198,7 @@ class ProductionRules:
         return self.selector_config is not None
 
     @classmethod
-    def for_manifest(cls, manifest: dict[str, Any] | None, *, local: FrontMainSettings) -> "ProductionRules":
+    def for_manifest(cls, manifest: dict[str, Any] | None, *, local: WorkerSettings) -> "ProductionRules":
         if manifest is None:
             return cls(local)
         runtime = manifest.get("runtime_settings") or {}
@@ -592,7 +592,7 @@ def run_llm_backtest(
                           min_hours_between=min_hours_between, replay_strategist=replay_strategist,
                           decide=decide, decide_strategist=decide_strategist,
                           strategist_reuse_max_age_minutes=strategist_reuse_max_age_minutes, db_path=db_path)
-    local_settings = FrontMainSettings.from_env()
+    local_settings = WorkerSettings.from_env()
     latest_rules = ProductionRules(local_settings)
     tally = ReplayTally()
     traded: list[dict[str, Any]] = []

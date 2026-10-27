@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .common import (
+from .alpaca_base import (
     ALPACA_IMPORT_ERROR,
     LOGGER,
     MARKET_INDEX_DEFINITIONS,

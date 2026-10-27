@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from services.settings import get_settings
-from .common import (
+from .alpaca_base import (
     compute_realized_volatility,
 )
 from .underlying_bars import (

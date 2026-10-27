@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from api_support.common import safe_float, safe_json_loads
+from api_support.request_utils import safe_json_loads
+from services.numbers import safe_float
 from db_common import current_database
 from api_support.context import SELECTED_OPTIONS_OUTPUT_PATH, TRADE_EXECUTION_OUTPUT_PATH
 from market_db_modules.queries import list_option_trade_executions
@@ -12,7 +13,7 @@ EXECUTED_TRADES_MAX_AGE_DAYS = 30
 
 
 def load_output_payload(path) -> dict:
-    from api_support.common import read_json_payload
+    from api_support.request_utils import read_json_payload
 
     payload = read_json_payload(path)
     return payload if isinstance(payload, dict) else {}

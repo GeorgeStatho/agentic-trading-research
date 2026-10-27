@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 ROOT_DIR = Path(__file__).resolve().parents[1]
 PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
 
-from services.config import OptionPositionSettings  # noqa: E402
+from services.trading_config import OptionPositionSettings  # noqa: E402
 from services.option_dte_buckets import OPTION_DTE_BUCKETS  # noqa: E402
 from services.position_manager import OptionPositionManagerService  # noqa: E402
 

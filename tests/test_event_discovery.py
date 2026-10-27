@@ -182,7 +182,7 @@ class DiscoveryScanTests(DiscoveryFixture):
 
 class ShadowBoundaryTests(DiscoveryFixture):
     def test_full_stack_separates_discovery_from_live_manager_output(self):
-        from agentCallers import main as agent_main
+        from agentCallers import decision_pipeline as agent_main
         from services.discovery_queue import run_discovery_shadow_cycle
         self.package(company={**COMPANY, 'id': 2, 'symbol': 'OTHER'})
         callback = Mock()
@@ -195,7 +195,7 @@ class ShadowBoundaryTests(DiscoveryFixture):
         self.assertEqual((result['pipeline']['discovery_shadow']['candidates'][0]['symbol'], result['manager'], callback.call_count),
                          ('OTHER', [], 0))
     def test_shadow_candidate_never_reaches_models_or_broker_callback(self):
-        from agentCallers import main as agent_main
+        from agentCallers import decision_pipeline as agent_main
         callback = Mock()
         with patch.object(agent_main, 'decide_company_purchase', side_effect=AssertionError('No model call')), \
              patch.object(agent_main, 'decide_company_option_position', side_effect=AssertionError('No manager call')):

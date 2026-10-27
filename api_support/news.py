@@ -7,7 +7,7 @@ from typing import Any
 from agent_pipeline.main import get_current_pipeline_targets  # compatibility import for existing tests
 from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 
-from api_support.common import parse_datetime, trim_text
+from api_support.request_utils import parse_datetime, trim_text
 from api_support.context import ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE
 from db_common import get_connection
 

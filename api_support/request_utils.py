@@ -10,15 +10,6 @@ from flask import jsonify
 from api_support.context import OPTION_POSITION_SETTINGS, logger
 
 
-def safe_float(value):
-    try:
-        if value in (None, ""):
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def load_dte_exit_rule_configs() -> list[dict]:
     return [
         {

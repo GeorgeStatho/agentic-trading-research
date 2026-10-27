@@ -250,7 +250,7 @@ def build_manager_input(
         ``payload = build_manager_input("AAPL", start_time=None, end_time=None, ...)``
 
     The returned payload can be passed directly to
-    ``agent_stages.manager.decide_company_option_position`` or inspected during
+    ``agent_stages.manager_runner.decide_company_option_position`` or inspected during
     local debugging.
     """
     if recent_history_limit is None:

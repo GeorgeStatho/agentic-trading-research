@@ -6,10 +6,9 @@ from typing import Any, Callable
 
 from alpaca.data.requests import OptionLatestQuoteRequest, StockLatestQuoteRequest
 
-from services.config import TrailingProfitConfig
+from services.trading_config import TrailingProfitConfig
 from services.option_dte_buckets import OPTION_DTE_BUCKETS, DteBucket, resolve_dte_bucket_for_days
 
-from .utils import mid_price
 from ._option_positions_defaults import (
     ExitThresholds,
     MARKET_TIMEZONE,
@@ -23,6 +22,12 @@ from services.numbers import safe_float
 
 # Only reached when no bucket has a configured giveback; every registered bucket defines one.
 _FALLBACK_TRAILING_GIVEBACK_PCT = 0.35
+
+
+def mid_price(bid_price: float | None, ask_price: float | None) -> float | None:
+    if bid_price is None or ask_price is None:
+        return None
+    return round((bid_price + ask_price) / 2.0, 4)
 
 
 def _parse_option_symbol(symbol: str) -> dict[str, Any]:

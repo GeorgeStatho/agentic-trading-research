@@ -43,7 +43,7 @@ anyway. Expected P&L figures are decision-time estimates, not realized outcomes 
 
 ## Where it runs
 
-`_apply_post_manager_gates` in `agentCallers/main.py` runs, in order: the option hurdle, scenario
+`_apply_post_manager_gates` in `agentCallers/decision_pipeline.py` runs, in order: the option hurdle, scenario
 inputs, the deterministic selector, the regime gate, the evidence-thesis gate and then
 **trade economics**. Decision history and the streaming execution callback run after it. The
 callback therefore only ever receives finalized results, and the batch path carries the same gate
@@ -273,7 +273,7 @@ not change them; items 1 and 3 were fixed in a follow-up.
 | Scenario query | `Data/market_db_modules/pricing_research.py` (`catalyst_return_scenarios`) |
 | Catalyst revision | `Data/news_db_modules/catalysts.py` (`get_catalyst_revision`) |
 | Storage and summary | `Data/market_db_modules/trade_economics.py`, `trade_economics_schema.sql` |
-| Integration | `agentCallers/main.py`, `services/entry_gates.py`, `services/trade_executor.py`, `agent_contracts.py` |
+| Integration | `agentCallers/decision_pipeline.py`, `services/entry_gates.py`, `services/trade_executor.py`, `agent_contracts.py` |
 | Tests | `tests/test_trade_economics.py` |
 
 ```bash

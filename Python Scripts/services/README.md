@@ -16,9 +16,9 @@ If `agentCallers/` is the analysis and recommendation side of the system, `servi
 
 The current trading runtime is layered rather than flat:
 
-1. `front_main_application.py`
+1. `worker_application.py`
    Owns the main worker cadence and decides when to run entry execution and when to run option-position maintenance.
-2. `config.py` and `runtime_paths.py`
+2. `trading_config.py` and `runtime_paths.py`
    Provide the typed settings and file paths used by every runtime service.
 3. `trade_executor.py`
    Handles new entries after agent output has already been converted into executable order candidates.
@@ -35,9 +35,9 @@ The current trading runtime is layered rather than flat:
 
 So the practical call flow for open positions is:
 
-`FrontMainApplication` -> `OptionPositionManagerService` -> `trading_support.option_positions.ManageCurrentOptionPositions(...)` -> split `_option_positions_*` helpers
+`WorkerApplication` -> `OptionPositionManagerService` -> `trading_support.option_positions.ManageCurrentOptionPositions(...)` -> split `_option_positions_*` helpers
 
-Supporting modules like `env_parsing.py`, `numbers.py`, `io_utils.py`, `option_dte_buckets.py`, `option_momentum.py`, and `option_position_state.py` provide shared utility logic used across both the service layer and the lower-level trading helpers.
+Supporting modules like `env_parsing.py`, `numbers.py`, `status_files.py`, `option_dte_buckets.py`, `option_momentum.py`, and `option_position_state.py` provide shared utility logic used across both the service layer and the lower-level trading helpers.
 
 ## Module Guide
 
@@ -98,18 +98,18 @@ Use these instead of parsing `os.getenv` by hand so every reader agrees on what 
 - `option_underlying_symbol(symbol)`
   The underlying ticker of an OCC option symbol.
 
-### `config.py`
+### `trading_config.py`
 
 Typed runtime configuration for the worker, the API, and shared option-position logic.
 
 Importable dataclasses and helpers:
 
-- `FrontMainPaths`
+- `WorkerPaths`
   File paths used by the main trading worker.
-  Important method: `FrontMainPaths.from_env()`
-- `FrontMainSettings`
+  Important method: `WorkerPaths.from_env()`
+- `WorkerSettings`
   Runtime settings for trading cycles, execution sizing, exposure limits, and scheduling. Exit settings are nested under `option_positions`.
-  Important method: `FrontMainSettings.from_env()`
+  Important method: `WorkerSettings.from_env()`
 - `OptionExitRuleConfig`
   One DTE-bucket-specific option exit configuration record.
 - `OptionPositionSettings`
@@ -133,7 +133,7 @@ Important internal helpers:
 
 This file is the main source of truth for env-driven runtime behavior.
 
-### `io_utils.py`
+### `status_files.py`
 
 Small file-writing utilities used by the worker and monitoring surfaces.
 
@@ -409,13 +409,13 @@ Important internal helpers:
 
 This module lets trailing-profit and pending-exit logic survive across management cycles.
 
-### `front_main_application.py`
+### `worker_application.py`
 
 Top-level orchestration for the main worker loop.
 
 Importable class:
 
-- `FrontMainApplication`
+- `WorkerApplication`
   Coordinates startup checks, market timing, agent execution, candidate selection, order execution, output persistence, and scheduled looping.
 
 Key responsibilities:
@@ -453,13 +453,13 @@ The actual option-position workflow now lives in `Python Scripts/trading_support
 - `_option_positions_momentum.py`
 - `_option_positions_defaults.py`
 
-`position_manager.py`, `option_dte_buckets.py`, `option_momentum.py`, `option_position_state.py`, and `config.py` all exist partly to support that workflow cleanly from the service layer.
+`position_manager.py`, `option_dte_buckets.py`, `option_momentum.py`, `option_position_state.py`, and `trading_config.py` all exist partly to support that workflow cleanly from the service layer.
 
 ## Which Modules Are Safe To Import Directly?
 
 Most reusable imports come from:
 
-- `config.py`
+- `trading_config.py`
 - `env_parsing.py`
 - `numbers.py`
 - `runtime_paths.py`
@@ -473,14 +473,14 @@ Most reusable imports come from:
 
 The modules most tied to the live runtime are:
 
-- `front_main_application.py`
+- `worker_application.py`
 - `cold_start.py`
 - `trade_journal.py`
 
 ## Practical Import Examples
 
 ```python
-from services.config import FrontMainPaths, FrontMainSettings
+from services.trading_config import WorkerPaths, WorkerSettings
 from services.option_dte_buckets import resolve_dte_bucket_for_days
 from services.order_candidates import OrderCandidateBuilder
 from services.trading_gateway import AlpacaTradingGateway

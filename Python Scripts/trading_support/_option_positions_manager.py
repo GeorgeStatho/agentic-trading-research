@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from alpaca.trading.client import TradingClient
 
-from services.config import MomentumHistoryConfig, OptionPositionSettings
+from services.trading_config import MomentumHistoryConfig, OptionPositionSettings
 from services.order_values import normalize_order_side, normalize_order_status
 from services.option_position_state import delete_position_state, get_position_state, load_state
 

@@ -39,7 +39,7 @@ def _load_option_trail_giveback_pct_by_bucket_key() -> dict[str, float]:
 
 
 @dataclass(frozen=True)
-class FrontMainPaths:
+class WorkerPaths:
     """Filesystem paths used by the front-facing trading workflow."""
 
     root_dir: Path
@@ -54,7 +54,7 @@ class FrontMainPaths:
     combined_output_path: Path
 
     @classmethod
-    def from_env(cls) -> FrontMainPaths:
+    def from_env(cls) -> WorkerPaths:
         # Read the relevant environment variables in one place and normalize them into this settings object.
         return cls(
             root_dir=ROOT_DIR,
@@ -95,7 +95,7 @@ class FrontMainPaths:
 
 
 @dataclass(frozen=True)
-class FrontMainSettings:
+class WorkerSettings:
     """Runtime configuration for trading cycles and loop scheduling."""
 
     default_option_order_qty: int
@@ -151,7 +151,7 @@ class FrontMainSettings:
         return self.max_premium_per_trade_pct / 100.0
 
     @classmethod
-    def from_env(cls) -> FrontMainSettings:
+    def from_env(cls) -> WorkerSettings:
         # Read the relevant environment variables in one place and normalize them into this settings object.
         market_recheck_seconds = 5 * 60
         return cls(
@@ -408,7 +408,7 @@ class ApiPaths:
     @classmethod
     def from_env(cls) -> ApiPaths:
         # The API reads the files the worker writes, so it shares the worker's paths.
-        worker = FrontMainPaths.from_env()
+        worker = WorkerPaths.from_env()
         return cls(
             script_status_path=worker.status_path,
             trade_execution_output_path=worker.trade_output_path,
@@ -447,7 +447,7 @@ class ApiSettings:
     @classmethod
     def from_env(cls) -> ApiSettings:
         # Sizing and risk limits are displayed exactly as the worker enforces them.
-        worker = FrontMainSettings.from_env()
+        worker = WorkerSettings.from_env()
         default_page_size = env_positive_int("ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE", 5)
         return cls(
             bot_status_down_threshold_seconds=max(30, env_positive_int("BOT_STATUS_DOWN_THRESHOLD_SECONDS", 90)),

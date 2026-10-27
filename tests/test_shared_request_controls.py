@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from agent_helpers.shared import Client, _strict_compatible, ask_llm_model, provider_status_code
+from agent_helpers.llm_client import Client, _strict_compatible, ask_llm_model, provider_status_code
 from services.settings import VertexSettings, use_settings
 
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["decision"],
@@ -81,7 +81,7 @@ class OllamaControlTests(unittest.TestCase):
                     "message": {"content": ANSWER}}
         shared_client = Client(provider="ollama", raw_client=Mock(), host="http://ollama:11434")
         diagnostic = {}
-        with patch("agent_helpers.shared.OllamaClient") as built:
+        with patch("agent_helpers.llm_client.OllamaClient") as built:
             built.return_value.chat.return_value = response
             ask_llm_model(shared_client, "llama3.1", "system", "user", response_diagnostic=diagnostic,
                           max_output_tokens=256, timeout=9)

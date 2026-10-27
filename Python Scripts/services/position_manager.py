@@ -9,8 +9,8 @@ from market_db_modules.history_records import (
     update_manager_decision_latest_pnl,
 )
 from market_db_modules.history_links import get_latest_linked_manager_decision_for_option_symbol
-from services.config import FrontMainPaths, FrontMainSettings
-from services.io_utils import JsonFileWriter
+from services.trading_config import WorkerPaths, WorkerSettings
+from services.status_files import JsonFileWriter
 from services.trading_gateway import TradingClient
 
 
@@ -20,8 +20,8 @@ class OptionPositionManagerService:
     def __init__(
         self,
         *,
-        settings: FrontMainSettings,
-        paths: FrontMainPaths,
+        settings: WorkerSettings,
+        paths: WorkerPaths,
         trading_gateway: Any,
         trade_journal: Any | None = None,
         thesis_journal: Any | None = None,

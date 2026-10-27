@@ -4,7 +4,7 @@ import copy
 from datetime import datetime
 from typing import Any
 
-from agent_helpers.manager import (
+from agent_helpers.manager_inputs import (
     DEFAULT_FULL_ARTICLE_LIMIT,
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
     DEFAULT_SUMMARY_ARTICLE_LIMIT,
@@ -12,7 +12,8 @@ from agent_helpers.manager import (
     build_market_context,
 )
 from agent_contracts import ManagerResult
-from agent_helpers.shared import Client, build_model_response_diagnostic, extract_json_value
+from agent_helpers.llm_client import Client, build_model_response_diagnostic
+from agent_helpers.text_utils import extract_json_value
 from services.evidence_continuation_gate import evaluate_evidence_continuation_gate
 from .manager_payload_context import (
     _build_context_snapshot,
@@ -26,7 +27,7 @@ from .manager_normalization import (
 )
 from .manager_prompt import build_manager_prompt
 from services.settings import get_settings
-from .manager_shared import (
+from .manager_model import (
     LOGGER,
     MANAGER_PROMPT_VERSION,
     MANAGER_STAGE_VERSION,

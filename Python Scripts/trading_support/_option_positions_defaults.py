@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
-from services.config import OptionExitRuleConfig
+from services.trading_config import OptionExitRuleConfig
 from services.option_dte_buckets import OPTION_DTE_BUCKETS
 
 

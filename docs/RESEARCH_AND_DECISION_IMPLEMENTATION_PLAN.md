@@ -41,12 +41,12 @@ Follow [ARCHITECTURE.md](ARCHITECTURE.md) and [FEATURE_PLAYBOOK.md](FEATURE_PLAY
 | --- | --- | --- |
 | Ingestion | `Python Scripts/news_collector_main.py`, `Webscraping/pipelines/`, `Data/news_db_modules/` | Discover supported company events independently of sector rankings; capture primary documents |
 | Event identity | `Data/catalyst_models.py`, `Data/catalyst_schema.sql`, `Data/news_db_modules/provenance.py` | Reuse catalysts and root events; version event evidence instead of duplicating identities |
-| Candidate selection | `agent_pipeline/target_selection.py`, `agent_pipeline/existing_db_view.py`, `agentCallers/main.py` | Merge event, watchlist, position-review, and sector candidates |
+| Candidate selection | `agent_pipeline/target_selection.py`, `agent_pipeline/existing_db_view.py`, `agentCallers/decision_pipeline.py` | Merge event, watchlist, position-review, and sector candidates |
 | Evidence input | `agent_builders/strategist_payload.py`, `strategist_payload_company.py`, `agent_contracts.py` | Add immutable evidence packages and research status |
 | Reasoning | `agent_stages/strategist_*`, `agent_stages/manager_*` | Extend schemas, validation, and handoff; retain backward-compatible fields |
 | Economics | `services/pricing_gates.py`, `option_hurdle_gate.py`, `scenario_selector.py`, `pricing_policy.py` | Add explicit coverage and net-outcome reports; validate assumptions before enforcement |
-| Execution | `services/order_candidates.py`, `trade_executor.py`, `front_main_application.py` | Carry report identities and recheck validity before submission |
-| Review | `services/thesis_validator_service.py`, `thesis_evidence_pack.py`, `thesis_arbiter.py` | Consume material-event reviews without bypassing deterministic exit controls |
+| Execution | `services/order_candidates.py`, `trade_executor.py`, `worker_application.py` | Carry report identities and recheck validity before submission |
+| Review | `services/thesis_validator_service.py`, `thesis_evidence_pack.py`, `thesis_validator_arbiter.py` | Consume material-event reviews without bypassing deterministic exit controls |
 | Evaluation | `Data/market_db_modules/research_runs.py`, `research_reports.py`, `services/research_inputs.py`, `shadow_portfolio.py` | Compare strategy evaluations on shared observations; collect forward outcomes |
 
 Paths beginning with `agent_*` are relative to `Python Scripts/agentCallers/`; `services/` paths are relative to `Python Scripts/`.
@@ -54,7 +54,7 @@ Paths beginning with `agent_*` are relative to `Python Scripts/agentCallers/`; `
 Current constraints to account for:
 
 - Sector/industry discovery counts high-confidence impacts; selected companies are drawn from a market-weight-ordered list.
-- The existing admission filter in `agentCallers/main.py` expects opportunist support. Adding event candidates without adapting this filter would still exclude them.
+- The existing admission filter in `agentCallers/decision_pipeline.py` expects opportunist support. Adding event candidates without adapting this filter would still exclude them.
 - Pricing gates are shadow-only, and several V2 enforcement modes require matching promotion evidence. This plan does not activate them by changing environment variables.
 - Contract pricing currently follows the manager call. Final permission must move after economics, or be implemented as a separate finalization step.
 - Streaming execution calls `on_manager_result` immediately. That callback must receive only finalized results.
@@ -334,7 +334,7 @@ chain is fetched for research theses. See [Phase 7](RESEARCH_PHASE7.md).
 
 ## Configuration and operating behavior
 
-Proposed settings should be typed in `services/config.py` or a feature-specific policy module, documented in `.env.example`, and included in manifests. These names do not exist merely because they appear in this plan.
+Proposed settings should be typed in `services/trading_config.py` or a feature-specific policy module, documented in `.env.example`, and included in manifests. These names do not exist merely because they appear in this plan.
 
 | Proposed setting | Initial behavior |
 | --- | --- |

@@ -15,7 +15,7 @@ The implementation lives primarily in:
 - [Python Scripts/trading_support/_option_positions_state.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/trading_support/_option_positions_state.py>)
 - [Python Scripts/trading_support/_option_positions_momentum.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/trading_support/_option_positions_momentum.py>)
 - [Python Scripts/services/position_manager.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/services/position_manager.py>)
-- [Python Scripts/services/config.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/services/config.py>)
+- [Python Scripts/services/trading_config.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/services/trading_config.py>)
 - [.env.example](../../.env.example)
 
 ## Big Picture

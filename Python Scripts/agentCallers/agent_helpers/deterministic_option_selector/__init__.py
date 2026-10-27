@@ -365,7 +365,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
 
 
 if __name__ == "__main__":
-    from agent_helpers.manager import test_market_context
+    from agent_helpers.manager_inputs import test_market_context
 
     symbol = str(sys.argv[1] if len(sys.argv) > 1 else "AAPL").strip().upper()
     market_test = test_market_context(symbol)

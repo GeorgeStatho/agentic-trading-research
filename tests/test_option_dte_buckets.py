@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from services.config import FrontMainSettings, OptionPositionSettings
+from services.trading_config import WorkerSettings, OptionPositionSettings
 
 
 class OptionDteBucketRegressionTests(unittest.TestCase):
@@ -26,7 +26,7 @@ class OptionDteBucketRegressionTests(unittest.TestCase):
 
         with patch.dict(os.environ, env_overrides, clear=True):
             option_position_settings = OptionPositionSettings.from_env()
-            front_main_settings = FrontMainSettings.from_env()
+            front_main_settings = WorkerSettings.from_env()
 
         rules_by_key = {rule.key: rule for rule in option_position_settings.dte_rules}
         self.assertEqual(rules_by_key["12_20"].take_profit_pct, 41.0)

@@ -87,21 +87,21 @@ def pipeline_source_hashes():
 
 def build_pipeline_version(*, settings=None):
     from services.evidence_research_policy import foundation_manifest
-    from services.config import FrontMainSettings, OptionPositionSettings, AgentPipelineSettings
+    from services.trading_config import WorkerSettings, OptionPositionSettings, AgentPipelineSettings
     from services.settings import get_settings
     from services.option_dte_buckets import OPTION_DTE_BUCKETS
     from agent_stages.strategist_runner import strategist_prompt_version
     from services.evidence_thesis_policy import EvidenceThesisPolicy
     from agent_stages.manager_runner import MANAGER_PROMPT_VERSION
     from agent_helpers.deterministic_option_selector import SELECTOR_VERSION
-    from agent_helpers.shared import _normalize_provider, _resolve_model_name
+    from agent_helpers.llm_client import _normalize_provider, _resolve_model_name
     from agent_stages.strategist_runner import decide_company_purchase
     from agent_stages.manager_runner import decide_company_option_position
     from catalyst_models import HALF_LIFE_MINUTES, CLASSIFICATION_VERSION, DECAY_BASIS
-    from services.event_thesis_review_policy import EventThesisReviewPolicy
+    from services.thesis_event_review_policy import EventThesisReviewPolicy
     from services.forward_evaluation_policy import forward_evaluation_manifest, recorded_configuration
 
-    effective_settings = settings or FrontMainSettings.from_env()
+    effective_settings = settings or WorkerSettings.from_env()
     process_settings = get_settings()
     settings_block = settings_values(effective_settings)
     thesis_policy = EvidenceThesisPolicy.from_env()

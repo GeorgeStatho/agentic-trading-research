@@ -4,8 +4,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from agent_helpers import shared
-from agent_helpers.shared import Client, ask_llm_model
+from agent_helpers import llm_client
+from agent_helpers.llm_client import Client, ask_llm_model
 from db_common import get_connection
 from market_db_modules.llm_usage_store import record_llm_call_usage
 from services.settings import OpenAICompatibleSettings, use_settings
@@ -80,7 +80,7 @@ class OpenAICompatibleRequestTests(unittest.TestCase):
 class UsageRecordTests(unittest.TestCase):
     def test_records_the_upstream_provider_tokens_and_cost(self):
         client = client_for("openai_compatible", openrouter_completion())
-        with patch.object(shared, "record_llm_call_usage") as record:
+        with patch.object(llm_client, "record_llm_call_usage") as record:
             ask_llm_model(client, "deepseek/deepseek-v4.1-flash-1017", "system", "user", response_schema=SCHEMA)
         self.assertEqual(record.call_args.args[0], {
             "model": "deepseek/deepseek-v4.1-flash-1017", "served_model": "deepseek/deepseek-v4.1-flash-1017",
@@ -89,7 +89,7 @@ class UsageRecordTests(unittest.TestCase):
 
     def test_a_failed_record_does_not_fail_the_call(self):
         client = client_for("openai_compatible", openrouter_completion())
-        with patch.object(shared, "record_llm_call_usage", side_effect=OSError("disk full")):
+        with patch.object(llm_client, "record_llm_call_usage", side_effect=OSError("disk full")):
             answer = ask_llm_model(client, "model", "system", "user", response_schema=SCHEMA)
         self.assertEqual(answer, '{"decision": "call"}')
 

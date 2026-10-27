@@ -93,7 +93,7 @@ _adjudicator_client: Any | None = None
 def get_default_client() -> Any:
     global _adjudicator_client
     if _adjudicator_client is None:
-        from agent_helpers.shared import get_model_client
+        from agent_helpers.llm_client import get_model_client
 
         _adjudicator_client = get_model_client(_stage_model().ollama_host, _stage_model().provider)
     return _adjudicator_client
@@ -231,7 +231,8 @@ def _collect_grounded_samples(
     temperature: float,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Phase 2: sample the model N times, returning (raw audit trail, grounded samples)."""
-    from agent_helpers.shared import ask_llm_model, extract_json_object
+    from agent_helpers.llm_client import ask_llm_model
+    from agent_helpers.text_utils import extract_json_object
 
     allowed_article_ids = {
         article_id

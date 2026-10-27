@@ -9,7 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from services.numbers import safe_float
-from services.config import FrontMainSettings
+from services.trading_config import WorkerSettings
 
 from market_db_modules.portfolio_risk import (
     count_option_entry_executions_since,
@@ -81,7 +81,7 @@ class OptionTradeExecutor:
     def __init__(
         self,
         *,
-        settings: FrontMainSettings,
+        settings: WorkerSettings,
         trading_gateway: Any,
         trade_journal: Any | None = None,
         thesis_journal: Any | None = None,

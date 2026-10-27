@@ -5,7 +5,7 @@ This folder contains smaller runtime scripts, smoke tests, and older experiments
 These files are not the main production path of the repo. The primary runtime path is:
 
 - [Python Scripts/main.py](../../main.py)
-- [Python Scripts/agentCallers/main.py](../main.py)
+- [Python Scripts/agentCallers/decision_pipeline.py](../main.py)
 
 ## Contents
 

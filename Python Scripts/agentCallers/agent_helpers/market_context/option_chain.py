@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
-from services.config import AlpacaSettings
+from services.trading_config import AlpacaSettings
 from services.settings import get_settings
-from .common import (
+from .alpaca_base import (
     ALPACA_IMPORT_ERROR,
     CLOSEST_EXPIRATION_GTE,
     ContractType,

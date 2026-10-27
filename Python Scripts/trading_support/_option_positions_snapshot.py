@@ -4,7 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
-from services.config import MomentumHistoryConfig, OptionPositionSettings
+from services.trading_config import MomentumHistoryConfig, OptionPositionSettings
 from services.option_momentum import evaluate_option_momentum_from_snapshot
 from services.option_position_state import get_position_state, update_position_state
 

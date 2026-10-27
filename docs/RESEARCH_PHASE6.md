@@ -166,7 +166,7 @@ instead of calling the model again.
 
 | Concern | Location |
 | --- | --- |
-| Policy | `Python Scripts/services/event_thesis_review_policy.py` |
+| Policy | `Python Scripts/services/thesis_event_review_policy.py` |
 | Review service | `Python Scripts/services/thesis_event_review.py` |
 | Queue split and debounced claim | `Data/market_db_modules/discovery_queue.py` (`claim_position_reviews`) |
 | Storage and summary | `Data/market_db_modules/thesis_event_reviews.py`, `thesis_event_reviews_schema.sql` |

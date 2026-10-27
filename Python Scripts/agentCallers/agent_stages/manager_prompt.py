@@ -10,7 +10,7 @@ from .manager_payload_context import (
     _build_manager_visible_views_summary,
 )
 from .manager_strategist_context import _build_manager_visible_strategist_context
-from .manager_shared import (
+from .manager_model import (
     DEFAULT_MANAGER_TARGET_DTE_BUCKET,
     MANAGER_REASON_MAX_CHARS,
     TARGET_DTE_BUCKET_CHOICES_TEXT,

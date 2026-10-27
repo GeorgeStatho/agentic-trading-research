@@ -17,7 +17,7 @@ TRADING_SUPPORT_DIR = PYTHON_SCRIPTS_DIR / "trading_support"
 OPTION_SYMBOL = "AAPL240621C00150000"
 
 
-from services.config import (
+from services.trading_config import (
     MomentumHistoryConfig,
     OptionPositionSettings,
     OptionPriceMomentumConfig,
@@ -64,17 +64,6 @@ def _load_option_positions_module():
         package_module = types.ModuleType(package_name)
         package_module.__path__ = [str(TRADING_SUPPORT_DIR)]
         sys.modules[package_name] = package_module
-
-    utils_module_name = f"{package_name}.utils"
-    if utils_module_name not in sys.modules:
-        utils_spec = importlib.util.spec_from_file_location(
-            utils_module_name,
-            TRADING_SUPPORT_DIR / "utils.py",
-        )
-        assert utils_spec is not None and utils_spec.loader is not None
-        utils_module = importlib.util.module_from_spec(utils_spec)
-        sys.modules[utils_module_name] = utils_module
-        utils_spec.loader.exec_module(utils_module)
 
     clients_module_name = f"{package_name}.clients"
     clients_module = types.ModuleType(clients_module_name)

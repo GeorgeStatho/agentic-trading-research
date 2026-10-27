@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from portfolio_history_service import build_portfolio_history_url
-from services.config import AlpacaSettings, ApiPaths, ApiSettings, FrontMainPaths, FrontMainSettings
+from services.trading_config import AlpacaSettings, ApiPaths, ApiSettings, WorkerPaths, WorkerSettings
 from services.thesis_validator_service import ThesisValidatorSettings
 
 
@@ -27,8 +27,8 @@ class ApiMirrorsWorkerTests(unittest.TestCase):
         env = {"MAX_CONCURRENT_OPTION_POSITIONS": "7", "AGENT_OPTION_ORDER_QTY": "not-a-number",
                "TRADE_EXECUTION_OUTPUT_PATH": "/tmp/trades.json"}
         with patch.dict("os.environ", env):
-            worker, api = FrontMainSettings.from_env(), ApiSettings.from_env()
-            worker_paths, api_paths = FrontMainPaths.from_env(), ApiPaths.from_env()
+            worker, api = WorkerSettings.from_env(), ApiSettings.from_env()
+            worker_paths, api_paths = WorkerPaths.from_env(), ApiPaths.from_env()
         self.assertEqual((api.max_concurrent_option_positions, api.default_option_order_qty),
                          (worker.max_concurrent_option_positions, worker.default_option_order_qty))
         self.assertEqual(api.default_option_order_qty, 1)

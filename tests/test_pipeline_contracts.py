@@ -9,10 +9,10 @@ import unittest
 
 from agent_stages.manager_normalization import normalize_recommendation as normalize_manager
 from agent_stages.manager_prompt import build_manager_prompt
-from agent_stages.manager_shared import MANAGER_RECOMMENDATION_SCHEMA
+from agent_stages.manager_model import MANAGER_RECOMMENDATION_SCHEMA
 from agent_stages.strategist_prompt import build_strategist_prompt
 from agent_stages.strategist_schema import strategist_recommendation_schema
-from agentCallers.main import _build_selected_option_output
+from agentCallers.decision_pipeline import _build_selected_option_output
 from services.entry_gates import ENTRY_GATES, entry_allowed
 from services.order_candidates import OrderCandidateBuilder
 

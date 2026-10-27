@@ -43,7 +43,7 @@ from ._option_positions_strategy import (
     _round_option_sell_price_to_tick,
     _structured_exit_action,
 )
-from services.config import FrontMainPaths, MomentumHistoryConfig, OptionPositionSettings
+from services.trading_config import WorkerPaths, MomentumHistoryConfig, OptionPositionSettings
 from services.option_momentum import (
     MOMENTUM_BAD,
     MOMENTUM_GOOD,
@@ -120,7 +120,7 @@ def ManageCurrentOptionPositions(
     return _manage_current_option_positions_impl(
         company,
         settings=settings or OptionPositionSettings.from_env(),
-        state_path=state_path or FrontMainPaths.from_env().option_position_state_path,
+        state_path=state_path or WorkerPaths.from_env().option_position_state_path,
         execute_sales=execute_sales,
         submit_full_exit_order=submit_full_exit_order,
         submit_partial_exit_order=submit_partial_exit_order,

@@ -21,7 +21,7 @@ from market_db_modules.backtesting import (
 from market_db_modules.backtesting import run_decision_backtest
 from market_db_modules.candidate_lifecycle import record_candidate_snapshot
 from services import llm_backtest
-from services.config import FrontMainSettings
+from services.trading_config import WorkerSettings
 from services.evidence_thesis_policy import EvidenceThesisPolicy
 from services.llm_backtest import ModelUnavailable, ProductionRules, run_llm_backtest
 from services.order_candidates import OrderCandidateBuilder
@@ -120,7 +120,7 @@ class ProductionGuardrailTests(DatabaseFixture):
 
 
 class ProductionRulesTests(unittest.TestCase):
-    LOCAL = FrontMainSettings.from_env()
+    LOCAL = WorkerSettings.from_env()
     MANIFEST = {"runtime_settings": {"execute_medium_confidence_trades": False, "max_premium_per_trade_dollars": 800.0},
                 "selector_config": {"ALLOW_RISKY_SIMPLE_FALLBACK": False}}
 

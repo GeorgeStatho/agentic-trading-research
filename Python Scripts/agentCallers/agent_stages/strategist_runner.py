@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any
 
-from services.config import AgentPipelineSettings
+from services.trading_config import AgentPipelineSettings
 from services.settings import StageModel, get_settings
 from agent_builders.strategist_payload import (
     DEFAULT_FULL_ARTICLE_LIMIT,
@@ -15,7 +15,8 @@ from agent_builders.strategist_payload import (
     DEFAULT_SUMMARY_ARTICLE_LIMIT,
     build_strategist_input,
 )
-from agent_helpers.shared import Client, ask_llm_model, extract_json_value, get_model_client
+from agent_helpers.llm_client import Client, ask_llm_model, get_model_client
+from agent_helpers.text_utils import extract_json_value
 from news_db_modules.impacts import add_strategist_company_summary
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from news_db_modules.strategist_runs import latest_answered_strategist_run, record_strategist_run

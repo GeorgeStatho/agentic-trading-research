@@ -8,7 +8,7 @@ from services.order_values import normalize_order_status
 from services.option_position_state import get_position_state, update_position_state
 
 from ._option_positions_momentum import _momentum_negative_score
-from services.config import MomentumHistoryConfig, PendingExitConfig
+from services.trading_config import MomentumHistoryConfig, PendingExitConfig
 
 from ._option_positions_defaults import PENDING_ORDER_CLEAR_STATUSES, PENDING_ORDER_OPEN_STATUSES
 from services.numbers import safe_float

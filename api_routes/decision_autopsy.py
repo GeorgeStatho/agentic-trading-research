@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
-from api_support.common import internal_error, safe_int
+from api_support.request_utils import internal_error, safe_int
 from api_support.decision_autopsy import build_decision_autopsy_payload
 
 

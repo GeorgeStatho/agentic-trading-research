@@ -25,7 +25,7 @@ def paired_manifest(base, *, role, challenger=None):
     A challenger's manifest also swaps the strategist/manager models. It is an evaluation identity,
     not a prediction of the manifest production would build after switching models.
     """
-    from agent_helpers.shared import _resolve_model_name
+    from agent_helpers.llm_client import _resolve_model_name
     manifest = copy.deepcopy(base)
     manifest.pop('pipeline_version', None)
     comparison = {'role': role, 'base_pipeline_version': base['pipeline_version'], 'selection': SELECTION_BASIS}

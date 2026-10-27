@@ -26,7 +26,7 @@ INDEX_BENCHMARK_SYMBOL = "SPY"
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
-    from agent_helpers.shared import parse_published_at
+    from agent_helpers.text_utils import parse_published_at
 
     return parse_published_at(str(value or ""))
 
@@ -123,7 +123,7 @@ def _news_since_entry(
     if not isinstance(company_id, int) or company_id <= 0:
         return []
 
-    from agent_helpers.shared import published_at_in_window
+    from agent_helpers.text_utils import published_at_in_window
     from news_db_modules.queries import list_company_news_articles
 
     articles = list_company_news_articles(company_id)

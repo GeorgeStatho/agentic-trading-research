@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 from tests.test_research_orchestrator import ResearchFixture
 from tests.research_foundation_fixtures import ENTRY
 from db_common import get_connection
-from agent_helpers.shared import Client, ask_llm_model
+from agent_helpers.llm_client import Client, ask_llm_model
 from agent_stages.research_planner import PLAN_SCHEMA, ResearchPlanner, ResearchProviderError
 from services.research_model_policy import ResearchModelPolicy, planner_manifest
 from services.research_orchestrator import ResearchOrchestrator
@@ -192,14 +192,14 @@ class GoogleSDKContractTests(unittest.TestCase):
                                                         'status': 'RESOURCE_EXHAUSTED'}})
 
     def test_real_sdk_sends_only_one_generation_request_on_429(self):
-        with patch('agent_helpers.shared.time.sleep'), self.assertRaises(Exception):
+        with patch('agent_helpers.llm_client.time.sleep'), self.assertRaises(Exception):
             ask_llm_model(self.client, 'gemini-2.5-flash', 'system', 'fixture evidence', response_schema=PLAN_SCHEMA,
                           max_output_tokens=2048, thinking_budget=1024, timeout=4, retry=False)
         self.assertEqual(len(self.requests), 1)
 
     def test_the_shared_default_still_retries(self):
         # Other stages keep VERTEX_MAX_ATTEMPTS; only callers that opt out send a single request.
-        with patch('agent_helpers.shared.time.sleep'), self.assertRaises(Exception):
+        with patch('agent_helpers.llm_client.time.sleep'), self.assertRaises(Exception):
             ask_llm_model(self.client, 'gemini-2.5-flash', 'system', 'fixture evidence')
         self.assertGreater(len(self.requests), 1)
 

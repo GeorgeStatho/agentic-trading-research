@@ -166,13 +166,13 @@ flowchart LR
 ## 3. Worker trading loop
 
 `Python Scripts/main.py` wires the services together and hands off to
-`FrontMainApplication.run_main_loop()`
-([services/front_main_application.py](../Python%20Scripts/services/front_main_application.py)).
+`WorkerApplication.run_main_loop()`
+([services/worker_application.py](../Python%20Scripts/services/worker_application.py)).
 The worker reads the pipeline state the collector already wrote; it does not scrape.
 
 ```mermaid
 flowchart TD
-    boot(["main.py → FrontMainApplication.run_main_loop()"]) --> rc["StartupReadinessChecker"]
+    boot(["main.py → WorkerApplication.run_main_loop()"]) --> rc["StartupReadinessChecker"]
     rc --> cs["ColdStartSanityChecker (optional)"]
     cs --> recon["position_manager.reconcile_outcomes()<br/>(broker round trips → decision outcomes)"]
     recon --> loop
@@ -197,7 +197,7 @@ flowchart TD
     batch --> fri
     fri{"Friday in<br/>America/New_York?"}
     fri -->|yes| nobuy["skip whole cycle:<br/>no new option entries"]
-    fri -->|no| agents["agentCallers.main<br/>run_full_agent_stack_from_existing_data()<br/>(see §4)"]
+    fri -->|no| agents["agentCallers.decision_pipeline<br/>run_full_agent_stack_from_existing_data()<br/>(see §4)"]
     agents --> cand["OrderCandidateBuilder<br/>entry_allowed(all ENTRY_GATES)<br/>+ catalyst admission<br/>+ confidence high (or medium if enabled)"]
     cand --> exec["OptionTradeExecutor.execute / execute_candidate<br/>(see §5)"]
     exec --> persist["write agent_runner_output.json,<br/>selected_options_output.json,<br/>trade_execution_output.json"]
@@ -210,7 +210,7 @@ flowchart TD
 ## 4. Per-company decision pipeline
 
 `_run_strategist_and_manager()` in
-[agentCallers/main.py](../Python%20Scripts/agentCallers/main.py). LLMs only
+[agentCallers/decision_pipeline.py](../Python%20Scripts/agentCallers/decision_pipeline.py). LLMs only
 explain and classify grounded inputs; every go/no-go is a deterministic gate.
 Every step writes a `candidate_lifecycle` checkpoint so a decision can be replayed
 and audited later.
@@ -535,7 +535,7 @@ flowchart LR
 
 ## 10. LLM provider layer
 
-All model calls go through `agent_helpers/shared.py`
+All model calls go through `agent_helpers/llm_client.py`
 (`get_model_client`, `ask_llm_model`), which picks Vertex AI, the Gemini API (AI Studio key),
 OpenAI, llama.cpp or Ollama from each stage's `<STAGE>_PROVIDER`, falling back to `LLM_PROVIDER`,
 and the per-stage model settings in `services.settings.get_settings()`. The news classifiers call
@@ -558,7 +558,7 @@ flowchart LR
         s10["startup_readiness ping"]
         s11["challenger strategist/manager (shadow)<br/>RESEARCH_CHALLENGER_*_MODEL"]
     end
-    callers --> shared["agent_helpers/shared.py<br/>ask_llm_model()<br/>system-prompt caching (Vertex),<br/>rate-limit handling, diagnostics,<br/>extract_json_value()"]
+    callers --> shared["agent_helpers/llm_client.py<br/>ask_llm_model()<br/>system-prompt caching (Vertex),<br/>rate-limit handling, diagnostics,<br/>extract_json_value()"]
     shared -->|vertex| v[("Vertex AI (Gemini)")]
     shared -->|gemini| g[("Gemini API<br/>AI Studio key")]
     shared -->|openai_compatible| oc[("Chat Completions API<br/>Mistral / Groq / OpenRouter")]

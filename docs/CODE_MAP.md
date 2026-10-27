@@ -46,8 +46,7 @@ Manager a
 │   │   ├── clients.py
 │   │   ├── option_contracts.py
 │   │   ├── option_positions.py
-│   │   ├── stock_orders.py
-│   │   └── utils.py
+│   │   └── stock_orders.py
 │   ├── Companies/
 │   │   └── Company.py
 │   ├── WritingToDataBase/
@@ -103,20 +102,21 @@ Manager a
 │       │   ├── opportunist_payload.py
 │       │   └── strategist_payload.py
 │       ├── agent_helpers/
-│       │   ├── shared.py
+│       │   ├── llm_client.py
+│       │   ├── text_utils.py
 │       │   ├── macro_news.py
 │       │   ├── sector_opportunist.py
 │       │   ├── industry_opportunist.py
 │       │   ├── company_opportunist.py
-│       │   ├── strategist.py
-│       │   └── manager.py
+│       │   ├── strategist_evidence.py
+│       │   └── manager_inputs.py
 │       ├── agent_stages/
 │       │   ├── macro_news_to_sectors.py
 │       │   ├── sector_opportunist.py
 │       │   ├── industry_opportunist.py
 │       │   ├── company_opportunist.py
-│       │   ├── strategist.py
-│       │   └── manager.py
+│       │   ├── strategist_runner.py
+│       │   └── manager_runner.py
 │       ├── agent_pipeline/
 │       │   └── main.py
 │       └── agent_runtime/
@@ -300,7 +300,7 @@ If you want to understand the repo quickly, these are the main starting points:
   - agent folder layout
 - `Python Scripts/agentCallers/agent_pipeline/main.py`
   - best place to understand current multi-stage agent orchestration
-- `Python Scripts/agentCallers/agent_stages/manager.py`
+- `Python Scripts/agentCallers/agent_stages/manager_runner.py`
   - final decision-support stage
 - `Data/db_common.py`
   - current database and connection handling
@@ -353,8 +353,8 @@ If you are onboarding to the current codebase, this order gives the clearest pic
 3. `Data/db_common.py`
 4. `Python Scripts/agentCallers/README.md`
 5. `Python Scripts/agentCallers/agent_pipeline/main.py`
-6. `Python Scripts/agentCallers/agent_stages/strategist.py`
-7. `Python Scripts/agentCallers/agent_stages/manager.py`
+6. `Python Scripts/agentCallers/agent_stages/strategist_runner.py`
+7. `Python Scripts/agentCallers/agent_stages/manager_runner.py`
 
 
 ## 6. Quick Interpretation
@@ -505,10 +505,10 @@ That split explains why the repo feels mixed: it contains both the older trading
 - `services/research_promotion.py`: policy/source-bound gate approvals and the
   singleton champion's capital guard. Runtime policy factories use this guard.
 - `services/catalyst_response_collector.py`: refreshes eligible research runs after
-  the existing catalyst/forward-return collection. `agentCallers/main.py` records
+  the existing catalyst/forward-return collection. `agentCallers/decision_pipeline.py` records
   candidate completion before research enrollment.
 - `agentCallers/agent_stages/manager_prompt.py`, `manager_normalization.py`,
-  `manager_shared.py`: versioned ordinal thesis, timing and execution confidence.
+  `manager_model.py`: versioned ordinal thesis, timing and execution confidence.
 - `scripts/v2_part6.py`: start, collect, report, status and explicit promotion commands.
 - `tests/test_v2_part6.py`: cutoff, quote-path, denominator, calibration, freeze,
   coverage and promotion tests. See `TRADINGBOT_V2_PART6_CHANGES.md` for assumptions
@@ -547,7 +547,7 @@ Policy: `services/trade_economics_policy.py`. See [Research Phase 5](RESEARCH_PH
 Phase 6 reviews open positions when a material event arrives. `services/thesis_event_review.py` claims settled
 discovery `position_review` items (`claim_position_reviews`) inside the option manager's cycle, and reuses the daily
 validator's evidence pack, adjudicator and arbiter. It records shadow-only verdicts, would-be actions and what changed
-in `thesis_event_reviews`. Policy: `services/event_thesis_review_policy.py`. See [Research Phase 6](RESEARCH_PHASE6.md).
+in `thesis_event_reviews`. Policy: `services/thesis_event_review_policy.py`. See [Research Phase 6](RESEARCH_PHASE6.md).
 
 Phase 7 makes forward evidence accumulate and ties promotion to criteria written beforehand. `begin_candidate` opens a
 rolling production cohort (`services/forward_cohorts.py`); while a challenger model pair is on, the live route freezes a

@@ -13,15 +13,14 @@ from agent_helpers.macro_news import (
     get_sector_reference,
     save_batch_results,
 )
-from agent_helpers.shared import (
+from agent_helpers.llm_client import (
     GOOGLE_GENAI_PROVIDERS,
     Client,
     ModelAnswer,
     ask_classifier_model,
-    build_token_limited_batches,
-    extract_json_object,
     get_model_client,
 )
+from agent_helpers.text_utils import build_token_limited_batches, extract_json_object
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
 

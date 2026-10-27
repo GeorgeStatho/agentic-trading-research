@@ -20,9 +20,9 @@ if __name__ == "__main__":
     load_process_settings()
 
 from services.cold_start import ColdStartSanityChecker
-from services.config import FrontMainPaths, FrontMainSettings
-from services.front_main_application import FrontMainApplication
-from services.io_utils import JsonFileWriter, StatusReporter
+from services.trading_config import WorkerPaths, WorkerSettings
+from services.worker_application import WorkerApplication
+from services.status_files import JsonFileWriter, StatusReporter
 from services.logging_utils import _build_log_path, _configure_logging
 from services.order_candidates import OrderCandidateBuilder
 from services.position_manager import OptionPositionManagerService
@@ -37,8 +37,8 @@ from services.trading_gateway import TradingClient
 
 LOGGER = logging.getLogger("front_main")
 
-APP_PATHS = FrontMainPaths.from_env()
-APP_SETTINGS = FrontMainSettings.from_env()
+APP_PATHS = WorkerPaths.from_env()
+APP_SETTINGS = WorkerSettings.from_env()
 STATUS_REPORTER = StatusReporter(APP_PATHS.status_path)
 TRADING_GATEWAY = AlpacaTradingGateway(paper=APP_SETTINGS.alpaca_paper, logger=LOGGER)
 ORDER_CANDIDATE_BUILDER = OrderCandidateBuilder(
@@ -68,7 +68,7 @@ POSITION_MANAGER = OptionPositionManagerService(
     event_thesis_reviewer=EVENT_THESIS_REVIEWER,
     logger=LOGGER,
 )
-FRONT_MAIN_APP = FrontMainApplication(
+FRONT_MAIN_APP = WorkerApplication(
     paths=APP_PATHS,
     settings=APP_SETTINGS,
     status_reporter=STATUS_REPORTER,

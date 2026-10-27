@@ -244,7 +244,7 @@ class ExecutorTests(unittest.TestCase):
 
 class StreamingFinalizationTests(unittest.TestCase):
     def setUp(self):
-        from agentCallers import main as runner
+        from agentCallers import decision_pipeline as runner
         self.runner = runner
         self.events = []
         manager = {'company': {'symbol': 'AAPL'}, 'recommendation': {'decision': 'call', 'confidence': 'high'}}

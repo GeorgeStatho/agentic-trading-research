@@ -24,13 +24,13 @@ from performance_metrics import (
 from portfolio_history_service import fetch_portfolio_history
 
 from api_support.alpaca import alpaca_data_get_json, alpaca_get_json
-from api_support.common import (
+from api_support.request_utils import (
     load_dte_exit_rule_configs,
     parse_datetime,
     read_json_payload,
     safe_json_loads,
-    safe_float,
 )
+from services.numbers import safe_float
 from api_support.context import (
     BOT_DOWN_THRESHOLD_SECONDS,
     DEFAULT_OPTION_ORDER_QTY,

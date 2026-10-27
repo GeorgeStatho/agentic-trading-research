@@ -4,7 +4,7 @@ import re
 
 from flask import jsonify, request
 
-from api_support.common import internal_error, read_json_file
+from api_support.request_utils import internal_error, read_json_file
 from api_support.context import SCRIPT_STATUS_PATH
 from api_support.dashboard import (
     build_company_decisions_payload,

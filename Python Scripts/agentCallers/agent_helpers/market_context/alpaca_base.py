@@ -5,7 +5,7 @@ import os
 from datetime import date, datetime
 from typing import Any
 
-from services.config import AlpacaSettings
+from services.trading_config import AlpacaSettings
 from services.option_dte_buckets import OPTION_DTE_BUCKETS
 from services.runtime_paths import DATA_DIR
 from services.settings import load_process_settings

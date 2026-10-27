@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.config import MomentumHistoryConfig, TrailingProfitConfig
+from services.trading_config import MomentumHistoryConfig, TrailingProfitConfig
 
 from ._option_positions_defaults import ExitThresholds
 from ._option_positions_market import _resolve_trailing_giveback_pct

@@ -7,7 +7,7 @@ from pathlib import Path
 import time
 from typing import Any, Iterable
 
-from agent_helpers.shared import ask_llm_model, get_model_client
+from agent_helpers.llm_client import ask_llm_model, get_model_client
 
 from services.env_parsing import env_flag
 from services.numbers import safe_float

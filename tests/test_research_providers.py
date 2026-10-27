@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 from tests.test_research_orchestrator import ResearchFixture
 from tests.research_foundation_fixtures import ENTRY
-from agent_helpers.shared import Client
+from agent_helpers.llm_client import Client
 from agent_stages.research_planner import ResearchPlanner, ResearchProviderError
 from agent_stages.research_thesis_writer import ResearchThesisWriter
 from services.research_model_policy import (

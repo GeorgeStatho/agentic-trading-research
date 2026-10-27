@@ -16,7 +16,7 @@ from market_db_modules.thesis_validator import (
     summarize_thesis_validator_health,
 )
 
-from api_support.common import safe_float
+from services.numbers import safe_float
 from api_support.context import logger
 from services.thesis_validator_service import ThesisValidatorSettings
 

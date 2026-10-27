@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
-from api_support.common import internal_error, safe_int
+from api_support.request_utils import internal_error, safe_int
 from api_support.context import ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE, ANALYZED_COMPANY_NEWS_MAX_PAGE_SIZE
 from api_support.news import (
     build_analyzed_company_news_payload,

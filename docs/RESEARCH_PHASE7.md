@@ -333,7 +333,7 @@ and a few seconds, to each manager decision while a challenger is on.
 | Cohorts and paired manifests | `Python Scripts/services/forward_cohorts.py`, `Data/market_db_modules/forward_evaluation.py` |
 | Decision observations | `Python Scripts/services/decision_observations.py`, `option_chain.build_bucket_chains` |
 | Challenger runner, finalization | `Python Scripts/services/challenger_evaluation.py`, `paired_decisions.py`, `evaluation_clock.py`, `strategist_runner.replay_strategist_decision_from_payload` |
-| Closing marks | `Python Scripts/services/research_marks.py`, option manager loop in `front_main_application.py` |
+| Closing marks | `Python Scripts/services/research_marks.py`, option manager loop in `worker_application.py` |
 | Comparison, acceptance, approval | `Data/market_db_modules/forward_comparison.py` |
 | Discovery and research routes | `Data/market_db_modules/discovery_evaluation.py`, `research_outcomes.py` |
 | Collector step | `Python Scripts/services/forward_evaluation.py`, `news_collector_main.py` |

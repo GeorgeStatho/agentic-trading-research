@@ -7,10 +7,10 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from agentCallers.main import run_full_agent_stack_from_existing_data
+from agentCallers.decision_pipeline import run_full_agent_stack_from_existing_data
 from services.cold_start import ColdStartSanityChecker
-from services.config import FrontMainPaths, FrontMainSettings
-from services.io_utils import JsonFileWriter, StatusReporter
+from services.trading_config import WorkerPaths, WorkerSettings
+from services.status_files import JsonFileWriter, StatusReporter
 from services.order_candidates import OrderCandidateBuilder
 from services.position_manager import OptionPositionManagerService
 from services.startup_readiness import StartupReadinessChecker
@@ -25,14 +25,14 @@ MARKET_OPEN_HOUR = 9
 MARKET_OPEN_MINUTE = 30
 
 
-class FrontMainApplication:
+class WorkerApplication:
     """Coordinate agent execution, trading, persistence, and loop scheduling."""
 
     def __init__(
         self,
         *,
-        paths: FrontMainPaths,
-        settings: FrontMainSettings,
+        paths: WorkerPaths,
+        settings: WorkerSettings,
         status_reporter: StatusReporter,
         cold_start_checker: ColdStartSanityChecker,
         trading_gateway: Any,

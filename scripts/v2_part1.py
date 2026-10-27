@@ -29,7 +29,7 @@ def main():
     if args.command == "outcomes":
         from market_db_modules.history_records import list_unresolved_manager_decisions
         from services.outcome_reconciliation import reconcile_closed_outcomes
-        from services.config import AlpacaSettings
+        from services.trading_config import AlpacaSettings
         from services.trading_gateway import AlpacaTradingGateway
         if not list_unresolved_manager_decisions():
             result = {"examined": 0, "resolved": 0, "ready": [], "unresolved": []}

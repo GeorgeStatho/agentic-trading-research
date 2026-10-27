@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from services.settings import get_settings
-from .common import (
+from .alpaca_base import (
     IV_PERCENTILE_DTE_BUCKETS,
     LOGGER,
     _serialize_scalar,
