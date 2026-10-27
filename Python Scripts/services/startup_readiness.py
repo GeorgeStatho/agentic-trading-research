@@ -9,7 +9,8 @@ from typing import Any, Iterable
 
 from agent_helpers.shared import ask_llm_model, get_model_client
 
-from services.common import env_flag, safe_float
+from services.env_parsing import env_flag
+from services.numbers import safe_float
 
 
 def startup_readiness_enabled() -> bool:

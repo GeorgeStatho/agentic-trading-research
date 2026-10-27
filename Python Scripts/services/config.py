@@ -4,17 +4,23 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from services.common import (
+from services.env_parsing import (
     env_flag,
     env_float,
     env_non_negative_int,
     env_optional_positive_int,
     env_percentage,
     env_positive_int,
-    load_exit_hours_to_expiration,
 )
 from services.option_dte_buckets import OPTION_DTE_BUCKETS
 from services.runtime_paths import DATA_DIR, LOGS_DIR, ROOT_DIR
+
+
+def _load_exit_hours_to_expiration() -> float:
+    """Hours before expiry to force an exit; the older *_DAYS_* variable is converted to hours."""
+    if os.getenv("OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION") is not None:
+        return max(0.0, env_float("OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION", 24.0))
+    return max(0.0, env_float("OPTION_POSITION_EXIT_DAYS_TO_EXPIRATION", 1.0) * 24.0)
 
 
 def _load_option_trail_giveback_pct_by_bucket_key() -> dict[str, float]:
@@ -279,7 +285,7 @@ class OptionPositionSettings:
         return cls(
             take_profit_pct=env_float("OPTION_POSITION_TAKE_PROFIT_PCT", 25.0),
             stop_loss_pct=env_float("OPTION_POSITION_STOP_LOSS_PCT", -20.0),
-            exit_hours_to_expiration=load_exit_hours_to_expiration(),
+            exit_hours_to_expiration=_load_exit_hours_to_expiration(),
             enable_trailing_profit=env_flag("OPTION_POSITION_ENABLE_TRAILING_PROFIT", False),
             trailing_profit_dry_run=env_flag("OPTION_POSITION_TRAILING_PROFIT_DRY_RUN", False),
             # Number of consecutive manager cycles the broker P/L must stay at or below the

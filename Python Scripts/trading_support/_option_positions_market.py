@@ -18,7 +18,7 @@ from ._option_positions_defaults import (
     OPTION_SYMBOL_TEMPLATE,
     OptionExitRule,
 )
-from services.common import safe_float
+from services.numbers import safe_float
 
 
 # Only reached when no bucket has a configured giveback; every registered bucket defines one.

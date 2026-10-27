@@ -44,7 +44,6 @@ It re-exports the legacy high-level helpers most other modules expect:
 - `GetCallOptionsForCompany`
 - `CloseOptionPositions`
 - `ManageCurrentOptionPositions`
-- `OPTION_EXIT_DTE_RULES`
 - `StockTrades`
 
 Use this module if you want the older “single import surface” style.
@@ -161,35 +160,28 @@ Main responsibilities:
 - submit full or partial exits
 - return a normalized summary payload for every open option position
 
+Every exit setting (thresholds, DTE rules, trailing profit, momentum, volatility scaling, limit exits,
+pending exits) lives on one `services.config.OptionPositionSettings`, read from the environment at
+call time. Nothing in this package reads environment variables.
+
 Importable dataclasses:
 
 - `OptionExitRule`
-  One resolved DTE-bucket-specific option exit rule.
+  One resolved DTE-bucket-specific option exit rule; `build_option_exit_rules(settings.dte_rules)` builds them.
 - `ExitThresholds`
   The final threshold values chosen for one position.
-- `TrailingProfitConfig`
-  Trailing-profit configuration bundle, including bucket-specific giveback mapping.
-- `PendingExitConfig`
-  Configuration for stale pending-exit handling.
-
-Important exported constants:
-
-- `DEFAULT_OPTION_TAKE_PROFIT_PCT`
-- `DEFAULT_OPTION_STOP_LOSS_PCT`
-- `DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION`
-- `OPTION_EXIT_DTE_RULES`
 
 Main public functions:
 
 - `CloseOptionPositions(company=None, trading_client_override=None)`
   Immediately closes every matching option position and returns a compact summary of what was submitted.
-- `ManageCurrentOptionPositions(...)`
-  Runs the full option-position management workflow and returns a normalized result payload describing every open option position, its diagnostics, and any submitted exit actions.
+- `ManageCurrentOptionPositions(company=None, *, settings=None, state_path=None, execute_sales=False, ...)`
+  Runs the full option-position management workflow and returns a normalized result payload describing every open option position, its diagnostics, and any submitted exit actions. `settings` and `state_path` default to `OptionPositionSettings.from_env()` and `FrontMainPaths.from_env().option_position_state_path`.
 
 Current internal module split:
 
 - `_option_positions_defaults.py`
-  Shared dataclasses, default constants, and bundled config types for the option-position workflow.
+  Exit-rule dataclasses, OCC symbol patterns, order-status sets, and `build_option_exit_rules`.
 - `_option_positions_market.py`
   Symbol parsing, DTE calculations, quote helpers, and exit-threshold resolution.
 - `_option_positions_snapshot.py`
@@ -229,7 +221,6 @@ from trading_support.option_contracts import GetCallOptionsForCompany
 from trading_support.option_positions import (
     CloseOptionPositions,
     ManageCurrentOptionPositions,
-    OPTION_EXIT_DTE_RULES,
 )
 from trading_support.stock_orders import StockTrades
 ```

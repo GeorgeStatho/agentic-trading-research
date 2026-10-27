@@ -35,7 +35,7 @@ from .normalize import _normalize_decision, _normalize_option_id
 from .volatility import _assess_contract_volatility
 from services.contract_policy import ContractPolicy
 from services.scenario_selector import select_with_scenarios
-from services.common import safe_float
+from services.numbers import safe_float
 
 
 def _passes_hybrid_fast_filters(

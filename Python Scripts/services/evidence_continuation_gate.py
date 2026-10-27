@@ -10,7 +10,7 @@ deterministic option selector.
 
 from typing import Any
 
-from services.common import safe_float
+from services.numbers import safe_float
 from services.evidence_continuation_policy import EvidenceContinuationPolicy
 from services.settings import get_settings
 from catalyst_models import PRIMARY_SOURCE_TYPES

@@ -12,7 +12,7 @@ from .common import (
     _serialize_scalar,
     compute_percentile_rank,
 )
-from services.common import safe_float
+from services.numbers import safe_float
 
 
 def _load_option_iv_history_store(path: Path | None = None) -> dict[str, Any]:

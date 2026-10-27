@@ -9,7 +9,7 @@ from services.config import AlpacaSettings
 from services.option_dte_buckets import OPTION_DTE_BUCKETS
 from services.runtime_paths import DATA_DIR
 from services.settings import load_process_settings
-from services.common import safe_float
+from services.numbers import safe_float
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ from .common import (
     _serialize_scalar,
     yf,
 )
-from services.common import safe_float
+from services.numbers import safe_float
 
 _SECTOR_ETF_MAP: dict[str, dict[str, Any]] | None = None
 

@@ -27,7 +27,7 @@ from .iv_history import (
 )
 from services.option_dte_buckets import OPTION_DTE_BUCKETS
 from services.option_hurdle_gate import select_atm_research_contracts
-from services.common import safe_float
+from services.numbers import safe_float
 
 
 def _extract_contract_items(contracts_response: Any) -> list[Any]:

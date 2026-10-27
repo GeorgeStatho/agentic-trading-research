@@ -25,7 +25,7 @@ from .market import (
 )
 from agent_helpers.volatility import summarize_iv_vs_hv
 from services.option_dte_buckets import normalize_target_dte_bucket
-from services.common import safe_float
+from services.numbers import safe_float
 
 
 def _score_iv_percentile(iv_percentile: float | None) -> dict[str, Any]:

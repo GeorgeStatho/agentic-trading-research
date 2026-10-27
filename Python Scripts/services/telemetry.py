@@ -11,7 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
-from services.common import env_flag
+from services.env_parsing import env_flag
 from services.runtime_paths import ROOT_DIR
 
 

@@ -21,17 +21,13 @@ from market_data.hydration import ensure_all_sector_market_data
 from market_db_modules.queries import get_all_companies, get_all_industries, get_all_sectors
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from services.env_parsing import env_flag, env_positive_int
 from services.io_utils import JsonFileWriter
 from services.startup_readiness import StartupReadinessChecker
 from services.telemetry import send_startup_ping_async
 
 
 LOGGER = logging.getLogger("news_collector")
-
-
-def _env_flag(name: str, default: bool) -> bool:
-    value = str(os.getenv(name, str(default))).strip().lower()
-    return value not in {"0", "false", "no", "off"}
 
 
 @dataclass(frozen=True)
@@ -43,8 +39,8 @@ class NewsCollectorSettings:
     @classmethod
     def from_env(cls) -> NewsCollectorSettings:
         return cls(
-            interval_seconds=max(60, int(os.getenv("NEWS_COLLECTION_INTERVAL_SECONDS", str(3 * 60 * 60)))),
-            cold_start_sanity_check_enabled=_env_flag("COLD_START_SANITY_CHECK", True),
+            interval_seconds=max(60, env_positive_int("NEWS_COLLECTION_INTERVAL_SECONDS", 3 * 60 * 60)),
+            cold_start_sanity_check_enabled=env_flag("COLD_START_SANITY_CHECK", True),
             output_path=Path(
                 os.getenv(
                     "NEWS_COLLECTION_OUTPUT_PATH",

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from services.common import safe_float
+from services.numbers import safe_float
 
 """Shared volatility helpers for selector and agent-stage market context.
 

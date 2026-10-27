@@ -35,7 +35,7 @@ from ._option_positions_strategy import (
 )
 from services.candidate_lifecycle import observe
 from services.position_exit_policy import build_position_exit_context
-from services.common import safe_float
+from services.numbers import safe_float
 
 _TRUSTED_ENTRY_UNDERLYING_PRICE_SOURCES = {
     "broker_fill",

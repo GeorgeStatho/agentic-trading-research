@@ -95,8 +95,8 @@ opportunist limits and the continuation policy).
 Add a new setting to the relevant section in `services/settings.py` and to `.env.example`;
 the test bootstrap uses `.env.example` to isolate tests from local configuration.
 
-Not yet on `Settings`: the legacy trading runtime's option-position defaults
-(`trading_support/_option_positions_defaults.py`), the process composition roots in
+Not yet on `Settings`: the option exit settings (`services.config.OptionPositionSettings`,
+read at call time), the process composition roots in
 `Python Scripts/main.py` and `api_support/context.py` (built from the typed settings
 classes in `services/config.py`), and `DB_PATH`, which the data layer reads when
 `db_common` is imported.

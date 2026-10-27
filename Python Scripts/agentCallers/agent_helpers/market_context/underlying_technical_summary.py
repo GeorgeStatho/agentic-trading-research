@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from services.common import safe_float
+from services.numbers import safe_float
 
 
 def _empty_technical_summary_snapshot() -> dict[str, Any]:

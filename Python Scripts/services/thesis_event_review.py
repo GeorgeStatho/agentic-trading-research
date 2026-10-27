@@ -30,7 +30,7 @@ from market_db_modules.thesis_event_reviews import (
 from market_db_modules.evidence_thesis import latest_strategist_thesis_check
 from market_db_modules.foundation_store import digest
 from market_db_modules.thesis_event_reviews import thesis_event_review_id
-from services.common import safe_float
+from services.numbers import safe_float
 from services.discovery_policy import DiscoveryPolicy
 from services.event_thesis_review_policy import EventThesisReviewPolicy
 from services.thesis_arbiter import ARBITER_POLICY_VERSION, decide_thesis_arbiter_action

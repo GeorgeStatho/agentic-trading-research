@@ -27,7 +27,7 @@ from .market import (
 )
 from .normalize import _normalize_decision
 from services.option_dte_buckets import normalize_target_dte_bucket
-from services.common import safe_float
+from services.numbers import safe_float
 
 
 def _pick_matching_contract_simple(

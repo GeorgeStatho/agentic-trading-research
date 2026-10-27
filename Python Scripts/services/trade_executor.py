@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from services.common import safe_float
+from services.numbers import safe_float
 from services.config import FrontMainSettings
 
 from market_db_modules.portfolio_risk import (

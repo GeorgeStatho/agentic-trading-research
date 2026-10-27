@@ -19,7 +19,7 @@ re-export them were removed; import the canonical modules directly.
   Importing a module never loads `.env` or reads configuration; library code calls
   `services.settings.get_settings()` when it runs.
 - Shared env parsing should live in reusable helpers or settings objects such as
-  `services/common.py` and `services/config.py`.
+  `services/env_parsing.py` and `services/config.py`.
 
 ## Agent Research System
 

@@ -10,7 +10,7 @@ from .common import (
     _get_field,
     _serialize_scalar,
 )
-from services.common import safe_float
+from services.numbers import safe_float
 
 
 def _serialize_position(position: Any) -> dict[str, Any]:

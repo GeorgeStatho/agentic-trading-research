@@ -12,7 +12,7 @@ from .market import (
 )
 from .volatility import _assess_contract_volatility
 from services.option_dte_buckets import get_dte_bucket_range
-from services.common import safe_float
+from services.numbers import safe_float
 
 
 def _resolve_dte_range(

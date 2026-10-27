@@ -1,8 +1,7 @@
+"""Read typed values from environment variables, falling back to the default on bad input."""
 from __future__ import annotations
 
 import os
-import re
-from typing import Any
 
 
 def env_flag(name: str, default: bool) -> bool:
@@ -60,40 +59,3 @@ def env_float(name: str, default: float) -> float:
         return float(raw_value)
     except ValueError:
         return float(default)
-
-
-def safe_float(value: Any) -> float | None:
-    """Convert a value to float when possible."""
-    try:
-        if value in (None, ""):
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def looks_like_option_symbol(symbol: str, asset_class: str = "") -> bool:
-    """Match Alpaca option positions by asset class or OCC-style symbol."""
-    normalized_asset_class = str(asset_class or "").strip().lower()
-    if "option" in normalized_asset_class:
-        return True
-    return bool(re.fullmatch(r"[A-Z]+\d{6}[CP]\d{8}", str(symbol or "").strip().upper()))
-
-
-def option_underlying_symbol(symbol: str) -> str:
-    """Extract the underlying ticker from a standard OCC option symbol."""
-    match = re.fullmatch(r"([A-Z]+)\d{6}[CP]\d{8}", str(symbol or "").strip().upper())
-    return match.group(1) if match is not None else ""
-
-
-def load_exit_hours_to_expiration() -> float:
-    """Preserve the existing env fallback from hours to days."""
-    raw_value = str(
-        os.getenv(
-            "OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION",
-            os.getenv("OPTION_POSITION_EXIT_DAYS_TO_EXPIRATION", "1"),
-        )
-    ).strip()
-    hours_value = float(raw_value)
-    multiplier = 1.0 if os.getenv("OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION") is not None else 24.0
-    return max(0.0, hours_value * multiplier)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from services.common import safe_float
+from services.numbers import safe_float
 
 
 MomentumStatus = Literal["good", "bad", "unknown"]

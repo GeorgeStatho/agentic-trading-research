@@ -14,7 +14,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from services.common import safe_float
+from services.numbers import safe_float
 
 
 LOGGER = logging.getLogger(__name__)
