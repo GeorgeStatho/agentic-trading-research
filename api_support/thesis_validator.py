@@ -8,7 +8,6 @@ Serves the dashboard two views of the validator's output:
 - a per-option-symbol map of the latest verdict, merged into open positions.
 """
 
-import os
 from datetime import datetime, timezone
 
 from market_db_modules.thesis_validator import (
@@ -19,6 +18,7 @@ from market_db_modules.thesis_validator import (
 
 from api_support.common import safe_float
 from api_support.context import logger
+from services.thesis_validator_service import ThesisValidatorSettings
 
 DEFAULT_RUN_LIMIT = 50
 DEFAULT_HEALTH_WINDOW_DAYS = 60
@@ -61,11 +61,11 @@ def build_thesis_validator_payload(
     health_window_days: int = DEFAULT_HEALTH_WINDOW_DAYS,
 ) -> dict:
     runs = list_thesis_validation_runs(limit=limit)
+    settings = ThesisValidatorSettings.from_env()
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
-        "mode": str(os.getenv("THESIS_VALIDATOR_MODE", "shadow")).strip().lower() or "shadow",
-        "kill_switch": str(os.getenv("THESIS_VALIDATOR_KILL_SWITCH", "")).strip().lower()
-        in {"1", "true", "yes", "on"},
+        "mode": settings.mode,
+        "kill_switch": settings.kill_switch,
         "health": summarize_thesis_validator_health(max_age_days=health_window_days),
         "run_count": len(runs),
         "runs": [_summarize_run(run) for run in runs],

@@ -48,8 +48,9 @@ def main():
     else:
         from services.execution_telemetry import reconcile_execution_telemetry
         from services.position_telemetry import ensure_tracked_positions
+        from services.config import AlpacaSettings
         from services.trading_gateway import AlpacaTradingGateway
-        gateway = AlpacaTradingGateway(paper=os.getenv('ALPACA_PAPER', 'true').lower() in {'true', '1', 'yes'},
+        gateway = AlpacaTradingGateway(paper=AlpacaSettings.from_env().paper,
                                        logger=logging.getLogger(__name__))
         result = reconcile_execution_telemetry(gateway=gateway, trading_client=gateway.create_client())
         ensure_tracked_positions()

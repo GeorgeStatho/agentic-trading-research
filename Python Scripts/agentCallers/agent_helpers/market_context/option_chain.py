@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
+from services.config import AlpacaSettings
 from services.settings import get_settings
 from .common import (
     ALPACA_IMPORT_ERROR,
@@ -14,7 +15,6 @@ from .common import (
     MAXIMUM_CONTRACT_PAGES,
     OptionChainRequest,
     PREFERRED_OTM_DISTANCE,
-    _env_flag,
     _get_alpaca_clients,
     _get_field,
     _serialize_scalar,
@@ -145,7 +145,7 @@ def _build_contract_request_debug(
         "strike_price_gte": _format_strike_filter(strike_price_gte) or "",
         "strike_price_lte": _format_strike_filter(strike_price_lte) or "",
         "limit": limit,
-        "paper": _env_flag("ALPACA_PAPER", True),
+        "paper": AlpacaSettings.from_env().paper,
     }
 
 

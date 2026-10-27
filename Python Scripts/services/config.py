@@ -183,9 +183,9 @@ class FrontMainSettings:
         market_recheck_seconds = 5 * 60
         giveback_pct_by_bucket_key = _load_option_trail_giveback_pct_by_bucket_key()
         return cls(
-            default_option_order_qty=max(1, int(os.getenv("AGENT_OPTION_ORDER_QTY", "1"))),
+            default_option_order_qty=env_positive_int("AGENT_OPTION_ORDER_QTY", 1),
             option_contract_multiplier=100,
-            run_interval_seconds=max(60, int(os.getenv("RUN_INTERVAL_SECONDS", str(3 * 60 * 60)))),
+            run_interval_seconds=max(60, env_positive_int("RUN_INTERVAL_SECONDS", 3 * 60 * 60)),
             market_recheck_seconds=market_recheck_seconds,
             main_loop_entry_cooldown_seconds_after_market_open=env_optional_positive_int(
                 "MAIN_LOOP_ENTRY_COOLDOWN_SECONDS_AFTER_MARKET_OPEN"
@@ -196,7 +196,7 @@ class FrontMainSettings:
             execute_medium_confidence_trades=env_flag("EXECUTE_MEDIUM_CONFIDENCE_TRADES", True),
             option_position_management_interval_seconds=max(
                 5,
-                int(os.getenv("OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS", str(market_recheck_seconds))),
+                env_positive_int("OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS", market_recheck_seconds),
             ),
             option_position_take_profit_pct=float(os.getenv("OPTION_POSITION_TAKE_PROFIT_PCT", "25")),
             option_position_stop_loss_pct=float(os.getenv("OPTION_POSITION_STOP_LOSS_PCT", "-20")),
@@ -359,32 +359,14 @@ class ApiPaths:
 
     @classmethod
     def from_env(cls) -> ApiPaths:
-        # Read the relevant environment variables in one place and normalize them into this settings object.
+        # The API reads the files the worker writes, so it shares the worker's paths.
+        worker = FrontMainPaths.from_env()
         return cls(
-            script_status_path=Path(
-                os.getenv("SCRIPT_STATUS_PATH", str(ROOT_DIR / "web_dashboard" / "public" / "script_status.json"))
-            ),
-            trade_execution_output_path=Path(
-                os.getenv(
-                    "TRADE_EXECUTION_OUTPUT_PATH",
-                    str(DATA_DIR / "trade_execution_output.json"),
-                )
-            ),
-            agent_output_path=Path(
-                os.getenv(
-                    "AGENT_OUTPUT_PATH",
-                    str(ROOT_DIR / "shared" / "agent_runner_output.json"),
-                )
-            ),
-            selected_options_output_path=Path(
-                os.getenv("SELECTED_OPTIONS_OUTPUT_PATH", str(DATA_DIR / "selected_options_output.json"))
-            ),
-            option_position_management_output_path=Path(
-                os.getenv(
-                    "OPTION_POSITION_MANAGEMENT_OUTPUT_PATH",
-                    str(DATA_DIR / "option_position_management_output.json"),
-                )
-            ),
+            script_status_path=worker.status_path,
+            trade_execution_output_path=worker.trade_output_path,
+            agent_output_path=worker.agent_output_path,
+            selected_options_output_path=worker.selected_options_output_path,
+            option_position_management_output_path=worker.option_position_management_output_path,
             option_manager_status_path=Path(
                 os.getenv(
                     "OPTION_MANAGER_STATUS_PATH",
@@ -416,26 +398,28 @@ class ApiSettings:
 
     @classmethod
     def from_env(cls) -> ApiSettings:
+        # Sizing and risk limits are displayed exactly as the worker enforces them.
+        worker = FrontMainSettings.from_env()
         default_page_size = env_positive_int("ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE", 5)
         return cls(
             bot_status_down_threshold_seconds=max(30, env_positive_int("BOT_STATUS_DOWN_THRESHOLD_SECONDS", 90)),
-            default_option_order_qty=env_positive_int("AGENT_OPTION_ORDER_QTY", 1),
+            default_option_order_qty=worker.default_option_order_qty,
             analyzed_company_news_default_page_size=default_page_size,
             analyzed_company_news_max_page_size=max(
                 default_page_size,
                 env_positive_int("ANALYZED_COMPANY_NEWS_MAX_PAGE_SIZE", 20),
             ),
-            max_deployable_buying_power_pct=env_percentage("MAX_DEPLOYABLE_BUYING_POWER_PCT", 30.0),
-            per_order_sizing_buying_power_pct=env_percentage("PER_ORDER_SIZING_BUYING_POWER_PCT", 30.0),
-            max_premium_per_trade_pct=env_percentage("MAX_PREMIUM_PER_TRADE_PCT", 55.0),
-            max_premium_per_trade_dollars=max(0.0, _env_float("MAX_PREMIUM_PER_TRADE_DOLLARS", 800.0)),
-            max_option_order_qty_multiplier=env_positive_int("MAX_OPTION_ORDER_QTY_MULTIPLIER", 50),
-            max_concurrent_option_positions=env_positive_int("MAX_CONCURRENT_OPTION_POSITIONS", 5),
-            max_option_sector_exposure_pct=max(0.01, env_percentage("MAX_OPTION_SECTOR_EXPOSURE_PCT", 50.0)),
-            daily_option_loss_limit_dollars=max(1.0, _env_float("DAILY_OPTION_LOSS_LIMIT_DOLLARS", 2000.0)),
-            max_symbol_entries_per_window=env_non_negative_int("MAX_OPTION_ENTRIES_PER_SYMBOL_PER_WINDOW", 0),
-            symbol_entry_window_days=env_positive_int("OPTION_SYMBOL_ENTRY_WINDOW_DAYS", 7),
-            symbol_stop_loss_cooldown_days=env_non_negative_int("OPTION_SYMBOL_STOP_LOSS_COOLDOWN_DAYS", 0),
+            max_deployable_buying_power_pct=worker.max_deployable_buying_power_pct,
+            per_order_sizing_buying_power_pct=worker.per_order_sizing_buying_power_pct,
+            max_premium_per_trade_pct=worker.max_premium_per_trade_pct,
+            max_premium_per_trade_dollars=worker.max_premium_per_trade_dollars,
+            max_option_order_qty_multiplier=worker.max_option_order_qty_multiplier,
+            max_concurrent_option_positions=worker.max_concurrent_option_positions,
+            max_option_sector_exposure_pct=worker.max_option_sector_exposure_pct,
+            daily_option_loss_limit_dollars=worker.daily_option_loss_limit_dollars,
+            max_symbol_entries_per_window=worker.max_symbol_entries_per_window,
+            symbol_entry_window_days=worker.symbol_entry_window_days,
+            symbol_stop_loss_cooldown_days=worker.symbol_stop_loss_cooldown_days,
         )
 
 

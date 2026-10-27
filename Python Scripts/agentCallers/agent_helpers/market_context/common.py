@@ -5,6 +5,7 @@ import os
 from datetime import date, datetime
 from typing import Any
 
+from services.config import AlpacaSettings
 from services.option_dte_buckets import OPTION_DTE_BUCKETS
 from services.runtime_paths import DATA_DIR
 from services.settings import load_process_settings
@@ -88,11 +89,6 @@ LOGGER = logging.getLogger("agent_helpers.market_context")
 _ALPACA_CLIENTS: dict[str, Any] | None | bool = None
 
 
-def _env_flag(name: str, default: bool) -> bool:
-    value = str(os.getenv(name, str(default))).strip().lower()
-    return value not in {"0", "false", "no", "off"}
-
-
 def _serialize_scalar(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
@@ -144,8 +140,9 @@ def _get_alpaca_clients() -> dict[str, Any] | None:
         _ALPACA_CLIENTS = False
         return None
 
-    api_key = str(os.getenv("PUBLIC_KEY") or "").strip()
-    api_secret = str(os.getenv("PRIVATE_KEY") or "").strip()
+    alpaca = AlpacaSettings.from_env()
+    api_key = alpaca.api_key
+    api_secret = alpaca.api_secret
     if not api_key or not api_secret:
         _ALPACA_CLIENTS = False
         return None
@@ -153,10 +150,9 @@ def _get_alpaca_clients() -> dict[str, Any] | None:
     os.environ.pop("APCA_OAUTH_TOKEN", None)
     os.environ.pop("ALPACA_OAUTH_TOKEN", None)
 
-    paper = _env_flag("ALPACA_PAPER", True)
     _ALPACA_CLIENTS = {
         "stock": StockHistoricalDataClient(api_key, api_secret),
         "option": OptionHistoricalDataClient(api_key, api_secret),
-        "trading": TradingClient(api_key=api_key, secret_key=api_secret, oauth_token=None, paper=paper),
+        "trading": TradingClient(api_key=api_key, secret_key=api_secret, oauth_token=None, paper=alpaca.paper),
     }
     return _ALPACA_CLIENTS
