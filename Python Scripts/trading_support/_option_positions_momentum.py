@@ -4,7 +4,7 @@ from typing import Any
 
 from services.option_momentum import MOMENTUM_BAD, MOMENTUM_GOOD, MOMENTUM_UNKNOWN
 
-from ._option_positions_defaults import OptionPriceMomentumConfig
+from services.config import OptionPriceMomentumConfig
 from services.common import safe_float
 
 MOMENTUM_MIXED = "mixed"

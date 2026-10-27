@@ -6,22 +6,23 @@ from typing import Any, Callable
 
 from alpaca.data.requests import OptionLatestQuoteRequest, StockLatestQuoteRequest
 
-from services.option_dte_buckets import DteBucket, resolve_dte_bucket_for_days
+from services.config import TrailingProfitConfig
+from services.option_dte_buckets import OPTION_DTE_BUCKETS, DteBucket, resolve_dte_bucket_for_days
 
 from .utils import mid_price
 from ._option_positions_defaults import (
-    DEFAULT_OPTION_TRAIL_7_14_GIVEBACK_PCT,
     ExitThresholds,
     MARKET_TIMEZONE,
-    OPTION_DTE_BUCKETS,
-    OPTION_EXIT_DTE_RULES,
     OPTION_EXPIRATION_MARKET_CLOSE_HOUR,
     OPTION_SYMBOL_PATTERN,
     OPTION_SYMBOL_TEMPLATE,
     OptionExitRule,
-    TrailingProfitConfig,
 )
 from services.common import safe_float
+
+
+# Only reached when no bucket has a configured giveback; every registered bucket defines one.
+_FALLBACK_TRAILING_GIVEBACK_PCT = 0.35
 
 
 def _parse_option_symbol(symbol: str) -> dict[str, Any]:
@@ -286,10 +287,13 @@ def _normalize_pct_ratio(percent_value: float | None) -> float | None:
     return round(percent_value / 100.0, 6)
 
 
-def _resolve_dte_exit_rule(days_to_expiration: int | None) -> OptionExitRule | None:
+def _resolve_dte_exit_rule(
+    days_to_expiration: int | None,
+    exit_rules: tuple[OptionExitRule, ...],
+) -> OptionExitRule | None:
     if days_to_expiration is None:
         return None
-    for rule in reversed(OPTION_EXIT_DTE_RULES):
+    for rule in reversed(exit_rules):
         if rule.min_days_to_expiration <= days_to_expiration <= rule.max_days_to_expiration:
             return rule
     return None
@@ -305,10 +309,11 @@ def _resolve_option_exit_thresholds(
     default_take_profit_pct: float,
     default_stop_loss_pct: float,
     default_exit_hours_to_expiration: float,
+    exit_rules: tuple[OptionExitRule, ...],
 ) -> ExitThresholds:
     resolved_bucket = _resolve_management_dte_bucket(days_to_expiration)
     if resolved_bucket is not None:
-        rule = next((candidate for candidate in OPTION_EXIT_DTE_RULES if candidate.label == resolved_bucket.label), None)
+        rule = next((candidate for candidate in exit_rules if candidate.label == resolved_bucket.label), None)
         if rule is not None:
             force_exit_days_to_expiration = rule.force_exit_days_to_expiration
             return ExitThresholds(
@@ -356,4 +361,4 @@ def _resolve_trailing_giveback_pct(
         return float(resolved_value)
     if trailing_profit_config.giveback_pct_by_bucket_key:
         return float(next(iter(trailing_profit_config.giveback_pct_by_bucket_key.values())))
-    return DEFAULT_OPTION_TRAIL_7_14_GIVEBACK_PCT
+    return _FALLBACK_TRAILING_GIVEBACK_PCT

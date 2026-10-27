@@ -17,14 +17,6 @@ from services.option_dte_buckets import OPTION_DTE_BUCKETS
 from services.runtime_paths import DATA_DIR, LOGS_DIR, ROOT_DIR
 
 
-def _env_float(name: str, default: float) -> float:
-    raw_value = str(os.getenv(name, str(default))).strip()
-    try:
-        return float(raw_value)
-    except ValueError:
-        return float(default)
-
-
 def _load_option_trail_giveback_pct_by_bucket_key() -> dict[str, float]:
     # Build per-bucket trailing giveback settings from the shared bucket list so
     # newly added DTE buckets inherit config support automatically.
@@ -36,7 +28,7 @@ def _load_option_trail_giveback_pct_by_bucket_key() -> dict[str, float]:
             if bucket.default_trailing_giveback_pct is not None
             else 0.45
         )
-        values[bucket.key] = _env_float(env_name, fallback)
+        values[bucket.key] = env_float(env_name, fallback)
     return values
 
 
@@ -110,32 +102,7 @@ class FrontMainSettings:
     immediate_option_execution: bool
     execute_medium_confidence_trades: bool
     option_position_management_interval_seconds: int
-    option_position_take_profit_pct: float
-    option_position_stop_loss_pct: float
-    option_position_exit_hours_to_expiration: float
-    option_position_enable_trailing_profit: bool
-    option_position_trailing_profit_dry_run: bool
-    option_position_enable_momentum_exit: bool
-    option_momentum_history_enable_after_pnl_pct: float
-    option_momentum_history_window_size: int
-    option_momentum_history_min_samples: int
-    option_momentum_history_bad_count_exit_threshold: int
-    option_momentum_history_consecutive_bad_exit_threshold: int
-    option_price_momentum_bad_giveback_threshold: float
-    option_price_momentum_mixed_giveback_threshold: float
-    option_price_momentum_good_profit_threshold: float
-    option_trail_protection_trigger_pct: float
-    option_trail_initial_floor_pct: float
-    option_trail_first_scale_out_trigger_pct: float
-    option_trail_first_scale_out_fraction: float
-    option_trail_second_scale_out_trigger_pct: float
-    option_trail_second_scale_out_fraction: float
-    option_trail_giveback_pct_by_bucket_key: dict[str, float]
-    option_trail_100_floor_pct: float
-    option_trail_150_floor_pct: float
-    option_trail_200_floor_pct: float
-    option_pending_exit_stale_minutes: float
-    option_pending_exit_cancel_on_stale: bool
+    option_positions: OptionPositionSettings
     manager_decision_pnl_retention_days: int
     max_deployable_buying_power_pct: float
     per_order_sizing_buying_power_pct: float
@@ -181,7 +148,6 @@ class FrontMainSettings:
     def from_env(cls) -> FrontMainSettings:
         # Read the relevant environment variables in one place and normalize them into this settings object.
         market_recheck_seconds = 5 * 60
-        giveback_pct_by_bucket_key = _load_option_trail_giveback_pct_by_bucket_key()
         return cls(
             default_option_order_qty=env_positive_int("AGENT_OPTION_ORDER_QTY", 1),
             option_contract_multiplier=100,
@@ -198,73 +164,7 @@ class FrontMainSettings:
                 5,
                 env_positive_int("OPTION_POSITION_MANAGEMENT_INTERVAL_SECONDS", market_recheck_seconds),
             ),
-            option_position_take_profit_pct=float(os.getenv("OPTION_POSITION_TAKE_PROFIT_PCT", "25")),
-            option_position_stop_loss_pct=float(os.getenv("OPTION_POSITION_STOP_LOSS_PCT", "-20")),
-            option_position_exit_hours_to_expiration=load_exit_hours_to_expiration(),
-            option_position_enable_trailing_profit=env_flag("OPTION_POSITION_ENABLE_TRAILING_PROFIT", False),
-            option_position_trailing_profit_dry_run=env_flag("OPTION_POSITION_TRAILING_PROFIT_DRY_RUN", False),
-            option_position_enable_momentum_exit=env_flag("OPTION_POSITION_ENABLE_MOMENTUM_EXIT", False),
-            option_momentum_history_enable_after_pnl_pct=_env_float(
-                "OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT",
-                2.00,
-            ),
-            option_momentum_history_window_size=env_positive_int(
-                "OPTION_MOMENTUM_HISTORY_WINDOW_SIZE",
-                10,
-            ),
-            option_momentum_history_min_samples=env_positive_int(
-                "OPTION_MOMENTUM_HISTORY_MIN_SAMPLES",
-                5,
-            ),
-            option_momentum_history_bad_count_exit_threshold=env_positive_int(
-                "OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD",
-                6,
-            ),
-            option_momentum_history_consecutive_bad_exit_threshold=env_positive_int(
-                "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD",
-                3,
-            ),
-            option_price_momentum_bad_giveback_threshold=_env_float(
-                "OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD",
-                0.35,
-            ),
-            option_price_momentum_mixed_giveback_threshold=_env_float(
-                "OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD",
-                0.15,
-            ),
-            option_price_momentum_good_profit_threshold=_env_float(
-                "OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD",
-                0.10,
-            ),
-            # Arm profit protection once the position's tracked peak reaches +20%,
-            # with the floor just above breakeven. Live May-Sep 2026 exits showed
-            # good outcomes peaking in the +20..+50% band and retracing to stops;
-            # floors ratchet up and never cap runners, so this harvests the band
-            # without giving up the occasional +100%+ winner.
-            option_trail_protection_trigger_pct=_env_float("OPTION_TRAIL_PROTECTION_TRIGGER_PCT", 0.20),
-            option_trail_initial_floor_pct=_env_float("OPTION_TRAIL_INITIAL_FLOOR_PCT", 0.05),
-            option_trail_first_scale_out_trigger_pct=_env_float(
-                "OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT",
-                0.55,
-            ),
-            option_trail_first_scale_out_fraction=_env_float(
-                "OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION",
-                0.50,
-            ),
-            option_trail_second_scale_out_trigger_pct=_env_float(
-                "OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT",
-                2.00,
-            ),
-            option_trail_second_scale_out_fraction=_env_float(
-                "OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION",
-                0.25,
-            ),
-            option_trail_giveback_pct_by_bucket_key=giveback_pct_by_bucket_key,
-            option_trail_100_floor_pct=_env_float("OPTION_TRAIL_100_FLOOR_PCT", 0.60),
-            option_trail_150_floor_pct=_env_float("OPTION_TRAIL_150_FLOOR_PCT", 1.00),
-            option_trail_200_floor_pct=_env_float("OPTION_TRAIL_200_FLOOR_PCT", 1.40),
-            option_pending_exit_stale_minutes=_env_float("OPTION_PENDING_EXIT_STALE_MINUTES", 10.0),
-            option_pending_exit_cancel_on_stale=env_flag("OPTION_PENDING_EXIT_CANCEL_ON_STALE", True),
+            option_positions=OptionPositionSettings.from_env(),
             manager_decision_pnl_retention_days=env_positive_int(
                 "MANAGER_DECISION_PNL_RETENTION_DAYS",
                 14,
@@ -276,11 +176,11 @@ class FrontMainSettings:
             # limit. Unlike the per-order sizing budget, this cap also refuses the
             # trade outright when even a single contract costs more than it allows.
             max_premium_per_trade_pct=env_percentage("MAX_PREMIUM_PER_TRADE_PCT", 55.0),
-            max_premium_per_trade_dollars=max(0.0, _env_float("MAX_PREMIUM_PER_TRADE_DOLLARS", 800.0)),
+            max_premium_per_trade_dollars=max(0.0, env_float("MAX_PREMIUM_PER_TRADE_DOLLARS", 800.0)),
             max_option_order_qty_multiplier=env_positive_int("MAX_OPTION_ORDER_QTY_MULTIPLIER", 50),
             max_concurrent_option_positions=env_positive_int("MAX_CONCURRENT_OPTION_POSITIONS", 5),
             max_option_sector_exposure_pct=max(0.01, env_percentage("MAX_OPTION_SECTOR_EXPOSURE_PCT", 50.0)),
-            daily_option_loss_limit_dollars=max(1.0, _env_float("DAILY_OPTION_LOSS_LIMIT_DOLLARS", 2000.0)),
+            daily_option_loss_limit_dollars=max(1.0, env_float("DAILY_OPTION_LOSS_LIMIT_DOLLARS", 2000.0)),
             # Per-underlying churn brakes: at most N submitted buys per rolling
             # window, plus a re-entry cooldown after a stop-loss exit in the same
             # underlying. Both windows are calendar days and 0 disables that brake.
@@ -308,13 +208,70 @@ class OptionExitRuleConfig:
 
 
 @dataclass(frozen=True)
+class TrailingProfitConfig:
+    protection_trigger_pct: float
+    initial_floor_pct: float
+    dynamic_giveback_start_pct: float
+    first_scale_out_trigger_pct: float
+    first_scale_out_fraction: float
+    second_scale_out_trigger_pct: float
+    second_scale_out_fraction: float
+    giveback_pct_by_bucket_key: dict[str, float]
+    floor_100_pct: float
+    floor_150_pct: float
+    floor_200_pct: float
+    enable_momentum_exit: bool
+
+
+@dataclass(frozen=True)
+class MomentumHistoryConfig:
+    enable_after_pnl_pct: float
+    window_size: int
+    min_samples: int
+    bad_count_exit_threshold: int
+    consecutive_bad_exit_threshold: int
+
+
+@dataclass(frozen=True)
+class OptionPriceMomentumConfig:
+    bad_giveback_threshold: float
+    mixed_giveback_threshold: float
+    good_profit_threshold: float
+
+
+@dataclass(frozen=True)
+class PendingExitConfig:
+    stale_minutes: float
+    cancel_on_stale: bool
+
+
+@dataclass(frozen=True)
 class OptionPositionSettings:
-    """Shared option position management settings used by API and trading helpers."""
+    """Every option exit setting: shared by the option manager, the worker manifest and the API."""
 
     take_profit_pct: float
     stop_loss_pct: float
     exit_hours_to_expiration: float
     dte_rules: tuple[OptionExitRuleConfig, ...]
+    enable_trailing_profit: bool
+    trailing_profit_dry_run: bool
+    stop_loss_confirm_checks: int
+    stop_loss_underlying_move_pct: float
+    exit_use_limit_orders: bool
+    exit_max_spread_pct: float
+    exit_tick_size_small: float
+    exit_tick_size_large: float
+    exit_tick_price_threshold: float
+    volatility_scaled_thresholds: bool
+    volatility_baseline_atr_pct: float
+    volatility_min_scale: float
+    volatility_max_scale: float
+    volatility_atr_period: int
+    volatility_atr_lookback_days: int
+    trailing: TrailingProfitConfig
+    momentum_history: MomentumHistoryConfig
+    price_momentum: OptionPriceMomentumConfig
+    pending_exit: PendingExitConfig
 
     @classmethod
     def from_env(cls) -> OptionPositionSettings:
@@ -323,6 +280,91 @@ class OptionPositionSettings:
             take_profit_pct=env_float("OPTION_POSITION_TAKE_PROFIT_PCT", 25.0),
             stop_loss_pct=env_float("OPTION_POSITION_STOP_LOSS_PCT", -20.0),
             exit_hours_to_expiration=load_exit_hours_to_expiration(),
+            enable_trailing_profit=env_flag("OPTION_POSITION_ENABLE_TRAILING_PROFIT", False),
+            trailing_profit_dry_run=env_flag("OPTION_POSITION_TRAILING_PROFIT_DRY_RUN", False),
+            # Number of consecutive manager cycles the broker P/L must stay at or below the
+            # stop-loss floor before a full exit fires. 1 preserves the legacy behavior of
+            # selling on the first breach; higher values ride out momentary dips that bounce
+            # back (option premium is leveraged and spread-noisy, so a small underlying wobble
+            # can briefly cross the floor and recover).
+            stop_loss_confirm_checks=env_positive_int("OPTION_POSITION_STOP_LOSS_CONFIRM_CHECKS", 1),
+            # Minimum adverse move in the UNDERLYING (as a fraction of the entry underlying
+            # price) required before a broker-P/L stop-loss breach is treated as real. 0.0
+            # disables the check and keeps the legacy premium-only stop. A value like 0.015
+            # means "only stop a call once the stock is down >=1.5% from entry (or a put's
+            # underlying is up >=1.5%)", so IV crush / spread noise on the option premium can
+            # no longer force an exit while the underlying itself is still fine. When the
+            # underlying baseline is unavailable or untrusted the premium stop still applies.
+            stop_loss_underlying_move_pct=max(0.0, env_float("OPTION_POSITION_STOP_LOSS_UNDERLYING_MOVE_PCT", 0.0)),
+            # When enabled, exits are submitted as limit orders priced off the live option
+            # quote (passive at the midpoint to capture spread; marketable at the bid for
+            # urgent or already-retried exits) instead of crossing the whole spread with a
+            # market order. Disabled by default so behavior is unchanged until opted in.
+            exit_use_limit_orders=env_flag("OPTION_POSITION_EXIT_USE_LIMIT_ORDERS", False),
+            # Liquidity guard: when > 0, a non-urgent exit (scale-out, momentum, trailing
+            # stop) is held for another cycle if the option's bid/ask spread exceeds this
+            # fraction of the midpoint, rather than paying up into a blown-out book. Hard
+            # risk exits (stop-loss, near-expiration) always bypass the guard. 0 disables it.
+            exit_max_spread_pct=max(0.0, env_float("OPTION_POSITION_EXIT_MAX_SPREAD_PCT", 0.0)),
+            # Tick sizes for rounding limit-exit prices to a broker-valid increment. Defaults
+            # to the OCC standard (a nickel below $3, a dime at/above), which is valid for any
+            # option class; set both to 0.01 for penny-quoted names to keep full precision.
+            # Sell limits round DOWN to the tick, so they stay valid and marketable.
+            exit_tick_size_small=env_float("OPTION_POSITION_EXIT_TICK_SIZE_SMALL", 0.05),
+            exit_tick_size_large=env_float("OPTION_POSITION_EXIT_TICK_SIZE_LARGE", 0.10),
+            exit_tick_price_threshold=env_float("OPTION_POSITION_EXIT_TICK_PRICE_THRESHOLD", 3.00),
+            # Volatility-scaled exit thresholds: when enabled, the stop-loss, take-profit, and
+            # underlying-move gate are multiplied by the underlying's ATR relative to a
+            # baseline, so a fixed -25% stop widens on a high-vol name and tightens on a calm
+            # one. Disabled by default; falls back to fixed thresholds (scale 1.0) whenever the
+            # ATR cannot be measured.
+            volatility_scaled_thresholds=env_flag("OPTION_POSITION_VOLATILITY_SCALED_THRESHOLDS", False),
+            # The underlying daily-ATR-as-fraction-of-price that maps to a 1.0x scale. A name
+            # whose ATR is this fraction of its price gets its thresholds unchanged; twice as
+            # volatile -> ~2x (subject to the min/max clamp).
+            volatility_baseline_atr_pct=env_float("OPTION_POSITION_VOLATILITY_BASELINE_ATR_PCT", 0.02),
+            volatility_min_scale=env_float("OPTION_POSITION_VOLATILITY_MIN_SCALE", 0.5),
+            volatility_max_scale=env_float("OPTION_POSITION_VOLATILITY_MAX_SCALE", 2.0),
+            volatility_atr_period=env_positive_int("OPTION_POSITION_VOLATILITY_ATR_PERIOD", 14),
+            volatility_atr_lookback_days=env_positive_int("OPTION_POSITION_VOLATILITY_ATR_LOOKBACK_DAYS", 40),
+            trailing=TrailingProfitConfig(
+                # Arm profit protection once the position's tracked peak reaches +20%,
+                # with the floor just above breakeven. Live May-Sep 2026 exits showed
+                # good outcomes peaking in the +20..+50% band and retracing to stops;
+                # floors ratchet up and never cap runners, so this harvests the band
+                # without giving up the occasional +100%+ winner.
+                protection_trigger_pct=env_float("OPTION_TRAIL_PROTECTION_TRIGGER_PCT", 0.20),
+                initial_floor_pct=env_float("OPTION_TRAIL_INITIAL_FLOOR_PCT", 0.05),
+                dynamic_giveback_start_pct=env_float("OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT", 0.75),
+                first_scale_out_trigger_pct=env_float("OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT", 0.55),
+                first_scale_out_fraction=env_float("OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION", 0.50),
+                second_scale_out_trigger_pct=env_float("OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT", 2.00),
+                second_scale_out_fraction=env_float("OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION", 0.25),
+                giveback_pct_by_bucket_key=_load_option_trail_giveback_pct_by_bucket_key(),
+                floor_100_pct=env_float("OPTION_TRAIL_100_FLOOR_PCT", 0.60),
+                floor_150_pct=env_float("OPTION_TRAIL_150_FLOOR_PCT", 1.00),
+                floor_200_pct=env_float("OPTION_TRAIL_200_FLOOR_PCT", 1.40),
+                enable_momentum_exit=env_flag("OPTION_POSITION_ENABLE_MOMENTUM_EXIT", False),
+            ),
+            momentum_history=MomentumHistoryConfig(
+                enable_after_pnl_pct=env_float("OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT", 2.00),
+                window_size=env_positive_int("OPTION_MOMENTUM_HISTORY_WINDOW_SIZE", 10),
+                min_samples=env_positive_int("OPTION_MOMENTUM_HISTORY_MIN_SAMPLES", 5),
+                bad_count_exit_threshold=env_positive_int("OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD", 6),
+                consecutive_bad_exit_threshold=env_positive_int(
+                    "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD",
+                    3,
+                ),
+            ),
+            price_momentum=OptionPriceMomentumConfig(
+                bad_giveback_threshold=env_float("OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD", 0.35),
+                mixed_giveback_threshold=env_float("OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD", 0.15),
+                good_profit_threshold=env_float("OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD", 0.10),
+            ),
+            pending_exit=PendingExitConfig(
+                stale_minutes=env_float("OPTION_PENDING_EXIT_STALE_MINUTES", 10.0),
+                cancel_on_stale=env_flag("OPTION_PENDING_EXIT_CANCEL_ON_STALE", True),
+            ),
             dte_rules=tuple(
                 OptionExitRuleConfig(
                     key=bucket.key,
