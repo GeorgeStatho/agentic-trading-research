@@ -135,6 +135,26 @@ copy instead of the configured database; the path is inside the container.
 The dashboard's **Research → V2 Rollout** page shows enforcement modes, Part 6 runs and the Phase 7
 panel. `?demo=1` shows a fictional walkthrough.
 
+### Attribution
+
+Which layer failed: the evidence, the forecast or the option trade? `attribute_decisions` (run each collector
+cycle) scores every manager decision; the report reads the stored scores. Monitoring only; it grants no authority.
+
+```
+docker compose exec worker python scripts/research.py attribution --days 0 --horizon 5
+```
+
+- `matrix`: evidence quality × direction outcome, with count and mean signed return. Each quality row also has
+  its hit rate (correct ÷ correct, wrong and flat) and a bootstrap standard error.
+- `by_evidence_source`: `thesis_check` vs `grounding_proxy`.
+- `model_self_rating_calibration`: hit rate by the strategist's own `evidence_quality`. Flat across ratings
+  means the self-rating carries no signal.
+- `primary_failure_counts`, `expression` (traded decisions only) and `abstentions` (how far the stock moved
+  after `neither`, against directional decisions).
+
+`--days` filters on when the attribution was computed; 0 means all. The Decision Autopsy page shows the same
+three labels per decision.
+
 In the first weeks, check these:
 
 - **Thesis report:** `invalid_output_rate`. If it is high, the strategist is not producing

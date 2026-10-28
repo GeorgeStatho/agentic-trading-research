@@ -20,6 +20,8 @@ type Record = {
   outcome: { trade_executed: boolean; order_id: string; pnl_pct: number | null; pnl_updated_at: string; resolved_outcome_label: string }
   execution?: { record_id: number | null; mode: ExecutionMode; paper: boolean | null; status: string; option_symbol: string; underlying_symbol: string; quantity: number | null; side: string; submitted_at: string }
   review: { status: string; headline: string; what_proved_us_wrong: string }
+  /** Null until the attribution runner has scored the decision. */
+  attribution?: { evidence_quality: string; evidence_source: string; direction_outcome: string; expression_outcome: string; primary_failure: string; horizon_returns: { [horizon: string]: number } } | null
   /** Absent from the seeded demo payload, which records no candidate lifecycle. */
   v2_verdicts?: V2Verdict[]
 }
@@ -36,6 +38,27 @@ function tone(value: string): string {
   if (normalized.includes('adverse') || normalized === 'put') return 'negative'
   if (normalized.includes('favorable') || normalized === 'call' || normalized.includes('candidate')) return 'positive'
   return 'neutral'
+}
+
+function attributionTone(value: string): string {
+  if (['strong', 'correct', 'captured'].includes(value)) return 'positive'
+  if (['weak', 'wrong', 'lost_with_direction', 'lost_despite_direction'].includes(value)) return 'negative'
+  return 'neutral'
+}
+
+/** Evidence, direction and expression of one decision, scored after the fact. Monitoring only. */
+export function AttributionRow({ attribution }: { attribution?: Record['attribution'] }) {
+  if (!attribution) return null
+  const chips = [
+    ['Evidence', attribution.evidence_quality],
+    ['Direction', attribution.direction_outcome],
+    ['Expression', attribution.expression_outcome],
+  ]
+  return <section className="autopsy-attribution">
+    <p className="autopsy-eyebrow">Attribution</p>
+    <div>{chips.map(([label, value]) => <span key={label}>{label}<i className={`autopsy-status autopsy-status--${attributionTone(value)}`}>{formatToken(value)}</i></span>)}</div>
+    <small>Primary failure: {formatToken(attribution.primary_failure)} · evidence from {formatToken(attribution.evidence_source)}</small>
+  </section>
 }
 
 function executionModeLabel(mode: ExecutionMode): string {
@@ -124,6 +147,7 @@ function DecisionAutopsyPage({ demoMode = false }: { demoMode?: boolean }) {
             <article><p className="autopsy-eyebrow">Manager decision</p><h3>{formatToken(selected.manager.decision, { placeholder: 'No trade' })}</h3><p>{selected.manager.reason || 'No manager reason was preserved.'}</p><dl><div><dt>Confidence</dt><dd>{selected.manager.confidence || 'N/A'}</dd></div><div><dt>Target DTE</dt><dd>{formatDteBucket(selected.constraints.target_dte_bucket)}</dd></div><div><dt>Contract</dt><dd>{selected.constraints.selected_option_symbol || selected.constraints.selected_option_id || 'None selected'}</dd></div><div><dt>Source</dt><dd>{formatToken(selected.constraints.selected_option_source)}</dd></div><div><dt>Spread</dt><dd>{selected.constraints.selection_debug?.selected_option_snapshot?.spread_pct === undefined || selected.constraints.selection_debug?.selected_option_snapshot?.spread_pct === null ? 'N/A' : `${(selected.constraints.selection_debug.selected_option_snapshot.spread_pct * 100).toFixed(2)}%`}</dd></div><div><dt>Open interest</dt><dd>{selected.constraints.selection_debug?.selected_option_snapshot?.open_interest ?? 'N/A'}</dd></div><div><dt>Continuation</dt><dd>{selected.constraints.entry_gate?.allowed === true ? 'Allowed' : selected.constraints.entry_gate?.allowed === false ? 'Blocked' : 'Not recorded'}</dd></div><div><dt>Regime</dt><dd>{formatToken(selected.constraints.market_regime_gate?.regime_state || selected.constraints.market_regime?.state, { placeholder: 'Not recorded' })}</dd></div><div><dt>Regime gate</dt><dd>{selected.constraints.market_regime_gate?.allowed === true ? 'Allowed' : selected.constraints.market_regime_gate?.allowed === false ? 'Blocked' : 'Not recorded'}</dd></div></dl>{selected.constraints.market_regime_gate?.reason_codes?.length ? <p>Regime reasons: {formatTokenList(selected.constraints.market_regime_gate.reason_codes)}</p> : selected.constraints.entry_gate?.reason_codes?.length ? <p>Gate reasons: {formatTokenList(selected.constraints.entry_gate.reason_codes)}</p> : null}</article>
           </div>
           <section className="autopsy-evidence"><p className="autopsy-eyebrow">Grounded Evidence</p><h3>Inputs available at decision time</h3>{selected.evidence.length ? <ul>{selected.evidence.map((article) => <li key={article.article_id}><b>{article.title || `Article ${article.article_id}`}</b><span>{[article.source, article.article_scope, article.published_at ? formatDate(article.published_at) : ''].filter(Boolean).join(' · ')}</span></li>)}</ul> : <p>No compact article references were preserved for this decision.</p>}</section>
+          <AttributionRow attribution={selected.attribution} />
           <V2VerdictList available={payload.v2_verdicts_available === true} verdicts={selected.v2_verdicts} />
         </> : <p className="autopsy-empty">No decision records are available yet.</p>}
       </section>

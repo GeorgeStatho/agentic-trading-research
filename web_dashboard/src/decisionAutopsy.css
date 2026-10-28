@@ -23,3 +23,6 @@
 .autopsy-verdict { grid-column: 2; grid-row: 1 / span 2; border: 1px solid var(--border); border-radius: 999px; padding: 4px 9px; font-size: .75rem; font-style: normal; font-weight: 700; text-transform: uppercase; }
 .autopsy-verdict--shadow { color: #ffcf87; border-color: color-mix(in srgb, #e5a94f 45%, var(--border)); }
 .autopsy-verdict--enforced { color: #fca5a5; border-color: color-mix(in srgb, #dd5a63 50%, var(--border)); }
+.autopsy-attribution { margin: 0 20px 20px; border: 1px solid var(--border); border-radius: 14px; padding: 14px; background: color-mix(in srgb, var(--bg) 94%, #202838); }
+.autopsy-attribution > div { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.autopsy-attribution > div > span { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: .75rem; text-transform: uppercase; }

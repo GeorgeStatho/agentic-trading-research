@@ -18,6 +18,10 @@ def main():
     report = subparsers.add_parser('thesis-report', help='summarise thesis checks and gate verdicts (read-only)')
     report.add_argument('--days', type=int, default=7, help='look-back window in days; 0 for all history')
     report.add_argument('--route', choices=('legacy_strategist', 'research_shadow'))
+    attribution = subparsers.add_parser('attribution',
+                                        help='evidence quality vs direction outcome of manager decisions (read-only)')
+    attribution.add_argument('--days', type=int, default=0, help='look-back window in days; 0 for all history')
+    attribution.add_argument('--horizon', type=int, choices=(5, 10), default=5, help='trading days the outcome is graded at')
     economics = subparsers.add_parser('economics', help='show one recorded trade-economics report')
     economics.add_argument('report_id')
     economics_report = subparsers.add_parser('economics-report',
@@ -60,6 +64,11 @@ def main():
             parser.error('--days must be 0 or positive')
         from market_db_modules.evidence_thesis_report import evidence_thesis_report
         result = evidence_thesis_report(days=args.days, route=args.route, db_path=db_path)
+    elif args.command == 'attribution':
+        if args.days < 0:
+            parser.error('--days must be 0 or positive')
+        from market_db_modules.decision_attribution_report import decision_attribution_report
+        result = decision_attribution_report(days=args.days, horizon=args.horizon, db_path=db_path)
     elif args.command == 'economics':
         from market_db_modules.trade_economics import get_candidate_economics_report
         result = get_candidate_economics_report(args.report_id, db_path=db_path)

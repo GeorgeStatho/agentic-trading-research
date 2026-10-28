@@ -188,7 +188,9 @@ def list_decision_autopsy_ledger(
                 execution.underlying_symbol AS execution_underlying_symbol,
                 execution.order_qty AS execution_order_qty,
                 execution.order_side AS execution_order_side,
-                execution.submitted_at AS execution_submitted_at
+                execution.submitted_at AS execution_submitted_at,
+                attribution.evidence_quality, attribution.evidence_source, attribution.direction_outcome,
+                attribution.expression_outcome, attribution.primary_failure, attribution.record_json AS attribution_json
             FROM decision_autopsy_ledger AS ledger
             LEFT JOIN manager_decision_history AS history
                 ON history.id = ledger.manager_decision_history_id
@@ -200,6 +202,8 @@ def list_decision_autopsy_ledger(
                     history.trade_execution_record_id IS NULL
                     AND execution.order_id = history.trade_execution_order_id
                 )
+            LEFT JOIN decision_attributions AS attribution
+                ON attribution.manager_decision_history_id = ledger.manager_decision_history_id
             {where_sql}
             ORDER BY ledger.decision_run_at DESC, ledger.id DESC
             LIMIT ?

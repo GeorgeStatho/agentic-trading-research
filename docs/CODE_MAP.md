@@ -582,3 +582,12 @@ the manager exactly as production does; strategist answers are cached separately
 (`services/llm_direction_score.py`) grades the same replayed answers by the stock's return over the next 5 and 10
 trading-day closes instead of trading options, so decisions from before the bucket-chain snapshots (frozen inputs
 start 2026-07-21) can be compared too; it reports how every scored stock moved as the bar a model must beat.
+
+### Decision attribution
+
+`services/decision_attribution.py` splits a manager decision's outcome into evidence quality, direction and
+expression (pure functions, plus `bootstrap_se`). `Data/market_db_modules/decision_attribution.py` stores one
+`decision_attributions` row per decision, recomputed while unsettled or on a version change.
+`services/decision_attribution_runner.py` fills it from daily closes in each collector cycle.
+`Data/market_db_modules/decision_attribution_report.py` backs `scripts/research.py attribution`, and
+`api_support/decision_autopsy.py` shows each decision's labels.
