@@ -171,12 +171,13 @@ def trace_child(db_path: str, result_path: str, start_at: str | None, limit: int
                                    "summary": "trace"}}
 
     window = {"start_at": start_at, "limit": limit, "db_path": db_path}
+    backtest_window = {**window, "keep_answers": False}  # the trace is serialised, and answers pin their frozen inputs
     results = {
-        "stored": run_llm_backtest(model="stored", **window),
+        "stored": run_llm_backtest(model="stored", **backtest_window),
         # A trace of table reads, not a scored run, so the fake model needs no knowledge cutoff.
         "fake_model": run_llm_backtest(model=FAKE_MODEL, replay_strategist=True, strategist_reuse_max_age_minutes=120,
                                        decide=fake_manager, decide_strategist=fake_strategist,
-                                       allow_unknown_cutoff=True, **window),
+                                       allow_unknown_cutoff=True, **backtest_window),
         "direction_score": run_direction_score(model="stored", **window),
     }
     Path(result_path).write_text(json.dumps({

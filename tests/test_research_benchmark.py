@@ -967,5 +967,40 @@ class CompareSignHitRateTests(unittest.TestCase):
                 self.assertAlmostEqual(stats["se"], bootstrap_se(diffs))
 
 
+
+class KeepAnswersTests(ReplayDecisions):
+    """Answers pin each decision's frozen input, so callers that only want the run must be able to decline them."""
+
+    def replay(self, **options) -> dict:
+        with patch.object(llm_backtest, "finalize", return_value=NOT_ELIGIBLE):
+            return llm_backtest.run_llm_backtest(model="test-model", decide=self.decider(), db_path=self.db_path,
+                                                 decision_ids=[self.ids[name] for name in ("a", "b", "c")], **options)
+
+    def decider(self) -> Mock:
+        return Mock(side_effect=lambda payload: {"recommendation": {"decision": MODEL_SAYS[payload["company"]["at"]],
+                                                                    "confidence": "high"}})
+
+    def test_declining_the_answers_returns_none_but_still_runs_the_backtest(self) -> None:
+        result = self.replay(keep_answers=False)
+        self.assertNotIn("answers", result)
+        self.assertEqual(result["run"]["metrics"]["replay"]["source_decision_count"], 3)
+
+    def test_the_answers_are_kept_unless_declined(self) -> None:
+        self.assertEqual(len(self.replay()["answers"]), 3)
+
+
+class BacktestCliKeepAnswersTests(unittest.TestCase):
+    def test_the_command_line_run_does_not_keep_the_answers(self) -> None:
+        path = Path(__file__).resolve().parents[1] / "Python Scripts" / "agentCallers" / "llm_backtest.py"
+        spec = importlib.util.spec_from_file_location("llm_backtest_cli", path)
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        summary = {"run": {"id": 1, "model": "stored", "prompt_version": "p", "metrics": {}}}
+        with patch.object(cli, "run_llm_backtest", return_value=summary) as backtest, \
+                patch.object(sys, "argv", ["llm_backtest.py", "--model", "stored"]), redirect_stdout(io.StringIO()):
+            cli.main()
+        self.assertIs(backtest.call_args.kwargs["keep_answers"], False)
+
+
 if __name__ == "__main__":
     unittest.main()

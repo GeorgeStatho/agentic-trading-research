@@ -31,6 +31,11 @@ class TraceChildTests(unittest.TestCase):
     def test_the_stored_trace_needs_no_override(self) -> None:
         self.assertFalse(self.trace_calls()["stored"].get("allow_unknown_cutoff", False))
 
+    def test_neither_replay_trace_keeps_the_answers(self) -> None:
+        for model, kwargs in self.trace_calls().items():
+            with self.subTest(model=model):
+                self.assertIs(kwargs["keep_answers"], False)
+
 
 if __name__ == "__main__":
     unittest.main()

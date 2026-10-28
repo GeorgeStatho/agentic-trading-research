@@ -116,7 +116,7 @@ def main() -> None:
                               fetch_missing_bars=args.fetch_missing_bars, fetch_option_quotes=args.fetch_option_quotes,
                               execute_medium_confidence=args.execute_medium_confidence,
                               min_hours_between=args.min_hours_between, replay_strategist=args.replay_strategist,
-                              strategist_reuse_max_age_minutes=args.strategist_reuse_minutes)
+                              strategist_reuse_max_age_minutes=args.strategist_reuse_minutes, keep_answers=False)
     print(json.dumps(_summary(result), indent=2, default=str))
 
 

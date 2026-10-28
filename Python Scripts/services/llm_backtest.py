@@ -608,6 +608,7 @@ def run_llm_backtest(
     decide: Decider | None = None,
     decide_strategist: Decider | None = None,
     strategist_reuse_max_age_minutes: int = 0,
+    keep_answers: bool = True,
     db_path: Any = None,
 ) -> dict[str, Any]:
     """Replay `model` (or `stored`) over the window and record the trades as a backtest run.
@@ -620,7 +621,8 @@ def run_llm_backtest(
     reuses those answers under production's reuse rule (see the module docstring). `decision_ids` replays only
     those decisions; unless `model` is `stored`, decisions within a model's knowledge cutoff plus margin are
     dropped, and a model with no known cutoff is refused unless `allow_unknown_cutoff`. The result also
-    carries every replayed `answers` entry, in replay order, for callers that score them.
+    carries every replayed `answers` entry, in replay order, for callers that score them. Answers pin their frozen
+    inputs (about 250 KB each), so long ad hoc runs should pass `keep_answers=False`, which leaves the key out.
     """
     run = ReplayRun.build(model=model, start_at=start_at, end_at=end_at, limit=limit, decision_ids=decision_ids,
                           allow_unknown_cutoff=allow_unknown_cutoff, min_hours_between=min_hours_between, replay_strategist=replay_strategist,
@@ -632,7 +634,8 @@ def run_llm_backtest(
     traded: list[dict[str, Any]] = []
     answers: list[ReplayedAnswer] = []
     for index, answer in enumerate(run.answers(tally), start=1):
-        answers.append(answer)
+        if keep_answers:
+            answers.append(answer)
         rules = ProductionRules.for_manifest(answer.frozen.manifest if answer.frozen else None, local=local_settings)
         if execute_medium_confidence:
             rules = rules.executing_medium_confidence()
@@ -682,4 +685,4 @@ def run_llm_backtest(
                        if traded else []},
     }
     result = run_decision_backtest(traded, config=config, extra_metrics={"replay": replay_summary}, db_path=db_path)
-    return {**result, "answers": answers}
+    return {**result, "answers": answers} if keep_answers else result
