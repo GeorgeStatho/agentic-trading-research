@@ -237,11 +237,13 @@ python scripts/research.py benchmark run bench-2026q3 --model MODEL --split hold
   symbol per 24 hours, balanced over sector, direction, regime, month and (once labelled) catalyst
   family. Whole symbols go to holdout, so no symbol is in both splits. The selection is stored with
   every parameter, and the same set id always selects the same items. Sets, items and runs are
-  insert-only.
+  insert-only. Abstentions (`neither`) never exceed 40% of the items actually selected, so a thin pool
+  gives a smaller set, not a skewed one.
 - **A run** replays the split's decisions with the model, then scores each in three layers: evidence
   (the replayed strategist's thesis check with `--replay-strategist`, otherwise production's, reported
   as fixed), direction (hit rate and signed return at 5 and 10 trading days, with bootstrap SEs, beside
-  the unconditional stock-move baseline) and expression (option P&L where a trade was simulated).
+  the unconditional stock-move baseline; `hit_rate` treats a move within 0.5% as a miss, so compare
+  `sign_hit_rate`, the share of graded calls whose signed return was positive, with the baseline) and expression (option P&L where a trade was simulated).
   `--model stored` is the sanity baseline: its direction hit rate equals a direct `--score-direction`
   over the same ids.
 - **Compare** pairs two runs item by item and reports, per layer, the mean difference (b minus a) with a

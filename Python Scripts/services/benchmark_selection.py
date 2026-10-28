@@ -110,9 +110,22 @@ def select_items(decisions: Sequence[dict[str, Any]], *, set_id: str, size: int,
         per_stratum[stratum] += 1
         per_symbol[pick["symbol"]] += 1
 
+    chosen = _trim_abstentions(chosen, random)
     holdout = _holdout_symbols(chosen, holdout_share, random)
     return [{"manager_decision_history_id": decision["id"], "split": "holdout" if decision["symbol"] in holdout else "dev",
              "stratum": stratum_key(decision)} for decision in sorted(chosen, key=lambda decision: decision["id"])]
+
+
+def _trim_abstentions(chosen: list[dict[str, Any]], random: Random) -> list[dict[str, Any]]:
+    """Drop seeded-random abstentions until they are at most `MAX_NEITHER_SHARE` of the items actually chosen.
+
+    The draw caps abstentions against the requested size, which a set that falls short of it can exceed.
+    """
+    abstentions = sorted((decision for decision in chosen if production_direction(decision) == "neither"),
+                         key=lambda decision: decision["id"])
+    allowed = int((len(chosen) - len(abstentions)) * MAX_NEITHER_SHARE / (1 - MAX_NEITHER_SHARE) + 1e-9)
+    dropped = {decision["id"] for decision in random.sample(abstentions, max(0, len(abstentions) - allowed))}
+    return [decision for decision in chosen if decision["id"] not in dropped]
 
 
 def _holdout_symbols(chosen: Sequence[dict[str, Any]], share: float, random: Random) -> set[str]:

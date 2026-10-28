@@ -23,6 +23,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from db_common import get_connection
+from market_db_modules.backtesting import record_historical_underlying_bar
 from market_db_modules.entities import add_company, add_industry, add_sector
 from services import llm_backtest
 from services.decision_attribution import bootstrap_se
@@ -904,6 +905,66 @@ class BenchmarkCliTests(BenchmarkPool):
             with redirect_stdout(io.StringIO()), patch("sys.stderr", io.StringIO()):
                 self.benchmark("run", "cli", "--model", "stored", "--split", "holdout", "--confirm-holdout")
         self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM research_gate_promotions")[0]["n"], 0)
+
+
+
+# --- Fix round 1: the abstention cap on the realised set, and hit rates comparable with the baseline ---------------------
+
+class RealisedSetAbstentionCapTests(unittest.TestCase):
+    def test_a_short_directional_supply_shrinks_the_set_rather_than_exceeding_the_cap(self) -> None:
+        pool = [synthetic(index, f"D{index}", day(index % 20), "call" if index < 10 else "neither") for index in range(40)]
+        items = selection().select_items(pool, set_id="short-supply", size=40, holdout_share=0.3)
+        neither = sum(item["stratum"].split("|")[1] == "neither" for item in items)
+        self.assertEqual(len(items) - neither, 10)  # every directional decision is still used
+        self.assertLessEqual(neither / len(items), 0.4)
+        self.assertEqual(neither, 6)  # floor(10 * 2 / 3)
+
+
+class SignHitRateTests(ReplayDecisions):
+    """Plan C's hit rate calls a move inside +/-0.5% flat (a miss); the baseline counts any positive signed return."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.flat = self.add_pool_decision("FLAT", AT["a"], "call")
+        for trading_day, _ in RISING_CLOSES:  # +0.25% from the 400.0 reference at every horizon
+            record_historical_underlying_bar({"symbol": "FLAT", "bar_at": f"{trading_day.isoformat()}T05:00:00+00:00",
+                                              "close": 401.0}, provider="fixture", db_path=self.db_path)
+        benchmarks().insert_benchmark_set(
+            "signs", selection_version="test", selection={"size": 2}, db_path=self.db_path,
+            items=[{"manager_decision_history_id": self.ids["a"], "split": "dev", "stratum": "rising"},
+                   {"manager_decision_history_id": self.flat, "split": "dev", "stratum": "flat"}])
+        with patch.object(llm_backtest, "finalize", return_value=NOT_ELIGIBLE):
+            self.scores = runner().run_benchmark("signs", split="dev", model=llm_backtest.STORED_MODEL,
+                                                 db_path=self.db_path)["scores"]
+
+    def test_sign_hit_rate_equals_the_direction_scorers_hit_rate(self) -> None:
+        direct = run_direction_score(model=llm_backtest.STORED_MODEL, decision_ids=[self.ids["a"], self.flat],
+                                     db_path=self.db_path)["score"]["directional"]
+        for horizon in ("5", "10"):
+            with self.subTest(horizon=horizon):
+                stats = self.scores["direction"][horizon]
+                self.assertEqual(direct[f"{horizon}d"]["hit_rate_pct"], 100.0)
+                self.assertAlmostEqual(stats["sign_hit_rate"], direct[f"{horizon}d"]["hit_rate_pct"] / 100)
+                self.assertEqual(stats["hit_rate"], 0.5)  # Plan C: the flat move is a miss
+
+    def test_sign_hit_rate_is_also_reported_per_stratum(self) -> None:
+        by_stratum = self.scores["by_stratum"]
+        self.assertEqual((by_stratum["rising"]["direction"]["5"]["sign_hit_rate"], by_stratum["rising"]["direction"]["5"]["hit_rate"]),
+                         (1.0, 1.0))
+        self.assertEqual((by_stratum["flat"]["direction"]["5"]["sign_hit_rate"], by_stratum["flat"]["direction"]["5"]["hit_rate"]),
+                         (1.0, 0.0))
+
+
+class CompareSignHitRateTests(unittest.TestCase):
+    def test_paired_sign_hit_rate_counts_items_both_runs_called_in_a_direction(self) -> None:
+        direction = runner().compare_runs(RUN_A, RUN_B)["layers"]["direction"]
+        # Item 1: a called it right, b called the opposite; item 3 the same; item 2 is a's abstention, so unpaired.
+        for horizon, diffs in (("5", [0.0 - 1.0, 1.0 - 1.0]), ("10", [0.0 - 1.0, 1.0 - 1.0])):
+            with self.subTest(horizon=horizon):
+                stats = direction[horizon]["sign_hit_rate"]
+                self.assertEqual(stats["n"], 2)
+                self.assertAlmostEqual(stats["delta"], mean(diffs))
+                self.assertAlmostEqual(stats["se"], bootstrap_se(diffs))
 
 
 if __name__ == "__main__":

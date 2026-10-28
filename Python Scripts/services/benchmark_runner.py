@@ -135,8 +135,12 @@ def _direction_stats(items: Sequence[dict[str, Any]]) -> dict[str, dict[str, Any
                        if item["direction"]["horizon_outcomes"][horizon] in GRADED), reverse=True)
         returns = sorted(value for item in items if (value := direction_value(item, horizon)) is not None
                          and item["decision"] != "neither")
+        # `hit_rate` follows Plan C (a move inside its flat band is a miss); the baseline counts any positive signed return.
+        sign_hits = [int(direction_value(item, horizon) > 0) for item in items
+                     if item["direction"]["horizon_outcomes"][horizon] in GRADED]
         stats[horizon] = {"graded": len(hits), "hit_rate": mean(hits) if hits else None,
                           "hit_rate_se": bootstrap_se(hits),
+                          "sign_hit_rate": mean(sign_hits) if sign_hits else None,
                           "mean_signed_return": mean(returns) if returns else None, "mean_signed_return_se": bootstrap_se(returns)}
     return stats
 
@@ -168,6 +172,12 @@ def evidence_value(item: dict[str, Any]) -> float | None:
     return EVIDENCE_SCORE.get(item["evidence"]["quality"]) if item.get("evidence") else None
 
 
+def sign_hit_value(item: dict[str, Any], horizon: str) -> int | None:
+    """1 if a call or put moved the stock its way at `horizon`, else 0; None for an abstention or a missing return."""
+    value = direction_value(item, horizon)
+    return None if value is None or item["decision"] not in DIRECTION_SIGN else int(value > 0)
+
+
 def expression_value(item: dict[str, Any]) -> float | None:
     return (item.get("expression") or {}).get("pnl_pct")
 
@@ -177,7 +187,8 @@ def compare_runs(run_a: dict[str, Any], run_b: dict[str, Any]) -> dict[str, Any]
 
     Items are paired by decision id and only items scored in both runs count; the others are listed in `excluded`
     with each run's status. A layer pairs an item only where both runs have a value for it. Direction compares the
-    signed return per horizon and counts the items where b beat, lost to, or matched a.
+    signed return per horizon and counts the items where b beat, lost to, or matched a; its `sign_hit_rate` pairs the
+    items both runs called in a direction.
     """
     items_a, items_b = run_a["item_scores"], run_b["item_scores"]
     status = lambda items, decision_id: items[decision_id]["status"] if decision_id in items else "absent"
@@ -195,7 +206,8 @@ def compare_runs(run_a: dict[str, Any], run_b: dict[str, Any]) -> dict[str, Any]
     for horizon in map(str, HORIZONS):
         diffs = layer(direction_value, horizon)
         direction[horizon] = {**summary(diffs), "wins": sum(diff > 0 for diff in diffs),
-                              "losses": sum(diff < 0 for diff in diffs), "ties": sum(diff == 0 for diff in diffs)}
+                              "losses": sum(diff < 0 for diff in diffs), "ties": sum(diff == 0 for diff in diffs),
+                              "sign_hit_rate": summary(layer(sign_hit_value, horizon))}
     return {"paired_items": len(paired),
             "excluded": {i: {"a": status(items_a, i), "b": status(items_b, i)} for i in ids if i not in paired},
             "layers": {"evidence": summary(layer(evidence_value)), "direction": direction,
