@@ -29,3 +29,14 @@ CREATE TABLE IF NOT EXISTS catalyst_gate_observations (
 CREATE INDEX IF NOT EXISTS idx_catalysts_family_time ON catalysts(catalyst_family, first_public_time);
 CREATE INDEX IF NOT EXISTS idx_roots_catalyst ON root_events(catalyst_id);
 CREATE INDEX IF NOT EXISTS idx_candidate_catalysts_catalyst ON candidate_catalysts(catalyst_id);
+CREATE TABLE IF NOT EXISTS catalyst_model_labels (
+    catalyst_id TEXT NOT NULL, label_version TEXT NOT NULL,
+    catalyst_type TEXT NOT NULL, direction TEXT NOT NULL, confidence TEXT NOT NULL,
+    anchor_article_id INTEGER, model TEXT NOT NULL, answered_by_json TEXT NOT NULL,
+    labeled_at TEXT NOT NULL, PRIMARY KEY (catalyst_id, label_version)
+);
+CREATE INDEX IF NOT EXISTS idx_catalyst_model_labels_time ON catalyst_model_labels(catalyst_id, labeled_at);
+CREATE TRIGGER IF NOT EXISTS catalyst_model_labels_no_update BEFORE UPDATE ON catalyst_model_labels
+BEGIN SELECT RAISE(ABORT, 'Immutable catalyst label'); END;
+CREATE TRIGGER IF NOT EXISTS catalyst_model_labels_no_delete BEFORE DELETE ON catalyst_model_labels
+BEGIN SELECT RAISE(ABORT, 'Immutable catalyst label'); END;

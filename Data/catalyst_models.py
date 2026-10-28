@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 import re
 
 CLASSIFICATION_VERSION = 'catalyst-rules-v2'
+LABEL_VERSION = 'catalyst-llm-v1'
+LABELED_CLASSIFICATION_VERSION = CLASSIFICATION_VERSION + '+' + LABEL_VERSION
 PRIMARY_SOURCE_TYPES = frozenset({'primary_filing', 'company_release', 'government', 'court_document', 'earnings_call'})
 CATALYST_TYPES = ('earnings', 'guidance', 'ma', 'regulatory', 'legal', 'product', 'customer_contract',
                  'supply_chain', 'management', 'capital_return', 'financing', 'analyst_action',
@@ -70,9 +72,10 @@ class CatalystState:
     historical_sample_size: int | None = None
     classification_version: str = CLASSIFICATION_VERSION
     classification_status: str = 'classified'
+    classification_source: str = 'rules'
 
 
-def classify_catalyst(title, summary=''):
+def detect_catalyst(title, summary=''):
     # Headline anchors the event; incidental body mentions must not replace it.
     text = str(title or summary or '').lower()
     rules = (
@@ -97,6 +100,10 @@ def classify_catalyst(title, summary=''):
     positive = bool(re.search(r'\b(raise[sd]?|beat[s]?|upgrade\w*|approv\w*|win[s]?|favorable|record)\b', text))
     negative = bool(re.search(r'\b(cut[s]?|lower\w*|miss\w*|downgrade\w*|reject\w*|deni\w*|loss|adverse)\b', text))
     direction = 'mixed' if positive and negative else 'positive' if positive else 'negative' if negative else 'unknown'
+    return kind, direction, text
+
+
+def derive_classification(kind, direction, text):
     subtype = direction if direction in {'positive', 'negative'} else 'unspecified'
     if kind == 'guidance':
         subtype = ('raise' if direction == 'positive' else 'cut' if direction == 'negative' else
@@ -142,3 +149,7 @@ def classify_catalyst(title, summary=''):
     return dict(catalyst_type=kind, catalyst_subtype=subtype, catalyst_family=family, catalyst_scope=scope,
                 direction=direction, mechanism=mechanisms[kind],
                 expected_horizon=horizon, classification_status='needs_review' if family == 'other' else 'classified')
+
+
+def classify_catalyst(title, summary=''):
+    return derive_classification(*detect_catalyst(title, summary))
