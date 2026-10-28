@@ -80,13 +80,17 @@ def _proxy_quality(signals: dict[str, Any]) -> str:
 
 
 def direction_layer(decision, payload, closes, *, now: datetime | None = None) -> dict[str, Any]:
-    """Grade the call against the stock's return from the frozen reference price at each horizon (string keys)."""
+    """Grade the call against the stock's return from the frozen reference price at each horizon (string keys).
+
+    A horizon stays `pending` until its closes exist, abstentions included, so that `abs_move` is filled in later.
+    """
     reference = _get_reference_stock_price(payload.get('market_context') or {})
     returns = returns_from_closes(reference, closes) if reference else {}
     sign = DIRECTION_SIGN.get(str(decision.get('manager_decision') or '').lower())
     elapsed = (now or datetime.now(timezone.utc)) - timestamp(decision['decision_run_at'])
     outcomes = {str(horizon): _horizon_outcome(returns.get(horizon), sign, elapsed, horizon) for horizon in HORIZONS}
-    return {'outcome': outcomes[str(PRIMARY_HORIZON)], 'primary_horizon': PRIMARY_HORIZON,
+    return {'outcome': 'abstained' if sign is None else outcomes[str(PRIMARY_HORIZON)],
+            'primary_horizon': PRIMARY_HORIZON,
             'horizon_returns': {str(horizon): value for horizon, value in returns.items()},
             'horizon_outcomes': outcomes,
             'abs_move': {str(horizon): abs(value) for horizon, value in returns.items()},
@@ -94,11 +98,11 @@ def direction_layer(decision, payload, closes, *, now: datetime | None = None) -
 
 
 def _horizon_outcome(value: float | None, sign: int | None, elapsed: timedelta, horizon: int) -> str:
-    if sign is None:
-        return 'abstained'
     if value is None:
         waited_out = elapsed > timedelta(days=ceil(horizon * 7 / 5) + HORIZON_GRACE_DAYS)
         return 'unavailable' if waited_out else 'pending'
+    if sign is None:
+        return 'abstained'
     signed = sign * value
     if signed > DIRECTION_BAND:
         return 'correct'

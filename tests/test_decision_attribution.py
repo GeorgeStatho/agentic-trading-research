@@ -578,6 +578,45 @@ class RunnerTests(AttributionDatabase):
         self.assertEqual((row['expression_outcome'], row['primary_failure']), ('lost_despite_direction', 'expression'))
 
 
+class LaterHorizonTests(AttributionDatabase):
+    """A row that settled on the 5-day horizon is still revisited until its 10-day horizon is known."""
+
+    def attribute_at(self, days_after_decision: int) -> dict:
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return DECIDED_AT + timedelta(days=days_after_decision)
+
+        with patch.object(attribution(), 'datetime', Clock):
+            return runner().attribute_decisions(db_path=self.db_path)
+
+    def closes(self, start: int, stop: int) -> None:
+        self.add_closes(*[(day.isoformat(), 410.0) for day in TRADING_DAYS[start:stop]])
+
+    def test_the_ten_day_outcome_is_filled_in_by_a_later_run(self) -> None:
+        decision_id = self.add_decision('call', reference=400.0)
+        self.closes(0, 5)
+        first = self.attribute_at(8)
+        early = self.rows()[decision_id]['record']['direction']['horizon_outcomes']
+        self.closes(5, 10)
+        second = self.attribute_at(20)
+        late = self.rows()[decision_id]['record']['direction']['horizon_outcomes']
+        self.assertEqual((first['selected'], early), (1, {'5': 'correct', '10': 'pending'}))
+        self.assertEqual((second['selected'], late), (1, {'5': 'correct', '10': 'correct'}))
+        self.assertEqual(self.attribute_at(21)['selected'], 0)
+
+    def test_an_abstentions_ten_day_move_is_filled_in_by_a_later_run(self) -> None:
+        decision_id = self.add_decision('neither', reference=400.0)
+        self.closes(0, 5)
+        self.attribute_at(8)
+        early = self.rows()[decision_id]['record']['direction']
+        self.closes(5, 10)
+        self.attribute_at(20)
+        late = self.rows()[decision_id]['record']['direction']
+        self.assertEqual((early['outcome'], set(early['abs_move'])), ('abstained', {'5'}))
+        self.assertEqual((late['outcome'], set(late['abs_move'])), ('abstained', {'5', '10'}))
+
+
 class CollectorHookTests(unittest.TestCase):
     def cycle(self, attribute_decisions):
         collector = importlib.import_module('news_collector_main')
