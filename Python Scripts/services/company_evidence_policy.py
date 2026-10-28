@@ -19,6 +19,7 @@ class CompanyEvidencePolicy:
     daily_requests: int = 500
     interval_seconds: float = 1.0
     max_response_bytes: int = 20000000
+    consensus: str = 'none'  # 'yahoo' or 'none'; from_env defaults to yahoo
 
     def __post_init__(self):
         if min(self.companies_per_cycle, self.filings_per_company, self.refresh_seconds,
@@ -26,6 +27,8 @@ class CompanyEvidencePolicy:
             raise ValueError('Company evidence limits must be positive')
         if not 0 <= self.retries <= 5 or not 0.1 <= self.interval_seconds <= 60:
             raise ValueError('Invalid company evidence retry/rate limit')
+        if self.consensus not in ('yahoo', 'none'):
+            raise ValueError('Unknown consensus provider')
 
     @classmethod
     def from_env(cls):
@@ -36,7 +39,8 @@ class CompanyEvidencePolicy:
                    stale_seconds=int(os.getenv('COMPANY_EVIDENCE_STALE_SECONDS', '604800')),
                    timeout_seconds=int(os.getenv('COMPANY_EVIDENCE_TIMEOUT_SECONDS', '20')),
                    retries=int(os.getenv('COMPANY_EVIDENCE_RETRIES', '2')),
-                   daily_requests=int(os.getenv('COMPANY_EVIDENCE_DAILY_REQUESTS', '500')))
+                   daily_requests=int(os.getenv('COMPANY_EVIDENCE_DAILY_REQUESTS', '500')),
+                   consensus=os.getenv('COMPANY_EVIDENCE_CONSENSUS', 'yahoo').strip().lower() or 'none')
 
 
 def issuer_configuration():
@@ -53,4 +57,4 @@ def provider_manifest():
     policy = CompanyEvidencePolicy.from_env()
     return {'policy': asdict(policy), 'issuer_configuration_hash': digest(issuer_configuration()),
             'enabled_providers': ['sec', 'configured_issuer'] if policy.enabled else [],
-            'consensus': 'unconfigured', 'sec_contact_configured': bool(os.getenv('SEC_USER_AGENT', '').strip())}
+            'consensus': policy.consensus if policy.consensus == 'yahoo' else 'unconfigured', 'sec_contact_configured': bool(os.getenv('SEC_USER_AGENT', '').strip())}
