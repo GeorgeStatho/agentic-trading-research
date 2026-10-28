@@ -15,11 +15,13 @@ from agent_helpers.deterministic_option_selector.market import _get_reference_st
 from catalyst_models import timestamp
 from services.llm_direction_score import DIRECTION_SIGN, HORIZONS, returns_from_closes
 
-ATTRIBUTION_VERSION = 'decision-attribution-v1'
+ATTRIBUTION_VERSION = 'decision-attribution-v2'
 PRIMARY_HORIZON = 5
 DIRECTION_BAND = 0.005
 # Calendar slack on top of a horizon's trading days (weekends are in the 7/5 factor) for holidays and late bars.
 HORIZON_GRACE_DAYS = 4
+# Closes or a trade's P&L can arrive late (a fetch outage); keep re-checking this long past the longest horizon.
+RECHECK_DAYS = 30
 STRONG_RESOLVABLE_SHARE = 0.9
 WEAK_RESOLVABLE_SHARE = 0.5
 MIN_INDEPENDENT_ROOTS = 2
@@ -28,6 +30,7 @@ BOOTSTRAP_RESAMPLES = 1000
 CENTRAL_FAILURES = ('central_claim_failed', 'package_opposing_evidence_unaddressed')
 CHECK_QUALITY = {'validated': 'strong', 'validated_with_warnings': 'adequate', 'deferred': 'weak', 'invalid_output': 'weak'}
 SUBMITTED_EXIT_PREFIX = 'managed_exit_submitted'
+OPEN_POSITION_PREFIX = 'open_'
 
 
 def evidence_layer(strategist, thesis_check, catalysts, articles, decided_at) -> dict[str, Any]:
@@ -109,20 +112,25 @@ def _horizon_outcome(value: float | None, sign: int | None, elapsed: timedelta, 
     return 'wrong' if signed < -DIRECTION_BAND else 'flat'
 
 
-def expression_layer(decision, direction) -> dict[str, Any]:
-    """Whether an executed trade captured the direction; `pnl_pct` is the realized or submitted-exit P&L."""
+def expression_layer(decision, direction, *, final: bool = False) -> dict[str, Any]:
+    """Whether an executed trade captured the direction; `pnl_pct` is the realized or submitted-exit P&L.
+
+    `final` means the re-check window has passed: a trade that is not a known open position and still has no
+    P&L is then `unavailable` rather than `pending` forever. An open position stays `pending` however long it runs.
+    """
     if not decision.get('trade_executed'):
         return {'outcome': 'not_traded', 'pnl_pct': None}
     pnl = _settled_pnl(decision)
     outcome = direction['outcome']
     if pnl is None or outcome == 'pending':
-        label = 'pending'
+        still_open = str(decision.get('resolved_outcome_label') or '').startswith(OPEN_POSITION_PREFIX)
+        label = 'unavailable' if final and outcome != 'pending' and not still_open else 'pending'
     elif outcome == 'correct':
         label = 'captured' if pnl > 0 else 'lost_despite_direction'
     elif outcome == 'wrong':
         label = 'lost_with_direction'
     else:
-        label = 'not_traded'
+        label = 'lost_in_flat' if outcome == 'flat' and pnl < 0 else 'no_direction_signal'
     return {'outcome': label, 'pnl_pct': pnl}
 
 
@@ -136,16 +144,22 @@ def _settled_pnl(decision) -> float | None:
 
 
 def attribute(decision, payload, thesis_check, catalysts, closes, *, now: datetime | None = None) -> dict[str, Any]:
-    """All three layers for one decision, plus the one layer that failed first."""
+    """All three layers for one decision, plus the one layer that failed first.
+
+    `settled` is false while a missing horizon could still be filled in by late closes.
+    """
     supporting = payload.get('supporting_articles') or {}
     articles = [*supporting.get('article_summaries', []), *supporting.get('full_articles', [])]
-    evidence = evidence_layer(payload.get('strategist_recommendation'), thesis_check, catalysts, articles,
-                              timestamp(decision['decision_run_at']))
+    decided_at = timestamp(decision['decision_run_at'])
+    evidence = evidence_layer(payload.get('strategist_recommendation'), thesis_check, catalysts, articles, decided_at)
     direction = direction_layer(decision, payload, closes, now=now)
-    expression = expression_layer(decision, direction)
+    final = (now or datetime.now(timezone.utc)) - decided_at > timedelta(
+        days=ceil(max(HORIZONS) * 7 / 5) + HORIZON_GRACE_DAYS + RECHECK_DAYS)
+    expression = expression_layer(decision, direction, final=final)
     return {'manager_decision_history_id': decision['id'], 'attribution_version': ATTRIBUTION_VERSION,
             'evidence': evidence, 'direction': direction, 'expression': expression,
-            'primary_failure': _primary_failure(evidence['quality'], direction['outcome'], expression['outcome'])}
+            'primary_failure': _primary_failure(evidence['quality'], direction['outcome'], expression['outcome']),
+            'settled': final or 'unavailable' not in direction['horizon_outcomes'].values()}
 
 
 def _primary_failure(evidence_quality: str, direction_outcome: str, expression_outcome: str) -> str:
@@ -153,7 +167,7 @@ def _primary_failure(evidence_quality: str, direction_outcome: str, expression_o
         return 'evidence' if evidence_quality == 'weak' else 'forecast'
     if direction_outcome == 'pending' or (direction_outcome == 'correct' and expression_outcome == 'pending'):
         return 'pending'
-    return 'expression' if expression_outcome == 'lost_despite_direction' else 'none'
+    return 'expression' if expression_outcome in ('lost_despite_direction', 'lost_in_flat') else 'none'
 
 
 def bootstrap_se(values, *, n: int = BOOTSTRAP_RESAMPLES, seed: int = 0) -> float | None:

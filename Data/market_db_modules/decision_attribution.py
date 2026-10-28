@@ -16,9 +16,11 @@ PENDING = 'pending'
 
 
 def _unsettled(table: str) -> str:
-    """SQL for a stored row that may still change: pending, or with a horizon whose closes have not arrived yet."""
+    """SQL for a stored row that may still change: pending, with a horizon whose closes have not arrived yet, or
+    still inside the window where late closes may replace an `unavailable` horizon."""
     return (f"({table}.primary_failure = '{PENDING}' OR EXISTS (SELECT 1 FROM json_each({table}.record_json, "
-            f"'$.direction.horizon_outcomes') WHERE value = '{PENDING}'))")
+            f"'$.direction.horizon_outcomes') WHERE value = '{PENDING}') "
+            f"OR json_extract({table}.record_json, '$.settled') = 0)")
 
 
 def upsert_attribution(record: dict[str, Any], *, db_path: Path | str | None = None) -> None:
@@ -63,7 +65,7 @@ def list_attributions(*, since: str | None = None, db_path: Path | str | None = 
 
 
 def decisions_needing_attribution(limit: int, *, db_path: Path | str | None = None) -> list[dict[str, Any]]:
-    """Decisions with no attribution, a pending one or one from another version, oldest first.
+    """Decisions with no attribution (oldest first), then unsettled or out-of-version ones (least recently computed first).
 
     Each row is the history row with its frozen manager input/output text (as `llm_replay_store` lists them), the
     candidate's forward residual return, its primary catalyst state and its Phase 4 thesis check; None where absent.
@@ -82,7 +84,7 @@ def decisions_needing_attribution(limit: int, *, db_path: Path | str | None = No
                    ON catalyst.candidate_id = history.candidate_id AND catalyst.is_primary = 1
             WHERE stored.manager_decision_history_id IS NULL OR {_unsettled('stored')}
                OR stored.attribution_version != ?
-            ORDER BY history.decision_run_at, history.id
+            ORDER BY stored.manager_decision_history_id IS NOT NULL, stored.computed_at, history.decision_run_at, history.id
             LIMIT ?
             """,
             (ATTRIBUTION_VERSION, max(1, int(limit))),

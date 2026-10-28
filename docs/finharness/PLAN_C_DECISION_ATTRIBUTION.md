@@ -37,7 +37,7 @@ Decision Autopsy show the evidence × direction matrix, and show whether the str
 ## Changes
 
 ### 1. Pure scoring: `Python Scripts/services/decision_attribution.py`
-`ATTRIBUTION_VERSION = 'decision-attribution-v1'`. All functions are pure and get their data
+`ATTRIBUTION_VERSION = 'decision-attribution-v2'`. All functions are pure and get their data
 passed in.
 
 **`evidence_layer(strategist, thesis_check, catalysts, articles, decided_at) -> dict`**
@@ -83,7 +83,8 @@ The model's self-ratings (`evidence_quality`, `contradictions_present`) are copi
 - `neither` / `do_not_buy` gives `abstained`, with `abs_move` recorded so missed moves are
   visible.
 - Missing closes give `pending` while the horizon has not elapsed, and `unavailable` after it
-  has.
+  has. An `unavailable` horizon is re-checked for `RECHECK_DAYS` (30) past the longest horizon's
+  window, so a price-fetch outage does not settle a call for good; `record.settled` is false until then.
 - When `forward_residual_return` exists, also record it as a beta-adjusted cross-check.
 - The primary horizon is 5 days. Both are stored.
 
@@ -92,13 +93,17 @@ The model's self-ratings (`evidence_quality`, `contradictions_present`) are copi
 - `captured`: direction correct and P&L > 0.
 - `lost_despite_direction`: direction correct and P&L ≤ 0.
 - `lost_with_direction`: direction wrong.
-- Otherwise `not_traded` or `pending`.
+- `lost_in_flat`: direction flat and P&L < 0 (premium decay on a move inside the band).
+- `no_direction_signal`: traded, but the direction is flat (P&L ≥ 0), unavailable or abstained.
+- `pending` while the P&L is unknown. Past the re-check window, a trade that is not a known open
+  position (`open_*`) and still has no P&L becomes `unavailable`.
+- Untraded decisions are `not_traded`.
 
 **`attribute(...) -> dict`** combines the three layers and adds a one-word
 `primary_failure ∈ {evidence, forecast, expression, none, pending}`, using this precedence:
 1. weak evidence plus a wrong direction gives `evidence`;
 2. adequate or strong evidence plus a wrong direction gives `forecast`;
-3. a correct direction plus a lost trade gives `expression`.
+3. a correct direction plus a lost trade, or a flat direction plus a losing trade, gives `expression`.
 
 ### 2. Persistence ([`Data/market_schema.sql`](../../Data/market_schema.sql), plus `Data/market_db_modules/decision_attribution.py`)
 ```sql
@@ -110,11 +115,12 @@ CREATE TABLE IF NOT EXISTS decision_attributions (
 CREATE INDEX IF NOT EXISTS idx_decision_attributions_failure ON decision_attributions(primary_failure);
 ```
 Functions:
-- `upsert_attribution(record, *, db_path=None)`. A row is replaced only while it is `pending`
-  or on an older `attribution_version`. Settled rows are left alone.
+- `upsert_attribution(record, *, db_path=None)`. A row is replaced only while it is `pending`, has
+  `settled = false`, or is on an older `attribution_version`. Settled rows are left alone.
 - `list_attributions(*, since=None, db_path=None)`
-- `decisions_needing_attribution(limit, *, db_path=None)`: decisions with no row, a pending
-  row, or a stale version, oldest first. It joins:
+- `decisions_needing_attribution(limit, *, db_path=None)`: decisions with no row first (oldest
+  first), then unsettled or stale-version rows, least recently computed first, so re-checks never
+  starve new decisions. It joins:
   - `manager_decision_payloads` (frozen input/output, as `llm_replay_store` does);
   - `evidence_thesis_checks` on `candidate_id`;
   - the primary `candidate_catalysts` row.
@@ -138,7 +144,7 @@ Add an `attribution` subcommand to [`scripts/research.py`](../../scripts/researc
 - `model_self_rating_calibration`: hit rate by the strategist's own `evidence_quality` value.
   This shows whether the self-rating carries signal.
 - `primary_failure_counts`.
-- `expression`, for traded decisions only: captured vs lost_despite_direction.
+- `expression`, for traded decisions only: every traded outcome above, `pending` and `unavailable` included.
 - `abstentions`: the distribution of `abs_move` for `neither`, against directional decisions.
 - Bootstrap standard errors (n=1000, seeded) on hit rates. Put the helper in
   `services/decision_attribution.py` so plan B can reuse it.

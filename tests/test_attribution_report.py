@@ -36,7 +36,7 @@ def row(name, decision, quality, source, self_rating, h5, h10, *, failure='none'
     signals = {} if source == 'thesis_check' else {'model_self_rating': {'evidence_quality': self_rating,
                                                                          'contradictions_present': False}}
     return {'name': name, 'decision': decision, 'failure': failure, 'record': {
-        'attribution_version': 'decision-attribution-v1',
+        'attribution_version': 'decision-attribution-v2',
         'evidence': {'quality': quality, 'source': source, 'signals': signals},
         'direction': {'outcome': 'abstained' if decision == 'neither' else h5[0], 'primary_horizon': 5,
                       'horizon_outcomes': {key: outcome for key, (outcome, _) in horizons.items()},

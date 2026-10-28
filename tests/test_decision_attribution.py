@@ -293,6 +293,20 @@ class ExpressionLayerTests(unittest.TestCase):
     def test_a_trade_is_pending_until_the_direction_is_known(self) -> None:
         self.assertEqual(self.expression('pending', trade_executed=1, realized_pnl_pct=0.4), 'pending')
 
+    def test_a_trade_on_a_flat_move_that_lost_was_lost_in_flat(self) -> None:
+        self.assertEqual(self.expression('flat', trade_executed=1, realized_pnl_pct=-0.3), 'lost_in_flat')
+
+    def test_a_trade_without_a_directional_grade_is_still_reported_as_traded(self) -> None:
+        for outcome, pnl in (('flat', 0.2), ('flat', 0.0), ('unavailable', -0.3), ('abstained', 0.1)):
+            with self.subTest(outcome=outcome, pnl=pnl):
+                self.assertEqual(self.expression(outcome, trade_executed=1, realized_pnl_pct=pnl), 'no_direction_signal')
+
+    def test_a_trade_still_without_pnl_after_the_recheck_window_is_unavailable(self) -> None:
+        layer = attribution().expression_layer
+        self.assertEqual(layer(order('call', trade_executed=1), {'outcome': 'correct'})['outcome'], 'pending')
+        self.assertEqual(layer(order('call', trade_executed=1), {'outcome': 'correct'}, final=True)['outcome'],
+                         'unavailable')
+
 
 class PrimaryFailureTests(unittest.TestCase):
     LOST = {'trade_executed': 1, 'realized_pnl_pct': -0.3}
@@ -308,7 +322,7 @@ class PrimaryFailureTests(unittest.TestCase):
     def test_the_record_carries_the_ids_the_layers_and_the_version(self) -> None:
         record = self.attribute('call', closes_with(102.0, 102.0), **self.WON)
         self.assertEqual((record['manager_decision_history_id'], record['attribution_version']),
-                         (7, 'decision-attribution-v1'))
+                         (7, 'decision-attribution-v2'))
         self.assertEqual((record['evidence']['quality'], record['direction']['outcome'],
                           record['expression']['outcome']), ('weak', 'correct', 'captured'))
 
@@ -349,9 +363,29 @@ class PrimaryFailureTests(unittest.TestCase):
                                          now=DECIDED_AT + timedelta(days=90))
         self.assertEqual((record['direction']['outcome'], record['primary_failure']), ('unavailable', 'none'))
 
-    def test_a_flat_direction_with_a_losing_trade_has_no_failure(self) -> None:
+    def test_a_flat_direction_with_a_losing_trade_blames_the_expression(self) -> None:
         record = self.attribute('call', closes_with(100.2, 100.2), **self.LOST)
-        self.assertEqual((record['direction']['outcome'], record['primary_failure']), ('flat', 'none'))
+        self.assertEqual((record['direction']['outcome'], record['expression']['outcome'], record['primary_failure']),
+                         ('flat', 'lost_in_flat', 'expression'))
+
+    def test_a_correct_trade_that_never_reports_pnl_settles_after_the_recheck_window(self) -> None:
+        decision = order('call', trade_executed=1)
+        frozen = payload(strategist_recommendation=strategist())
+        early = attribution().attribute(decision, frozen, None, [], closes_with(102.0, 102.0), now=DECIDED_AT + timedelta(days=20))
+        late = attribution().attribute(decision, frozen, None, [], closes_with(102.0, 102.0), now=DECIDED_AT + timedelta(days=49))
+        self.assertEqual((early['expression']['outcome'], early['primary_failure']), ('pending', 'pending'))
+        self.assertEqual((late['expression']['outcome'], late['primary_failure'], late['settled']),
+                         ('unavailable', 'none', True))
+
+    def test_a_missing_horizon_is_rechecked_for_thirty_days_past_its_window(self) -> None:
+        frozen = payload(strategist_recommendation=strategist())
+        settled = {days: attribution().attribute(order('call'), frozen, None, [], [], now=DECIDED_AT + timedelta(days=days))
+                   for days in (20, 48, 49)}
+        self.assertEqual({days: (record['direction']['outcome'], record['settled']) for days, record in settled.items()},
+                         {20: ('unavailable', False), 48: ('unavailable', False), 49: ('unavailable', True)})
+        graded = attribution().attribute(order('call'), frozen, None, [], closes_with(102.0, 102.0),
+                                         now=DECIDED_AT + timedelta(days=20))
+        self.assertTrue(graded['settled'])
 
     def test_a_wrong_direction_is_settled_even_while_the_trade_is_open(self) -> None:
         record = self.attribute('call', closes_with(97.0, 97.0), trade_executed=1, latest_trade_pnl_pct=-0.1,
@@ -451,7 +485,7 @@ class PersistenceTests(AttributionDatabase):
         row = self.rows()[decision_id]
         self.assertEqual((row['attribution_version'], row['evidence_quality'], row['evidence_source'],
                           row['direction_outcome'], row['expression_outcome'], row['primary_failure']),
-                         ('decision-attribution-v1', 'weak', 'grounding_proxy', 'wrong', 'not_traded', 'forecast'))
+                         ('decision-attribution-v2', 'weak', 'grounding_proxy', 'wrong', 'not_traded', 'forecast'))
         self.assertTrue(row['computed_at'])
         self.assertEqual(row['record']['evidence']['quality'], 'weak')
 
@@ -469,6 +503,14 @@ class PersistenceTests(AttributionDatabase):
         self.assertEqual((self.rows()[decision_id]['primary_failure'], self.rows()[decision_id]['direction_outcome']),
                          ('forecast', 'wrong'))
 
+    def test_a_row_waiting_on_missing_closes_is_recomputed(self) -> None:
+        decision_id = self.add_decision()
+        store().upsert_attribution({**record(decision_id, direction_outcome='unavailable'), 'settled': False},
+                                   db_path=self.db_path)
+        self.assertEqual(self.needing(), [decision_id])
+        store().upsert_attribution(record(decision_id, direction_outcome='correct'), db_path=self.db_path)
+        self.assertEqual((self.rows()[decision_id]['direction_outcome'], self.needing()), ('correct', []))
+
     def test_a_settled_row_of_the_current_version_is_left_alone(self) -> None:
         decision_id = self.add_decision()
         store().upsert_attribution(record(decision_id, failure='forecast'), db_path=self.db_path)
@@ -481,7 +523,7 @@ class PersistenceTests(AttributionDatabase):
                                    db_path=self.db_path)
         store().upsert_attribution(record(decision_id, failure='evidence'), db_path=self.db_path)
         self.assertEqual((self.rows()[decision_id]['primary_failure'], self.rows()[decision_id]['attribution_version']),
-                         ('evidence', 'decision-attribution-v1'))
+                         ('evidence', 'decision-attribution-v2'))
 
 
 class DecisionsNeedingAttributionTests(AttributionDatabase):
@@ -495,6 +537,14 @@ class DecisionsNeedingAttributionTests(AttributionDatabase):
         store().upsert_attribution(record(pending, failure='pending', direction_outcome='pending'), db_path=self.db_path)
         self.assertEqual(self.needing(), [fresh, stale, pending])
         self.assertEqual(self.needing(limit=2), [fresh, stale])
+
+    def test_never_attributed_decisions_come_before_rechecks_which_go_least_recently_computed_first(self) -> None:
+        first = self.add_decision(at='2026-03-01T15:00:00+00:00')
+        second = self.add_decision(at='2026-03-02T15:00:00+00:00')
+        new = self.add_decision(at='2026-03-05T15:00:00+00:00')
+        store().upsert_attribution(record(second, failure='pending', direction_outcome='pending'), db_path=self.db_path)
+        store().upsert_attribution(record(first, failure='pending', direction_outcome='pending'), db_path=self.db_path)
+        self.assertEqual(self.needing(), [new, second, first])
 
     def test_a_row_carries_the_frozen_input_thesis_check_primary_catalyst_and_residual(self) -> None:
         with_candidate = self.add_decision()
@@ -604,6 +654,15 @@ class LaterHorizonTests(AttributionDatabase):
         self.assertEqual((first['selected'], early), (1, {'5': 'correct', '10': 'pending'}))
         self.assertEqual((second['selected'], late), (1, {'5': 'correct', '10': 'correct'}))
         self.assertEqual(self.attribute_at(21)['selected'], 0)
+
+    def test_closes_that_arrive_after_the_grace_days_replace_unavailable(self) -> None:
+        decision_id = self.add_decision('call', reference=400.0)
+        self.attribute_at(20)
+        self.assertEqual(self.rows()[decision_id]['direction_outcome'], 'unavailable')
+        self.closes(0, 10)
+        self.assertEqual(self.attribute_at(25)['selected'], 1)
+        self.assertEqual(self.rows()[decision_id]['direction_outcome'], 'correct')
+        self.assertEqual(self.attribute_at(26)['selected'], 0)
 
     def test_an_abstentions_ten_day_move_is_filled_in_by_a_later_run(self) -> None:
         decision_id = self.add_decision('neither', reference=400.0)

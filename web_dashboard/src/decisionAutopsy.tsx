@@ -42,7 +42,7 @@ function tone(value: string): string {
 
 function attributionTone(value: string): string {
   if (['strong', 'correct', 'captured'].includes(value)) return 'positive'
-  if (['weak', 'wrong', 'lost_with_direction', 'lost_despite_direction'].includes(value)) return 'negative'
+  if (['weak', 'wrong', 'lost_with_direction', 'lost_despite_direction', 'lost_in_flat'].includes(value)) return 'negative'
   return 'neutral'
 }
 

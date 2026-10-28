@@ -14,7 +14,8 @@ from services.llm_direction_score import DIRECTION_SIGN
 from .decision_attribution import list_attributions
 
 GRADED = ('correct', 'wrong', 'flat')
-TRADED_OUTCOMES = ('captured', 'lost_despite_direction', 'lost_with_direction', 'pending')
+TRADED_OUTCOMES = ('captured', 'lost_despite_direction', 'lost_with_direction', 'lost_in_flat', 'no_direction_signal',
+                   'pending', 'unavailable')
 
 
 def decision_attribution_report(*, days: int = 0, horizon: int = 5, db_path: Path | str | None = None) -> dict[str, Any]:
