@@ -24,7 +24,8 @@ CATALYST_LABELS_SCHEMA: dict[str, Any] = {
     "required": ["labels"],
 }
 SYSTEM_PROMPT = (
-    "You label stock-market news catalysts. For each supplied catalyst, read its anchor article and return its "
+    "You label stock-market news catalysts. For each supplied catalyst, read its anchor article, and the later "
+    "headlines about the same event when there are any, and return its "
     "catalyst_type, the direction of its likely effect on the supplied ticker, and your confidence. "
     "Return only valid JSON of the form {\"labels\": [{\"catalyst_id\", \"catalyst_type\", \"direction\", \"confidence\"}]}. "
     "Use catalyst_ids exactly as given and label each at most once. "
@@ -62,7 +63,7 @@ def classify_batch(batch: list[dict[str, Any]], *, client: Client | None = None,
     """Ask the model about one batch. Returns the answer, the usable labels and the number of dropped items."""
     model = model or _stage_model().model
     client = client or _get_default_client()
-    catalysts = [{key: item[key] for key in ("catalyst_id", "ticker", "title", "summary", "body")} for item in batch]
+    catalysts = [{key: item[key] for key in ("catalyst_id", "ticker", "title", "summary", "body", "later_headlines")} for item in batch]
     try:
         answer = ask_model(client=client, model=model, system_prompt=SYSTEM_PROMPT,
                            user_prompt=json.dumps({"catalysts": catalysts}, ensure_ascii=True))

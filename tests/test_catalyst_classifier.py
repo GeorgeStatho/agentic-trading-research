@@ -101,9 +101,18 @@ class MergeRuleTests(unittest.TestCase):
                                  ('earnings', 'negative', 'earnings_negative'))
                 self.assertEqual(state['classification_source'], 'rules+model')
 
-    def test_rules_win_on_kind_when_it_is_not_other(self):
-        state = self.build('Apple quarterly results show iPhone sales steady', label('legal', 'negative'))
-        self.assertEqual((state['catalyst_type'], state['catalyst_family']), ('earnings', 'earnings_negative'))
+    def test_label_of_another_kind_is_ignored_when_rules_found_one(self):
+        title = 'Apple quarterly results show iPhone sales steady'
+        state = self.build(title, label('legal', 'negative'))
+        self.assertEqual(state, self.build(title))
+        self.assertEqual((state['catalyst_family'], state['classification_source']), ('other', 'rules'))
+
+    def test_label_of_a_kind_in_the_same_family_applies_its_direction(self):
+        title = 'Nvidia launches new chip for data centers'      # product, direction unknown
+        state = self.build(title, label('customer_contract', 'positive'))
+        self.assertEqual((state['catalyst_type'], state['direction'], state['catalyst_family']),
+                         ('product', 'positive', 'product_commercial'))
+        self.assertEqual(state['classification_source'], 'rules+model')
 
     def test_rule_classified_catalyst_ignores_labels(self):
         for title in ('Nvidia raises revenue guidance after strong demand',   # guidance_raise
@@ -116,11 +125,17 @@ class MergeRuleTests(unittest.TestCase):
                 self.assertEqual(state['classification_version'], CLASSIFICATION_VERSION)
 
     def test_classified_kind_with_unknown_direction_takes_label_direction(self):
-        state = self.build('Microsoft to acquire gaming studio in $10 billion deal', label('legal', 'negative'))
+        state = self.build('Microsoft to acquire gaming studio in $10 billion deal', label('ma', 'negative'))
         self.assertEqual((state['catalyst_type'], state['direction'], state['catalyst_family'], state['classification_status']),
                          ('ma', 'negative', 'ma', 'classified'))
         self.assertEqual(state['catalyst_subtype'], classify_catalyst('Microsoft to acquire rival after loss')['catalyst_subtype'])
         self.assertEqual(state['classification_source'], 'rules+model')
+
+    def test_classified_kind_ignores_the_direction_of_a_label_for_another_event(self):
+        title = 'Microsoft to acquire gaming studio in $10 billion deal'
+        state = self.build(title, label('earnings', 'positive'))
+        self.assertEqual(state, self.build(title))
+        self.assertEqual((state['direction'], state['classification_source']), ('unknown', 'rules'))
 
     def test_medium_confidence_label_is_applied(self):
         state = self.build(RULE_FAILURE, label('regulatory', 'positive', confidence='medium'))
@@ -280,6 +295,60 @@ class CatalystLabelDatabaseTests(unittest.TestCase):
         self.assertEqual(self.pending(10, 'catalyst-llm-v2'), [catalysts['new'], catalysts['labelled'], catalysts['old']])
         self.assertEqual(self.pending(1, LABEL_V1), [catalysts['new']])
 
+    def test_newer_uninformative_label_does_not_mask_an_older_usable_one(self):
+        _, catalyst = self.article(1)
+        self.record(catalyst, labeled_at=NOW - timedelta(hours=30), kind='regulatory', confidence='medium')
+        self.record(catalyst, labeled_at=NOW - timedelta(hours=20), kind='legal', direction='negative', confidence='low')
+        self.record(catalyst, labeled_at=NOW - timedelta(hours=10), kind='other', direction='unknown')
+        self.assertEqual((self.latest(catalyst)['catalyst_type'], self.latest(catalyst)['confidence']), ('regulatory', 'medium'))
+        self.refresh(catalyst)
+        self.assertEqual(self.stored(catalyst)[0]['catalyst_family'], 'regulatory_positive')
+        # With nothing usable, the newest label is still returned.
+        _, other = self.article(2, 'Nvidia stock slides after supplier chatter')
+        self.record(other, labeled_at=NOW - timedelta(hours=20), confidence='low')
+        self.record(other, labeled_at=NOW - timedelta(hours=10), kind='other', direction='unknown')
+        self.assertEqual(self.latest(other)['catalyst_type'], 'other')
+
+    def join_later(self, number, catalyst, seen_at):
+        article_id, joined = self.article(number, domain=f'site{number}.com')
+        self.assertEqual(joined, catalyst)
+        with closing(get_connection()) as conn, conn:
+            conn.execute('UPDATE news_articles SET first_seen_time=? WHERE id=?', (seen_at.isoformat(), article_id))
+
+    def test_unresolved_labelled_catalyst_is_re_asked_once_a_newer_article_joins(self):
+        _, catalyst = self.article(1)
+        self.record(catalyst, confidence='low')
+        self.assertEqual(self.pending(10, LABEL_V1), [])
+        self.join_later(2, catalyst, LABELED_AT - timedelta(hours=1))      # seen before the label: no new evidence
+        self.assertEqual(self.pending(10, LABEL_V1), [])
+        self.join_later(3, catalyst, LABELED_AT + timedelta(hours=1))
+        self.assertEqual(self.pending(10, LABEL_V1), [catalyst])
+
+    def test_re_asking_stops_after_three_labels_at_a_version(self):
+        _, catalyst = self.article(1)
+        for hours in (30, 20):
+            self.record(catalyst, labeled_at=NOW - timedelta(hours=hours), kind='other', direction='unknown')
+        self.join_later(2, catalyst, NOW - timedelta(hours=5))
+        self.assertEqual(self.pending(10, LABEL_V1), [catalyst])
+        self.record(catalyst, labeled_at=NOW - timedelta(hours=4), kind='other', direction='unknown')
+        self.join_later(3, catalyst, NOW - timedelta(hours=1))
+        self.assertEqual(self.pending(10, LABEL_V1), [])
+        self.assertEqual(self.pending(10, 'catalyst-llm-v2'), [catalyst])
+
+    def test_classified_catalyst_is_not_re_asked_when_articles_join(self):
+        _, catalyst = self.article(1)
+        self.record(catalyst)
+        self.refresh(catalyst)
+        self.join_later(2, catalyst, NOW - timedelta(hours=1))
+        self.assertEqual(self.pending(10, LABEL_V1), [])
+
+    def test_catalyst_without_articles_is_never_selected(self):
+        with closing(get_connection()) as conn, conn:
+            store_catalyst_state(build_catalyst_state('catalyst:empty', [], ticker='NVDA'), conn=conn)
+            status = conn.execute("SELECT classification_status FROM catalysts WHERE catalyst_id='catalyst:empty'").fetchone()[0]
+        self.assertEqual(status, 'needs_review')
+        self.assertEqual(self.pending(10, LABEL_V1), [])
+
     def test_labelled_catalyst_registers_a_response_event(self):
         _, labelled = self.article(1)
         _, unlabelled = self.article(2, 'Nvidia stock slides after supplier chatter', published_at=NOW - timedelta(days=6))
@@ -301,11 +370,11 @@ class CatalystLabelImmutabilityTests(unittest.TestCase):
         self.addCleanup(self.conn.close)
         self.insert('catalyst:one', 'v1')
 
-    def insert(self, catalyst_id, version):
+    def insert(self, catalyst_id, version, labeled_at=LABELED_AT.isoformat()):
         with self.conn:
             self.conn.execute('''INSERT INTO catalyst_model_labels (catalyst_id, label_version, catalyst_type, direction,
                 confidence, anchor_article_id, model, answered_by_json, labeled_at) VALUES (?, ?, 'legal', 'negative',
-                'high', 1, 'test-model', '{}', ?)''', (catalyst_id, version, LABELED_AT.isoformat()))
+                'high', 1, 'test-model', '{}', ?)''', (catalyst_id, version, labeled_at))
 
     def test_update_is_rejected(self):
         with self.assertRaises(sqlite3.IntegrityError), self.conn:
@@ -322,6 +391,10 @@ class CatalystLabelImmutabilityTests(unittest.TestCase):
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM catalyst_model_labels').fetchone()[0], 2)
         with self.assertRaises(sqlite3.IntegrityError):
             self.insert('catalyst:one', 'v2')
+
+    def test_a_later_label_at_the_same_version_is_allowed(self):
+        self.insert('catalyst:one', 'v1', NOW.isoformat())
+        self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM catalyst_model_labels').fetchone()[0], 2)
 
 
 if __name__ == '__main__':

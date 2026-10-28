@@ -24,13 +24,22 @@ def _iso(value):
     return value.isoformat() if value else None
 
 
+def _label_matches_kind(label, kind):
+    """A label's direction is only trusted for the event the rules found: the same kind, or a kind in the same family."""
+    if kind == 'other' or label['catalyst_type'] == kind:
+        return True
+    family = derive_classification(label['catalyst_type'], label['direction'], '')['catalyst_family']
+    return family != 'other' and family == derive_classification(kind, label['direction'], '')['catalyst_family']
+
+
 def build_catalyst_state(catalyst_id, articles, *, ticker=None, as_of=None, label=None):
     articles = sorted(articles, key=lambda row: (timestamp(row.get('event_time')) or datetime.max.replace(tzinfo=timezone.utc), row['id']))
     anchor = articles[0] if articles else {}
     kind, direction, text = detect_catalyst(anchor.get('title'), anchor.get('summary'))
     classification, source = derive_classification(kind, direction, text), {}
     # A model label only fills what the rules could not decide; rules keep the kind whenever they found one.
-    if label and label['confidence'] != 'low' and (classification['catalyst_family'] == 'other' or direction in {'unknown', 'mixed'}):
+    if (label and label['confidence'] != 'low' and _label_matches_kind(label, kind)
+            and (classification['catalyst_family'] == 'other' or direction in {'unknown', 'mixed'})):
         merged = derive_classification(kind if kind != 'other' else label['catalyst_type'], label['direction'], text)
         # A label that decides nothing (other/unknown) leaves the state exactly as rules-only.
         if merged != classification:

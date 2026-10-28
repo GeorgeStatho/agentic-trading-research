@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS catalyst_model_labels (
   catalyst_id TEXT NOT NULL, label_version TEXT NOT NULL,
   catalyst_type TEXT NOT NULL, direction TEXT NOT NULL, confidence TEXT NOT NULL,
   anchor_article_id INTEGER, model TEXT NOT NULL, answered_by_json TEXT NOT NULL,
-  labeled_at TEXT NOT NULL, PRIMARY KEY (catalyst_id, label_version));
+  labeled_at TEXT NOT NULL, PRIMARY KEY (catalyst_id, label_version, labeled_at));
 CREATE INDEX IF NOT EXISTS idx_catalyst_model_labels_time ON catalyst_model_labels(catalyst_id, labeled_at);
 ```
 - Add immutability triggers (`BEFORE UPDATE/DELETE ... RAISE(ABORT)`), following
@@ -60,7 +60,10 @@ CREATE INDEX IF NOT EXISTS idx_catalyst_model_labels_time ON catalyst_model_labe
   - `record_catalyst_label(...)`
   - `latest_catalyst_label(catalyst_id, *, as_of=None, conn)`
   - `pending_catalysts_for_labeling(limit, label_version, *, conn)`
-- Labels are insert-only. A new `label_version` re-labels without overwriting.
+- Labels are insert-only. A new `label_version` re-labels without overwriting, and an unresolved catalyst can
+  gain further labels at the same version (see §5).
+- `latest_catalyst_label` returns the newest *usable* label (not `low`, not type `other`), falling back to the
+  newest label of any kind, so a later uninformative answer never hides an earlier usable one.
 
 ### 2. Taxonomy refactor ([`Data/catalyst_models.py`](../../Data/catalyst_models.py))
 - Split `classify_catalyst` into:
@@ -76,6 +79,8 @@ CREATE INDEX IF NOT EXISTS idx_catalyst_model_labels_time ON catalyst_model_labe
 - Add a keyword `label=None`.
 - **When the label is used.** Apply it only if the rule result has family `other`, or direction
   `unknown`/`mixed`.
+  When the rules found a kind, the label must also describe the same event: the same kind, or a kind in the
+  same family (`product`/`customer_contract`). A rule `ma` with an `earnings, positive` label stays rules-only.
 - **Kind.** Rules win on kind when the rule kind is not `other`.
   - Example: rule `earnings` with `unknown` direction plus label direction `negative` gives
     `earnings_negative`.
@@ -113,6 +118,8 @@ New `Python Scripts/agentCallers/agent_stages/catalyst_classifier.py`, with a he
 - **Input per catalyst.**
   - `catalyst_id`, `ticker`, plus the anchor article's `title`, `summary` and the first 1,500
     chars of `news_article_content.body`.
+  - `later_headlines`: titles of up to 5 other articles in the catalyst, newest first, so a re-ask sees the
+    coverage that arrived since the last answer.
   - The anchor is the earliest article by `event_time`, the same anchor the rules use.
   - The system prompt lists `CATALYST_TYPES` with one-line definitions, plus the direction enum.
   - Article text is untrusted data.
@@ -130,8 +137,9 @@ New `Python Scripts/agentCallers/agent_stages/catalyst_classifier.py`, with a he
 `services/catalyst_classification.py: classify_pending_catalysts(*, limit=None, db_path=None) -> dict`:
 
 1. Select pending catalysts: `classification_status='needs_review' AND ticker IS NOT NULL`,
-   no label at the current `LABEL_VERSION`, and not the placeholders `catalyst:unknown:%` or
-   `catalyst:sector-discovery:%`. Newest `first_seen_time` comes first.
+   at least one linked article, and not the placeholders `catalyst:unknown:%` or `catalyst:sector-discovery:%`;
+   and either no label at the current `LABEL_VERSION`, or fewer than `MAX_LABEL_ATTEMPTS` (3) labels there and an
+   article first seen after the latest of them (re-ask on new evidence). Newest `first_seen_time` comes first.
 2. Classify them in batches.
 3. Record the labels.
 4. Call `refresh_catalyst` on each labelled catalyst inside a transaction.

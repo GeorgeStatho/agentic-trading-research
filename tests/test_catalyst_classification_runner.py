@@ -236,11 +236,27 @@ class RunnerInputTests(ClassifierCase):
         _, model = self.classify()
         system, payload = model.calls[0]['system_prompt'], json.loads(model.calls[0]['user_prompt'])
         self.assertEqual(payload['catalysts'], [{'catalyst_id': catalyst, 'ticker': 'NVDA', 'title': title,
-                         'summary': 'earlier summary', 'body': ('abcdefghij' * 300)[:1500]}])
+                         'summary': 'earlier summary', 'body': ('abcdefghij' * 300)[:1500], 'later_headlines': [title]}])
         self.assertEqual(self.label_rows()[catalyst]['anchor_article_id'], earlier)
         for word in (*CATALYST_TYPES, 'positive', 'negative', 'mixed', 'unknown', 'high', 'medium', 'low'):
             self.assertIn(word, system)
         self.assertIn('untrusted', system.lower())
+
+
+    def test_a_re_ask_shows_the_newer_headlines(self):
+        catalyst, _ = self.article(RULE_FAILURE)
+        self.classify(StubModel(lambda items: [good(catalyst, confidence='low')]))
+        follow_up = 'Nvidia shares extend gains as the AI demand story spreads'
+        _, joined = self.article(RULE_FAILURE, domain='cnbc.com', published=NOW, first_seen=NOW + timedelta(hours=1))
+        with closing(get_connection()) as conn, conn:
+            conn.execute('UPDATE news_articles SET title=? WHERE id=?', (follow_up, joined))
+        result, model = self.classify()
+        self.assertEqual((result['selected'], result['applied']), (1, 1))
+        sent, = json.loads(model.calls[0]['user_prompt'])['catalysts']
+        self.assertEqual((sent['title'], sent['later_headlines']), (RULE_FAILURE, [follow_up]))
+        self.assertEqual(len(self.label_rows()), 1)   # keyed by catalyst; two rows exist
+        with closing(get_connection()) as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM catalyst_model_labels').fetchone()[0], 2)
 
 
 class RunnerValidationTests(ClassifierCase):

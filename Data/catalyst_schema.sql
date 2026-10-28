@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS catalyst_model_labels (
     catalyst_id TEXT NOT NULL, label_version TEXT NOT NULL,
     catalyst_type TEXT NOT NULL, direction TEXT NOT NULL, confidence TEXT NOT NULL,
     anchor_article_id INTEGER, model TEXT NOT NULL, answered_by_json TEXT NOT NULL,
-    labeled_at TEXT NOT NULL, PRIMARY KEY (catalyst_id, label_version)
+    labeled_at TEXT NOT NULL, PRIMARY KEY (catalyst_id, label_version, labeled_at)
 );
 CREATE INDEX IF NOT EXISTS idx_catalyst_model_labels_time ON catalyst_model_labels(catalyst_id, labeled_at);
 CREATE TRIGGER IF NOT EXISTS catalyst_model_labels_no_update BEFORE UPDATE ON catalyst_model_labels

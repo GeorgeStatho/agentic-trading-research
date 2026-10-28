@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 
 from db_common import json_text
 
+MAX_LABEL_ATTEMPTS = 3
+
 
 def record_catalyst_label(catalyst_id, *, label_version, catalyst_type, direction, confidence, anchor_article_id,
                           model, answered_by, labeled_at=None, conn):
@@ -14,18 +16,28 @@ def record_catalyst_label(catalyst_id, *, label_version, catalyst_type, directio
 
 
 def latest_catalyst_label(catalyst_id, *, as_of=None, conn):
+    """The newest usable label (not low confidence, not `other`), else the newest label of any kind."""
     row = conn.execute('SELECT * FROM catalyst_model_labels WHERE catalyst_id=? AND (? IS NULL OR '
-                       'julianday(labeled_at)<=julianday(?)) ORDER BY julianday(labeled_at) DESC LIMIT 1',
-                       (catalyst_id, as_of, as_of)).fetchone()
+                       "julianday(labeled_at)<=julianday(?)) ORDER BY confidence<>'low' AND catalyst_type<>'other' DESC, "
+                       'julianday(labeled_at) DESC LIMIT 1', (catalyst_id, as_of, as_of)).fetchone()
     return dict(row) if row else None
 
 
 def pending_catalysts_for_labeling(limit, label_version, *, conn):
+    """Unresolved catalysts never asked at this version, or asked fewer than MAX_LABEL_ATTEMPTS times and
+    joined by an article first seen after the latest of those labels."""
     return [dict(row) for row in conn.execute('''SELECT c.* FROM catalysts c
         WHERE c.classification_status='needs_review' AND c.ticker IS NOT NULL
         AND c.catalyst_id NOT LIKE 'catalyst:unknown:%' AND c.catalyst_id NOT LIKE 'catalyst:sector-discovery:%'
-        AND NOT EXISTS (SELECT 1 FROM catalyst_model_labels l WHERE l.catalyst_id=c.catalyst_id AND l.label_version=?)
-        ORDER BY julianday(c.first_seen_time) DESC LIMIT ?''', (label_version, limit))]
+        AND EXISTS (SELECT 1 FROM news_articles a WHERE a.catalyst_id=c.catalyst_id)
+        AND (NOT EXISTS (SELECT 1 FROM catalyst_model_labels l WHERE l.catalyst_id=c.catalyst_id AND l.label_version=:version)
+             OR ((SELECT COUNT(*) FROM catalyst_model_labels l
+                  WHERE l.catalyst_id=c.catalyst_id AND l.label_version=:version) < :attempts
+                 AND EXISTS (SELECT 1 FROM news_articles a WHERE a.catalyst_id=c.catalyst_id
+                     AND julianday(COALESCE(a.first_seen_time, a.created_at)) > (SELECT MAX(julianday(l.labeled_at))
+                         FROM catalyst_model_labels l WHERE l.catalyst_id=c.catalyst_id AND l.label_version=:version))))
+        ORDER BY julianday(c.first_seen_time) DESC LIMIT :limit''',
+        {'version': label_version, 'attempts': MAX_LABEL_ATTEMPTS, 'limit': limit})]
 
 
 _LATEST_LABELS = '''(SELECT l.* FROM catalyst_model_labels l WHERE l.rowid=(SELECT l2.rowid FROM catalyst_model_labels l2

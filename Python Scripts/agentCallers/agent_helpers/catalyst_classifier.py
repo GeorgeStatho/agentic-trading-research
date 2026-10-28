@@ -6,6 +6,7 @@ from typing import Any
 from catalyst_models import CATALYST_TYPES
 
 BODY_CHAR_LIMIT = 1500
+LATER_HEADLINE_LIMIT = 5
 DIRECTIONS = ("positive", "negative", "mixed", "unknown")
 CONFIDENCES = ("high", "medium", "low")
 LABEL_FIELDS = ("catalyst_id", "catalyst_type", "direction", "confidence")
@@ -39,9 +40,13 @@ def catalyst_inputs(catalysts: list[dict[str, Any]], *, conn) -> list[dict[str, 
             ORDER BY a.event_time IS NULL, julianday(a.event_time), a.id LIMIT 1''', (catalyst['catalyst_id'],)).fetchone()
         if anchor is None:
             continue
+        # Newer coverage is what lets a re-asked catalyst get a better answer than the last one.
+        later = conn.execute('''SELECT title FROM news_articles WHERE catalyst_id=? AND id<>? ORDER BY
+            julianday(COALESCE(first_seen_time, created_at)) DESC, id DESC LIMIT ?''',
+            (catalyst['catalyst_id'], anchor['id'], LATER_HEADLINE_LIMIT))
         inputs.append({'catalyst_id': catalyst['catalyst_id'], 'ticker': catalyst['ticker'], 'title': anchor['title'],
                        'summary': anchor['summary'], 'body': (anchor['body'] or '')[:BODY_CHAR_LIMIT],
-                       'anchor_article_id': anchor['id']})
+                       'later_headlines': [row['title'] for row in later], 'anchor_article_id': anchor['id']})
     return inputs
 
 
