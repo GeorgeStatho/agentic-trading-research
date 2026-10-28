@@ -26,3 +26,28 @@ def pending_catalysts_for_labeling(limit, label_version, *, conn):
         AND c.catalyst_id NOT LIKE 'catalyst:unknown:%' AND c.catalyst_id NOT LIKE 'catalyst:sector-discovery:%'
         AND NOT EXISTS (SELECT 1 FROM catalyst_model_labels l WHERE l.catalyst_id=c.catalyst_id AND l.label_version=?)
         ORDER BY julianday(c.first_seen_time) DESC LIMIT ?''', (label_version, limit))]
+
+
+_LATEST_LABELS = '''(SELECT l.* FROM catalyst_model_labels l WHERE l.rowid=(SELECT l2.rowid FROM catalyst_model_labels l2
+    WHERE l2.catalyst_id=l.catalyst_id ORDER BY julianday(l2.labeled_at) DESC LIMIT 1))'''
+
+
+def _counts(conn, query):
+    return {row[0]: row[1] for row in conn.execute(query)}
+
+
+def catalyst_label_status(*, conn):
+    """Catalyst counts by status, classification source and type, and latest labels by confidence."""
+    return {'by_status': _counts(conn, 'SELECT classification_status, COUNT(*) FROM catalysts GROUP BY 1'),
+            'by_classification_source': _counts(conn, "SELECT COALESCE(json_extract(state_json, '$.classification_source'), "
+                                                      "'rules'), COUNT(*) FROM catalysts GROUP BY 1"),
+            'by_type': _counts(conn, 'SELECT catalyst_type, COUNT(*) FROM catalysts GROUP BY 1'),
+            'by_confidence': _counts(conn, f'SELECT confidence, COUNT(*) FROM {_LATEST_LABELS} GROUP BY 1')}
+
+
+def labeled_catalyst_sample(sample, *, conn):
+    """A random sample of labelled catalysts with the anchor headline, for a manual spot-check."""
+    return [dict(row) for row in conn.execute(f'''SELECT l.catalyst_id, c.ticker, a.title, l.catalyst_type, l.direction,
+        l.confidence, c.catalyst_family, c.classification_status FROM {_LATEST_LABELS} l
+        JOIN catalysts c ON c.catalyst_id=l.catalyst_id LEFT JOIN news_articles a ON a.id=l.anchor_article_id
+        ORDER BY RANDOM() LIMIT ?''', (sample,))]

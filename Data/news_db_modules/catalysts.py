@@ -31,8 +31,11 @@ def build_catalyst_state(catalyst_id, articles, *, ticker=None, as_of=None, labe
     classification, source = derive_classification(kind, direction, text), {}
     # A model label only fills what the rules could not decide; rules keep the kind whenever they found one.
     if label and label['confidence'] != 'low' and (classification['catalyst_family'] == 'other' or direction in {'unknown', 'mixed'}):
-        classification = derive_classification(kind if kind != 'other' else label['catalyst_type'], label['direction'], text)
-        source = dict(classification_source='rules+model', classification_version=LABELED_CLASSIFICATION_VERSION)
+        merged = derive_classification(kind if kind != 'other' else label['catalyst_type'], label['direction'], text)
+        # A label that decides nothing (other/unknown) leaves the state exactly as rules-only.
+        if merged != classification:
+            classification, source = merged, dict(classification_source='rules+model',
+                                                  classification_version=LABELED_CLASSIFICATION_VERSION)
     roots = {}
     for row in articles:
         if row.get('root_event_id') and row.get('root_source_id') not in {None, '', 'unverified'}:

@@ -87,6 +87,7 @@ class ModelSettings:
     strategist: StageModel
     manager: StageModel
     thesis_validator: StageModel
+    catalyst_classifier: StageModel
 
     @classmethod
     def from_environ(cls, environ) -> "ModelSettings":
@@ -97,7 +98,8 @@ class ModelSettings:
                    company_opportunist=StageModel.from_environ(environ, "COMPANY_OPPURUNTIST"),
                    strategist=StageModel.from_environ(environ, "STRATEGIST"),
                    manager=StageModel.from_environ(environ, "MANAGER"),
-                   thesis_validator=StageModel.from_environ(environ, "THESIS_VALIDATOR", "MANAGER"))
+                   thesis_validator=StageModel.from_environ(environ, "THESIS_VALIDATOR", "MANAGER"),
+                   catalyst_classifier=StageModel.from_environ(environ, "CATALYST_CLASSIFIER", "COMPANY_OPPURUNTIST"))
 
 
 @dataclass(frozen=True)
@@ -249,6 +251,18 @@ class OpportunistSettings:
 
 
 @dataclass(frozen=True)
+class CatalystClassifierSettings:
+    # Off until the backfill has been reviewed; the backfill CLI runs regardless.
+    enabled: bool = False
+    max_per_cycle: int = 200
+
+    @classmethod
+    def from_environ(cls, environ) -> "CatalystClassifierSettings":
+        return cls(enabled=environ.get("CATALYST_CLASSIFIER_ENABLED", "").strip().lower() in {"1", "true", "yes"},
+                   max_per_cycle=_integer(environ, "CATALYST_CLASSIFIER_MAX_PER_CYCLE", 200, 1))
+
+
+@dataclass(frozen=True)
 class Settings:
     models: ModelSettings
     vertex: VertexSettings
@@ -258,6 +272,7 @@ class Settings:
     evidence_continuation: EvidenceContinuationPolicy
     openai_compatible: OpenAICompatibleSettings = OpenAICompatibleSettings()
     classifier_fallback: ClassifierFallbackSettings = ClassifierFallbackSettings()
+    catalyst_classifier: CatalystClassifierSettings = CatalystClassifierSettings()
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str]) -> "Settings":
@@ -267,7 +282,8 @@ class Settings:
                    opportunists=OpportunistSettings.from_environ(environ),
                    evidence_continuation=EvidenceContinuationPolicy.from_environ(environ),
                    openai_compatible=OpenAICompatibleSettings.from_environ(environ),
-                   classifier_fallback=ClassifierFallbackSettings.from_environ(environ))
+                   classifier_fallback=ClassifierFallbackSettings.from_environ(environ),
+                   catalyst_classifier=CatalystClassifierSettings.from_environ(environ))
 
 
 _settings: Settings | None = None

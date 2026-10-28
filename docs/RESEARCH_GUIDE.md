@@ -193,6 +193,13 @@ are not fixed yet.
 5. **95% of catalysts are never classified.** On live, 4,535 of 4,758 are `needs_review`. Only
    classified catalysts with a ticker get price responses, so economics scenarios, Part 4 hurdles,
    calibration labels and the discovery ledger's outcomes see about 4% of events.
+   Mitigation: a cheap model (`CATALYST_CLASSIFIER_*`) labels the rule failures. Labels live in
+   `catalyst_model_labels`, survive catalyst refreshes and are read point-in-time for candidates. Run
+   `python3 scripts/catalysts.py classify --limit N`, spot-check with `review --sample 20`, then set
+   `CATALYST_CLASSIFIER_ENABLED=true` (default `false`) so each news cycle labels up to
+   `CATALYST_CLASSIFIER_MAX_PER_CYCLE` (200) new ones. `status` and `pricing_report` split catalysts by
+   `classification_source` (`rules` or `rules+model`); types without a family (`supply_chain`, `management`,
+   `capital_return`, `financing`) stay `needs_review` even when labelled.
 6. **Event reviews over the daily limit are never retried.** They close as
    `daily_limit_reached`; only the next daily review sees that evidence. On the first discovery
    scan, 4 of 17 review items for one position closed this way.

@@ -424,6 +424,13 @@ That split explains why the repo feels mixed: it contains both the older trading
   `CatalystState` and explicit calendar-time decay priors.
 - `Data/catalyst_schema.py` / `Data/catalyst_schema.sql`: shared additive migration
   for catalysts, roots, candidate associations, gate observations and record links.
+- `Data/news_db_modules/catalyst_labels.py`: insert-only model labels for rule failures, latest-label
+  (point-in-time) and pending queries, status and review reports.
+- `Python Scripts/agentCallers/agent_stages/catalyst_classifier.py` / `agent_helpers/catalyst_classifier.py`:
+  the cheap-model labelling stage, its prompt, schema, inputs and answer validation.
+- `Python Scripts/services/catalyst_classification.py`: `classify_pending_catalysts`, run by the news
+  collector before response registration when `CATALYST_CLASSIFIER_ENABLED`.
+- `scripts/catalysts.py`: `classify`, `status` and `review` for the backfill.
 - `Data/news_db_modules/catalysts.py`: state refresh, frozen candidate associations,
   impact-root validation, backfill and family coverage report.
 - `Data/news_db_modules/provenance.py`: source-chain grouping and original root

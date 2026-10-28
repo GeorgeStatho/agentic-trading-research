@@ -71,6 +71,7 @@ def pipeline_source_hashes():
                     for p in (ROOT / 'Python Scripts' / folder).rglob('*.py')]
     source_files.extend([ROOT / path for path in ('Data/catalyst_models.py', 'Data/catalyst_schema.py',
         'Data/catalyst_schema.sql', 'Data/news_db_modules/provenance.py', 'Data/news_db_modules/catalysts.py',
+        'Data/news_db_modules/catalyst_labels.py',
         'Data/market_db_modules/pricing_research.py', 'Data/market_db_modules/pricing_schema.sql',
         'Data/market_db_modules/contract_research.py', 'config/risk_clusters.csv',
         'Data/market_db_modules/trade_economics.py', 'Data/market_db_modules/trade_economics_schema.sql',
