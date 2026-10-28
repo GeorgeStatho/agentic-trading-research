@@ -29,7 +29,7 @@ The Yahoo market-data side is responsible for:
 - cleaning and normalizing that data
 - storing it in the market database
 
-Yahoo news and the Fool, Morningstar, and GuruFocus APIs are extra article discovery inputs for the company pipeline. None of them drives the full pipeline by itself.
+Yahoo news, Alpaca News (Benzinga) and the Fool, Morningstar, and GuruFocus APIs are extra article discovery inputs for the company pipeline. None of them drives the full pipeline by itself.
 
 ## Folder Layout
 
@@ -51,6 +51,7 @@ The most important current files are:
 - [engine/article_scraper.py](engine/article_scraper.py)
 - [engine/article_extraction.py](engine/article_extraction.py)
 - [market_data/yFinanceNews.py](market_data/yFinanceNews.py)
+- [APIs/alpacaNewsAPI.py](APIs/alpacaNewsAPI.py)
 
 Import the canonical modules under `pipelines/`, `engine/`, `processing/`,
 `extractors/`, `sources/`, `market_data/` and `APIs/`. The old root-level
@@ -144,17 +145,19 @@ Each company record carries the metadata needed for matching and persistence:
 `_build_company_jobs(company)` combines three sources of jobs:
 
 1. normal configured company source jobs from `build_company_source_jobs([company])`
-2. article jobs from the Fool, Morningstar, and GuruFocus stock-data APIs (`_build_api_jobs(...)`)
+2. article jobs from the stock-data APIs in `API_SOURCES` (`_build_api_jobs(...)`): Fool, Morningstar, GuruFocus and Alpaca News
 3. Yahoo-discovered article jobs from `yFinanceNews.py`
 
 The API portion calls each API's `get_stock_data(symbol, limit=10)`, collects the `(title, url)` pairs from its `articles`, `analysis`, and `transcripts` lists, and turns them into `article` jobs. A failing API is logged and skipped.
 
+Alpaca News (`APIs/alpacaNewsAPI.py`) serves Benzinga news through the same Alpaca account used for trading (`PUBLIC_KEY`/`PRIVATE_KEY`; the free plan includes it). It differs from the other APIs in one way: the article body arrives with the listing. `get_stock_data` makes one `NewsRequest(symbols=symbol, limit=10, include_content=True)` per company and keeps each article's body in an in-memory cache (`CONTENT_CACHE_LIMIT`, most recent first). When the article stage fetches the `benzinga.com` URL, `get_article_content` answers from that cache, so benzinga.com is never scraped. A URL that is not cached raises `ArticleContentUnavailable`: the fetch layer leaves it out of the result (missing, retried next run) instead of recording a failure. If the Alpaca keys are missing, the source returns no articles and logs one warning.
+
 The Yahoo portion works like this:
 
-1. `get_company_news_items(symbol)` calls `yfinance` and gets raw Yahoo news items
-2. `extract_title_and_url(...)` reduces those items down to `(title, url)` pairs
-3. only URLs from already-allowed scraper sources survive that filter
-4. `build_yahoo_news_jobs(...)` turns those pairs into normal `article` jobs
+1. `get_company_news_items(symbol)` asks `yf.Search(symbol).news`. `Ticker.get_news` returns nothing for many tickers on current yfinance, so it is only the fallback. Search is a free-text query, so only items whose `relatedTickers` include the symbol are kept (`BRK.B` matches `BRK-B`); if none survive, it falls back to `Ticker.get_news`
+2. `extract_title_url_publisher(...)` reduces those items to `(title, url, publisher)` triples; it understands both the flat Search shape and the nested `content` shape
+3. only URLs from already-allowed scraper sources survive that filter (`finance.yahoo.com` is allowed, with `/news/` and `/articles/` URL patterns)
+4. `build_yahoo_news_jobs(...)` turns those triples into normal `article` jobs; the publisher (e.g. "Business Wire", "Reuters") is stored in the saved article's `raw_json` as `provenance.publisher`, so `news_db_modules/provenance.py` credits the original wire as the article's root source
 
 That means the APIs and Yahoo act as extra article discovery sources, not as special storage paths.
 

@@ -78,8 +78,8 @@ This is a very small Yahoo news helper.
 
 Important behavior:
 
-- asks `yfinance` for `Ticker.get_news(...)`
-- reduces the raw Yahoo payload into `(title, url)` pairs
+- `get_company_news_items(symbol)` asks `yf.Search(symbol, news_count=...)` first, because `Ticker.get_news(...)` returns `[]` for many tickers on current yfinance. Search is a free-text query, so only items whose `relatedTickers` include the symbol are kept. `Ticker.get_news` is the fallback when Search fails or nothing tagged survives
+- `extract_title_url_publisher(...)` reduces the raw payload (flat Search items or nested `content` items) into `(title, url, publisher)` triples; `extract_title_and_url(...)` is the `(title, url)` form
 - keeps only URLs from sources your scraper already allows
 
 This helper does not save articles itself.

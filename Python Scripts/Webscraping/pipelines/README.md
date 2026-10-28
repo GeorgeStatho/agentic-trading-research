@@ -112,20 +112,20 @@ What it is responsible for:
 
 - resolving company records from the DB
 - building company search jobs from configured sources
-- adding direct article jobs discovered through the Fool, Morningstar, GuruFocus, and Yahoo APIs
+- adding direct article jobs discovered through the Fool, Morningstar, GuruFocus, Alpaca News (Benzinga), and Yahoo APIs
 - defining company-specific relevance matching
 - calling the shared orchestration runner
 
 Important internal pieces:
 
 - `_company_entity(...)`
-  - builds the company's `NewsEntity` (kind `company`, linked with `link_company_to_article`)
+  - builds the company's `NewsEntity` (kind `company`, linked with `link_company_to_article`); when a Yahoo job carries a publisher, it adds `{"provenance": {"publisher": ...}}` to the identity, which becomes the saved article's `raw_json` (new rows only; existing articles are linked, not rewritten)
 - `_company_candidate_links(...)`
   - returns every link of a supported search page; it does not check the link text for a company-name match
 - `_company_reuse_filter(...)`
   - builds the `may_reuse` rule for search pages: an already-saved article is linked only if the company name (also without corporate suffixes such as Inc) or a ticker of 3+ characters appears as whole words in the link text or URL
 - `_build_api_jobs(...)`
-  - turns Fool, Morningstar, and GuruFocus API results into direct `article` jobs
+  - turns the `API_SOURCES` results (Fool, Morningstar, GuruFocus, Alpaca News) into direct `article` jobs
 - `_build_company_jobs(...)`
   - combines configured source jobs with the API-derived and Yahoo-derived direct article jobs
 - `_build_all_company_jobs(...)`
@@ -375,7 +375,7 @@ What these functions do:
 
 - convert entity records plus source configuration into normalized job dicts
 - validate whether a URL makes sense for a source type
-- support both configured source-page jobs and Yahoo-derived direct article jobs
+- support both configured source-page jobs and Yahoo-derived direct article jobs; `build_yahoo_news_jobs(...)` accepts `(title, url)` pairs or `(title, url, publisher)` triples, and a job's optional `publisher` field carries the original publisher through to provenance
 - support RSS-derived direct article jobs for sector scraping
 - provide batching helpers used by `_orchestration.py`
 
