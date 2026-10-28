@@ -191,6 +191,20 @@ class ReportShapeTests(ReportDatabase):
                          (OLD_COMPUTED_AT, old))
         self.assertEqual((self.report(days=7)['total'], self.report(days=0)['total']), (1, 2))
 
+    def test_days_windows_on_the_decision_time_not_on_when_the_attribution_was_computed(self) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        old_decision_fresh_row = self.add_decision('call', at=base.DECISION_AT)
+        recent_decision_stale_row = self.add_decision('call', at=now)
+        for decision_id, quality in ((old_decision_fresh_row, 'weak'), (recent_decision_stale_row, 'strong')):
+            record = {**ROWS[0]['record'], 'manager_decision_history_id': decision_id}
+            base.store().upsert_attribution({**record, 'evidence': {**record['evidence'], 'quality': quality}},
+                                            db_path=self.db_path)
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute('UPDATE decision_attributions SET computed_at = ? WHERE manager_decision_history_id = ?',
+                         (OLD_COMPUTED_AT, recent_decision_stale_row))
+        report = self.report(days=7)
+        self.assertEqual((report['total'], set(report['matrix'])), (1, {'strong'}))
+
 
 class ResearchCliTests(ReportDatabase):
     def run_cli(self, *args) -> dict:

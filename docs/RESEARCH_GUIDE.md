@@ -152,8 +152,8 @@ docker compose exec worker python scripts/research.py attribution --days 0 --hor
 - `primary_failure_counts`, `expression` (traded decisions only) and `abstentions` (how far the stock moved
   after `neither`, against directional decisions).
 
-`--days` filters on when the attribution was computed; 0 means all. The Decision Autopsy page shows the same
-three labels per decision.
+`--days` keeps decisions made in the last N days (by decision time, not when they were scored); 0 means all.
+The Decision Autopsy page shows the same three labels per decision.
 
 In the first weeks, check these:
 

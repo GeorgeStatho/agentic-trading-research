@@ -18,12 +18,12 @@ TRADED_OUTCOMES = ('captured', 'lost_despite_direction', 'lost_with_direction', 
 
 
 def decision_attribution_report(*, days: int = 0, horizon: int = 5, db_path: Path | str | None = None) -> dict[str, Any]:
-    """Counts, hit rates (with bootstrap SEs) and signed returns at `horizon`, over attributions computed in `days`."""
+    """Counts, hit rates (with bootstrap SEs) and signed returns at `horizon`, over decisions made in the last `days`."""
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat() if days else None
     key = str(horizon)
-    decisions = _manager_decisions(db_path)
-    rows = [_row(item, key, decisions.get(item['manager_decision_history_id'])) for item in
-            list_attributions(since=since, db_path=db_path)]
+    decisions = _manager_decisions(since, db_path)
+    rows = [_row(item, key, decisions[item['manager_decision_history_id']]) for item in
+            list_attributions(db_path=db_path) if item['manager_decision_history_id'] in decisions]
     by_quality = _group(rows, lambda row: row['quality'])
     return {
         'days': days, 'horizon': horizon, 'total': len(rows),
@@ -41,10 +41,15 @@ def decision_attribution_report(*, days: int = 0, horizon: int = 5, db_path: Pat
     }
 
 
-def _manager_decisions(db_path) -> dict[int, str]:
+def _manager_decisions(since: str | None, db_path) -> dict[int, str | None]:
+    """Manager decision by history id, limited to decisions made at or after `since`: the window is decision time."""
+    query = 'SELECT id, manager_decision FROM manager_decision_history'
+    parameters = []
+    if since:
+        query += ' WHERE julianday(decision_run_at) >= julianday(?)'
+        parameters.append(since)
     with closing(get_connection(db_path)) as conn:
-        return {row['id']: row['manager_decision'] for row in conn.execute(
-            'SELECT id, manager_decision FROM manager_decision_history')}
+        return {row['id']: row['manager_decision'] for row in conn.execute(query, parameters)}
 
 
 def _row(item: dict[str, Any], horizon: str, manager_decision: str | None) -> dict[str, Any]:
