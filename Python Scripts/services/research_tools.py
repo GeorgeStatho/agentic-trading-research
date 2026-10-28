@@ -3,6 +3,7 @@ from collections import defaultdict
 from contextlib import closing
 from dataclasses import dataclass
 import math
+import re
 
 from db_common import get_connection
 from market_db_modules.company_evidence import get_company_fact, get_evidence_document
@@ -21,7 +22,29 @@ OPERATIONS = {
     'get_available_consensus': ('metric', 'fiscal_period'),
     'find_contradictory_evidence': ('event_id',),
     'get_event_price_response': ('event_id',),
+    'search_archive': ('query',),
 }
+SEARCH_STOP_WORDS = frozenset(
+    'a an and are as at by for from in is it of on or that the this to was were with'.split())
+SEARCH_TERM = re.compile(r'[a-z0-9]+')
+
+
+def canonical_query(query):
+    """Sorted unique keywords, so reordered or re-punctuated queries are the same request."""
+    if not isinstance(query, str) or not 3 <= len(query) <= 200:
+        raise ValueError('Invalid search query')
+    terms = sorted(set(SEARCH_TERM.findall(query.lower())) - SEARCH_STOP_WORDS)
+    if not 1 <= len(terms) <= 8 or any(not 2 <= len(term) <= 40 for term in terms):
+        raise ValueError('Invalid search query terms')
+    return ' '.join(terms)
+
+
+def fts_expression(query, operator='AND'):
+    """FTS5 MATCH expression built only from quoted alphanumeric terms, never from model-written syntax."""
+    terms = SEARCH_TERM.findall(query.lower())
+    if operator not in ('AND', 'OR') or not terms:
+        raise ValueError('Invalid search expression')
+    return f' {operator} '.join('"%s"' % term for term in terms)
 
 
 @dataclass(frozen=True)
@@ -54,6 +77,8 @@ class ResearchRequest:
             if name in args and (not isinstance(args[name], str) or not 1 <= len(args[name]) <= 80):
                 raise ValueError('Invalid metric or fiscal period')
         args = {**args, 'as_of': timestamp(args['as_of'])}
+        if 'query' in args:
+            args['query'] = canonical_query(args['query'])
         for name in ('metrics', 'fiscal_periods'):
             if name in args:
                 values = args[name]

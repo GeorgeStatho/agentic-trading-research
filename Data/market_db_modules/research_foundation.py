@@ -2,7 +2,7 @@
 from contextlib import closing
 from pathlib import Path
 
-from db_common import get_connection
+from db_common import get_connection, lock_for_migration
 from research_foundation_contracts import DiscoveryQueueItem, ResearchSession
 from .foundation_store import digest, insert_record, load_record, read_record, record_data
 from .bootstrap import initialize_database
@@ -19,6 +19,15 @@ def migrate_research_foundation(conn):
                 BEFORE {operation} ON {table} BEGIN
                 SELECT RAISE(ABORT, 'Immutable research record'); END""")
     drop_unused_economics_table(conn)
+    backfill_evidence_document_index(conn)
+
+
+def backfill_evidence_document_index(conn):
+    """Index the documents recorded before evidence_document_fts existed; later rows follow by trigger."""
+    lock_for_migration(conn)
+    conn.execute("""INSERT INTO evidence_document_fts (document_id, company_id, text)
+        SELECT document_id, json_extract(record_json, '$.metadata.company_id'), json_extract(record_json, '$.text')
+        FROM evidence_documents WHERE document_id NOT IN (SELECT document_id FROM evidence_document_fts)""")
 
 
 def drop_unused_economics_table(conn):
