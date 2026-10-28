@@ -53,9 +53,22 @@ Manager a
 │   │   └── stringtoJson.py
 │   ├── Webscraping/
 │   │   ├── README.md
+│   │   ├── APIs/
+│   │   │   ├── alpacaNewsAPI.py
+│   │   │   ├── foolAPI.py
+│   │   │   ├── gurufocusAPI.py
+│   │   │   ├── InvestingAPI.py
+│   │   │   └── morningStarAPI.py
+│   │   ├── company_evidence/
+│   │   │   ├── sec.py
+│   │   │   ├── sec_facts.py
+│   │   │   ├── issuer.py
+│   │   │   ├── releases.py
+│   │   │   └── yahoo_consensus.py
 │   │   ├── engine/
 │   │   │   ├── article_scraper.py
 │   │   │   ├── article_extraction.py
+│   │   │   ├── page_fetch.py
 │   │   │   └── playwright_runner.py
 │   │   ├── extractors/
 │   │   │   ├── barrons.py
@@ -181,6 +194,12 @@ This is the news ingestion pipeline.
   - Normalization, dedupe support, and evidence scoring.
 - `Python Scripts/Webscraping/market_data/`
   - Yahoo Finance-based market and discovery data ingestion.
+- `Python Scripts/Webscraping/APIs/`
+  - Per-site article discovery and content APIs (Fool, Morningstar, GuruFocus, Investing, and Alpaca News for Benzinga).
+- `Python Scripts/Webscraping/company_evidence/`
+  - Primary-evidence adapters: SEC filings and facts, configured issuer releases, and the Yahoo consensus/earnings-date adapter (see `docs/COMPANY_EVIDENCE_PROVIDERS.md`).
+- `scripts/news_quality_report.py`, `scripts/check_extractors.py`
+  - A read-only report on how much company-relevant news the strategist received, and a live per-domain extractor check (see `scripts/README.md`).
 
 News pipeline flow:
 

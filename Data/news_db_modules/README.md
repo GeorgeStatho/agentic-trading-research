@@ -14,6 +14,7 @@ This folder contains the news persistence modules. Callers import from them dire
 - `processing.py`: processed-article markers for downstream stages
 - `queries.py`: read helpers and failed-URL persistence
 - `shared.py`: shared constants, normalization imports, and small coercion helpers
+- `provenance.py`: an article's root source and source type (`_origin`). Primary and wire sources get their own root. Aggregator and commentary articles (Yahoo, Benzinga, Fool) stay `unverified` unless the text or the Yahoo `raw_json.provenance.publisher` names a wire (Reuters, AP, PR Newswire, Business Wire, GlobeNewswire)
 
 ## Import guidance
 

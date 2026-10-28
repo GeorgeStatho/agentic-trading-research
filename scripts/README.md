@@ -27,6 +27,30 @@ python3 scripts/project.py demo-url
 
 Use `docker compose up --build` for the integrated containerized stack.
 
+## News quality report
+
+`scripts/news_quality_report.py` measures how much news, and how relevant, the strategist received over a date range. It opens the DB read-only (`?immutable=1`) and never writes.
+
+```bash
+python scripts/news_quality_report.py --db ~/stock-restore/db-dev/stock_experiment.db --start 2026-10-27
+python scripts/news_quality_report.py --db PATH --start 2026-10-28 --end 2026-10-30 --json > report.json
+```
+
+It reports:
+- `articles_by_source`: saved articles by `source` / `source_type`, with average evidence score;
+- `companies_with_company_news`: companies with at least one company-linked article;
+- `payloads`: one row per strategist run. `company_direct` counts the summaries about the company itself (matching `primary_ticker` or a `company_view` layer); the row also has `distinct_root_sources` and the company-evidence freshness and gaps;
+- `payload_summary`: the means, plus counts of payloads with `consensus_unavailable` or `company_evidence_not_collected`;
+- `rejections`: `insufficient_independent_roots` and `insufficient_high_confidence_articles` counts.
+
+The 2026-10-27 baseline (before the news-quality changes) was:
+- 2 sources;
+- 32 companies with company news;
+- mean `company_direct` 1.59 of 20;
+- `consensus_unavailable` in 49 of 59 payloads.
+
+Compare new runs against it.
+
 ## Extractor check
 
 `scripts/check_extractors.py` is a read-only live check of the article extractors; it saves nothing to any database.
