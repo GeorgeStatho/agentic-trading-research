@@ -42,10 +42,12 @@ def search_hits(company_id, expressions, cutoff, *, limit, db_path=None):
 
 
 def _utc(value):
+    """Article times as research timestamps. SQLite CURRENT_TIMESTAMP defaults carry no offset and are UTC."""
     try:
-        return timestamp(value) if value else None
+        parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00')) if value else None
     except ValueError:
         return None
+    return parsed and timestamp(parsed.replace(tzinfo=parsed.tzinfo or timezone.utc).isoformat())
 
 
 def snapshot_article(article_id, company_id, *, db_path=None):

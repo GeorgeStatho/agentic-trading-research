@@ -201,6 +201,14 @@ class SnapshotTests(SearchFixture):
         self.assertEqual((document['first_observed_at'], document['ingested_at']), (START, BEFORE_CUTOFF))
 
 
+    def test_sqlite_style_naive_times_are_read_as_utc(self):
+        # first_seen_time and created_at default to SQLite CURRENT_TIMESTAMP, which has no offset.
+        self.news(101, 'Export licence granted', first_seen='2026-09-01 20:00:00', published='2026-09-01T21:00:00Z')
+        document = get_evidence_document(self.snapshot(101), db_path=self.db)
+        self.assertEqual((document['first_observed_at'], document['published_at']), (START, START))
+        self.assertIn(101, self.article_ids(self.search('export licence')))
+
+
 class FlagTests(SearchFixture):
     def test_the_policy_defaults_off_and_reads_the_environment(self):
         self.assertFalse(EvidenceResearchPolicy().search_enabled)
