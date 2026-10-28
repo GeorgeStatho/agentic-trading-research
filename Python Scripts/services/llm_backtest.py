@@ -35,7 +35,7 @@ import logging
 import time
 from statistics import median
 from datetime import datetime, timedelta
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, Sequence
 
 from market_db_modules.backtest_marketdata import fetch_marketdata_eod_quotes_for_contracts
 from market_db_modules.foundation_store import SnapshotHashMismatch
@@ -62,6 +62,7 @@ from services.evaluation_clock import evaluated_at
 from services.evidence_continuation_gate import evaluate_evidence_continuation_gate
 from services.evidence_thesis import evaluate_evidence_thesis_gate
 from services.evidence_thesis_policy import EvidenceThesisPolicy
+from services.model_cutoffs import CONTAMINATION_MARGIN_DAYS, cutoff_record, eligibility
 from services.market_regime_gate import apply_market_regime_gate_to_manager_result
 from services.option_dte_buckets import normalize_target_dte_bucket
 from services.order_candidates import OrderCandidateBuilder
@@ -434,6 +435,24 @@ class ReplayedAnswer:
     frozen: FrozenDecision | None = None
 
 
+def drop_remembered(window: list[dict[str, Any]], model: str, allow_unknown_cutoff: bool,
+                    ) -> tuple[list[dict[str, Any]], int, dict[str, Any]]:
+    """The decisions the model cannot remember (see `services.model_cutoffs`), how many were dropped, and the cutoff used.
+
+    Raises ValueError for a model with no known cutoff unless `allow_unknown_cutoff`, which then keeps every decision.
+    """
+    cutoff, source = cutoff_record(model) or (None, None)
+    if cutoff is None and window and not allow_unknown_cutoff:
+        raise ValueError(f"No knowledge cutoff for model '{model}' (config/model_knowledge_cutoffs.csv); a replay could be "
+                         "scored on decisions it remembers. Add it to the table or pass allow_unknown_cutoff.")
+    contamination = {"knowledge_cutoff": cutoff.isoformat() if cutoff else None,
+                     "margin_days": CONTAMINATION_MARGIN_DAYS, "source": source}
+    if cutoff is None:
+        return window, 0, contamination
+    kept = [decision for decision in window if eligibility(decision["decision_run_at"], cutoff) == "eligible"]
+    return kept, len(window) - len(kept), contamination
+
+
 @dataclass
 class ReplayRun:
     """The decisions in a window and the cached model, or production's stored answers, that answer them."""
@@ -446,10 +465,12 @@ class ReplayRun:
     replay: CachedManagerReplay | None
     strategist: StrategistReplay | None
     db_path: Any = None
+    excluded_pre_knowledge_cutoff: int = 0
+    contamination: dict[str, Any] | None = None
 
     @classmethod
     def build(cls, *, model: str, start_at: str | None = None, end_at: str | None = None, limit: int | None = None,
-              min_hours_between: float = 0, replay_strategist: bool = False, decide: Decider | None = None,
+              decision_ids: Sequence[int] | None = None, allow_unknown_cutoff: bool = False, min_hours_between: float = 0, replay_strategist: bool = False, decide: Decider | None = None,
               decide_strategist: Decider | None = None, strategist_reuse_max_age_minutes: int = 0,
               db_path: Any = None) -> "ReplayRun":
         stored = model == STORED_MODEL
@@ -468,11 +489,13 @@ class ReplayRun:
             reuse_max_age_minutes=strategist_reuse_max_age_minutes,
             reuse_max_price_move_pct=AgentPipelineSettings.from_env().strategist_reuse_max_price_move_pct,
         ) if replay_strategist else None
-        window = list_frozen_manager_decisions(start_at=start_at, end_at=end_at, limit=limit, db_path=db_path)
+        window = list_frozen_manager_decisions(start_at=start_at, end_at=end_at, limit=limit, ids=decision_ids, db_path=db_path)
+        window, excluded, contamination = (window, 0, None) if stored else drop_remembered(window, model, allow_unknown_cutoff)
         # Older decisions predate frozen inputs; dropped before spacing so they never take a replayable one's slot.
         replayable = [decision for decision in window if frozen_manager_input(decision) is not None]
         decisions = space_decisions_per_symbol(replayable, min_hours=min_hours_between) if min_hours_between > 0 else replayable
-        return cls(model, window, replayable, decisions, min_hours_between, thesis_policy, replay, strategist, db_path)
+        return cls(model, window, replayable, decisions, min_hours_between, thesis_policy, replay, strategist, db_path,
+                   excluded, contamination)
 
     @property
     def stored(self) -> bool:
@@ -539,6 +562,8 @@ class ReplayRun:
         return {
             "source_decision_count": len(self.decisions),
             "missing_frozen_input_count": len(self.window) - len(self.replayable),
+            "excluded_pre_knowledge_cutoff": self.excluded_pre_knowledge_cutoff,
+            "contamination": self.contamination,
             "min_hours_between_same_symbol": self.min_hours_between,
             "spaced_out_decision_count": len(self.replayable) - len(self.decisions),
             "outcomes": tally.outcomes,
@@ -568,6 +593,8 @@ def run_llm_backtest(
     start_at: str | None = None,
     end_at: str | None = None,
     limit: int | None = None,
+    decision_ids: Sequence[int] | None = None,
+    allow_unknown_cutoff: bool = False,
     execution_config: dict[str, Any] | None = None,
     fetch_missing_bars: bool = False,
     fetch_option_quotes: bool = False,
@@ -586,10 +613,12 @@ def run_llm_backtest(
     decisions spaced that far apart per symbol (see `space_decisions_per_symbol`); compare such a run
     with a `stored` run using the same spacing. `replay_strategist` has `model` answer the strategist
     too, so the manager answers that strategist instead of production's. `strategist_reuse_max_age_minutes`
-    reuses those answers under production's reuse rule (see the module docstring).
+    reuses those answers under production's reuse rule (see the module docstring). `decision_ids` replays only
+    those decisions; unless `model` is `stored`, decisions within a model's knowledge cutoff plus margin are
+    dropped, and a model with no known cutoff is refused unless `allow_unknown_cutoff`.
     """
-    run = ReplayRun.build(model=model, start_at=start_at, end_at=end_at, limit=limit,
-                          min_hours_between=min_hours_between, replay_strategist=replay_strategist,
+    run = ReplayRun.build(model=model, start_at=start_at, end_at=end_at, limit=limit, decision_ids=decision_ids,
+                          allow_unknown_cutoff=allow_unknown_cutoff, min_hours_between=min_hours_between, replay_strategist=replay_strategist,
                           decide=decide, decide_strategist=decide_strategist,
                           strategist_reuse_max_age_minutes=strategist_reuse_max_age_minutes, db_path=db_path)
     local_settings = WorkerSettings.from_env()

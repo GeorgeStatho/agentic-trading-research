@@ -4,7 +4,7 @@ from contextlib import closing
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from db_common import get_connection, json_text
 from services.option_dte_buckets import normalize_target_dte_bucket
@@ -13,14 +13,20 @@ from .candidate_lifecycle import stage_payloads
 from .shared import normalize_timestamp
 
 
+ID_CHUNK_SIZE = 500
+
+
 def list_frozen_manager_decisions(
     *,
     start_at: str | None = None,
     end_at: str | None = None,
     limit: int | None = None,
+    ids: Sequence[int] | None = None,
     db_path: Path | str | None = None,
 ) -> list[dict[str, Any]]:
     """Every stored manager decision with its frozen input, oldest first.
+
+    `ids` keeps only those decisions (none for an empty list); `limit` then applies to what is left.
 
     Unlike the replay evaluator's source, this includes decisions that never traded:
     a replayed model may trade where production did not.
@@ -45,12 +51,22 @@ def list_frozen_manager_decisions(
         query += " AND history.decision_run_at <= ?"
         parameters.append(normalize_timestamp(end_at))
     # Limit the most recent window first, then return it in chronological order.
-    query += " ORDER BY history.decision_run_at DESC, history.id DESC"
+    order = " ORDER BY history.decision_run_at DESC, history.id DESC"
     if limit is not None:
-        query += " LIMIT ?"
-        parameters.append(max(1, int(limit)))
+        order += " LIMIT ?"
+    limit_parameters = [] if limit is None else [max(1, int(limit))]
+    if ids is None:
+        searches = [(query + order, parameters + limit_parameters)]
+    else:
+        # Chunked under SQLite's variable limit. A chunk's newest `limit` rows include its share of the overall newest.
+        unique_ids = list(dict.fromkeys(int(decision_id) for decision_id in ids))
+        searches = [(f"{query} AND history.id IN ({','.join('?' * len(chunk))}){order}", parameters + chunk + limit_parameters)
+                    for chunk in (unique_ids[start:start + ID_CHUNK_SIZE] for start in range(0, len(unique_ids), ID_CHUNK_SIZE))]
     with closing(get_connection(db_path)) as conn:
-        rows = [dict(row) for row in conn.execute(query, tuple(parameters)).fetchall()]
+        rows = [dict(row) for text, values in searches for row in conn.execute(text, tuple(values)).fetchall()]
+    if ids is not None:
+        rows.sort(key=lambda row: (row["decision_run_at"], row["id"]), reverse=True)
+        rows = rows[:limit_parameters[0]] if limit_parameters else rows
     return rows[::-1]
 
 

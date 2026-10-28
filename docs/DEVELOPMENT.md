@@ -64,7 +64,9 @@ Tests are hermetic. `tests/__init__.py` runs before any test module and:
   code defaults whatever your shell or `.env` contains;
 - points `DB_PATH` at a throwaway database, initialized once per run (once per worker
   process in a parallel run);
-- disables telemetry.
+- disables telemetry;
+- points the model knowledge-cutoff table at `tests/fixtures/default_model_cutoffs.csv`, which lists only the
+  generic `local` model.
 
 Test modules must not load `.env`, stub installed packages in `sys.modules`, or rely on
 another test having run first. Import shared fixtures as `from tests.<module> import ...`.

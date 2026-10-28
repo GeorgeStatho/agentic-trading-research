@@ -242,5 +242,161 @@ class RecommendationEligibilityTests(unittest.TestCase):
             self.assertTrue(OrderCandidateBuilder().recommendation_allows_entry(view))
 
 
+class ItemFilterTests(DatabaseFixture):
+    """`decision_ids` restricts a replay to explicit decisions. The fixture's own decision is 2026-03-02 15:00."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Inserted out of time order, so row order and chronological order differ.
+        self.a = self.add_decision("2026-03-05T15:00:00+00:00")
+        self.b = self.add_decision("2026-03-03T15:00:00+00:00")
+        self.c = self.add_decision("2026-03-04T15:00:00+00:00")
+        self.d = self.add_decision("2026-03-06T15:00:00+00:00")
+
+    def add_decision(self, at: str) -> int:
+        with closing(get_connection(self.db_path)) as conn, conn:
+            history_id = conn.execute("INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) "
+                                      "VALUES ('MSFT', ?, 'neither')", (at,)).lastrowid
+            conn.execute("INSERT INTO manager_decision_payloads (manager_decision_history_id, manager_input_json, "
+                         "manager_output_json) VALUES (?, ?, ?)",
+                         (history_id, json.dumps({"replay_input": {"company": {"symbol": "MSFT", "at": at}}}),
+                          json.dumps({"recommendation": {"decision": "neither"}})))
+        return history_id
+
+    def listed(self, **options) -> list[int]:
+        from market_db_modules.llm_replay_store import list_frozen_manager_decisions
+        return [row["id"] for row in list_frozen_manager_decisions(db_path=self.db_path, **options)]
+
+    def test_only_the_listed_decisions_come_back_in_chronological_order(self) -> None:
+        self.assertEqual(self.listed(ids=[self.a, self.c, self.b]), [self.b, self.c, self.a])
+
+    def test_no_ids_means_every_decision(self) -> None:
+        self.assertEqual(self.listed(ids=None), [self.decision_id, self.b, self.c, self.a, self.d])
+
+    def test_an_empty_list_matches_nothing(self) -> None:
+        self.assertEqual(self.listed(ids=[]), [])
+
+    def test_unknown_and_repeated_ids_are_ignored(self) -> None:
+        self.assertEqual(self.listed(ids=[self.b, self.b, 999_999]), [self.b])
+
+    def test_limit_applies_after_the_id_filter(self) -> None:
+        # The two most recent of the listed decisions, though c and d (unlisted) are newer than b.
+        self.assertEqual(self.listed(ids=[self.decision_id, self.b, self.a], limit=2), [self.b, self.a])
+
+    def test_the_window_still_applies_with_ids(self) -> None:
+        self.assertEqual(self.listed(ids=[self.b, self.a], start_at="2026-03-04T00:00:00+00:00"), [self.a])
+
+    def test_a_very_long_id_list_is_chunked_and_still_limited_across_chunks(self) -> None:
+        # More than any SQLite variable limit; the listed decisions are spread over different chunks.
+        ids = list(range(1_000_000, 1_040_000)) + [self.decision_id, self.b, self.a]
+        self.assertEqual(self.listed(ids=ids), [self.decision_id, self.b, self.a])
+        self.assertEqual(self.listed(ids=[self.decision_id, *range(1_000_000, 1_040_000), self.b, self.a], limit=2),
+                         [self.b, self.a])
+
+    def test_the_replay_runs_only_the_listed_decisions_in_order(self) -> None:
+        decide = Mock(return_value={"recommendation": {"decision": "neither"}})
+        run = llm_backtest.ReplayRun.build(model="local", decide=decide, decision_ids=[self.a, self.c, self.b],
+                                           db_path=self.db_path)
+        self.assertEqual([d["id"] for d in run.decisions], [self.b, self.c, self.a])
+        with patch.object(llm_backtest, "finalize", return_value=TRADEABLE):
+            run_llm_backtest(model="local", decide=decide, decision_ids=[self.a, self.c, self.b], db_path=self.db_path)
+        self.assertEqual([call.args[0]["company"]["at"] for call in decide.call_args_list],
+                         ["2026-03-03T15:00:00+00:00", "2026-03-04T15:00:00+00:00", "2026-03-05T15:00:00+00:00"])
+
+    def test_an_empty_id_list_replays_nothing_and_does_not_raise(self) -> None:
+        decide = Mock()
+        with patch.object(llm_backtest, "finalize", return_value=TRADEABLE):
+            result = run_llm_backtest(model="local", decide=decide, decision_ids=[], db_path=self.db_path)
+        decide.assert_not_called()
+        self.assertEqual(result["events"], [])
+
+    def test_limit_still_trims_a_replay_that_has_decision_ids(self) -> None:
+        run = llm_backtest.ReplayRun.build(model="stored", decision_ids=[self.b, self.c, self.a], limit=2,
+                                           db_path=self.db_path)
+        self.assertEqual([d["id"] for d in run.decisions], [self.c, self.a])
+
+
+class ContaminationMetricsTests(DatabaseFixture):
+    """A known-cutoff model's run records what the guard excluded. Fixture CSV: test-model, cutoff 2026-01-01."""
+
+    def test_the_exclusion_and_cutoff_appear_in_the_replay_metrics(self) -> None:
+        with closing(get_connection(self.db_path)) as conn, conn:
+            history_id = conn.execute("INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) "
+                                      "VALUES ('MSFT', '2026-01-15T15:00:00+00:00', 'neither')").lastrowid
+            conn.execute("INSERT INTO manager_decision_payloads (manager_decision_history_id, manager_input_json) "
+                         "VALUES (?, ?)", (history_id, json.dumps({"replay_input": {"company": {"symbol": "OLD"}}})))
+        decide = Mock(return_value={"recommendation": TRADEABLE["recommendation"]})
+        fixture_csv = Path(__file__).resolve().parent / "fixtures" / "model_cutoffs.csv"
+        with patch("services.model_cutoffs.CUTOFFS_CSV", fixture_csv), \
+                patch.object(llm_backtest, "finalize", return_value=TRADEABLE):
+            result = run_llm_backtest(model="test-model", decide=decide, db_path=self.db_path)
+        replay = result["run"]["metrics"]["replay"]
+        self.assertEqual(replay["excluded_pre_knowledge_cutoff"], 1)
+        self.assertEqual(replay["contamination"], {"knowledge_cutoff": "2026-01-01", "margin_days": 30,
+                                                   "source": "https://example.test/models/test-model"})
+        self.assertEqual(decide.call_count, 1)
+
+    def test_an_allowed_unknown_cutoff_replays_everything_and_records_no_cutoff(self) -> None:
+        decide = Mock(return_value={"recommendation": TRADEABLE["recommendation"]})
+        fixture_csv = Path(__file__).resolve().parent / "fixtures" / "model_cutoffs.csv"
+        with patch("services.model_cutoffs.CUTOFFS_CSV", fixture_csv), \
+                patch.object(llm_backtest, "finalize", return_value=TRADEABLE):
+            result = run_llm_backtest(model="mystery-model", decide=decide, allow_unknown_cutoff=True,
+                                      db_path=self.db_path)
+        replay = result["run"]["metrics"]["replay"]
+        self.assertEqual(replay["excluded_pre_knowledge_cutoff"], 0)
+        self.assertEqual(replay["contamination"], {"knowledge_cutoff": None, "margin_days": 30, "source": None})
+        self.assertEqual(decide.call_count, 1)
+
+    def test_an_unknown_model_is_refused_before_anything_is_replayed(self) -> None:
+        decide = Mock()
+        with patch("services.model_cutoffs.CUTOFFS_CSV", Path(__file__).resolve().parent / "fixtures" / "model_cutoffs.csv"):
+            with self.assertRaises(ValueError):
+                run_llm_backtest(model="mystery-model", decide=decide, db_path=self.db_path)
+        decide.assert_not_called()
+
+
+class CommandLineFlagTests(unittest.TestCase):
+    """`agentCallers/llm_backtest.py` passes the item list and the unknown-cutoff override through to the runners."""
+
+    def run_cli(self, *argv: str, direction: bool = False) -> dict:
+        import importlib
+        import io
+        import sys
+        from contextlib import redirect_stdout
+        cli = importlib.import_module("agentCallers.llm_backtest")
+        runner = "run_direction_score" if direction else "run_llm_backtest"
+        result = {"model": "m", "replay": {}, "score": {}, "decisions": []} if direction else \
+            {"run": {"id": 1, "model": "m", "prompt_version": "p", "metrics": {}}}
+        with patch.object(sys, "argv", ["llm_backtest", "--model", "local", *argv]), \
+                patch.object(cli, runner, return_value=result) as run, redirect_stdout(io.StringIO()):
+            cli.main()
+        return run.call_args.kwargs
+
+    def ids_file(self, text: str) -> str:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "ids.txt"
+        path.write_text(text, encoding="utf-8")
+        return str(path)
+
+    def test_by_default_there_is_no_item_filter_and_the_guard_is_strict(self) -> None:
+        kwargs = self.run_cli()
+        self.assertIsNone(kwargs["decision_ids"])
+        self.assertFalse(kwargs["allow_unknown_cutoff"])
+
+    def test_the_ids_file_lists_one_decision_id_per_line(self) -> None:
+        self.assertEqual(self.run_cli("--decision-ids-file", self.ids_file("7\n3\n\n12\n"))["decision_ids"], [7, 3, 12])
+
+    def test_the_override_flag_reaches_the_runner(self) -> None:
+        self.assertTrue(self.run_cli("--allow-unknown-cutoff")["allow_unknown_cutoff"])
+
+    def test_direction_scoring_gets_the_same_options(self) -> None:
+        kwargs = self.run_cli("--score-direction", "--decision-ids-file", self.ids_file("5\n6\n"),
+                              "--allow-unknown-cutoff", direction=True)
+        self.assertEqual(kwargs["decision_ids"], [5, 6])
+        self.assertTrue(kwargs["allow_unknown_cutoff"])
+
+
 if __name__ == "__main__":
     unittest.main()

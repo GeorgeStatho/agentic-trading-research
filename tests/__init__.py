@@ -36,5 +36,12 @@ def _initialize_default_database():
     initialize_news_database()
 
 
+def _isolate_model_cutoffs():
+    # Replays of the generic "local" model must not depend on which models the shipped table lists.
+    from services import model_cutoffs
+    model_cutoffs.CUTOFFS_CSV = ROOT_DIR / "tests" / "fixtures" / "default_model_cutoffs.csv"
+
+
 _isolate_environment()
+_isolate_model_cutoffs()
 _initialize_default_database()

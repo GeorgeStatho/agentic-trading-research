@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from statistics import mean, median
-from typing import Any
+from typing import Any, Sequence
 
 from market_db_modules.backtesting import daily_closes_after
 from agent_helpers.deterministic_option_selector.market import _get_reference_stock_price
@@ -116,6 +116,8 @@ def run_direction_score(
     start_at: str | None = None,
     end_at: str | None = None,
     limit: int | None = None,
+    decision_ids: Sequence[int] | None = None,
+    allow_unknown_cutoff: bool = False,
     min_hours_between: float = 0,
     replay_strategist: bool = False,
     fetch_missing_bars: bool = False,
@@ -125,8 +127,8 @@ def run_direction_score(
     db_path: Any = None,
 ) -> dict[str, Any]:
     """Replay `model` (or `stored`) over the window and score each answer's direction by the stock's next moves."""
-    run = ReplayRun.build(model=model, start_at=start_at, end_at=end_at, limit=limit,
-                          min_hours_between=min_hours_between, replay_strategist=replay_strategist,
+    run = ReplayRun.build(model=model, start_at=start_at, end_at=end_at, limit=limit, decision_ids=decision_ids,
+                          allow_unknown_cutoff=allow_unknown_cutoff, min_hours_between=min_hours_between, replay_strategist=replay_strategist,
                           decide=decide, decide_strategist=decide_strategist,
                           strategist_reuse_max_age_minutes=strategist_reuse_max_age_minutes, db_path=db_path)
     bars = fetch_missing_history(run, db_path=db_path) if fetch_missing_bars else None

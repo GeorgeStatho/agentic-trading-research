@@ -28,7 +28,8 @@ Stock-trading-experiment/
 ├── AgenticStockExperiemnt.md
 ├── requirements.txt
 ├── config/
-│   └── Modelfile
+│   ├── Modelfile
+│   └── model_knowledge_cutoffs.csv
 ├── Data/nd evidence checks
 Strategist thesis
 Trade economics
@@ -572,7 +573,10 @@ reported as `snapshot_hash_mismatch` and the run continues. Directional answers 
 production saved in `candidate_snapshots`; answers in another bucket, and decisions before those snapshots, are reported as
 `bucket_chain_unavailable`. Trades are recorded as ordinary backtest runs (`run_decision_backtest`): stored quotes where they
 exist, otherwise Black-Scholes marks on daily closes. Answers are cached in `llm_replay_cache`; `--model stored` replays
-production's own answers as the like-for-like baseline. Eligibility, the premium cap and portfolio limits come
+production's own answers as the like-for-like baseline. `--decision-ids-file` replays only the listed decisions. Unless the model is
+`stored`, decisions within a model's knowledge cutoff plus 30 days (`config/model_knowledge_cutoffs.csv`,
+`services/model_cutoffs.py`) are dropped and counted as `excluded_pre_knowledge_cutoff`, and a model missing from the table is refused
+unless `--allow-unknown-cutoff`. Eligibility, the premium cap and portfolio limits come
 from each candidate's recorded pipeline manifest; directional answers whose recorded selector settings differ from
 the local ones are reported as `selector_config_mismatch`. `--fetch-missing-bars` downloads daily history for
 traded symbols that have none. `--min-hours-between N` replays a company's decision only when it is N hours
