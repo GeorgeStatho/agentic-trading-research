@@ -91,6 +91,7 @@ def build_pipeline_version(*, settings=None):
     from services.settings import get_settings
     from services.option_dte_buckets import OPTION_DTE_BUCKETS
     from agent_stages.strategist_runner import strategist_prompt_version
+    from agent_builders.strategist_payload_articles import SUPPORTING_ARTICLE_SELECTION_VERSION
     from services.evidence_thesis_policy import EvidenceThesisPolicy
     from agent_stages.manager_runner import MANAGER_PROMPT_VERSION
     from agent_helpers.deterministic_option_selector import SELECTOR_VERSION
@@ -109,6 +110,7 @@ def build_pipeline_version(*, settings=None):
     manifest = {
         'manifest_version': 'pipeline-manifest-v1',
         'strategist_prompt_version': strategist_prompt_version(thesis_policy),
+        'supporting_article_selection_version': SUPPORTING_ARTICLE_SELECTION_VERSION,
         'manager_prompt_version': MANAGER_PROMPT_VERSION,
         'model_provider': _normalize_provider(),
         'model_names': {stage: _resolve_model_name(_normalize_provider(stage_model.provider), stage_model.model)
