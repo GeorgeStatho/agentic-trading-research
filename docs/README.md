@@ -33,6 +33,7 @@ history and are not updated when the code changes.
 | [RESEARCH_PHASE5.md](RESEARCH_PHASE5.md) | Trade-economics reports, finalization and submission rechecks |
 | [RESEARCH_PHASE6.md](RESEARCH_PHASE6.md) | Event-triggered thesis reviews of open positions (shadow) |
 | [RESEARCH_PHASE7.md](RESEARCH_PHASE7.md) | Forward cohorts, challenger comparisons and pre-registered promotion |
+| [finharness/README.md](finharness/README.md) | Proposed: four follow-ups adapted from the FinanceHarness paper |
 
 ### V2 trading architecture (implemented)
 
