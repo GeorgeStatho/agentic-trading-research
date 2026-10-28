@@ -14,6 +14,8 @@ CREATE TABLE news_articles (id INTEGER PRIMARY KEY, source TEXT, source_type TEX
 CREATE TABLE company_news_articles (id INTEGER PRIMARY KEY, company_id INTEGER, created_at TEXT);
 CREATE TABLE strategist_runs (id INTEGER PRIMARY KEY, created_at TEXT, input_payload_json TEXT);
 CREATE TABLE candidate_rejections (id INTEGER PRIMARY KEY, reason_code TEXT, occurred_at TEXT);
+CREATE TABLE failed_urls (id INTEGER PRIMARY KEY, url TEXT, is_permanent INTEGER, last_error TEXT,
+    updated_at TEXT);
 """
 
 DAY = "2026-10-27"
@@ -80,6 +82,62 @@ class NewsQualityReportTests(unittest.TestCase):
         )
         (row,) = report.articles_by_source(self.conn, "2026-10-26", DAY)
         self.assertEqual(row["count"], 2)
+
+    def add_articles(self, *sources, created_at=IN_RANGE):
+        self.insert(
+            "INSERT INTO news_articles (source, source_type, evidence_score, created_at) VALUES (?, ?, 0.5, ?)",
+            *[(source, "news", created_at) for source in sources],
+        )
+
+    def add_failures(self, *rows, updated_at=IN_RANGE):
+        self.insert(
+            "INSERT INTO failed_urls (url, is_permanent, last_error, updated_at) VALUES (?, ?, ?, ?)",
+            *[(url, permanent, error, updated_at) for url, permanent, error in rows],
+        )
+
+    def extraction(self):
+        return {r["source"]: r for r in report.extraction_success_by_source(self.conn, DAY, DAY)}
+
+    def test_extraction_success_rate_counts_saved_and_failed_urls(self):
+        self.add_articles("finance.yahoo.com", "finance.yahoo.com", "finance.yahoo.com", "cnbc.com")
+        self.add_failures(
+            ("https://finance.yahoo.com/news/a.html", 0, "Missing body"),
+            ("https://www.cnbc.com/2026/10/27/b.html", 1, "HTTP 403"),
+            ("https://www.cnbc.com/2026/10/27/c.html", 1, "HTTP 403"),
+            ("https://www.cnbc.com/2026/10/27/d.html", 0, "Timeout"),
+        )
+        rows = self.extraction()
+        self.assertEqual(rows["finance.yahoo.com"]["attempted"], 4)
+        self.assertAlmostEqual(rows["finance.yahoo.com"]["success_rate"], 0.75)
+        self.assertEqual(rows["cnbc.com"]["succeeded"], 1)
+        self.assertEqual(rows["cnbc.com"]["failed"], 3)
+        self.assertEqual(rows["cnbc.com"]["permanent_failures"], 2)
+        self.assertEqual(rows["cnbc.com"]["top_error"], "HTTP 403")
+        self.assertEqual([r["source"] for r in report.extraction_success_by_source(self.conn, DAY, DAY)],
+                         ["cnbc.com", "finance.yahoo.com"])
+
+    def test_extraction_failures_use_longest_known_source(self):
+        self.add_articles("businessinsider.com", "markets.businessinsider.com")
+        self.add_failures(("https://markets.businessinsider.com/news/x", 0, None))
+        rows = self.extraction()
+        self.assertEqual(rows["markets.businessinsider.com"]["failed"], 1)
+        self.assertEqual(rows["businessinsider.com"]["failed"], 0)
+        self.assertEqual(rows["markets.businessinsider.com"]["top_error"], "unknown")
+
+    def test_extraction_source_with_only_failures_uses_hostname_and_older_articles(self):
+        self.add_articles("morningstar.com", created_at=OUT_OF_RANGE)
+        self.add_failures(
+            ("https://www.morningstar.com/news/x", 0, "Missing title"),
+            ("https://Example.org/y", 0, "Missing body"),
+        )
+        self.add_failures(("https://www.morningstar.com/news/old", 0, "old"), updated_at=OUT_OF_RANGE)
+        rows = self.extraction()
+        self.assertEqual(set(rows), {"morningstar.com", "example.org"})
+        self.assertEqual(rows["morningstar.com"]["failed"], 1)
+        self.assertEqual(rows["morningstar.com"]["success_rate"], 0.0)
+
+    def test_extraction_empty_when_nothing_in_range(self):
+        self.assertEqual(report.extraction_success_by_source(self.conn, DAY, DAY), [])
 
     def test_companies_with_company_news_counts_distinct_in_range(self):
         self.insert(
@@ -189,7 +247,7 @@ class NewsQualityReportTests(unittest.TestCase):
         self.add_payloads(payload("AAPL", [summary("AAPL", root="r1")]))
         _, text = self.run_main("--start", DAY, "--json")
         data = json.loads(text)
-        for key in ("articles_by_source", "companies_with_company_news", "payloads", "payload_summary", "rejections"):
+        for key in ("articles_by_source", "extraction_success_by_source", "companies_with_company_news", "payloads", "payload_summary", "rejections"):
             self.assertIn(key, data)
         self.assertEqual(data["payloads"][0]["symbol"], "AAPL")
         self.assertEqual(data["payload_summary"]["payloads"], 1)

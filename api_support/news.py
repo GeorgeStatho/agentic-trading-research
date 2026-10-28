@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import sqlite3
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from agent_pipeline.main import get_current_pipeline_targets  # compatibility import for existing tests
@@ -9,7 +11,8 @@ from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 
 from api_support.request_utils import parse_datetime, trim_text
 from api_support.context import ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE
-from db_common import get_connection
+from db_common import database_path, get_connection
+from scripts.news_quality_report import extraction_success_by_source
 
 VALID_ANALYZED_COMPANY_NEWS_VIEWS = {"company", "sector", "industry", "macro"}
 ANALYZED_COMPANY_NEWS_MAX_ARTICLE_AGE_DAYS = DEFAULT_MAX_ARTICLE_AGE_DAYS * 2
@@ -898,3 +901,14 @@ def build_analyzed_company_news_payload(
         "active_view": active_view,
         "companies": normalized_companies,
     }
+
+
+def build_news_extraction_payload(days: int, *, today: date | None = None) -> dict:
+    # Per-source extraction success over the last `days` UTC days, including today.
+    end = today or datetime.now(timezone.utc).date()
+    start = end - timedelta(days=days - 1)
+    # mode=ro never writes; unlike the report script's immutable=1 it still reads the live WAL.
+    uri = f"{Path(database_path()).resolve().as_uri()}?mode=ro"
+    with closing(sqlite3.connect(uri, uri=True)) as conn:
+        sources = extraction_success_by_source(conn, start.isoformat(), end.isoformat())
+    return {"days": days, "start": start.isoformat(), "end": end.isoformat(), "sources": sources}

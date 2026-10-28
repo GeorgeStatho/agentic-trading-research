@@ -38,6 +38,7 @@ python scripts/news_quality_report.py --db PATH --start 2026-10-28 --end 2026-10
 
 It reports:
 - `articles_by_source`: saved articles by `source` / `source_type`, with average evidence score;
+- `extraction_success_by_source`: per source, the share of followed article urls that were extracted and saved. Successes are `news_articles` rows; failures are `failed_urls` rows, attributed to the longest saved source the url's host matches (else the bare host). Each url counts once: a url that later succeeds leaves `failed_urls`, and failures are dated by their latest attempt. The row also has `permanent_failures` (HTTP 403/404) and the most common `top_error`. The dashboard shows the same numbers under Research → Extraction (`/api/news-extraction?days=N`, opened `mode=ro`);
 - `companies_with_company_news`: companies with at least one company-linked article;
 - `payloads`: one row per strategist run. `company_direct` counts the summaries about the company itself (matching `primary_ticker` or a `company_view` layer); the row also has `distinct_root_sources` and the company-evidence freshness and gaps;
 - `payload_summary`: the means, plus counts of payloads with `consensus_unavailable` or `company_evidence_not_collected`;

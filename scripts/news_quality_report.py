@@ -6,6 +6,8 @@ Usage: python scripts/news_quality_report.py --db PATH --start YYYY-MM-DD [--end
 import argparse
 import json
 import sqlite3
+from collections import Counter
+from urllib.parse import urlsplit
 
 REJECTION_REASONS = ("insufficient_independent_roots", "insufficient_high_confidence_articles")
 
@@ -21,6 +23,46 @@ def articles_by_source(conn, start, end):
         {"source": s, "source_type": t, "count": n, "avg_evidence_score": avg}
         for s, t, n, avg in cursor
     ]
+
+
+def _source_for_host(host, sources):
+    # Match the scraper's own naming: the longest saved source the host equals or is a subdomain of.
+    matches = [s for s in sources if host == s or host.endswith(f".{s}")]
+    return max(matches, key=len) if matches else host
+
+
+def extraction_success_by_source(conn, start, end):
+    # A saved article is a successful extraction; a failed_urls row is a url whose latest
+    # extraction failed (a later success deletes the row). Each url counts once.
+    saved = dict(conn.execute(
+        "SELECT source, COUNT(*) FROM news_articles WHERE substr(created_at, 1, 10) BETWEEN ? AND ? GROUP BY source",
+        (start, end),
+    ).fetchall())
+    known = [s.lower() for (s,) in conn.execute("SELECT DISTINCT source FROM news_articles") if s]
+    failed, permanent, errors = Counter(), Counter(), {}
+    cursor = conn.execute(
+        "SELECT url, is_permanent, last_error FROM failed_urls WHERE substr(updated_at, 1, 10) BETWEEN ? AND ?",
+        (start, end),
+    )
+    for url, is_permanent, error in cursor:
+        source = _source_for_host((urlsplit(url).hostname or "").lower(), known)
+        failed[source] += 1
+        permanent[source] += bool(is_permanent)
+        errors.setdefault(source, Counter())[(error or "").strip()[:120] or "unknown"] += 1
+    rows = []
+    for source in set(saved) | set(failed):
+        succeeded = saved.get(source, 0)
+        attempted = succeeded + failed[source]
+        rows.append({
+            "source": source,
+            "attempted": attempted,
+            "succeeded": succeeded,
+            "failed": failed[source],
+            "permanent_failures": permanent[source],
+            "success_rate": succeeded / attempted,
+            "top_error": errors[source].most_common(1)[0][0] if source in errors else None,
+        })
+    return sorted(rows, key=lambda r: (-r["attempted"], r["source"]))
 
 
 def companies_with_company_news(conn, start, end):
@@ -91,6 +133,7 @@ def build_report(conn, start, end):
         "start": start,
         "end": end,
         "articles_by_source": articles_by_source(conn, start, end),
+        "extraction_success_by_source": extraction_success_by_source(conn, start, end),
         "companies_with_company_news": companies_with_company_news(conn, start, end),
         "payloads": rows,
         "payload_summary": payload_summary(rows),
@@ -103,6 +146,12 @@ def format_text(report):
     lines += [
         f"  {r['source']} / {r['source_type']}: {r['count']} (avg evidence {r['avg_evidence_score']})"
         for r in report["articles_by_source"]
+    ]
+    lines += ["", "Extraction success rate by source"]
+    lines += [
+        f"  {r['source']}: {r['success_rate']:.0%} ({r['succeeded']}/{r['attempted']}, "
+        f"{r['permanent_failures']} permanent)" + (f", top error: {r['top_error']}" if r["top_error"] else "")
+        for r in report["extraction_success_by_source"]
     ]
     lines += ["", f"Companies with company news: {report['companies_with_company_news']}", "", "Payload summary"]
     lines += [f"  {k}: {v}" for k, v in report["payload_summary"].items()]
