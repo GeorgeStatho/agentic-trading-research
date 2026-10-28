@@ -70,6 +70,7 @@ Important public helpers:
   - exists mainly to avoid Twisted reactor restart issues when doing follow-up article crawls
   - Playwright and Scrapy results are merged into one dict; a failing Playwright backend sends its URLs to Scrapy
   - a worker process that dies no longer leaves the call hanging
+  - Playwright renders at most `WEBSCRAPING_PLAYWRIGHT_MAX_PAGES` (default 30) distinct URLs per call, 2 at a time, with images, media and fonts blocked; the rest are left out of the result, so they count as missing and are retried next run
 
 Important internal pieces:
 
