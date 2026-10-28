@@ -37,8 +37,9 @@ def run_benchmark(set_id: str, *, split: str, model: str, replay_strategist: boo
                   decide=None, decide_strategist=None, db_path: Any = None) -> dict[str, Any]:
     """Replay and score `split` of the set with `model`, store the run and return it as stored.
 
-    Raises ValueError for an unknown or empty split, for a holdout this model, prompts and strategist flag already
-    scored (before any model call), and, from the replay, for a model with no known cutoff unless `allow_unknown_cutoff`.
+    Raises ValueError for an unknown or empty split, for a holdout this model already scored (with any prompts or
+    strategist flag; before any model call), and, from the replay, for a model with no known cutoff unless
+    `allow_unknown_cutoff`.
     """
     strata = {item["manager_decision_history_id"]: item["stratum"]
               for item in list_benchmark_items(set_id, split=split, db_path=db_path)}
@@ -46,9 +47,8 @@ def run_benchmark(set_id: str, *, split: str, model: str, replay_strategist: boo
     if not ids:
         raise ValueError(f"Benchmark set '{set_id}' has no {split} items")
     versions = prompt_versions(model, replay_strategist)
-    if split == "holdout" and any(run["prompt_versions"] == versions and run["replay_strategist"] == replay_strategist
-                                  for run in list_benchmark_runs(set_id, split="holdout", model=model, db_path=db_path)):
-        raise ValueError(f"The holdout of '{set_id}' was already scored for {model} with these prompts; it is single-use")
+    if split == "holdout" and list_benchmark_runs(set_id, split="holdout", model=model, db_path=db_path):
+        raise ValueError(f"The holdout of '{set_id}' was already scored for {model}; it is single-use per model")
     backtest = run_llm_backtest(model=model, decision_ids=ids, replay_strategist=replay_strategist,
                                 allow_unknown_cutoff=allow_unknown_cutoff, decide=decide, decide_strategist=decide_strategist,
                                 db_path=db_path)

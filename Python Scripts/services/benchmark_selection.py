@@ -139,7 +139,7 @@ def _holdout_symbols(chosen: Sequence[dict[str, Any]], share: float, random: Ran
     items = 0
     for symbol in symbols:
         if abs(items + counts[symbol] - goal) >= abs(items - goal):
-            break
+            continue   # too big here; a smaller symbol later may still fit
         holdout.add(symbol)
         items += counts[symbol]
     return holdout
@@ -171,4 +171,8 @@ def create_benchmark_set(set_id: str, *, size: int, holdout_share: float, start_
                  "stratum_floor": STRATUM_FLOOR, "max_neither_share": MAX_NEITHER_SHARE,
                  "symbol_budget_factor": SYMBOL_BUDGET_FACTOR}
     insert_benchmark_set(set_id, selection_version=SELECTION_VERSION, selection=selection, items=items, db_path=db_path)
-    return benchmark_set_summary(set_id, db_path=db_path)
+    summary = benchmark_set_summary(set_id, db_path=db_path)
+    if summary["item_count"] < size:
+        summary["warning"] = (f"Selected {summary['item_count']} of the {size} requested items: the pool, the per-symbol "
+                              f"cap, 24 h spacing or the abstention ceiling left no more")
+    return summary

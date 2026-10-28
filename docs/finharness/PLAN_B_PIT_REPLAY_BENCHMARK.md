@@ -49,8 +49,9 @@ New `config/model_knowledge_cutoffs.csv`, with columns `model,knowledge_cutoff,s
 is the provider documentation URL or "release-date-proxy".
 
 New `services/model_cutoffs.py`:
-- `knowledge_cutoff(model) -> date | None` matches the exact model id first, then the longest
-  prefix.
+- `knowledge_cutoff(model) -> date | None` matches the exact model id, ignoring case. There is no
+  prefix matching: a family prefix would give a newer model an older cutoff, so every id (dated
+  variants included) is listed on its own row.
 - `CONTAMINATION_MARGIN_DAYS = 30`.
 - `eligible(decision_run_at, model) -> 'eligible' | 'pre_knowledge_cutoff' | 'cutoff_unknown'`.
 
@@ -90,14 +91,15 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
   run_id INTEGER PRIMARY KEY AUTOINCREMENT, set_id TEXT NOT NULL, split TEXT NOT NULL CHECK (split IN ('dev','holdout')),
   backtest_run_id INTEGER, model TEXT NOT NULL, prompt_versions_json TEXT NOT NULL, replay_strategist INTEGER NOT NULL,
   scores_json TEXT NOT NULL, item_scores_json TEXT NOT NULL, created_at TEXT NOT NULL);
--- Dev runs may repeat; the holdout is scored once per set, model, prompts and strategist flag.
+-- Dev runs may repeat; the holdout is scored once per set and model, so prompt tuning cannot peek at it.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_benchmark_runs_holdout_once
-  ON benchmark_runs(set_id, model, prompt_versions_json, replay_strategist) WHERE split = 'holdout';
+  ON benchmark_runs(set_id, model) WHERE split = 'holdout';
 -- BEFORE UPDATE and BEFORE DELETE triggers on all three tables RAISE(ABORT, 'Immutable benchmark record').
 ```
 - The store module is `Data/market_db_modules/benchmarks.py`.
 - **Holdout runs are once only.** The partial unique index refuses a second `holdout` run for the same
-  set, model, prompts and strategist flag; `run_benchmark` checks first and raises before any model call.
+  set and model, whatever its prompts or strategist flag; `run_benchmark` checks first and raises before any
+  model call. A new prompt version is judged on dev; a fresh holdout score needs a new set.
   Dev runs may repeat, which is why the key is an autoincrement `run_id`.
 
 **Selection** (`services/benchmark_selection.py: select_items(decisions, *, set_id, size,
@@ -187,7 +189,7 @@ model runs require the usual provider env. `--model stored` is the sanity baseli
   - holdout and dev share no symbol.
 - **Immutability:** items and sets reject UPDATE and DELETE; a second holdout run is refused.
 - **Cutoffs:**
-  - exact and prefix matches;
+  - exact, case-insensitive matches, and an unlisted variant of a listed id has no cutoff;
   - the margin boundary (on the cutoff day + 30, excluded; the day after, included);
   - `cutoff_unknown` raises without the override;
   - `stored` bypasses the guard.

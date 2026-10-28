@@ -674,9 +674,9 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
   run_id INTEGER PRIMARY KEY AUTOINCREMENT, set_id TEXT NOT NULL, split TEXT NOT NULL CHECK (split IN ('dev','holdout')),
   backtest_run_id INTEGER, model TEXT NOT NULL, prompt_versions_json TEXT NOT NULL, replay_strategist INTEGER NOT NULL,
   scores_json TEXT NOT NULL, item_scores_json TEXT NOT NULL, created_at TEXT NOT NULL);
--- Dev runs may repeat; the holdout is scored once per set, model, prompts and strategist flag.
+-- Dev runs may repeat; the holdout is scored once per set and model, so prompt tuning cannot peek at it.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_benchmark_runs_holdout_once
-  ON benchmark_runs(set_id, model, prompt_versions_json, replay_strategist) WHERE split = 'holdout';
+  ON benchmark_runs(set_id, model) WHERE split = 'holdout';
 CREATE TRIGGER IF NOT EXISTS benchmark_sets_no_update BEFORE UPDATE ON benchmark_sets
 BEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END;
 CREATE TRIGGER IF NOT EXISTS benchmark_sets_no_delete BEFORE DELETE ON benchmark_sets

@@ -16,7 +16,7 @@ def run_benchmark_command(parser, args, db_path):
         return benchmark_set_summary(args.set_id, db_path=db_path)
     if command == 'run':
         if args.split == 'holdout' and not args.confirm_holdout:
-            parser.error('the holdout can be scored only once per model and prompts; pass --confirm-holdout to spend it')
+            parser.error('the holdout can be scored only once per model; pass --confirm-holdout to spend it')
         from services.benchmark_runner import run_benchmark
         return run_benchmark(args.set_id, split=args.split, model=args.model, replay_strategist=args.replay_strategist,
                              allow_unknown_cutoff=args.allow_unknown_cutoff, db_path=db_path)

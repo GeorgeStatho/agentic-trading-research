@@ -250,15 +250,17 @@ python scripts/research.py benchmark run bench-2026q3 --model MODEL --split hold
   bootstrap SE, plus direction wins, losses and ties. An item counts only if both runs scored it; the
   rest are listed with each run's reason (`excluded_pre_knowledge_cutoff`, `model_error`, ...).
   `--a MODEL:PROMPTS` picks the run with that manager prompt version.
-- **Holdout is single-use.** Score it once, after choosing, per set, model, prompts and strategist
-  flag. A second holdout run is refused before any model call, and the CLI needs `--confirm-holdout`.
+- **Holdout is single-use.** Score it once per set and model, after choosing on dev. A second holdout
+  run of that model (new prompts or strategist flag included) is refused before any model call, and the
+  CLI needs `--confirm-holdout`. A fresh holdout score for a revised prompt needs a new set.
   Dev runs can repeat.
 - **Contamination.** A model may remember decisions near its training data. Unless the model is
   `stored`, decisions up to 30 days after the model's knowledge cutoff are dropped and counted
   (`excluded_pre_knowledge_cutoff`, with the cutoff used in `scores.replay.contamination`), and a
   model with no known cutoff is refused unless `--allow-unknown-cutoff`. To add a model, append a row
   `model,knowledge_cutoff,source` to `config/model_knowledge_cutoffs.csv`: `source` is the provider
-  documentation URL, or `release-date-proxy`. A longer listed prefix wins over a shorter one.
+  documentation URL, or `release-date-proxy`. Ids match exactly (ignoring case), so list each dated
+  variant on its own row.
 
 ## Safety boundaries
 

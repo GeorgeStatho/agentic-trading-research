@@ -15,13 +15,14 @@ CONTAMINATION_MARGIN_DAYS = 30
 
 
 def cutoff_record(model: str) -> tuple[date, str] | None:
-    """`(knowledge_cutoff, source)` for the exact model id, else for the longest listed prefix; None if unlisted."""
+    """`(knowledge_cutoff, source)` for the model id, ignoring case; None if unlisted.
+
+    Exact ids only: a family prefix would give a newer model an older cutoff and admit decisions it may remember.
+    """
     with CUTOFFS_CSV.open(newline="", encoding="utf-8") as handle:
-        table = {row["model"]: (date.fromisoformat(row["knowledge_cutoff"]), row["source"]) for row in csv.DictReader(handle)}
-    if model in table:
-        return table[model]
-    prefixes = [listed for listed in table if model.startswith(listed)]
-    return table[max(prefixes, key=len)] if prefixes else None
+        table = {row["model"].strip().casefold(): (date.fromisoformat(row["knowledge_cutoff"]), row["source"])
+                 for row in csv.DictReader(handle)}
+    return table.get(model.strip().casefold())
 
 
 def knowledge_cutoff(model: str) -> date | None:

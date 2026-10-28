@@ -53,13 +53,15 @@ class KnowledgeCutoffTests(PatchedCutoffTable):
     def test_the_exact_model_id_matches(self) -> None:
         self.assertEqual(cutoffs().knowledge_cutoff("test-model"), date(2026, 1, 1))
 
-    def test_a_dated_variant_matches_its_longest_prefix(self) -> None:
-        # test-model-pro is also prefixed by test-model, whose cutoff is earlier.
-        self.assertEqual(cutoffs().knowledge_cutoff("test-model-pro-0301"), date(2026, 3, 1))
-        self.assertEqual(cutoffs().knowledge_cutoff("test-model-flash-001"), date(2026, 1, 1))
-
-    def test_an_exact_id_beats_a_shorter_prefix(self) -> None:
+    def test_a_variant_must_be_listed_itself(self) -> None:
+        # A family prefix would hand a newer model an older cutoff and admit decisions it may remember.
+        for model in ("test-model-pro-0301", "test-model-flash-001"):
+            with self.subTest(model=model):
+                self.assertIsNone(cutoffs().knowledge_cutoff(model))
         self.assertEqual(cutoffs().knowledge_cutoff("test-model-pro"), date(2026, 3, 1))
+
+    def test_matching_ignores_case_and_surrounding_space(self) -> None:
+        self.assertEqual(cutoffs().knowledge_cutoff(" Test-Model "), date(2026, 1, 1))
 
     def test_an_unlisted_model_has_no_cutoff(self) -> None:
         # "other-test-model" contains a listed id but does not start with it.
@@ -87,10 +89,10 @@ class EligibilityTests(PatchedCutoffTable):
             with self.subTest(decided_at=decided_at):
                 self.assertEqual(cutoffs().eligible(decided_at, "test-model"), expected)
 
-    def test_a_longer_prefix_moves_the_boundary(self) -> None:
-        # test-model-pro-0301: cutoff 2026-03-01, margin ends 2026-03-31.
-        self.assertEqual(cutoffs().eligible("2026-03-31T23:00:00+00:00", "test-model-pro-0301"), "pre_knowledge_cutoff")
-        self.assertEqual(cutoffs().eligible("2026-04-01T00:00:00+00:00", "test-model-pro-0301"), "eligible")
+    def test_each_model_uses_its_own_boundary(self) -> None:
+        # test-model-pro: cutoff 2026-03-01, margin ends 2026-03-31.
+        self.assertEqual(cutoffs().eligible("2026-03-31T23:00:00+00:00", "test-model-pro"), "pre_knowledge_cutoff")
+        self.assertEqual(cutoffs().eligible("2026-04-01T00:00:00+00:00", "test-model-pro"), "eligible")
 
     def test_an_unlisted_model_is_unknown(self) -> None:
         self.assertEqual(cutoffs().eligible("2026-09-01T00:00:00+00:00", "mystery-model"), "cutoff_unknown")
@@ -148,7 +150,7 @@ class ContaminationGuardTests(PatchedCutoffTable, DatabaseFixture):
                           "source": "https://example.test/models/test-model"})
 
     def test_a_model_known_past_every_decision_replays_nothing(self) -> None:
-        run = self.build("test-model-pro-0301")
+        run = self.build("test-model-pro")
         self.assertEqual(run.decisions, [])
         self.assertEqual(self.summary(run)["excluded_pre_knowledge_cutoff"], 4)
 
@@ -328,6 +330,18 @@ class SelectionTests(unittest.TestCase):
         for earlier, later in zip(chosen, chosen[1:]):
             self.assertGreaterEqual(later - earlier, timedelta(hours=24))
 
+    def test_a_symbol_too_big_for_the_holdout_is_skipped_not_the_end_of_the_split(self) -> None:
+        # BIG alone (8 of 11) overshoots a 30% holdout; the three singletons still fit whichever comes first.
+        pool = [synthetic(index + 1, "BIG", day(2 * index)) for index in range(8)]
+        pool += [synthetic(100 + index, f"ONE{index}", day(1)) for index in range(3)]
+        for seed in range(20):
+            with self.subTest(seed=seed):
+                items = self.select(pool, size=20, seed=seed)
+                held = [item for item in items if item["split"] == "holdout"]
+                self.assertEqual(len(items), 11)
+                self.assertTrue(held)
+                self.assertNotIn(1, {item["manager_decision_history_id"] for item in held})
+
     def test_a_symbol_is_never_in_both_dev_and_holdout(self) -> None:
         pool = ample_pool()
         items = self.select(pool)
@@ -463,6 +477,13 @@ class CreateBenchmarkSetTests(BenchmarkPool):
         self.assertEqual(strata, {labelled: "technology|call|range|2026-07|earnings",
                                   plain: "technology|call|range|2026-07", secondary_only: "technology|call|range|2026-07"})
 
+    def test_a_set_smaller_than_requested_says_so(self) -> None:
+        self.seed_pool()
+        self.assertNotIn("warning", self.create_set())
+        short = self.create_set("big", size=500)
+        self.assertLess(short["item_count"], 500)
+        self.assertIn(f"{short['item_count']} of the 500", short["warning"])
+
     def test_a_set_id_cannot_be_created_twice(self) -> None:
         self.seed_pool()
         self.create_set()
@@ -505,18 +526,17 @@ class ImmutabilityTests(BenchmarkPool):
         self.refuse("DELETE FROM benchmark_runs WHERE run_id = ?", run_id)
         self.assertEqual(benchmarks().get_benchmark_run(run_id, db_path=self.db_path)["scores"], {"scored_count": 1})
 
-    def test_a_second_holdout_run_for_the_same_model_prompts_and_flag_is_refused(self) -> None:
+    def test_a_second_holdout_run_for_the_same_model_is_refused_whatever_its_prompts_or_flag(self) -> None:
         self.record("holdout")
-        with self.assertRaises(sqlite3.IntegrityError):
-            self.record("holdout")
+        for options in ({}, {"prompts": {"manager": "p2", "strategist": None}}, {"replay_strategist": True}):
+            with self.subTest(options=options), self.assertRaises(sqlite3.IntegrityError):
+                self.record("holdout", **options)
         self.assertEqual(len(self.rows("SELECT run_id FROM benchmark_runs WHERE split = 'holdout'")), 1)
 
-    def test_holdout_is_once_per_model_prompts_and_strategist_flag_only(self) -> None:
+    def test_holdout_is_once_per_model(self) -> None:
         self.record("holdout")
         self.record("holdout", model="other-model")
-        self.record("holdout", prompts={"manager": "p2", "strategist": None})
-        self.record("holdout", replay_strategist=True)
-        self.assertEqual(len(self.rows("SELECT run_id FROM benchmark_runs WHERE split = 'holdout'")), 4)
+        self.assertEqual(len(self.rows("SELECT run_id FROM benchmark_runs WHERE split = 'holdout'")), 2)
 
     def test_dev_runs_may_repeat(self) -> None:
         first, second = self.record("dev"), self.record("dev")
@@ -700,6 +720,9 @@ class RunBenchmarkTests(RunnerFixture):
         decide = self.decider()
         with self.assertRaises(ValueError):
             self.run_set(split="holdout", decide=decide)
+        decide.assert_not_called()
+        with self.assertRaises(ValueError):   # new prompts do not buy a second look either
+            self.run_set(split="holdout", decide=decide, replay_strategist=True)
         decide.assert_not_called()
         self.assertEqual((self.count("benchmark_runs"), self.count("backtest_runs")), (runs, backtests))
         self.assertIsNotNone(self.run_set(split="holdout", model=llm_backtest.STORED_MODEL))  # another model may still score it
