@@ -26,9 +26,18 @@ except ImportError as exc:  # pragma: no cover - optional dependency
 class AlpacaTradingGateway:
     """Encapsulate Alpaca-specific trading operations."""
 
-    def __init__(self, *, paper: bool, logger: logging.Logger) -> None:
+    def __init__(
+        self,
+        *,
+        paper: bool,
+        logger: logging.Logger,
+        api_key: str | None = None,
+        api_secret: str | None = None,
+    ) -> None:
         self._paper = paper
         self._logger = logger
+        self._api_key = api_key
+        self._api_secret = api_secret
 
     def create_client(self) -> TradingClient:
         if ALPACA_IMPORT_ERROR is not None:
@@ -114,6 +123,12 @@ class AlpacaTradingGateway:
         )
         order = trading_client.submit_order(order_data=order_request)
         return self._serialize_order_summary(order=order, symbol=option_symbol, qty=qty)
+
+    def submit_multileg_market_order(self, trading_client: TradingClient, *, legs, qty: int, opening: bool = True) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def submit_stock_market_order(self, trading_client: TradingClient, *, symbol: str, qty: int, side: str) -> dict[str, Any]:
+        raise NotImplementedError
 
     @staticmethod
     def _serialize_order_summary(order: Any, *, symbol: str, qty: int) -> dict[str, Any]:

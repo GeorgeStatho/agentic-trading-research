@@ -85,12 +85,14 @@ class OptionTradeExecutor:
         trading_gateway: Any,
         trade_journal: Any | None = None,
         thesis_journal: Any | None = None,
+        paper_fleet: Any | None = None,
         logger: logging.Logger,
     ) -> None:
         self._settings = settings
         self._trading_gateway = trading_gateway
         self._trade_journal = trade_journal
         self._thesis_journal = thesis_journal
+        self._paper_fleet = paper_fleet
         self._logger = logger
 
     def _get_option_reference_price(self, selected_option: dict[str, Any]) -> float:
