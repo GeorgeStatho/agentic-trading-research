@@ -246,7 +246,10 @@ flowchart TD
             mp["agent_helpers/manager.build_manager_input<br/>+ market_context: underlying bars & indicators,<br/>IV history, option chain (Alpaca), account"]
             mp --> ev{"payload has<br/>evidence?"}
             ev -->|no| noev["no-evidence result (neither)"]
-            ev -->|yes| mllm["LLM (MANAGER_MODEL)<br/>call / put / neither,<br/>thesis/timing/execution confidence,<br/>target DTE bucket"]
+            ev -->|yes| sd{"strategist answered<br/>watchlist / do_not_trade?"}
+            sd -->|yes| noev2["strategist-declined result (neither),<br/>no model call"]
+            sd -->|no| mllm["LLM (MANAGER_MODEL)<br/>call / put / neither,<br/>thesis/timing/execution confidence,<br/>target DTE bucket"]
+            noev2 --> cont
             mllm --> mnorm["manager_normalization"]
             mnorm --> cont["evaluate_evidence_continuation_gate<br/>→ entry_gate (CONTINUATION)"]
             noev --> cont

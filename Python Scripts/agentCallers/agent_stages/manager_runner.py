@@ -164,6 +164,17 @@ _NO_EVIDENCE_RECOMMENDATION: dict[str, Any] = {
 }
 
 
+# The strategist's no is final: the manager only decides how to act on a trade_candidate.
+STRATEGIST_DECLINES = {"watchlist", "do_not_trade"}
+
+
+def _strategist_declined_recommendation(decision: str) -> dict[str, Any]:
+    return {**copy.deepcopy(_NO_EVIDENCE_RECOMMENDATION), "selected_option_source": "strategist_declined",
+            "reason": f"The strategist answered {decision}; the manager was not asked.",
+            "technical_summary": "Not assessed: the strategist declined the company.",
+            "risk_summary": "Not assessed: the strategist declined the company."}
+
+
 def _build_no_evidence_result(
     company: dict[str, Any],
     *,
@@ -198,11 +209,15 @@ def decide_manager_recommendation(
 ) -> dict[str, Any]:
     """The manager's decision on a finished payload, shared by live runs and replays.
 
-    Returns the normalized recommendation and whether the no-evidence short circuit
-    answered instead of the model.
+    Returns the normalized recommendation and whether a short circuit (no evidence, or a
+    strategist watchlist/do_not_trade) answered instead of the model.
     """
     if not payload_has_evidence(payload):
         return {"recommendation": copy.deepcopy(_NO_EVIDENCE_RECOMMENDATION), "no_evidence": True}
+    strategist_decision = (payload.get("strategist_recommendation") or {}).get("decision")
+    if strategist_decision in STRATEGIST_DECLINES:
+        return {"recommendation": _strategist_declined_recommendation(strategist_decision), "no_evidence": False,
+                "strategist_declined": True}
 
     system_prompt, user_prompt = build_manager_prompt(
         payload,
@@ -269,6 +284,8 @@ def replay_manager_decision_from_payload(
     result = {"recommendation": decision["recommendation"], "replay_prompt_version": MANAGER_PROMPT_VERSION}
     if decision["no_evidence"]:
         result["replay_skipped"] = "no_evidence"
+    elif decision.get("strategist_declined"):
+        result["replay_skipped"] = "strategist_declined"
     return result
 
 
@@ -337,7 +354,7 @@ def decide_company_option_position(
     )
     recommendation = decision["recommendation"]
 
-    if decision["no_evidence"]:
+    if decision["no_evidence"] or decision.get("strategist_declined"):
         no_evidence_result = _build_no_evidence_result(
             company,
             recommendation=recommendation,
