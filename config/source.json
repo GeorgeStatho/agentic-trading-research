@@ -159,7 +159,7 @@
       "provenance_source_type": "aggregator"
     },
     "finance.yahoo.com": {
-      "allowed": false,
+      "allowed": true,
       "reputation_score": 0.64,
       "source_type": "market_portal",
       "paywalled": false,
