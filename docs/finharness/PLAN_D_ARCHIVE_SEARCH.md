@@ -129,6 +129,9 @@ company_id, *, db_path)`):
   | `published_at` | `min(published_at, first_seen)`; record `published_at_clamped` in metadata if clamped |
   | `metadata` | `{company_id, article_id, text_snapshot_at: now, content_updated_at}` |
 
+- As built: when a document with that id already exists, the stored one is reused rather than
+  re-recorded, because `text_snapshot_at` would otherwise change the immutable record's hash. `ingested_at`
+  is the later of first sight and `content_updated_at`, so a snapshot never claims its text was known earlier.
 - Record it with `record_evidence_document`. `insert_record` is idempotent on identical
   content, and a changed text yields a new `document_id`, so the call is safe to repeat.
 - The new document's FTS row is then added by the trigger. Exclude `provider='news_archive'`

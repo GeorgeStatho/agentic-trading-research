@@ -10,11 +10,14 @@ from market_db_modules.company_evidence import get_company_fact, get_evidence_do
 from market_db_modules.foundation_store import digest, read_record
 from research_foundation_contracts import CompanyFact, EvidenceDocument, timestamp
 from services.company_evidence_extraction import comparison_key, guidance_midpoint, validate_extracted_fact
+from services.research_search import search_hits, snapshot_article
 from dataclasses import asdict
 
 MAX_RESULT_FACTS = 240
 MAX_RESULT_DOCUMENTS = 24
 MAX_DOCUMENT_EXCERPT = 6000
+MAX_SEARCH_RESULTS = 8
+SEARCH_OPERATION = 'search_archive'
 OPERATIONS = {
     'get_event_documents': ('event_id',),
     'get_company_facts': ('metrics', 'fiscal_periods'),
@@ -151,12 +154,20 @@ class ResearchTools:
     cost_per_call = 0
     provider = 'evidence_archive'
 
-    def __init__(self, *, company_id, event_id, cutoff, db_path):
+    def __init__(self, *, company_id, event_id, cutoff, db_path, search_enabled=False):
         self.company_id, self.event_id = company_id, event_id
         self.cutoff, self.db_path = timestamp(cutoff), db_path
+        self.search_enabled = search_enabled
+
+    def operations(self):
+        """The operations this session may use; free-text search exists only behind its flag."""
+        return {name: args for name, args in OPERATIONS.items() if name != SEARCH_OPERATION or self.search_enabled}
 
     def parse(self, data):
-        return ResearchRequest.parse(data, company_id=self.company_id, event_id=self.event_id, cutoff=self.cutoff)
+        request = ResearchRequest.parse(data, company_id=self.company_id, event_id=self.event_id, cutoff=self.cutoff)
+        if request.operation not in self.operations():
+            raise ValueError('Operation is not approved')
+        return request
 
     def _facts(self, request):
         args = request.arguments
@@ -180,6 +191,8 @@ class ResearchTools:
             raise TimeoutError('Research deadline')
         # Revalidate even programmatically constructed requests at the adapter boundary.
         request = self.parse(asdict(request))
+        if request.operation == SEARCH_OPERATION:
+            return self._search(request)
         if request.operation == 'get_event_price_response':
             return self._prices()
         facts, truncated = self._facts(request)
@@ -253,6 +266,33 @@ class ResearchTools:
                    for f in facts]
         return {**result, 'documents': excerpts, 'facts': visible, 'comparisons': comparisons,
                 'conflicts': evidence_conflicts(facts), 'available': available and not result['gaps']}
+
+    def _search(self, request):
+        query = request.arguments['query']
+        found = search_hits(self.company_id, [('all_terms', fts_expression(query, 'AND')),
+                                              ('any_term', fts_expression(query, 'OR'))],
+                            self.cutoff, limit=MAX_SEARCH_RESULTS, db_path=self.db_path)
+        document_ids = [snapshot_article(identity, self.company_id, db_path=self.db_path) if kind == 'article'
+                        else identity for kind, identity in found['hits']]
+        documents = {identity: get_evidence_document(identity, db_path=self.db_path) for identity in document_ids}
+        # More hits than the top results is expected for search and is not a coverage gap.
+        result = {'provider': self.provider, 'facts': self._document_facts(document_ids),
+                  'documents': list(documents.values()), 'price_responses': [],
+                  'gaps': [] if documents else ['search_no_results'],
+                  'search': {'query': query, 'mode': found['mode'],
+                             'more_results_available': found['more_results_available']}}
+        return self.validate_result(request, result)
+
+    def _document_facts(self, document_ids):
+        if not document_ids:
+            return []
+        with closing(get_connection(self.db_path)) as conn:
+            rows = conn.execute(f'''SELECT fact_id FROM company_facts WHERE company_id=?
+                AND julianday(available_at)<=julianday(?) AND document_id IN ({",".join("?" for _ in document_ids)})
+                ORDER BY available_at DESC,fact_id LIMIT ?''',
+                (self.company_id, self.cutoff, *document_ids, MAX_RESULT_FACTS)).fetchall()
+            facts = [read_record(conn, 'company_facts', 'fact_id', row['fact_id']) for row in rows]
+        return [f for f in facts if f['kind'] != 'derived']
 
     def _prices(self):
         with closing(get_connection(self.db_path)) as conn:

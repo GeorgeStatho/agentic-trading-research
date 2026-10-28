@@ -534,7 +534,9 @@ default and does not forward candidates to broker execution.
 
 Phase 3 adds bounded shadow investigation with typed archive retrieval, durable
 sessions, daily allowances and offline replay. It is disabled by default. See
-[Research Phase 3](RESEARCH_PHASE3.md) and `scripts/research.py`.
+[Research Phase 3](RESEARCH_PHASE3.md) and `scripts/research.py`. `services/research_search.py`
+holds the flag-gated `search_archive` hit queries over the `news_article_fts`/`evidence_document_fts`
+indexes and freezes article hits as immutable `news_archive` documents.
 
 Cross-cutting infrastructure: `pyproject.toml` declares the import roots (`pip install -e .`);
 `services/settings.py` is the one typed settings object, loaded at process start;

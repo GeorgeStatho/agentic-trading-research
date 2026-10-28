@@ -17,7 +17,7 @@ from services.research_evidence import (
 )
 from services.research_lock import ResearchSessionBusy, research_session_lock
 from services.research_model_policy import billed
-from services.research_tools import OPERATIONS, ResearchTools
+from services.research_tools import ResearchTools
 from agent_stages.research_planner import ResearchPlanner
 from agent_stages.research_planner import ResearchProviderError
 from agent_stages.research_planner import validate_plan
@@ -75,8 +75,6 @@ class ResearchOrchestrator:
         self.elapsed_start = self.monotonic()
         item = get_discovery_item(candidate['queue_id'], db_path=self.db_path)
         initial = _initial_package(candidate, item, self.db_path)
-        self.tools = ResearchTools(company_id=item['company_id'], event_id=item['catalyst_id'],
-                                   cutoff=initial['information_cutoff_time'], db_path=self.db_path)
         try:
             self.session = get_research_session(identity, db_path=self.db_path)
         except ValueError as exc:
@@ -104,6 +102,10 @@ class ResearchOrchestrator:
             initialize_research_progress(self.progress, db_path=self.db_path)
         self.initial = initial
         self.policy = EvidenceResearchPolicy(**self.progress['policy'])
+        # Tools follow the session's snapshotted policy, so a flag change cannot alter a running session.
+        self.tools = ResearchTools(company_id=item['company_id'], event_id=item['catalyst_id'],
+                                   cutoff=initial['information_cutoff_time'], db_path=self.db_path,
+                                   search_enabled=self.policy.search_enabled)
         self.remaining_at_start = max(0, (datetime.fromisoformat(self.session['deadline_at']) -
                                          datetime.fromisoformat(timestamp(self.clock()))).total_seconds())
         if self.session['status'] not in {'pending', 'running'}:
@@ -182,7 +184,7 @@ class ResearchOrchestrator:
         facts = [{**f, 'source_excerpt': f['source_excerpt'][:600]} for f in evidence['facts'][:48]]
         documents = [{**d, 'text': d['text'][:2000]} for d in evidence['documents'][:24]]
         return {'company_id': self.tools.company_id, 'event_id': self.tools.event_id,
-                'as_of': self.tools.cutoff, 'operations': OPERATIONS,
+                'as_of': self.tools.cutoff, 'operations': self.tools.operations(),
                 'company': self.progress['initial_input']['research_input']['company'],
                 'articles': [{**a, 'body': (a.get('body') or '')[:3000]} for a in
                              self.progress['initial_input']['research_input'].get('evidence', [])[:10]],

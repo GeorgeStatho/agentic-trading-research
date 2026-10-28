@@ -47,7 +47,7 @@ Local Ollama uses the same single timed request, configured output limit and jou
 
 ## Approved retrieval and evidence boundaries
 
-The six operations in `services/research_tools.py` search **already ingested evidence**, using the frozen discovery observation cutoff. If the collection package is older, an immutable research copy uses the observation cutoff while retaining its original evidence IDs:
+The operations in `services/research_tools.py` search **already ingested evidence**, using the frozen discovery observation cutoff. If the collection package is older, an immutable research copy uses the observation cutoff while retaining its original evidence IDs:
 
 | Operation | Retrieval |
 | --- | --- |
@@ -57,6 +57,7 @@ The six operations in `services/research_tools.py` search **already ingested evi
 | `get_available_consensus` | Recorded consensus facts, with explicit unavailability when absent |
 | `find_contradictory_evidence` | Company facts, retained disagreements, and source references |
 | `get_event_price_response` | Price responses whose recording and outcome times both precede the cutoff |
+| `search_archive` | Keyword search over this company's articles and filings known before the cutoff (off unless `RESEARCH_SEARCH_ENABLED=true`) |
 
 Every request carries the exact `company_id` and `as_of`; event operations also require `event_id`. Unknown arguments, arbitrary URLs, code, execution operations, a different company/event, and a changed cutoff are rejected. Filters are bounded and canonicalized so reordering them cannot evade duplicate detection.
 
@@ -78,6 +79,38 @@ requests pending; disabled research never dispatches a successor model call.
 
 
 Returned facts are checked against immutable records, company identity, timestamp, requested metric/period, numeric values and original source spans before joining the research package. Calculations require matching metric, fiscal period, period type, accounting basis, unit, currency and scale. Prior guidance can be explicitly labeled or come from the latest earlier dated forecast for the same period and basis. Simultaneous disagreements remain visible; ambiguous baselines cannot support a comparison. Historical forecasts remain recorded as baselines rather than current competing forecasts.
+
+### Archive search (`search_archive`)
+
+`search_archive` takes one `query` argument. Parsing keeps 1–8 lowercase alphanumeric terms of 2–40
+characters, drops a fixed stop-word list, and sorts them, so reordered queries are the same request. The
+SQLite FTS5 expression is built only from those quoted terms: model-written operators never reach `MATCH`.
+Search first requires every term and falls back to any term only when that finds nothing; the result's
+`search.mode` says which was used.
+
+Hits come from two FTS5 indexes kept current by triggers: `news_article_fts` (title, summary, body) and
+`evidence_document_fts` (document text). Point-in-time rules:
+
+- An article counts from `first_seen_time`. Re-scrapes overwrite article text, so a trigger stamps
+  `news_articles.content_updated_at` whenever the title, summary or body really changes. An article whose
+  text changed after the cutoff is excluded. Rows from before this column existed have NULL and are treated
+  as unchanged since first seen; that is a residual risk for legacy rows. A body inserted later for an
+  article with no content row would also not be stamped; on current data every article has a content row.
+- Documents count only when ingested by the cutoff.
+- Only articles linked to this company, and documents whose metadata names it, are searched.
+
+Each article hit is frozen as an immutable `EvidenceDocument` (`services/research_search.py`), with
+`document_id = news:<article_id>:<text hash>`, `provider = news_archive`, `ingested_at` = the later of
+first sight and the last content change, and `published_at` clamped to first sight. Identical text reuses
+the stored document; changed text creates a new one. Snapshots therefore join packages and Phase 4
+citations like any other document, and are excluded from document hits so an article is never counted twice.
+
+At most 8 results are returned, alternating article and document hits by rank. Further matches set
+`search.more_results_available`, which is not a gap: search can never block readiness by truncation. No hit
+gives the gap `search_no_results`. Search returns documents, not facts (except facts already extracted from
+matching filings), so it enriches packages and contradiction evidence but cannot by itself make a session
+`ready`. The flag is snapshotted into the session policy; with it off, the operation is hidden from the
+planner and rejected by the tools. Search calls share the existing per-session and daily retrieval allowances.
 
 The planner sees dated excerpts and approved operation descriptions. Source text is untrusted evidence. Python adds mandatory requests for missing same-period prior guidance and an archive contradiction search even when the planner initially declares readiness. Critical unavailable results, missing verified company facts, ambiguous guidance baselines and truncated archive coverage prevent readiness. Readiness means sufficient evidence for subsequent thesis analysis; Phase 4 claim-level thesis validation is separate.
 
