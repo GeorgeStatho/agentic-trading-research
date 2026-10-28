@@ -16,6 +16,7 @@ from pipelines.job_builder import (
     build_company_source_jobs,
     build_yahoo_news_jobs,
 )
+from APIs.alpacaNewsAPI import get_stock_data as get_alpaca_news_stock_data
 from APIs.foolAPI import get_stock_data as get_fool_stock_data
 from APIs.gurufocusAPI import get_stock_data as get_gurufocus_stock_data
 from market_data.yFinanceNews import extract_title_url_publisher, get_company_news_items
@@ -33,6 +34,7 @@ API_SOURCES: tuple[tuple[str, Any], ...] = (
     ("fool_api", get_fool_stock_data),
     ("morningstar_api", get_morningstar_stock_data),
     ("gurufocus_api", get_gurufocus_stock_data),
+    ("alpaca_news_api", get_alpaca_news_stock_data),
 )
 __all__ = [
     "get_all_company_news",

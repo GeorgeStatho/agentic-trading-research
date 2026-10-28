@@ -6,6 +6,7 @@ from typing import Any, Callable, Iterator
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+from APIs.alpacaNewsAPI import get_article_content as get_alpaca_article_content
 from APIs.foolAPI import get_article_content as get_fool_article_content
 from APIs.gurufocusAPI import get_article_content as get_gurufocus_article_content
 from APIs.InvestingAPI import get_article_content as get_investing_article_content
@@ -21,6 +22,7 @@ ARTICLE_CONTENT_FETCHERS: tuple[tuple[str, Callable[[str], dict[str, Any]]], ...
     ("investing.com", get_investing_article_content),
     ("morningstar.com", get_morningstar_article_content),
     ("gurufocus.com", get_gurufocus_article_content),
+    ("benzinga.com", get_alpaca_article_content),
 )
 
 
