@@ -26,3 +26,14 @@ python3 scripts/project.py demo-url
 ```
 
 Use `docker compose up --build` for the integrated containerized stack.
+
+## Extractor check
+
+`scripts/check_extractors.py` is a read-only live check of the article extractors; it saves nothing to any database.
+
+```bash
+WEBSCRAPING_PLAYWRIGHT_CONCURRENCY=1 python scripts/check_extractors.py finance.yahoo.com --limit 10
+python scripts/check_extractors.py morningstar.com --limit 10 --html-dir /tmp/pages   # also keep the fetched pages
+```
+
+A domain PASSES when 70% of its URLs return success, a title, a body of 500+ characters and a parseable `published_at`. Page loads are counted per domain in a JSON ledger (`--max-loads`, default 15, over all runs). Run one non-Yahoo domain per invocation, because Scrapy's reactor cannot restart.

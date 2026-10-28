@@ -184,7 +184,8 @@
       "listing_supported": false,
       "search_supported": true,
       "article_patterns": [
-        "/news/"
+        "/news/",
+        "/articles/"
       ],
       "max_article_age_days": 10,
       "provenance_source_type": "aggregator"

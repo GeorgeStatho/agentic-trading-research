@@ -99,6 +99,7 @@ Important behavior:
 - recognizes Yahoo Finance article URL patterns
 - tries JSON-LD `NewsArticle` data first
 - falls back to Yahoo-specific content selectors and metadata summaries
+- reads the body from `.bodyItems-wrapper p` and joins each paragraph's full text, so link text stays and the Coinbase tooltip above the article is left out
 
 Current note:
 

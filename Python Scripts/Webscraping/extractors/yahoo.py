@@ -24,17 +24,19 @@ ARTICLE_TIMESTAMP_SELECTORS = (
     "time::attr(datetime)",
     "time::text",
 )
+# Paragraph elements, not ::text: p::text drops the text inside links (tickers, company names).
 ARTICLE_BODY_SELECTORS = (
-    "[data-testid='article-content-wrapper'] p::text",
-    "[data-testid='article-content'] p::text",
-    ".caas-body p::text",
-    ".caas-content p::text",
-    ".article-wrap p::text",
-    ".article-body p::text",
-    ".article-content p::text",
-    "[class*='ArticleContent'] p::text",
-    "article p::text",
-    "main p::text",
+    ".bodyItems-wrapper p",  # the article body; "article p" also catches the Coinbase tooltip above it
+    "[data-testid='article-content-wrapper'] p",
+    "[data-testid='article-content'] p",
+    ".caas-body p",
+    ".caas-content p",
+    ".article-wrap p",
+    ".article-body p",
+    ".article-content p",
+    "[class*='ArticleContent'] p",
+    "article p",
+    "main p",
 )
 ARTICLE_SUMMARY_SELECTORS = (
     "meta[name='description']::attr(content)",
@@ -91,8 +93,7 @@ def extract_yahoo_article(response: Response) -> ArticleExtractionResult:
     published_at = str(schema.get("datePublished") or "").strip() or _first_text(response, ARTICLE_TIMESTAMP_SELECTORS)
 
     for selector in ARTICLE_BODY_SELECTORS:
-        paragraphs = response.css(selector).getall()
-        text = clean_text(paragraphs)
+        text = clean_text(paragraph.xpath("string(.)").get() for paragraph in response.css(selector))
         if text:
             return ArticleExtractionResult(
                 url=response.url,
