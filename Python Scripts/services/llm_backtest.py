@@ -473,7 +473,8 @@ class ReplayRun:
 
     @classmethod
     def build(cls, *, model: str, start_at: str | None = None, end_at: str | None = None, limit: int | None = None,
-              decision_ids: Sequence[int] | None = None, allow_unknown_cutoff: bool = False, min_hours_between: float = 0, replay_strategist: bool = False, decide: Decider | None = None,
+              decision_ids: Sequence[int] | None = None, allow_unknown_cutoff: bool = False,
+              min_hours_between: float = 0, replay_strategist: bool = False, decide: Decider | None = None,
               decide_strategist: Decider | None = None, strategist_reuse_max_age_minutes: int = 0,
               db_path: Any = None) -> "ReplayRun":
         stored = model == STORED_MODEL
@@ -492,8 +493,11 @@ class ReplayRun:
             reuse_max_age_minutes=strategist_reuse_max_age_minutes,
             reuse_max_price_move_pct=AgentPipelineSettings.from_env().strategist_reuse_max_price_move_pct,
         ) if replay_strategist else None
-        window = list_frozen_manager_decisions(start_at=start_at, end_at=end_at, limit=limit, ids=decision_ids, db_path=db_path)
-        window, excluded, contamination = (window, 0, None) if stored else drop_remembered(window, model, allow_unknown_cutoff)
+        window = list_frozen_manager_decisions(start_at=start_at, end_at=end_at, limit=limit, ids=decision_ids,
+                                               db_path=db_path)
+        excluded, contamination = 0, None
+        if not stored:
+            window, excluded, contamination = drop_remembered(window, model, allow_unknown_cutoff)
         # Older decisions predate frozen inputs; dropped before spacing so they never take a replayable one's slot.
         replayable = [decision for decision in window if frozen_manager_input(decision) is not None]
         decisions = space_decisions_per_symbol(replayable, min_hours=min_hours_between) if min_hours_between > 0 else replayable

@@ -40,7 +40,9 @@ def run_benchmark(set_id: str, *, split: str, model: str, replay_strategist: boo
     Raises ValueError for an unknown or empty split, for a holdout this model, prompts and strategist flag already
     scored (before any model call), and, from the replay, for a model with no known cutoff unless `allow_unknown_cutoff`.
     """
-    ids = [item["manager_decision_history_id"] for item in list_benchmark_items(set_id, split=split, db_path=db_path)]
+    strata = {item["manager_decision_history_id"]: item["stratum"]
+              for item in list_benchmark_items(set_id, split=split, db_path=db_path)}
+    ids = list(strata)
     if not ids:
         raise ValueError(f"Benchmark set '{set_id}' has no {split} items")
     versions = prompt_versions(model, replay_strategist)
@@ -50,8 +52,6 @@ def run_benchmark(set_id: str, *, split: str, model: str, replay_strategist: boo
     backtest = run_llm_backtest(model=model, decision_ids=ids, replay_strategist=replay_strategist,
                                 allow_unknown_cutoff=allow_unknown_cutoff, decide=decide, decide_strategist=decide_strategist,
                                 db_path=db_path)
-    strata = {item["manager_decision_history_id"]: item["stratum"]
-              for item in list_benchmark_items(set_id, split=split, db_path=db_path)}
     item_scores = _item_scores(ids, strata, backtest, replay_strategist, db_path)
     scores = _scores(item_scores, backtest["run"]["metrics"]["replay"], replay_strategist)
     run_id = record_benchmark_run(set_id=set_id, split=split, model=model, prompt_versions=versions,
@@ -84,9 +84,16 @@ def _item_scores(ids: Sequence[int], strata: dict[int, str], backtest: dict[str,
 def _unanswered_status(ids: Sequence[int], db_path: Any) -> dict[int, str]:
     """Why items never reached the model: the contamination guard dropped them, or their frozen input is missing."""
     listed = {decision["id"]: decision for decision in list_frozen_manager_decisions(ids=ids, db_path=db_path)} if ids else {}
-    return {decision_id: "missing_decision" if decision_id not in listed else
-            "excluded_pre_knowledge_cutoff" if frozen_manager_input(listed[decision_id]) is not None else "missing_frozen_input"
-            for decision_id in ids}
+    statuses = {}
+    for decision_id in ids:
+        decision = listed.get(decision_id)
+        if decision is None:
+            statuses[decision_id] = "missing_decision"
+        elif frozen_manager_input(decision) is not None:
+            statuses[decision_id] = "excluded_pre_knowledge_cutoff"
+        else:
+            statuses[decision_id] = "missing_frozen_input"
+    return statuses
 
 
 def _layers(answer: ReplayedAnswer, traded: bool, pnl_pct: float | None, catalysts: dict[str, Any], replay_strategist: bool,
@@ -130,14 +137,13 @@ def _scores(item_scores: dict[str, dict[str, Any]], replay: dict[str, Any], repl
 def _direction_stats(items: Sequence[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     stats = {}
     for horizon in map(str, HORIZONS):
+        graded = [item for item in items if item["direction"]["horizon_outcomes"][horizon] in GRADED]
         # Sorted so the seeded bootstrap does not depend on item order.
-        hits = sorted((int(item["direction"]["horizon_outcomes"][horizon] == "correct") for item in items
-                       if item["direction"]["horizon_outcomes"][horizon] in GRADED), reverse=True)
+        hits = sorted((int(item["direction"]["horizon_outcomes"][horizon] == "correct") for item in graded), reverse=True)
         returns = sorted(value for item in items if (value := direction_value(item, horizon)) is not None
                          and item["decision"] != "neither")
         # `hit_rate` follows Plan C (a move inside its flat band is a miss); the baseline counts any positive signed return.
-        sign_hits = [int(direction_value(item, horizon) > 0) for item in items
-                     if item["direction"]["horizon_outcomes"][horizon] in GRADED]
+        sign_hits = [int(direction_value(item, horizon) > 0) for item in graded]
         stats[horizon] = {"graded": len(hits), "hit_rate": mean(hits) if hits else None,
                           "hit_rate_se": bootstrap_se(hits),
                           "sign_hit_rate": mean(sign_hits) if sign_hits else None,
@@ -191,7 +197,10 @@ def compare_runs(run_a: dict[str, Any], run_b: dict[str, Any]) -> dict[str, Any]
     items both runs called in a direction.
     """
     items_a, items_b = run_a["item_scores"], run_b["item_scores"]
-    status = lambda items, decision_id: items[decision_id]["status"] if decision_id in items else "absent"
+
+    def status(items, decision_id) -> str:
+        return items[decision_id]["status"] if decision_id in items else "absent"
+
     ids = sorted(set(items_a) | set(items_b), key=int)
     paired = [decision_id for decision_id in ids if status(items_a, decision_id) == status(items_b, decision_id) == "scored"]
 

@@ -78,6 +78,7 @@ def select_items(decisions: Sequence[dict[str, Any]], *, set_id: str, size: int,
     for decision in pool:
         remaining[stratum_key(decision)].append(decision)
     available = {stratum: len(group) for stratum, group in remaining.items()}
+    abstaining = {stratum for stratum, group in remaining.items() if production_direction(group[0]) == "neither"}
     target = min(size, len(pool))
     neither_cap = int(MAX_NEITHER_SHARE * size)
 
@@ -86,10 +87,10 @@ def select_items(decisions: Sequence[dict[str, Any]], *, set_id: str, size: int,
     per_symbol: Counter[str] = Counter()
 
     def abstentions() -> int:
-        return sum(count for stratum, count in per_stratum.items() if stratum.split("|")[1] == "neither")
+        return sum(per_stratum[stratum] for stratum in abstaining)
 
     def candidates(stratum: str) -> list[dict[str, Any]]:
-        if stratum.split("|")[1] == "neither" and abstentions() >= neither_cap:
+        if stratum in abstaining and abstentions() >= neither_cap:
             return []
         return [decision for decision in remaining[stratum] if per_symbol[decision["symbol"]] < symbol_cap]
 

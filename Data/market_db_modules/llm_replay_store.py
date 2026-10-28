@@ -51,22 +51,22 @@ def list_frozen_manager_decisions(
         query += " AND history.decision_run_at <= ?"
         parameters.append(normalize_timestamp(end_at))
     # Limit the most recent window first, then return it in chronological order.
-    order = " ORDER BY history.decision_run_at DESC, history.id DESC"
-    if limit is not None:
-        order += " LIMIT ?"
-    limit_parameters = [] if limit is None else [max(1, int(limit))]
+    row_limit = None if limit is None else max(1, int(limit))
+    order = " ORDER BY history.decision_run_at DESC, history.id DESC" + ("" if row_limit is None else " LIMIT ?")
+    limit_parameters = [] if row_limit is None else [row_limit]
     if ids is None:
         searches = [(query + order, parameters + limit_parameters)]
     else:
         # Chunked under SQLite's variable limit. A chunk's newest `limit` rows include its share of the overall newest.
         unique_ids = list(dict.fromkeys(int(decision_id) for decision_id in ids))
-        searches = [(f"{query} AND history.id IN ({','.join('?' * len(chunk))}){order}", parameters + chunk + limit_parameters)
-                    for chunk in (unique_ids[start:start + ID_CHUNK_SIZE] for start in range(0, len(unique_ids), ID_CHUNK_SIZE))]
+        chunks = [unique_ids[start:start + ID_CHUNK_SIZE] for start in range(0, len(unique_ids), ID_CHUNK_SIZE)]
+        searches = [(f"{query} AND history.id IN ({','.join('?' * len(chunk))}){order}",
+                     parameters + chunk + limit_parameters) for chunk in chunks]
     with closing(get_connection(db_path)) as conn:
         rows = [dict(row) for text, values in searches for row in conn.execute(text, tuple(values)).fetchall()]
     if ids is not None:
         rows.sort(key=lambda row: (row["decision_run_at"], row["id"]), reverse=True)
-        rows = rows[:limit_parameters[0]] if limit_parameters else rows
+        rows = rows[:row_limit]
     return rows[::-1]
 
 
