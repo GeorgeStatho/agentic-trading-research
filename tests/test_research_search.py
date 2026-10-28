@@ -305,6 +305,16 @@ class ArticleIndexTests(DatabaseCase):
         self.assertEqual(self.sql('SELECT count(*) FROM news_article_fts')[0][0], 2)
         self.assertEqual(self.news_hits('title'), {article})
 
+    def test_an_unchanged_rewrite_leaves_the_index_alone(self):
+        article = self.article(1)
+        with closing(get_connection(self.db)) as conn, conn:
+            for statement in ('UPDATE news_articles SET title=title, summary=summary WHERE id=?',
+                              'UPDATE news_article_content SET body=body WHERE article_id=?'):
+                before = conn.total_changes
+                conn.execute(statement, (article,))
+                self.assertEqual(conn.total_changes - before, 1, statement)   # the row itself, no reindex
+        self.assertEqual(self.news_hits('export'), {article})
+
     def test_rescrape_updates_the_index(self):
         args = ('wire', 'key-9', 'Export licence update', 'https://wire.test/9')
         article = add_news_article(*args, body='Original passage', db_path=self.db)

@@ -60,7 +60,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS news_article_fts USING fts5(title, summary, b
 ```
 - `rowid` is `news_articles.id`.
 - Triggers on insert and update of `news_articles` and `news_article_content` delete and
-  reinsert the row. The row's `body` comes from a subselect on `news_article_content`.
+  reinsert the row. The row's `body` comes from a subselect on `news_article_content`. The update
+  triggers carry `WHEN ... IS NOT OLD...` guards, so an unchanged re-scrape does not reindex. A delete
+  trigger removes the row with its article.
 - Backfill once in the news bootstrap, under `db_common.lock_for_migration`:
   `INSERT INTO news_article_fts(rowid,...) SELECT ... WHERE id NOT IN (SELECT rowid FROM news_article_fts)`.
 

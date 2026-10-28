@@ -23,6 +23,7 @@ def _ensure_missing_columns(
     if not table_exists(conn, table_name):
         return
 
+    lock_for_migration(conn)  # another service booting at once could add the same column between check and ALTER
     existing_columns = table_columns(conn, table_name)
     for column_name, column_type in expected_columns.items():
         if column_name not in existing_columns:

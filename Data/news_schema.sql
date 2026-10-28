@@ -487,6 +487,7 @@ BEGIN
 END;
 
 CREATE TRIGGER IF NOT EXISTS news_articles_fts_update AFTER UPDATE OF title, summary ON news_articles
+WHEN NEW.title IS NOT OLD.title OR NEW.summary IS NOT OLD.summary
 BEGIN
     DELETE FROM news_article_fts WHERE rowid = NEW.id;
     INSERT INTO news_article_fts (rowid, title, summary, body)
@@ -506,6 +507,7 @@ BEGIN
 END;
 
 CREATE TRIGGER IF NOT EXISTS news_article_content_fts_update AFTER UPDATE OF body ON news_article_content
+WHEN NEW.body IS NOT OLD.body
 BEGIN
     DELETE FROM news_article_fts WHERE rowid = NEW.article_id;
     INSERT INTO news_article_fts (rowid, title, summary, body)
