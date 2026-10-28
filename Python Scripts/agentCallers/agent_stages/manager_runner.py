@@ -209,15 +209,15 @@ def decide_manager_recommendation(
 ) -> dict[str, Any]:
     """The manager's decision on a finished payload, shared by live runs and replays.
 
-    Returns the normalized recommendation and whether a short circuit (no evidence, or a
-    strategist watchlist/do_not_trade) answered instead of the model.
+    Returns the normalized recommendation and `skipped`: the short circuit that answered
+    instead of the model ("no_evidence" or "strategist_declined"), or None.
     """
     if not payload_has_evidence(payload):
-        return {"recommendation": copy.deepcopy(_NO_EVIDENCE_RECOMMENDATION), "no_evidence": True}
+        return {"recommendation": copy.deepcopy(_NO_EVIDENCE_RECOMMENDATION), "skipped": "no_evidence"}
     strategist_decision = (payload.get("strategist_recommendation") or {}).get("decision")
     if strategist_decision in STRATEGIST_DECLINES:
-        return {"recommendation": _strategist_declined_recommendation(strategist_decision), "no_evidence": False,
-                "strategist_declined": True}
+        return {"recommendation": _strategist_declined_recommendation(strategist_decision),
+                "skipped": "strategist_declined"}
 
     system_prompt, user_prompt = build_manager_prompt(
         payload,
@@ -260,7 +260,7 @@ def decide_manager_recommendation(
             "Expected a JSON object with recommendation.decision/confidence/reason. "
             "See the preceding manager response diagnostic for the parse error and completion metadata."
         )
-    return {"recommendation": recommendation, "no_evidence": False, "response_diagnostic": response_diagnostic}
+    return {"recommendation": recommendation, "skipped": None, "response_diagnostic": response_diagnostic}
 
 
 def replay_manager_decision_from_payload(
@@ -282,10 +282,8 @@ def replay_manager_decision_from_payload(
         model=model or get_settings().models.manager.model,
     )
     result = {"recommendation": decision["recommendation"], "replay_prompt_version": MANAGER_PROMPT_VERSION}
-    if decision["no_evidence"]:
-        result["replay_skipped"] = "no_evidence"
-    elif decision.get("strategist_declined"):
-        result["replay_skipped"] = "strategist_declined"
+    if decision["skipped"]:
+        result["replay_skipped"] = decision["skipped"]
     return result
 
 
@@ -354,7 +352,7 @@ def decide_company_option_position(
     )
     recommendation = decision["recommendation"]
 
-    if decision["no_evidence"] or decision.get("strategist_declined"):
+    if decision["skipped"]:
         no_evidence_result = _build_no_evidence_result(
             company,
             recommendation=recommendation,
