@@ -10,6 +10,10 @@ from .company_interest import signal_discovery
 from services.company_evidence_policy import CompanyEvidencePolicy
 
 
+PIPELINE_SELECTION = 'pipeline_selection'
+MANAGER_SCOPE = 'manager'  # request_pipeline_evidence scope for companies the strategist is about to see
+
+
 def enqueue_refresh(conn, company_id, source, source_key, *, at, parent_session_id=None):
     if source not in {'discovery', 'active_interest', 'pipeline_selection'}:
         register_interest(conn, company_id, source, 'current' if source == 'pipeline_selection' else source_key,
@@ -34,7 +38,13 @@ def due_refresh_companies(*, at, limit, db_path=None):
             WHERE r.status='pending' AND julianday(r.next_attempt_at)<=julianday(?) AND EXISTS (
                 SELECT 1 FROM company_interest i WHERE i.company_id=c.id
                 AND julianday(i.selected_at)<=julianday(?) AND julianday(i.expires_at)>julianday(?)) GROUP BY c.id
-            ORDER BY MAX(r.parent_session_id IS NOT NULL) DESC,MIN(r.requested_at),c.id LIMIT ?''', (at, at, at, limit))]
+            ORDER BY MAX(r.parent_session_id IS NOT NULL) DESC,
+                EXISTS (SELECT 1 FROM company_interest i WHERE i.company_id=c.id AND i.source=? AND i.source_key=?
+                    AND julianday(i.selected_at)<=julianday(?) AND julianday(i.expires_at)>julianday(?)) DESC,
+                EXISTS (SELECT 1 FROM company_interest i WHERE i.company_id=c.id AND i.source=?
+                    AND julianday(i.selected_at)<=julianday(?) AND julianday(i.expires_at)>julianday(?)) DESC,
+                MIN(r.requested_at),c.id LIMIT ?''',
+                (at, at, at, PIPELINE_SELECTION, MANAGER_SCOPE, at, at, PIPELINE_SELECTION, at, at, limit))]
 
 
 def due_refresh_requests(company_id, *, at, db_path=None):

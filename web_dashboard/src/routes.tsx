@@ -8,6 +8,7 @@ import type { DashboardSection } from './dashboardSections.ts'
 import DecisionAutopsyPage from './decisionAutopsy.tsx'
 import DecisionExpectancyPage from './decisionExpectancy.tsx'
 import ExposureMapPage from './exposureMap.tsx'
+import NewsExtractionPage from './newsExtraction.tsx'
 import NewsLagPage from './newsLag.tsx'
 import V2StatusPage from './v2Status.tsx'
 
@@ -66,6 +67,7 @@ export const ROUTES: readonly Route[] = [
     tabs: [
       { slug: 'expectancy', label: 'Expectancy', render: () => <DecisionExpectancyPage /> },
       { slug: 'news-lag', label: 'News lag', render: () => <NewsLagPage /> },
+      { slug: 'extraction', label: 'Extraction', render: () => <NewsExtractionPage /> },
       { slug: 'backtests', label: 'Backtests', render: () => <BacktestPage /> },
       { slug: 'rollout', label: 'V2 Rollout', supportsDemo: true, render: (demoMode) => <V2StatusPage demoMode={demoMode} /> },
     ],

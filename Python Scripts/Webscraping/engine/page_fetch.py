@@ -6,12 +6,13 @@ from typing import Any, Callable, Iterator
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+from APIs.alpacaNewsAPI import get_article_content as get_alpaca_article_content
 from APIs.foolAPI import get_article_content as get_fool_article_content
 from APIs.gurufocusAPI import get_article_content as get_gurufocus_article_content
 from APIs.InvestingAPI import get_article_content as get_investing_article_content
 from APIs.morningStarAPI import get_article_content as get_morningstar_article_content
 from core.scrape_logging import get_scrape_logger
-from engine.article_extraction import ArticleExtractionResult
+from engine.article_extraction import ArticleContentUnavailable, ArticleExtractionResult
 from engine.article_scraper import crawl_article_pages, crawl_articles
 
 LOGGER = get_scrape_logger("page_fetch")
@@ -21,6 +22,7 @@ ARTICLE_CONTENT_FETCHERS: tuple[tuple[str, Callable[[str], dict[str, Any]]], ...
     ("investing.com", get_investing_article_content),
     ("morningstar.com", get_morningstar_article_content),
     ("gurufocus.com", get_gurufocus_article_content),
+    ("benzinga.com", get_alpaca_article_content),
 )
 
 
@@ -91,6 +93,8 @@ class LiveFetcher:
                 fetched_articles[url] = _extract_article_result_from_api_payload(payload, url)
                 if fetched_articles[url].success:
                     LOGGER.info("Fetched article via API extractor for %s", url)
+            except ArticleContentUnavailable:
+                LOGGER.info("No API content yet for %s; leaving it for the next run", url)
             except Exception as exc:
                 LOGGER.warning("API article extractor failed for %s: %s", url, exc)
                 fallback_urls.append(url)

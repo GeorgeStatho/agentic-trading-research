@@ -765,14 +765,24 @@ def _ask_openai_model(
     return content
 
 
-def _openrouter_options(hosted: Any) -> dict[str, Any]:
+def _openrouter_options(hosted: Any, *, has_schema: bool = False, thinking_level: str | None = None) -> dict[str, Any]:
     # usage.include makes OpenRouter report the call's cost alongside its tokens.
     options: dict[str, Any] = {"usage": {"include": True}}
-    if hosted.reasoning_effort:
-        options["reasoning"] = {"effort": hosted.reasoning_effort}
+    # A stage's own thinking level (e.g. a low-thinking classifier on fallback) beats the global effort.
+    effort = thinking_level or hosted.reasoning_effort
+    if effort:
+        options["reasoning"] = {"effort": effort}
+    provider: dict[str, Any] = {}
     if hosted.provider_order:
         # Fallbacks keep a call alive when the preferred providers are down; the usage row names who answered.
-        options["provider"] = {"order": list(hosted.provider_order), "allow_fallbacks": True}
+        provider = {"order": list(hosted.provider_order), "allow_fallbacks": hosted.provider_fallbacks}
+    if hosted.max_price is not None:
+        provider["max_price"] = {"prompt": hosted.max_price[0], "completion": hosted.max_price[1]}
+    if has_schema:
+        # Without this, a provider lacking structured outputs may receive the call and ignore the schema.
+        provider["require_parameters"] = True
+    if provider:
+        options["provider"] = provider
     return options
 
 
@@ -806,6 +816,7 @@ def _ask_chat_completions_model(
     temperature: float,
     response_schema: dict[str, Any] | None,
     response_diagnostic: dict[str, Any] | None = None,
+    thinking_level: str | None = None,
     max_output_tokens: int | None = None,
     timeout: float | None = None,
     retry: bool = True,
@@ -831,7 +842,8 @@ def _ask_chat_completions_model(
             request_kwargs["temperature"] = hosted.temperature
         request_kwargs["max_tokens"] = hosted.max_tokens
         if hosted.is_openrouter:
-            request_kwargs["extra_body"] = _openrouter_options(hosted)
+            request_kwargs["extra_body"] = _openrouter_options(hosted, has_schema=response_schema is not None,
+                                                               thinking_level=thinking_level)
     if max_output_tokens is not None:
         request_kwargs["max_tokens"] = max_output_tokens
 
@@ -887,7 +899,8 @@ def ask_llm_model(
     retry: bool = True,
 ) -> str:
     # Route model calls through the supported provider path and normalize the response and error handling for callers.
-    # thinking_level applies to Gemini 3+ on Vertex and the Gemini API only; blank uses VERTEX_THINKING_LEVEL.
+    # thinking_level applies to Gemini 3+ on Vertex and the Gemini API (blank uses VERTEX_THINKING_LEVEL),
+    # and replaces OPENAI_COMPATIBLE_REASONING_EFFORT on OpenRouter.
     # thinking_budget applies only to Gemini models without thinking levels (2.5).
     # The last four default to each provider's usual behaviour. retry=False sends exactly one request
     # (no shared or SDK retries, no context-cache creation) for callers that own their retries and spend;
@@ -928,6 +941,7 @@ def ask_llm_model(
             temperature=temperature,
             response_schema=response_schema,
             response_diagnostic=response_diagnostic,
+            thinking_level=thinking_level,
             **request_controls,
         )
 

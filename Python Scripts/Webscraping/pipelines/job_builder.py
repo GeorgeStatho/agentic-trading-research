@@ -15,6 +15,7 @@ class CompanySourceJob(TypedDict):
     source_name: str
     source_type: str
     search_term: str
+    publisher: NotRequired[str]
 
 
 class IndustrySourceJob(TypedDict):
@@ -51,6 +52,7 @@ def build_company_source_job(
     source_name: str,
     source_type: str,
     search_term: str,
+    publisher: str = "",
 ) -> CompanySourceJob | None:
     # Assemble the company source job so downstream callers can work from one normalized shape.
     normalized_url = str(url).strip()
@@ -61,18 +63,21 @@ def build_company_source_job(
     if not supports_source_type(normalized_url, source_type):
         return None
 
-    return {
+    job: CompanySourceJob = {
         "url": normalized_url,
         "company": company,
         "source_name": source_name,
         "source_type": source_type,
         "search_term": normalized_search_term,
     }
+    if publisher:
+        job["publisher"] = publisher
+    return job
 
 
 def build_yahoo_news_jobs(
     company: dict,
-    news_pairs: list[tuple[str, str]],
+    news_pairs: list[tuple[str, str] | tuple[str, str, str]],  # (title, url) or (title, url, publisher)
     *,
     source_name: str = "yahoo_finance",
     source_type: str = "article",
@@ -85,7 +90,7 @@ def build_yahoo_news_jobs(
     if not search_term:
         return jobs
 
-    for title, url in news_pairs:
+    for title, url, *rest in news_pairs:
         normalized_url = str(url).strip()
         normalized_title = " ".join(str(title or "").split()).strip()
 
@@ -98,6 +103,7 @@ def build_yahoo_news_jobs(
             source_name=source_name,
             source_type=source_type,
             search_term=normalized_title or search_term,
+            publisher=rest[0] if rest else "",
         )
         if job is None:
             continue

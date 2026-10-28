@@ -15,6 +15,7 @@ from services.company_evidence_policy import CompanyEvidencePolicy, issuer_confi
 from Webscraping.company_evidence.issuer import IssuerReleaseAdapter
 from Webscraping.company_evidence.sec import SECAdapter
 from Webscraping.company_evidence.transport import EvidenceHTTP, utc_now
+from Webscraping.company_evidence.yahoo_consensus import YahooConsensusAdapter
 from market_db_modules.evidence_refresh import due_refresh_companies, due_refresh_requests, finish_refresh_requests
 from market_db_modules.evidence_refresh import finish_refresh_requests
 from services.company_evidence_demand import enqueue_company_interest
@@ -63,6 +64,8 @@ def collect_company_evidence(*, db_path=None, policy=None, clock=utc_now, consen
     policy = policy or CompanyEvidencePolicy.from_env()
     if not policy.enabled:
         return {'status': 'disabled', 'companies': []}
+    if consensus_adapter is None and policy.consensus == 'yahoo':
+        consensus_adapter = YahooConsensusAdapter()
     try:
         with research_session_lock(db_path, 'company-evidence-collector'):
             return _collect_requested_evidence(db_path, policy, clock, consensus_adapter)

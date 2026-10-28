@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from functools import partial
 import json
 import sqlite3
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -25,6 +26,7 @@ from services.evidence_thesis import (
     check_evidence_thesis, compact_thesis_check, evaluate_evidence_thesis_gate, not_requested_check,
     persist_thesis_check,
 )
+from services.evidence_thesis_checks import _expectation_failures, _surprise_claimed_without_consensus
 from services.evidence_thesis_policy import EvidenceThesisPolicy
 from services.order_candidates import OrderCandidateBuilder
 
@@ -148,6 +150,56 @@ class ClaimCheckTests(ThesisFixture):
         surprise = self.guidance_claim(payload, "Guidance beat analyst estimates by $20 million")
         check = self.check(self.thesis(payload, supporting=[surprise]), payload)
         self.assertIn("market_surprise_without_consensus", self.claim_result(check, "S1")["failures"])
+
+
+class SurpriseLicenseTests(unittest.TestCase):
+    """A beat/miss claim is licensed by a consensus fact only when the same period's actual is cited too."""
+    BEAT = "Q3 revenue beat analyst estimates"
+
+    @staticmethod
+    def fact(kind, period, metric="revenue"):
+        return {"kind": kind, "metric": metric, "fiscal_period": period}
+
+    def claimed_without(self, facts, texts=()):
+        return _surprise_claimed_without_consensus(self.BEAT, facts, list(texts))
+
+    def test_next_report_consensus_with_last_quarters_actual_is_not_a_surprise_basis(self):
+        facts = [self.fact("consensus", "next_report:2026-10-28"), self.fact("actual", "2026-04-01/2026-06-30")]
+        self.assertTrue(self.claimed_without(facts))
+
+    def test_consensus_and_actual_for_the_same_metric_and_period_license_the_claim(self):
+        period = "2026-04-01/2026-06-30"
+        self.assertFalse(self.claimed_without([self.fact("consensus", period), self.fact("actual", period)]))
+
+    def test_consensus_alone_does_not_license_the_claim(self):
+        self.assertTrue(self.claimed_without([self.fact("consensus", "next_report:2026-10-28")]))
+
+    def test_same_period_but_different_metric_does_not_license_the_claim(self):
+        period = "2026-04-01/2026-06-30"
+        self.assertTrue(self.claimed_without([self.fact("consensus", period), self.fact("actual", period, "eps_diluted")]))
+
+    def test_cited_source_text_asserting_the_surprise_still_licenses_the_claim(self):
+        self.assertFalse(self.claimed_without([], ["Revenue beat analyst estimates by 3%, the company said."]))
+
+
+class ForwardConsensusBaselineTests(unittest.TestCase):
+    """Guard: comparison_key includes fiscal_period, so a next_report estimate never baselines a past actual."""
+    @staticmethod
+    def fact(fact_id, kind, period, basis):
+        return {"fact_id": fact_id, "kind": kind, "value": 1.0, "metric": "revenue", "fiscal_period": period,
+                "period_type": "quarter", "accounting_basis": basis, "unit": "USD", "currency": "USD", "scale": 1}
+
+    def failures(self, consensus_period):
+        facts = {"c": self.fact("c", "consensus", consensus_period, "analyst_consensus"),
+                 "a": self.fact("a", "actual", "2026-04-01/2026-06-30", "US-GAAP")}
+        change = {"assessment": "supported_comparison", "baseline_type": "consensus",
+                  "statement": "Revenue came in above the baseline", "claim_ids": ["S1"]}
+        statement = {"claim_type": "observed_fact", "fact_ids": ["c", "a"]}
+        return _expectation_failures({"change_vs_prior_expectations": change}, {"S1": statement},
+                                     {"S1": {"status": "verified"}}, SimpleNamespace(facts=facts))
+
+    def test_next_report_consensus_cannot_baseline_a_past_actual(self):
+        self.assertIn("expectation_baseline_not_cited", self.failures("next_report:2026-10-28"))
 
 
 class CoverageTests(ThesisFixture):

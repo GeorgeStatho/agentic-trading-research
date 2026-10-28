@@ -8,6 +8,8 @@ from agent_helpers.strategist_evidence import DEFAULT_MAX_ARTICLE_AGE_DAYS, buil
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
 from agent_builders.strategist_payload_articles import (
+    SUMMARY_ARTICLE_QUOTAS,
+    SUPPORTING_ARTICLE_SELECTION_VERSION,
     _build_supporting_articles,
     _build_view,
     _serialize_signal,
@@ -69,6 +71,8 @@ __all__ = [
     "DEFAULT_MAX_ARTICLE_AGE_DAYS",
     "DEFAULT_SUMMARY_ARTICLE_LIMIT",
     "DEFAULT_FULL_ARTICLE_LIMIT",
+    "SUMMARY_ARTICLE_QUOTAS",
+    "SUPPORTING_ARTICLE_SELECTION_VERSION",
     "build_strategist_input",
     "build_strategist_prompt_payload",
 ]

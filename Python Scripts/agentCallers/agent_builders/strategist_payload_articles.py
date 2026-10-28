@@ -13,6 +13,12 @@ from agent_helpers.text_utils import parse_published_at
 from agent_helpers.strategist_evidence import HIGH_CONFIDENCE
 import json
 
+SUPPORTING_ARTICLE_SELECTION_VERSION = "company-first-quotas-v1"
+# Most specific evidence wins; `unsignalled` (sector_rss only) has no quota and is backfill only.
+ARTICLE_BUCKET_ORDER = ("company", "industry", "sector", "macro", "unsignalled")
+SUMMARY_ARTICLE_QUOTAS = {"company": 10, "industry": 5, "sector": 3, "macro": 2}
+SUMMARY_QUOTA_BASE_LIMIT = 20  # the limit the quotas above are written for
+
 
 def _serialize_signal(item: dict[str, Any], *, layer: str) -> AgentSignalPayload:
     signal: AgentSignalPayload = {
@@ -144,11 +150,29 @@ def _build_supporting_articles(
         score = (high_confidence_signals * 100) + (signal_count * 10) + layer_count
         return score, published_at, int(article["article_id"])
 
-    ranked_articles = sorted(
-        articles_by_id.values(),
-        key=article_priority,
-        reverse=True,
-    )
+    symbol = str((evidence.get("company") or {}).get("symbol") or "").upper()
+
+    def bucket_index(article: dict[str, Any]) -> int:
+        layers = article["evidence_layers"]
+        if "company_view" in layers or (symbol and str(article.get("primary_ticker") or "").upper() == symbol):
+            return 0
+        for index, layer in ((1, "industry_view"), (2, "sector_view"), (3, "macro_view")):
+            if layer in layers:
+                return index
+        return 4
+
+    buckets = {article["article_id"]: bucket_index(article) for article in articles_by_id.values()}
+    # sort() is stable, so article_priority order survives within each bucket.
+    ranked_articles = sorted(articles_by_id.values(), key=article_priority, reverse=True)
+    ranked_articles.sort(key=lambda article: buckets[article["article_id"]])
+
+    limit = max(1, int(summary_article_limit))
+    picked = []
+    for index, name in enumerate(ARTICLE_BUCKET_ORDER):
+        quota = SUMMARY_ARTICLE_QUOTAS.get(name, 0) * limit // SUMMARY_QUOTA_BASE_LIMIT
+        picked += [a for a in ranked_articles if buckets[a["article_id"]] == index][:quota]
+    picked_ids = {a["article_id"] for a in picked}
+    picked += [a for a in ranked_articles if a["article_id"] not in picked_ids][: limit - len(picked)]
 
     summary_articles: list[SupportingArticleSummaryPayload] = [
         {
@@ -170,7 +194,7 @@ def _build_supporting_articles(
             "evidence_layers": article["evidence_layers"],
             "agent_signals": article["agent_signals"],
         }
-        for article in ranked_articles[: max(1, int(summary_article_limit))]
+        for article in picked
     ]
 
     full_articles: list[SupportingFullArticlePayload] = [
