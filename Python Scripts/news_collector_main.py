@@ -155,6 +155,8 @@ def run_news_collection_cycle() -> dict[str, Any]:
     if get_settings().catalyst_classifier.enabled:
         result['catalyst_classification'] = observe(classify_pending_catalysts)
     result['catalyst_response_refresh'] = observe(collect_catalyst_responses)
+    from services.decision_attribution_runner import attribute_decisions
+    result['decision_attribution'] = observe(attribute_decisions)
     from services.forward_evaluation import run_forward_evaluation_cycle
     result['forward_evaluation'] = observe(run_forward_evaluation_cycle)
     from services.company_evidence_service import collect_company_evidence

@@ -32,7 +32,12 @@ def forward_returns(decision: dict[str, Any], payload: dict[str, Any], *, db_pat
                                 db_path=db_path)
     if not reference or len(closes) < max(HORIZONS):
         return None
-    return {horizon: closes[horizon - 1][1] / reference - 1 for horizon in HORIZONS}
+    return returns_from_closes(reference, closes)
+
+
+def returns_from_closes(reference: float, closes: list[tuple[datetime, float]]) -> dict[int, float]:
+    """The return from `reference` to each horizon's close, for the horizons the closes reach."""
+    return {horizon: closes[horizon - 1][1] / reference - 1 for horizon in HORIZONS if len(closes) >= horizon}
 
 
 def score_answer(answer: ReplayedAnswer, *, db_path: Any = None) -> tuple[str, dict[str, Any] | None]:

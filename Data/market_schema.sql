@@ -653,3 +653,11 @@ CREATE TABLE IF NOT EXISTS post_exit_checks (
     position_outcome_id INTEGER NOT NULL REFERENCES position_outcomes(id),
     checked_on TEXT NOT NULL, status TEXT NOT NULL, PRIMARY KEY(position_outcome_id, checked_on)
 );
+
+-- Three-layer outcome of each manager decision (evidence, direction, expression); monitoring only.
+CREATE TABLE IF NOT EXISTS decision_attributions (
+  manager_decision_history_id INTEGER PRIMARY KEY REFERENCES manager_decision_history(id),
+  attribution_version TEXT NOT NULL, evidence_quality TEXT NOT NULL, evidence_source TEXT NOT NULL,
+  direction_outcome TEXT NOT NULL, expression_outcome TEXT NOT NULL, primary_failure TEXT NOT NULL,
+  record_json TEXT NOT NULL, computed_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_decision_attributions_failure ON decision_attributions(primary_failure);
