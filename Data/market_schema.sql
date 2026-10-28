@@ -661,3 +661,31 @@ CREATE TABLE IF NOT EXISTS decision_attributions (
   direction_outcome TEXT NOT NULL, expression_outcome TEXT NOT NULL, primary_failure TEXT NOT NULL,
   record_json TEXT NOT NULL, computed_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_decision_attributions_failure ON decision_attributions(primary_failure);
+
+-- Versioned benchmark sets and the runs scored on them (screening only; never evidence for promotion). Insert-only.
+CREATE TABLE IF NOT EXISTS benchmark_sets (
+  set_id TEXT PRIMARY KEY, selection_version TEXT NOT NULL, selection_json TEXT NOT NULL,
+  item_count INTEGER NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS benchmark_items (
+  set_id TEXT NOT NULL REFERENCES benchmark_sets(set_id), manager_decision_history_id INTEGER NOT NULL,
+  split TEXT NOT NULL CHECK (split IN ('dev','holdout')), stratum TEXT NOT NULL,
+  PRIMARY KEY (set_id, manager_decision_history_id));
+CREATE TABLE IF NOT EXISTS benchmark_runs (
+  run_id INTEGER PRIMARY KEY AUTOINCREMENT, set_id TEXT NOT NULL, split TEXT NOT NULL CHECK (split IN ('dev','holdout')),
+  backtest_run_id INTEGER, model TEXT NOT NULL, prompt_versions_json TEXT NOT NULL, replay_strategist INTEGER NOT NULL,
+  scores_json TEXT NOT NULL, item_scores_json TEXT NOT NULL, created_at TEXT NOT NULL);
+-- Dev runs may repeat; the holdout is scored once per set, model, prompts and strategist flag.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_benchmark_runs_holdout_once
+  ON benchmark_runs(set_id, model, prompt_versions_json, replay_strategist) WHERE split = 'holdout';
+CREATE TRIGGER IF NOT EXISTS benchmark_sets_no_update BEFORE UPDATE ON benchmark_sets
+BEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END;
+CREATE TRIGGER IF NOT EXISTS benchmark_sets_no_delete BEFORE DELETE ON benchmark_sets
+BEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END;
+CREATE TRIGGER IF NOT EXISTS benchmark_items_no_update BEFORE UPDATE ON benchmark_items
+BEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END;
+CREATE TRIGGER IF NOT EXISTS benchmark_items_no_delete BEFORE DELETE ON benchmark_items
+BEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END;
+CREATE TRIGGER IF NOT EXISTS benchmark_runs_no_update BEFORE UPDATE ON benchmark_runs
+BEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END;
+CREATE TRIGGER IF NOT EXISTS benchmark_runs_no_delete BEFORE DELETE ON benchmark_runs
+BEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END;

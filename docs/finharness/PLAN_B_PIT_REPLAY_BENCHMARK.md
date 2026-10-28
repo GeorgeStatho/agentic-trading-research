@@ -87,17 +87,21 @@ CREATE TABLE IF NOT EXISTS benchmark_items (
   split TEXT NOT NULL CHECK (split IN ('dev','holdout')), stratum TEXT NOT NULL,
   PRIMARY KEY (set_id, manager_decision_history_id));
 CREATE TABLE IF NOT EXISTS benchmark_runs (
-  set_id TEXT NOT NULL, split TEXT NOT NULL, backtest_run_id INTEGER, model TEXT NOT NULL,
-  prompt_versions_json TEXT NOT NULL, replay_strategist INTEGER NOT NULL,
-  scores_json TEXT NOT NULL, item_scores_json TEXT NOT NULL, created_at TEXT NOT NULL,
-  PRIMARY KEY (set_id, split, model, prompt_versions_json, replay_strategist));
+  run_id INTEGER PRIMARY KEY AUTOINCREMENT, set_id TEXT NOT NULL, split TEXT NOT NULL CHECK (split IN ('dev','holdout')),
+  backtest_run_id INTEGER, model TEXT NOT NULL, prompt_versions_json TEXT NOT NULL, replay_strategist INTEGER NOT NULL,
+  scores_json TEXT NOT NULL, item_scores_json TEXT NOT NULL, created_at TEXT NOT NULL);
+-- Dev runs may repeat; the holdout is scored once per set, model, prompts and strategist flag.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_benchmark_runs_holdout_once
+  ON benchmark_runs(set_id, model, prompt_versions_json, replay_strategist) WHERE split = 'holdout';
+-- BEFORE UPDATE and BEFORE DELETE triggers on all three tables RAISE(ABORT, 'Immutable benchmark record').
 ```
 - The store module is `Data/market_db_modules/benchmarks.py`.
-- **Holdout runs are once only.** Inserting a second `holdout` run for the same set, model and
-  prompt fails, so holdout cannot be re-scored repeatedly.
+- **Holdout runs are once only.** The partial unique index refuses a second `holdout` run for the same
+  set, model, prompts and strategist flag; `run_benchmark` checks first and raises before any model call.
+  Dev runs may repeat, which is why the key is an autoincrement `run_id`.
 
-**Selection** (`services/benchmark_selection.py: select_items(decisions, *, size, holdout_share,
-seed) -> list[item]`):
+**Selection** (`services/benchmark_selection.py: select_items(decisions, *, set_id, size,
+holdout_share, seed=None) -> list[item]`):
 - **Pool.** Replayable decisions only (frozen input present, snapshot hash valid). Optionally
   restrict to a date window.
 - **Stratum key.** `sector_key | production_direction(call/put/neither) | regime_label | month`.
@@ -108,14 +112,14 @@ seed) -> list[item]`):
   neighbouring re-decisions do not repeat each other. Then cap each symbol at
   `ceil(size / symbols × 2)`.
 - **Day weighting.** Following FinanceGym, sample days with weight
-  `z(volume) × (1 + symbol diversity)`. Volume is that day's decision count, and diversity is
-  that day's distinct-sector entropy. Within a stratum, sample proportionally with the seeded
+  `(day volume / mean daily volume) × (1 + diversity)`, a relative volume because a z-score can be
+  negative. Volume is that day's decision count, and diversity is that day's distinct-sector entropy. Within a stratum, sample proportionally with the seeded
   RNG.
 - **Balance.** Proportional allocation across strata with a floor of 2 per non-empty stratum.
   `neither` is capped at 40% of the set, so abstentions do not dominate.
 - **Split.** Assign holdout per symbol, not per item, so a symbol's decisions never straddle
   dev and holdout. This avoids leakage through repeated situations.
-- **Deterministic.** The seed is `int(sha256(set_id))`, and `selection_json` records every
+- **Deterministic.** The seed defaults to `int(sha256(set_id))` (an explicit `seed` overrides it), and `selection_json` records every
   parameter.
 
 ### 4. Run and score (`services/benchmark_runner.py`)

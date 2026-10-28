@@ -217,6 +217,47 @@ Part 6 `promote-champion`) blocks the switched configuration until it is unpinne
     model/prompt versions.
   - Its tickers join the collector's history refresh.
 
+## Screening before a cohort
+
+A frozen-forward cohort is slow (about 60 days), so candidate challengers are first screened on a
+fixed benchmark of past decisions. The benchmark only ranks challengers. Only a frozen-forward
+cohort can promote one: nothing here writes `research_gate_promotions`, and `promote-challenger`
+never reads a benchmark.
+
+```
+python scripts/research.py benchmark create --set-id bench-2026q3 --size 300 --holdout 0.3
+python scripts/research.py benchmark show bench-2026q3
+python scripts/research.py benchmark run bench-2026q3 --model stored --split dev
+python scripts/research.py benchmark run bench-2026q3 --model MODEL --split dev [--replay-strategist]
+python scripts/research.py benchmark compare bench-2026q3 --a stored --b MODEL --split dev
+python scripts/research.py benchmark run bench-2026q3 --model MODEL --split holdout --confirm-holdout
+```
+
+- **The set.** `create` picks replayable decisions (frozen input present, snapshot hashes valid), one per
+  symbol per 24 hours, balanced over sector, direction, regime, month and (once labelled) catalyst
+  family. Whole symbols go to holdout, so no symbol is in both splits. The selection is stored with
+  every parameter, and the same set id always selects the same items. Sets, items and runs are
+  insert-only.
+- **A run** replays the split's decisions with the model, then scores each in three layers: evidence
+  (the replayed strategist's thesis check with `--replay-strategist`, otherwise production's, reported
+  as fixed), direction (hit rate and signed return at 5 and 10 trading days, with bootstrap SEs, beside
+  the unconditional stock-move baseline) and expression (option P&L where a trade was simulated).
+  `--model stored` is the sanity baseline: its direction hit rate equals a direct `--score-direction`
+  over the same ids.
+- **Compare** pairs two runs item by item and reports, per layer, the mean difference (b minus a) with a
+  bootstrap SE, plus direction wins, losses and ties. An item counts only if both runs scored it; the
+  rest are listed with each run's reason (`excluded_pre_knowledge_cutoff`, `model_error`, ...).
+  `--a MODEL:PROMPTS` picks the run with that manager prompt version.
+- **Holdout is single-use.** Score it once, after choosing, per set, model, prompts and strategist
+  flag. A second holdout run is refused before any model call, and the CLI needs `--confirm-holdout`.
+  Dev runs can repeat.
+- **Contamination.** A model may remember decisions near its training data. Unless the model is
+  `stored`, decisions up to 30 days after the model's knowledge cutoff are dropped and counted
+  (`excluded_pre_knowledge_cutoff`, with the cutoff used in `scores.replay.contamination`), and a
+  model with no known cutoff is refused unless `--allow-unknown-cutoff`. To add a model, append a row
+  `model,knowledge_cutoff,source` to `config/model_knowledge_cutoffs.csv`: `source` is the provider
+  documentation URL, or `release-date-proxy`. A longer listed prefix wins over a shorter one.
+
 ## Safety boundaries
 
 - **No broker path.** Paired and discovery candidates are refused by the order builder and the

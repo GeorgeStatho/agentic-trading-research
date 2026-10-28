@@ -74,6 +74,7 @@ from services.trade_economics_policy import TradeEconomicsPolicy
 LOGGER = logging.getLogger(__name__)
 
 STORED_MODEL = "stored"
+STORED_PROMPT_VERSION = "stored-output"
 STAGE = "manager"
 STRATEGIST_STAGE = "strategist"
 DIRECTIONAL = frozenset({"call", "put"})
@@ -426,13 +427,15 @@ def space_decisions_per_symbol(decisions: list[dict[str, Any]], *, min_hours: fl
 class ReplayedAnswer:
     """A decision, the input its manager answered and that answer; or the outcome explaining why there is none.
 
-    `frozen` is None only when the decision's frozen snapshots failed their hash check.
+    `frozen` is None only when the decision's frozen snapshots failed their hash check. `strategist_answer`
+    is the replayed strategist's own answer (thesis check attached), which the manager payload may not carry.
     """
     decision: dict[str, Any]
     payload: dict[str, Any] | None
     recommendation: dict[str, Any] | None = None
     unavailable: str | None = None
     frozen: FrozenDecision | None = None
+    strategist_answer: dict[str, Any] | None = None
 
 
 def drop_remembered(window: list[dict[str, Any]], model: str, allow_unknown_cutoff: bool,
@@ -519,7 +522,8 @@ class ReplayRun:
             else:
                 try:
                     asked_at = time.monotonic()
-                    payload, recommendation, cached = self._answer(decision, payload, frozen.strategist_input, tally)
+                    payload, recommendation, cached, strategist_answer = self._answer(
+                        decision, payload, frozen.strategist_input, tally)
                     if not cached:
                         progress.record_model_call(time.monotonic() - asked_at)
                     consecutive_failures = 0
@@ -533,14 +537,14 @@ class ReplayRun:
                     yield ReplayedAnswer(decision, payload, unavailable="model_error", frozen=frozen)
                 else:
                     tally.changed_direction += recommendation.get("decision") != str(decision.get("manager_decision") or "").lower()
-                    yield ReplayedAnswer(decision, payload, recommendation, frozen=frozen)
+                    yield ReplayedAnswer(decision, payload, recommendation, frozen=frozen, strategist_answer=strategist_answer)
             if index % PROGRESS_EVERY == 0:
                 LOGGER.info(progress.report(index, now=datetime.now().astimezone()))
 
     def _answer(self, decision: dict[str, Any], payload: dict[str, Any], strategist_input: dict[str, Any] | None,
-                tally: "ReplayTally") -> tuple[dict[str, Any], dict[str, Any], bool]:
-        """The manager input (with any replayed strategist), its answer, and whether no model was called."""
-        strategist_cached = True
+                tally: "ReplayTally") -> tuple[dict[str, Any], dict[str, Any], bool, dict[str, Any] | None]:
+        """The manager input (with any replayed strategist), its answer, whether no model was called, and the strategist's answer."""
+        strategist_cached, strategist_answer = True, None
         if self.strategist is not None:
             strategist_answer, strategist_cached, reused = self.strategist.answer(
                 strategist_input, symbol=decision["symbol"],
@@ -553,10 +557,10 @@ class ReplayRun:
             payload = self.strategist.manager_payload(payload, strategist_answer)
         if self.stored:
             tally.cached_answers += 1
-            return payload, stored_recommendation(decision), True
+            return payload, stored_recommendation(decision), True, strategist_answer
         recommendation, cached = self.replay.recommendation(payload)
         tally.cached_answers += cached
-        return payload, recommendation, cached and strategist_cached
+        return payload, recommendation, cached and strategist_cached, strategist_answer
 
     def summary(self, tally: "ReplayTally") -> dict[str, Any]:
         return {
@@ -615,7 +619,8 @@ def run_llm_backtest(
     too, so the manager answers that strategist instead of production's. `strategist_reuse_max_age_minutes`
     reuses those answers under production's reuse rule (see the module docstring). `decision_ids` replays only
     those decisions; unless `model` is `stored`, decisions within a model's knowledge cutoff plus margin are
-    dropped, and a model with no known cutoff is refused unless `allow_unknown_cutoff`.
+    dropped, and a model with no known cutoff is refused unless `allow_unknown_cutoff`. The result also
+    carries every replayed `answers` entry, in replay order, for callers that score them.
     """
     run = ReplayRun.build(model=model, start_at=start_at, end_at=end_at, limit=limit, decision_ids=decision_ids,
                           allow_unknown_cutoff=allow_unknown_cutoff, min_hours_between=min_hours_between, replay_strategist=replay_strategist,
@@ -625,7 +630,9 @@ def run_llm_backtest(
     latest_rules = ProductionRules(local_settings)
     tally = ReplayTally()
     traded: list[dict[str, Any]] = []
+    answers: list[ReplayedAnswer] = []
     for index, answer in enumerate(run.answers(tally), start=1):
+        answers.append(answer)
         rules = ProductionRules.for_manifest(answer.frozen.manifest if answer.frozen else None, local=local_settings)
         if execute_medium_confidence:
             rules = rules.executing_medium_confidence()
@@ -654,7 +661,7 @@ def run_llm_backtest(
         **(execution_config or {}),
         "strategy_version": STRATEGY_VERSION,
         "model": model,
-        "prompt_version": "stored-output" if run.stored else MANAGER_PROMPT_VERSION,
+        "prompt_version": STORED_PROMPT_VERSION if run.stored else MANAGER_PROMPT_VERSION,
         "risk_free_rate": TradeEconomicsPolicy.from_env().risk_free_rate,
         "data_source_versions": {"option_quotes": "historical_option_quotes",
                                  "fallback": "black_scholes_frozen_chain_daily_closes"},
@@ -674,4 +681,5 @@ def run_llm_backtest(
         "daily_bars": {**bars, "still_missing": sorted(symbols_without_daily_bars(traded_symbols, since=since, db_path=db_path))
                        if traded else []},
     }
-    return run_decision_backtest(traded, config=config, extra_metrics={"replay": replay_summary}, db_path=db_path)
+    result = run_decision_backtest(traded, config=config, extra_metrics={"replay": replay_summary}, db_path=db_path)
+    return {**result, "answers": answers}

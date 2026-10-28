@@ -131,6 +131,7 @@ copy instead of the configured database; the path is inside the container.
 | How does the challenger compare? | `docker compose exec worker python scripts/research.py compare COHORT_ID` (writes a report) |
 | Which route admits better events? | `docker compose exec worker python scripts/research.py discovery-ledger --days 30` |
 | Do research theses hold up? | `docker compose exec worker python scripts/research.py research-outcomes --days 30` |
+| Which challenger is worth a cohort? | `docker compose exec worker python scripts/research.py benchmark run SET_ID --model M --split dev`, then `benchmark compare` (screening only; writes a benchmark run, never a promotion) |
 
 The dashboard's **Research → V2 Rollout** page shows enforcement modes, Part 6 runs and the Phase 7
 panel. `?demo=1` shows a fictional walkthrough.

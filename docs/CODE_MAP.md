@@ -587,6 +587,15 @@ the manager exactly as production does; strategist answers are cached separately
 trading-day closes instead of trading options, so decisions from before the bucket-chain snapshots (frozen inputs
 start 2026-07-21) can be compared too; it reports how every scored stock moved as the bar a model must beat.
 
+### Benchmark sets
+
+`Data/market_db_modules/benchmarks.py` stores insert-only `benchmark_sets`, `benchmark_items` (dev/holdout split and
+stratum per frozen decision) and `benchmark_runs` (holdout once per set, model, prompts and strategist flag).
+`services/benchmark_selection.py` builds a stratified, seeded set; `services/benchmark_runner.py` replays a split
+through `run_llm_backtest`, scores each item with `decision_attribution` and compares two runs item by item.
+`scripts/research.py benchmark` is the CLI. It screens challengers and never promotes. Plan:
+[PLAN_B_PIT_REPLAY_BENCHMARK](finharness/PLAN_B_PIT_REPLAY_BENCHMARK.md).
+
 ### Decision attribution
 
 `services/decision_attribution.py` splits a manager decision's outcome into evidence quality, direction and
