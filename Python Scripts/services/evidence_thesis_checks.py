@@ -135,8 +135,12 @@ def _fact_excerpt(fact, sources):
 
 
 def _surprise_claimed_without_consensus(statement, cited_facts, supporting_texts):
-    """An asserted surprise needs a cited consensus fact, or a cited source asserting it too."""
-    if not _MARKET_SURPRISE.search(statement) or any(fact["kind"] == "consensus" for fact in cited_facts):
+    """An asserted surprise needs a cited consensus fact paired with a cited actual of the same metric
+    and fiscal period, or a cited source asserting it too."""
+    if not _MARKET_SURPRISE.search(statement):
+        return False
+    actuals = {(fact["metric"], fact["fiscal_period"]) for fact in cited_facts if fact["kind"] == "actual"}
+    if any(fact["kind"] == "consensus" and (fact["metric"], fact["fiscal_period"]) in actuals for fact in cited_facts):
         return False
     return not any(_MARKET_SURPRISE.search(text) for text in supporting_texts)
 
