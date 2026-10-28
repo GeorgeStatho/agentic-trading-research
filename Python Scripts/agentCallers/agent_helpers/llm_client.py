@@ -765,14 +765,22 @@ def _ask_openai_model(
     return content
 
 
-def _openrouter_options(hosted: Any) -> dict[str, Any]:
+def _openrouter_options(hosted: Any, *, has_schema: bool = False) -> dict[str, Any]:
     # usage.include makes OpenRouter report the call's cost alongside its tokens.
     options: dict[str, Any] = {"usage": {"include": True}}
     if hosted.reasoning_effort:
         options["reasoning"] = {"effort": hosted.reasoning_effort}
+    provider: dict[str, Any] = {}
     if hosted.provider_order:
         # Fallbacks keep a call alive when the preferred providers are down; the usage row names who answered.
-        options["provider"] = {"order": list(hosted.provider_order), "allow_fallbacks": True}
+        provider = {"order": list(hosted.provider_order), "allow_fallbacks": hosted.provider_fallbacks}
+    if hosted.max_price is not None:
+        provider["max_price"] = {"prompt": hosted.max_price[0], "completion": hosted.max_price[1]}
+    if has_schema:
+        # Without this, a provider lacking structured outputs may receive the call and ignore the schema.
+        provider["require_parameters"] = True
+    if provider:
+        options["provider"] = provider
     return options
 
 
@@ -831,7 +839,7 @@ def _ask_chat_completions_model(
             request_kwargs["temperature"] = hosted.temperature
         request_kwargs["max_tokens"] = hosted.max_tokens
         if hosted.is_openrouter:
-            request_kwargs["extra_body"] = _openrouter_options(hosted)
+            request_kwargs["extra_body"] = _openrouter_options(hosted, has_schema=response_schema is not None)
     if max_output_tokens is not None:
         request_kwargs["max_tokens"] = max_output_tokens
 

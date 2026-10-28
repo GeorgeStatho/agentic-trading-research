@@ -52,6 +52,20 @@ def _optional_temperature(environ, name, default):
     return value
 
 
+def _price_ceiling(environ, name):
+    # "prompt,completion" in dollars per million tokens; blank means no ceiling.
+    raw = environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        prompt, completion = (float(part) for part in raw.split(","))
+    except ValueError:
+        raise ValueError(f"{name} must be two prices, prompt,completion in $ per million tokens, or blank") from None
+    if prompt < 0 or completion < 0:
+        raise ValueError(f"{name} prices cannot be negative")
+    return prompt, completion
+
+
 @dataclass(frozen=True)
 class StageModel:
     model: str
@@ -148,6 +162,10 @@ class OpenAICompatibleSettings:
     max_tokens: int = 32000
     # OpenRouter providers to try first, in order (e.g. ("wafer",)); empty leaves routing to OpenRouter.
     provider_order: tuple[str, ...] = ()
+    # False keeps calls on provider_order only; True lets OpenRouter fall back to any other provider.
+    provider_fallbacks: bool = True
+    # Hard (prompt, completion) $/M token ceiling; providers priced above it are never used.
+    max_price: tuple[float, float] | None = None
 
     @property
     def is_openrouter(self) -> bool:
@@ -164,7 +182,10 @@ class OpenAICompatibleSettings:
                    temperature=_optional_temperature(environ, "OPENAI_COMPATIBLE_TEMPERATURE", 1.0),
                    reasoning_effort=effort,
                    max_tokens=_integer(environ, "OPENAI_COMPATIBLE_MAX_TOKENS", 32000, 1024),
-                   provider_order=tuple(name.strip().lower() for name in order.split(",") if name.strip()))
+                   provider_order=tuple(name.strip().lower() for name in order.split(",") if name.strip()),
+                   provider_fallbacks=environ.get("OPENAI_COMPATIBLE_PROVIDER_FALLBACKS", "true").strip().lower()
+                   in {"1", "true", "yes"},
+                   max_price=_price_ceiling(environ, "OPENAI_COMPATIBLE_MAX_PRICE"))
 
 
 @dataclass(frozen=True)

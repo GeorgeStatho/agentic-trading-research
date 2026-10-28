@@ -45,7 +45,8 @@ class OpenAICompatibleRequestTests(unittest.TestCase):
         kwargs = sent()
         self.assertEqual(kwargs["temperature"], 1.0)
         self.assertEqual(kwargs["max_tokens"], 32000)
-        self.assertEqual(kwargs["extra_body"], {"usage": {"include": True}, "reasoning": {"effort": "high"}})
+        self.assertEqual(kwargs["extra_body"], {"usage": {"include": True}, "reasoning": {"effort": "high"},
+                                                "provider": {"require_parameters": True}})
 
     def test_blank_settings_keep_stage_temperature_and_send_no_reasoning(self):
         kwargs = sent(environ={"OPENAI_COMPATIBLE_TEMPERATURE": "", "OPENAI_COMPATIBLE_REASONING_EFFORT": ""})
@@ -54,7 +55,27 @@ class OpenAICompatibleRequestTests(unittest.TestCase):
 
     def test_provider_order_is_sent_with_fallbacks(self):
         kwargs = sent(environ={"OPENAI_COMPATIBLE_PROVIDER_ORDER": "Wafer, together"})
-        self.assertEqual(kwargs["extra_body"]["provider"], {"order": ["wafer", "together"], "allow_fallbacks": True})
+        self.assertEqual(kwargs["extra_body"]["provider"],
+                         {"order": ["wafer", "together"], "allow_fallbacks": True, "require_parameters": True})
+
+    def test_provider_list_can_be_closed_and_price_capped(self):
+        kwargs = sent(environ={"OPENAI_COMPATIBLE_PROVIDER_ORDER": "wafer,relace",
+                               "OPENAI_COMPATIBLE_PROVIDER_FALLBACKS": "false",
+                               "OPENAI_COMPATIBLE_MAX_PRICE": "0.15, 0.60"})
+        self.assertEqual(kwargs["extra_body"]["provider"],
+                         {"order": ["wafer", "relace"], "allow_fallbacks": False,
+                          "max_price": {"prompt": 0.15, "completion": 0.6}, "require_parameters": True})
+
+    def test_unstructured_calls_do_not_require_parameters(self):
+        client = client_for("openai_compatible", completion())
+        with use_settings(openai_compatible=OpenAICompatibleSettings.from_environ(OPENROUTER)):
+            ask_llm_model(client, "model", "system", "user", temperature=0)
+        self.assertNotIn("provider", client.raw_client.chat.completions.create.call_args.kwargs["extra_body"])
+
+    def test_malformed_max_price_is_rejected(self):
+        for raw in ("0.15", "cheap,0.6", "-1,0.6"):
+            with self.subTest(raw=raw), self.assertRaisesRegex(ValueError, "OPENAI_COMPATIBLE_MAX_PRICE"):
+                OpenAICompatibleSettings.from_environ({"OPENAI_COMPATIBLE_MAX_PRICE": raw})
 
     def test_other_hosted_apis_get_no_openrouter_fields(self):
         kwargs = sent(environ={"OPENAI_COMPATIBLE_BASE_URL": "https://api.mistral.ai/v1",

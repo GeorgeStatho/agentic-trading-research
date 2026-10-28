@@ -133,7 +133,8 @@ def extract_json_value(text: str) -> Any:
         return None
 
     try:
-        return json.loads(raw)
+        # strict=False: models sometimes emit a raw newline or tab inside a string value.
+        return json.loads(raw, strict=False)
     except json.JSONDecodeError:
         pass
 
@@ -146,7 +147,7 @@ def extract_json_value(text: str) -> Any:
             if fenced.lower().startswith("json"):
                 fenced = fenced[4:].strip()
             try:
-                return json.loads(fenced)
+                return json.loads(fenced, strict=False)
             except json.JSONDecodeError:
                 pass
 
@@ -156,7 +157,7 @@ def extract_json_value(text: str) -> Any:
         if value_start >= 0 and value_end > value_start:
             candidate = raw[value_start:value_end + 1]
             try:
-                return json.loads(candidate)
+                return json.loads(candidate, strict=False)
             except json.JSONDecodeError:
                 continue
 

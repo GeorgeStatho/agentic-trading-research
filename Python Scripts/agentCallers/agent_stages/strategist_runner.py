@@ -52,7 +52,7 @@ def _stage_model() -> StageModel:
 
 
 _strategist_client: Client | None = None
-STRATEGIST_PROMPT_VERSION = "grounded-strategist-v4-evidence-thesis-compact"
+STRATEGIST_PROMPT_VERSION = "grounded-strategist-v5-evidence-thesis-compact"
 LEGACY_STRATEGIST_PROMPT_VERSION = "grounded-strategist-v3-company-evidence-compact"
 THESIS_ROUTE = "legacy_strategist"
 
@@ -105,6 +105,18 @@ def ask_model(
         thinking_level=_stage_model().thinking_level,
         response_schema=strategist_recommendation_schema(include_thesis=include_thesis),
         response_diagnostic=response_diagnostic,
+    )
+
+
+def _repair_note(error: Exception) -> str:
+    # Appended to the original user prompt; the earlier answer is not resent, the model writes a new one.
+    return (
+        "\n\nYour previous answer to this request was rejected by validation: "
+        f"{str(error)[:500]}\n"
+        "Return the complete corrected JSON. evidence_claims needs exactly one entry for summary, one for why_now, "
+        "one for every catalyst item, one for every thesis item, one for every risks item (claim_type risk), and one "
+        "for a non-empty watchlist_reason. Each entry cites one or more integers from grounding.article_ids; never "
+        "use -1, 0 or any other placeholder ID. Inside JSON strings, escape newlines as \\n."
     )
 
 
@@ -331,8 +343,21 @@ def decide_strategist_recommendation(
                              user_prompt=user_prompt, include_thesis=include_thesis,
                              response_diagnostic=response_diagnostic)
     try:
-        recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
-        thesis_check = (check_evidence_thesis((raw_recommendation or {}).get("evidence_thesis"), payload,
+        try:
+            recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
+        except (ValueError, RuntimeError) as first_error:
+            # One fresh attempt told what failed: most rejections are a single missing citation.
+            LOGGER.warning("Strategist answer for %s failed validation, asking once more: %s",
+                           payload["company"].get("symbol"), first_error)
+            repair_prompt = user_prompt + _repair_note(first_error)
+            checkpoint(candidate_context, "strategist_repair_prompt", {"model": model,
+                       "system_prompt": system_prompt, "user_prompt": repair_prompt})
+            response_diagnostic = {"repair_attempt": {"first_error": str(first_error)[:500]}}
+            raw_response = ask_model(client=client, model=model, system_prompt=system_prompt,
+                                     user_prompt=repair_prompt, include_thesis=include_thesis,
+                                     response_diagnostic=response_diagnostic)
+            recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
+        thesis_check =(check_evidence_thesis((raw_recommendation or {}).get("evidence_thesis"), payload,
                                               route=THESIS_ROUTE, policy=thesis_policy)
                         if include_thesis else None)
     except Exception as exc:

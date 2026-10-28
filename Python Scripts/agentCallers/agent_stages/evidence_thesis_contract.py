@@ -81,8 +81,13 @@ THESIS_INSTRUCTIONS = (
     "Every supporting or opposing claim cites only IDs present in the input: company_evidence fact_id values in fact_ids, "
     "company_evidence document_id values in document_ids, and grounding article_ids in article_ids. "
     "claim_type is observed_fact for something a source states, calculation for arithmetic over cited facts, "
-    "and inference for your reasoning. Mark central=true only for claims the thesis cannot survive without. "
-    "quotes copy exact text from a cited source; source_id is the fact_id, the document_id, or article:<article_id>. "
+    "and inference for your reasoning. A figure one fact reports directly (a margin, revenue, EPS) is an observed_fact, "
+    "not a calculation. A calculation claim states one computed figure and cites only the facts it is computed from, "
+    "all with the same unit, currency, scale, period type and fiscal period; put every further figure in its own claim. "
+    "Mark central=true only for claims the thesis cannot survive without. "
+    "quotes copy exact text, at least a full phrase, from a cited article or document; source_id is the document_id "
+    "or article:<article_id>. A fact is verified through fact_ids alone, so a claim citing only facts has quotes []. "
+    "Never quote JSON, field names or bare values. "
     "Every number in an observed_fact or calculation statement must match a cited fact, a calculation over cited compatible facts, "
     "or text in a cited quote or article. Set fiscal_period to the cited fact's exact fiscal_period, or an empty string. "
     "Never combine different accounting bases, fiscal period types, currencies, units or scales. "
@@ -94,7 +99,8 @@ THESIS_INSTRUCTIONS = (
     "its data_source and review_within_days. forecast_uncertainty is ordinal, never a probability. "
     "List what is still unknown in unresolved_questions. "
     f"supporting_claims, opposing_claims, invalidation_conditions and unresolved_questions hold at most "
-    f"{MAX_CLAIMS_PER_SECTION} items each."
+    f"{MAX_CLAIMS_PER_SECTION} items each; when more apply, keep the {MAX_CLAIMS_PER_SECTION} most material and "
+    f"merge or drop the rest."
 )
 
 REQUIRED_OUTPUT_EXAMPLE = {
@@ -105,9 +111,12 @@ REQUIRED_OUTPUT_EXAMPLE = {
     "horizon": {"minimum_days": 1, "maximum_days": 10},
     "forecast_uncertainty": "|".join(UNCERTAINTY_LEVELS),
     "supporting_claims": [{"claim_id": "S1", "statement": "short claim", "claim_type": "|".join(CLAIM_TYPES),
-                           "central": True, "fiscal_period": "exact cited fiscal_period or empty",
-                           "fact_ids": ["fact:..."], "document_ids": [], "article_ids": [123],
-                           "quotes": [{"source_id": "fact:... | document id | article:123", "text": "exact source text"}]}],
+                           "central": True, "fiscal_period": "", "fact_ids": [], "document_ids": [],
+                           "article_ids": [123],
+                           "quotes": [{"source_id": "article:123 | document id", "text": "exact source text"}]},
+                          {"claim_id": "S2", "statement": "one reported or computed figure", "claim_type": "observed_fact",
+                           "central": True, "fiscal_period": "exact cited fiscal_period", "fact_ids": ["fact:..."],
+                           "document_ids": [], "article_ids": [], "quotes": []}],
     "opposing_claims": [],
     "invalidation_conditions": [{"trigger": "observable event", "data_source": "|".join(DATA_SOURCES),
                                  "review_within_days": 5}],
