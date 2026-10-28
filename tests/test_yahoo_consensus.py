@@ -5,6 +5,10 @@ import os
 import unittest
 from unittest.mock import Mock, patch
 
+from contextlib import closing
+
+from agent_builders.company_evidence_payload import build_company_evidence_payload
+from db_common import get_connection
 from tests.research_foundation_fixtures import database, ENTRY
 from tests.test_company_evidence import COMPANY, guidance
 from market_db_modules.company_evidence import get_company_fact, get_evidence_package
@@ -172,15 +176,72 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(get_company_fact(second, db_path=self.db)['supersedes_fact_id'], first)
 
     def test_adapter_refreshes_supersede_through_real_ingestion(self):
+        # The estimates moved between refreshes; an unchanged calendar is covered by StableIdentityTests.
+        revised = {**MSFT, 'Earnings Average': 4.80, 'Revenue Average': 91000000000}
         facts = []
-        for clock in (NOW, NOW + timedelta(hours=3)):
-            yahoo, _ = adapter(clock=lambda clock=clock: clock)
+        for clock, calendar in ((NOW, MSFT), (NOW + timedelta(hours=3), revised)):
+            yahoo, _ = adapter(calendar, clock=lambda clock=clock: clock)
             (doc,) = yahoo.collect(COMPANY, {}).documents
             facts.append(dict(zip(('eps_diluted', 'revenue'),
                                   [get_company_fact(f, db_path=self.db) for f in
                                    ingest_source(COMPANY, doc, clock.isoformat(), db_path=self.db)[1]])))
         for metric in ('eps_diluted', 'revenue'):
             self.assertEqual(facts[1][metric]['supersedes_fact_id'], facts[0][metric]['fact_id'])
+
+
+class StableIdentityTests(unittest.TestCase):
+    """Refreshing an unchanged calendar must not mint new documents, facts or package revisions."""
+    def setUp(self):
+        self.db = database(self)
+        self.policy = CompanyEvidencePolicy(stale_seconds=7 * 86400)
+
+    def ingest(self, calendar, at):
+        yahoo, _ = adapter(calendar, clock=lambda: at)
+        (doc,) = yahoo.collect(COMPANY, {}).documents
+        return ingest_source(COMPANY, doc, at.isoformat(), db_path=self.db)
+
+    def consensus_rows(self):
+        with closing(get_connection(self.db)) as conn:
+            return conn.execute("SELECT COUNT(*) FROM evidence_documents WHERE provider='yahoo_consensus'").fetchone()[0]
+
+    def test_unchanged_calendar_is_the_same_document_and_facts(self):
+        first = self.ingest(MSFT, NOW)
+        second = self.ingest(MSFT, NOW + timedelta(hours=3))
+        self.assertEqual(first, second)
+        self.assertEqual(self.consensus_rows(), 1)
+
+    def test_changed_calendar_is_a_new_document(self):
+        first = self.ingest(MSFT, NOW)
+        second = self.ingest({**MSFT, 'Earnings Average': 4.80}, NOW + timedelta(hours=3))
+        self.assertNotEqual(first[0], second[0])
+        self.assertEqual(self.consensus_rows(), 2)
+
+    def test_package_revision_is_stable_across_unchanged_refreshes(self):
+        primary = ingest_source(COMPANY, guidance(at=(NOW - timedelta(days=30)).isoformat()), ENTRY, db_path=self.db)[0]
+        revisions = []
+        for hours in (0, 3):
+            at = NOW + timedelta(hours=hours)
+            consensus = self.ingest(MSFT, at)[0]
+            identity = build_company_package(COMPANY, [primary, consensus], at.isoformat(), self.policy, db_path=self.db)
+            revisions.append(get_evidence_package(identity, db_path=self.db)['event_revision'])
+        self.assertEqual(revisions[0], revisions[1])
+
+
+class PayloadFreshnessTests(unittest.TestCase):
+    """freshness_at_read ages the primary evidence, not the consensus fetched alongside it."""
+    def setUp(self):
+        self.db = database(self)
+        self.policy = CompanyEvidencePolicy(stale_seconds=7 * 86400)
+
+    def test_consensus_does_not_keep_stale_primary_evidence_fresh(self):
+        primary = ingest_source(COMPANY, guidance(at=(NOW - timedelta(days=6)).isoformat()), ENTRY, db_path=self.db)[0]
+        consensus = ingest_source(COMPANY, consensus_doc(ENTRY), ENTRY, db_path=self.db)[0]
+        identity = build_company_package(COMPANY, [primary, consensus], ENTRY, self.policy, db_path=self.db)
+        self.assertEqual(get_evidence_package(identity, db_path=self.db)['freshness_status'], 'fresh')
+        read_at = (NOW + timedelta(days=3)).isoformat()  # primary is now 9 days old, consensus only 3
+        with patch.dict(os.environ, {'COMPANY_EVIDENCE_STALE_SECONDS': str(7 * 86400)}):
+            payload = build_company_evidence_payload(COMPANY['id'], package_id=identity, as_of=read_at, db_path=self.db)
+        self.assertEqual(payload['freshness_at_read'], 'stale')
 
 
 class CollectorTests(unittest.TestCase):
@@ -264,6 +325,16 @@ class PolicyTests(unittest.TestCase):
                 if value is not None:
                     os.environ['COMPANY_EVIDENCE_CONSENSUS'] = value
                 self.assertEqual(CompanyEvidencePolicy.from_env().consensus, expected)
+
+    def test_common_off_words_disable_consensus(self):
+        for value in ('off', 'false', '0', 'no', 'disabled', 'OFF'):
+            with self.subTest(value), patch.dict(os.environ, {'COMPANY_EVIDENCE_CONSENSUS': value}):
+                self.assertEqual(CompanyEvidencePolicy.from_env().consensus, 'none')
+
+    def test_unknown_provider_still_fails_fast(self):
+        with patch.dict(os.environ, {'COMPANY_EVIDENCE_CONSENSUS': 'yahooo'}):
+            with self.assertRaisesRegex(ValueError, 'consensus'):
+                CompanyEvidencePolicy.from_env()
 
 
 class ManifestTests(unittest.TestCase):

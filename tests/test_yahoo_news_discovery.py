@@ -18,10 +18,12 @@ from tests.db_fixtures import temporary_database
 
 YAHOO_URL = "https://finance.yahoo.com/news/nvidia-announces-results-123456.html"
 FLAT_ITEMS = [
-    {"title": "Nvidia announces results", "link": YAHOO_URL, "publisher": "Business Wire", "uuid": "1"},
-    {"title": "Blocked story", "link": "https://example-blocked.test/story", "publisher": "Nobody", "uuid": "2"},
-    {"title": "No link", "publisher": "Reuters", "uuid": "3"},
-    {"link": YAHOO_URL + "?x=1", "publisher": "Reuters", "uuid": "4"},
+    {"title": "Nvidia announces results", "link": YAHOO_URL, "publisher": "Business Wire", "uuid": "1",
+     "relatedTickers": ["NVDA"]},
+    {"title": "Blocked story", "link": "https://example-blocked.test/story", "publisher": "Nobody", "uuid": "2",
+     "relatedTickers": ["NVDA", "AMD"]},
+    {"title": "No link", "publisher": "Reuters", "uuid": "3", "relatedTickers": ["NVDA"]},
+    {"link": YAHOO_URL + "?x=1", "publisher": "Reuters", "uuid": "4", "relatedTickers": ["NVDA"]},
 ]
 NESTED_ITEMS = [
     {
@@ -60,6 +62,26 @@ class GetCompanyNewsItemsTests(unittest.TestCase):
         self.assertEqual(self._run(yf), FLAT_ITEMS)
         yf.Search.assert_called_once_with("NVDA", news_count=7)
         yf.Ticker.return_value.get_news.assert_not_called()
+
+    def test_search_items_not_tagged_with_the_ticker_are_dropped(self):
+        # Search is a free-text query; for short tickers ("F", "ON") it returns unrelated news.
+        items = [
+            {"title": "Ford story", "link": YAHOO_URL, "relatedTickers": ["F", "GM"]},
+            {"title": "Unrelated", "link": YAHOO_URL + "?u=1", "relatedTickers": ["FDX"]},
+            {"title": "Untagged", "link": YAHOO_URL + "?u=2"},
+        ]
+        with patch.object(yFinanceNews, "yf", _yf(search=items, ticker=[])):
+            self.assertEqual([i["title"] for i in yFinanceNews.get_company_news_items("f", count=7)], ["Ford story"])
+
+    def test_share_class_symbols_match_yahoo_dash_form(self):
+        items = [{"title": "Berkshire", "link": YAHOO_URL, "relatedTickers": ["BRK-B"]}]
+        with patch.object(yFinanceNews, "yf", _yf(search=items, ticker=[])):
+            self.assertEqual(len(yFinanceNews.get_company_news_items("BRK.B")), 1)
+
+    def test_search_with_no_tagged_items_falls_back_to_ticker_news(self):
+        items = [{"title": "Unrelated", "link": YAHOO_URL, "relatedTickers": ["FDX"]}]
+        yf = _yf(search=items, ticker=NESTED_ITEMS)
+        self.assertEqual(self._run(yf), NESTED_ITEMS)
 
     def test_empty_search_falls_back_to_ticker_news(self):
         yf = _yf(search=[], ticker=NESTED_ITEMS)

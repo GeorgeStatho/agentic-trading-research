@@ -10,13 +10,14 @@ from alpaca.data.requests import NewsRequest
 from bs4 import BeautifulSoup
 
 from core.scrape_logging import get_scrape_logger
-from engine.article_extraction import clean_text
+from engine.article_extraction import ArticleContentUnavailable, clean_text
 from processing.news_normalization import normalize_url
 from services.trading_config import AlpacaSettings
 
 LOGGER = get_scrape_logger("alpaca_news_api")
 
-CONTENT_CACHE_LIMIT = 500
+# A run builds every company's jobs before fetching any article: room for about 200 companies x 10 items.
+CONTENT_CACHE_LIMIT = 2000
 # get_stock_data stores each item here so get_article_content never has to scrape benzinga.com.
 _CONTENT_CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _CACHE_LOCK = Lock()
@@ -80,6 +81,6 @@ def get_article_content(url: str) -> dict[str, Any]:
     with _CACHE_LOCK:
         cached = _CONTENT_CACHE.get(normalize_url(url))
     if cached is None:
-        # Raising would make page_fetch crawl benzinga.com; an empty body is kept as success=False instead.
-        return {"data": {"title": "", "body": "", "published_at": "", "url": url, "symbols": [], "source": "", "author": ""}}
+        # Missing, not failed: page_fetch skips it without crawling benzinga.com, and the next run retries.
+        raise ArticleContentUnavailable(url)
     return {"data": dict(cached)}

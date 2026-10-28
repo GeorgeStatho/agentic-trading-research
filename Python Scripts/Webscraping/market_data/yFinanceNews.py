@@ -6,12 +6,18 @@ from sources.source_config import is_allowed_source
 def get_company_news_items(company: str, count: int = 10) -> list[dict]:
     # Ticker.get_news returns [] for many tickers now; Search still carries the news, so try it first.
     try:
-        items = yf.Search(company, news_count=count).news
+        items = _tagged_with(yf.Search(company, news_count=count).news or [], company)
         if items:
             return items
     except Exception:
         pass
     return yf.Ticker(company).get_news(count=count)
+
+
+def _tagged_with(items: list[dict], symbol: str) -> list[dict]:
+    # Search is a free-text query, so short tickers ("F", "ON") pull in unrelated news; keep items Yahoo tagged.
+    wanted = symbol.strip().upper().replace(".", "-")
+    return [item for item in items if wanted in {str(t).upper() for t in item.get("relatedTickers") or []}]
 
 
 def extract_title_url_publisher(news_data: list[dict]) -> list[tuple[str, str, str]]:

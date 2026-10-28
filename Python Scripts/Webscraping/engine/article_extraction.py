@@ -19,6 +19,13 @@ DEFAULT_USER_AGENT = (
 LOGGER = get_scrape_logger("article_extraction")
 
 
+class ArticleContentUnavailable(LookupError):
+    """Raised by a site API content fetcher that has nothing for this URL right now.
+
+    page_fetch leaves the URL out of its result (missing, retried next run) and does not crawl it.
+    """
+
+
 @dataclass(slots=True)
 class ArticleExtractionResult:
     url: str

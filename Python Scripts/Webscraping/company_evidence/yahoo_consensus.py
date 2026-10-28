@@ -26,6 +26,17 @@ def _number(value):
     return int(number) if number.is_integer() else number
 
 
+def _earnings_date(value):
+    # Yahoo gives a list of one or two candidate dates; the first is the expected report date.
+    if isinstance(value, (list, tuple)):
+        value = value[0] if value else None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return None
+
+
 class YahooConsensusAdapter:
     name = 'yahoo_consensus'
 
@@ -50,10 +61,9 @@ class YahooConsensusAdapter:
         return CollectionResult((document,), cursor)
 
     def _document(self, company, calendar):
-        dates = calendar.get('Earnings Date')
-        first = (dates[0] if isinstance(dates, (list, tuple)) and dates else dates)
-        earnings = first.date() if isinstance(first, datetime) else first if isinstance(first, date) else None
-        period = f'next_report:{earnings.isoformat() if earnings else "unknown"}'
+        earnings = _earnings_date(calendar.get('Earnings Date'))
+        earnings_label = earnings.isoformat() if earnings else 'unknown'
+        period = f'next_report:{earnings_label}'
         # Each metric is its own sub-object so a fact's source slice carries its period and currency.
         sections = {}
         for metric, label, _ in METRICS:
@@ -87,6 +97,6 @@ class YahooConsensusAdapter:
         events = ({'name': 'Earnings release', 'scheduled_at': earnings.isoformat(), 'precision': 'date',
                    'confirmed': False, 'status': 'yahoo_calendar_estimate', 'uncertainty': 'time_not_supplied'},) if earnings else ()
         return SourceDocument(self.name, f'https://finance.yahoo.com/quote/{symbol}/analysis', 'Yahoo Finance',
-                              'consensus', text, now, now, f'{self.name}:{symbol}:{earnings.isoformat() if earnings else "unknown"}',
+                              'consensus', text, now, now, f'{self.name}:{symbol}:{earnings_label}',
                               {'cik': company.get('cik'), 'publication_precision': 'timestamp',
                                'source': 'yfinance.Ticker.calendar'}, tuple(facts), events)

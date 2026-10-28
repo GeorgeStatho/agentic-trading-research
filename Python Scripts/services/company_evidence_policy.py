@@ -40,7 +40,16 @@ class CompanyEvidencePolicy:
                    timeout_seconds=int(os.getenv('COMPANY_EVIDENCE_TIMEOUT_SECONDS', '20')),
                    retries=int(os.getenv('COMPANY_EVIDENCE_RETRIES', '2')),
                    daily_requests=int(os.getenv('COMPANY_EVIDENCE_DAILY_REQUESTS', '500')),
-                   consensus=os.getenv('COMPANY_EVIDENCE_CONSENSUS', 'yahoo').strip().lower() or 'none')
+                   consensus=_consensus_setting(os.getenv('COMPANY_EVIDENCE_CONSENSUS', 'yahoo')))
+
+
+CONSENSUS_OFF_WORDS = {'', 'none', 'off', 'false', '0', 'no', 'disabled'}
+
+
+def _consensus_setting(raw):
+    # Operators turn things off in many ways; any of these means no consensus provider.
+    value = raw.strip().lower()
+    return 'none' if value in CONSENSUS_OFF_WORDS else value
 
 
 def issuer_configuration():

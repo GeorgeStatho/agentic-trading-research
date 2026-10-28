@@ -161,15 +161,16 @@ def _build_supporting_articles(
                 return index
         return 4
 
+    buckets = {article["article_id"]: bucket_index(article) for article in articles_by_id.values()}
     # sort() is stable, so article_priority order survives within each bucket.
     ranked_articles = sorted(articles_by_id.values(), key=article_priority, reverse=True)
-    ranked_articles.sort(key=bucket_index)
+    ranked_articles.sort(key=lambda article: buckets[article["article_id"]])
 
     limit = max(1, int(summary_article_limit))
     picked = []
     for index, name in enumerate(ARTICLE_BUCKET_ORDER):
         quota = SUMMARY_ARTICLE_QUOTAS.get(name, 0) * limit // SUMMARY_QUOTA_BASE_LIMIT
-        picked += [a for a in ranked_articles if bucket_index(a) == index][:quota]
+        picked += [a for a in ranked_articles if buckets[a["article_id"]] == index][:quota]
     picked_ids = {a["article_id"] for a in picked}
     picked += [a for a in ranked_articles if a["article_id"] not in picked_ids][: limit - len(picked)]
 

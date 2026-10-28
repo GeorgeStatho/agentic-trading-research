@@ -8,6 +8,7 @@ from APIs import alpacaNewsAPI
 from engine import page_fetch
 from engine.page_fetch import LiveFetcher, _extract_article_result_from_api_payload
 from pipelines import companyNewsPipeline
+from news_db_modules.provenance import _origin
 from sources.source_config import get_source_metadata, is_allowed_source
 
 BENZINGA_URL = "https://www.benzinga.com/news/25/10/123/nvidia-rises"
@@ -110,17 +111,23 @@ class GetArticleContentTests(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.text, "Fallback summary text")
 
-    def test_unknown_url_returns_empty_body_payload(self):
-        # Raising would make page_fetch crawl benzinga.com, so the miss is an empty body instead.
+    def test_unknown_url_is_unavailable_not_empty(self):
+        # A cache miss is "missing" (retried next run), never a failed article that gets blacklisted.
         url = "https://www.benzinga.com/news/25/10/999/never-seen"
-        self.assertEqual(alpacaNewsAPI.get_article_content(url)["data"]["body"], "")
-        self.assertFalse(_article(url).success)
+        with self.assertRaises(page_fetch.ArticleContentUnavailable):
+            alpacaNewsAPI.get_article_content(url)
 
-    def test_cache_is_bounded_to_most_recent_500(self):
-        items = [_news(1000 + i) for i in range(600)]
+    def test_cache_holds_a_full_run_of_companies(self):
+        # A run builds every company's jobs before fetching any article; 100 companies x 10 items must fit.
+        self.assertGreaterEqual(alpacaNewsAPI.CONTENT_CACHE_LIMIT, 1000)
+
+    def test_cache_is_bounded_to_the_most_recent_entries(self):
+        limit = alpacaNewsAPI.CONTENT_CACHE_LIMIT
+        items = [_news(10_000 + i) for i in range(limit + 100)]
         with patch.object(alpacaNewsAPI, "_get_news_client", return_value=_client(items)):
             alpacaNewsAPI.get_stock_data("NVDA")
-        self.assertEqual(alpacaNewsAPI.get_article_content(items[0].url)["data"]["body"], "")
+        with self.assertRaises(page_fetch.ArticleContentUnavailable):
+            alpacaNewsAPI.get_article_content(items[0].url)
         self.assertEqual(alpacaNewsAPI.get_article_content(items[-1].url)["data"]["title"], items[-1].headline)
         self.assertEqual(alpacaNewsAPI.get_article_content(items[100].url)["data"]["title"], items[100].headline)
 
@@ -174,13 +181,30 @@ class RegistrationTests(unittest.TestCase):
 
     def test_benzinga_source_config(self):
         self.assertTrue(is_allowed_source(BENZINGA_URL))
-        self.assertEqual(get_source_metadata(BENZINGA_URL)["provenance_source_type"], "wire_service")
+        # Benzinga republishes and auto-writes; it is not a wire, so it must not count as an independent root.
+        self.assertEqual(get_source_metadata(BENZINGA_URL)["provenance_source_type"], "aggregator")
 
-    def test_unknown_benzinga_url_fails_without_crawling(self):
+    def test_benzinga_roots_are_unverified_unless_a_wire_is_named(self):
+        article = {"source_url": BENZINGA_URL, "source": "benzinga", "summary": "Shares rose.", "body": "Shares rose."}
+        self.assertEqual(_origin(article), ("aggregator", "unverified", None))
+        release = {**article, "body": "SANTA CLARA, Calif.--(BUSINESS WIRE)--NVIDIA today announced results."}
+        self.assertEqual(_origin(release), ("wire_service", "wire:businesswire", None))
+
+    def test_unknown_benzinga_url_is_missing_and_not_crawled(self):
         with patch.object(page_fetch, "crawl_article_pages") as crawl:
             result = LiveFetcher().articles([BENZINGA_URL])
         crawl.assert_not_called()
-        self.assertFalse(result[BENZINGA_URL].success)
+        self.assertNotIn(BENZINGA_URL, result)
+
+    def test_unavailable_content_from_any_api_fetcher_is_missing(self):
+        def unavailable(url):
+            raise page_fetch.ArticleContentUnavailable(url)
+        url = "https://www.fool.com/investing/2025/10/01/x/"
+        with patch.object(page_fetch, "ARTICLE_CONTENT_FETCHERS", (("fool.com", unavailable),)), \
+                patch.object(page_fetch, "crawl_article_pages") as crawl:
+            result = LiveFetcher().articles([url])
+        crawl.assert_not_called()
+        self.assertEqual(result, {})
 
 
 if __name__ == "__main__":

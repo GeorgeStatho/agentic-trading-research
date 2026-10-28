@@ -30,7 +30,7 @@ This is the one entry point pipelines use to get pages from the network. Pipelin
 Each call is forwarded to the current fetcher. By default that is `LiveFetcher`, which routes like this:
 
 - `source_pages` -> `crawl_articles(urls)`
-- `articles` -> the site API first, chosen by hostname (`fool.com`, `investing.com`, `morningstar.com`, `gurufocus.com`, via `ARTICLE_CONTENT_FETCHERS`), otherwise `crawl_article_pages(urls)`. A URL whose API call raises goes to the crawler instead. An API payload that is malformed or has an empty title/body is kept as a `success=False` result, not retried on the crawler.
+- `articles` -> the site API first, chosen by hostname (`fool.com`, `investing.com`, `morningstar.com`, `gurufocus.com`, `benzinga.com`, via `ARTICLE_CONTENT_FETCHERS`), otherwise `crawl_article_pages(urls)`. A URL whose API call raises goes to the crawler instead, except `ArticleContentUnavailable`: that URL is left out of the result (missing, retried next run) and is not crawled. An API payload that is malformed or has an empty title/body is kept as a `success=False` result, not retried on the crawler.
 - `feed` -> a plain `urlopen` GET (20 second timeout, utf-8 with replacement)
 
 Whether Scrapy or Playwright does the crawling is decided inside `article_scraper.py`; `page_fetch` does not know about it.
