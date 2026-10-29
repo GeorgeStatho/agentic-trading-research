@@ -363,6 +363,11 @@ def decide_company_option_position(
                    "recommendation": no_evidence_result["recommendation"], "market_context": market_context})
         return {
             **no_evidence_result,
+            # Same context as an answered result: history, the dashboard and later gates read it either way.
+            "supporting_articles": payload.get("supporting_articles", {}),
+            "company_evidence": payload.get("company_evidence", {}),
+            "recent_manager_decision_history": payload.get("recent_manager_decision_history", []),
+            "strategist_recommendation": payload.get("strategist_recommendation", {}),
             "entry_gate": evaluate_evidence_continuation_gate(
                 recommendation=no_evidence_result["recommendation"],
                 payload=payload,
