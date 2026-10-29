@@ -25,8 +25,9 @@ from .market import (
     _normalize_contract_type,
     _resolve_target_otm_distance,
 )
-from .normalize import _coerce_float, _normalize_decision
+from .normalize import _normalize_decision
 from services.option_dte_buckets import normalize_target_dte_bucket
+from services.numbers import safe_float
 
 
 def _pick_matching_contract_simple(
@@ -82,14 +83,14 @@ def _pick_matching_contract_simple(
         if (
             _is_one_dollar_otm_contract(
                 normalized_decision,
-                _coerce_float(contract.get("strike_price")),
+                safe_float(contract.get("strike_price")),
                 reference_stock_price,
                 target_otm_distance=target_otm_distance,
             )
             if SIMPLE_REQUIRE_ONE_DOLLAR_OTM
             else _is_otm_contract(
                 normalized_decision,
-                _coerce_float(contract.get("strike_price")),
+                safe_float(contract.get("strike_price")),
                 reference_stock_price,
             )
         )
@@ -100,14 +101,14 @@ def _pick_matching_contract_simple(
         if (
             _meets_min_otm_distance(
                 normalized_decision,
-                _coerce_float(contract.get("strike_price")),
+                safe_float(contract.get("strike_price")),
                 reference_stock_price,
                 min_distance=target_otm_distance,
             )
             if normalized_target_dte_bucket in DTE_BUCKET_TO_TARGET_OTM_PCT
             else _is_otm_contract(
                 normalized_decision,
-                _coerce_float(contract.get("strike_price")),
+                safe_float(contract.get("strike_price")),
                 reference_stock_price,
             )
         )

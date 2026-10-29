@@ -1,15 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-
-
-def _coerce_float(value: Any) -> float | None:
-    try:
-        if value in (None, ""):
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+from services.numbers import safe_float
 
 
 def _empty_technical_summary_snapshot() -> dict[str, Any]:
@@ -31,8 +23,8 @@ def _empty_technical_summary_snapshot() -> dict[str, Any]:
 
 
 def _resolve_trend_state(indicators: dict[str, Any]) -> str:
-    ema_gap = _coerce_float(((indicators.get("price_vs_20ema") or {}).get("percent_gap")))
-    sma_gap = _coerce_float(((indicators.get("price_vs_50sma") or {}).get("percent_gap")))
+    ema_gap = safe_float(((indicators.get("price_vs_20ema") or {}).get("percent_gap")))
+    sma_gap = safe_float(((indicators.get("price_vs_50sma") or {}).get("percent_gap")))
     if ema_gap is None or sma_gap is None:
         return "unknown"
     if ema_gap > 0 and sma_gap > 0:
@@ -43,8 +35,8 @@ def _resolve_trend_state(indicators: dict[str, Any]) -> str:
 
 
 def _resolve_momentum_state(indicators: dict[str, Any]) -> str:
-    rsi = _coerce_float(((indicators.get("rsi_14") or {}).get("value")))
-    macd_histogram = _coerce_float(((indicators.get("macd") or {}).get("histogram")))
+    rsi = safe_float(((indicators.get("rsi_14") or {}).get("value")))
+    macd_histogram = safe_float(((indicators.get("macd") or {}).get("histogram")))
     if rsi is None or macd_histogram is None:
         return "unknown"
     if 50 <= rsi <= 70 and macd_histogram > 0:
@@ -63,7 +55,7 @@ def _resolve_vwap_state(indicators: dict[str, Any], warnings: list[str]) -> str:
     if not vwap_block.get("available"):
         return "unknown"
     warnings.append("VWAP is daily-bar VWAP, not true intraday VWAP")
-    gap_pct = _coerce_float(vwap_block.get("price_vs_vwap_pct"))
+    gap_pct = safe_float(vwap_block.get("price_vs_vwap_pct"))
     if gap_pct is None:
         return "unknown"
     if gap_pct > 0.25:
@@ -74,7 +66,7 @@ def _resolve_vwap_state(indicators: dict[str, Any], warnings: list[str]) -> str:
 
 
 def _resolve_volume_confirmation(indicators: dict[str, Any]) -> str:
-    relative_volume = _coerce_float(((indicators.get("relative_volume") or {}).get("relative_volume_20d")))
+    relative_volume = safe_float(((indicators.get("relative_volume") or {}).get("relative_volume_20d")))
     if relative_volume is None:
         return "unknown"
     if relative_volume >= 1.5:
@@ -86,10 +78,10 @@ def _resolve_volume_confirmation(indicators: dict[str, Any]) -> str:
 
 def _resolve_relative_strength_confirmation(indicators: dict[str, Any]) -> str:
     relative_strength = indicators.get("relative_strength") or {}
-    spy_relative = _coerce_float(
+    spy_relative = safe_float(
         (((relative_strength.get("vs_spy") or {}).get("returns") or {}).get("20d") or {}).get("relative_return_pct")
     )
-    sector_relative = _coerce_float(
+    sector_relative = safe_float(
         (((relative_strength.get("vs_sector_etf") or {}).get("returns") or {}).get("20d") or {}).get("relative_return_pct")
     )
     available_values = [value for value in (spy_relative, sector_relative) if value is not None]
@@ -105,8 +97,8 @@ def _resolve_relative_strength_confirmation(indicators: dict[str, Any]) -> str:
 
 
 def _resolve_overextension_risk(indicators: dict[str, Any]) -> str:
-    atr_multiple = _coerce_float(((indicators.get("atr_overextension") or {}).get("atr_multiple")))
-    rsi = _coerce_float(((indicators.get("rsi_14") or {}).get("value")))
+    atr_multiple = safe_float(((indicators.get("atr_overextension") or {}).get("atr_multiple")))
+    rsi = safe_float(((indicators.get("rsi_14") or {}).get("value")))
     if atr_multiple is None:
         return "unknown"
     absolute_atr_multiple = abs(atr_multiple)

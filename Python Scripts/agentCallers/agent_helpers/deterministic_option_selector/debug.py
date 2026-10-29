@@ -20,8 +20,9 @@ from .market import (
     _get_greek,
     _normalize_contract_type,
 )
-from .normalize import _coerce_float, _normalize_option_id
+from .normalize import _normalize_option_id
 from .volatility import _assess_contract_volatility
+from services.numbers import safe_float
 
 
 def _contract_debug_snapshot(
@@ -32,7 +33,7 @@ def _contract_debug_snapshot(
     target_otm_distance: float | None = None,
     target_dte_bucket: str = "",
 ) -> dict[str, Any]:
-    strike_price = _coerce_float(contract.get("strike_price"))
+    strike_price = safe_float(contract.get("strike_price"))
     return {
         "option_id": _normalize_option_id(contract.get("option_id")),
         "symbol": str(contract.get("symbol") or "").strip(),
@@ -51,7 +52,7 @@ def _contract_debug_snapshot(
         "bid_price": _get_bid_price(contract),
         "ask_price": _get_ask_price(contract),
         "spread_pct": _get_spread_pct(contract),
-        "open_interest": _coerce_float(contract.get("open_interest")),
+        "open_interest": safe_float(contract.get("open_interest")),
         "dte": _get_dte(contract),
         "implied_volatility": _get_contract_implied_volatility(contract),
         "delta": _get_greek(contract, "delta"),
@@ -97,7 +98,7 @@ def _build_simple_rejection_reasons(
     normalized_target_dte_bucket: str,
 ) -> list[str]:
     reasons: list[str] = []
-    strike_price = _coerce_float(contract.get("strike_price"))
+    strike_price = safe_float(contract.get("strike_price"))
     if strike_price is None:
         reasons.append("missing_strike_price")
         return reasons

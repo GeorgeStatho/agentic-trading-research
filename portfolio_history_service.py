@@ -7,23 +7,15 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from services.trading_config import AlpacaSettings
+
 
 ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_PATH = ROOT_DIR / "web_dashboard" / "public" / "portfolio_history.json"
 
 
-def env_flag(name: str, default: bool) -> bool:
-    value = str(os.getenv(name, str(default))).strip().lower()
-    return value not in {"0", "false", "no", "off"}
-
-
 def build_portfolio_history_url() -> str:
-    base_url = (
-        "https://paper-api.alpaca.markets"
-        if env_flag("ALPACA_PAPER", True)
-        else "https://api.alpaca.markets"
-    )
-
+    base_url = AlpacaSettings.from_env().trading_base_url
     query = urlencode(
         {
             "period": os.getenv("PORTFOLIO_HISTORY_PERIOD", "1M"),
@@ -36,8 +28,9 @@ def build_portfolio_history_url() -> str:
 
 
 def fetch_portfolio_history() -> dict:
-    api_key = str(os.getenv("PUBLIC_KEY") or "").strip()
-    api_secret = str(os.getenv("PRIVATE_KEY") or "").strip()
+    alpaca = AlpacaSettings.from_env()
+    api_key = alpaca.api_key
+    api_secret = alpaca.api_secret
 
     if not api_key or not api_secret:
         raise RuntimeError("PUBLIC_KEY and PRIVATE_KEY must be configured in Stock-trading-experiment/.env")

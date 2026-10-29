@@ -60,7 +60,6 @@ from .market import (  # noqa: E402
 )
 from .normalize import (  # noqa: E402
     _coerce_bool,
-    _coerce_float,
     _confidence_rank,
     _downgrade_confidence,
     _is_selection_eligible_under_confidence_guardrails,
@@ -71,6 +70,7 @@ from .normalize import (  # noqa: E402
 )
 from .simple import _pick_matching_contract_simple  # noqa: E402
 from .volatility import _assess_contract_volatility  # noqa: E402
+from services.numbers import safe_float  # noqa: E402
 from services.option_dte_buckets import normalize_target_dte_bucket  # noqa: E402
 from services.liquidity_gate import filter_liquid_contracts
 
@@ -232,7 +232,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
         if selected_option
         else None
     )
-    selected_strike_price = _coerce_float(selected_option.get("strike_price")) if selected_option else None
+    selected_strike_price = safe_float(selected_option.get("strike_price")) if selected_option else None
     if entry_gate.get("allowed") is True and decision in {"call", "put"} and selected_option is None:
         selected_option_source = "continuation_confirmed_but_no_eligible_contract"
 
@@ -280,7 +280,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
                 if _normalize_contract_type(contract.get("contract_type")) == decision
                 and _is_one_dollar_otm_contract(
                     decision,
-                    _coerce_float(contract.get("strike_price")),
+                    safe_float(contract.get("strike_price")),
                     reference_stock_price,
                     target_otm_distance=resolved_target_otm_distance,
                 )
@@ -291,7 +291,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
                 if _normalize_contract_type(contract.get("contract_type")) == decision
                 and _is_valid_fallback_side_contract(
                     decision,
-                    _coerce_float(contract.get("strike_price")),
+                    safe_float(contract.get("strike_price")),
                     reference_stock_price,
                 )
             ),
@@ -365,7 +365,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
 
 
 if __name__ == "__main__":
-    from agent_helpers.manager import test_market_context
+    from agent_helpers.manager_inputs import test_market_context
 
     symbol = str(sys.argv[1] if len(sys.argv) > 1 else "AAPL").strip().upper()
     market_test = test_market_context(symbol)

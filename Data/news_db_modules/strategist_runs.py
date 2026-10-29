@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -62,3 +63,28 @@ def record_strategist_run(
     record_id = int(cursor.lastrowid)
     stamp_candidate_catalyst(conn, 'strategist_runs', record_id, input_payload.get('candidate_id'))
     return record_id
+
+
+def latest_answered_strategist_run(company_id: int, *, db_path: Path | str | None = None) -> dict[str, Any] | None:
+    """The company's latest completed run answered by the model, never one that reused an earlier answer."""
+    with closing(get_connection(db_path)) as conn:
+        row = conn.execute(
+            """
+            SELECT id, model, prompt_version, input_payload_json, output_payload_json, created_at
+            FROM strategist_runs
+            WHERE company_id = ? AND status = 'completed'
+              AND json_extract(output_payload_json, '$.reused_from_run_id') IS NULL
+            ORDER BY created_at DESC, id DESC LIMIT 1
+            """,
+            (company_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": int(row["id"]),
+        "model": row["model"],
+        "prompt_version": row["prompt_version"],
+        "input_payload": json.loads(row["input_payload_json"] or "{}"),
+        "output_payload": json.loads(row["output_payload_json"] or "{}"),
+        "created_at": row["created_at"],
+    }

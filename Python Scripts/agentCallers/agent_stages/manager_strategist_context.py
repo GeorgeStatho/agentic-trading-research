@@ -9,7 +9,7 @@ from agent_stages.strategist_normalization import (
     normalize_timing_clarity,
 )
 
-from .manager_shared import (
+from .manager_model import (
     VALID_STRATEGIST_DECISIONS,
     coerce_bool,
     normalize_confidence,

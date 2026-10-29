@@ -4,7 +4,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from agent_helpers.manager import build_manager_input  # noqa: E402
+from agent_helpers.manager_inputs import build_manager_input  # noqa: E402
 from agent_stages.manager_strategist_context import _build_manager_visible_strategist_context  # noqa: E402
 
 
@@ -14,9 +14,9 @@ class VerboseTestCase(unittest.TestCase):
 
 
 class ManagerPayloadContractTests(VerboseTestCase):
-    @patch("agent_helpers.manager.list_recent_manager_decision_history")
-    @patch("agent_helpers.manager.build_market_context")
-    @patch("agent_helpers.manager.build_strategist_input")
+    @patch("agent_helpers.manager_inputs.list_recent_manager_decision_history")
+    @patch("agent_helpers.manager_inputs.build_market_context")
+    @patch("agent_helpers.manager_inputs.build_strategist_input")
     def test_build_manager_input_keeps_expired_pnl_hidden_from_recent_history(
         self,
         mock_build_strategist_input,

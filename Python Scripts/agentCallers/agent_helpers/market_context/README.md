@@ -10,7 +10,7 @@ Current structure:
 
 - `__init__.py`
   Stable facade and orchestration layer.
-- `common.py`
+- `alpaca_base.py`
   Shared Alpaca/yfinance imports, constants, and low-level helpers.
 - `equities.py`
   Current stock price, sector ETF, and market index snapshots.

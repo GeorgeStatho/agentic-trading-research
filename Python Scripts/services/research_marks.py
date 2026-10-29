@@ -49,7 +49,7 @@ def store_marks(quotes, *, at, db_path=None):
 
 def fetch_latest_option_quotes(symbols):
     """Alpaca's latest quote per contract, the same feed the decision chain used."""
-    from agent_helpers.market_context.common import _get_alpaca_clients, _get_field
+    from agent_helpers.market_context.alpaca_base import _get_alpaca_clients, _get_field
     from alpaca.data.requests import OptionLatestQuoteRequest
     clients = _get_alpaca_clients()
     if clients is None:

@@ -1,4 +1,7 @@
-FROM python:3.11-slim AS builder
+# syntax=docker/dockerfile:1
+# Pinned by digest: an unpinned tag moves whenever upstream publishes a patch release and
+# throws away every cached layer (apt, wheels, Playwright: ~13 minutes). Bump it deliberately.
+FROM python:3.11-slim@sha256:9635410349cba3531fabde484e07f14e625abb40e1bc8b23fffa046cb497ce2d AS builder
 
 WORKDIR /app
 
@@ -17,7 +20,7 @@ RUN python -m pip install --upgrade pip setuptools wheel
 RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 
 
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:9635410349cba3531fabde484e07f14e625abb40e1bc8b23fffa046cb497ce2d
 
 WORKDIR /app
 
@@ -32,6 +35,10 @@ RUN python -m pip install --upgrade pip setuptools wheel \
 
 RUN playwright install --with-deps chromium
 
+# The build's test step runs in parallel when pytest-xdist is present (pins match the dev extra in
+# pyproject.toml). Installed before COPY so code changes reuse this cached layer.
+RUN pip install "pytest>=8" "pytest-xdist>=3"
+
 COPY . .
 
 # PYTHONDONTWRITEBYTECODE stops Python writing .pyc files but it still reads them, so
@@ -42,6 +49,8 @@ RUN python -m compileall -q -x /node_modules/ /app
 # Registers the import roots declared in pyproject.toml; dependencies are already installed.
 RUN pip install --no-deps -e .
 
-RUN python scripts/project.py test
+# The tests create SQLite databases in /tmp; every fsync on the container filesystem is slow
+# enough to stretch a ~25 s suite past 20 minutes, so give them a tmpfs.
+RUN --mount=type=tmpfs,target=/tmp python scripts/project.py test
 
 CMD ["python", "Python Scripts/main.py"]

@@ -195,8 +195,15 @@ def pricing_report(*, db_path=None):
         total = conn.execute('SELECT COUNT(*) FROM catalysts').fetchone()[0]
         missing_ticker = conn.execute("SELECT COUNT(*) FROM catalysts WHERE classification_status='classified' AND ticker IS NULL").fetchone()[0]
         refreshes = [dict(row) for row in conn.execute('SELECT * FROM pricing_history_refreshes ORDER BY symbol')]
+        sources = dict(conn.execute("SELECT COALESCE(json_extract(state_json, '$.classification_source'), 'rules'), "
+                                    "COUNT(*) FROM catalysts GROUP BY 1").fetchall())
+        # Types the model can name but no catalyst family covers, so they stay needs_review even when labelled.
+        unmapped = dict(conn.execute("SELECT catalyst_type, COUNT(*) FROM catalysts WHERE classification_status='needs_review' "
+                                     "AND catalyst_type IN ('supply_chain', 'management', 'capital_return', 'financing') "
+                                     "GROUP BY 1").fetchall())
     return {'registered_events': events, 'classified_catalysts': classified, 'all_catalysts': total,
             'classified_without_ticker': missing_ticker, 'needs_classification_review': total - classified,
+            'classification_sources': sources, 'needs_review_without_family': unmapped,
             'excluded_or_unregistered': total - events, 'response_coverage': coverage,
             'absorption_buckets': buckets, 'history_refreshes': refreshes,
             'forward_basis': '5 calendar days after candidate observation; direction-adjusted residual close return',

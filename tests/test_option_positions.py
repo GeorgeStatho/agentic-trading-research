@@ -4,6 +4,7 @@ import importlib.util
 import sys
 import types
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -16,6 +17,13 @@ TRADING_SUPPORT_DIR = PYTHON_SCRIPTS_DIR / "trading_support"
 OPTION_SYMBOL = "AAPL240621C00150000"
 
 
+from services.trading_config import (
+    MomentumHistoryConfig,
+    OptionPositionSettings,
+    OptionPriceMomentumConfig,
+    PendingExitConfig,
+    TrailingProfitConfig,
+)
 from services.option_momentum import MOMENTUM_GOOD, MOMENTUM_UNKNOWN
 
 
@@ -56,17 +64,6 @@ def _load_option_positions_module():
         package_module = types.ModuleType(package_name)
         package_module.__path__ = [str(TRADING_SUPPORT_DIR)]
         sys.modules[package_name] = package_module
-
-    utils_module_name = f"{package_name}.utils"
-    if utils_module_name not in sys.modules:
-        utils_spec = importlib.util.spec_from_file_location(
-            utils_module_name,
-            TRADING_SUPPORT_DIR / "utils.py",
-        )
-        assert utils_spec is not None and utils_spec.loader is not None
-        utils_module = importlib.util.module_from_spec(utils_spec)
-        sys.modules[utils_module_name] = utils_module
-        utils_spec.loader.exec_module(utils_module)
 
     clients_module_name = f"{package_name}.clients"
     clients_module = types.ModuleType(clients_module_name)
@@ -181,10 +178,22 @@ def _make_option_price_momentum_config(module, **overrides):
         }.get(key)
         if env_name is not None:
             env_values[env_name] = str(value)
-    return module.OptionPriceMomentumConfig(
+    return OptionPriceMomentumConfig(
         bad_giveback_threshold=_env_float_value(env_values, "OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD", 0.35),
         mixed_giveback_threshold=_env_float_value(env_values, "OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD", 0.15),
         good_profit_threshold=_env_float_value(env_values, "OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD", 0.10),
+    )
+
+
+def _make_exit_settings(module, **fields) -> OptionPositionSettings:
+    return replace(
+        OptionPositionSettings.from_env(),
+        take_profit_pct=25.0,
+        stop_loss_pct=-20.0,
+        exit_hours_to_expiration=24.0,
+        trailing=_make_trailing_profit_config(module),
+        price_momentum=_make_option_price_momentum_config(module),
+        **fields,
     )
 
 
@@ -210,7 +219,7 @@ def _make_trailing_profit_config_from_env_values(module, env_values: dict[str, s
             f"OPTION_TRAIL_{bucket.key.upper()}_GIVEBACK_PCT",
             fallback,
         )
-    return module.TrailingProfitConfig(
+    return TrailingProfitConfig(
         protection_trigger_pct=_env_float_value(env_values, "OPTION_TRAIL_PROTECTION_TRIGGER_PCT", 0.40),
         initial_floor_pct=_env_float_value(env_values, "OPTION_TRAIL_INITIAL_FLOOR_PCT", 0.05),
         dynamic_giveback_start_pct=_env_float_value(env_values, "OPTION_TRAIL_DYNAMIC_GIVEBACK_START_PCT", 0.75),
@@ -227,7 +236,7 @@ def _make_trailing_profit_config_from_env_values(module, env_values: dict[str, s
 
 
 def _make_momentum_history_config_from_env_values(module, env_values: dict[str, str]):
-    return module.MomentumHistoryConfig(
+    return MomentumHistoryConfig(
         enable_after_pnl_pct=_env_float_value(env_values, "OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT", 2.00),
         window_size=int(_env_float_value(env_values, "OPTION_MOMENTUM_HISTORY_WINDOW_SIZE", 10)),
         min_samples=int(_env_float_value(env_values, "OPTION_MOMENTUM_HISTORY_MIN_SAMPLES", 5)),
@@ -247,8 +256,6 @@ class OptionPositionTests(VerboseTestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.option_positions = _load_option_positions_module()
-        cls.option_positions.DEFAULT_OPTION_PENDING_EXIT_STALE_MINUTES = 1.0
-        cls.option_positions.DEFAULT_OPTION_PENDING_EXIT_CANCEL_ON_STALE = True
 
     def _registry_bucket_for_days(self, days_to_expiration: int) -> object | None:
         for bucket in reversed(self.option_positions.OPTION_DTE_BUCKETS):
@@ -321,7 +328,7 @@ class OptionPositionTests(VerboseTestCase):
                     "filled_qty": "0",
                 },
                 broker_quantity=2,
-                pending_exit_config=self.option_positions.PendingExitConfig(
+                pending_exit_config=PendingExitConfig(
                     stale_minutes=1.0,
                     cancel_on_stale=True,
                 ),
@@ -368,7 +375,7 @@ class OptionPositionTests(VerboseTestCase):
                 },
                 cancel_order=None,
                 broker_quantity=1,
-                pending_exit_config=self.option_positions.PendingExitConfig(
+                pending_exit_config=PendingExitConfig(
                     stale_minutes=10.0,
                     cancel_on_stale=True,
                 ),
@@ -414,7 +421,7 @@ class OptionPositionTests(VerboseTestCase):
                 },
                 cancel_order=None,
                 broker_quantity=2,
-                pending_exit_config=self.option_positions.PendingExitConfig(
+                pending_exit_config=PendingExitConfig(
                     stale_minutes=10.0,
                     cancel_on_stale=True,
                 ),
@@ -458,7 +465,7 @@ class OptionPositionTests(VerboseTestCase):
                 },
                 cancel_order=None,
                 broker_quantity=1,
-                pending_exit_config=self.option_positions.PendingExitConfig(
+                pending_exit_config=PendingExitConfig(
                     stale_minutes=10.0,
                     cancel_on_stale=True,
                 ),
@@ -500,7 +507,7 @@ class OptionPositionTests(VerboseTestCase):
                 },
                 cancel_order=None,
                 broker_quantity=1,
-                pending_exit_config=self.option_positions.PendingExitConfig(
+                pending_exit_config=PendingExitConfig(
                     stale_minutes=10.0,
                     cancel_on_stale=True,
                 ),
@@ -1049,14 +1056,8 @@ class OptionPositionTests(VerboseTestCase):
 
                 summary = self.option_positions._build_option_position_snapshot(
                     position,
-                    take_profit_pct=25.0,
-                    stop_loss_pct=-20.0,
-                    exit_hours_to_expiration=24.0,
-                    enable_trailing_profit=True,
-                    trailing_profit_dry_run=False,
-                    trailing_profit_config=_make_trailing_profit_config(self.option_positions),
+                    settings=_make_exit_settings(self.option_positions, enable_trailing_profit=True),
                     momentum_history_config=_make_momentum_history_config(self.option_positions),
-                    option_price_momentum_config=_make_option_price_momentum_config(self.option_positions),
                     state_path=state_path,
                     position_state_override={},
                     pending_reconciliation=None,
@@ -1091,14 +1092,8 @@ class OptionPositionTests(VerboseTestCase):
                 }
                 return self.option_positions._build_option_position_snapshot(
                     position,
-                    take_profit_pct=25.0,
-                    stop_loss_pct=-20.0,
-                    exit_hours_to_expiration=24.0,
-                    enable_trailing_profit=False,
-                    trailing_profit_dry_run=False,
-                    trailing_profit_config=_make_trailing_profit_config(self.option_positions),
+                    settings=_make_exit_settings(self.option_positions, enable_trailing_profit=False),
                     momentum_history_config=_make_momentum_history_config(self.option_positions),
-                    option_price_momentum_config=_make_option_price_momentum_config(self.option_positions),
                     state_path=Path(temp_dir) / "option_state.json",
                     position_state_override=position_state,
                     pending_reconciliation=None,
@@ -1110,7 +1105,8 @@ class OptionPositionTests(VerboseTestCase):
     def test_entry_bucket_forced_exit_fires_after_the_position_ages_out_of_its_bucket(self) -> None:
         # Entered at 25 DTE (20-30 bucket). At 10 DTE no bucket matches the current DTE, which
         # used to fall back to the 1-day default and hold past the bucket's forced exit.
-        entry_rule = next(rule for rule in self.option_positions.OPTION_EXIT_DTE_RULES
+        exit_rules = self.option_positions.build_option_exit_rules(OptionPositionSettings.from_env().dte_rules)
+        entry_rule = next(rule for rule in exit_rules
                           if rule.min_days_to_expiration <= 25 <= rule.max_days_to_expiration)
         summary = self._flat_position_snapshot(days_until_expiration=10, position_state={"entry_dte": 25})
         self.assertEqual((summary["dte_exit_rule"], summary["exit_rule_days_to_expiration"], summary["exit_reason"]),
@@ -1127,7 +1123,8 @@ class OptionPositionTests(VerboseTestCase):
         full_orders: list,
         partial_orders: list,
         underlying_atr_pct: float | None = None,
-        **manage_kwargs,
+        trailing_overrides: dict | None = None,
+        **settings_overrides,
     ) -> dict:
         class _FakeTradingClient:
             def get_all_positions(self):
@@ -1180,26 +1177,32 @@ class OptionPositionTests(VerboseTestCase):
         self.option_positions.get_option_history_client = lambda: option_history_client
         self.option_positions.get_stock_history_client = lambda: stock_history_client
         if underlying_atr_pct is not None:
-            self.option_positions._get_underlying_atr_pct = lambda _symbol: underlying_atr_pct
+            self.option_positions._get_underlying_atr_pct = lambda _symbol, _settings: underlying_atr_pct
         # Pin every env-driven exit knob to a neutral baseline so these tests are
         # deterministic regardless of the ambient .env (which may enable limit
         # exits, stop-loss confirmation, the liquidity guard, etc.). Individual
-        # tests re-enable exactly the feature they exercise via manage_kwargs.
-        hermetic_overrides = dict(
-            exit_use_limit_orders_override=False,
-            exit_max_spread_pct_override=0.0,
-            stop_loss_confirm_checks_override=1,
-            stop_loss_underlying_move_pct_override=0.0,
-            volatility_scaled_thresholds_override=False,
+        # tests re-enable exactly the feature they exercise via settings_overrides.
+        hermetic = replace(
+            OptionPositionSettings.from_env(),
+            exit_use_limit_orders=False,
+            exit_max_spread_pct=0.0,
+            stop_loss_confirm_checks=1,
+            stop_loss_underlying_move_pct=0.0,
+            volatility_scaled_thresholds=False,
+        )
+        settings = replace(
+            hermetic,
+            trailing=replace(hermetic.trailing, **(trailing_overrides or {})),
+            **settings_overrides,
         )
         try:
             return self.option_positions.ManageCurrentOptionPositions(
+                settings=settings,
+                state_path=state_path,
                 execute_sales=True,
-                state_path_override=state_path,
                 trading_client_override=_FakeTradingClient(),
                 submit_full_exit_order=_fake_full_exit,
                 submit_partial_exit_order=_fake_partial_exit,
-                **{**hermetic_overrides, **manage_kwargs},
             )
         finally:
             self.option_positions.get_option_history_client = original_option_client
@@ -1220,10 +1223,9 @@ class OptionPositionTests(VerboseTestCase):
                 state_path=Path(temp_dir) / "option_state.json",
                 full_orders=full_orders,
                 partial_orders=partial_orders,
-                enable_trailing_profit_override=True,
-                trail_first_scale_out_trigger_pct_override=0.55,
-                trail_first_scale_out_fraction_override=0.50,
-                exit_use_limit_orders_override=True,
+                enable_trailing_profit=True,
+                trailing_overrides={"first_scale_out_trigger_pct": 0.55, "first_scale_out_fraction": 0.50},
+                exit_use_limit_orders=True,
             )
 
             summary = result["positions"][0]
@@ -1247,11 +1249,10 @@ class OptionPositionTests(VerboseTestCase):
                 state_path=Path(temp_dir) / "option_state.json",
                 full_orders=full_orders,
                 partial_orders=partial_orders,
-                enable_trailing_profit_override=True,
-                trail_first_scale_out_trigger_pct_override=0.55,
-                trail_first_scale_out_fraction_override=0.50,
-                exit_use_limit_orders_override=True,
-                exit_max_spread_pct_override=0.10,
+                enable_trailing_profit=True,
+                trailing_overrides={"first_scale_out_trigger_pct": 0.55, "first_scale_out_fraction": 0.50},
+                exit_use_limit_orders=True,
+                exit_max_spread_pct=0.10,
             )
 
             summary = result["positions"][0]
@@ -1278,8 +1279,8 @@ class OptionPositionTests(VerboseTestCase):
                 state_path=Path(temp_dir) / "option_state.json",
                 full_orders=full_orders,
                 partial_orders=partial_orders,
-                exit_use_limit_orders_override=True,
-                exit_max_spread_pct_override=0.10,
+                exit_use_limit_orders=True,
+                exit_max_spread_pct=0.10,
             )
 
             summary = result["positions"][0]
@@ -1311,10 +1312,9 @@ class OptionPositionTests(VerboseTestCase):
                 state_path=state_path,
                 full_orders=full_orders,
                 partial_orders=partial_orders,
-                enable_trailing_profit_override=True,
-                trail_first_scale_out_trigger_pct_override=0.55,
-                trail_first_scale_out_fraction_override=0.50,
-                exit_use_limit_orders_override=True,
+                enable_trailing_profit=True,
+                trailing_overrides={"first_scale_out_trigger_pct": 0.55, "first_scale_out_fraction": 0.50},
+                exit_use_limit_orders=True,
             )
 
             summary = result["positions"][0]

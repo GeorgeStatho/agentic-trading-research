@@ -14,7 +14,7 @@ from market_db_modules.thesis_event_reviews import thesis_event_reviews
 from news_db_modules.bootstrap import initialize_database as initialize_news
 from research_foundation_contracts import DiscoveryQueueItem
 from services.discovery_policy import DiscoveryPolicy
-from services.event_thesis_review_policy import EventThesisReviewPolicy
+from services.thesis_event_review_policy import EventThesisReviewPolicy
 from services.position_manager import OptionPositionManagerService
 from services.thesis_event_review import EventThesisReviewService
 from services.thesis_validator_service import ThesisValidatorService, ThesisValidatorSettings

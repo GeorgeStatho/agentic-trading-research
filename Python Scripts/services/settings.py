@@ -25,6 +25,7 @@ DEFAULT_LLAMACPP_BASE_URL = "http://127.0.0.1:8080/v1"
 DEFAULT_STAGE_MODEL = "world-news-sectors"
 _MODEL_FALLBACKS = ("MACRO_NEWS_MODEL", "WORLD_NEWS_MODEL")
 _HOST_FALLBACKS = ("MACRO_NEWS_OLLAMA_HOST", "WORLD_NEWS_OLLAMA_HOST")
+REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 
 
 def _first(environ: Mapping[str, str], names: tuple[str, ...], default: str) -> str:
@@ -40,6 +41,12 @@ def _decimal(environ, name, default, minimum):
     return max(minimum, float(environ.get(name, str(default))))
 
 
+def _optional_integer(environ, name, minimum):
+    # Unset or blank means "no override": the caller picks its own default.
+    raw = str(environ.get(name) or '').strip()
+    return max(minimum, int(raw)) if raw else None
+
+
 def _optional_temperature(environ, name, default):
     # Set-but-blank means "no override": each call keeps the temperature its caller asked for.
     raw = environ.get(name, str(default)).strip()
@@ -49,6 +56,20 @@ def _optional_temperature(environ, name, default):
     if not 0.0 <= value <= 2.0:
         raise ValueError(f"{name} must be between 0 and 2, or blank")
     return value
+
+
+def _price_ceiling(environ, name):
+    # "prompt,completion" in dollars per million tokens; blank means no ceiling.
+    raw = environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        prompt, completion = (float(part) for part in raw.split(","))
+    except ValueError:
+        raise ValueError(f"{name} must be two prices, prompt,completion in $ per million tokens, or blank") from None
+    if prompt < 0 or completion < 0:
+        raise ValueError(f"{name} prices cannot be negative")
+    return prompt, completion
 
 
 @dataclass(frozen=True)
@@ -86,6 +107,7 @@ class ModelSettings:
     strategist: StageModel
     manager: StageModel
     thesis_validator: StageModel
+    catalyst_classifier: StageModel
 
     @classmethod
     def from_environ(cls, environ) -> "ModelSettings":
@@ -96,7 +118,8 @@ class ModelSettings:
                    company_opportunist=StageModel.from_environ(environ, "COMPANY_OPPURUNTIST"),
                    strategist=StageModel.from_environ(environ, "STRATEGIST"),
                    manager=StageModel.from_environ(environ, "MANAGER"),
-                   thesis_validator=StageModel.from_environ(environ, "THESIS_VALIDATOR", "MANAGER"))
+                   thesis_validator=StageModel.from_environ(environ, "THESIS_VALIDATOR", "MANAGER"),
+                   catalyst_classifier=StageModel.from_environ(environ, "CATALYST_CLASSIFIER", "COMPANY_OPPURUNTIST"))
 
 
 @dataclass(frozen=True)
@@ -138,10 +161,39 @@ class OpenAICompatibleSettings:
     # Any hosted Chat Completions API (Mistral, Groq, OpenRouter, Cerebras). The key is read from
     # OPENAI_COMPATIBLE_API_KEY when the client is built, so it never reaches the pipeline manifest.
     base_url: str = ""
+    # Replaces each stage's temperature (0 for the pipeline stages), which can make reasoning models loop.
+    # None keeps the stage's own.
+    temperature: float | None = 1.0
+    # Sent as OpenRouter's reasoning effort; blank leaves it to the provider's default.
+    reasoning_effort: str = "high"
+    # Caps answer plus reasoning, so a looping model stops instead of billing to the provider's limit.
+    max_tokens: int = 32000
+    # OpenRouter providers to try first, in order (e.g. ("wafer",)); empty leaves routing to OpenRouter.
+    provider_order: tuple[str, ...] = ()
+    # False keeps calls on provider_order only; True lets OpenRouter fall back to any other provider.
+    provider_fallbacks: bool = True
+    # Hard (prompt, completion) $/M token ceiling; providers priced above it are never used.
+    max_price: tuple[float, float] | None = None
+
+    @property
+    def is_openrouter(self) -> bool:
+        # The reasoning, provider and usage request fields are OpenRouter's; other APIs may reject them.
+        return "openrouter.ai" in self.base_url
 
     @classmethod
     def from_environ(cls, environ) -> "OpenAICompatibleSettings":
-        return cls(base_url=environ.get("OPENAI_COMPATIBLE_BASE_URL", "").strip())
+        effort = environ.get("OPENAI_COMPATIBLE_REASONING_EFFORT", "high").strip().lower()
+        if effort and effort not in REASONING_EFFORTS:
+            raise ValueError(f"OPENAI_COMPATIBLE_REASONING_EFFORT must be one of {', '.join(REASONING_EFFORTS)}, or blank")
+        order = environ.get("OPENAI_COMPATIBLE_PROVIDER_ORDER", "")
+        return cls(base_url=environ.get("OPENAI_COMPATIBLE_BASE_URL", "").strip(),
+                   temperature=_optional_temperature(environ, "OPENAI_COMPATIBLE_TEMPERATURE", 1.0),
+                   reasoning_effort=effort,
+                   max_tokens=_integer(environ, "OPENAI_COMPATIBLE_MAX_TOKENS", 32000, 1024),
+                   provider_order=tuple(name.strip().lower() for name in order.split(",") if name.strip()),
+                   provider_fallbacks=environ.get("OPENAI_COMPATIBLE_PROVIDER_FALLBACKS", "true").strip().lower()
+                   in {"1", "true", "yes"},
+                   max_price=_price_ceiling(environ, "OPENAI_COMPATIBLE_MAX_PRICE"))
 
 
 @dataclass(frozen=True)
@@ -214,6 +266,8 @@ class OpportunistSettings:
     company_ranked_companies_limit: int
     company_article_body_char_limit: int
     macro_news_batch_pause_seconds: float
+    # Token budget for one batched classification request; None uses the provider's default.
+    classifier_batch_tokens: int | None = None
 
     @classmethod
     def from_environ(cls, environ) -> "OpportunistSettings":
@@ -222,7 +276,20 @@ class OpportunistSettings:
             company_ranked_companies_limit=_integer(environ, "COMPANY_OPPORTUNIST_RANKED_COMPANIES_LIMIT", 6, 1),
             company_article_body_char_limit=_integer(environ, "COMPANY_OPPORTUNIST_ARTICLE_BODY_CHAR_LIMIT", 1200, 200),
             macro_news_batch_pause_seconds=_decimal(environ, "MACRO_NEWS_BATCH_PAUSE_SECONDS", 0.75, 0.0),
+            classifier_batch_tokens=_optional_integer(environ, "CLASSIFIER_BATCH_TOKENS", 2048),
         )
+
+
+@dataclass(frozen=True)
+class CatalystClassifierSettings:
+    # Off until the backfill has been reviewed; the backfill CLI runs regardless.
+    enabled: bool = False
+    max_per_cycle: int = 200
+
+    @classmethod
+    def from_environ(cls, environ) -> "CatalystClassifierSettings":
+        return cls(enabled=environ.get("CATALYST_CLASSIFIER_ENABLED", "").strip().lower() in {"1", "true", "yes"},
+                   max_per_cycle=_integer(environ, "CATALYST_CLASSIFIER_MAX_PER_CYCLE", 200, 1))
 
 
 @dataclass(frozen=True)
@@ -235,6 +302,7 @@ class Settings:
     evidence_continuation: EvidenceContinuationPolicy
     openai_compatible: OpenAICompatibleSettings = OpenAICompatibleSettings()
     classifier_fallback: ClassifierFallbackSettings = ClassifierFallbackSettings()
+    catalyst_classifier: CatalystClassifierSettings = CatalystClassifierSettings()
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str]) -> "Settings":
@@ -244,7 +312,8 @@ class Settings:
                    opportunists=OpportunistSettings.from_environ(environ),
                    evidence_continuation=EvidenceContinuationPolicy.from_environ(environ),
                    openai_compatible=OpenAICompatibleSettings.from_environ(environ),
-                   classifier_fallback=ClassifierFallbackSettings.from_environ(environ))
+                   classifier_fallback=ClassifierFallbackSettings.from_environ(environ),
+                   catalyst_classifier=CatalystClassifierSettings.from_environ(environ))
 
 
 _settings: Settings | None = None

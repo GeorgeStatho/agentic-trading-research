@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 from contextlib import closing
+from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from db_common import get_connection, json_text
+from services.option_dte_buckets import normalize_target_dte_bucket
 from .bootstrap import initialize_database
+from .candidate_lifecycle import stage_payloads
 from .shared import normalize_timestamp
+
+
+ID_CHUNK_SIZE = 500
 
 
 def list_frozen_manager_decisions(
@@ -15,9 +21,12 @@ def list_frozen_manager_decisions(
     start_at: str | None = None,
     end_at: str | None = None,
     limit: int | None = None,
+    ids: Sequence[int] | None = None,
     db_path: Path | str | None = None,
 ) -> list[dict[str, Any]]:
     """Every stored manager decision with its frozen input, oldest first.
+
+    `ids` keeps only those decisions (none for an empty list); `limit` then applies to what is left.
 
     Unlike the replay evaluator's source, this includes decisions that never traded:
     a replayed model may trade where production did not.
@@ -42,67 +51,84 @@ def list_frozen_manager_decisions(
         query += " AND history.decision_run_at <= ?"
         parameters.append(normalize_timestamp(end_at))
     # Limit the most recent window first, then return it in chronological order.
-    query += " ORDER BY history.decision_run_at DESC, history.id DESC"
-    if limit is not None:
-        query += " LIMIT ?"
-        parameters.append(max(1, int(limit)))
+    row_limit = None if limit is None else max(1, int(limit))
+    order = " ORDER BY history.decision_run_at DESC, history.id DESC" + ("" if row_limit is None else " LIMIT ?")
+    limit_parameters = [] if row_limit is None else [row_limit]
+    if ids is None:
+        searches = [(query + order, parameters + limit_parameters)]
+    else:
+        # Chunked under SQLite's variable limit. A chunk's newest `limit` rows include its share of the overall newest.
+        unique_ids = list(dict.fromkeys(int(decision_id) for decision_id in ids))
+        chunks = [unique_ids[start:start + ID_CHUNK_SIZE] for start in range(0, len(unique_ids), ID_CHUNK_SIZE)]
+        searches = [(f"{query} AND history.id IN ({','.join('?' * len(chunk))}){order}",
+                     parameters + chunk + limit_parameters) for chunk in chunks]
     with closing(get_connection(db_path)) as conn:
-        rows = [dict(row) for row in conn.execute(query, tuple(parameters)).fetchall()]
+        rows = [dict(row) for text, values in searches for row in conn.execute(text, tuple(values)).fetchall()]
+    if ids is not None:
+        rows.sort(key=lambda row: (row["decision_run_at"], row["id"]), reverse=True)
+        rows = rows[:row_limit]
     return rows[::-1]
 
 
-def get_saved_bucket_chain(candidate_id: str | None, *, db_path: Path | str | None = None) -> dict[str, Any] | None:
-    """The option chain production re-fetched for its chosen DTE bucket, just before selecting.
+def frozen_manager_input(decision: dict[str, Any]) -> dict[str, Any] | None:
+    """The manager input frozen with a listed decision; None for decisions older than frozen inputs."""
+    manager_input = decision.get("manager_input_json")
+    if isinstance(manager_input, str):
+        try:
+            manager_input = json.loads(manager_input or "{}")
+        except json.JSONDecodeError:
+            return None
+    payload = manager_input.get("replay_input") if isinstance(manager_input, dict) else None
+    return payload if isinstance(payload, dict) and isinstance(payload.get("company"), dict) else None
 
-    The frozen manager input holds only the pre-decision chain, so this is the only record of
-    the chain a directional decision was selected from. None when production never fetched one.
+
+@dataclass(frozen=True)
+class FrozenDecision:
+    """Everything production froze for one manager decision; replays read these, never the stores.
+
+    `strategist_input` is the `pre_strategist` checkpoint. `saved_chain` is the option chain production
+    re-fetched for its chosen DTE bucket just before selecting: the frozen manager input holds only the
+    pre-decision chain. `manifest` is the pipeline manifest the candidate ran under. All three are None
+    for a decision without a candidate.
     """
-    if not candidate_id:
-        return None
-    with closing(get_connection(db_path)) as conn:
-        row = conn.execute(
-            """
-            SELECT snapshot_json FROM candidate_snapshots
-            WHERE candidate_id = ? AND stage = 'pre_contract_selection'
-            ORDER BY id DESC LIMIT 1
-            """,
-            (candidate_id,),
-        ).fetchone()
-    if row is None:
-        return None
-    payload = json.loads(row["snapshot_json"]).get("payload") or {}
-    recommendation = payload.get("recommendation") or {}
-    option_market = (payload.get("market_context") or {}).get("option_market")
+    decision: dict[str, Any]
+    manager_input: dict[str, Any]
+    strategist_input: dict[str, Any] | None = None
+    saved_chain: dict[str, Any] | None = None
+    manifest: dict[str, Any] | None = None
+
+    @classmethod
+    def load(cls, decision: dict[str, Any], *, db_path: Path | str | None = None) -> "FrozenDecision":
+        """Raises SnapshotHashMismatch when a checkpoint's stored text no longer matches its hash."""
+        manager_input = frozen_manager_input(decision)
+        if manager_input is None:
+            raise ValueError(f"Decision {decision.get('id')} has no frozen manager input")
+        candidate_id = decision.get("candidate_id")
+        if not candidate_id:
+            return cls(decision, manager_input)
+        stages = stage_payloads(candidate_id, ("pre_strategist", "pre_contract_selection"), db_path=db_path)
+        strategist_input = stages.get("pre_strategist")
+        with closing(get_connection(db_path)) as conn:
+            row = conn.execute("SELECT pipeline_version_json FROM candidates WHERE candidate_id = ?",
+                               (candidate_id,)).fetchone()
+        manifest = json.loads(row["pipeline_version_json"] or "{}") if row is not None else {}
+        return cls(decision, manager_input,
+                   strategist_input if isinstance((strategist_input or {}).get("company"), dict) else None,
+                   _directional_chain(stages.get("pre_contract_selection")), manifest or None)
+
+    def bucket_chain(self, bucket: str) -> dict[str, Any] | None:
+        """The saved option market when production selected from `bucket`, else None."""
+        if self.saved_chain is None or normalize_target_dte_bucket(self.saved_chain["target_dte_bucket"]) != bucket:
+            return None
+        return self.saved_chain["option_market"]
+
+
+def _directional_chain(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    recommendation = (payload or {}).get("recommendation") or {}
+    option_market = ((payload or {}).get("market_context") or {}).get("option_market")
     if recommendation.get("decision") not in {"call", "put"} or not isinstance(option_market, dict):
         return None
     return {"target_dte_bucket": recommendation.get("target_dte_bucket"), "option_market": option_market}
-
-
-def get_frozen_strategist_input(candidate_id: str | None, *, db_path: Path | str | None = None) -> dict[str, Any] | None:
-    """The input production's strategist answered for this candidate, or None when it has no completed run."""
-    if not candidate_id:
-        return None
-    with closing(get_connection(db_path)) as conn:
-        row = conn.execute(
-            """
-            SELECT input_payload_json FROM strategist_runs
-            WHERE candidate_id = ? AND status = 'completed'
-            ORDER BY id DESC LIMIT 1
-            """,
-            (candidate_id,),
-        ).fetchone()
-    payload = json.loads(row["input_payload_json"] or "{}") if row is not None else {}
-    return payload if isinstance(payload.get("company"), dict) else None
-
-
-def get_candidate_manifest(candidate_id: str | None, *, db_path: Path | str | None = None) -> dict[str, Any] | None:
-    """The pipeline manifest a candidate ran under: production's settings, not this checkout's."""
-    if not candidate_id:
-        return None
-    with closing(get_connection(db_path)) as conn:
-        row = conn.execute("SELECT pipeline_version_json FROM candidates WHERE candidate_id = ?", (candidate_id,)).fetchone()
-    manifest = json.loads(row["pipeline_version_json"] or "{}") if row is not None else {}
-    return manifest or None
 
 
 def symbols_without_daily_bars(symbols: set[str], *, since: str, db_path: Path | str | None = None) -> set[str]:

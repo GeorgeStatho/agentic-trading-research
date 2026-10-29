@@ -9,7 +9,10 @@ from core.scrape_logging import get_scrape_logger
 
 LOGGER = get_scrape_logger("playwright_runner")
 DEFAULT_PLAYWRIGHT_TIMEOUT_MS = 30_000
-DEFAULT_PLAYWRIGHT_CONCURRENCY = 5
+DEFAULT_PLAYWRIGHT_CONCURRENCY = 2
+DEFAULT_PLAYWRIGHT_MAX_PAGES = 30
+# Heavy files the extractors never read. Stylesheets and scripts stay: CNBC search waits on rendered selectors.
+BLOCKED_RESOURCE_TYPES = ("image", "media", "font")
 PLAYWRIGHT_BACKEND_NAME = "playwright"
 PLAYWRIGHT_ARTICLE_DOMAINS = (
     "weekly.example.com",
@@ -36,13 +39,26 @@ def _use_headed_browser(urls: list[str]) -> bool:
     return False
 
 
-def _get_playwright_concurrency() -> int:
-    raw_value = os.getenv("WEBSCRAPING_PLAYWRIGHT_CONCURRENCY", str(DEFAULT_PLAYWRIGHT_CONCURRENCY))
+def _get_positive_int_env(name: str, default: int) -> int:
     try:
-        parsed = int(raw_value)
+        return max(1, int(os.getenv(name, str(default))))
     except (TypeError, ValueError):
-        return DEFAULT_PLAYWRIGHT_CONCURRENCY
-    return max(1, parsed)
+        return default
+
+
+def _get_playwright_concurrency() -> int:
+    return _get_positive_int_env("WEBSCRAPING_PLAYWRIGHT_CONCURRENCY", DEFAULT_PLAYWRIGHT_CONCURRENCY)
+
+
+def _get_playwright_max_pages() -> int:
+    return _get_positive_int_env("WEBSCRAPING_PLAYWRIGHT_MAX_PAGES", DEFAULT_PLAYWRIGHT_MAX_PAGES)
+
+
+async def _block_heavy_resources(route) -> None:
+    if route.request.resource_type in BLOCKED_RESOURCE_TYPES:
+        await route.abort()
+    else:
+        await route.continue_()
 
 
 def get_article_crawl_backend() -> str:
@@ -193,6 +209,17 @@ async def _fetch_rendered_pages_async(
     if not urls:
         return []
 
+    # Deferred URLs are left out of the result, so callers treat them as missing and retry next run.
+    distinct_urls = list(dict.fromkeys(urls))
+    max_pages = _get_playwright_max_pages()
+    if len(distinct_urls) > max_pages:
+        LOGGER.info(
+            "Playwright page cap is %s: deferring %s URLs to a later run",
+            max_pages,
+            len(distinct_urls) - max_pages,
+        )
+    urls = distinct_urls[:max_pages]
+
     async_playwright = _get_async_playwright()
     headed_mode = _use_headed_browser(urls)
     concurrency = _get_playwright_concurrency()
@@ -209,6 +236,7 @@ async def _fetch_rendered_pages_async(
             user_agent=DEFAULT_USER_AGENT,
             locale="en-US",
         )
+        await context.route("**/*", _block_heavy_resources)
 
         semaphore = asyncio.Semaphore(concurrency)
 

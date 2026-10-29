@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
-from api_support.common import internal_error, safe_int
+from api_support.request_utils import internal_error, safe_int
 from api_support.context import ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE, ANALYZED_COMPANY_NEWS_MAX_PAGE_SIZE
 from api_support.news import (
     build_analyzed_company_news_payload,
+    build_news_extraction_payload,
     normalize_analyzed_company_news_view,
     normalize_company_lookup_query,
 )
@@ -33,3 +34,15 @@ def register_news_routes(app) -> None:
             ), 200
         except Exception as exc:
             return internal_error("Failed to load analyzed company news.", exc)
+
+    @app.get("/api/news-extraction")
+    def news_extraction():
+        try:
+            days = int(request.args.get("days", "7"))
+            if not 1 <= days <= 365:
+                raise ValueError("days must be between 1 and 365.")
+            return jsonify(build_news_extraction_payload(days)), 200
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            return internal_error("Failed to load the news extraction report.", exc)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .normalize import _coerce_float, _normalize_option_id
+from .normalize import _normalize_option_id
 from .market import (
     _get_ask_price,
     _get_bid_price,
@@ -12,6 +12,7 @@ from .market import (
 )
 from .volatility import _assess_contract_volatility
 from services.option_dte_buckets import get_dte_bucket_range
+from services.numbers import safe_float
 
 
 def _resolve_dte_range(
@@ -144,7 +145,7 @@ def _basic_sort_key(
         market_context=market_context or {},
         target_dte_bucket=target_dte_bucket,
     )
-    strike_price = _coerce_float(contract.get("strike_price"))
+    strike_price = safe_float(contract.get("strike_price"))
     distance = (
         _distance_to_target_otm(
             normalized_decision,
@@ -156,7 +157,7 @@ def _basic_sort_key(
         else _otm_distance(normalized_decision, strike_price, reference_stock_price)
     )
     delta = _get_greek(contract, "delta")
-    open_interest = _coerce_float(contract.get("open_interest"))
+    open_interest = safe_float(contract.get("open_interest"))
     return (
         0.0 if contract_price is not None else 1.0,
         float(volatility_assessment.get("core_penalty_points", volatility_assessment["total_penalty_points"])),

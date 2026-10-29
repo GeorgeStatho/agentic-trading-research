@@ -16,14 +16,8 @@ from agent_helpers.sector_opportunist import (
     save_sector_opportunist_batch_results,
 )
 from agent_helpers.opportunist_support import build_shared_opportunist_impacts_schema
-from agent_helpers.shared import (
-    Client,
-    ModelAnswer,
-    ask_classifier_model,
-    build_token_limited_batches,
-    extract_json_value,
-    get_model_client,
-)
+from agent_helpers.llm_client import Client, ModelAnswer, ask_classifier_model, get_model_client
+from agent_helpers.text_utils import build_token_limited_batches, extract_json_value
 
 
 def _stage_model() -> StageModel:

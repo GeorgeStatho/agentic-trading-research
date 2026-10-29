@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from services.front_main_application import FrontMainApplication  # noqa: E402
+from services.worker_application import WorkerApplication  # noqa: E402
 
 
 class StartupReadinessIntegrationTests(unittest.TestCase):
@@ -20,7 +20,7 @@ class StartupReadinessIntegrationTests(unittest.TestCase):
         trading_gateway.market_is_open.return_value = True
         status_reporter = MagicMock()
 
-        app = FrontMainApplication(
+        app = WorkerApplication(
             paths=SimpleNamespace(),
             settings=SimpleNamespace(
                 run_interval_seconds=60,
@@ -43,7 +43,7 @@ class StartupReadinessIntegrationTests(unittest.TestCase):
         with patch.object(app, "_run_startup_readiness_check"):
             with patch.object(app, "_run_scheduled_trading_cycle") as mock_run_scheduled_trading_cycle:
                 with patch.object(app, "_compute_next_sleep_seconds", return_value=1.0):
-                    with patch("services.front_main_application.time.sleep", side_effect=RuntimeError("stop-loop")):
+                    with patch("services.worker_application.time.sleep", side_effect=RuntimeError("stop-loop")):
                         with self.assertRaisesRegex(RuntimeError, "stop-loop"):
                             app.run_main_loop()
 
@@ -70,7 +70,7 @@ class StartupReadinessIntegrationTests(unittest.TestCase):
         )
         trading_gateway.market_is_open.return_value = True
 
-        app = FrontMainApplication(
+        app = WorkerApplication(
             paths=SimpleNamespace(),
             settings=SimpleNamespace(
                 run_interval_seconds=60,
@@ -93,7 +93,7 @@ class StartupReadinessIntegrationTests(unittest.TestCase):
         with patch.object(app, "_run_startup_readiness_check"):
             with patch.object(app, "_run_scheduled_trading_cycle", return_value={"ok": True}) as mock_run:
                 with patch.object(app, "_compute_next_sleep_seconds", return_value=1.0):
-                    with patch("services.front_main_application.time.sleep", side_effect=RuntimeError("stop-loop")):
+                    with patch("services.worker_application.time.sleep", side_effect=RuntimeError("stop-loop")):
                         with self.assertRaisesRegex(RuntimeError, "stop-loop"):
                             app.run_main_loop()
 

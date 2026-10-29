@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from api_support.common import safe_float, safe_json_loads
+from api_support.request_utils import safe_json_loads
+from services.numbers import safe_float
 from api_support.v2_verdicts import shadow_verdicts_for_decisions
 from market_db_modules.autopsy import list_decision_autopsy_ledger
 
@@ -69,6 +70,16 @@ def _execution_mode(row: dict[str, Any]) -> str:
     if paper is None:
         return "unlinked"
     return "paper" if bool(paper) else "live"
+
+
+def _attribution(row: dict[str, Any]) -> dict[str, Any] | None:
+    if not row.get("primary_failure"):
+        return None
+    horizon_returns = _json_dict(row.get("attribution_json")).get("direction", {}).get("horizon_returns")
+    return {
+        **{key: row[key] for key in ("evidence_quality", "evidence_source", "direction_outcome", "expression_outcome", "primary_failure")},
+        "horizon_returns": horizon_returns or {},
+    }
 
 
 def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
@@ -141,6 +152,7 @@ def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
             "submitted_at": str(row.get("execution_submitted_at") or "").strip(),
         },
         "review": _build_review(snapshot, strategist, row),
+        "attribution": _attribution(row),
     }
 
 

@@ -14,7 +14,7 @@ Grouped layout:
 Recent refactor direction:
 
 - import roots come from `pyproject.toml` (`pip install -e .`); modules never edit `sys.path`
-- manager payload orchestration stays in `agent_helpers/manager.py`
+- manager payload orchestration stays in `agent_helpers/manager_inputs.py`
 - Alpaca market/account collection is isolated in `agent_helpers/market_context.py`
 - shared opportunist article handling is isolated in `agent_helpers/opportunist_support.py`
 
@@ -29,11 +29,11 @@ Preferred imports for new code:
 
 Common usage:
 
-- build a manager payload: `from agent_helpers.manager import build_manager_input`
-- inspect live market/account data only: `from agent_helpers.manager import test_market_context`
+- build a manager payload: `from agent_helpers.manager_inputs import build_manager_input`
+- inspect live market/account data only: `from agent_helpers.manager_inputs import test_market_context`
 - deterministically pick an option after manager output: `from agent_helpers.deterministic_option_selector import apply_deterministic_option_selection`
 
 Notes:
 
 - the project is in the middle of an Ollama -> Vertex migration
-- the shared provider abstraction already lives in `agent_helpers/shared.py`
+- the shared provider abstraction already lives in `agent_helpers/llm_client.py`

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
 
-from agent_helpers.shared import Client, ask_llm_model
+from agent_helpers.llm_client import Client, ask_llm_model
 
 SCHEMA = {"type": "object", "properties": {"decision": {"type": "string"}}}
 

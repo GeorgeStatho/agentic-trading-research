@@ -3,16 +3,16 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from services.config import FrontMainSettings  # noqa: E402
+from services.trading_config import WorkerSettings  # noqa: E402
 
 
 class PremiumCapSettingsTests(unittest.TestCase):
     """Cover how the per-trade premium ceiling is resolved from configuration."""
 
     @staticmethod
-    def _settings(**env_overrides) -> FrontMainSettings:
+    def _settings(**env_overrides) -> WorkerSettings:
         with patch.dict("os.environ", env_overrides, clear=False):
-            return FrontMainSettings.from_env()
+            return WorkerSettings.from_env()
 
     def test_tighter_limit_wins_when_both_are_configured(self) -> None:
         settings = self._settings(

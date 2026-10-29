@@ -9,8 +9,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import agent_helpers.sector_opportunist as sector_helpers
-from agent_helpers import shared
-from agent_helpers.shared import Client, ModelAnswer, ask_classifier_model
+from agent_helpers import llm_client
+from agent_helpers.llm_client import Client, ModelAnswer, ask_classifier_model
 from db_common import use_database
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
@@ -54,8 +54,8 @@ def chat_completion(content="{}", model="mistral-small-2506"):
 
 
 def classify(primary, *fallback_clients, fallback=FALLBACK):
-    with use_settings(vertex=FAST_RETRIES, classifier_fallback=fallback), patch.object(shared.time, "sleep"), \
-            patch.object(shared, "_get_classifier_fallback_client", side_effect=list(fallback_clients)):
+    with use_settings(vertex=FAST_RETRIES, classifier_fallback=fallback), patch.object(llm_client.time, "sleep"), \
+            patch.object(llm_client, "_get_classifier_fallback_client", side_effect=list(fallback_clients)):
         return ask_classifier_model(primary, "gemini-3.1-flash-lite", "system", "user")
 
 
@@ -105,6 +105,53 @@ class StoredModelTests(unittest.TestCase):
                              model_version="mistral-small-2506", fallback=True)
         model, raw_json = self.stored_processing_row(answer)
         self.assertEqual((model, raw_json["answered_by"]), ("mistral-small-latest", answer.record()))
+
+
+class GoogleCodedError(Exception):
+    """The google-genai SDK reports its HTTP status as `code`, not `status_code`."""
+
+    def __init__(self, code):
+        super().__init__(f"{code} INTERNAL")
+        self.code = code
+
+
+OTHER_HOSTED = FallbackModel(provider="openai_compatible", model="google/gemma-4-31b-it:free")
+
+
+class UnavailableFallbackTests(unittest.TestCase):
+    """A fallback that is retired or failing server-side is skipped; the chain moves on to the next one."""
+
+    def test_a_retired_fallback_model_is_skipped(self):
+        answer = classify(gemini_client(RuntimeError(DAILY_QUOTA_ERROR)), gemini_client(HttpError(404)),
+                          chat_client(chat_completion()), fallback=ClassifierFallbackSettings(chain=(SECOND_GEMINI, MISTRAL)))
+        self.assertEqual(answer.model, "mistral-small-latest")
+
+    def test_a_fallback_server_error_is_skipped(self):
+        answer = classify(gemini_client(RuntimeError(DAILY_QUOTA_ERROR)),
+                          gemini_client(GoogleCodedError(500), GoogleCodedError(500)),
+                          chat_client(chat_completion()), fallback=ClassifierFallbackSettings(chain=(SECOND_GEMINI, MISTRAL)))
+        self.assertEqual(answer.model, "mistral-small-latest")
+
+    def test_a_hosted_fallback_server_error_is_skipped(self):
+        answer = classify(gemini_client(RuntimeError(DAILY_QUOTA_ERROR)), chat_client(HttpError(502)),
+                          chat_client(chat_completion()), fallback=ClassifierFallbackSettings(chain=(OTHER_HOSTED, MISTRAL)))
+        self.assertEqual(answer.model, "mistral-small-latest")
+
+
+
+def gemini_response(text):
+    return SimpleNamespace(text=text, candidates=None, model_version="gemini-3.1-flash-lite-001")
+
+
+class ServerErrorRetryTests(unittest.TestCase):
+    """Google treats 500 INTERNAL as transient, so it is retried like an overload before anything gives up."""
+
+    def test_a_one_off_server_error_is_retried(self):
+        primary = gemini_client(GoogleCodedError(500), gemini_response('{"x": 1}'))
+        answer = classify(primary)
+        self.assertEqual((answer.text, answer.fallback), ('{"x": 1}', False))
+        self.assertEqual(primary.raw_client.models.generate_content.call_count, 2)
+
 
 
 if __name__ == "__main__":

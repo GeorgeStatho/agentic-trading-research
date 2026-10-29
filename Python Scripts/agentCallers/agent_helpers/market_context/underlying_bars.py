@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from services.settings import get_settings
-from .common import (
+from .alpaca_base import (
     ALPACA_IMPORT_ERROR,
     DataFeed,
     LOGGER,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
-from api_support.common import internal_error, read_json_file, safe_int
+from api_support.request_utils import internal_error, read_json_file, safe_int
 from api_support.context import TRADE_EXECUTION_OUTPUT_PATH
 from api_support.trades import build_executed_trades_payload, build_trade_explanation_payload
 

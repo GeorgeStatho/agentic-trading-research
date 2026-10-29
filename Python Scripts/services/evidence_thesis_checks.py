@@ -55,6 +55,21 @@ def _visible_articles(payload):
             for name in ("title", "summary", "body"):
                 if isinstance(article.get(name), str) and article[name].strip():
                     fields[name] = article[name]
+    # Views show the model articles it may cite but that are not in supporting_articles. Their title and
+    # summary are the scraped article's own text; the reason is classifier-written, so it is never a source.
+    views = payload.get("views") if isinstance(payload.get("views"), dict) else {}
+    for view in views.values():
+        for signal in (view.get("agent_conclusions") or []) if isinstance(view, dict) else []:
+            try:
+                identity = int(signal.get("article_id")) if isinstance(signal, dict) else None
+            except (TypeError, ValueError):
+                continue
+            if identity not in allowed:
+                continue
+            fields = articles.setdefault(identity, {})
+            for name in ("title", "summary"):
+                if name not in fields and isinstance(signal.get(name), str) and signal[name].strip():
+                    fields[name] = signal[name]
     # A grounded ID without visible text can be cited, but it can never support a quote or number.
     return {identity: articles.get(identity, {}) for identity in allowed}
 
@@ -120,8 +135,12 @@ def _fact_excerpt(fact, sources):
 
 
 def _surprise_claimed_without_consensus(statement, cited_facts, supporting_texts):
-    """An asserted surprise needs a cited consensus fact, or a cited source asserting it too."""
-    if not _MARKET_SURPRISE.search(statement) or any(fact["kind"] == "consensus" for fact in cited_facts):
+    """An asserted surprise needs a cited consensus fact paired with a cited actual of the same metric
+    and fiscal period, or a cited source asserting it too."""
+    if not _MARKET_SURPRISE.search(statement):
+        return False
+    actuals = {(fact["metric"], fact["fiscal_period"]) for fact in cited_facts if fact["kind"] == "actual"}
+    if any(fact["kind"] == "consensus" and (fact["metric"], fact["fiscal_period"]) in actuals for fact in cited_facts):
         return False
     return not any(_MARKET_SURPRISE.search(text) for text in supporting_texts)
 

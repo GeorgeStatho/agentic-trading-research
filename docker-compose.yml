@@ -10,6 +10,9 @@ x-python-image: &python-image
   build:
     context: .
     dockerfile: Dockerfile.worker
+    # A local single-host image needs no provenance attestation; skipping it saves a
+    # metadata step per service on every build.
+    provenance: false
   image: agentic-trading-python:local
 
 services:
@@ -42,6 +45,7 @@ services:
       DB_PATH: /var/lib/stock-experiment/stock_experiment.db
       SCRIPT_STATUS_PATH: /shared/script_status.json
       TRADE_EXECUTION_OUTPUT_PATH: /shared/trade_execution_output.json
+      SELECTED_OPTIONS_OUTPUT_PATH: /shared/selected_options_output.json
       AGENT_OUTPUT_PATH: /shared/agent_runner_output.json
       OPTION_IV_HISTORY_PATH: /shared/option_iv_history.json
       TELEMETRY_INSTALLATION_ID_PATH: /shared/telemetry_installation.json
@@ -133,6 +137,7 @@ services:
       SCRIPT_STATUS_PATH: /shared/script_status.json
       OPTION_MANAGER_STATUS_PATH: /shared/option_manager_status.json
       TRADE_EXECUTION_OUTPUT_PATH: /shared/trade_execution_output.json
+      SELECTED_OPTIONS_OUTPUT_PATH: /shared/selected_options_output.json
       AGENT_OUTPUT_PATH: /shared/agent_runner_output.json
       OPTION_IV_HISTORY_PATH: /shared/option_iv_history.json
       OPTION_POSITION_MANAGEMENT_OUTPUT_PATH: /shared/option_position_management_output.json

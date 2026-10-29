@@ -5,8 +5,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 import agent_stages.sector_opportunist as sector_opportunist
-from agent_helpers import shared
-from agent_helpers.shared import Client, ask_llm_model
+from agent_helpers import llm_client
+from agent_helpers.llm_client import Client, ask_llm_model
 from services.settings import Settings, StageModel, VertexSettings, get_settings, use_settings
 
 DAILY_QUOTA_ERROR = ("429 RESOURCE_EXHAUSTED. Quota exceeded for metric generate_content_free_tier_requests, "
@@ -31,7 +31,7 @@ def gemini_client(*responses):
 
 
 def ask(client, model="gemini-3.1-flash-lite"):
-    with use_settings(vertex=FAST_RETRIES), patch.object(shared.time, "sleep"):
+    with use_settings(vertex=FAST_RETRIES), patch.object(llm_client.time, "sleep"):
         return ask_llm_model(client, model, "system", "user")
 
 

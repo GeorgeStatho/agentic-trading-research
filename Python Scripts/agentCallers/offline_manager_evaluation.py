@@ -12,14 +12,13 @@ from typing import Any, Callable
 from services.settings import get_settings
 from services.settings import load_process_settings
 
-from agent_helpers.manager import (
+from agent_helpers.manager_inputs import (
     build_resolved_autopsy_insights,
 )
-from agent_helpers.shared import Client  # noqa: E402
-from agent_stages.manager import (  # noqa: E402
-    MANAGER_PROMPT_VERSION,
-    replay_manager_decision_from_payload,
-)
+from agent_helpers.llm_client import Client  # noqa: E402
+from agent_stages.manager_runner import replay_manager_decision_from_payload  # noqa: E402
+from agent_stages.manager_model import MANAGER_PROMPT_VERSION  # noqa: E402
+from market_db_modules.llm_replay_store import frozen_manager_input  # noqa: E402
 from market_db_modules.manager_replay import (  # noqa: E402
     complete_manager_replay_evaluation,
     create_manager_replay_evaluation,
@@ -99,9 +98,8 @@ def build_replay_variants(
     Feedback is strictly limited to resolved same-company autopsies whose P/L
     update had already occurred before this decision's timestamp.
     """
-    manager_input = _json_object(decision.get("manager_input_json"))
-    replay_input = manager_input.get("replay_input")
-    if not isinstance(replay_input, dict) or not isinstance(replay_input.get("company"), dict):
+    replay_input = frozen_manager_input(decision)
+    if replay_input is None:
         return None
 
     baseline_payload = copy.deepcopy(replay_input)

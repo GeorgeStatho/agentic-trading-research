@@ -5,14 +5,13 @@ from typing import Any
 
 from agent_contracts import ManagerRecommendation
 
-from .manager_shared import (
+from .manager_model import (
     DEFAULT_MANAGER_TARGET_DTE_BUCKET,
     MANAGER_REASON_MAX_CHARS,
     TARGET_DTE_BUCKET_REGEX,
     TIME_HORIZON_TO_DTE_BUCKET,
     VALID_CONFIDENCE_LEVELS,
     VALID_DECISIONS,
-    coerce_float,
     normalize_confidence,
     normalize_decision,
     normalize_target_dte_bucket,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
-from api_support.common import internal_error
+from api_support.request_utils import internal_error
 from api_support.telemetry import (
     build_telemetry_summary_payload,
     is_startup_receiver_request_authorized,

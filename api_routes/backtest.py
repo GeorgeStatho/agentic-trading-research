@@ -8,7 +8,7 @@ from api_support.backtest import (
     create_backtest_run,
     fetch_backtest_eod_quotes,
 )
-from api_support.common import internal_error, safe_int
+from api_support.request_utils import internal_error, safe_int
 
 
 def register_backtest_routes(app) -> None:

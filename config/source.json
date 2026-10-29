@@ -116,6 +116,24 @@
       "max_article_age_days": 10,
       "provenance_source_type": "aggregator"
     },
+    "benzinga.com": {
+      "allowed": true,
+      "reputation_score": 0.5,
+      "source_type": "financial_news",
+      "paywalled": false,
+      "listing_supported": false,
+      "search_supported": false,
+      "article_patterns": [
+        "/news/",
+        "/markets/",
+        "/analyst-ratings/",
+        "/pressreleases/",
+        "/m-a/",
+        "/general/"
+      ],
+      "max_article_age_days": 14,
+      "provenance_source_type": "aggregator"
+    },
     "value.example.com": {
       "allowed": false,
       "reputation_score": 0.5,
@@ -159,14 +177,15 @@
       "provenance_source_type": "aggregator"
     },
     "finance.yahoo.com": {
-      "allowed": false,
+      "allowed": true,
       "reputation_score": 0.5,
       "source_type": "market_portal",
       "paywalled": false,
       "listing_supported": false,
       "search_supported": true,
       "article_patterns": [
-        "/news/"
+        "/news/",
+        "/articles/"
       ],
       "max_article_age_days": 10,
       "provenance_source_type": "aggregator"

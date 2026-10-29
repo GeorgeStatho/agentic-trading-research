@@ -24,8 +24,8 @@ from .market import (
     _get_underlying_historical_volatility,
 )
 from agent_helpers.volatility import summarize_iv_vs_hv
-from .normalize import _coerce_float
 from services.option_dte_buckets import normalize_target_dte_bucket
+from services.numbers import safe_float
 
 
 def _score_iv_percentile(iv_percentile: float | None) -> dict[str, Any]:
@@ -273,8 +273,8 @@ def _score_profit_path(contract: dict[str, Any], market_context: dict[str, Any])
         and bool(straddle_expected_move.get("available"))
     )
     if use_straddle_expected_move:
-        expected_move_dollars = _coerce_float(straddle_expected_move.get("expected_move_dollars"))
-        expected_move_pct = _coerce_float(straddle_expected_move.get("expected_move_pct"))
+        expected_move_dollars = safe_float(straddle_expected_move.get("expected_move_dollars"))
+        expected_move_pct = safe_float(straddle_expected_move.get("expected_move_pct"))
         expected_move_source = "straddle_event"
     else:
         expected_move_dollars = iv_model_expected_move_dollars

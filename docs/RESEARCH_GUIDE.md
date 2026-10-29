@@ -38,7 +38,7 @@ database took about 3 s.
 | --- | --- | --- | --- |
 | `COMPANY_EVIDENCE_ENABLED` | `false` | `SEC_USER_AGENT` with an `@` contact | none |
 | `DISCOVERY_MODE` | `disabled` | Phase 1 for primary evidence; otherwise news only | none |
-| `RESEARCH_MODE` | `disabled` | `DISCOVERY_MODE=shadow`, a planner model and, on Vertex, a cost budget and rates | planner calls |
+| `RESEARCH_MODE` | `disabled` | `DISCOVERY_MODE=shadow`, a planner model and, on a billed provider, a cost budget and rates | planner calls |
 | `EVIDENCE_THESIS_MODE` | `shadow` | Nothing on the production route; the research route needs `RESEARCH_MODE=shadow` | inside the strategist call; research theses add calls |
 | `TRADE_ECONOMICS_MODE` | `shadow` | Price-response history from the collector for scenarios | none |
 | `EVENT_THESIS_REVIEW_MODE` | `shadow` | `DISCOVERY_MODE=shadow` (it creates the review items) | 3 adjudicator calls a review |
@@ -85,7 +85,8 @@ Enable in this order. Each step feeds the next, and each can run for a while on 
    ```dotenv
    RESEARCH_MODE=shadow
    RESEARCH_PLANNER_MODEL=<model>
-   # On Vertex also set RESEARCH_DAILY_COST_BUDGET and the per-million-token rates.
+   # On Vertex or openai (or a paid openai_compatible/gemini plan) also set RESEARCH_DAILY_COST_BUDGET
+   # and the per-million-token rates.
    ```
 
    It runs inside the worker's trading cycle (see Known issues).
@@ -122,9 +123,30 @@ copy instead of the configured database; the path is inside the container.
 | How does the challenger compare? | `docker compose exec worker python scripts/research.py compare COHORT_ID` (writes a report) |
 | Which route admits better events? | `docker compose exec worker python scripts/research.py discovery-ledger --days 30` |
 | Do research theses hold up? | `docker compose exec worker python scripts/research.py research-outcomes --days 30` |
+| Which challenger is worth a cohort? | `docker compose exec worker python scripts/research.py benchmark run SET_ID --model M --split dev`, then `benchmark compare` (screening only; writes a benchmark run, never a promotion) |
 
 The dashboard's **Research → V2 Rollout** page shows enforcement modes, Part 6 runs and the Phase 7
 panel. `?demo=1` shows a fictional walkthrough.
+
+### Attribution
+
+Which layer failed: the evidence, the forecast or the option trade? `attribute_decisions` (run each collector
+cycle) scores every manager decision; the report reads the stored scores. Monitoring only; it grants no authority.
+
+```
+docker compose exec worker python scripts/research.py attribution --days 0 --horizon 5
+```
+
+- `matrix`: evidence quality × direction outcome, with count and mean signed return. Each quality row also has
+  its hit rate (correct ÷ correct, wrong and flat) and a bootstrap standard error.
+- `by_evidence_source`: `thesis_check` vs `grounding_proxy`.
+- `model_self_rating_calibration`: hit rate by the strategist's own `evidence_quality`. Flat across ratings
+  means the self-rating carries no signal.
+- `primary_failure_counts`, `expression` (traded decisions only) and `abstentions` (how far the stock moved
+  after `neither`, against directional decisions).
+
+`--days` keeps decisions made in the last N days (by decision time, not when they were scored); 0 means all.
+The Decision Autopsy page shows the same three labels per decision.
 
 In the first weeks, check these:
 
@@ -184,6 +206,13 @@ are not fixed yet.
 5. **95% of catalysts are never classified.** On live, 4,535 of 4,758 are `needs_review`. Only
    classified catalysts with a ticker get price responses, so economics scenarios, Part 4 hurdles,
    calibration labels and the discovery ledger's outcomes see about 4% of events.
+   Mitigation: a cheap model (`CATALYST_CLASSIFIER_*`) labels the rule failures. Labels live in
+   `catalyst_model_labels`, survive catalyst refreshes and are read point-in-time for candidates. Run
+   `python3 scripts/catalysts.py classify --limit N`, spot-check with `review --sample 20`, then set
+   `CATALYST_CLASSIFIER_ENABLED=true` (default `false`) so each news cycle labels up to
+   `CATALYST_CLASSIFIER_MAX_PER_CYCLE` (200) new ones. `status` and `pricing_report` split catalysts by
+   `classification_source` (`rules` or `rules+model`); types without a family (`supply_chain`, `management`,
+   `capital_return`, `financing`) stay `needs_review` even when labelled.
 6. **Event reviews over the daily limit are never retried.** They close as
    `daily_limit_reached`; only the next daily review sees that evidence. On the first discovery
    scan, 4 of 17 review items for one position closed this way.

@@ -49,6 +49,17 @@ def read_record(conn, table, key, identity):
     return data
 
 
+class SnapshotHashMismatch(ValueError):
+    pass
+
+
+def verified_envelope(row):
+    """A candidate_snapshots row's envelope, checked against the hash of its stored text."""
+    if sha256(row["snapshot_json"].encode()).hexdigest() != row["snapshot_hash"]:
+        raise SnapshotHashMismatch("Candidate snapshot hash mismatch")
+    return json.loads(row["snapshot_json"])
+
+
 def load_record(db_path, table, key, identity):
     with closing(get_connection(db_path)) as conn:
         return read_record(conn, table, key, identity)

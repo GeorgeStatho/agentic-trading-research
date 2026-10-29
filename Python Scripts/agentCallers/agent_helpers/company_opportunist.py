@@ -8,7 +8,8 @@ import json
 from typing import Any
 
 from agent_builders.company_opportunity import get_company_linked_articles, get_industry_company_groups
-from agent_helpers.shared import ModelAnswer, normalize_time_window, published_at_in_window
+from agent_helpers.llm_client import ModelAnswer
+from agent_helpers.text_utils import normalize_time_window, published_at_in_window
 from db_common import database_path, get_connection
 from news_db_modules.impacts import add_company_opportunist_impact
 from news_db_modules.bootstrap import initialize_database as initialize_news_database

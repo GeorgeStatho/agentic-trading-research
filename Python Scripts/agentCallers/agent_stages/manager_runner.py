@@ -4,7 +4,7 @@ import copy
 from datetime import datetime
 from typing import Any
 
-from agent_helpers.manager import (
+from agent_helpers.manager_inputs import (
     DEFAULT_FULL_ARTICLE_LIMIT,
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
     DEFAULT_SUMMARY_ARTICLE_LIMIT,
@@ -12,7 +12,8 @@ from agent_helpers.manager import (
     build_market_context,
 )
 from agent_contracts import ManagerResult
-from agent_helpers.shared import Client, build_model_response_diagnostic, extract_json_value
+from agent_helpers.llm_client import Client, build_model_response_diagnostic
+from agent_helpers.text_utils import extract_json_value
 from services.evidence_continuation_gate import evaluate_evidence_continuation_gate
 from .manager_payload_context import (
     _build_context_snapshot,
@@ -26,7 +27,7 @@ from .manager_normalization import (
 )
 from .manager_prompt import build_manager_prompt
 from services.settings import get_settings
-from .manager_shared import (
+from .manager_model import (
     LOGGER,
     MANAGER_PROMPT_VERSION,
     MANAGER_STAGE_VERSION,
@@ -163,6 +164,17 @@ _NO_EVIDENCE_RECOMMENDATION: dict[str, Any] = {
 }
 
 
+# The strategist's no is final: the manager only decides how to act on a trade_candidate.
+STRATEGIST_DECLINES = {"watchlist", "do_not_trade"}
+
+
+def _strategist_declined_recommendation(decision: str) -> dict[str, Any]:
+    return {**copy.deepcopy(_NO_EVIDENCE_RECOMMENDATION), "selected_option_source": "strategist_declined",
+            "reason": f"The strategist answered {decision}; the manager was not asked.",
+            "technical_summary": "Not assessed: the strategist declined the company.",
+            "risk_summary": "Not assessed: the strategist declined the company."}
+
+
 def _build_no_evidence_result(
     company: dict[str, Any],
     *,
@@ -197,11 +209,15 @@ def decide_manager_recommendation(
 ) -> dict[str, Any]:
     """The manager's decision on a finished payload, shared by live runs and replays.
 
-    Returns the normalized recommendation and whether the no-evidence short circuit
-    answered instead of the model.
+    Returns the normalized recommendation and `skipped`: the short circuit that answered
+    instead of the model ("no_evidence" or "strategist_declined"), or None.
     """
     if not payload_has_evidence(payload):
-        return {"recommendation": copy.deepcopy(_NO_EVIDENCE_RECOMMENDATION), "no_evidence": True}
+        return {"recommendation": copy.deepcopy(_NO_EVIDENCE_RECOMMENDATION), "skipped": "no_evidence"}
+    strategist_decision = (payload.get("strategist_recommendation") or {}).get("decision")
+    if strategist_decision in STRATEGIST_DECLINES:
+        return {"recommendation": _strategist_declined_recommendation(strategist_decision),
+                "skipped": "strategist_declined"}
 
     system_prompt, user_prompt = build_manager_prompt(
         payload,
@@ -244,7 +260,7 @@ def decide_manager_recommendation(
             "Expected a JSON object with recommendation.decision/confidence/reason. "
             "See the preceding manager response diagnostic for the parse error and completion metadata."
         )
-    return {"recommendation": recommendation, "no_evidence": False, "response_diagnostic": response_diagnostic}
+    return {"recommendation": recommendation, "skipped": None, "response_diagnostic": response_diagnostic}
 
 
 def replay_manager_decision_from_payload(
@@ -266,8 +282,8 @@ def replay_manager_decision_from_payload(
         model=model or get_settings().models.manager.model,
     )
     result = {"recommendation": decision["recommendation"], "replay_prompt_version": MANAGER_PROMPT_VERSION}
-    if decision["no_evidence"]:
-        result["replay_skipped"] = "no_evidence"
+    if decision["skipped"]:
+        result["replay_skipped"] = decision["skipped"]
     return result
 
 
@@ -336,7 +352,7 @@ def decide_company_option_position(
     )
     recommendation = decision["recommendation"]
 
-    if decision["no_evidence"]:
+    if decision["skipped"]:
         no_evidence_result = _build_no_evidence_result(
             company,
             recommendation=recommendation,

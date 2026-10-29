@@ -18,14 +18,12 @@ The newer service layer usually calls into `trading_support/` instead of reimple
 
 The most important connection points are:
 
-- `services/front_main_application.py`
+- `services/worker_application.py`
   Schedules when option-position management should run.
 - `services/position_manager.py`
   Calls `ManageCurrentOptionPositions(...)` from `option_positions.py` and supplies the broker callbacks.
 - `services/trading_gateway.py`
   Provides the newer normalized Alpaca wrapper used by the service layer.
-- `Trading.py`
-  Preserves the older compatibility import path and still forwards into the option-position workflow.
 
 So if `services/` is the runtime control layer, `trading_support/` is the lower-level trading helper layer that knows how to inspect positions, compute exits, reconcile orders, and translate that into broker-facing actions.
 
@@ -46,23 +44,9 @@ It re-exports the legacy high-level helpers most other modules expect:
 - `GetCallOptionsForCompany`
 - `CloseOptionPositions`
 - `ManageCurrentOptionPositions`
-- `OPTION_EXIT_DTE_RULES`
 - `StockTrades`
 
 Use this module if you want the older “single import surface” style.
-
-### `utils.py`
-
-Tiny shared numeric helpers used by the trading helpers.
-
-Importable functions:
-
-- `safe_float(value)`
-  Converts a value to `float` when possible and returns `None` when it cannot.
-- `mid_price(bid_price, ask_price)`
-  Returns the midpoint between bid and ask when both are available.
-
-This is the smallest and safest place to reuse quote/math helpers from this package.
 
 ### `clients.py`
 
@@ -95,7 +79,7 @@ Importable constants and proxies:
 Important internal pieces:
 
 - `_get_alpaca_settings()`
-  Loads typed Alpaca settings from `services.config`.
+  Loads typed Alpaca settings from `services.trading_config`.
 - `_LazyClientProxy`
   Defers actual client creation until an attribute is used.
 
@@ -163,35 +147,28 @@ Main responsibilities:
 - submit full or partial exits
 - return a normalized summary payload for every open option position
 
+Every exit setting (thresholds, DTE rules, trailing profit, momentum, volatility scaling, limit exits,
+pending exits) lives on one `services.trading_config.OptionPositionSettings`, read from the environment at
+call time. Nothing in this package reads environment variables.
+
 Importable dataclasses:
 
 - `OptionExitRule`
-  One resolved DTE-bucket-specific option exit rule.
+  One resolved DTE-bucket-specific option exit rule; `build_option_exit_rules(settings.dte_rules)` builds them.
 - `ExitThresholds`
   The final threshold values chosen for one position.
-- `TrailingProfitConfig`
-  Trailing-profit configuration bundle, including bucket-specific giveback mapping.
-- `PendingExitConfig`
-  Configuration for stale pending-exit handling.
-
-Important exported constants:
-
-- `DEFAULT_OPTION_TAKE_PROFIT_PCT`
-- `DEFAULT_OPTION_STOP_LOSS_PCT`
-- `DEFAULT_OPTION_EXIT_HOURS_TO_EXPIRATION`
-- `OPTION_EXIT_DTE_RULES`
 
 Main public functions:
 
 - `CloseOptionPositions(company=None, trading_client_override=None)`
   Immediately closes every matching option position and returns a compact summary of what was submitted.
-- `ManageCurrentOptionPositions(...)`
-  Runs the full option-position management workflow and returns a normalized result payload describing every open option position, its diagnostics, and any submitted exit actions.
+- `ManageCurrentOptionPositions(company=None, *, settings=None, state_path=None, execute_sales=False, ...)`
+  Runs the full option-position management workflow and returns a normalized result payload describing every open option position, its diagnostics, and any submitted exit actions. `settings` and `state_path` default to `OptionPositionSettings.from_env()` and `WorkerPaths.from_env().option_position_state_path`.
 
 Current internal module split:
 
 - `_option_positions_defaults.py`
-  Shared dataclasses, default constants, and bundled config types for the option-position workflow.
+  Exit-rule dataclasses, OCC symbol patterns, order-status sets, and `build_option_exit_rules`.
 - `_option_positions_market.py`
   Symbol parsing, DTE calculations, quote helpers, and exit-threshold resolution.
 - `_option_positions_snapshot.py`
@@ -208,7 +185,7 @@ Current internal module split:
 Important current design details:
 
 - DTE bucket behavior is driven by `services.option_dte_buckets`
-- DTE exit thresholds come from `services.config.OptionPositionSettings`
+- DTE exit thresholds come from `services.trading_config.OptionPositionSettings`
 - Trailing-profit giveback percentages are now dynamic by bucket key instead of hardcoded by label
 - Position state persistence is handled by `services.option_position_state`
 - Momentum exits reuse `services.option_momentum`
@@ -231,7 +208,6 @@ from trading_support.option_contracts import GetCallOptionsForCompany
 from trading_support.option_positions import (
     CloseOptionPositions,
     ManageCurrentOptionPositions,
-    OPTION_EXIT_DTE_RULES,
 )
 from trading_support.stock_orders import StockTrades
 ```
@@ -253,9 +229,9 @@ from trading_support import (
 There are two styles in the repo right now:
 
 - Newer service-layer orchestration
-  Uses `services.front_main_application`, `services.position_manager`, `services.trade_executor`, and `services.trading_gateway`
+  Uses `services.worker_application`, `services.position_manager`, `services.trade_executor`, and `services.trading_gateway`
 - Older direct helper usage
-  Uses `trading_support.*` functions and `Trading.py`
+  Uses `trading_support.*` functions directly
 
 Both still matter, but for new runtime orchestration work, the service layer is usually the better place to start.
 

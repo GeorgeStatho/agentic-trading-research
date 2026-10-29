@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from services.config import FrontMainSettings, OptionPositionSettings
+from services.trading_config import WorkerSettings, OptionPositionSettings
 
 
 class OptionDteBucketRegressionTests(unittest.TestCase):
@@ -26,7 +26,7 @@ class OptionDteBucketRegressionTests(unittest.TestCase):
 
         with patch.dict(os.environ, env_overrides, clear=True):
             option_position_settings = OptionPositionSettings.from_env()
-            front_main_settings = FrontMainSettings.from_env()
+            front_main_settings = WorkerSettings.from_env()
 
         rules_by_key = {rule.key: rule for rule in option_position_settings.dte_rules}
         self.assertEqual(rules_by_key["12_20"].take_profit_pct, 41.0)
@@ -37,10 +37,10 @@ class OptionDteBucketRegressionTests(unittest.TestCase):
         self.assertEqual(rules_by_key["30_45"].stop_loss_pct, -36.0)
         self.assertEqual(rules_by_key["45_60"].take_profit_pct, 88.0)
         self.assertEqual(rules_by_key["45_60"].stop_loss_pct, -42.0)
-        self.assertEqual(front_main_settings.option_trail_giveback_pct_by_bucket_key["12_20"], 0.21)
-        self.assertEqual(front_main_settings.option_trail_giveback_pct_by_bucket_key["20_30"], 0.31)
-        self.assertEqual(front_main_settings.option_trail_giveback_pct_by_bucket_key["30_45"], 0.41)
-        self.assertEqual(front_main_settings.option_trail_giveback_pct_by_bucket_key["45_60"], 0.51)
+        self.assertEqual(front_main_settings.option_positions.trailing.giveback_pct_by_bucket_key["12_20"], 0.21)
+        self.assertEqual(front_main_settings.option_positions.trailing.giveback_pct_by_bucket_key["20_30"], 0.31)
+        self.assertEqual(front_main_settings.option_positions.trailing.giveback_pct_by_bucket_key["30_45"], 0.41)
+        self.assertEqual(front_main_settings.option_positions.trailing.giveback_pct_by_bucket_key["45_60"], 0.51)
 
 if __name__ == "__main__":
     unittest.main()

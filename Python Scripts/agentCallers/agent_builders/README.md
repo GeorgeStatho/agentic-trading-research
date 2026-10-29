@@ -192,10 +192,17 @@ Functions:
 - `_upsert_supporting_article(...)`: deduplicates articles by `article_id`, merges layer membership, and optionally appends the serialized agent signal for that article-layer pair.
 - `_build_supporting_articles(evidence, *, summary_article_limit, full_article_limit)`: builds the final ranked `supporting_articles` block, including summary articles and a smaller set of full-body articles.
 
-Ranking behavior:
+Ranking behavior (`SUPPORTING_ARTICLE_SELECTION_VERSION = "company-first-quotas-v1"`, recorded in the pipeline manifest):
 - articles are deduplicated across macro, sector, industry, company, and RSS evidence
-- higher-confidence and more frequently referenced articles rank above weaker or isolated ones
-- only articles with a non-empty body make it into the `full_articles` list
+- each article goes into exactly one bucket, its most specific evidence (`ARTICLE_BUCKET_ORDER`):
+  - `company`: the article has a `company_view` layer, or its `primary_ticker` is the company's symbol
+  - `industry`, `sector` or `macro`: the matching `*_view` layer
+  - `unsignalled`: everything else (sector RSS articles with no agent signal)
+- within a bucket, the old priority order still applies: high-confidence signals first, then signal count, layer count and recency
+- `article_summaries` fills quotas in bucket order (`SUMMARY_ARTICLE_QUOTAS`: company 10, industry 5, sector 3, macro 2 for the default limit of 20; the quotas scale with `summary_article_limit`), then backfills empty slots from the leftovers in bucket order. `unsignalled` articles only ever appear in backfill, last
+- `full_articles` takes articles with a non-empty body in the same bucket order, so company articles come first
+
+Why: before this, an article's score summed signals across all layers, so broad macro or sector stories that touched many layers pushed out direct company news. In the 2026-10-27 production payloads only about 1.6 of the 20 summaries were about the company. `scripts/news_quality_report.py` measures this (`company_direct`).
 
 ### `__init__.py`
 

@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timezone
+from hashlib import sha256
+import json
+import logging
 from typing import Any
 
+from services.trading_config import AgentPipelineSettings
 from services.settings import StageModel, get_settings
 from agent_builders.strategist_payload import (
     DEFAULT_FULL_ARTICLE_LIMIT,
@@ -11,10 +15,11 @@ from agent_builders.strategist_payload import (
     DEFAULT_SUMMARY_ARTICLE_LIMIT,
     build_strategist_input,
 )
-from agent_helpers.shared import Client, ask_llm_model, extract_json_value, get_model_client
+from agent_helpers.llm_client import Client, ask_llm_model, get_model_client
+from agent_helpers.text_utils import extract_json_value
 from news_db_modules.impacts import add_strategist_company_summary
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
-from news_db_modules.strategist_runs import record_strategist_run
+from news_db_modules.strategist_runs import latest_answered_strategist_run, record_strategist_run
 from agent_stages.strategist_grounding import validate_grounded_recommendation
 from agent_stages.strategist_normalization import (
     extract_recommendation,
@@ -38,12 +43,16 @@ from services.evidence_thesis import (
 from services.evidence_thesis_policy import EvidenceThesisPolicy
 
 
+LOGGER = logging.getLogger(__name__)
+EVIDENCE_SECTIONS = ("views", "supporting_articles", "opportunist_rollup", "company_evidence")
+
+
 def _stage_model() -> StageModel:
     return get_settings().models.strategist
 
 
 _strategist_client: Client | None = None
-STRATEGIST_PROMPT_VERSION = "grounded-strategist-v4-evidence-thesis-compact"
+STRATEGIST_PROMPT_VERSION = "grounded-strategist-v5-evidence-thesis-compact"
 LEGACY_STRATEGIST_PROMPT_VERSION = "grounded-strategist-v3-company-evidence-compact"
 THESIS_ROUTE = "legacy_strategist"
 
@@ -99,6 +108,18 @@ def ask_model(
     )
 
 
+def _repair_note(error: Exception) -> str:
+    # Appended to the original user prompt; the earlier answer is not resent, the model writes a new one.
+    return (
+        "\n\nYour previous answer to this request was rejected by validation: "
+        f"{str(error)[:500]}\n"
+        "Return the complete corrected JSON. evidence_claims needs exactly one entry for summary, one for why_now, "
+        "one for every catalyst item, one for every thesis item, one for every risks item (claim_type risk), and one "
+        "for a non-empty watchlist_reason. Each entry cites one or more integers from grounding.article_ids; never "
+        "use -1, 0 or any other placeholder ID. Inside JSON strings, escape newlines as \\n."
+    )
+
+
 def _attach_thesis_check(
     recommendation: dict[str, Any],
     check: dict[str, Any],
@@ -127,6 +148,7 @@ def _save_strategist_summary(
     input_payload: dict[str, Any],
     prompt_version: str,
     raw_response: str | None = None,
+    reused_from_run_id: int | None = None,
 ) -> dict[str, Any]:
     # Persist the strategist summary and return a summary that callers can inspect.
     initialize_news_database()
@@ -138,13 +160,16 @@ def _save_strategist_summary(
     grounding = input_payload.get("grounding") if isinstance(input_payload.get("grounding"), dict) else {}
     article_ids = grounding.get("article_ids") if isinstance(grounding.get("article_ids"), list) else []
     created_at = datetime.now(timezone.utc).isoformat()
+    output_payload: dict[str, Any] = {"raw_response": raw_response, "recommendation": recommendation}
+    if reused_from_run_id is not None:
+        output_payload["reused_from_run_id"] = reused_from_run_id
     run_id = record_strategist_run(
         company_id=int(company["company_id"]),
         model=model,
         prompt_version=prompt_version,
         input_article_ids=[int(article_id) for article_id in article_ids if isinstance(article_id, int)],
         input_payload=input_payload,
-        output_payload={"raw_response": raw_response, "recommendation": recommendation},
+        output_payload=output_payload,
         status="completed",
         created_at=created_at,
     )
@@ -158,13 +183,89 @@ def _save_strategist_summary(
         model=model,
         raw_json=result_payload,
     )
-    return {
+    reference = {
         "id": run_id,
         "model": model,
         "prompt_version": prompt_version,
         "input_article_ids": [int(article_id) for article_id in article_ids if isinstance(article_id, int)],
         "created_at": created_at,
     }
+    if reused_from_run_id is not None:
+        reference["reused_from_run_id"] = reused_from_run_id
+    return reference
+
+
+def _strategist_evidence_hash(payload: dict[str, Any]) -> str:
+    grounding = payload.get("grounding") if isinstance(payload.get("grounding"), dict) else {}
+    evidence = {key: payload.get(key) for key in EVIDENCE_SECTIONS}
+    evidence["article_ids"] = sorted(grounding.get("article_ids") or [], key=str)
+    # Round-trip first so a live payload hashes like its stored copy (int dict keys become strings).
+    stored_form = json.loads(json.dumps(evidence, default=str))
+    return sha256(json.dumps(stored_form, sort_keys=True).encode()).hexdigest()
+
+
+def _regime_state(payload: dict[str, Any]) -> Any:
+    regime = (payload.get("market_context") or {}).get("market_regime")
+    return regime.get("state") if isinstance(regime, dict) else None
+
+
+def _last_price(payload: dict[str, Any]) -> float | None:
+    price = ((payload.get("company") or {}).get("market_data") or {}).get("last_price")
+    return float(price) if isinstance(price, (int, float)) and price > 0 else None
+
+
+def strategist_answer_reusable(
+    previous: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    age_minutes: float,
+    max_age_minutes: int,
+    max_price_move_pct: float,
+) -> bool:
+    """Whether the answer to `previous` still stands for `payload`: same evidence and regime, little price move.
+
+    Shared by live runs and backtest replays so both reuse under one rule.
+    """
+    if max_age_minutes <= 0 or not 0 <= age_minutes < max_age_minutes:
+        return False
+    if _strategist_evidence_hash(previous) != _strategist_evidence_hash(payload):
+        return False
+    if _regime_state(previous) != _regime_state(payload):
+        return False
+    previous_price, price = _last_price(previous), _last_price(payload)
+    if previous_price is None or price is None:
+        return False
+    return abs(price / previous_price - 1) * 100 < max_price_move_pct
+
+
+def _reusable_strategist_answer(
+    payload: dict[str, Any],
+    *,
+    model: str,
+    prompt_version: str,
+    settings: AgentPipelineSettings | None = None,
+) -> tuple[dict[str, Any], float] | None:
+    """The latest model answer for this company when its evidence and timing context still hold, else None.
+
+    Age and price move are measured against that original answer, so reuses never extend each other.
+    """
+    settings = settings or AgentPipelineSettings.from_env()
+    if settings.strategist_reuse_max_age_minutes <= 0:
+        return None
+    anchor = latest_answered_strategist_run(int(payload["company"]["company_id"]))
+    if anchor is None or anchor["model"] != model or anchor["prompt_version"] != prompt_version:
+        return None
+    if not isinstance((anchor["output_payload"] or {}).get("recommendation"), dict):
+        return None
+    answered_at = datetime.fromisoformat(anchor["created_at"])
+    if answered_at.tzinfo is None:
+        answered_at = answered_at.replace(tzinfo=timezone.utc)
+    age_minutes = (datetime.now(timezone.utc) - answered_at).total_seconds() / 60
+    if not strategist_answer_reusable(anchor["input_payload"], payload, age_minutes=age_minutes,
+                                      max_age_minutes=settings.strategist_reuse_max_age_minutes,
+                                      max_price_move_pct=settings.strategist_reuse_max_price_move_pct):
+        return None
+    return anchor, round(age_minutes, 1)
 
 
 def _record_failed_strategist_run(
@@ -242,8 +343,21 @@ def decide_strategist_recommendation(
                              user_prompt=user_prompt, include_thesis=include_thesis,
                              response_diagnostic=response_diagnostic)
     try:
-        recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
-        thesis_check = (check_evidence_thesis((raw_recommendation or {}).get("evidence_thesis"), payload,
+        try:
+            recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
+        except (ValueError, RuntimeError) as first_error:
+            # One fresh attempt told what failed: most rejections are a single missing citation.
+            LOGGER.warning("Strategist answer for %s failed validation, asking once more: %s",
+                           payload["company"].get("symbol"), first_error)
+            repair_prompt = user_prompt + _repair_note(first_error)
+            checkpoint(candidate_context, "strategist_repair_prompt", {"model": model,
+                       "system_prompt": system_prompt, "user_prompt": repair_prompt})
+            response_diagnostic = {"repair_attempt": {"first_error": str(first_error)[:500]}}
+            raw_response = ask_model(client=client, model=model, system_prompt=system_prompt,
+                                     user_prompt=repair_prompt, include_thesis=include_thesis,
+                                     response_diagnostic=response_diagnostic)
+            recommendation, raw_recommendation = _parse_strategist_response(raw_response, payload)
+        thesis_check =(check_evidence_thesis((raw_recommendation or {}).get("evidence_thesis"), payload,
                                               route=THESIS_ROUTE, policy=thesis_policy)
                         if include_thesis else None)
     except Exception as exc:
@@ -324,35 +438,51 @@ def decide_company_purchase(
     company = payload["company"]
     context_snapshot = build_context_snapshot(payload)
 
-    try:
-        decision = decide_strategist_recommendation(
-            payload,
-            client=client,
-            model=model,
-            thesis_policy=thesis_policy,
-            candidate_context=candidate_context,
-            system_prompt_override=system_prompt_override,
-            task_override=task_override,
-        )
-    except Exception as exc:
-        _record_failed_strategist_run(
-            company=company,
-            input_payload=payload,
-            model=model,
-            prompt_version=prompt_version,
-            raw_response=getattr(exc, "raw_response", None),
-            error=exc,
-        )
-        raise
+    reuse = None
+    if system_prompt_override is None and task_override is None and payload_has_evidence(payload):
+        reuse = _reusable_strategist_answer(payload, model=model, prompt_version=prompt_version)
+    if reuse is not None:
+        # Unchanged evidence and timing context: the earlier answer, with its thesis check, stands.
+        anchor, age_minutes = reuse
+        recommendation = copy.deepcopy(anchor["output_payload"]["recommendation"])
+        raw_response = None
+        reused_from_run_id = anchor["id"]
+        response_diagnostic = {"reused_from_run_id": reused_from_run_id, "reused_answer_age_minutes": age_minutes}
+        LOGGER.info("Reusing strategist run %s (%.1f minutes old) for %s: evidence unchanged",
+                    reused_from_run_id, age_minutes, company.get("symbol"))
+    else:
+        try:
+            decision = decide_strategist_recommendation(
+                payload,
+                client=client,
+                model=model,
+                thesis_policy=thesis_policy,
+                candidate_context=candidate_context,
+                system_prompt_override=system_prompt_override,
+                task_override=task_override,
+            )
+        except Exception as exc:
+            _record_failed_strategist_run(
+                company=company,
+                input_payload=payload,
+                model=model,
+                prompt_version=prompt_version,
+                raw_response=getattr(exc, "raw_response", None),
+                error=exc,
+            )
+            raise
 
-    recommendation = decision["recommendation"]
-    if decision["thesis_check"] is not None:
-        # The legacy decision stands; the gate after the manager applies any deferral.
-        recommendation = _attach_thesis_check(
-            recommendation,
-            decision["thesis_check"],
-            company=company, candidate_context=candidate_context, model=model, prompt_version=prompt_version,
-        )
+        recommendation = decision["recommendation"]
+        if decision["thesis_check"] is not None:
+            # The legacy decision stands; the gate after the manager applies any deferral.
+            recommendation = _attach_thesis_check(
+                recommendation,
+                decision["thesis_check"],
+                company=company, candidate_context=candidate_context, model=model, prompt_version=prompt_version,
+            )
+        raw_response = decision["raw_response"]
+        reused_from_run_id = None
+        response_diagnostic = decision.get("response_diagnostic", {})
     result = {
         "company": company,
         "context_snapshot": context_snapshot,
@@ -365,12 +495,13 @@ def decide_company_purchase(
         model=model,
         input_payload=payload,
         prompt_version=prompt_version,
-        raw_response=decision["raw_response"],
+        raw_response=raw_response,
+        reused_from_run_id=reused_from_run_id,
     )
     return {
         **result,
         "grounding": payload.get("grounding", {}),
         "manager_evidence_payload": _build_manager_evidence_payload(payload),
         "strategist_run_reference": strategist_run_reference,
-        "response_diagnostic": decision.get("response_diagnostic", {}),
+        "response_diagnostic": response_diagnostic,
     }

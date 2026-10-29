@@ -235,6 +235,23 @@ CREATE TABLE IF NOT EXISTS llm_replay_cache (
     UNIQUE (stage, provider, model, prompt_version, input_hash)
 );
 
+-- One row per hosted OpenAI-compatible call: the upstream provider OpenRouter routed it to, its
+-- tokens and the cost OpenRouter reported, so provider choice can be checked against spend.
+CREATE TABLE IF NOT EXISTS llm_call_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    called_at TEXT NOT NULL,
+    model TEXT NOT NULL,
+    served_model TEXT,
+    upstream_provider TEXT,
+    generation_id TEXT,
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    reasoning_tokens INTEGER,
+    cached_tokens INTEGER,
+    cost_usd REAL
+);
+CREATE INDEX IF NOT EXISTS idx_llm_call_usage_called_at ON llm_call_usage(called_at);
+
 CREATE TABLE IF NOT EXISTS decision_evidence_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     manager_decision_history_id INTEGER NOT NULL UNIQUE,
@@ -636,3 +653,39 @@ CREATE TABLE IF NOT EXISTS post_exit_checks (
     position_outcome_id INTEGER NOT NULL REFERENCES position_outcomes(id),
     checked_on TEXT NOT NULL, status TEXT NOT NULL, PRIMARY KEY(position_outcome_id, checked_on)
 );
+
+-- Three-layer outcome of each manager decision (evidence, direction, expression); monitoring only.
+CREATE TABLE IF NOT EXISTS decision_attributions (
+  manager_decision_history_id INTEGER PRIMARY KEY REFERENCES manager_decision_history(id),
+  attribution_version TEXT NOT NULL, evidence_quality TEXT NOT NULL, evidence_source TEXT NOT NULL,
+  direction_outcome TEXT NOT NULL, expression_outcome TEXT NOT NULL, primary_failure TEXT NOT NULL,
+  record_json TEXT NOT NULL, computed_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_decision_attributions_failure ON decision_attributions(primary_failure);
+
+-- Versioned benchmark sets and the runs scored on them (screening only; never evidence for promotion). Insert-only.
+CREATE TABLE IF NOT EXISTS benchmark_sets (
+  set_id TEXT PRIMARY KEY, selection_version TEXT NOT NULL, selection_json TEXT NOT NULL,
+  item_count INTEGER NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS benchmark_items (
+  set_id TEXT NOT NULL REFERENCES benchmark_sets(set_id), manager_decision_history_id INTEGER NOT NULL,
+  split TEXT NOT NULL CHECK (split IN ('dev','holdout')), stratum TEXT NOT NULL,
+  PRIMARY KEY (set_id, manager_decision_history_id));
+CREATE TABLE IF NOT EXISTS benchmark_runs (
+  run_id INTEGER PRIMARY KEY AUTOINCREMENT, set_id TEXT NOT NULL, split TEXT NOT NULL CHECK (split IN ('dev','holdout')),
+  backtest_run_id INTEGER, model TEXT NOT NULL, prompt_versions_json TEXT NOT NULL, replay_strategist INTEGER NOT NULL,
+  scores_json TEXT NOT NULL, item_scores_json TEXT NOT NULL, created_at TEXT NOT NULL);
+-- Dev runs may repeat; the holdout is scored once per set and model, so prompt tuning cannot peek at it.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_benchmark_runs_holdout_once
+  ON benchmark_runs(set_id, model) WHERE split = 'holdout';
+CREATE TRIGGER IF NOT EXISTS benchmark_sets_no_update BEFORE UPDATE ON benchmark_sets
+BEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END;
+CREATE TRIGGER IF NOT EXISTS benchmark_sets_no_delete BEFORE DELETE ON benchmark_sets
+BEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END;
+CREATE TRIGGER IF NOT EXISTS benchmark_items_no_update BEFORE UPDATE ON benchmark_items
+BEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END;
+CREATE TRIGGER IF NOT EXISTS benchmark_items_no_delete BEFORE DELETE ON benchmark_items
+BEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END;
+CREATE TRIGGER IF NOT EXISTS benchmark_runs_no_update BEFORE UPDATE ON benchmark_runs
+BEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END;
+CREATE TRIGGER IF NOT EXISTS benchmark_runs_no_delete BEFORE DELETE ON benchmark_runs
+BEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END;

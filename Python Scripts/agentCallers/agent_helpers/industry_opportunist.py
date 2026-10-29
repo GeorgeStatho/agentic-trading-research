@@ -13,7 +13,7 @@ from market_db_modules.queries import get_all_industries
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from news_db_modules.processing import mark_industry_opportunist_article_processed
 from market_data.hydration import ensure_sector_market_data
-from agent_helpers.shared import ModelAnswer
+from agent_helpers.llm_client import ModelAnswer
 from agent_helpers.opportunist_support import (
     CURRENT_OPPORTUNIST_SCHEMA_VERSION,
     SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,

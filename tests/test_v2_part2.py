@@ -143,8 +143,8 @@ class TelemetryDatabaseTests(unittest.TestCase):
 
 class VersionAndGateTests(unittest.TestCase):
     def test_manifest_is_stable_but_threshold_changes_are_visible(self):
-        from services.config import FrontMainSettings
-        settings = FrontMainSettings.from_env()
+        from services.trading_config import WorkerSettings
+        settings = WorkerSettings.from_env()
         first = build_pipeline_version(settings=settings)
         self.assertEqual(first, build_pipeline_version(settings=settings))
         changed = build_pipeline_version(settings=replace(settings, execute_medium_confidence_trades=not settings.execute_medium_confidence_trades))

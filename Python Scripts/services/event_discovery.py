@@ -26,7 +26,7 @@ from news_db_modules.catalysts import build_catalyst_state, store_catalyst_state
 from services.company_evidence_demand import request_pipeline_evidence
 from services.company_evidence_policy import CompanyEvidencePolicy
 from services.company_interest import reconcile_company_interest
-from services.config import AgentPipelineSettings
+from services.trading_config import AgentPipelineSettings
 from services.research_lock import research_session_lock, ResearchSessionBusy
 
 

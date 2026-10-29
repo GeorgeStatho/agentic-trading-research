@@ -1,0 +1,3 @@
+model,knowledge_cutoff,source
+test-model,2026-01-01,https://example.test/models/test-model
+test-model-pro,2026-03-01,release-date-proxy

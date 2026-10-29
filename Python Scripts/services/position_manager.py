@@ -9,8 +9,8 @@ from market_db_modules.history_records import (
     update_manager_decision_latest_pnl,
 )
 from market_db_modules.history_links import get_latest_linked_manager_decision_for_option_symbol
-from services.config import FrontMainPaths, FrontMainSettings
-from services.io_utils import JsonFileWriter
+from services.trading_config import WorkerPaths, WorkerSettings
+from services.status_files import JsonFileWriter
 from services.trading_gateway import TradingClient
 
 
@@ -20,8 +20,8 @@ class OptionPositionManagerService:
     def __init__(
         self,
         *,
-        settings: FrontMainSettings,
-        paths: FrontMainPaths,
+        settings: WorkerSettings,
+        paths: WorkerPaths,
         trading_gateway: Any,
         trade_journal: Any | None = None,
         thesis_journal: Any | None = None,
@@ -197,37 +197,12 @@ class OptionPositionManagerService:
             return {"error": str(exc)}
 
     def run_cycle(self, *, trading_client: TradingClient) -> dict[str, Any]:
-        from Trading import ManageCurrentOptionPositions
+        from trading_support.option_positions import ManageCurrentOptionPositions
 
         management_result = ManageCurrentOptionPositions(
+            settings=self._settings.option_positions,
+            state_path=self._paths.option_position_state_path,
             execute_sales=self._settings.auto_close_option_positions,
-            take_profit_pct=self._settings.option_position_take_profit_pct,
-            stop_loss_pct=self._settings.option_position_stop_loss_pct,
-            exit_hours_to_expiration=self._settings.option_position_exit_hours_to_expiration,
-            state_path_override=self._paths.option_position_state_path,
-            enable_trailing_profit_override=self._settings.option_position_enable_trailing_profit,
-            trailing_profit_dry_run_override=self._settings.option_position_trailing_profit_dry_run,
-            enable_momentum_exit_override=self._settings.option_position_enable_momentum_exit,
-            momentum_history_enable_after_pnl_pct_override=self._settings.option_momentum_history_enable_after_pnl_pct,
-            momentum_history_window_size_override=self._settings.option_momentum_history_window_size,
-            momentum_history_min_samples_override=self._settings.option_momentum_history_min_samples,
-            momentum_history_bad_count_exit_threshold_override=self._settings.option_momentum_history_bad_count_exit_threshold,
-            momentum_history_consecutive_bad_exit_threshold_override=self._settings.option_momentum_history_consecutive_bad_exit_threshold,
-            option_price_momentum_bad_giveback_threshold_override=self._settings.option_price_momentum_bad_giveback_threshold,
-            option_price_momentum_mixed_giveback_threshold_override=self._settings.option_price_momentum_mixed_giveback_threshold,
-            option_price_momentum_good_profit_threshold_override=self._settings.option_price_momentum_good_profit_threshold,
-            trail_protection_trigger_pct_override=self._settings.option_trail_protection_trigger_pct,
-            trail_initial_floor_pct_override=self._settings.option_trail_initial_floor_pct,
-            trail_first_scale_out_trigger_pct_override=self._settings.option_trail_first_scale_out_trigger_pct,
-            trail_first_scale_out_fraction_override=self._settings.option_trail_first_scale_out_fraction,
-            trail_second_scale_out_trigger_pct_override=self._settings.option_trail_second_scale_out_trigger_pct,
-            trail_second_scale_out_fraction_override=self._settings.option_trail_second_scale_out_fraction,
-            trail_giveback_pct_by_bucket_key_override=self._settings.option_trail_giveback_pct_by_bucket_key,
-            trail_100_floor_pct_override=self._settings.option_trail_100_floor_pct,
-            trail_150_floor_pct_override=self._settings.option_trail_150_floor_pct,
-            trail_200_floor_pct_override=self._settings.option_trail_200_floor_pct,
-            pending_exit_stale_minutes_override=self._settings.option_pending_exit_stale_minutes,
-            pending_exit_cancel_on_stale_override=self._settings.option_pending_exit_cancel_on_stale,
             submit_full_exit_order=lambda option_symbol, limit_price=None: (
                 self._trading_gateway.submit_option_sell_limit_order(
                     trading_client,

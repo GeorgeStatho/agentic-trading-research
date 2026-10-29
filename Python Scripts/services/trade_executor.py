@@ -8,8 +8,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from services.common import safe_float
-from services.config import FrontMainSettings
+from services.numbers import safe_float
+from services.trading_config import WorkerSettings
 
 from market_db_modules.portfolio_risk import (
     count_option_entry_executions_since,
@@ -81,16 +81,18 @@ class OptionTradeExecutor:
     def __init__(
         self,
         *,
-        settings: FrontMainSettings,
+        settings: WorkerSettings,
         trading_gateway: Any,
         trade_journal: Any | None = None,
         thesis_journal: Any | None = None,
+        follower_fleet: Any | None = None,
         logger: logging.Logger,
     ) -> None:
         self._settings = settings
         self._trading_gateway = trading_gateway
         self._trade_journal = trade_journal
         self._thesis_journal = thesis_journal
+        self._follower_fleet = follower_fleet
         self._logger = logger
 
     def _get_option_reference_price(self, selected_option: dict[str, Any]) -> float:
@@ -632,6 +634,9 @@ class OptionTradeExecutor:
             )
             self._record_thesis_entry(execution, option_symbol=option_symbol)
             observe(self._observe_submitted_order, trading_client, execution)
+            if self._follower_fleet is not None:
+                # Followers mirror only what production submitted, and can never fail it.
+                observe(self._follower_fleet.mirror_entry, candidate, execution)
 
 
         session.executions.append(execution)

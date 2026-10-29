@@ -26,3 +26,39 @@ python3 scripts/project.py demo-url
 ```
 
 Use `docker compose up --build` for the integrated containerized stack.
+
+## News quality report
+
+`scripts/news_quality_report.py` measures how much news, and how relevant, the strategist received over a date range. It opens the DB read-only (`?immutable=1`) and never writes.
+
+```bash
+python scripts/news_quality_report.py --db /srv/stock-data/db-dev/stock_experiment.db --start 2026-10-27
+python scripts/news_quality_report.py --db PATH --start 2026-10-28 --end 2026-10-30 --json > report.json
+```
+
+It reports:
+- `articles_by_source`: saved articles by `source` / `source_type`, with average evidence score;
+- `extraction_success_by_source`: per source, the share of followed article urls that were extracted and saved. Successes are `news_articles` rows; failures are `failed_urls` rows, attributed to the longest saved source the url's host matches (else the bare host). Each url counts once: a url that later succeeds leaves `failed_urls`, and failures are dated by their latest attempt. The row also has `permanent_failures` (HTTP 403/404) and the most common `top_error`. The dashboard shows the same numbers under Research → Extraction (`/api/news-extraction?days=N`, opened `mode=ro`);
+- `companies_with_company_news`: companies with at least one company-linked article;
+- `payloads`: one row per strategist run. `company_direct` counts the summaries about the company itself (matching `primary_ticker` or a `company_view` layer); the row also has `distinct_root_sources` and the company-evidence freshness and gaps;
+- `payload_summary`: the means, plus counts of payloads with `consensus_unavailable` or `company_evidence_not_collected`;
+- `rejections`: `insufficient_independent_roots` and `insufficient_high_confidence_articles` counts.
+
+The 2026-10-27 baseline (before the news-quality changes) was:
+- 2 sources;
+- 32 companies with company news;
+- mean `company_direct` 1.59 of 20;
+- `consensus_unavailable` in 49 of 59 payloads.
+
+Compare new runs against it.
+
+## Extractor check
+
+the project notes (not in the public demo) is a read-only live check of the article extractors; it saves nothing to any database.
+
+```bash
+WEBSCRAPING_PLAYWRIGHT_CONCURRENCY=1 python the project notes (not in the public demo) finance.yahoo.com --limit 10
+python the project notes (not in the public demo) research.example.com --limit 10 --html-dir /tmp/pages   # also keep the fetched pages
+```
+
+A domain PASSES when 70% of its URLs return success, a title, a body of 500+ characters and a parseable `published_at`. Page loads are counted per domain in a JSON ledger (`--max-loads`, default 15, over all runs). Run one non-Yahoo domain per invocation, because Scrapy's reactor cannot restart.

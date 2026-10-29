@@ -28,7 +28,8 @@ Stock-trading-experiment/
 ├── the project notes (not in the public demo)
 ├── requirements.txt
 ├── config/
-│   └── Modelfile
+│   ├── Modelfile
+│   └── model_knowledge_cutoffs.csv
 ├── Data/nd evidence checks
 Strategist thesis
 Trade economics
@@ -40,25 +41,35 @@ Manager a
 │   └── logs/
 ├── Python Scripts/
 │   ├── main.py
-│   ├── MarketData.py
-│   ├── Trading.py
 │   ├── trading_support/
 │   │   ├── __init__.py
 │   │   ├── account.py
 │   │   ├── clients.py
 │   │   ├── option_contracts.py
 │   │   ├── option_positions.py
-│   │   ├── stock_orders.py
-│   │   └── utils.py
+│   │   └── stock_orders.py
 │   ├── Companies/
 │   │   └── Company.py
 │   ├── WritingToDataBase/
 │   │   └── stringtoJson.py
 │   ├── Webscraping/
 │   │   ├── README.md
+│   │   ├── APIs/
+│   │   │   ├── alpacaNewsAPI.py
+│   │   │   ├── foolAPI.py
+│   │   │   ├── gurufocusAPI.py
+│   │   │   ├── InvestingAPI.py
+│   │   │   └── morningStarAPI.py
+│   │   ├── company_evidence/
+│   │   │   ├── sec.py
+│   │   │   ├── sec_facts.py
+│   │   │   ├── issuer.py
+│   │   │   ├── releases.py
+│   │   │   └── yahoo_consensus.py
 │   │   ├── engine/
 │   │   │   ├── article_scraper.py
 │   │   │   ├── article_extraction.py
+│   │   │   ├── page_fetch.py
 │   │   │   └── playwright_runner.py
 │   │   ├── extractors/
 │   │   │   ├── barrons.py
@@ -105,20 +116,21 @@ Manager a
 │       │   ├── opportunist_payload.py
 │       │   └── strategist_payload.py
 │       ├── agent_helpers/
-│       │   ├── shared.py
+│       │   ├── llm_client.py
+│       │   ├── text_utils.py
 │       │   ├── macro_news.py
 │       │   ├── sector_opportunist.py
 │       │   ├── industry_opportunist.py
 │       │   ├── company_opportunist.py
-│       │   ├── strategist.py
-│       │   └── manager.py
+│       │   ├── strategist_evidence.py
+│       │   └── manager_inputs.py
 │       ├── agent_stages/
 │       │   ├── macro_news_to_sectors.py
 │       │   ├── sector_opportunist.py
 │       │   ├── industry_opportunist.py
 │       │   ├── company_opportunist.py
-│       │   ├── strategist.py
-│       │   └── manager.py
+│       │   ├── strategist_runner.py
+│       │   └── manager_runner.py
 │       ├── agent_pipeline/
 │       │   └── main.py
 │       └── agent_runtime/
@@ -183,6 +195,11 @@ This is the news ingestion pipeline.
   - Normalization, dedupe support, and evidence scoring.
 - `Python Scripts/Webscraping/market_data/`
   - Yahoo Finance-based market and discovery data ingestion.
+- `Python Scripts/Webscraping/APIs/`
+  - Per-site article discovery and content APIs (Fool, Morningstar, GuruFocus, Investing, and Alpaca News for Benzinga).
+- `Python Scripts/Webscraping/company_evidence/`
+  - Primary-evidence adapters: SEC filings and facts, configured issuer releases, and the Yahoo consensus/earnings-date adapter (see `docs/COMPANY_EVIDENCE_PROVIDERS.md`).
+  - A read-only report on how much company-relevant news the strategist received, and a live per-domain extractor check (see `scripts/README.md`).
 
 News pipeline flow:
 
@@ -264,12 +281,8 @@ Ollama + SQLite + Alpaca
 
 - `Python Scripts/main.py`
   - Older trading loop with prediction-based buy/sell planning.
-- `Python Scripts/Trading.py`
-  - Thin compatibility facade that re-exports the legacy trading helpers.
 - `Python Scripts/trading_support/`
   - Focused trading modules split by concern: client setup, account diagnostics, stock orders, option contracts, and option position management.
-- `Python Scripts/MarketData.py`
-  - Quote, option, and streaming-related utilities.
 
 This side of the repo looks older than the agent pipeline and is more prototype-like.
 
@@ -290,7 +303,7 @@ web_dashboard/server.py
   ↓
 subprocess.Popen(...)
   ↓
-main.py or MarketData.py
+main.py
 ```
 
 
@@ -306,7 +319,7 @@ If you want to understand the repo quickly, these are the main starting points:
   - agent folder layout
 - `Python Scripts/agentCallers/agent_pipeline/main.py`
   - best place to understand current multi-stage agent orchestration
-- `Python Scripts/agentCallers/agent_stages/manager.py`
+- `Python Scripts/agentCallers/agent_stages/manager_runner.py`
   - final decision-support stage
 - `Data/db_common.py`
   - current database and connection handling
@@ -359,8 +372,8 @@ If you are onboarding to the current codebase, this order gives the clearest pic
 3. `Data/db_common.py`
 4. `Python Scripts/agentCallers/README.md`
 5. `Python Scripts/agentCallers/agent_pipeline/main.py`
-6. `Python Scripts/agentCallers/agent_stages/strategist.py`
-7. `Python Scripts/agentCallers/agent_stages/manager.py`
+6. `Python Scripts/agentCallers/agent_stages/strategist_runner.py`
+7. `Python Scripts/agentCallers/agent_stages/manager_runner.py`
 
 
 ## 6. Quick Interpretation
@@ -370,7 +383,7 @@ The repository currently has four layers living side by side:
 1. persistent storage in `Data/`
 2. deterministic ingestion in `Webscraping/`
 3. agentic reasoning in `agentCallers/`
-4. older execution/runtime scripts in `main.py`, `Trading.py`, and `MarketData.py`
+4. older execution/runtime scripts in `main.py` and `trading_support/`
 
 The newer architecture is centered around:
 
@@ -384,9 +397,7 @@ while the older architecture is centered around:
 
 ```text
 main.py
-  + Trading.py
   + trading_support/*
-  + MarketData.py
 ```
 
 That split explains why the repo feels mixed: it contains both the older trading prototype and the newer research-first pipeline.
@@ -412,7 +423,8 @@ That split explains why the repo feels mixed: it contains both the older trading
   prompt and source manifests, hashed for historical identification.
 - `Python Scripts/services/candidate_lifecycle.py` and
   `Data/market_db_modules/candidate_lifecycle.py`: candidate IDs, immutable
-  checkpoints, canonical rejection storage, cohort funnels and hash-checked reads.
+  checkpoints, canonical rejection storage, cohort funnels and hash-checked reads
+  (`stage_payloads`; every snapshot reader checks rows with `foundation_store.verified_envelope`).
 - `Python Scripts/services/execution_telemetry.py` and
   `Data/market_db_modules/execution_telemetry.py`: quote capture, broker-fill
   reconciliation, coverage, fill rates and slippage reports.
@@ -431,6 +443,13 @@ That split explains why the repo feels mixed: it contains both the older trading
   `CatalystState` and explicit calendar-time decay priors.
 - `Data/catalyst_schema.py` / `Data/catalyst_schema.sql`: shared additive migration
   for catalysts, roots, candidate associations, gate observations and record links.
+- `Data/news_db_modules/catalyst_labels.py`: insert-only model labels for rule failures, latest-label
+  (point-in-time) and pending queries, status and review reports.
+- `Python Scripts/agentCallers/agent_stages/catalyst_classifier.py` / `agent_helpers/catalyst_classifier.py`:
+  the cheap-model labelling stage, its prompt, schema, inputs and answer validation.
+- `Python Scripts/services/catalyst_classification.py`: `classify_pending_catalysts`, run by the news
+  collector before response registration when `CATALYST_CLASSIFIER_ENABLED`.
+- `scripts/catalysts.py`: `classify`, `status` and `review` for the backfill.
 - `Data/news_db_modules/catalysts.py`: state refresh, frozen candidate associations,
   impact-root validation, backfill and family coverage report.
 - `Data/news_db_modules/provenance.py`: source-chain grouping and original root
@@ -512,10 +531,10 @@ That split explains why the repo feels mixed: it contains both the older trading
 - `services/research_promotion.py`: policy/source-bound gate approvals and the
   singleton champion's capital guard. Runtime policy factories use this guard.
 - `services/catalyst_response_collector.py`: refreshes eligible research runs after
-  the existing catalyst/forward-return collection. `agentCallers/main.py` records
+  the existing catalyst/forward-return collection. `agentCallers/decision_pipeline.py` records
   candidate completion before research enrollment.
 - `agentCallers/agent_stages/manager_prompt.py`, `manager_normalization.py`,
-  `manager_shared.py`: versioned ordinal thesis, timing and execution confidence.
+  `manager_model.py`: versioned ordinal thesis, timing and execution confidence.
 - `scripts/v2_part6.py`: start, collect, report, status and explicit promotion commands.
 - `tests/test_v2_part6.py`: cutoff, quote-path, denominator, calibration, freeze,
   coverage and promotion tests. See `TRADINGBOT_V2_PART6_CHANGES.md` for assumptions
@@ -533,7 +552,9 @@ default and does not forward candidates to broker execution.
 
 Phase 3 adds bounded shadow investigation with typed archive retrieval, durable
 sessions, daily allowances and offline replay. It is disabled by default. See
-Research Phase 3 and `scripts/research.py`.
+Research Phase 3 and `scripts/research.py`. `services/research_search.py`
+holds the flag-gated `search_archive` hit queries over the `news_article_fts`/`evidence_document_fts`
+indexes and freezes article hits as immutable `news_archive` documents.
 
 Cross-cutting infrastructure: `pyproject.toml` declares the import roots (`pip install -e .`);
 `services/settings.py` is the one typed settings object, loaded at process start;
@@ -554,7 +575,7 @@ Policy: `services/trade_economics_policy.py`. See Research Phase 5.
 Phase 6 reviews open positions when a material event arrives. `services/thesis_event_review.py` claims settled
 discovery `position_review` items (`claim_position_reviews`) inside the option manager's cycle, and reuses the daily
 validator's evidence pack, adjudicator and arbiter. It records shadow-only verdicts, would-be actions and what changed
-in `thesis_event_reviews`. Policy: `services/event_thesis_review_policy.py`. See Research Phase 6.
+in `thesis_event_reviews`. Policy: `services/thesis_event_review_policy.py`. See Research Phase 6.
 
 Phase 7 makes forward evidence accumulate and ties promotion to criteria written beforehand. `begin_candidate` opens a
 rolling production cohort (`services/forward_cohorts.py`); while a challenger model pair is on, the live route freezes a
@@ -566,17 +587,40 @@ See Research Phase 7.
 
 LLM replay backtests (`scripts/project.py llm-backtest`, `agentCallers/llm_backtest.py`) re-ask a manager model, such as a
 local llama.cpp model, on every stored decision's frozen input, then run production's continuation, selection, regime and
-thesis steps as of the decision time (`services/llm_backtest.py`). Directional answers select from the DTE-bucket chain that
+thesis steps as of the decision time (`services/llm_backtest.py`). Every frozen input a replay needs is read through
+`FrozenDecision` (`Data/market_db_modules/llm_replay_store.py`); a decision whose snapshots fail their hash check is
+reported as `snapshot_hash_mismatch` and the run continues. Directional answers select from the DTE-bucket chain that
 production saved in `candidate_snapshots`; answers in another bucket, and decisions before those snapshots, are reported as
 `bucket_chain_unavailable`. Trades are recorded as ordinary backtest runs (`run_decision_backtest`): stored quotes where they
 exist, otherwise Black-Scholes marks on daily closes. Answers are cached in `llm_replay_cache`; `--model stored` replays
-production's own answers as the like-for-like baseline. Eligibility, the premium cap and portfolio limits come
+production's own answers as the like-for-like baseline. `--decision-ids-file` replays only the listed decisions. Unless the model is
+`stored`, decisions within a model's knowledge cutoff plus 30 days (`config/model_knowledge_cutoffs.csv`,
+`services/model_cutoffs.py`) are dropped and counted as `excluded_pre_knowledge_cutoff`, and a model missing from the table is refused
+unless `--allow-unknown-cutoff`. Eligibility, the premium cap and portfolio limits come
 from each candidate's recorded pipeline manifest; directional answers whose recorded selector settings differ from
 the local ones are reported as `selector_config_mismatch`. `--fetch-missing-bars` downloads daily history for
 traded symbols that have none. `--min-hours-between N` replays a company's decision only when it is N hours
 after the last one replayed for it, chosen by time alone; compare it with a `stored` run using the same N. `--replay-strategist` has the model answer
-each decision's frozen strategist input too (`strategist_runs`, by candidate) and hands that answer to
+each decision's frozen strategist input too (the candidate's `pre_strategist` checkpoint) and hands that answer to
 the manager exactly as production does; strategist answers are cached separately. `--score-direction`
 (`services/llm_direction_score.py`) grades the same replayed answers by the stock's return over the next 5 and 10
 trading-day closes instead of trading options, so decisions from before the bucket-chain snapshots (frozen inputs
 start 2026-07-21) can be compared too; it reports how every scored stock moved as the bar a model must beat.
+
+### Benchmark sets
+
+`Data/market_db_modules/benchmarks.py` stores insert-only `benchmark_sets`, `benchmark_items` (dev/holdout split and
+stratum per frozen decision) and `benchmark_runs` (holdout once per set, model, prompts and strategist flag).
+`services/benchmark_selection.py` builds a stratified, seeded set; `services/benchmark_runner.py` replays a split
+through `run_llm_backtest`, scores each item with `decision_attribution` and compares two runs item by item.
+`scripts/research.py benchmark` is the CLI. It screens challengers and never promotes. Plan:
+PLAN_B_PIT_REPLAY_BENCHMARK.
+
+### Decision attribution
+
+`services/decision_attribution.py` splits a manager decision's outcome into evidence quality, direction and
+expression (pure functions, plus `bootstrap_se`). `Data/market_db_modules/decision_attribution.py` stores one
+`decision_attributions` row per decision, recomputed while unsettled or on a version change.
+`services/decision_attribution_runner.py` fills it from daily closes in each collector cycle.
+`Data/market_db_modules/decision_attribution_report.py` backs `scripts/research.py attribution`, and
+`api_support/decision_autopsy.py` shows each decision's labels.

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import os
 from dataclasses import dataclass
@@ -22,16 +21,13 @@ from market_data.hydration import ensure_all_sector_market_data
 from market_db_modules.queries import get_all_companies, get_all_industries, get_all_sectors
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from services.env_parsing import env_flag, env_positive_int
+from services.status_files import JsonFileWriter
 from services.startup_readiness import StartupReadinessChecker
 from services.telemetry import send_startup_ping_async
 
 
 LOGGER = logging.getLogger("news_collector")
-
-
-def _env_flag(name: str, default: bool) -> bool:
-    value = str(os.getenv(name, str(default))).strip().lower()
-    return value not in {"0", "false", "no", "off"}
 
 
 @dataclass(frozen=True)
@@ -43,8 +39,8 @@ class NewsCollectorSettings:
     @classmethod
     def from_env(cls) -> NewsCollectorSettings:
         return cls(
-            interval_seconds=max(60, int(os.getenv("NEWS_COLLECTION_INTERVAL_SECONDS", str(3 * 60 * 60)))),
-            cold_start_sanity_check_enabled=_env_flag("COLD_START_SANITY_CHECK", True),
+            interval_seconds=max(60, env_positive_int("NEWS_COLLECTION_INTERVAL_SECONDS", 3 * 60 * 60)),
+            cold_start_sanity_check_enabled=env_flag("COLD_START_SANITY_CHECK", True),
             output_path=Path(
                 os.getenv(
                     "NEWS_COLLECTION_OUTPUT_PATH",
@@ -52,14 +48,6 @@ class NewsCollectorSettings:
                 )
             ),
         )
-
-
-class JsonFileWriter:
-    @staticmethod
-    def write(path: Path, payload: Any) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=True, indent=2)
 
 
 def _run_cold_start_sanity_check() -> dict[str, Any]:
@@ -161,7 +149,14 @@ def run_news_collection_cycle() -> dict[str, Any]:
     result["market_regime_refresh"] = regime
     from services.candidate_lifecycle import observe
     from services.catalyst_response_collector import collect_catalyst_responses
+    from services.catalyst_classification import classify_pending_catalysts
+    from services.settings import get_settings
+    # Before registration, so new labels are priced in the same cycle. Off until the backfill is reviewed.
+    if get_settings().catalyst_classifier.enabled:
+        result['catalyst_classification'] = observe(classify_pending_catalysts)
     result['catalyst_response_refresh'] = observe(collect_catalyst_responses)
+    from services.decision_attribution_runner import attribute_decisions
+    result['decision_attribution'] = observe(attribute_decisions)
     from services.forward_evaluation import run_forward_evaluation_cycle
     result['forward_evaluation'] = observe(run_forward_evaluation_cycle)
     from services.company_evidence_service import collect_company_evidence

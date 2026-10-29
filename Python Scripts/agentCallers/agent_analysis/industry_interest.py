@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from agent_helpers.opportunist_payload import find_sector
-from agent_helpers.shared import normalize_time_window, published_at_in_window
+from agent_helpers.text_utils import normalize_time_window, published_at_in_window
 from db_common import get_connection
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 

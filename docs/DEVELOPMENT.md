@@ -13,7 +13,7 @@ This installs the dependencies in `requirements.txt` and registers the import ro
 declared in `pyproject.toml` (`.`, `Data`, `Python Scripts`, `Python Scripts/agentCallers`
 and `Python Scripts/Webscraping`). Those roots are the only import configuration. Modules
 must not edit `sys.path`, and new code imports through them, for example
-`from services.config import ...` or `from agent_stages.strategist import ...`.
+`from services.trading_config import ...` or `from agent_stages.strategist_runner import ...`.
 
 If an import fails with `ModuleNotFoundError` for a project module, the checkout is
 not installed in the active environment. Run `pip install -e .` again.
@@ -64,7 +64,9 @@ Tests are hermetic. `tests/__init__.py` runs before any test module and:
   code defaults whatever your shell or `.env` contains;
 - points `DB_PATH` at a throwaway database, initialized once per run (once per worker
   process in a parallel run);
-- disables telemetry.
+- disables telemetry;
+- points the model knowledge-cutoff table at `tests/fixtures/default_model_cutoffs.csv`, which lists only the
+  generic `local` model.
 
 Test modules must not load `.env`, stub installed packages in `sys.modules`, or rely on
 another test having run first. Import shared fixtures as `from tests.<module> import ...`.
@@ -95,10 +97,10 @@ opportunist limits and the continuation policy).
 Add a new setting to the relevant section in `services/settings.py` and to `.env.example`;
 the test bootstrap uses `.env.example` to isolate tests from local configuration.
 
-Not yet on `Settings`: the legacy trading runtime's option-position defaults
-(`trading_support/_option_positions_defaults.py`), the process composition roots in
+Not yet on `Settings`: the option exit settings (`services.trading_config.OptionPositionSettings`,
+read at call time), the process composition roots in
 `Python Scripts/main.py` and `api_support/context.py` (built from the typed settings
-classes in `services/config.py`), and `DB_PATH`, which the data layer reads when
+classes in `services/trading_config.py`), and `DB_PATH`, which the data layer reads when
 `db_common` is imported.
 
 ## Entry gates and pipeline contracts
