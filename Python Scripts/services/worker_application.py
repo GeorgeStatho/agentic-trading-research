@@ -40,6 +40,7 @@ class WorkerApplication:
         trade_executor: OptionTradeExecutor,
         position_manager: OptionPositionManagerService,
         logger: logging.Logger,
+        follower_fleet: Any | None = None,
     ) -> None:
         # Keep the runtime dependencies assembled here so the loop methods can
         # stay focused on scheduling and trading flow instead of object creation.
@@ -51,6 +52,7 @@ class WorkerApplication:
         self._order_candidate_builder = order_candidate_builder
         self._trade_executor = trade_executor
         self._position_manager = position_manager
+        self._follower_fleet = follower_fleet
         self._logger = logger
 
     def _write_running_status(
@@ -639,6 +641,17 @@ class WorkerApplication:
             self._logger.info("Research closing marks: %s", json.dumps(result, default=str))
         return mark_window_opens(close_at, policy).astimezone().replace(tzinfo=None)
 
+    def _run_follower_management(self) -> None:
+        """Close follower positions whose production position is gone.
+
+        Runs only in this dedicated loop, so exactly one process ever closes followers.
+        """
+        if self._follower_fleet is None:
+            return
+        from services.candidate_lifecycle import observe
+
+        observe(self._follower_fleet.manage)
+
     def run_option_manager_loop(self) -> None:
         """Run the dedicated option-manager loop for existing option positions only."""
         # This lighter loop exists for deployments that only need position
@@ -687,6 +700,7 @@ class WorkerApplication:
                 loop_exception_label="Dedicated option manager",
             )
             research_marks_at = self._run_due_research_marks(clock)
+            self._run_follower_management()
 
             current_time = datetime.now()
             next_wake_targets = [datetime.now() + timedelta(seconds=self._settings.market_recheck_seconds)]

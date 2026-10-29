@@ -634,6 +634,9 @@ class OptionTradeExecutor:
             )
             self._record_thesis_entry(execution, option_symbol=option_symbol)
             observe(self._observe_submitted_order, trading_client, execution)
+            if self._follower_fleet is not None:
+                # Followers mirror only what production submitted, and can never fail it.
+                observe(self._follower_fleet.mirror_entry, candidate, execution)
 
 
         session.executions.append(execution)

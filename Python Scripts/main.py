@@ -32,6 +32,8 @@ from services.thesis_event_review import EventThesisReviewService
 from services.trade_journal import OptionTradeJournal
 from services.trade_executor import OptionExposureSnapshot, OptionTradeExecutor, TradeExecutionSession
 from services.trading_gateway import AlpacaTradingGateway
+from services.follower_fleet import build_follower_fleet
+from services.trading_accounts import load_trading_accounts
 from services.trading_gateway import TradingClient
 
 
@@ -41,6 +43,8 @@ APP_PATHS = WorkerPaths.from_env()
 APP_SETTINGS = WorkerSettings.from_env()
 STATUS_REPORTER = StatusReporter(APP_PATHS.status_path)
 TRADING_GATEWAY = AlpacaTradingGateway(paper=APP_SETTINGS.alpaca_paper, logger=LOGGER)
+# None unless follower accounts are configured; production alone runs exactly as before.
+FOLLOWER_FLEET = build_follower_fleet(load_trading_accounts(), logger=LOGGER, primary_gateway=TRADING_GATEWAY)
 ORDER_CANDIDATE_BUILDER = OrderCandidateBuilder(
     execute_medium_confidence_trades=APP_SETTINGS.execute_medium_confidence_trades
 )
@@ -56,6 +60,7 @@ TRADE_EXECUTOR = OptionTradeExecutor(
     trading_gateway=TRADING_GATEWAY,
     trade_journal=TRADE_JOURNAL,
     thesis_journal=THESIS_JOURNAL,
+    follower_fleet=FOLLOWER_FLEET,
     logger=LOGGER,
 )
 POSITION_MANAGER = OptionPositionManagerService(
@@ -78,6 +83,7 @@ FRONT_MAIN_APP = WorkerApplication(
     trade_executor=TRADE_EXECUTOR,
     position_manager=POSITION_MANAGER,
     logger=LOGGER,
+    follower_fleet=FOLLOWER_FLEET,
 )
 
 
