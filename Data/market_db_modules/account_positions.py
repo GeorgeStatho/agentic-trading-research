@@ -143,3 +143,7 @@ def account_summary(*, since=None, db_path=None):
         summary[PRIMARY_NAME] = {'strategy': PRIMARY_STRATEGY, 'role': 'primary', 'closed': len(source_pnl),
                                  'avg_pnl_pct': _mean(list(source_pnl.values()))}
     return summary
+
+
+def follower_report(days=0, *, now=None, db_path=None):
+    raise NotImplementedError
