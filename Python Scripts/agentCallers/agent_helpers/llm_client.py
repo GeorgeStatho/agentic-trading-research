@@ -417,6 +417,14 @@ def _is_server_error(exc: Exception) -> bool:
     return _extract_status_code(exc) == 500
 
 
+def _retry_reason(exc: Exception) -> str:
+    if _is_overloaded(exc):
+        return "is overloaded"
+    if _is_server_error(exc):
+        return "returned a server error"
+    return "rate limit hit"
+
+
 def _is_retryable(exc: Exception) -> bool:
     return ((_is_vertex_rate_limited(exc) or _is_overloaded(exc) or _is_server_error(exc))
             and not _is_daily_quota_exhausted(exc))
@@ -654,7 +662,7 @@ def _ask_vertex_model(
                     "%s %s for model '%s' (attempt %s/%s). "
                     "Sleeping %.1fs before retry.",
                     PROVIDER_DISPLAY_NAMES[client.provider],
-                    "is overloaded" if _is_overloaded(exc) else "server error" if _is_server_error(exc) else "rate limit hit",
+                    _retry_reason(exc),
                     resolved_model,
                     attempt,
                     max_attempts,

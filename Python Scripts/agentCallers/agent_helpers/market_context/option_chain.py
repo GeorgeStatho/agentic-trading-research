@@ -315,12 +315,15 @@ def build_bucket_chains(
     reference_stock_price: float | None,
     per_type_limit: int,
     today: date | None = None,
+    strike_window: float = 25.0,
+    near_reference_only: bool = True,
 ) -> dict[str, Any]:
     """Every DTE bucket's selectable contracts from one fetch, for a frozen decision observation.
 
     Production fetches the chain for the manager's bucket only after the manager decides. Here
     each bucket keeps the nearest-strike subset a refresh for that bucket would select at this
     moment, so a strategy that picks another bucket can be finalized without a later fetch.
+    `near_reference_only=False` keeps every contract in the strike window, in the money included.
     """
     clients = _get_alpaca_clients()
     if clients is None or ContractType is None or OptionChainRequest is None:
@@ -330,8 +333,8 @@ def build_bucket_chains(
     current_date = today or date.today()
     window = {"expiration_date_gte": (current_date + timedelta(days=CLOSEST_EXPIRATION_GTE)).isoformat(),
               "expiration_date_lte": (current_date + timedelta(days=FARTHEST_EXPIRATION_LTE)).isoformat(),
-              "strike_price_gte": max(0.0, reference_stock_price - 25.0),
-              "strike_price_lte": reference_stock_price + 25.0}
+              "strike_price_gte": max(0.0, reference_stock_price - strike_window),
+              "strike_price_lte": reference_stock_price + strike_window}
     manager_context = get_settings().manager_context
     limit = max(per_type_limit * manager_context.option_chain_fetch_multiplier, manager_context.option_fetch_min)
     contracts = [contract for contract_type in (ContractType.CALL, ContractType.PUT)
@@ -348,7 +351,7 @@ def build_bucket_chains(
         last = (current_date + timedelta(days=bucket.max_days)).isoformat()
         members = _number_contracts([dict(item) for item in serialized
                                      if first <= str(item.get("expiration_date") or "") <= last])
-        buckets[bucket.key] = _select_contract_subset_near_reference(
+        buckets[bucket.key] = members if not near_reference_only else _select_contract_subset_near_reference(
             members, reference_stock_price=reference_stock_price, per_type_limit=per_type_limit)
     return {"available": True, "underlying_symbol": company_symbol, "reference_stock_price": reference_stock_price,
             "selection_filters": window, "per_type_limit": per_type_limit, "raw_contract_count": len(serialized),

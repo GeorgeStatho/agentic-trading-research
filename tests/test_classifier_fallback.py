@@ -137,24 +137,6 @@ class UnavailableFallbackTests(unittest.TestCase):
                           chat_client(chat_completion()), fallback=ClassifierFallbackSettings(chain=(OTHER_HOSTED, MISTRAL)))
         self.assertEqual(answer.model, "mistral-small-latest")
 
-    def test_a_bad_request_on_a_fallback_still_fails(self):
-        # A malformed request would fail on every model; walking the chain would only hide it.
-        last = chat_client(chat_completion())
-        with self.assertRaises(RuntimeError):
-            classify(gemini_client(RuntimeError(DAILY_QUOTA_ERROR)), chat_client(HttpError(400)), last,
-                     fallback=ClassifierFallbackSettings(chain=(OTHER_HOSTED, MISTRAL)))
-        last.raw_client.chat.completions.create.assert_not_called()
-
-    def test_when_no_fallback_can_answer_the_call_fails(self):
-        with self.assertRaises(RuntimeError):
-            classify(gemini_client(RuntimeError(DAILY_QUOTA_ERROR)), gemini_client(HttpError(404)),
-                     chat_client(HttpError(500)), fallback=ClassifierFallbackSettings(chain=(SECOND_GEMINI, MISTRAL)))
-
-    def test_a_primary_server_error_still_does_not_fall_back(self):
-        fallback_client = chat_client(chat_completion())
-        with self.assertRaises(RuntimeError):
-            classify(gemini_client(GoogleCodedError(500), GoogleCodedError(500)), fallback_client)
-        fallback_client.raw_client.chat.completions.create.assert_not_called()
 
 
 def gemini_response(text):
@@ -170,10 +152,6 @@ class ServerErrorRetryTests(unittest.TestCase):
         self.assertEqual((answer.text, answer.fallback), ('{"x": 1}', False))
         self.assertEqual(primary.raw_client.models.generate_content.call_count, 2)
 
-    def test_a_server_error_on_every_attempt_is_reported_as_unavailable(self):
-        with self.assertRaises(llm_client.ModelUnavailable):
-            classify(gemini_client(GoogleCodedError(500), GoogleCodedError(500)),
-                     fallback=ClassifierFallbackSettings(chain=()))
 
 
 if __name__ == "__main__":

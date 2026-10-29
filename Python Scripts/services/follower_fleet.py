@@ -20,8 +20,10 @@ from services.trading_accounts import FollowerSettings
 
 NEW_YORK = ZoneInfo('America/New_York')
 FAILED_ORDER_STATUSES = frozenset({'canceled', 'expired', 'rejected'})
-# Wider than the manager's chain so ITM and spread short-leg strikes are present.
+# The manager's chain keeps only near-the-money OTM strikes within $25. Followers need ITM strikes and
+# spread short legs, so they take every strike within a quarter of spot either side.
 FOLLOWER_CHAIN_LIMIT_PER_TYPE = 30
+FOLLOWER_STRIKE_WINDOW_PCT = 0.25
 
 
 def _reversed(legs):
@@ -247,7 +249,8 @@ def build_follower_fleet(accounts, *, logger, settings=None, primary_gateway=Non
     def chain_fetcher(underlying, spot):
         from agent_helpers.market_context.option_chain import build_bucket_chains
         return build_bucket_chains(underlying, reference_stock_price=spot,
-                                   per_type_limit=FOLLOWER_CHAIN_LIMIT_PER_TYPE)
+                                   per_type_limit=FOLLOWER_CHAIN_LIMIT_PER_TYPE,
+                                   strike_window=spot * FOLLOWER_STRIKE_WINDOW_PCT, near_reference_only=False)
 
     return FollowerFleet(accounts=accounts, settings=settings, gateway_factory=gateway_factory,
                          chain_fetcher=chain_fetcher, logger=logger, background=True)

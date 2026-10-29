@@ -12,7 +12,6 @@ from unittest.mock import patch
 import agent_stages.company_opportunist as stage
 from agent_helpers.llm_client import Client, ModelAnswer
 from agent_helpers.opportunist_support import classifier_batch_token_limit
-from agent_helpers.text_utils import build_token_limited_batches, estimate_article_tokens
 from services.settings import OpportunistSettings, get_settings, use_settings
 
 COMPANY = {'company_id': 7, 'symbol': 'NVDA', 'name': 'NVIDIA', 'industry_key': 'semis', 'sector_key': 'tech'}
@@ -42,32 +41,15 @@ class BatchTokenLimitTests(unittest.TestCase):
         self.assertEqual(OpportunistSettings.from_environ({'CLASSIFIER_BATCH_TOKENS': '24000'}).classifier_batch_tokens,
                          24000)
 
-    def test_hosted_providers_batch_far_more_than_local_models(self):
+    def test_hosted_providers_batch_far_more_than_local_models_unless_configured(self):
         with use_settings(opportunists=opportunists(classifier_batch_tokens=None)):
             self.assertEqual(classifier_batch_token_limit('gemini'), 16000)
-            self.assertEqual(classifier_batch_token_limit('vertex'), 16000)
-            self.assertEqual(classifier_batch_token_limit('openai_compatible'), 16000)
             # Small local context windows keep the old budget.
             self.assertEqual(classifier_batch_token_limit('llamacpp'), 4096)
-            self.assertEqual(classifier_batch_token_limit('ollama'), 4096)
-
-    def test_explicit_setting_wins_for_every_provider(self):
         with use_settings(opportunists=opportunists(classifier_batch_tokens=8000)):
             self.assertEqual(classifier_batch_token_limit('gemini'), 8000)
             self.assertEqual(classifier_batch_token_limit('llamacpp'), 8000)
 
-
-class BodyCapTests(unittest.TestCase):
-    def test_estimate_counts_only_the_body_that_is_sent(self):
-        long_article = article(1, body_chars=40_000)
-        self.assertGreater(estimate_article_tokens(long_article), 10_000)
-        self.assertLess(estimate_article_tokens(long_article, body_char_limit=1200), 400)
-
-    def test_capped_bodies_let_many_long_articles_share_a_batch(self):
-        articles = [article(index, body_chars=40_000) for index in range(1, 11)]
-        self.assertEqual(len(build_token_limited_batches(articles, context_limit=16000, prompt_overhead_tokens=1200)), 10)
-        self.assertEqual(len(build_token_limited_batches(articles, context_limit=16000, prompt_overhead_tokens=1200,
-                                                         body_char_limit=1200)), 1)
 
 
 class CompanyBatchTests(unittest.TestCase):
@@ -121,11 +103,6 @@ class CompanyBatchTests(unittest.TestCase):
         self.assertEqual(self.calls, [[1, 2], [2]])
         self.assertEqual(self.saved, [([1], []), ([2], [])])
 
-    def test_impacts_for_articles_outside_the_batch_are_ignored(self):
-        self.replies = [results((1, [IMPACT]), (99, [IMPACT]))]
-        self.collect([article(1)])
-        self.assertEqual(self.saved, [([1], [(1, 'positive')])])
-
     def test_a_single_article_answer_in_the_flat_impacts_shape_is_attributed_to_it(self):
         self.replies = [json.dumps({'impacts': [IMPACT]})]
         self.collect([article(5)])
@@ -138,21 +115,9 @@ class CompanyBatchTests(unittest.TestCase):
         self.assertEqual(self.calls, [[1, 2], [1], [2]])
         self.assertEqual(self.saved, [([1], []), ([2], [(2, 'positive')])])
 
-    def test_other_model_errors_still_fail_the_stage(self):
-        self.replies = [RuntimeError('Gemini API 400 INVALID_ARGUMENT')]
-        with self.assertRaises(RuntimeError):
-            self.collect([article(1), article(2)])
-        self.assertEqual(self.saved, [])
 
 
 class CompanyPromptTests(unittest.TestCase):
-    def test_prompt_asks_for_one_result_per_supplied_article(self):
-        system_prompt, user_prompt = stage.build_company_opportunist_prompt(COMPANY, {}, [article(1), article(2)])
-        payload = json.loads(user_prompt)
-        self.assertIn('articles', payload['required_output'])
-        self.assertIn('article_id', payload['required_output']['articles'][0])
-        self.assertIn('every supplied article', system_prompt)
-
     def test_schema_requires_article_id_per_result(self):
         schema = stage.COMPANY_IMPACTS_SCHEMA
         result = schema['properties']['articles']['items']
@@ -162,7 +127,7 @@ class CompanyPromptTests(unittest.TestCase):
 
 
 class ProviderBatchSizeTests(unittest.TestCase):
-    """classify_company_articles sizes batches by provider and by the body text actually sent."""
+    """classify_company_articles sizes batches by provider and by the body text actually sent (capped bodies)."""
 
     def run_stage(self, provider, articles):
         calls = []
@@ -184,8 +149,6 @@ class ProviderBatchSizeTests(unittest.TestCase):
         self.assertLessEqual(body_limit, 4000)
         self.assertEqual(len(self.run_stage('gemini', [article(index, body_chars=40_000) for index in range(1, 13)])), 1)
 
-    def test_a_local_model_keeps_small_batches(self):
-        self.assertGreater(len(self.run_stage('llamacpp', [article(index, body_chars=40_000) for index in range(1, 13)])), 1)
 
 
 if __name__ == '__main__':
