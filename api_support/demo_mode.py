@@ -102,6 +102,7 @@ def build_demo_mode_payload() -> dict[str, Any]:
             "constraints": {"target_dte_bucket": "very_short", "selected_option_id": DEMO_OPTION_SYMBOL, "selected_option_symbol": DEMO_OPTION_SYMBOL, "selected_expiration_date": "2026-07-24", "selected_strike_price": 90.0, "selected_option_source": "demo_fixture"},
             "outcome": {"trade_executed": False, "order_id": "", "pnl_pct": None, "pnl_updated_at": "", "resolved_outcome_label": "demo_review_only"},
             "review": {"status": "adverse_outcome", "headline": "Demo review: weaker guidance invalidated the long-call premise.", "what_proved_us_wrong": "The demand-and-guidance assumption failed; short DTE magnified the timing risk."},
+            "attribution": {"evidence_quality": "adequate", "evidence_source": "grounding_proxy", "direction_outcome": "wrong", "expression_outcome": "not_traded", "primary_failure": "forecast", "horizon_returns": {"5": -0.043, "10": -0.061}},
         }],
         "read_only": True,
         "no_trade_executed_by_feature": True,

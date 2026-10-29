@@ -3,15 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 
-def _coerce_float(value: Any) -> float | None:
-    try:
-        if value in (None, ""):
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _normalize_option_id(value: Any) -> int | None:
     if value is None or isinstance(value, bool):
         return None

@@ -13,9 +13,9 @@ The modules here handle:
 
 ## Most Important Files
 
-### `shared.py`
+### `llm_client.py`
 
-Purpose: shared LLM + utility layer used across the project.
+Purpose: the LLM client used across the project (Vertex, Gemini, OpenAI, OpenAI-compatible, llama.cpp and Ollama).
 
 Current role:
 
@@ -29,6 +29,11 @@ Key helpers:
 - `ask_llm_model(...)`: sends a structured request through the active provider
 - `ask_classifier_model(...)`: the news classifiers' call; tries each `CLASSIFIER_FALLBACKS` model in order when the quota is used up and returns a `ModelAnswer` naming the model that answered
 - `get_ollama_client(...)` / `ask_ollama_model(...)`: compatibility wrappers for older stage code
+
+### `text_utils.py`
+
+Article time windows, token budgeting, and JSON extraction from model replies:
+
 - `parse_published_at(...)`
 - `normalize_time_window(...)`
 - `published_at_in_window(...)`
@@ -101,7 +106,7 @@ How it works currently:
 
 Current module split:
 
-- `market_context/common.py`
+- `market_context/alpaca_base.py`
   Shared constants, Alpaca/yfinance imports, client bootstrapping, and low-level helpers like `_safe_float(...)`, `_get_field(...)`, and `_serialize_scalar(...)`.
 - `market_context/equities.py`
   Current stock price snapshot, market-index snapshots, sector ETF lookup, and reference-stock-price resolution.
@@ -325,7 +330,7 @@ When to edit which file:
 Build manager input:
 
 ```python
-from agent_helpers.manager import build_manager_input
+from agent_helpers.manager_inputs import build_manager_input
 
 payload = build_manager_input(
     "AAPL",

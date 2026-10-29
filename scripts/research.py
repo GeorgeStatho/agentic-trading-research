@@ -1,6 +1,27 @@
-"""Consume shadow research, replay sessions, and inspect economics, event reviews and forward evaluation."""
+"""Consume shadow research, replay sessions, and inspect economics, event reviews, forward evaluation and benchmarks."""
 import argparse
 import json
+
+
+def run_benchmark_command(parser, args, db_path):
+    command = args.benchmark_command
+    if command == 'create':
+        if args.size < 1 or not 0 <= args.holdout < 1:
+            parser.error('--size must be positive and --holdout in [0, 1)')
+        from services.benchmark_selection import create_benchmark_set
+        return create_benchmark_set(args.set_id, size=args.size, holdout_share=args.holdout, start_at=args.start_at,
+                                    end_at=args.end_at, db_path=db_path)
+    if command == 'show':
+        from market_db_modules.benchmarks import benchmark_set_summary
+        return benchmark_set_summary(args.set_id, db_path=db_path)
+    if command == 'run':
+        if args.split == 'holdout' and not args.confirm_holdout:
+            parser.error('the holdout can be scored only once per model; pass --confirm-holdout to spend it')
+        from services.benchmark_runner import run_benchmark
+        return run_benchmark(args.set_id, split=args.split, model=args.model, replay_strategist=args.replay_strategist,
+                             allow_unknown_cutoff=args.allow_unknown_cutoff, db_path=db_path)
+    from services.benchmark_runner import compare_benchmark
+    return compare_benchmark(args.set_id, a=args.a, b=args.b, split=args.split, db_path=db_path)
 
 
 def main():
@@ -18,6 +39,10 @@ def main():
     report = subparsers.add_parser('thesis-report', help='summarise thesis checks and gate verdicts (read-only)')
     report.add_argument('--days', type=int, default=7, help='look-back window in days; 0 for all history')
     report.add_argument('--route', choices=('legacy_strategist', 'research_shadow'))
+    attribution = subparsers.add_parser('attribution',
+                                        help='evidence quality vs direction outcome of manager decisions (read-only)')
+    attribution.add_argument('--days', type=int, default=0, help='look-back window in days; 0 for all history')
+    attribution.add_argument('--horizon', type=int, choices=(5, 10), default=5, help='trading days the outcome is graded at')
     economics = subparsers.add_parser('economics', help='show one recorded trade-economics report')
     economics.add_argument('report_id')
     economics_report = subparsers.add_parser('economics-report',
@@ -47,6 +72,27 @@ def main():
     news_lag.add_argument('--days', type=int, default=0, help='look-back window in days; 0 for all history')
     news_lag.add_argument('--fetch-missing', action='store_true',
                           help='first cache daily and ~2 years of hourly bars for traded underlyings (network)')
+    benchmark = subparsers.add_parser('benchmark', help='frozen benchmark sets for screening challengers (never promotes)')
+    benchmark_commands = benchmark.add_subparsers(dest='benchmark_command', required=True)
+    create = benchmark_commands.add_parser('create', help='select and store a new benchmark set')
+    create.add_argument('--set-id', required=True)
+    create.add_argument('--size', type=int, default=300)
+    create.add_argument('--holdout', type=float, default=0.3, help='share of items held out, by symbol')
+    create.add_argument('--start-at')
+    create.add_argument('--end-at')
+    benchmark_commands.add_parser('show', help='strata counts and the split summary').add_argument('set_id')
+    run = benchmark_commands.add_parser('run', help='replay and score one split with a model')
+    run.add_argument('set_id')
+    run.add_argument('--model', required=True, help="a model id, or 'stored' for production's own answers")
+    run.add_argument('--split', choices=('dev', 'holdout'), default='dev')
+    run.add_argument('--replay-strategist', action='store_true')
+    run.add_argument('--allow-unknown-cutoff', action='store_true')
+    run.add_argument('--confirm-holdout', action='store_true', help='required for --split holdout, which can be scored only once')
+    versus = benchmark_commands.add_parser('compare', help='paired comparison of two runs on a split')
+    versus.add_argument('set_id')
+    versus.add_argument('--a', required=True, help='MODEL or MODEL:PROMPTS (manager prompt version)')
+    versus.add_argument('--b', required=True, help='MODEL or MODEL:PROMPTS (manager prompt version)')
+    versus.add_argument('--split', choices=('dev', 'holdout'), default='dev')
     args = parser.parse_args()
     db_path = args.db or None
     if args.command == 'replay':
@@ -60,6 +106,11 @@ def main():
             parser.error('--days must be 0 or positive')
         from market_db_modules.evidence_thesis_report import evidence_thesis_report
         result = evidence_thesis_report(days=args.days, route=args.route, db_path=db_path)
+    elif args.command == 'attribution':
+        if args.days < 0:
+            parser.error('--days must be 0 or positive')
+        from market_db_modules.decision_attribution_report import decision_attribution_report
+        result = decision_attribution_report(days=args.days, horizon=args.horizon, db_path=db_path)
     elif args.command == 'economics':
         from market_db_modules.trade_economics import get_candidate_economics_report
         result = get_candidate_economics_report(args.report_id, db_path=db_path)
@@ -109,6 +160,8 @@ def main():
         result = news_lag_report(days=args.days, db_path=db_path)
         if fetched is not None:
             result['fetched_history'] = fetched
+    elif args.command == 'benchmark':
+        result = run_benchmark_command(parser, args, db_path)
     elif args.command == 'forward-cycle':
         from services.forward_evaluation import run_forward_evaluation_cycle
         result = run_forward_evaluation_cycle(db_path=db_path)

@@ -65,9 +65,14 @@ def _validate_context(proposal, excerpt, text):
 
 
 def ingest_source(company, source, at, *, db_path):
-    identity = 'document:' + digest([company['id'], source.provider, source.url, source.text,
-                                     source.event_key, source.published_at, source.scheduled_events,
-                                     source.observed_at])
+    if source.document_type == 'consensus':
+        # Re-fetched every refresh: without the fetch times, an unchanged calendar stays one document,
+        # so it adds no rows and leaves the package revision (and discovery) alone.
+        parts = [company['id'], source.provider, source.url, source.text, source.event_key, source.scheduled_events]
+    else:
+        parts = [company['id'], source.provider, source.url, source.text,
+                 source.event_key, source.published_at, source.scheduled_events, source.observed_at]
+    identity = 'document:' + digest(parts)
     try:
         document = get_evidence_document(identity, db_path=db_path)
     except ValueError as exc:

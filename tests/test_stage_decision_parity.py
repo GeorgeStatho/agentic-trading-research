@@ -48,13 +48,13 @@ def without_selection_debug(recommendation):
 
 
 class ManagerParityTests(unittest.TestCase):
-    def run_live(self, payload, stub):
+    def run_live(self, payload, stub, **kwargs):
         with patch.object(manager_runner, "build_manager_input", return_value=copy.deepcopy(payload)), \
                 patch.object(manager_runner, "ask_model", side_effect=stub), \
                 patch.object(manager_runner, "_refresh_market_context_for_target_dte_bucket",
                              side_effect=lambda *, market_context, **_: (market_context, {})), \
                 patch.object(manager_runner, "evaluate_evidence_continuation_gate", return_value={}):
-            return manager_runner.decide_company_option_position("AAPL", client=object(), model="test-model")
+            return manager_runner.decide_company_option_position("AAPL", client=object(), model="test-model", **kwargs)
 
     def replay(self, payload, stub):
         with patch.object(manager_runner, "ask_model", side_effect=stub):
@@ -78,6 +78,33 @@ class ManagerParityTests(unittest.TestCase):
         with self.assertLogs(manager_runner.LOGGER, "ERROR"), self.assertRaises(RuntimeError) as replay_error:
             self.replay(manager_payload(), replay_model)
         self.assertEqual(str(replay_error.exception), str(live_error.exception))
+
+
+    # A strategist watchlist or do_not_trade answer is final: the manager model is never asked.
+    def test_a_declined_company_skips_the_manager_live_and_in_replay(self):
+        for decision in ("watchlist", "do_not_trade"):
+            with self.subTest(decision=decision):
+                live_model, replay_model = StubModel(MANAGER_JSON), StubModel(MANAGER_JSON)
+                live = self.run_live(manager_payload(), live_model,
+                                     strategist_recommendation={"decision": decision, "confidence": "medium"})
+                recommendation = live["recommendation"]
+                self.assertEqual(live_model.prompts, [])
+                self.assertEqual((recommendation["decision"], recommendation["selected_option_source"]),
+                                 ("neither", "strategist_declined"))
+                self.assertIn(decision, recommendation["reason"])
+                self.assertIsNone(live["selected_option"])
+                self.assertEqual(live["manager_replay_payload"]["strategist_recommendation"]["decision"], decision)
+                replay = self.replay(live["manager_replay_payload"], replay_model)
+                self.assertEqual(replay_model.prompts, [])
+                self.assertEqual(replay["replay_skipped"], "strategist_declined")
+                self.assertEqual(replay["recommendation"], without_selection_debug(recommendation))
+
+    def test_a_trade_candidate_still_asks_the_manager(self):
+        live_model = StubModel(MANAGER_JSON)
+        live = self.run_live(manager_payload(), live_model,
+                             strategist_recommendation={"decision": "trade_candidate", "confidence": "high"})
+        self.assertEqual(len(live_model.prompts), 1)
+        self.assertEqual(live["recommendation"]["decision"], "call")
 
 
 class StrategistParityTests(thesis_tests.ThesisFixture):

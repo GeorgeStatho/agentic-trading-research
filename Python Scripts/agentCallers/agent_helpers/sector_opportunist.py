@@ -11,7 +11,7 @@ from db_common import database_path, get_connection
 from news_db_modules.impacts import add_sector_opportunist_impact
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from news_db_modules.processing import mark_sector_opportunist_article_processed
-from agent_helpers.shared import ModelAnswer
+from agent_helpers.llm_client import ModelAnswer
 from agent_helpers.opportunist_support import (
     CURRENT_OPPORTUNIST_SCHEMA_VERSION,
     SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,

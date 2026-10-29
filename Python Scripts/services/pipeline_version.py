@@ -71,6 +71,7 @@ def pipeline_source_hashes():
                     for p in (ROOT / 'Python Scripts' / folder).rglob('*.py')]
     source_files.extend([ROOT / path for path in ('Data/catalyst_models.py', 'Data/catalyst_schema.py',
         'Data/catalyst_schema.sql', 'Data/news_db_modules/provenance.py', 'Data/news_db_modules/catalysts.py',
+        'Data/news_db_modules/catalyst_labels.py',
         'Data/market_db_modules/pricing_research.py', 'Data/market_db_modules/pricing_schema.sql',
         'Data/market_db_modules/contract_research.py', 'config/risk_clusters.csv',
         'Data/market_db_modules/trade_economics.py', 'Data/market_db_modules/trade_economics_schema.sql',
@@ -87,21 +88,22 @@ def pipeline_source_hashes():
 
 def build_pipeline_version(*, settings=None):
     from services.evidence_research_policy import foundation_manifest
-    from services.config import FrontMainSettings, OptionPositionSettings, AgentPipelineSettings
+    from services.trading_config import WorkerSettings, OptionPositionSettings, AgentPipelineSettings
     from services.settings import get_settings
     from services.option_dte_buckets import OPTION_DTE_BUCKETS
     from agent_stages.strategist_runner import strategist_prompt_version
+    from agent_builders.strategist_payload_articles import SUPPORTING_ARTICLE_SELECTION_VERSION
     from services.evidence_thesis_policy import EvidenceThesisPolicy
     from agent_stages.manager_runner import MANAGER_PROMPT_VERSION
     from agent_helpers.deterministic_option_selector import SELECTOR_VERSION
-    from agent_helpers.shared import _normalize_provider, _resolve_model_name
+    from agent_helpers.llm_client import _normalize_provider, _resolve_model_name
     from agent_stages.strategist_runner import decide_company_purchase
     from agent_stages.manager_runner import decide_company_option_position
     from catalyst_models import HALF_LIFE_MINUTES, CLASSIFICATION_VERSION, DECAY_BASIS
-    from services.event_thesis_review_policy import EventThesisReviewPolicy
+    from services.thesis_event_review_policy import EventThesisReviewPolicy
     from services.forward_evaluation_policy import forward_evaluation_manifest, recorded_configuration
 
-    effective_settings = settings or FrontMainSettings.from_env()
+    effective_settings = settings or WorkerSettings.from_env()
     process_settings = get_settings()
     settings_block = settings_values(effective_settings)
     thesis_policy = EvidenceThesisPolicy.from_env()
@@ -109,6 +111,7 @@ def build_pipeline_version(*, settings=None):
     manifest = {
         'manifest_version': 'pipeline-manifest-v1',
         'strategist_prompt_version': strategist_prompt_version(thesis_policy),
+        'supporting_article_selection_version': SUPPORTING_ARTICLE_SELECTION_VERSION,
         'manager_prompt_version': MANAGER_PROMPT_VERSION,
         'model_provider': _normalize_provider(),
         'model_names': {stage: _resolve_model_name(_normalize_provider(stage_model.provider), stage_model.model)

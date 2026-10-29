@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
-from api_support.common import internal_error, safe_int
+from api_support.request_utils import internal_error, safe_int
 from api_support.thesis_validator import (
     DEFAULT_HEALTH_WINDOW_DAYS,
     DEFAULT_RUN_LIMIT,

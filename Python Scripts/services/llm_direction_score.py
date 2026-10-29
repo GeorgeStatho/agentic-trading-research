@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from statistics import mean, median
-from typing import Any
+from typing import Any, Sequence
 
 from market_db_modules.backtesting import daily_closes_after
 from agent_helpers.deterministic_option_selector.market import _get_reference_stock_price
@@ -32,7 +32,12 @@ def forward_returns(decision: dict[str, Any], payload: dict[str, Any], *, db_pat
                                 db_path=db_path)
     if not reference or len(closes) < max(HORIZONS):
         return None
-    return {horizon: closes[horizon - 1][1] / reference - 1 for horizon in HORIZONS}
+    return returns_from_closes(reference, closes)
+
+
+def returns_from_closes(reference: float, closes: list[tuple[datetime, float]]) -> dict[int, float]:
+    """The return from `reference` to each horizon's close, for the horizons the closes reach."""
+    return {horizon: closes[horizon - 1][1] / reference - 1 for horizon in HORIZONS if len(closes) >= horizon}
 
 
 def score_answer(answer: ReplayedAnswer, *, db_path: Any = None) -> tuple[str, dict[str, Any] | None]:
@@ -111,17 +116,21 @@ def run_direction_score(
     start_at: str | None = None,
     end_at: str | None = None,
     limit: int | None = None,
+    decision_ids: Sequence[int] | None = None,
+    allow_unknown_cutoff: bool = False,
     min_hours_between: float = 0,
     replay_strategist: bool = False,
     fetch_missing_bars: bool = False,
     decide: Decider | None = None,
     decide_strategist: Decider | None = None,
+    strategist_reuse_max_age_minutes: int = 0,
     db_path: Any = None,
 ) -> dict[str, Any]:
     """Replay `model` (or `stored`) over the window and score each answer's direction by the stock's next moves."""
-    run = ReplayRun.build(model=model, start_at=start_at, end_at=end_at, limit=limit,
-                          min_hours_between=min_hours_between, replay_strategist=replay_strategist,
-                          decide=decide, decide_strategist=decide_strategist, db_path=db_path)
+    run = ReplayRun.build(model=model, start_at=start_at, end_at=end_at, limit=limit, decision_ids=decision_ids,
+                          allow_unknown_cutoff=allow_unknown_cutoff, min_hours_between=min_hours_between, replay_strategist=replay_strategist,
+                          decide=decide, decide_strategist=decide_strategist,
+                          strategist_reuse_max_age_minutes=strategist_reuse_max_age_minutes, db_path=db_path)
     bars = fetch_missing_history(run, db_path=db_path) if fetch_missing_bars else None
     tally = ReplayTally()
     rows: list[dict[str, Any]] = []

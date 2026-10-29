@@ -77,8 +77,10 @@ def _origin(article):
     # Attribution wins over the republisher's domain. Conservative mentions can
     # undercount; they must never manufacture independent confirmation.
     text = " ".join(str(article.get(key) or "") for key in ("source", "summary", "body"))
+    text += " " + str(provenance.get("publisher") or "")
     for wire, pattern in (("reuters", r"\breuters\b"), ("ap", r"\bassociated press\b"),
-                          ("prnewswire", r"\bpr newswire\b"), ("businesswire", r"\bbusiness wire\b")):
+                          ("prnewswire", r"\bpr newswire\b"), ("businesswire", r"\bbusiness wire\b"),
+                          ("globenewswire", r"\bglobe\s?newswire\b")):
         if re.search(pattern, text, re.I) or wire in host:
             return "wire_service", "wire:" + wire, None
     if source_type in {"aggregator", "commentary"}:

@@ -129,3 +129,13 @@ CREATE TABLE IF NOT EXISTS strategy_evaluations (
 );
 CREATE INDEX IF NOT EXISTS idx_strategy_evaluations_observation
     ON strategy_evaluations(observation_id, strategy);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS evidence_document_fts
+    USING fts5(document_id UNINDEXED, company_id UNINDEXED, text, tokenize='porter unicode61');
+-- Documents are insert-only, so the index needs no update or delete triggers.
+CREATE TRIGGER IF NOT EXISTS evidence_documents_fts_insert AFTER INSERT ON evidence_documents
+BEGIN
+    INSERT INTO evidence_document_fts (document_id, company_id, text)
+    VALUES (NEW.document_id, json_extract(NEW.record_json, '$.metadata.company_id'),
+            json_extract(NEW.record_json, '$.text'));
+END;

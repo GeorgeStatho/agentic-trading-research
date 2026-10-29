@@ -22,9 +22,15 @@ def build_company_package(company, document_ids, at, policy, *, db_path, gaps=()
     documents.update({identity: get_evidence_document(identity, db_path=db_path) for identity in document_ids})
     ordered = sorted(documents.values(), key=lambda doc: (doc['published_at'], doc['ingested_at'], doc['document_id']))
     gaps = list(gaps)
-    if len(ordered) > MAX_DOCUMENTS:
+    # Consensus is re-fetched every refresh with published_at=now; keep only the latest so it neither
+    # crowds primary documents out of the window nor stands in for them as the newest disclosure.
+    primary = [doc for doc in ordered if doc['document_type'] != 'consensus']
+    if len(primary) > MAX_DOCUMENTS:
         gaps.append('document_history_truncated')
-    ordered = ordered[-MAX_DOCUMENTS:]
+    kept = {doc['document_id'] for doc in primary[-MAX_DOCUMENTS:]}
+    latest_consensus = [doc for doc in ordered if doc['document_type'] == 'consensus'][-1:]
+    kept.update(doc['document_id'] for doc in latest_consensus)
+    ordered = [doc for doc in ordered if doc['document_id'] in kept]
     documents = {doc['document_id']: doc for doc in ordered}
     facts = [f for f in list_company_facts(company['id'], as_of=at, db_path=db_path)
              if f['document_id'] in documents and f['kind'] != 'derived']
@@ -39,9 +45,9 @@ def build_company_package(company, document_ids, at, policy, *, db_path, gaps=()
     facts.extend(derived)
     for doc in ordered:
         gaps.extend(doc.get('metadata', {}).get('gaps', []))
-    if not ordered:
+    if not primary:
         return None
-    newest = ordered[-1]
+    newest = primary[-1]
     event_key = newest.get('metadata', {}).get('event_key', newest['document_id'])
     catalyst_id = _ensure_catalyst(company, event_key, newest, at, db_path)
     superseded_documents = {doc.get('supersedes_document_id') for doc in ordered}

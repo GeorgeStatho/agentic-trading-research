@@ -4,7 +4,8 @@ import logging
 import os
 from typing import Any
 
-from services.common import looks_like_option_symbol, option_underlying_symbol, safe_float
+from services.numbers import safe_float
+from services.option_symbols import looks_like_option_symbol, option_underlying_symbol
 from services.order_values import normalize_order_summary
 
 try:
@@ -21,13 +22,32 @@ except ImportError as exc:  # pragma: no cover - optional dependency
     LimitOrderRequest = None
     ALPACA_IMPORT_ERROR = exc
 
+# Multi-leg support is newer than the rest of alpaca-py; only follower spreads need it, so an
+# older SDK must not take production's single-leg trading down with it.
+try:
+    from alpaca.trading.enums import OrderClass, PositionIntent
+    from alpaca.trading.requests import OptionLegRequest
+except ImportError:  # pragma: no cover - optional dependency
+    OrderClass = None
+    PositionIntent = None
+    OptionLegRequest = None
+
 
 class AlpacaTradingGateway:
     """Encapsulate Alpaca-specific trading operations."""
 
-    def __init__(self, *, paper: bool, logger: logging.Logger) -> None:
+    def __init__(
+        self,
+        *,
+        paper: bool,
+        logger: logging.Logger,
+        api_key: str | None = None,
+        api_secret: str | None = None,
+    ) -> None:
         self._paper = paper
         self._logger = logger
+        self._api_key = api_key
+        self._api_secret = api_secret
 
     def create_client(self) -> TradingClient:
         if ALPACA_IMPORT_ERROR is not None:
@@ -36,8 +56,9 @@ class AlpacaTradingGateway:
                 f"Original import error: {ALPACA_IMPORT_ERROR}"
             )
 
-        api_key = str(os.getenv("PUBLIC_KEY") or "").strip()
-        api_secret = str(os.getenv("PRIVATE_KEY") or "").strip()
+        # Only an account built without keys uses production's; a follower must never fall back to them.
+        api_key = str((os.getenv("PUBLIC_KEY") if self._api_key is None else self._api_key) or "").strip()
+        api_secret = str((os.getenv("PRIVATE_KEY") if self._api_secret is None else self._api_secret) or "").strip()
         if not api_key or not api_secret:
             raise RuntimeError("PUBLIC_KEY and PRIVATE_KEY must be configured in .env")
 
@@ -113,6 +134,67 @@ class AlpacaTradingGateway:
         )
         order = trading_client.submit_order(order_data=order_request)
         return self._serialize_order_summary(order=order, symbol=option_symbol, qty=qty)
+
+    def submit_multileg_market_order(
+        self,
+        trading_client: TradingClient,
+        *,
+        legs: list[dict[str, Any]],
+        qty: int,
+        opening: bool = True,
+    ) -> dict[str, Any]:
+        """Submit an options spread as one multi-leg order; each leg is {symbol, side, ratio_qty}."""
+        if MarketOrderRequest is None or OptionLegRequest is None:
+            raise RuntimeError("alpaca-py is required to submit multi-leg option orders.")
+        if int(qty) <= 0:
+            raise ValueError("qty must be greater than zero.")
+        intents = {
+            ("buy", True): PositionIntent.BUY_TO_OPEN,
+            ("sell", True): PositionIntent.SELL_TO_OPEN,
+            ("buy", False): PositionIntent.BUY_TO_CLOSE,
+            ("sell", False): PositionIntent.SELL_TO_CLOSE,
+        }
+        order_legs = [
+            OptionLegRequest(
+                symbol=str(leg["symbol"]).strip().upper(),
+                ratio_qty=int(leg.get("ratio_qty") or 1),
+                side=OrderSide(leg["side"]),
+                position_intent=intents[(leg["side"], opening)],
+            )
+            for leg in legs
+        ]
+        order_request = MarketOrderRequest(
+            qty=int(qty),
+            order_class=OrderClass.MLEG,
+            time_in_force=TimeInForce.DAY,
+            legs=order_legs,
+        )
+        order = trading_client.submit_order(order_data=order_request)
+        return self._serialize_order_summary(order=order, symbol="", qty=int(qty))
+
+    def submit_stock_market_order(
+        self,
+        trading_client: TradingClient,
+        *,
+        symbol: str,
+        qty: int,
+        side: str,
+    ) -> dict[str, Any]:
+        if MarketOrderRequest is None or OrderSide is None or TimeInForce is None:
+            raise RuntimeError("alpaca-py is required to submit stock orders.")
+        if side not in ("buy", "sell"):
+            raise ValueError("side must be 'buy' or 'sell'.")
+        if int(qty) <= 0:
+            raise ValueError("qty must be greater than zero.")
+        normalized_symbol = str(symbol or "").strip().upper()
+        order_request = MarketOrderRequest(
+            symbol=normalized_symbol,
+            qty=int(qty),
+            side=OrderSide(side),
+            time_in_force=TimeInForce.DAY,
+        )
+        order = trading_client.submit_order(order_data=order_request)
+        return self._serialize_order_summary(order=order, symbol=normalized_symbol, qty=int(qty))
 
     @staticmethod
     def _serialize_order_summary(order: Any, *, symbol: str, qty: int) -> dict[str, Any]:

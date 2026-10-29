@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._option_positions_defaults import ExitThresholds, MomentumHistoryConfig, TrailingProfitConfig
+from services.trading_config import MomentumHistoryConfig, TrailingProfitConfig
+
+from ._option_positions_defaults import ExitThresholds
 from ._option_positions_market import _resolve_trailing_giveback_pct
 from ._option_positions_state import (
     _build_momentum_history_updates,
     _coerce_bool,
     _evaluate_momentum_history_exit,
 )
-from .utils import safe_float
 from services.position_exit_policy import shadow_exit_comparison
+from services.numbers import safe_float
 
 
 def _deterministic_option_exit_decision(

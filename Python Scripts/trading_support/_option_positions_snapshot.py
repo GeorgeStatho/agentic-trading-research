@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
+from services.trading_config import MomentumHistoryConfig, OptionPositionSettings
 from services.option_momentum import evaluate_option_momentum_from_snapshot
 from services.option_position_state import get_position_state, update_position_state
 
@@ -23,11 +24,7 @@ from ._option_positions_market import (
     _resolve_option_exit_thresholds,
     _resolve_volatility_scale,
 )
-from ._option_positions_defaults import (
-    DEFAULT_OPTION_EXIT_TICK_PRICE_THRESHOLD,
-    DEFAULT_OPTION_EXIT_TICK_SIZE_LARGE,
-    DEFAULT_OPTION_EXIT_TICK_SIZE_SMALL,
-)
+from ._option_positions_defaults import build_option_exit_rules
 from ._option_positions_state import _normalize_order_status, _safe_int
 from ._option_positions_strategy import (
     _URGENT_EXIT_REASONS,
@@ -36,9 +33,9 @@ from ._option_positions_strategy import (
     _round_option_sell_price_to_tick,
     _structured_exit_action,
 )
-from .utils import safe_float
 from services.candidate_lifecycle import observe
 from services.position_exit_policy import build_position_exit_context
+from services.numbers import safe_float
 
 _TRUSTED_ENTRY_UNDERLYING_PRICE_SOURCES = {
     "broker_fill",
@@ -94,28 +91,11 @@ def _resolve_exit_rule_days_to_expiration(position_state: dict[str, Any] | None,
 def _build_option_position_snapshot(
     position: Any,
     *,
-    take_profit_pct: float,
-    stop_loss_pct: float,
-    exit_hours_to_expiration: float,
-    enable_trailing_profit: bool,
-    trailing_profit_dry_run: bool,
-    trailing_profit_config: Any,
-    momentum_history_config: Any,
-    option_price_momentum_config: Any,
+    settings: OptionPositionSettings,
+    momentum_history_config: MomentumHistoryConfig,
     state_path: Path,
     get_latest_option_quote: Callable[[str], dict[str, Any]],
     get_latest_stock_price: Callable[[str], dict[str, Any]],
-    stop_loss_confirm_checks: int = 1,
-    stop_loss_underlying_move_pct: float = 0.0,
-    exit_use_limit_orders: bool = False,
-    exit_max_spread_pct: float = 0.0,
-    exit_tick_size_small: float = DEFAULT_OPTION_EXIT_TICK_SIZE_SMALL,
-    exit_tick_size_large: float = DEFAULT_OPTION_EXIT_TICK_SIZE_LARGE,
-    exit_tick_price_threshold: float = DEFAULT_OPTION_EXIT_TICK_PRICE_THRESHOLD,
-    volatility_scaled_thresholds: bool = False,
-    volatility_baseline_atr_pct: float = 0.02,
-    volatility_min_scale: float = 0.5,
-    volatility_max_scale: float = 2.0,
     get_underlying_atr_pct: Callable[[str], float | None] | None = None,
     position_state_override: dict[str, Any] | None = None,
     pending_reconciliation: dict[str, Any] | None = None,
@@ -142,9 +122,10 @@ def _build_option_position_snapshot(
     exit_rule_days_to_expiration = _resolve_exit_rule_days_to_expiration(position_state, days_to_expiration)
     exit_thresholds = _resolve_option_exit_thresholds(
         days_to_expiration=exit_rule_days_to_expiration,
-        default_take_profit_pct=take_profit_pct,
-        default_stop_loss_pct=stop_loss_pct,
-        default_exit_hours_to_expiration=exit_hours_to_expiration,
+        default_take_profit_pct=settings.take_profit_pct,
+        default_stop_loss_pct=settings.stop_loss_pct,
+        default_exit_hours_to_expiration=settings.exit_hours_to_expiration,
+        exit_rules=build_option_exit_rules(settings.dte_rules),
     )
     option_quote_error = str(option_quote.get("error") or "").strip()
     stock_quote_error = str(stock_quote.get("error") or "").strip()
@@ -174,7 +155,7 @@ def _build_option_position_snapshot(
         current_option_mid_price=current_mid_price,
         unrealized_pl_ratio=unrealized_pl_pct_ratio,
         max_pnl_pct=current_max_pnl_pct,
-        config=option_price_momentum_config,
+        config=settings.price_momentum,
     )
     momentum_details = evaluate_combined_option_momentum(
         option_momentum=option_price_momentum_details,
@@ -200,16 +181,16 @@ def _build_option_position_snapshot(
     # thresholds always remain the safe fallback.
     volatility_scale = 1.0
     underlying_atr_pct: float | None = None
-    if volatility_scaled_thresholds and get_underlying_atr_pct is not None:
+    if settings.volatility_scaled_thresholds and get_underlying_atr_pct is not None:
         try:
             underlying_atr_pct = get_underlying_atr_pct(parsed_symbol.get("underlying_symbol"))
         except Exception:
             underlying_atr_pct = None
         volatility_scale = _resolve_volatility_scale(
             current_atr_pct=underlying_atr_pct,
-            baseline_atr_pct=volatility_baseline_atr_pct,
-            min_scale=volatility_min_scale,
-            max_scale=volatility_max_scale,
+            baseline_atr_pct=settings.volatility_baseline_atr_pct,
+            min_scale=settings.volatility_min_scale,
+            max_scale=settings.volatility_max_scale,
         )
     if volatility_scale != 1.0:
         exit_thresholds = replace(
@@ -217,7 +198,7 @@ def _build_option_position_snapshot(
             stop_loss_pct=round(exit_thresholds.stop_loss_pct * volatility_scale, 4),
             take_profit_pct=round(exit_thresholds.take_profit_pct * volatility_scale, 4),
         )
-    effective_stop_loss_underlying_move_pct = round(stop_loss_underlying_move_pct * volatility_scale, 6)
+    effective_stop_loss_underlying_move_pct = round(settings.stop_loss_underlying_move_pct * volatility_scale, 6)
     v2_exit_context = observe(build_position_exit_context, option_symbol, parsed_symbol, stock_quote) or {}
     exit_action, updated_state = _structured_exit_action(
         v2_exit_context=v2_exit_context,
@@ -231,8 +212,8 @@ def _build_option_position_snapshot(
         position_state=position_state,
         critical_errors=critical_errors,
         context_notes=context_notes,
-        enable_trailing_profit=enable_trailing_profit,
-        trailing_profit_config=trailing_profit_config,
+        enable_trailing_profit=settings.enable_trailing_profit,
+        trailing_profit_config=settings.trailing,
         momentum_history_config=momentum_history_config,
         momentum_status=str(momentum_details.get("status") or ""),
         momentum_reasons=list(momentum_details.get("reasons") or []),
@@ -242,7 +223,7 @@ def _build_option_position_snapshot(
         recently_filled_order=(
             _normalize_order_status((pending_reconciliation or {}).get("pending_order_status")) == "filled"
         ),
-        stop_loss_confirm_checks=stop_loss_confirm_checks,
+        stop_loss_confirm_checks=settings.stop_loss_confirm_checks,
         underlying_adverse_move_pct=underlying_adverse_move_pct,
         stop_loss_underlying_move_pct=effective_stop_loss_underlying_move_pct,
     )
@@ -265,7 +246,7 @@ def _build_option_position_snapshot(
     if exit_action.get("action") in {"sell_full", "sell_partial"} and _exit_should_hold_for_wide_spread(
         exit_reason=exit_reason,
         option_spread_pct=option_spread_pct,
-        max_spread_pct=exit_max_spread_pct,
+        max_spread_pct=settings.exit_max_spread_pct,
     ):
         updated_state["last_action"] = "hold"
         updated_state["last_decision_reason"] = "liquidity_guard_wide_spread"
@@ -279,7 +260,7 @@ def _build_option_position_snapshot(
             + [
                 (
                     f"Exit held: option spread {option_spread_pct * 100.0:.2f}% of mid exceeds the "
-                    f"{exit_max_spread_pct * 100.0:.2f}% liquidity ceiling; will retry next cycle."
+                    f"{settings.exit_max_spread_pct * 100.0:.2f}% liquidity ceiling; will retry next cycle."
                 )
             ],
         }
@@ -287,7 +268,7 @@ def _build_option_position_snapshot(
     # Spread-aware limit price for the exit order (None => manager submits a
     # market order, preserving legacy behavior when limit exits are disabled).
     exit_limit_price: float | None = None
-    if exit_use_limit_orders and exit_action.get("action") in {"sell_full", "sell_partial"}:
+    if settings.exit_use_limit_orders and exit_action.get("action") in {"sell_full", "sell_partial"}:
         last_retryable_exit_reason = str((position_state or {}).get("last_retryable_exit_reason") or "").strip()
         cross_spread = exit_reason in _URGENT_EXIT_REASONS or (
             bool(last_retryable_exit_reason) and last_retryable_exit_reason == exit_reason
@@ -300,9 +281,9 @@ def _build_option_position_snapshot(
         )
         exit_limit_price = _round_option_sell_price_to_tick(
             exit_limit_price,
-            small_tick=exit_tick_size_small,
-            large_tick=exit_tick_size_large,
-            tick_price_threshold=exit_tick_price_threshold,
+            small_tick=settings.exit_tick_size_small,
+            large_tick=settings.exit_tick_size_large,
+            tick_price_threshold=settings.exit_tick_price_threshold,
         )
     updated_state.setdefault("entry_underlying_symbol", parsed_symbol.get("underlying_symbol") or "")
     updated_state.setdefault("entry_price", entry_price)
@@ -391,8 +372,8 @@ def _build_option_position_snapshot(
         "momentum_mixed_count": int(persisted_state.get("momentum_mixed_count") or 0),
         "momentum_negative_score": safe_float(persisted_state.get("momentum_negative_score")) or 0.0,
         "momentum_consecutive_bad_count": int(persisted_state.get("momentum_consecutive_bad_count") or 0),
-        "trailing_profit_enabled": enable_trailing_profit,
-        "trailing_profit_dry_run": trailing_profit_dry_run,
+        "trailing_profit_enabled": settings.enable_trailing_profit,
+        "trailing_profit_dry_run": settings.trailing_profit_dry_run,
         "option_quote_timestamp": option_quote.get("timestamp"),
         "underlying_quote_timestamp": stock_quote.get("timestamp"),
         "quote_errors": quote_errors,

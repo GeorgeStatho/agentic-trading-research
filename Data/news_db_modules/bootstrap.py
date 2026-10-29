@@ -23,6 +23,7 @@ def _ensure_missing_columns(
     if not table_exists(conn, table_name):
         return
 
+    lock_for_migration(conn)  # another service booting at once could add the same column between check and ALTER
     existing_columns = table_columns(conn, table_name)
     for column_name, column_type in expected_columns.items():
         if column_name not in existing_columns:
@@ -87,6 +88,19 @@ def _move_article_content(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE news_articles DROP COLUMN raw_json")
 
 
+def _backfill_article_index(conn: sqlite3.Connection) -> None:
+    """Index the articles that were stored before news_article_fts existed; later rows follow by trigger."""
+    lock_for_migration(conn)
+    conn.execute(
+        """
+        INSERT INTO news_article_fts (rowid, title, summary, body)
+        SELECT a.id, a.title, a.summary, (SELECT body FROM news_article_content WHERE article_id = a.id)
+        FROM news_articles AS a
+        WHERE a.id NOT IN (SELECT rowid FROM news_article_fts)
+        """
+    )
+
+
 def _run_bootstrap_migrations(conn: sqlite3.Connection) -> None:
     _migrate_company_opportunist_article_processing(conn)
     _ensure_missing_columns(conn, "macro_events", MACRO_EVENT_COLUMN_TYPES)
@@ -131,5 +145,6 @@ def _set_up(db_path: Path | str, schema_path: Path | str, fingerprint: str) -> N
     with closing(get_connection(db_path)) as conn, conn:
         _run_bootstrap_migrations(conn)
         _move_article_content(conn)
+        _backfill_article_index(conn)
         migrate_catalysts(conn)
         record_setup_fingerprint(conn, SETUP_NAME, fingerprint)

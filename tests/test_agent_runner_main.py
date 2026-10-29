@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from agentCallers import main as agent_runner_main  # noqa: E402
+from agentCallers import decision_pipeline as agent_runner_main  # noqa: E402
 
 
 class AgentRunnerCompanyFilterTests(unittest.TestCase):

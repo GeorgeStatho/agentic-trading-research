@@ -1,0 +1,632 @@
+[
+  {
+    "title": "Nvidia beats earnings estimates on record data center revenue",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "earnings",
+      "catalyst_subtype": "positive",
+      "catalyst_family": "earnings_positive",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "positive",
+      "mechanism": "Reported performance changes earnings expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Intel misses earnings expectations as PC demand slumps",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "earnings",
+      "catalyst_subtype": "negative",
+      "catalyst_family": "earnings_negative",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "negative",
+      "mechanism": "Reported performance changes earnings expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Apple quarterly results show iPhone sales steady",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "earnings",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Reported performance changes earnings expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Tesla EPS beats and misses in the same quarter on mixed margins",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "earnings",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "mixed",
+      "mechanism": "Reported performance changes earnings expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "AMD reports revenue beat for third straight quarter",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "earnings",
+      "catalyst_subtype": "positive",
+      "catalyst_family": "earnings_positive",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "positive",
+      "mechanism": "Reported performance changes earnings expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Nvidia raises revenue guidance after strong demand",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "guidance",
+      "catalyst_subtype": "raise_revenue",
+      "catalyst_family": "guidance_raise",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "positive",
+      "mechanism": "Revision to forward revenue or profitability expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Micron cuts margin outlook on weak pricing",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "guidance",
+      "catalyst_subtype": "cut_margin",
+      "catalyst_family": "guidance_cut",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "negative",
+      "mechanism": "Revision to forward revenue or profitability expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Boeing withdraws full-year guidance amid production issues",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "guidance",
+      "catalyst_subtype": "withdraw",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Revision to forward revenue or profitability expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Cisco reiterates guidance for fiscal year",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "guidance",
+      "catalyst_subtype": "reiterate",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Revision to forward revenue or profitability expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Oracle initiates guidance for the coming year",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "guidance",
+      "catalyst_subtype": "initiate",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Revision to forward revenue or profitability expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Salesforce updates bookings forecast",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "guidance",
+      "catalyst_subtype": "unspecified_bookings",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Revision to forward revenue or profitability expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Microsoft to acquire gaming studio in $10 billion deal",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "ma",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "ma",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Deal consideration, financing and completion probability affect value",
+      "expected_horizon": "1_2_months",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Private equity buyout of software firm announced",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "ma",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "ma",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Deal consideration, financing and completion probability affect value",
+      "expected_horizon": "1_2_months",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Regulators open takeover review of chip merger",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "ma",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "ma",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Deal consideration, financing and completion probability affect value",
+      "expected_horizon": "1_2_months",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "FDA approval granted for Pfizer vaccine",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "regulatory",
+      "catalyst_subtype": "positive",
+      "catalyst_family": "regulatory_positive",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "positive",
+      "mechanism": "Changes to permitted operations or market access",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "FDA rejects Biogen drug application",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "regulatory",
+      "catalyst_subtype": "negative",
+      "catalyst_family": "regulatory_negative",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "negative",
+      "mechanism": "Changes to permitted operations or market access",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Antitrust enforcement action targets Google ad business",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "regulatory",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Changes to permitted operations or market access",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Court issues favorable ruling for Qualcomm in licensing dispute",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "legal",
+      "catalyst_subtype": "positive",
+      "catalyst_family": "legal_positive",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "positive",
+      "mechanism": "Changes to legal liabilities or business restrictions",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Meta settlement with regulators ends litigation",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "regulatory",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Changes to permitted operations or market access",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Court rejects Apple appeal in patent case",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "legal",
+      "catalyst_subtype": "negative",
+      "catalyst_family": "legal_negative",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "negative",
+      "mechanism": "Changes to legal liabilities or business restrictions",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Lawsuit filed against Uber over driver classification",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "legal",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Changes to legal liabilities or business restrictions",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Goldman analyst upgrades Amazon to buy",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "analyst_action",
+      "catalyst_subtype": "positive",
+      "catalyst_family": "analyst",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "positive",
+      "mechanism": "Revised external estimates or valuation assessment",
+      "expected_horizon": "1_3_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Morgan Stanley downgrades Ford on EV losses",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "analyst_action",
+      "catalyst_subtype": "negative",
+      "catalyst_family": "analyst",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "negative",
+      "mechanism": "Revised external estimates or valuation assessment",
+      "expected_horizon": "1_3_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Citi lifts price target on Broadcom",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "analyst_action",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "analyst",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Revised external estimates or valuation assessment",
+      "expected_horizon": "1_3_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Lockheed wins $2 billion defense contract",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "customer_contract",
+      "catalyst_subtype": "positive",
+      "catalyst_family": "product_commercial",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "positive",
+      "mechanism": "Changes to contracted revenue and demand visibility",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Customer agreement signed with Walmart for logistics software",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "customer_contract",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "product_commercial",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Changes to contracted revenue and demand visibility",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Apple launches new product line for wearables",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "product",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "product_commercial",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Potential changes to future product revenue and costs",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Nvidia unveils new chip for data centers",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "product",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "product_commercial",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Potential changes to future product revenue and costs",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Supply chain shortage hits Toyota production",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "supply_chain",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Changes to input availability and production costs",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Factory fire forces production halt at Samsung plant",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "supply_chain",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Changes to input availability and production costs",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "CEO of Intel resigns after board dispute",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "management",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Changes to leadership and execution expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Apple announces buyback and higher dividend",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "capital_return",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Changes to shareholder distributions or share count",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Rivian announces debt offering to fund expansion",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "financing",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "unknown",
+      "mechanism": "Changes to liquidity, leverage or dilution",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Federal Reserve holds interest rates steady",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "macro",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "macro_sector",
+      "catalyst_scope": "systemic",
+      "direction": "unknown",
+      "mechanism": "Changes to demand, financing conditions or discount rates",
+      "expected_horizon": "1_3_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "New tariff announcement rattles automakers",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "geopolitical",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "macro_sector",
+      "catalyst_scope": "systemic",
+      "direction": "unknown",
+      "mechanism": "Changes to trade access, demand or risk expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Sector rotation lifts semiconductor peer results",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "industry_readthrough",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "macro_sector",
+      "catalyst_scope": "sector",
+      "direction": "unknown",
+      "mechanism": "Related-company evidence may change sector expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Apple reportedly weighs a deal for streaming rights",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "rumor",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "unknown",
+      "direction": "unknown",
+      "mechanism": "Unconfirmed event; transmission mechanism needs review",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Unconfirmed rumor says Netflix will raise prices",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "rumor",
+      "catalyst_subtype": "positive",
+      "catalyst_family": "other",
+      "catalyst_scope": "unknown",
+      "direction": "positive",
+      "mechanism": "Unconfirmed event; transmission mechanism needs review",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Nvidia shares jump as investors cheer AI demand",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "other",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "unknown",
+      "direction": "unknown",
+      "mechanism": "Unclassified transmission mechanism; review required",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Stocks drift lower in quiet trading",
+    "summary": "Earnings season continues next week",
+    "expected": {
+      "catalyst_type": "other",
+      "catalyst_subtype": "negative",
+      "catalyst_family": "other",
+      "catalyst_scope": "unknown",
+      "direction": "negative",
+      "mechanism": "Unclassified transmission mechanism; review required",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "",
+    "summary": "Amazon raises guidance after record holiday sales",
+    "expected": {
+      "catalyst_type": "guidance",
+      "catalyst_subtype": "raise",
+      "catalyst_family": "guidance_raise",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "positive",
+      "mechanism": "Revision to forward revenue or profitability expectations",
+      "expected_horizon": "4_10_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "other",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "unknown",
+      "direction": "unknown",
+      "mechanism": "Unclassified transmission mechanism; review required",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": null,
+    "summary": null,
+    "expected": {
+      "catalyst_type": "other",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "unknown",
+      "direction": "unknown",
+      "mechanism": "Unclassified transmission mechanism; review required",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Costco reports record sales; analyst cites adverse currency loss",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "analyst_action",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "analyst",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "mixed",
+      "mechanism": "Revised external estimates or valuation assessment",
+      "expected_horizon": "1_3_days",
+      "classification_status": "classified"
+    }
+  },
+  {
+    "title": "Pfizer wins approval but FDA flags adverse safety signal",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "regulatory",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "other",
+      "catalyst_scope": "idiosyncratic",
+      "direction": "mixed",
+      "mechanism": "Changes to permitted operations or market access",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  }
+]

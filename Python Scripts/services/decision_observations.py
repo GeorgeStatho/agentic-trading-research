@@ -5,12 +5,10 @@ strategy produced, plus every DTE bucket's chain fetched once after the incumben
 Production's own candidate and orders are unchanged; this only records.
 """
 import copy
-from contextlib import closing
 from datetime import datetime, timezone
-import json
 import logging
 
-from db_common import get_connection
+from market_db_modules.candidate_lifecycle import stage_payloads
 from market_db_modules.foundation_store import digest
 from market_db_modules.forward_evaluation import record_decision_observation
 from market_db_modules.research_observations import record_research_observation
@@ -30,21 +28,6 @@ SHARED_EVIDENCE_KEYS = ('filters', 'opportunist_rollup', 'views', 'supporting_ar
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
-
-
-def frozen_stage_payloads(candidate_id, *, db_path=None):
-    """The hash-checked strategist and manager inputs production checkpointed for this candidate."""
-    with closing(get_connection(db_path)) as conn:
-        rows = conn.execute(f'''SELECT stage, snapshot_hash, snapshot_json FROM candidate_snapshots
-            WHERE candidate_id=? AND stage IN ({",".join("?" for _ in DECISION_INPUT_STAGES)})''',
-                            (candidate_id, *DECISION_INPUT_STAGES)).fetchall()
-    payloads = {}
-    for row in rows:
-        envelope = json.loads(row['snapshot_json'])
-        if digest(envelope) != row['snapshot_hash']:
-            raise ValueError('Candidate snapshot hash mismatch')
-        payloads[row['stage']] = envelope['payload']
-    return payloads
 
 
 def decision_inputs(strategist_payload, manager_snapshot):
@@ -81,7 +64,7 @@ def freeze_decision_observation(candidate_context, *, policy, acceptance=None, f
     cohort = ensure_comparison_cohort(candidate_context['pipeline_version'], policy, acceptance=acceptance,
                                       at=clock(), db_path=db_path)
     try:
-        payloads = frozen_stage_payloads(candidate_id, db_path=db_path)
+        payloads = stage_payloads(candidate_id, DECISION_INPUT_STAGES, db_path=db_path)
         if set(payloads) != set(DECISION_INPUT_STAGES):
             raise ValueError('decision inputs were not checkpointed')
         strategist_input, manager_input = decision_inputs(payloads['pre_strategist'], payloads['pre_manager'])

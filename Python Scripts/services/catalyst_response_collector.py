@@ -13,7 +13,7 @@ from market_db_modules.pricing_research import (
 )
 from services.price_response import completed_at, measure_response, positive
 from services.pricing_policy import PricingPolicy, RESPONSE_HORIZONS
-from agent_helpers.market_context.common import REQUEST_HANDLER, yf
+from agent_helpers.market_context.alpaca_base import REQUEST_HANDLER, yf
 from market_db_modules.research_outcomes import research_outcome_symbols
 from market_db_modules.research_runs import collect_active_runs
 from services.candidate_lifecycle import observe

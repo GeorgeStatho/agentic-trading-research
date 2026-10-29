@@ -31,10 +31,11 @@ from .market import (
     _normalize_contract_type,
     _resolve_target_otm_distance,
 )
-from .normalize import _coerce_float, _normalize_decision, _normalize_option_id
+from .normalize import _normalize_decision, _normalize_option_id
 from .volatility import _assess_contract_volatility
 from services.contract_policy import ContractPolicy
 from services.scenario_selector import select_with_scenarios
+from services.numbers import safe_float
 
 
 def _passes_hybrid_fast_filters(
@@ -50,7 +51,7 @@ def _passes_hybrid_fast_filters(
         target_dte_bucket=target_dte_bucket,
         default_distance=HYBRID_PREFERRED_OTM_DISTANCE,
     )
-    strike_price = _coerce_float(contract.get("strike_price"))
+    strike_price = safe_float(contract.get("strike_price"))
     if strike_price is None:
         return False, ["missing_strike_price"]
     if not _is_valid_fallback_side_contract(normalized_decision, strike_price, reference_stock_price):
@@ -76,7 +77,7 @@ def _passes_hybrid_fast_filters(
     elif dte > effective_max_dte:
         reasons.append("dte_above_max")
 
-    open_interest = _coerce_float(contract.get("open_interest"))
+    open_interest = safe_float(contract.get("open_interest"))
     oi_is_hard_filter = ContractPolicy.from_env().liquidity_mode != 'enforce'
     if open_interest is None and oi_is_hard_filter:
         reasons.append("missing_open_interest")
@@ -133,13 +134,13 @@ def _hybrid_fast_score(
         float(volatility_assessment.get("core_penalty_points", volatility_assessment["total_penalty_points"])),
         _distance_to_target_otm(
             normalized_decision,
-            _coerce_float(contract.get("strike_price")),
+            safe_float(contract.get("strike_price")),
             reference_stock_price,
             target_distance=target_otm_distance,
         ),
         _get_spread_pct(contract) or 999.0,
         abs(abs(_get_greek(contract, "delta") or 0.0) - HYBRID_TARGET_ABS_DELTA),
-        -(_coerce_float(contract.get("open_interest")) or 0.0),
+        -(safe_float(contract.get("open_interest")) or 0.0),
         -(_get_greek(contract, "gamma") or 0.0),
         float(volatility_assessment.get("profit_path_selection_preference_score", 0.0)),
         float(volatility_assessment.get("vega_selection_preference_score", 0.0)),

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 import logging
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +12,7 @@ from unittest.mock import MagicMock, patch
 ROOT_DIR = Path(__file__).resolve().parents[1]
 PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
 
+from services.trading_config import OptionPositionSettings  # noqa: E402
 from services.option_dte_buckets import OPTION_DTE_BUCKETS  # noqa: E402
 from services.position_manager import OptionPositionManagerService  # noqa: E402
 
@@ -78,72 +78,14 @@ def _build_bucket_giveback_fixture() -> dict[str, float]:
 
 def _build_position_manager_settings(bucket_giveback_fixture: dict[str, float], **overrides) -> SimpleNamespace:
     env_values = _build_option_manager_env_values(bucket_giveback_fixture)
-    env_name_by_setting = {
-        "auto_close_option_positions": "AUTO_CLOSE_OPTION_POSITIONS",
-        "option_position_take_profit_pct": "OPTION_POSITION_TAKE_PROFIT_PCT",
-        "option_position_stop_loss_pct": "OPTION_POSITION_STOP_LOSS_PCT",
-        "option_position_exit_hours_to_expiration": "OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION",
-        "option_position_enable_trailing_profit": "OPTION_POSITION_ENABLE_TRAILING_PROFIT",
-        "option_position_trailing_profit_dry_run": "OPTION_POSITION_TRAILING_PROFIT_DRY_RUN",
-        "option_position_enable_momentum_exit": "OPTION_POSITION_ENABLE_MOMENTUM_EXIT",
-        "option_momentum_history_enable_after_pnl_pct": "OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT",
-        "option_momentum_history_window_size": "OPTION_MOMENTUM_HISTORY_WINDOW_SIZE",
-        "option_momentum_history_min_samples": "OPTION_MOMENTUM_HISTORY_MIN_SAMPLES",
-        "option_momentum_history_bad_count_exit_threshold": "OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD",
-        "option_momentum_history_consecutive_bad_exit_threshold": "OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD",
-        "option_price_momentum_bad_giveback_threshold": "OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD",
-        "option_price_momentum_mixed_giveback_threshold": "OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD",
-        "option_price_momentum_good_profit_threshold": "OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD",
-        "option_trail_protection_trigger_pct": "OPTION_TRAIL_PROTECTION_TRIGGER_PCT",
-        "option_trail_initial_floor_pct": "OPTION_TRAIL_INITIAL_FLOOR_PCT",
-        "option_trail_first_scale_out_trigger_pct": "OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT",
-        "option_trail_first_scale_out_fraction": "OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION",
-        "option_trail_second_scale_out_trigger_pct": "OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT",
-        "option_trail_second_scale_out_fraction": "OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION",
-        "option_trail_100_floor_pct": "OPTION_TRAIL_100_FLOOR_PCT",
-        "option_trail_150_floor_pct": "OPTION_TRAIL_150_FLOOR_PCT",
-        "option_trail_200_floor_pct": "OPTION_TRAIL_200_FLOOR_PCT",
-        "option_pending_exit_stale_minutes": "OPTION_PENDING_EXIT_STALE_MINUTES",
-        "option_pending_exit_cancel_on_stale": "OPTION_PENDING_EXIT_CANCEL_ON_STALE",
-        "manager_decision_pnl_retention_days": "MANAGER_DECISION_PNL_RETENTION_DAYS",
-    }
-    for setting_name, value in overrides.items():
-        env_name = env_name_by_setting.get(setting_name)
-        if env_name is not None:
-            env_values[env_name] = value
-    return SimpleNamespace(
-        auto_close_option_positions=env_values["AUTO_CLOSE_OPTION_POSITIONS"],
-        option_position_take_profit_pct=env_values["OPTION_POSITION_TAKE_PROFIT_PCT"],
-        option_position_stop_loss_pct=env_values["OPTION_POSITION_STOP_LOSS_PCT"],
-        option_position_exit_hours_to_expiration=env_values["OPTION_POSITION_EXIT_HOURS_TO_EXPIRATION"],
-        option_position_enable_trailing_profit=env_values["OPTION_POSITION_ENABLE_TRAILING_PROFIT"],
-        option_position_trailing_profit_dry_run=env_values["OPTION_POSITION_TRAILING_PROFIT_DRY_RUN"],
-        option_position_enable_momentum_exit=env_values["OPTION_POSITION_ENABLE_MOMENTUM_EXIT"],
-        option_momentum_history_enable_after_pnl_pct=env_values["OPTION_MOMENTUM_HISTORY_ENABLE_AFTER_PNL_PCT"],
-        option_momentum_history_window_size=env_values["OPTION_MOMENTUM_HISTORY_WINDOW_SIZE"],
-        option_momentum_history_min_samples=env_values["OPTION_MOMENTUM_HISTORY_MIN_SAMPLES"],
-        option_momentum_history_bad_count_exit_threshold=env_values["OPTION_MOMENTUM_HISTORY_BAD_COUNT_EXIT_THRESHOLD"],
-        option_momentum_history_consecutive_bad_exit_threshold=env_values["OPTION_MOMENTUM_HISTORY_CONSECUTIVE_BAD_EXIT_THRESHOLD"],
-        option_price_momentum_bad_giveback_threshold=env_values["OPTION_PRICE_MOMENTUM_BAD_GIVEBACK_THRESHOLD"],
-        option_price_momentum_mixed_giveback_threshold=env_values["OPTION_PRICE_MOMENTUM_MIXED_GIVEBACK_THRESHOLD"],
-        option_price_momentum_good_profit_threshold=env_values["OPTION_PRICE_MOMENTUM_GOOD_PROFIT_THRESHOLD"],
-        option_trail_protection_trigger_pct=env_values["OPTION_TRAIL_PROTECTION_TRIGGER_PCT"],
-        option_trail_initial_floor_pct=env_values["OPTION_TRAIL_INITIAL_FLOOR_PCT"],
-        option_trail_first_scale_out_trigger_pct=env_values["OPTION_TRAIL_FIRST_SCALE_OUT_TRIGGER_PCT"],
-        option_trail_first_scale_out_fraction=env_values["OPTION_TRAIL_FIRST_SCALE_OUT_FRACTION"],
-        option_trail_second_scale_out_trigger_pct=env_values["OPTION_TRAIL_SECOND_SCALE_OUT_TRIGGER_PCT"],
-        option_trail_second_scale_out_fraction=env_values["OPTION_TRAIL_SECOND_SCALE_OUT_FRACTION"],
-        option_trail_giveback_pct_by_bucket_key={
-            bucket.key: env_values[f"OPTION_TRAIL_{bucket.key.upper()}_GIVEBACK_PCT"]
-            for bucket in OPTION_DTE_BUCKETS
-        },
-        option_trail_100_floor_pct=env_values["OPTION_TRAIL_100_FLOOR_PCT"],
-        option_trail_150_floor_pct=env_values["OPTION_TRAIL_150_FLOOR_PCT"],
-        option_trail_200_floor_pct=env_values["OPTION_TRAIL_200_FLOOR_PCT"],
-        option_pending_exit_stale_minutes=env_values["OPTION_PENDING_EXIT_STALE_MINUTES"],
-        option_pending_exit_cancel_on_stale=env_values["OPTION_PENDING_EXIT_CANCEL_ON_STALE"],
-        manager_decision_pnl_retention_days=env_values["MANAGER_DECISION_PNL_RETENTION_DAYS"],
-    )
+    with patch.dict("os.environ", {name: str(value) for name, value in env_values.items()}):
+        option_positions = OptionPositionSettings.from_env()
+    return SimpleNamespace(**{
+        "auto_close_option_positions": env_values["AUTO_CLOSE_OPTION_POSITIONS"],
+        "option_positions": option_positions,
+        "manager_decision_pnl_retention_days": env_values["MANAGER_DECISION_PNL_RETENTION_DAYS"],
+        **overrides,
+    })
 
 
 class OptionPositionManagerServiceTests(VerboseTestCase):
@@ -174,9 +116,6 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
             ],
         }
         fake_manage_current_option_positions = MagicMock(return_value=management_result)
-        fake_trading_module = SimpleNamespace(
-            ManageCurrentOptionPositions=fake_manage_current_option_positions
-        )
         mock_expire_manager_decision_pnl.return_value = 0
         mock_get_latest_linked_manager_decision.return_value = {"id": 91}
         mock_update_manager_decision_latest_pnl.return_value = True
@@ -199,10 +138,14 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
                 logger=MagicMock(spec=logging.Logger),
             )
 
-            with patch.dict(sys.modules, {"Trading": fake_trading_module}):
+            with patch("trading_support.option_positions.ManageCurrentOptionPositions",
+                       fake_manage_current_option_positions):
                 service.run_cycle(trading_client=object())
 
         mock_json_write.assert_called_once_with(output_path, management_result)
+        manage_kwargs = fake_manage_current_option_positions.call_args.kwargs
+        self.assertIs(manage_kwargs["settings"], settings.option_positions)
+        self.assertEqual(manage_kwargs["state_path"], state_path)
         mock_expire_manager_decision_pnl.assert_called_once()
         mock_get_latest_linked_manager_decision.assert_called_once_with(
             selected_option_symbol="MSFT260619C00450000",
@@ -249,9 +192,6 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
             ],
         }
         fake_manage_current_option_positions = MagicMock(return_value=management_result)
-        fake_trading_module = SimpleNamespace(
-            ManageCurrentOptionPositions=fake_manage_current_option_positions
-        )
         mock_expire_manager_decision_pnl.return_value = 0
         mock_get_latest_linked_manager_decision.return_value = {"id": 44}
         mock_update_manager_decision_latest_pnl.return_value = True
@@ -274,7 +214,8 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
                 logger=MagicMock(spec=logging.Logger),
             )
 
-            with patch.dict(sys.modules, {"Trading": fake_trading_module}):
+            with patch("trading_support.option_positions.ManageCurrentOptionPositions",
+                       fake_manage_current_option_positions):
                 result = service.run_cycle(trading_client=object())
 
         mock_json_write.assert_called_once_with(output_path, management_result)

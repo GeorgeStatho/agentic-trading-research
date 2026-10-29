@@ -7,6 +7,7 @@ import sqlite3
 import io
 import json
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -196,6 +197,8 @@ class PersistenceLayeringTests(unittest.TestCase):
         facades = ["market_db.py", "news_db.py", "db.py", "db_helpers", "queryDB.py"]
         self.assertEqual([name for name in facades if (DATA_DIR / name).exists()], [])
 
+    # The Docker build runs the suite without git or .git, so there is nothing to list there.
+    @unittest.skipUnless(shutil.which("git") and (ROOT_DIR / ".git").exists(), "needs a git checkout")
     def test_docs_do_not_point_at_facades(self) -> None:
         tracked = subprocess.run(["git", "ls-files", "-z", "*.md"], cwd=ROOT_DIR, capture_output=True, text=True, check=True).stdout
         facade = re.compile(r"market_db\.py|news_db\.py|db_helpers|Data/db\.py|queryDB")  # not market_db_modules

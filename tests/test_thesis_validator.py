@@ -20,12 +20,12 @@ from market_db_modules.thesis_validator import (  # noqa: E402
     summarize_thesis_validator_health,
 )
 from market_db_modules.bootstrap import initialize_database  # noqa: E402
-from services.thesis_adjudicator import (  # noqa: E402
+from services.thesis_validator_adjudicator import (  # noqa: E402
     adjudicate_thesis,
     apply_consistency_gate,
     ground_sample,
 )
-from services.thesis_arbiter import decide_thesis_arbiter_action  # noqa: E402
+from services.thesis_validator_arbiter import decide_thesis_arbiter_action  # noqa: E402
 from services.thesis_capture import build_position_thesis_record  # noqa: E402
 from services.thesis_evidence_pack import build_thesis_evidence_pack  # noqa: E402
 from services.thesis_validator_service import (  # noqa: E402
@@ -185,7 +185,7 @@ class AdjudicatorTests(unittest.TestCase):
                 '{"thesis_state": "invalidated", "would_open_today": "no", "evidence_ids": [99], "rationale": "c", "confidence": 0.9}',
             ]
         )
-        with patch("agent_helpers.shared.ask_llm_model", side_effect=lambda *args, **kwargs: next(responses)):
+        with patch("agent_helpers.llm_client.ask_llm_model", side_effect=lambda *args, **kwargs: next(responses)):
             verdict = adjudicate_thesis(pack, client=object(), samples=3)
 
         # Third sample cited outside the pack, so it was forced to unclear and
@@ -196,7 +196,7 @@ class AdjudicatorTests(unittest.TestCase):
         self.assertEqual(verdict["sample_count"], 3)
 
     def test_all_call_failures_produce_error_verdict(self) -> None:
-        with patch("agent_helpers.shared.ask_llm_model", side_effect=RuntimeError("model down")):
+        with patch("agent_helpers.llm_client.ask_llm_model", side_effect=RuntimeError("model down")):
             verdict = adjudicate_thesis({"allowed_evidence_article_ids": []}, client=object(), samples=2)
         self.assertEqual(verdict["consistency"], "error")
         self.assertEqual(verdict["thesis_state"], "unclear")
@@ -347,7 +347,8 @@ class ThesisValidatorDbTests(unittest.TestCase):
             get_open_position_thesis_for_option_symbol("NVDA260619C00190000", db_path=self.db_path)
         )
 
-        health = summarize_thesis_validator_health(db_path=self.db_path)
+        # The health window counts back from today; widen it so the fixed 2026-08-25 run never ages out.
+        health = summarize_thesis_validator_health(max_age_days=36500, db_path=self.db_path)
         self.assertEqual(health["evaluated_count"], 1)
         self.assertEqual(health["grounding_rate"], 1.0)
         self.assertEqual(health["executed_exit_count"], 1)
@@ -373,7 +374,7 @@ class ThesisValidatorServiceTests(unittest.TestCase):
             patch("market_db_modules.thesis_validator.record_thesis_validation_run", side_effect=recorded_runs.append),
             patch("services.thesis_evidence_pack.build_thesis_evidence_pack", return_value={"allowed_evidence_article_ids": []}),
             patch(
-                "services.thesis_adjudicator.adjudicate_thesis",
+                "services.thesis_validator_adjudicator.adjudicate_thesis",
                 return_value={
                     "thesis_state": "invalidated",
                     "would_open_today": "no",
@@ -416,7 +417,7 @@ class ThesisValidatorServiceTests(unittest.TestCase):
             ),
             patch("market_db_modules.thesis_validator.get_thesis_validation_run_for_date", return_value=None),
             patch("market_db_modules.thesis_validator.record_thesis_validation_run", side_effect=recorded_runs.append),
-            patch("services.thesis_adjudicator.adjudicate_thesis") as mock_adjudicate,
+            patch("services.thesis_validator_adjudicator.adjudicate_thesis") as mock_adjudicate,
         ):
             summary = service.run_due_validation(positions=[position], now=late)
 

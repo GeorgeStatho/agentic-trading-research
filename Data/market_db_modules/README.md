@@ -14,6 +14,7 @@ This folder contains the market persistence modules. Callers import from them di
 - `bootstrap.py`: schema initialization and legacy-schema migration
 - `loaders.py`: sector definition and sector tree loaders
 - `queries.py`: read helpers for companies, rankings, snapshots, executions, and decision history
+- `evidence_refresh.py`: the company-evidence request queue. `due_refresh_companies` picks the companies the collector handles each cycle (`COMPANY_EVIDENCE_COMPANIES_PER_CYCLE`), in this order: parent research-session requests, then companies the strategist/manager is about to see (active `pipeline_selection` interest with scope `manager`, `MANAGER_SCOPE`), then other pipeline selections, then the oldest request
 
 ## Import guidance
 

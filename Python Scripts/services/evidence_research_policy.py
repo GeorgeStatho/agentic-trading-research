@@ -8,6 +8,7 @@ from research_foundation_contracts import OBSERVATION_PROTOCOL, SCHEMA_VERSION, 
 from services.research_contract import fingerprint
 from services.company_evidence_policy import provider_manifest
 from services.contract_policy import ContractPolicy
+from services.env_parsing import env_flag
 from services.discovery_policy import DiscoveryPolicy
 from services.pricing_policy import PricingPolicy
 from services.research_model_policy import planner_manifest, thesis_writer_manifest
@@ -29,10 +30,13 @@ class EvidenceResearchPolicy:
     max_tool_calls: int = 6
     max_seconds: int = 90
     daily_cost_budget: float = 0
+    search_enabled: bool = False
 
     def __post_init__(self):
         if self.mode not in {"disabled", "shadow"}:
             raise ValueError("Research supports disabled or shadow mode only")
+        if type(self.search_enabled) is not bool:
+            raise ValueError("Research search flag must be a boolean")
         for value in (self.max_rounds, self.max_tool_calls, self.max_seconds,
                       self.daily_planner_calls, self.daily_retrieval_calls, self.max_planner_attempts, self.retry_seconds):
             if type(value) is not int or value < 1:
@@ -49,7 +53,8 @@ class EvidenceResearchPolicy:
                    max_rounds=int(os.getenv("RESEARCH_MAX_ROUNDS", "2")),
                    max_tool_calls=int(os.getenv("RESEARCH_MAX_TOOL_CALLS", "6")),
                    max_seconds=int(os.getenv("RESEARCH_MAX_SECONDS", "90")),
-                   daily_cost_budget=float(os.getenv("RESEARCH_DAILY_COST_BUDGET", "0")))
+                   daily_cost_budget=float(os.getenv("RESEARCH_DAILY_COST_BUDGET", "0")),
+                   search_enabled=env_flag("RESEARCH_SEARCH_ENABLED", False))
 
 
 def foundation_manifest():

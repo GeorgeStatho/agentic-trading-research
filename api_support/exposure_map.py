@@ -6,7 +6,8 @@ import os
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from agent_helpers.shared import ask_llm_model, extract_json_object, get_model_client
+from agent_helpers.llm_client import ask_llm_model, get_model_client
+from agent_helpers.text_utils import extract_json_object
 from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database as initialize_market_database

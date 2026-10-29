@@ -1,4 +1,11 @@
 certbot/
+# Not used by the Python image: the dashboard builds from its own context, and the saved
+# pages are reference material. Excluding them keeps the build context small and fast to walk.
+web_dashboard/
+html_pages/
+graft/
+.pytest_cache/
+.superpowers/
 .git/
 __pycache__/
 Data/logs/
@@ -15,3 +22,12 @@ Data/logs/
 .env
 .env.*
 !.env.example
+
+# Local database backups and snapshots (gigabytes). Runtime data lives in the db_data volume.
+stock-backup-*
+*.tgz
+*.db.gz
+# Outputs of local runs. An image that ships one serves it until the container writes its own.
+Data/*_output.json
+# Google Cloud service-account keys must never be copied into an image.
+agentic-stock-research-*.json

@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS news_articles (
     primary_source_url TEXT,
     event_time TEXT,
     first_seen_time TEXT,
+    content_updated_at TEXT,
 
     summary TEXT,
     normalized_url TEXT,
@@ -461,3 +462,54 @@ CREATE INDEX IF NOT EXISTS idx_failed_urls_stage
 
 CREATE INDEX IF NOT EXISTS idx_news_provenance_ticker_time ON news_articles(primary_ticker, event_time);
 CREATE INDEX IF NOT EXISTS idx_news_provenance_catalyst ON news_articles(catalyst_id);
+
+-- Time the title, summary or body last really changed. NULL for rows that predate this column.
+CREATE TRIGGER IF NOT EXISTS news_articles_content_updated AFTER UPDATE OF title, summary ON news_articles
+WHEN NEW.title IS NOT OLD.title OR NEW.summary IS NOT OLD.summary
+BEGIN
+    UPDATE news_articles SET content_updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') || '+00:00' WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS news_article_content_updated AFTER UPDATE OF body ON news_article_content
+WHEN NEW.body IS NOT OLD.body
+BEGIN
+    UPDATE news_articles SET content_updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') || '+00:00' WHERE id = NEW.article_id;
+END;
+
+-- rowid is news_articles.id. Each trigger deletes and reinserts the row so the index follows edits.
+CREATE VIRTUAL TABLE IF NOT EXISTS news_article_fts USING fts5(title, summary, body, tokenize='porter unicode61');
+
+CREATE TRIGGER IF NOT EXISTS news_articles_fts_insert AFTER INSERT ON news_articles
+BEGIN
+    DELETE FROM news_article_fts WHERE rowid = NEW.id;
+    INSERT INTO news_article_fts (rowid, title, summary, body)
+    VALUES (NEW.id, NEW.title, NEW.summary, (SELECT body FROM news_article_content WHERE article_id = NEW.id));
+END;
+
+CREATE TRIGGER IF NOT EXISTS news_articles_fts_update AFTER UPDATE OF title, summary ON news_articles
+WHEN NEW.title IS NOT OLD.title OR NEW.summary IS NOT OLD.summary
+BEGIN
+    DELETE FROM news_article_fts WHERE rowid = NEW.id;
+    INSERT INTO news_article_fts (rowid, title, summary, body)
+    VALUES (NEW.id, NEW.title, NEW.summary, (SELECT body FROM news_article_content WHERE article_id = NEW.id));
+END;
+
+CREATE TRIGGER IF NOT EXISTS news_articles_fts_delete AFTER DELETE ON news_articles
+BEGIN
+    DELETE FROM news_article_fts WHERE rowid = OLD.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS news_article_content_fts_insert AFTER INSERT ON news_article_content
+BEGIN
+    DELETE FROM news_article_fts WHERE rowid = NEW.article_id;
+    INSERT INTO news_article_fts (rowid, title, summary, body)
+    SELECT id, title, summary, NEW.body FROM news_articles WHERE id = NEW.article_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS news_article_content_fts_update AFTER UPDATE OF body ON news_article_content
+WHEN NEW.body IS NOT OLD.body
+BEGIN
+    DELETE FROM news_article_fts WHERE rowid = NEW.article_id;
+    INSERT INTO news_article_fts (rowid, title, summary, body)
+    SELECT id, title, summary, NEW.body FROM news_articles WHERE id = NEW.article_id;
+END;

@@ -2,12 +2,8 @@ from __future__ import annotations
 
 import os
 
+from services.env_parsing import env_flag
 from services.option_dte_buckets import DTE_BUCKET_TO_TARGET_OTM_PCT
-
-
-def _env_flag(name: str, default: bool) -> bool:
-    value = str(os.getenv(name, str(default))).strip().lower()
-    return value not in {"0", "false", "no", "off"}
 
 
 def _env_str(name: str, default: str) -> str:
@@ -16,7 +12,7 @@ def _env_str(name: str, default: str) -> str:
 
 
 OPTION_SELECTOR_MODE = _env_str("OPTION_SELECTOR_MODE", "hybrid")
-ALLOW_RISKY_SIMPLE_FALLBACK = _env_flag("ALLOW_RISKY_SIMPLE_FALLBACK", True)
+ALLOW_RISKY_SIMPLE_FALLBACK = env_flag("ALLOW_RISKY_SIMPLE_FALLBACK", True)
 
 SIMPLE_REQUIRE_ONE_DOLLAR_OTM = True
 SIMPLE_PREFERRED_OTM_DISTANCE = 0.3

@@ -122,7 +122,7 @@ The repo supports model backends behind a shared helper:
 - `ollama`: optional local fallback
 - `openai`: OpenAI Responses API, including the configured Exposure Map model path
 
-The provider abstraction lives in [Python Scripts/agentCallers/agent_helpers/shared.py](Python%20Scripts/agentCallers/agent_helpers/shared.py).
+The provider abstraction lives in [Python Scripts/agentCallers/agent_helpers/llm_client.py](Python%20Scripts/agentCallers/agent_helpers/llm_client.py).
 
 ### Recommended Vertex split
 
@@ -431,7 +431,7 @@ Count unique installs by unique `install_id` values on your telemetry receiver. 
 
 - [Python Scripts/main.py](Python%20Scripts/main.py): front-facing worker loop
 - [Python Scripts/option_manager_main.py](Python%20Scripts/option_manager_main.py): dedicated option-position management loop
-- [Python Scripts/services/front_main_application.py](Python%20Scripts/services/front_main_application.py): scheduled worker loop, Friday entry guard, and position-management orchestration
+- [Python Scripts/services/worker_application.py](Python%20Scripts/services/worker_application.py): scheduled worker loop, Friday entry guard, and position-management orchestration
 - [Python Scripts/services/trade_journal.py](Python%20Scripts/services/trade_journal.py): records successful live option submissions into SQLite
 - [Python Scripts/trading_support](Python%20Scripts/trading_support): split trading helpers for client setup, account diagnostics, option management, and stock/order helpers
 - [Data/market_schema.sql](Data/market_schema.sql): market-side SQLite schema, including the executed-trade journal table
@@ -439,9 +439,9 @@ Count unique installs by unique `install_id` values on your telemetry receiver. 
 - [docker-compose.bootstrap.yml](docker-compose.bootstrap.yml): temporary Compose override used for first-time Let's Encrypt bootstrap
 - [scripts/setup-https.sh](scripts/setup-https.sh): one-command first-time HTTPS setup helper for `dashboard.example.com`
 - [Python Scripts/news_collector_main.py](Python%20Scripts/news_collector_main.py): scrape/classification refresh loop
-- [Python Scripts/agentCallers/main.py](Python%20Scripts/agentCallers/main.py): agent-stack orchestration
-- [Python Scripts/agentCallers/agent_stages/strategist.py](Python%20Scripts/agentCallers/agent_stages/strategist.py): buy/do-not-buy stage
-- [Python Scripts/agentCallers/agent_stages/manager.py](Python%20Scripts/agentCallers/agent_stages/manager.py): call/put/neither stage
+- [Python Scripts/agentCallers/decision_pipeline.py](Python%20Scripts/agentCallers/decision_pipeline.py): agent-stack orchestration
+- [Python Scripts/agentCallers/agent_stages/strategist_runner.py](Python%20Scripts/agentCallers/agent_stages/strategist_runner.py): buy/do-not-buy stage
+- [Python Scripts/agentCallers/agent_stages/manager_runner.py](Python%20Scripts/agentCallers/agent_stages/manager_runner.py): call/put/neither stage
 - [portfolio_history_service.py](portfolio_history_service.py): Alpaca portfolio-history fetch helper
 - [docker-compose.yml](docker-compose.yml): local/cloud VM orchestration
 

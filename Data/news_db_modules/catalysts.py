@@ -7,8 +7,10 @@ from datetime import datetime, timezone
 import json
 import logging
 
-from catalyst_models import CatalystState, HALF_LIFE_MINUTES, PRIMARY_SOURCE_TYPES, classify_catalyst, timestamp
+from catalyst_models import (CatalystState, HALF_LIFE_MINUTES, LABELED_CLASSIFICATION_VERSION, PRIMARY_SOURCE_TYPES,
+                            derive_classification, detect_catalyst, timestamp)
 from db_common import get_connection, json_text
+from .catalyst_labels import latest_catalyst_label
 
 LOGGER = logging.getLogger(__name__)
 
@@ -22,10 +24,27 @@ def _iso(value):
     return value.isoformat() if value else None
 
 
-def build_catalyst_state(catalyst_id, articles, *, ticker=None, as_of=None):
+def _label_matches_kind(label, kind):
+    """A label's direction is only trusted for the event the rules found: the same kind, or a kind in the same family."""
+    if kind == 'other' or label['catalyst_type'] == kind:
+        return True
+    family = derive_classification(label['catalyst_type'], label['direction'], '')['catalyst_family']
+    return family != 'other' and family == derive_classification(kind, label['direction'], '')['catalyst_family']
+
+
+def build_catalyst_state(catalyst_id, articles, *, ticker=None, as_of=None, label=None):
     articles = sorted(articles, key=lambda row: (timestamp(row.get('event_time')) or datetime.max.replace(tzinfo=timezone.utc), row['id']))
     anchor = articles[0] if articles else {}
-    classification = classify_catalyst(anchor.get('title'), anchor.get('summary'))
+    kind, direction, text = detect_catalyst(anchor.get('title'), anchor.get('summary'))
+    classification, source = derive_classification(kind, direction, text), {}
+    # A model label only fills what the rules could not decide; rules keep the kind whenever they found one.
+    if (label and label['confidence'] != 'low' and _label_matches_kind(label, kind)
+            and (classification['catalyst_family'] == 'other' or direction in {'unknown', 'mixed'})):
+        merged = derive_classification(kind if kind != 'other' else label['catalyst_type'], label['direction'], text)
+        # A label that decides nothing (other/unknown) leaves the state exactly as rules-only.
+        if merged != classification:
+            classification, source = merged, dict(classification_source='rules+model',
+                                                  classification_version=LABELED_CLASSIFICATION_VERSION)
     roots = {}
     for row in articles:
         if row.get('root_event_id') and row.get('root_source_id') not in {None, '', 'unverified'}:
@@ -39,7 +58,7 @@ def build_catalyst_state(catalyst_id, articles, *, ticker=None, as_of=None):
               source_reputation=row.get('source_reputation_score') or 0, directness=row.get('directness_score') or 0,
               confirmation=confirmation, factuality=row.get('factuality_score') or 0) for row in articles]
     state = CatalystState(
-        catalyst_id=catalyst_id, ticker=ticker or anchor.get('primary_ticker'), **classification,
+        catalyst_id=catalyst_id, ticker=ticker or anchor.get('primary_ticker'), **classification, **source,
         first_public_time=_iso(min((value for value in (_earliest(articles, 'event_time'),
                          _earliest(articles, 'root_first_public_time')) if value), default=None)),
         first_seen_time=_iso(_earliest(articles, 'first_seen_time')),
@@ -80,7 +99,7 @@ def get_catalyst_revision(catalyst_id, *, db_path=None):
 def refresh_catalyst(catalyst_id, *, conn):
     rows = [dict(row) for row in conn.execute('''SELECT a.*, r.first_public_time AS root_first_public_time
         FROM news_articles a LEFT JOIN root_events r ON r.root_event_id=a.root_event_id WHERE a.catalyst_id=?''', (catalyst_id,))]
-    state = build_catalyst_state(catalyst_id, rows)
+    state = build_catalyst_state(catalyst_id, rows, label=latest_catalyst_label(catalyst_id, conn=conn))
     if state['ticker'] and conn.execute("SELECT 1 FROM sqlite_master WHERE name='companies'").fetchone():
         company = conn.execute('''SELECT s.sector_key, i.industry_key FROM companies c
             JOIN industries i ON i.id=c.industry_id JOIN sectors s ON s.id=i.sector_id WHERE c.symbol=?''',
@@ -123,7 +142,7 @@ def attach_candidate_catalysts(candidate_id, symbol, evidence, *, cutoff, conn):
             AND julianday(COALESCE(a.first_seen_time, a.created_at))<=julianday(?)
             AND julianday(a.event_time)<=julianday(?)''', (catalyst, cutoff, cutoff))]
         if rows:
-            state = build_catalyst_state(catalyst, rows, as_of=cutoff)
+            state = build_catalyst_state(catalyst, rows, as_of=cutoff, label=latest_catalyst_label(catalyst, as_of=cutoff, conn=conn))
             state.update(candidate_ticker=symbol, relation='direct' if state['ticker'] == symbol else 'readthrough')
             stored = json.loads(conn.execute('SELECT state_json FROM catalysts WHERE catalyst_id=?', (catalyst,)).fetchone()[0])
             state.update(sector=stored.get('sector'), industry=stored.get('industry'))

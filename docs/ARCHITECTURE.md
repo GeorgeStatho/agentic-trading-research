@@ -43,7 +43,7 @@ Docker Compose remains the source of truth for the integrated production-like st
 
 ## Compatibility Policy
 
-Import roots are declared once in `pyproject.toml` (see [DEVELOPMENT.md](DEVELOPMENT.md)); modules never edit `sys.path`. Put code in the package boundary above and import it from there. Do not add re-export wrappers: move callers to the canonical module instead (the database facades were removed this way). `Python Scripts/Trading.py` remains a facade for the legacy trading runtime.
+Import roots are declared once in `pyproject.toml` (see [DEVELOPMENT.md](DEVELOPMENT.md)); modules never edit `sys.path`. Put code in the package boundary above and import it from there. Do not add re-export wrappers: move callers to the canonical module instead (the database and `Trading.py` facades were removed this way).
 
 ## Configuration
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flask import jsonify
 
-from api_support.common import internal_error
+from api_support.request_utils import internal_error
 from portfolio_history_service import fetch_portfolio_history
 
 

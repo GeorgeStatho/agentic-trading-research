@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .common import (
+from .alpaca_base import (
     ALPACA_IMPORT_ERROR,
     LOGGER,
     MARKET_INDEX_DEFINITIONS,
@@ -15,10 +15,10 @@ from .common import (
     _get_alpaca_clients,
     _get_field,
     _normalize_identifier,
-    _safe_float,
     _serialize_scalar,
     yf,
 )
+from services.numbers import safe_float
 
 _SECTOR_ETF_MAP: dict[str, dict[str, Any]] | None = None
 
@@ -29,7 +29,7 @@ def _build_stock_fallback_snapshot(company: dict[str, Any]) -> dict[str, Any]:
         market_data = {}
 
     for key in ("currentPrice", "regularMarketPrice", "current_price", "price", "lastPrice", "previousClose"):
-        price = _safe_float(market_data.get(key))
+        price = safe_float(market_data.get(key))
         if price is None:
             continue
         return {
@@ -112,9 +112,9 @@ def _build_market_index_snapshot(*, symbol: str, label: str) -> dict[str, Any]:
                 _context=f"history({symbol},5d,1d)",
             )
             if history is not None and not getattr(history, "empty", True):
-                price = _safe_float(history["Close"].iloc[-1])
+                price = safe_float(history["Close"].iloc[-1])
                 if previous_close is None and len(history.index) >= 2:
-                    previous_close = _safe_float(history["Close"].iloc[-2])
+                    previous_close = safe_float(history["Close"].iloc[-2])
                 if not timestamp:
                     timestamp = _serialize_scalar(history.index[-1]) or ""
 
@@ -282,14 +282,14 @@ def _build_current_stock_price_snapshot(company: dict[str, Any]) -> dict[str, An
                 )
                 trade = trades.get(symbol) if hasattr(trades, "get") else None
                 if trade is not None:
-                    latest_trade_price = _safe_float(_get_field(trade, "price"))
+                    latest_trade_price = safe_float(_get_field(trade, "price"))
                     latest_trade_timestamp = _serialize_scalar(_get_field(trade, "timestamp")) or ""
             except Exception:
                 latest_trade_price = None
                 latest_trade_timestamp = ""
 
-        bid_price = _safe_float(_get_field(quote, "bid_price"))
-        ask_price = _safe_float(_get_field(quote, "ask_price"))
+        bid_price = safe_float(_get_field(quote, "bid_price"))
+        ask_price = safe_float(_get_field(quote, "ask_price"))
         midpoint_price = None
         if bid_price is not None and ask_price is not None:
             midpoint_price = round((bid_price + ask_price) / 2.0, 4)
@@ -318,11 +318,11 @@ def _build_current_stock_price_snapshot(company: dict[str, Any]) -> dict[str, An
 
 
 def _get_reference_stock_price_from_snapshot(stock_snapshot: dict[str, Any]) -> float | None:
-    latest_trade = _safe_float(stock_snapshot.get("latest_trade_price"))
-    bid = _safe_float(stock_snapshot.get("bid_price"))
-    ask = _safe_float(stock_snapshot.get("ask_price"))
-    midpoint = _safe_float(stock_snapshot.get("midpoint_price"))
-    price = _safe_float(stock_snapshot.get("price"))
+    latest_trade = safe_float(stock_snapshot.get("latest_trade_price"))
+    bid = safe_float(stock_snapshot.get("bid_price"))
+    ask = safe_float(stock_snapshot.get("ask_price"))
+    midpoint = safe_float(stock_snapshot.get("midpoint_price"))
+    price = safe_float(stock_snapshot.get("price"))
 
     if latest_trade is not None and latest_trade > 0:
         return latest_trade

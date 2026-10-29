@@ -4,7 +4,7 @@ import json
 
 from db_common import get_connection
 from research_foundation_contracts import ResearchObservation, timestamp
-from .foundation_store import canonical, digest, insert_record, read_record, record_data
+from .foundation_store import canonical, digest, insert_record, read_record, record_data, verified_envelope
 from .bootstrap import initialize_database
 
 
@@ -113,9 +113,7 @@ def validate_candidate_observation(conn, candidate_id, observation):
     snapshots = conn.execute("SELECT * FROM candidate_snapshots WHERE candidate_id=?", (candidate_id,)).fetchall()
     witness_found = False
     for row in snapshots:
-        envelope = json.loads(row["snapshot_json"])
-        if digest(envelope) != row["snapshot_hash"]:
-            raise ValueError("Candidate snapshot hash mismatch")
+        envelope = verified_envelope(row)
         if envelope.get("observation_id") != observation["observation_id"]:
             raise ValueError("Candidate snapshot lacks its shared observation identity")
         if timestamp(row["information_cutoff_time"]) != observation["information_cutoff_time"]:

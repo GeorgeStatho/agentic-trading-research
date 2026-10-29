@@ -24,6 +24,7 @@ history and are not updated when the code changes.
 | [RESEARCH_GUIDE.md](RESEARCH_GUIDE.md) | Operator guide: what runs where, turning phases on, watching them, known issues |
 | [RESEARCH_LIVE_SETUP.md](RESEARCH_LIVE_SETUP.md) | Checklist for enabling the research features on the live server |
 | [COMPANY_EVIDENCE_PROVIDERS.md](COMPANY_EVIDENCE_PROVIDERS.md) | Provider capability matrix |
+| [finharness/README.md](finharness/README.md) | Proposed: four follow-ups adapted from the FinanceHarness paper |
 
 ### V2 trading architecture (implemented)
 

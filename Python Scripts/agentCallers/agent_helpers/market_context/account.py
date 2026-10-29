@@ -3,14 +3,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .common import (
+from .alpaca_base import (
     ALPACA_IMPORT_ERROR,
     OPTION_SYMBOL_TEMPLATE,
     _get_alpaca_clients,
     _get_field,
-    _safe_float,
     _serialize_scalar,
 )
+from services.numbers import safe_float
 
 
 def _serialize_position(position: Any) -> dict[str, Any]:
@@ -18,14 +18,14 @@ def _serialize_position(position: Any) -> dict[str, Any]:
         "symbol": str(_get_field(position, "symbol") or ""),
         "asset_class": _serialize_scalar(_get_field(position, "asset_class")) or "",
         "side": _serialize_scalar(_get_field(position, "side")) or "",
-        "qty": _safe_float(_get_field(position, "qty")),
-        "avg_entry_price": _safe_float(_get_field(position, "avg_entry_price")),
-        "current_price": _safe_float(_get_field(position, "current_price")),
-        "market_value": _safe_float(_get_field(position, "market_value")),
-        "cost_basis": _safe_float(_get_field(position, "cost_basis")),
-        "unrealized_pl": _safe_float(_get_field(position, "unrealized_pl")),
-        "unrealized_plpc": _safe_float(_get_field(position, "unrealized_plpc")),
-        "change_today": _safe_float(_get_field(position, "change_today")),
+        "qty": safe_float(_get_field(position, "qty")),
+        "avg_entry_price": safe_float(_get_field(position, "avg_entry_price")),
+        "current_price": safe_float(_get_field(position, "current_price")),
+        "market_value": safe_float(_get_field(position, "market_value")),
+        "cost_basis": safe_float(_get_field(position, "cost_basis")),
+        "unrealized_pl": safe_float(_get_field(position, "unrealized_pl")),
+        "unrealized_plpc": safe_float(_get_field(position, "unrealized_plpc")),
+        "change_today": safe_float(_get_field(position, "change_today")),
     }
 
 
@@ -78,13 +78,13 @@ def _build_account_state(company_symbol: str) -> dict[str, Any]:
 
     return {
         "available": True,
-        "buying_power": _safe_float(_get_field(account, "buying_power")),
-        "options_buying_power": _safe_float(_get_field(account, "options_buying_power")),
-        "cash": _safe_float(_get_field(account, "cash")),
-        "equity": _safe_float(_get_field(account, "equity")),
-        "portfolio_value": _safe_float(_get_field(account, "portfolio_value")),
-        "daytrading_buying_power": _safe_float(_get_field(account, "daytrading_buying_power")),
-        "regt_buying_power": _safe_float(_get_field(account, "regt_buying_power")),
+        "buying_power": safe_float(_get_field(account, "buying_power")),
+        "options_buying_power": safe_float(_get_field(account, "options_buying_power")),
+        "cash": safe_float(_get_field(account, "cash")),
+        "equity": safe_float(_get_field(account, "equity")),
+        "portfolio_value": safe_float(_get_field(account, "portfolio_value")),
+        "daytrading_buying_power": safe_float(_get_field(account, "daytrading_buying_power")),
+        "regt_buying_power": safe_float(_get_field(account, "regt_buying_power")),
         "trading_blocked": _get_field(account, "trading_blocked"),
         "account_blocked": _get_field(account, "account_blocked"),
         "shorting_enabled": _get_field(account, "shorting_enabled"),
