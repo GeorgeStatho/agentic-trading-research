@@ -127,7 +127,8 @@ class UnavailableFallbackTests(unittest.TestCase):
         self.assertEqual(answer.model, "mistral-small-latest")
 
     def test_a_fallback_server_error_is_skipped(self):
-        answer = classify(gemini_client(RuntimeError(DAILY_QUOTA_ERROR)), gemini_client(GoogleCodedError(500)),
+        answer = classify(gemini_client(RuntimeError(DAILY_QUOTA_ERROR)),
+                          gemini_client(GoogleCodedError(500), GoogleCodedError(500)),
                           chat_client(chat_completion()), fallback=ClassifierFallbackSettings(chain=(SECOND_GEMINI, MISTRAL)))
         self.assertEqual(answer.model, "mistral-small-latest")
 
@@ -152,8 +153,27 @@ class UnavailableFallbackTests(unittest.TestCase):
     def test_a_primary_server_error_still_does_not_fall_back(self):
         fallback_client = chat_client(chat_completion())
         with self.assertRaises(RuntimeError):
-            classify(gemini_client(GoogleCodedError(500)), fallback_client)
+            classify(gemini_client(GoogleCodedError(500), GoogleCodedError(500)), fallback_client)
         fallback_client.raw_client.chat.completions.create.assert_not_called()
+
+
+def gemini_response(text):
+    return SimpleNamespace(text=text, candidates=None, model_version="gemini-3.1-flash-lite-001")
+
+
+class ServerErrorRetryTests(unittest.TestCase):
+    """Google treats 500 INTERNAL as transient, so it is retried like an overload before anything gives up."""
+
+    def test_a_one_off_server_error_is_retried(self):
+        primary = gemini_client(GoogleCodedError(500), gemini_response('{"x": 1}'))
+        answer = classify(primary)
+        self.assertEqual((answer.text, answer.fallback), ('{"x": 1}', False))
+        self.assertEqual(primary.raw_client.models.generate_content.call_count, 2)
+
+    def test_a_server_error_on_every_attempt_is_reported_as_unavailable(self):
+        with self.assertRaises(llm_client.ModelUnavailable):
+            classify(gemini_client(GoogleCodedError(500), GoogleCodedError(500)),
+                     fallback=ClassifierFallbackSettings(chain=()))
 
 
 if __name__ == "__main__":

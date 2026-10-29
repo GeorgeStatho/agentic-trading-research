@@ -168,7 +168,7 @@ class RunnerSelectionTests(ClassifierCase):
         (first, article_id), (second, _) = self.article(RULE_FAILURE), self.article()
         result, model = self.classify(StubModel(lambda items: [good(first), good(second, 'legal', 'negative', 'medium')]))
         self.assertEqual(result, {'selected': 2, 'labeled': 2, 'applied': 2, 'low_confidence': 0, 'invalid': 0,
-                                  'quota_stopped': False})
+                                  'quota_stopped': False, 'unavailable_stopped': False})
         rows = self.label_rows()
         sent_model = model.calls[0]['model']
         self.assertEqual((rows[first]['label_version'], rows[first]['catalyst_type'], rows[first]['direction'],
@@ -271,7 +271,7 @@ class RunnerValidationTests(ClassifierCase):
 
         result, _ = self.classify(StubModel(answer))
         self.assertEqual(result, {'selected': 8, 'labeled': 3, 'applied': 1, 'low_confidence': 1, 'invalid': 7,
-                                  'quota_stopped': False})
+                                  'quota_stopped': False, 'unavailable_stopped': False})
         rows = self.label_rows()
         self.assertEqual(set(rows), {a, b, e})
         self.assertEqual((rows[a]['catalyst_type'], rows[a]['direction']), ('regulatory', 'positive'))
@@ -280,7 +280,7 @@ class RunnerValidationTests(ClassifierCase):
         catalyst, = self.catalysts(1)
         result, _ = self.classify(StubModel(lambda items: [good(catalyst, 'other', 'unknown')]))
         self.assertEqual(result, {'selected': 1, 'labeled': 1, 'applied': 0, 'low_confidence': 0, 'invalid': 0,
-                                  'quota_stopped': False})
+                                  'quota_stopped': False, 'unavailable_stopped': False})
         self.assertEqual(set(self.label_rows()), {catalyst})
         row, state = self.stored(catalyst)
         self.assertEqual((row['classification_status'], state['classification_source'], row['classification_version']),
@@ -352,6 +352,40 @@ class RunnerFailureTests(ClassifierCase):
         with self.assertRaisesRegex(RuntimeError, 'fell over'):
             self.classify(StubModel(respond))
         self.assertEqual(len(self.label_rows()), 20)
+
+    def test_an_unavailable_batch_is_skipped_and_the_run_carries_on(self):
+        from agent_helpers.llm_client import ModelUnavailable
+        self.catalysts(45)
+        outcomes = iter([ModelUnavailable('500 INTERNAL'), None, None])
+
+        def respond(items):
+            failure = next(outcomes)
+            return failure or [good(item['catalyst_id']) for item in items]
+
+        result, model = self.classify(StubModel(respond))
+        self.assertEqual(len(model.calls), 3)
+        self.assertEqual((result['labeled'], result['quota_stopped'], result['unavailable_stopped']), (25, False, False))
+
+    def test_three_unavailable_batches_in_a_row_stop_the_run_without_raising(self):
+        from agent_helpers.llm_client import ModelUnavailable
+        self.catalysts(100)
+        result, model = self.classify(StubModel(lambda items: ModelUnavailable('500 INTERNAL')))
+        self.assertEqual(len(model.calls), 3)            # batches four and five are never asked
+        self.assertEqual((result['labeled'], result['unavailable_stopped']), (0, True))
+
+    def test_a_good_batch_resets_the_unavailable_count(self):
+        from agent_helpers.llm_client import ModelUnavailable
+        self.catalysts(120)
+        down = ModelUnavailable('500 INTERNAL')
+        outcomes = iter([down, down, None, down, down, None])
+
+        def respond(items):
+            failure = next(outcomes)
+            return failure or [good(item['catalyst_id']) for item in items]
+
+        result, model = self.classify(StubModel(respond))
+        self.assertEqual(len(model.calls), 6)
+        self.assertEqual((result['labeled'], result['unavailable_stopped']), (40, False))
 
     def test_labels_and_refresh_commit_together(self):
         catalyst, = self.catalysts(1)

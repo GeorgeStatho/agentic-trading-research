@@ -412,8 +412,14 @@ def _is_model_unavailable(exc: Exception) -> bool:
     return status_code == 404 or (status_code is not None and 500 <= status_code < 600)
 
 
+def _is_server_error(exc: Exception) -> bool:
+    # Google documents 500 INTERNAL as transient: retry with backoff before treating the model as unavailable.
+    return _extract_status_code(exc) == 500
+
+
 def _is_retryable(exc: Exception) -> bool:
-    return (_is_vertex_rate_limited(exc) or _is_overloaded(exc)) and not _is_daily_quota_exhausted(exc)
+    return ((_is_vertex_rate_limited(exc) or _is_overloaded(exc) or _is_server_error(exc))
+            and not _is_daily_quota_exhausted(exc))
 
 
 def _is_daily_quota_exhausted(exc: Exception) -> bool:
@@ -648,7 +654,7 @@ def _ask_vertex_model(
                     "%s %s for model '%s' (attempt %s/%s). "
                     "Sleeping %.1fs before retry.",
                     PROVIDER_DISPLAY_NAMES[client.provider],
-                    "is overloaded" if _is_overloaded(exc) else "rate limit hit",
+                    "is overloaded" if _is_overloaded(exc) else "server error" if _is_server_error(exc) else "rate limit hit",
                     resolved_model,
                     attempt,
                     max_attempts,
