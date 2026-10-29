@@ -50,6 +50,10 @@ class ModelQuotaExhausted(RuntimeError):
     """The provider kept refusing the call for rate, quota or capacity limits."""
 
 
+class ModelUnavailable(RuntimeError):
+    """The model is gone (404) or its provider failed server-side (5xx); another model may still answer."""
+
+
 @dataclass(frozen=True)
 class ModelAnswer:
     text: str
@@ -367,6 +371,11 @@ def _extract_status_code(exc: Exception) -> int | None:
     if isinstance(response_status, int):
         return response_status
 
+    # google-genai errors carry the HTTP status as `code`.
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        return code
+
     return None
 
 
@@ -396,6 +405,11 @@ def _is_vertex_rate_limited(exc: Exception) -> bool:
 def _is_overloaded(exc: Exception) -> bool:
     # 503 UNAVAILABLE ("experiencing high demand") is temporary; the free Gemini API returns it often.
     return _extract_status_code(exc) == 503 or "UNAVAILABLE" in str(exc).upper()
+
+
+def _is_model_unavailable(exc: Exception) -> bool:
+    status_code = _extract_status_code(exc)
+    return status_code == 404 or (status_code is not None and 500 <= status_code < 600)
 
 
 def _is_retryable(exc: Exception) -> bool:
@@ -647,7 +661,12 @@ def _ask_vertex_model(
                 )
                 continue
 
-            error_type = ModelQuotaExhausted if _is_vertex_rate_limited(exc) or _is_overloaded(exc) else RuntimeError
+            if _is_vertex_rate_limited(exc) or _is_overloaded(exc):
+                error_type = ModelQuotaExhausted
+            elif _is_model_unavailable(exc):
+                error_type = ModelUnavailable
+            else:
+                error_type = RuntimeError
             raise error_type(
                 _build_vertex_error_message(exc, resolved_model, client.provider)
             ) from exc
@@ -857,7 +876,8 @@ def _ask_chat_completions_model(
             raise RuntimeError(
                 f"Could not complete the llama.cpp request. Verify llama-server is running at {client.label}. {exc}"
             ) from exc
-        raise RuntimeError(f"Could not complete the request to {client.label} for model '{model}'. {exc}") from exc
+        error_type = ModelUnavailable if _is_model_unavailable(exc) else RuntimeError
+        raise error_type(f"Could not complete the request to {client.label} for model '{model}'. {exc}") from exc
 
     choice = response.choices[0] if response.choices else None
     usage = getattr(response, "usage", None)
@@ -1023,6 +1043,8 @@ def ask_classifier_model(
     """Ask a news classification stage's model, then each CLASSIFIER_FALLBACKS model in turn while quota runs out.
 
     Free tiers count requests per model, so a second model of the same provider is a separate allowance.
+    A fallback that is retired (404) or failing server-side (5xx) is skipped too; only quota moves the
+    primary on, so a transient primary error does not divert calls to another, possibly paid, provider.
     The answer names the model that produced it, so stored classifications keep their real source.
     """
     request = {"temperature": temperature, "response_schema": response_schema, "thinking_level": thinking_level}
@@ -1035,7 +1057,7 @@ def ask_classifier_model(
         try:
             answer = _ask_for_answer(_get_classifier_fallback_client(fallback.provider), fallback.model,
                                      system_prompt, user_prompt, **request)
-        except ModelQuotaExhausted as exc:
+        except (ModelQuotaExhausted, ModelUnavailable) as exc:
             refusal = exc
             continue
         return replace(answer, fallback=True)

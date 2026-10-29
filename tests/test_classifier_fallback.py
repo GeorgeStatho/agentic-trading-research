@@ -107,5 +107,54 @@ class StoredModelTests(unittest.TestCase):
         self.assertEqual((model, raw_json["answered_by"]), ("mistral-small-latest", answer.record()))
 
 
+class GoogleCodedError(Exception):
+    """The google-genai SDK reports its HTTP status as `code`, not `status_code`."""
+
+    def __init__(self, code):
+        super().__init__(f"{code} INTERNAL")
+        self.code = code
+
+
+OTHER_HOSTED = FallbackModel(provider="openai_compatible", model="google/gemma-4-31b-it:free")
+
+
+class UnavailableFallbackTests(unittest.TestCase):
+    """A fallback that is retired or failing server-side is skipped; the chain moves on to the next one."""
+
+    def test_a_retired_fallback_model_is_skipped(self):
+        answer = classify(gemini_client(RuntimeError(DAILY_QUOTA_ERROR)), gemini_client(HttpError(404)),
+                          chat_client(chat_completion()), fallback=ClassifierFallbackSettings(chain=(SECOND_GEMINI, MISTRAL)))
+        self.assertEqual(answer.model, "mistral-small-latest")
+
+    def test_a_fallback_server_error_is_skipped(self):
+        answer = classify(gemini_client(RuntimeError(DAILY_QUOTA_ERROR)), gemini_client(GoogleCodedError(500)),
+                          chat_client(chat_completion()), fallback=ClassifierFallbackSettings(chain=(SECOND_GEMINI, MISTRAL)))
+        self.assertEqual(answer.model, "mistral-small-latest")
+
+    def test_a_hosted_fallback_server_error_is_skipped(self):
+        answer = classify(gemini_client(RuntimeError(DAILY_QUOTA_ERROR)), chat_client(HttpError(502)),
+                          chat_client(chat_completion()), fallback=ClassifierFallbackSettings(chain=(OTHER_HOSTED, MISTRAL)))
+        self.assertEqual(answer.model, "mistral-small-latest")
+
+    def test_a_bad_request_on_a_fallback_still_fails(self):
+        # A malformed request would fail on every model; walking the chain would only hide it.
+        last = chat_client(chat_completion())
+        with self.assertRaises(RuntimeError):
+            classify(gemini_client(RuntimeError(DAILY_QUOTA_ERROR)), chat_client(HttpError(400)), last,
+                     fallback=ClassifierFallbackSettings(chain=(OTHER_HOSTED, MISTRAL)))
+        last.raw_client.chat.completions.create.assert_not_called()
+
+    def test_when_no_fallback_can_answer_the_call_fails(self):
+        with self.assertRaises(RuntimeError):
+            classify(gemini_client(RuntimeError(DAILY_QUOTA_ERROR)), gemini_client(HttpError(404)),
+                     chat_client(HttpError(500)), fallback=ClassifierFallbackSettings(chain=(SECOND_GEMINI, MISTRAL)))
+
+    def test_a_primary_server_error_still_does_not_fall_back(self):
+        fallback_client = chat_client(chat_completion())
+        with self.assertRaises(RuntimeError):
+            classify(gemini_client(GoogleCodedError(500)), fallback_client)
+        fallback_client.raw_client.chat.completions.create.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
