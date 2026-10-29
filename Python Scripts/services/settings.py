@@ -229,6 +229,7 @@ class ManagerContextSettings:
     resolved_autopsy_limit: int
     resolved_autopsy_max_age_days: int
     option_chain_limit_per_type: int
+    option_selection_limit_per_type: int
     option_chain_fetch_multiplier: int
     option_fetch_min: int
     underlying_history_lookback_days: int
@@ -248,6 +249,8 @@ class ManagerContextSettings:
             resolved_autopsy_limit=_integer(environ, "MANAGER_RESOLVED_AUTOPSY_LIMIT", 3, 1),
             resolved_autopsy_max_age_days=_integer(environ, "MANAGER_RESOLVED_AUTOPSY_MAX_AGE_DAYS", 180, 1),
             option_chain_limit_per_type=_integer(environ, "MANAGER_OPTION_CHAIN_LIMIT_PER_TYPE", 6, 1),
+            # The post-decision chain only the contract selector reads; the prompt keeps the smaller limit.
+            option_selection_limit_per_type=_integer(environ, "MANAGER_OPTION_SELECTION_LIMIT_PER_TYPE", 30, 1),
             option_chain_fetch_multiplier=_integer(environ, "MANAGER_OPTION_CHAIN_FETCH_MULTIPLIER", 6, 2),
             option_fetch_min=_integer(environ, "MANAGER_OPTION_FETCH_MIN", 500, 100),
             underlying_history_lookback_days=_integer(environ, "MANAGER_UNDERLYING_HISTORY_LOOKBACK_DAYS", 120, 90),

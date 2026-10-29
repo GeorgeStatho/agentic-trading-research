@@ -10,6 +10,7 @@ from .config import (
     HYBRID_MIN_ABS_DELTA,
     HYBRID_MIN_DTE,
     HYBRID_MIN_GAMMA,
+    HYBRID_MIN_GAMMA_PER_PCT_MOVE,
     HYBRID_MIN_OPEN_INTEREST,
     HYBRID_PREFERRED_OTM_DISTANCE,
     HYBRID_REQUIRE_MIN_OTM_DISTANCE,
@@ -106,7 +107,11 @@ def _passes_hybrid_fast_filters(
     gamma = _get_greek(contract, "gamma")
     if gamma is None:
         reasons.append("missing_gamma")
-    elif gamma < HYBRID_MIN_GAMMA:
+    elif (
+        gamma * reference_stock_price / 100.0 < HYBRID_MIN_GAMMA_PER_PCT_MOVE
+        if reference_stock_price
+        else gamma < HYBRID_MIN_GAMMA
+    ):
         reasons.append("gamma_below_min")
 
     return len(reasons) == 0, reasons

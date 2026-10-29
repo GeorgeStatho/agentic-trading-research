@@ -25,7 +25,7 @@ from .iv_history import (
     _enrich_with_alpaca_iv_percentiles,
     _resolve_iv_percentile_dte_bucket,
 )
-from services.option_dte_buckets import OPTION_DTE_BUCKETS
+from services.option_dte_buckets import OPTION_DTE_BUCKETS, get_dte_bucket_selection_range
 from services.option_hurdle_gate import select_atm_research_contracts
 from services.numbers import safe_float
 
@@ -89,6 +89,11 @@ def _serialize_option_contract(contract: Any) -> dict[str, Any]:
         "open_interest_date": _serialize_scalar(_get_field(contract, "open_interest_date")) or "",
         "close_price": safe_float(_get_field(contract, "close_price")),
     }
+
+
+def strike_window_for(reference_stock_price: float) -> float:
+    """Half-width of the default strike range: $25, or 8% of spot for names whose strikes sit $10 apart."""
+    return max(25.0, reference_stock_price * 0.08)
 
 
 def _format_strike_filter(value: float | None) -> str | None:
@@ -315,7 +320,7 @@ def build_bucket_chains(
     reference_stock_price: float | None,
     per_type_limit: int,
     today: date | None = None,
-    strike_window: float = 25.0,
+    strike_window: float | None = None,
     near_reference_only: bool = True,
 ) -> dict[str, Any]:
     """Every DTE bucket's selectable contracts from one fetch, for a frozen decision observation.
@@ -331,8 +336,10 @@ def build_bucket_chains(
     if reference_stock_price is None:
         return {"available": False, "error": "no reference stock price", "buckets": {}}
     current_date = today or date.today()
+    strike_window = strike_window if strike_window is not None else strike_window_for(reference_stock_price)
+    ranges = {bucket.key: get_dte_bucket_selection_range(bucket.key, today=current_date) for bucket in OPTION_DTE_BUCKETS}
     window = {"expiration_date_gte": (current_date + timedelta(days=CLOSEST_EXPIRATION_GTE)).isoformat(),
-              "expiration_date_lte": (current_date + timedelta(days=FARTHEST_EXPIRATION_LTE)).isoformat(),
+              "expiration_date_lte": (current_date + timedelta(days=max(high for _, high in ranges.values()))).isoformat(),
               "strike_price_gte": max(0.0, reference_stock_price - strike_window),
               "strike_price_lte": reference_stock_price + strike_window}
     manager_context = get_settings().manager_context
@@ -347,8 +354,9 @@ def build_bucket_chains(
     serialized = _serialize_chain(contract_map, snapshots)
     buckets = {}
     for bucket in OPTION_DTE_BUCKETS:
-        first = (current_date + timedelta(days=bucket.min_days)).isoformat()
-        last = (current_date + timedelta(days=bucket.max_days)).isoformat()
+        min_days, max_days = ranges[bucket.key]
+        first = (current_date + timedelta(days=min_days)).isoformat()
+        last = (current_date + timedelta(days=max_days)).isoformat()
         members = _number_contracts([dict(item) for item in serialized
                                      if first <= str(item.get("expiration_date") or "") <= last])
         buckets[bucket.key] = members if not near_reference_only else _select_contract_subset_near_reference(
@@ -398,10 +406,12 @@ def _build_option_market_snapshot(
     try:
         raw_fetch_limit = max(contract_limit_per_type * get_settings().manager_context.option_chain_fetch_multiplier, get_settings().manager_context.option_fetch_min)
         effective_strike_price_gte = strike_price_gte if strike_price_gte is not None else (
-            max(0.0, reference_stock_price - 25.0) if reference_stock_price is not None else None
+            max(0.0, reference_stock_price - strike_window_for(reference_stock_price))
+            if reference_stock_price is not None else None
         )
         effective_strike_price_lte = strike_price_lte if strike_price_lte is not None else (
-            reference_stock_price + 25.0 if reference_stock_price is not None else None
+            reference_stock_price + strike_window_for(reference_stock_price)
+            if reference_stock_price is not None else None
         )
         effective_expiration_date = expiration_date
         effective_expiration_date_gte = expiration_date_gte

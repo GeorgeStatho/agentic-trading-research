@@ -158,6 +158,36 @@ def get_dte_bucket_range(bucket: Any) -> tuple[int, int] | None:
     return resolved_bucket.min_days, resolved_bucket.max_days
 
 
+# How far past a weeklies-only window the next monthly expiration may sit and still be selectable.
+MONTHLY_EXTENSION_MAX_DAYS = 7
+
+
+def _third_friday(year: int, month: int) -> date:
+    first = date(year, month, 1)
+    return first + timedelta(days=(4 - first.weekday()) % 7 + 14)
+
+
+def get_dte_bucket_selection_range(bucket: Any, *, today: date | None = None) -> tuple[int, int] | None:
+    """The bucket's DTE range, reaching forward to the next monthly when the window holds only weeklies.
+
+    Weeklies on many names carry almost no open interest, while the monthly a few days past the
+    window is liquid. Only later expirations are added: an earlier one could open inside the
+    bucket's forced-exit DTE.
+    """
+    bucket_range = get_dte_bucket_range(bucket)
+    if bucket_range is None:
+        return None
+    current_date = today or date.today()
+    min_days, max_days = bucket_range
+    first, last = current_date + timedelta(days=min_days), current_date + timedelta(days=max_days)
+    year, month = first.year, first.month
+    while (monthly := _third_friday(year, month)) < first:
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    if monthly <= last or (monthly - last).days > MONTHLY_EXTENSION_MAX_DAYS:
+        return bucket_range
+    return min_days, (monthly - current_date).days
+
+
 def get_bucket_target_otm_pct(bucket: Any) -> float | None:
     resolved_bucket = get_dte_bucket(bucket)
     if resolved_bucket is None:
@@ -185,11 +215,11 @@ def target_dte_bucket_to_expiration_filters(
     *,
     today: date | None = None,
 ) -> tuple[str | None, str | None, str | None]:
-    bucket_range = get_dte_bucket_range(target_dte_bucket)
+    current_date = today or date.today()
+    bucket_range = get_dte_bucket_selection_range(target_dte_bucket, today=current_date)
     if bucket_range is None:
         return None, None, None
 
-    current_date = today or date.today()
     min_days, max_days = bucket_range
     return (
         None,

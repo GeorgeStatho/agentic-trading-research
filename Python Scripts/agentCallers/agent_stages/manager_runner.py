@@ -134,7 +134,10 @@ def _refresh_market_context_for_target_dte_bucket(
         option_expiration_date_lte=translated_expiration_date_lte,
         option_strike_price_gte=option_strike_price_gte,
         option_strike_price_lte=option_strike_price_lte,
-        option_contract_limit_per_type=option_contract_limit_per_type,
+        option_contract_limit_per_type=max(
+            option_contract_limit_per_type,
+            get_settings().manager_context.option_selection_limit_per_type,
+        ),
     )
     if isinstance(market_context.get("market_regime"), dict):
         refreshed_market_context["market_regime"] = market_context["market_regime"]
