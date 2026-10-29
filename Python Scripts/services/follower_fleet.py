@@ -1,8 +1,8 @@
-"""Mirror production entries into paper-trader accounts and close them when production exits."""
+"""Mirror the primary account's entries into follower accounts and close them when it exits."""
 from __future__ import annotations
 
 
-class PaperTraderFleet:
+class FollowerFleet:
     def __init__(self, *, accounts, settings, gateway_factory, chain_fetcher, logger, db_path=None, clock=None):
         self._accounts = list(accounts)
         self._settings = settings
@@ -15,5 +15,9 @@ class PaperTraderFleet:
     def mirror_entry(self, candidate, execution):
         raise NotImplementedError
 
-    def manage(self, *, production_gateway, production_client):
+    def manage(self):
         raise NotImplementedError
+
+
+def build_follower_fleet(accounts, *, logger, settings=None):
+    raise NotImplementedError

@@ -1,4 +1,4 @@
-"""Production entries hand off to the paper fleet without the fleet ever affecting production."""
+"""Production entries hand off to the follower fleet without the followers ever affecting production."""
 from __future__ import annotations
 
 import logging
@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 from services.trade_executor import OptionTradeExecutor, TradeExecutionSession
 
 
-class TradeExecutorPaperFleetTests(unittest.TestCase):
+class TradeExecutorFollowerFleetTests(unittest.TestCase):
     def setUp(self):
         self.settings = SimpleNamespace(
             default_option_order_qty=1, option_contract_multiplier=100, per_order_sizing_buying_power_ratio=0.10,
@@ -22,9 +22,9 @@ class TradeExecutorPaperFleetTests(unittest.TestCase):
         self.gateway.submit_option_market_order.return_value = {'id': 'order-1'}
         self.fleet = MagicMock()
 
-    def executor(self, paper_fleet):
-        return OptionTradeExecutor(settings=self.settings, trading_gateway=self.gateway, paper_fleet=paper_fleet,
-                                   logger=logging.getLogger('test_trade_executor_paper_fleet'))
+    def executor(self, follower_fleet):
+        return OptionTradeExecutor(settings=self.settings, trading_gateway=self.gateway, follower_fleet=follower_fleet,
+                                   logger=logging.getLogger('test_trade_executor_follower_fleet'))
 
     @staticmethod
     def candidate():
@@ -60,7 +60,7 @@ class TradeExecutorPaperFleetTests(unittest.TestCase):
 
     def test_fleet_failure_leaves_production_execution_unchanged(self):
         baseline = self.execute(self.executor(None))
-        self.fleet.mirror_entry.side_effect = RuntimeError('paper account down')
+        self.fleet.mirror_entry.side_effect = RuntimeError('follower account down')
         execution = self.execute(self.executor(self.fleet))
         self.assertTrue(execution['submitted'])
         self.fleet.mirror_entry.assert_called_once()

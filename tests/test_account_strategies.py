@@ -1,6 +1,6 @@
-"""Spec for each paper trader's order, from the plan's strike and quantity rules.
+"""Spec for each follower strategy's order, from the plan's strike and quantity rules.
 
-Fixture: underlying XYZ at spot 100 with hand-set quotes in tests/fixtures/paper_trader_chain.json.
+Fixture: underlying XYZ at spot 100 with hand-set quotes in tests/fixtures/follower_chain.json.
 Production bought the 2026-11-13 105 call (ask 1.55) or the 2026-11-13 95 put (ask 1.30).
 """
 from __future__ import annotations
@@ -10,11 +10,11 @@ import json
 import unittest
 from pathlib import Path
 
-from services.paper_strategies import PaperLeg, PaperOrderPlan, Skip, build_order
-from services.paper_trader_config import PaperTraderSettings
+from services.account_strategies import OrderLeg, OrderPlan, Skip, build_order
+from services.trading_accounts import FollowerSettings
 
-CHAIN = json.loads((Path(__file__).parent / 'fixtures' / 'paper_trader_chain.json').read_text())
-SETTINGS = PaperTraderSettings(spread_width_pct=0.05, itm_min_delta=0.70, force_exit_dte=1, max_hold_days=30)
+CHAIN = json.loads((Path(__file__).parent / 'fixtures' / 'follower_chain.json').read_text())
+SETTINGS = FollowerSettings(spread_width_pct=0.05, itm_min_delta=0.70, force_exit_dte=1, max_hold_days=30)
 
 
 def contract(symbol, chains=CHAIN):
@@ -29,10 +29,10 @@ PRODUCTION_CALL = contract('XYZ261113C00105000')
 PRODUCTION_PUT = contract('XYZ261113P00095000')
 
 
-def build(trader, decision='call', *, production=None, chains=CHAIN, spot=100.0, budget=400.0, settings=SETTINGS):
+def build(strategy, decision='call', *, production=None, chains=CHAIN, spot=100.0, budget=400.0, settings=SETTINGS):
     if production is None:
         production = PRODUCTION_CALL if decision == 'call' else PRODUCTION_PUT
-    return build_order(trader, decision=decision, underlying='XYZ', production_contract=production,
+    return build_order(strategy, decision=decision, underlying='XYZ', production_contract=production,
                        chains=chains, spot=spot, budget=budget, settings=settings)
 
 
@@ -40,10 +40,10 @@ class DebitSpreadTests(unittest.TestCase):
     def test_call_spread_buys_production_call_and_sells_nearest_strike_one_width_beyond(self):
         # Width is 5% of spot = 5, so the short strike is the first call strike >= 110.
         plan = build('debit_spread', 'call')
-        self.assertIsInstance(plan, PaperOrderPlan)
+        self.assertIsInstance(plan, OrderPlan)
         self.assertEqual(plan.legs, (
-            PaperLeg('XYZ261113C00105000', 'buy', 'option', 1, '2026-11-13'),
-            PaperLeg('XYZ261113C00110000', 'sell', 'option', 1, '2026-11-13'),
+            OrderLeg('XYZ261113C00105000', 'buy', 'option', 1, '2026-11-13'),
+            OrderLeg('XYZ261113C00110000', 'sell', 'option', 1, '2026-11-13'),
         ))
         # Net debit = long ask 1.55 - short bid 0.55 = 1.00 -> $100 per spread; $400 buys 4.
         self.assertAlmostEqual(plan.unit_cost, 100.0)
@@ -70,7 +70,7 @@ class DebitSpreadTests(unittest.TestCase):
         self.assertEqual(build('debit_spread', chains=chains), Skip('debit_spread', 'no_short_bid'))
 
     def test_skips_when_no_strike_is_a_full_width_beyond(self):
-        wide = PaperTraderSettings(spread_width_pct=0.20)
+        wide = FollowerSettings(spread_width_pct=0.20)
         self.assertEqual(build('debit_spread', settings=wide), Skip('debit_spread', 'no_short_strike'))
 
 
@@ -78,7 +78,7 @@ class ItmSingleTests(unittest.TestCase):
     def test_call_picks_the_itm_strike_nearest_spot_that_meets_the_delta_floor(self):
         # ITM calls: 90 (delta .88) and 95 (.74); both clear .70, and 95 is nearer spot.
         plan = build('itm_single', 'call', budget=1500.0)
-        self.assertEqual(plan.legs, (PaperLeg('XYZ261113C00095000', 'buy', 'option', 1, '2026-11-13'),))
+        self.assertEqual(plan.legs, (OrderLeg('XYZ261113C00095000', 'buy', 'option', 1, '2026-11-13'),))
         self.assertAlmostEqual(plan.unit_cost, 700.0)
         self.assertEqual(plan.qty, 2)
         self.assertEqual(plan.multiplier, 100)
@@ -93,7 +93,7 @@ class ItmSingleTests(unittest.TestCase):
         self.assertEqual(build('itm_single', budget=400.0).qty, 1)
 
     def test_skips_when_no_itm_strike_meets_the_delta_floor(self):
-        strict = PaperTraderSettings(itm_min_delta=0.90)
+        strict = FollowerSettings(itm_min_delta=0.90)
         self.assertEqual(build('itm_single', settings=strict), Skip('itm_single', 'no_itm_strike'))
 
     def test_without_greeks_falls_back_to_the_first_itm_strike(self):
@@ -114,7 +114,7 @@ class LongerDteTests(unittest.TestCase):
     def test_call_moves_one_bucket_out_at_the_same_otm_distance(self):
         # Production is in 12_20, so use 20_30: earliest expiry 2026-11-20; 5% OTM of spot 100 = 105.
         plan = build('longer_dte', 'call', budget=1000.0)
-        self.assertEqual(plan.legs, (PaperLeg('XYZ261120C00105000', 'buy', 'option', 1, '2026-11-20'),))
+        self.assertEqual(plan.legs, (OrderLeg('XYZ261120C00105000', 'buy', 'option', 1, '2026-11-20'),))
         self.assertAlmostEqual(plan.unit_cost, 225.0)
         self.assertEqual(plan.qty, 4)
 
@@ -138,34 +138,34 @@ class LongerDteTests(unittest.TestCase):
 class SharesTests(unittest.TestCase):
     def test_call_buys_and_put_shorts_the_same_dollar_budget(self):
         long = build('shares', 'call')
-        self.assertEqual(long.legs, (PaperLeg('XYZ', 'buy', 'stock', 1, None),))
+        self.assertEqual(long.legs, (OrderLeg('XYZ', 'buy', 'stock', 1, None),))
         self.assertEqual(long.qty, 4)
         self.assertAlmostEqual(long.unit_cost, 100.0)
         self.assertEqual(long.multiplier, 1)
         short = build('shares', 'put')
-        self.assertEqual(short.legs, (PaperLeg('XYZ', 'sell', 'stock', 1, None),))
+        self.assertEqual(short.legs, (OrderLeg('XYZ', 'sell', 'stock', 1, None),))
         self.assertEqual(short.qty, 4)
 
     def test_buys_one_share_when_budget_is_below_spot(self):
         self.assertEqual(build('shares', budget=50.0).qty, 1)
 
     def test_does_not_need_an_option_chain(self):
-        self.assertIsInstance(build('shares', chains={'available': False, 'buckets': {}}), PaperOrderPlan)
+        self.assertIsInstance(build('shares', chains={'available': False, 'buckets': {}}), OrderPlan)
 
 
 class CommonRulesTests(unittest.TestCase):
-    def test_non_directional_decision_is_skipped_by_every_trader(self):
-        for trader in ('debit_spread', 'itm_single', 'longer_dte', 'shares'):
-            self.assertEqual(build(trader, 'neither', production=PRODUCTION_CALL), Skip(trader, 'not_directional'))
+    def test_non_directional_decision_is_skipped_by_every_strategy(self):
+        for strategy in ('debit_spread', 'itm_single', 'longer_dte', 'shares'):
+            self.assertEqual(build(strategy, 'neither', production=PRODUCTION_CALL), Skip(strategy, 'not_directional'))
 
-    def test_option_traders_skip_when_chain_is_unavailable(self):
-        for trader in ('debit_spread', 'itm_single', 'longer_dte'):
-            self.assertEqual(build(trader, chains={'available': False, 'buckets': {}}), Skip(trader, 'chain_unavailable'))
+    def test_option_strategies_skip_when_chain_is_unavailable(self):
+        for strategy in ('debit_spread', 'itm_single', 'longer_dte'):
+            self.assertEqual(build(strategy, chains={'available': False, 'buckets': {}}), Skip(strategy, 'chain_unavailable'))
 
     def test_missing_budget_is_skipped(self):
         self.assertEqual(build('shares', budget=None), Skip('shares', 'no_budget'))
 
-    def test_unknown_trader_is_an_error(self):
+    def test_unknown_strategy_is_an_error(self):
         with self.assertRaises(ValueError):
             build('iron_condor')
 

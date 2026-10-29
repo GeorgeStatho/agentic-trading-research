@@ -1,11 +1,11 @@
-"""Turn one production entry into each paper trader's order. Pure: no broker or DB access."""
+"""Turn one production entry into a follower strategy's order. Pure: no broker or DB access."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class PaperLeg:
+class OrderLeg:
     symbol: str
     side: str  # 'buy' or 'sell'
     asset: str = 'option'  # 'option' or 'stock'
@@ -14,9 +14,9 @@ class PaperLeg:
 
 
 @dataclass(frozen=True)
-class PaperOrderPlan:
-    trader: str
-    legs: tuple[PaperLeg, ...]
+class OrderPlan:
+    strategy: str
+    legs: tuple[OrderLeg, ...]
     qty: int
     unit_cost: float  # dollars per spread, contract or share at the quoted entry
     multiplier: int  # 100 for options, 1 for shares
@@ -28,9 +28,9 @@ class PaperOrderPlan:
 
 @dataclass(frozen=True)
 class Skip:
-    trader: str
+    strategy: str
     reason: str
 
 
-def build_order(trader, *, decision, underlying, production_contract, chains, spot, budget, settings):
+def build_order(strategy, *, decision, underlying, production_contract, chains, spot, budget, settings):
     raise NotImplementedError
