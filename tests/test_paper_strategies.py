@@ -105,20 +105,28 @@ class ItmSingleTests(unittest.TestCase):
 
 
 class LongerDteTests(unittest.TestCase):
-    def test_call_moves_one_bucket_out_to_earliest_expiry_and_nearest_strike(self):
-        # Production is in 12_20, so use 20_30: its earliest expiry is 2026-11-20, nearest strike to 105 is 105.
+    """One DTE bucket further out, the same distance OTM as production's contract.
+
+    Production's OTM distance is its strike against spot (105 call at spot 100 = 5% OTM), so the
+    target strike is spot x (1 + 5%); the nearest listed strike wins, ties going further OTM.
+    """
+
+    def test_call_moves_one_bucket_out_at_the_same_otm_distance(self):
+        # Production is in 12_20, so use 20_30: earliest expiry 2026-11-20; 5% OTM of spot 100 = 105.
         plan = build('longer_dte', 'call', budget=1000.0)
         self.assertEqual(plan.legs, (PaperLeg('XYZ261120C00105000', 'buy', 'option', 1, '2026-11-20'),))
         self.assertAlmostEqual(plan.unit_cost, 225.0)
         self.assertEqual(plan.qty, 4)
 
-    def test_put(self):
+    def test_put_keeps_its_otm_distance_below_spot(self):
+        # The 95 put is 5% OTM, so the target is the 95 put in 20_30.
         plan = build('longer_dte', 'put')
         self.assertEqual(plan.legs[0].symbol, 'XYZ261120P00095000')
         self.assertEqual(plan.qty, 2)  # floor(400 / 195)
 
     def test_contract_missing_from_chain_uses_its_dte_and_breaks_strike_ties_further_otm(self):
-        # 15 DTE puts it in 12_20; strike 102.5 is equidistant from 100 and 105, so take the OTM 105.
+        # 15 DTE puts it in 12_20. 102.5 is 2.5% OTM; the 20_30 strikes 100 and 105 are equally far
+        # from that target, so take the further-OTM 105.
         production = {**PRODUCTION_CALL, 'symbol': 'XYZ261113C00102500', 'strike_price': 102.5, 'days_to_expiration': 15}
         self.assertEqual(build('longer_dte', production=production).legs[0].symbol, 'XYZ261120C00105000')
 
