@@ -1,10 +1,12 @@
 """Positions held by trading accounts. In v1 only follower accounts write rows."""
 from contextlib import closing
 from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 import json
 
 from db_common import get_connection
 from services.account_strategies import Skip
+from services.research_contract import utc
 from services.trading_accounts import PRIMARY_NAME, PRIMARY_STRATEGY
 
 ACTIVE = ('pending_entry', 'open', 'closing')
@@ -145,5 +147,48 @@ def account_summary(*, since=None, db_path=None):
     return summary
 
 
+def _iso(value):
+    """One timestamp format for the dashboard; stored values mix broker and SQLite styles."""
+    return utc(value).isoformat() if value else None
+
+
 def follower_report(days=0, *, now=None, db_path=None):
-    raise NotImplementedError
+    """Closed trades per account for the dashboard, with production's result on the same entries.
+
+    Production appears only on entries at least one follower closed, so its line covers the same
+    trades. Its dollars are its realized return on what it actually paid (fill price x filled
+    quantity), falling back to the estimated premium every follower was given as its budget.
+    `days` keeps entries mirrored within the window; 0 is all.
+    """
+    now = now or datetime.now(timezone.utc)
+    since = (now - timedelta(days=days)).isoformat() if days else None
+    with closing(get_connection(db_path)) as conn:
+        rows = conn.execute('''SELECT p.*, h.pnl_pct AS source_pnl_pct, h.closed_at AS source_closed_at,
+                e.fill_price * e.filled_qty * 100 AS source_cost
+            FROM account_positions p LEFT JOIN (
+                SELECT trade_execution_order_id, AVG(realized_pnl_pct) AS pnl_pct, MAX(closed_at) AS closed_at
+                FROM manager_decision_history WHERE closed_at IS NOT NULL AND realized_pnl_pct IS NOT NULL
+                GROUP BY trade_execution_order_id) h ON h.trade_execution_order_id=p.source_order_id
+            LEFT JOIN option_trade_executions e ON e.order_id=p.source_order_id
+            WHERE ? IS NULL OR datetime(p.created_at) >= datetime(?) ORDER BY p.id''', (since, since)).fetchall()
+    trades, production = [], {}
+    for row in map(_decoded, rows):
+        if row['status'] != 'closed' or row['exit_fill_price'] is None or not row['entry_fill_price']:
+            continue
+        common = {'underlying': row['underlying'], 'decision': row['decision'],
+                  'source_order_id': row['source_order_id'], 'production_pnl_pct': row['source_pnl_pct']}
+        pnl, capital = _trade_pnl(row)
+        trades.append({**common, 'account': row['account'], 'strategy': row['strategy'], 'role': row['role'],
+                       'opened_at': _iso(row['entry_at']), 'closed_at': _iso(row['exit_at']),
+                       'exit_reason': row['exit_reason'], 'pnl': pnl, 'capital': capital,
+                       'pnl_pct': pnl / capital * 100})
+        source_capital = row['source_cost'] or row['budget']
+        if row['source_pnl_pct'] is not None and source_capital and row['source_order_id'] not in production:
+            production[row['source_order_id']] = {
+                **common, 'account': row['source_account'], 'strategy': PRIMARY_STRATEGY, 'role': 'primary',
+                'opened_at': None, 'closed_at': _iso(row['source_closed_at']), 'exit_reason': None,
+                'pnl': source_capital * row['source_pnl_pct'] / 100, 'capital': source_capital,
+                'pnl_pct': row['source_pnl_pct']}
+    trades = sorted([*trades, *production.values()], key=lambda trade: trade['closed_at'])
+    return {'as_of': now.isoformat(), 'days': days,
+            'accounts': account_summary(since=since, db_path=db_path), 'trades': trades}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 
 from flask import jsonify, request
 
@@ -93,3 +94,24 @@ def register_dashboard_routes(app) -> None:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:
             return internal_error("Failed to load the news-lag report.", exc)
+
+    @app.get("/api/follower-accounts")
+    def follower_accounts():
+        # Read-only: follower positions and production's recorded outcomes, no broker calls.
+        try:
+            days = int(request.args.get("days", "0"))
+            if not 0 <= days <= 36500:
+                raise ValueError("days must be between 0 and 36500.")
+            from market_db_modules.account_positions import follower_report
+
+            try:
+                return jsonify(follower_report(days=days)), 200
+            except sqlite3.OperationalError as exc:
+                # A database set up before follower accounts existed simply has none yet.
+                if "no such table" not in str(exc):
+                    raise
+                return jsonify({"as_of": None, "days": days, "accounts": {}, "trades": []}), 200
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            return internal_error("Failed to load follower accounts.", exc)
