@@ -13,6 +13,7 @@ import json
 from typing import Any
 
 from db_common import get_connection
+from services.settings import get_settings
 
 
 VALID_OPPORTUNIST_CONFIDENCE_LEVELS = {"high", "medium", "low"}
@@ -47,6 +48,21 @@ _BASE_SHARED_IMPACT_PROPERTIES: dict[str, Any] = {
     "effect_type": {"type": "string", "enum": sorted(VALID_OPPORTUNIST_EFFECT_TYPES)},
     "reason": {"type": "string"},
 }
+
+
+# Local servers often run a 4K context window. Hosted models take far more, and free tiers cap
+# requests per day well before tokens, so they get bigger batches.
+LOCAL_CLASSIFIER_PROVIDERS = frozenset({"llamacpp", "ollama"})
+LOCAL_BATCH_TOKENS = 4096
+HOSTED_BATCH_TOKENS = 16000
+
+
+def classifier_batch_token_limit(provider: str) -> int:
+    """Token budget for one batched classification request (CLASSIFIER_BATCH_TOKENS overrides)."""
+    configured = get_settings().opportunists.classifier_batch_tokens
+    if configured is not None:
+        return configured
+    return LOCAL_BATCH_TOKENS if provider in LOCAL_CLASSIFIER_PROVIDERS else HOSTED_BATCH_TOKENS
 
 
 def build_shared_opportunist_impacts_schema(

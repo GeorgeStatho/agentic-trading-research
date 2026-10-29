@@ -71,12 +71,14 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(normalized) // 4)
 
 
-def estimate_article_tokens(article: dict[str, Any]) -> int:
+def estimate_article_tokens(article: dict[str, Any], *, body_char_limit: int | None = None) -> int:
+    # Count only the body text a prompt actually sends, or long articles fill a batch on their own.
+    body = str(article.get("body") or "")
     combined = " ".join(
         [
             str(article.get("title") or ""),
             str(article.get("summary") or ""),
-            str(article.get("body") or ""),
+            body if body_char_limit is None else body[:body_char_limit],
             str(article.get("source") or ""),
             str(article.get("source_url") or ""),
         ]
@@ -90,6 +92,7 @@ def build_token_limited_batches(
     *,
     context_limit: int,
     prompt_overhead_tokens: int,
+    body_char_limit: int | None = None,
 ) -> list[list[dict[str, Any]]]:
     # Assemble the token limited batches so callers can work from one normalized shape.
     usable_limit = max(1, int(context_limit) - int(prompt_overhead_tokens))
@@ -99,7 +102,7 @@ def build_token_limited_batches(
 
     for article in articles:
         #gets the token amoutn a article is
-        article_tokens = estimate_article_tokens(article)
+        article_tokens = estimate_article_tokens(article, body_char_limit=body_char_limit)
 
         if article_tokens >= usable_limit:
             if current_batch:

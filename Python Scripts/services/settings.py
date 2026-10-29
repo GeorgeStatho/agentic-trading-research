@@ -41,6 +41,12 @@ def _decimal(environ, name, default, minimum):
     return max(minimum, float(environ.get(name, str(default))))
 
 
+def _optional_integer(environ, name, minimum):
+    # Unset or blank means "no override": the caller picks its own default.
+    raw = str(environ.get(name) or '').strip()
+    return max(minimum, int(raw)) if raw else None
+
+
 def _optional_temperature(environ, name, default):
     # Set-but-blank means "no override": each call keeps the temperature its caller asked for.
     raw = environ.get(name, str(default)).strip()
@@ -260,6 +266,8 @@ class OpportunistSettings:
     company_ranked_companies_limit: int
     company_article_body_char_limit: int
     macro_news_batch_pause_seconds: float
+    # Token budget for one batched classification request; None uses the provider's default.
+    classifier_batch_tokens: int | None = None
 
     @classmethod
     def from_environ(cls, environ) -> "OpportunistSettings":
@@ -268,6 +276,7 @@ class OpportunistSettings:
             company_ranked_companies_limit=_integer(environ, "COMPANY_OPPORTUNIST_RANKED_COMPANIES_LIMIT", 6, 1),
             company_article_body_char_limit=_integer(environ, "COMPANY_OPPORTUNIST_ARTICLE_BODY_CHAR_LIMIT", 1200, 200),
             macro_news_batch_pause_seconds=_decimal(environ, "MACRO_NEWS_BATCH_PAUSE_SECONDS", 0.75, 0.0),
+            classifier_batch_tokens=_optional_integer(environ, "CLASSIFIER_BATCH_TOKENS", 2048),
         )
 
 
