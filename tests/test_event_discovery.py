@@ -20,12 +20,12 @@ from market_db_modules.discovery_queue import (
 )
 from market_db_modules.discovery_sources import select_discovery_companies
 from research_foundation_contracts import DiscoveryQueueItem
-from services.discovery_policy import DiscoveryPolicy
-from services.event_discovery import discover_company_events
-from services.discovery_queue import process_discovery_queue, build_discovery_research_input
-from services.company_evidence_extraction import ingest_source
-from services.company_evidence_packages import build_company_package
-from services.company_evidence_policy import CompanyEvidencePolicy
+from services.discovery.discovery_policy import DiscoveryPolicy
+from services.discovery.event_discovery import discover_company_events
+from services.discovery.discovery_queue import process_discovery_queue, build_discovery_research_input
+from services.discovery.company_evidence_extraction import ingest_source
+from services.discovery.company_evidence_packages import build_company_package
+from services.discovery.company_evidence_policy import CompanyEvidencePolicy
 
 
 def later(seconds, at=ENTRY):
@@ -92,13 +92,13 @@ class DiscoveryFixture(unittest.TestCase):
 
 class DiscoveryAcceptanceTests(DiscoveryFixture):
     def test_bad_company_does_not_block_rest_of_scan(self):
-        from services.event_discovery import company_discovery_events
+        from services.discovery.event_discovery import company_discovery_events
         self.package(company={**COMPANY, 'id': 2, 'symbol': 'OTHER'})
         def load(company, **kwargs):
             if company['id'] == 1:
                 raise ValueError('Invalid evidence')
             return company_discovery_events(company, **kwargs)
-        with patch('services.event_discovery.company_discovery_events', side_effect=load):
+        with patch('services.discovery.event_discovery.company_discovery_events', side_effect=load):
             self.discover()
         self.assertEqual(discovery_queue_status(db_path=self.db)[0]['symbol'], 'OTHER')
 
@@ -183,14 +183,14 @@ class DiscoveryScanTests(DiscoveryFixture):
 class ShadowBoundaryTests(DiscoveryFixture):
     def test_full_stack_separates_discovery_from_live_manager_output(self):
         from agentCallers import decision_pipeline as agent_main
-        from services.discovery_queue import run_discovery_shadow_cycle
+        from services.discovery.discovery_queue import run_discovery_shadow_cycle
         self.package(company={**COMPANY, 'id': 2, 'symbol': 'OTHER'})
         callback = Mock()
         def shadow_cycle(**kwargs):
             return run_discovery_shadow_cycle(**kwargs, policy=self.policy, clock=lambda: ENTRY, db_path=self.db)
         with patch.object(agent_main, 'run_agent_pipeline_from_existing_data', return_value={'sectors': []}), \
              patch.object(agent_main, 'build_market_regime_snapshot', return_value={}), \
-             patch('services.discovery_queue.run_discovery_shadow_cycle', side_effect=shadow_cycle):
+             patch('services.discovery.discovery_queue.run_discovery_shadow_cycle', side_effect=shadow_cycle):
             result = agent_main.run_full_agent_stack_from_existing_data(on_manager_result=callback)
         self.assertEqual((result['pipeline']['discovery_shadow']['candidates'][0]['symbol'], result['manager'], callback.call_count),
                          ('OTHER', [], 0))
@@ -204,7 +204,7 @@ class ShadowBoundaryTests(DiscoveryFixture):
         callback.assert_not_called()
 
     def test_persisted_discovery_identity_is_never_order_eligible(self):
-        from services.order_candidates import OrderCandidateBuilder
+        from services.trading.order_candidates import OrderCandidateBuilder
         result = {'candidate_id': 'discovery:fixture', 'decision': 'call', 'confidence': 'high',
                   'entry_gate': {'allowed': True}, 'market_regime_gate': {'allowed': True}}
         self.assertFalse(OrderCandidateBuilder()._is_trade_eligible(result))

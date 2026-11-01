@@ -9,7 +9,7 @@ cutoffs, so systems can be compared quickly and repeatably.
 Here, the only evidence that counts toward promotion is a Phase 7 frozen-forward cohort: about
 60 days of unchanged code, plus 2 for exits. That is slow for iterating on prompts and models.
 
-[`services/llm_backtest.py`](../../Python%20Scripts/services/llm_backtest.py) can already replay a model over frozen decision inputs. Three things
+[`services/evaluation/llm_backtest.py`](../../Python%20Scripts/services/evaluation/llm_backtest.py) can already replay a model over frozen decision inputs. Three things
 are missing before it can work as a benchmark:
 
 1. **A fixed item set.** Runs today are ad hoc windows (`--start-at/--end-at/--limit`), so two
@@ -48,7 +48,7 @@ Build C first.
 New `config/model_knowledge_cutoffs.csv`, with columns `model,knowledge_cutoff,source`. `source`
 is the provider documentation URL or "release-date-proxy".
 
-New `services/model_cutoffs.py`:
+New `services/evaluation/model_cutoffs.py`:
 - `knowledge_cutoff(model) -> date | None` matches the exact model id, ignoring case. There is no
   prefix matching: a family prefix would give a newer model an older cutoff, so every id (dated
   variants included) is listed on its own row.
@@ -62,7 +62,7 @@ The rule: a decision is eligible only if
 - **Store:** add `ids: Sequence[int] | None = None` to `list_frozen_manager_decisions`
   ([`Data/market_db_modules/llm_replay_store.py:16`](../../Data/market_db_modules/llm_replay_store.py#L16)). It adds
   `AND history.id IN (...)` (chunked if the list is long), and the order stays chronological.
-- **Runner:** in [`services/llm_backtest.py`](../../Python%20Scripts/services/llm_backtest.py), thread `decision_ids` through `ReplayRun.build`
+- **Runner:** in [`services/evaluation/llm_backtest.py`](../../Python%20Scripts/services/evaluation/llm_backtest.py), thread `decision_ids` through `ReplayRun.build`
   (:451) and `run_llm_backtest` (:565).
 - **Contamination guard inside `ReplayRun.build`:**
   - Unless `model == STORED_MODEL`, drop `pre_knowledge_cutoff` decisions and count them in
@@ -70,7 +70,7 @@ The rule: a decision is eligible only if
   - If any decision is `cutoff_unknown`, raise `ValueError`, unless the new parameter
     `allow_unknown_cutoff=True` is passed.
   - Record `{knowledge_cutoff, margin_days, source}` in `metrics.replay.contamination`.
-- **Direction scorer:** `services/llm_direction_score.run_direction_score` shares
+- **Direction scorer:** `services/evaluation/llm_direction_score.run_direction_score` shares
   `ReplayRun.build`, so it inherits both the item filter and the guard. Add the same parameters
   to its signature.
 - **CLI:** [`agentCallers/llm_backtest.py`](../../Python%20Scripts/agentCallers/llm_backtest.py) gets `--decision-ids-file` and
@@ -102,7 +102,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_benchmark_runs_holdout_once
   model call. A new prompt version is judged on dev; a fresh holdout score needs a new set.
   Dev runs may repeat, which is why the key is an autoincrement `run_id`.
 
-**Selection** (`services/benchmark_selection.py: select_items(decisions, *, set_id, size,
+**Selection** (`services/evaluation/benchmark_selection.py: select_items(decisions, *, set_id, size,
 holdout_share, seed=None) -> list[item]`):
 - **Pool.** Replayable decisions only (frozen input present, snapshot hash valid). Optionally
   restrict to a date window.
@@ -124,7 +124,7 @@ holdout_share, seed=None) -> list[item]`):
 - **Deterministic.** The seed defaults to `int(sha256(set_id))` (an explicit `seed` overrides it), and `selection_json` records every
   parameter.
 
-### 4. Run and score (`services/benchmark_runner.py`)
+### 4. Run and score (`services/evaluation/benchmark_runner.py`)
 `run_benchmark(set_id, *, split, model, replay_strategist, allow_unknown_cutoff=False, db_path=None)`:
 1. Load the split's item IDs, then call `run_llm_backtest(model=..., decision_ids=ids,
    replay_strategist=...)`. It returns the backtest run (persisted to `backtest_runs` and

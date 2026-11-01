@@ -256,11 +256,11 @@ linked `strategist_runs.input_payload`.
 | Concern | Location |
 | --- | --- |
 | Contract, schema, normalization | `Python Scripts/agentCallers/agent_stages/evidence_thesis_contract.py` |
-| Claim and coverage checks | `Python Scripts/services/evidence_thesis_checks.py`, `evidence_thesis_numbers.py` |
-| Check orchestration, gate, compact view | `Python Scripts/services/evidence_thesis.py` |
-| Policy | `Python Scripts/services/evidence_thesis_policy.py` |
-| Strategist/manager integration | `strategist_runner.py`, `strategist_prompt.py`, `strategist_schema.py`, `manager_strategist_context.py`, `manager_prompt.py`, `agentCallers/decision_pipeline.py`, `services/order_candidates.py` |
-| Research shadow route | `agent_stages/research_thesis_writer.py`, `services/research_thesis.py` |
+| Claim and coverage checks | `Python Scripts/services/thesis/evidence_thesis_checks.py`, `evidence_thesis_numbers.py` |
+| Check orchestration, gate, compact view | `Python Scripts/services/thesis/evidence_thesis.py` |
+| Policy | `Python Scripts/services/thesis/evidence_thesis_policy.py` |
+| Strategist/manager integration | `strategist_runner.py`, `strategist_prompt.py`, `strategist_schema.py`, `manager_strategist_context.py`, `manager_prompt.py`, `agentCallers/decision_pipeline.py`, `services/trading/order_candidates.py` |
+| Research shadow route | `agent_stages/research_thesis_writer.py`, `services/research/research_thesis.py` |
 | Storage and report | `Data/market_db_modules/evidence_thesis.py`, `evidence_thesis_schema.sql`, `evidence_thesis_report.py` |
 | Tests | `tests/test_thesis_evidence_contract.py`, `tests/test_research_thesis.py`, `tests/test_agent_runner_main.py` (failure isolation) |
 

@@ -6,8 +6,8 @@ from typing import Any, Callable
 
 from alpaca.data.requests import OptionLatestQuoteRequest, StockLatestQuoteRequest
 
-from services.trading_config import TrailingProfitConfig
-from services.option_dte_buckets import OPTION_DTE_BUCKETS, DteBucket, resolve_dte_bucket_for_days
+from services.core.trading_config import TrailingProfitConfig
+from services.options.option_dte_buckets import OPTION_DTE_BUCKETS, DteBucket, resolve_dte_bucket_for_days
 
 from ._option_positions_defaults import (
     ExitThresholds,
@@ -17,7 +17,7 @@ from ._option_positions_defaults import (
     OPTION_SYMBOL_TEMPLATE,
     OptionExitRule,
 )
-from services.numbers import safe_float
+from services.core.numbers import safe_float
 
 
 # Only reached when no bucket has a configured giveback; every registered bucket defines one.

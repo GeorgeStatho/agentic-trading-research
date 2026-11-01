@@ -5,7 +5,7 @@ from functools import lru_cache
 
 from alpaca.data import OptionHistoricalDataClient, StockHistoricalDataClient
 from alpaca.trading.client import TradingClient
-from services.trading_config import AlpacaSettings
+from services.core.trading_config import AlpacaSettings
 
 
 def _get_alpaca_settings() -> AlpacaSettings:

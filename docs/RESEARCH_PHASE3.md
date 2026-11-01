@@ -47,7 +47,7 @@ Local Ollama uses the same single timed request, configured output limit and jou
 
 ## Approved retrieval and evidence boundaries
 
-The operations in `services/research_tools.py` search **already ingested evidence**, using the frozen discovery observation cutoff. If the collection package is older, an immutable research copy uses the observation cutoff while retaining its original evidence IDs:
+The operations in `services/research/research_tools.py` search **already ingested evidence**, using the frozen discovery observation cutoff. If the collection package is older, an immutable research copy uses the observation cutoff while retaining its original evidence IDs:
 
 | Operation | Retrieval |
 | --- | --- |
@@ -99,7 +99,7 @@ Hits come from two FTS5 indexes kept current by triggers: `news_article_fts` (ti
 - Documents count only when ingested by the cutoff.
 - Only articles linked to this company, and documents whose metadata names it, are searched.
 
-Each article hit is frozen as an immutable `EvidenceDocument` (`services/research_search.py`), with
+Each article hit is frozen as an immutable `EvidenceDocument` (`services/research/research_search.py`), with
 `document_id = news:<article_id>:<text hash>`, `provider = news_archive`, `ingested_at` = the later of
 first sight and the last content change, and `published_at` clamped to first sight. Identical text reuses
 the stored document; changed text creates a new one. Snapshots therefore join packages and Phase 4

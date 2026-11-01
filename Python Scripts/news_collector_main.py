@@ -9,8 +9,8 @@ import sys
 import time
 from typing import Any
 
-from services.runtime_paths import DATA_DIR, LOGS_DIR
-from services.settings import load_process_settings
+from services.core.runtime_paths import DATA_DIR, LOGS_DIR
+from services.core.settings import load_process_settings
 
 # Entrypoint only: importing this module (tests) must not load .env.
 if __name__ == "__main__":
@@ -21,10 +21,10 @@ from market_data.hydration import ensure_all_sector_market_data
 from market_db_modules.queries import get_all_companies, get_all_industries, get_all_sectors
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
-from services.env_parsing import env_flag, env_positive_int
-from services.status_files import JsonFileWriter
-from services.startup_readiness import StartupReadinessChecker
-from services.telemetry import send_startup_ping_async
+from services.core.env_parsing import env_flag, env_positive_int
+from services.core.status_files import JsonFileWriter
+from services.runtime.startup_readiness import StartupReadinessChecker
+from services.runtime.telemetry import send_startup_ping_async
 
 
 LOGGER = logging.getLogger("news_collector")
@@ -139,7 +139,7 @@ SETTINGS = NewsCollectorSettings.from_env()
 
 def run_news_collection_cycle() -> dict[str, Any]:
     LOGGER.info("Starting news collection pipeline run")
-    from services.market_regime import build_market_regime_snapshot
+    from services.gates.market_regime import build_market_regime_snapshot
     try:
         regime = build_market_regime_snapshot()
     except Exception as exc:
@@ -147,21 +147,21 @@ def run_news_collection_cycle() -> dict[str, Any]:
         regime = {"error": str(exc)}
     result = run_news_collection_pipeline()
     result["market_regime_refresh"] = regime
-    from services.candidate_lifecycle import observe
-    from services.catalyst_response_collector import collect_catalyst_responses
-    from services.catalyst_classification import classify_pending_catalysts
-    from services.settings import get_settings
+    from services.runtime.candidate_lifecycle import observe
+    from services.discovery.catalyst_response_collector import collect_catalyst_responses
+    from services.discovery.catalyst_classification import classify_pending_catalysts
+    from services.core.settings import get_settings
     # Before registration, so new labels are priced in the same cycle. Off until the backfill is reviewed.
     if get_settings().catalyst_classifier.enabled:
         result['catalyst_classification'] = observe(classify_pending_catalysts)
     result['catalyst_response_refresh'] = observe(collect_catalyst_responses)
-    from services.decision_attribution_runner import attribute_decisions
+    from services.evaluation.decision_attribution_runner import attribute_decisions
     result['decision_attribution'] = observe(attribute_decisions)
-    from services.forward_evaluation import run_forward_evaluation_cycle
+    from services.evaluation.forward_evaluation import run_forward_evaluation_cycle
     result['forward_evaluation'] = observe(run_forward_evaluation_cycle)
-    from services.company_evidence_service import collect_company_evidence
+    from services.discovery.company_evidence_service import collect_company_evidence
     result['company_evidence_refresh'] = observe(collect_company_evidence)
-    from services.event_discovery import discover_company_events
+    from services.discovery.event_discovery import discover_company_events
     result['event_discovery'] = observe(discover_company_events)
     JsonFileWriter.write(SETTINGS.output_path, result)
     LOGGER.info("Saved news collection output to %s", SETTINGS.output_path)

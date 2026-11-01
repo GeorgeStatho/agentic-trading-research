@@ -12,8 +12,8 @@ from unittest.mock import patch
 
 import tests.test_thesis_evidence_contract as thesis_tests
 from agent_stages import manager_runner, strategist_runner
-from services.evidence_thesis import check_evidence_thesis
-from services.evidence_thesis_policy import EvidenceThesisPolicy
+from services.thesis.evidence_thesis import check_evidence_thesis
+from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
 
 
 def manager_payload(*, evidence=True):

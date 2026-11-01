@@ -23,7 +23,7 @@ from agent_stages.company_opportunist import classify_company_articles
 from agent_stages.industry_opportunist import classify_sector_articles_to_industries
 from agent_stages.macro_news_to_sectors import classify_macro_news_to_sectors
 from agent_stages.sector_opportunist import classify_sector_articles
-from services.company_evidence_demand import request_pipeline_evidence
+from services.discovery.company_evidence_demand import request_pipeline_evidence
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]

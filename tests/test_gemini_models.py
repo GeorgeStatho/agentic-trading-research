@@ -5,8 +5,8 @@ import unittest
 from unittest.mock import Mock
 
 from agent_helpers.llm_client import Client, ask_llm_model
-from services.gemini_models import thinking_level_for
-from services.settings import Settings, get_settings, use_settings
+from services.core.gemini_models import thinking_level_for
+from services.core.settings import Settings, get_settings, use_settings
 
 
 def settings_from(**environ):

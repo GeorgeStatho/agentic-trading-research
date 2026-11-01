@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET
+from services.options.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET
 from agent_stages.evidence_thesis_contract import EVIDENCE_THESIS_SCHEMA
 
 

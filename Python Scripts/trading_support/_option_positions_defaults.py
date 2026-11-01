@@ -4,8 +4,8 @@ import re
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
-from services.trading_config import OptionExitRuleConfig
-from services.option_dte_buckets import OPTION_DTE_BUCKETS
+from services.core.trading_config import OptionExitRuleConfig
+from services.options.option_dte_buckets import OPTION_DTE_BUCKETS
 
 
 @dataclass(frozen=True)

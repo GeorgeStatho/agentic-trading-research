@@ -7,20 +7,20 @@ from pathlib import Path
 from uuid import uuid4
 
 from db_common import get_connection
-from services.research_contract import (ResearchPolicy, STRATEGIES, canonical, fingerprint,
+from services.research.research_contract import (ResearchPolicy, STRATEGIES, canonical, fingerprint,
                                         strategy_decisions, utc)
-from services.research_inputs import baseline_contract, load_inputs, replay_missing_selection
-from services.research_promotion import PAIRED_PREFIX, research_only_candidate, source_hash
-from services.research_versions import evaluation_version, require_current_evaluator
+from services.research.research_inputs import baseline_contract, load_inputs, replay_missing_selection
+from services.research.research_promotion import PAIRED_PREFIX, research_only_candidate, source_hash
+from services.research.research_versions import evaluation_version, require_current_evaluator
 from research_foundation_contracts import OBSERVATION_PROTOCOL
 from .research_observations import (
     candidate_observation, enroll_strategy_evaluation, validate_candidate_observation,
     validate_strategy_evaluation,
 )
-from services.shadow_portfolio import simulate_option
+from services.research.shadow_portfolio import simulate_option
 from .bootstrap import initialize_database
-from services.price_response import completed_at
-from services.research_contract import direction
+from services.research.price_response import completed_at
+from services.research.research_contract import direction
 import logging
 
 
@@ -119,7 +119,7 @@ ENROLLMENT_GRACE = timedelta(days=2)
 def decision_quote(contract, cutoff):
     """The quote frozen with the decision is entry evidence that existed at the cutoff.
 
-    Closing marks come from the same vendor (see services/research_marks.py), so an entry and
+    Closing marks come from the same vendor (see services/research/research_marks.py), so an entry and
     its exit are never priced by different providers.
     """
     quote = (contract or {}).get('latest_quote') or {}

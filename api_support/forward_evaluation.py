@@ -42,7 +42,7 @@ def build_forward_evaluation_payload(*, window_days: int = DEFAULT_WINDOW_DAYS, 
 
 
 def _settings() -> dict:
-    from services.forward_evaluation_policy import AcceptancePolicy, ChallengerPolicy, ForwardEvaluationPolicy
+    from services.evaluation.forward_evaluation_policy import AcceptancePolicy, ChallengerPolicy, ForwardEvaluationPolicy
 
     result: dict[str, Any] = {}
     for key, read in (("forward_evaluation", lambda: {"mode": ForwardEvaluationPolicy.from_env().mode}),

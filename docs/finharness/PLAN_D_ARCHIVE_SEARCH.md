@@ -4,7 +4,7 @@ Status: proposed (2026-10-27). See [README.md](README.md) for the index.
 
 ## Context
 FinanceHarness gives its agent dense search over a point-in-time (PIT) archive. Phase 3 has
-six typed operations ([`Python Scripts/services/research_tools.py:17-24`](../../Python%20Scripts/services/research_tools.py#L17-L24)). Each one looks up
+six typed operations ([`Python Scripts/services/research/research_tools.py:17-24`](../../Python%20Scripts/services/research/research_tools.py#L17-L24)). Each one looks up
 facts and documents by metric, period or event, and nothing accepts free text. The planner
 cannot ask "what has been reported about NVDA's export licences?"; it can only fetch what an
 evidence package already holds.
@@ -15,7 +15,7 @@ This plan adds one bounded, PIT-filtered full-text operation over two sources:
 
 It uses SQLite FTS5. Search results become citable through the existing document path.
 
-**Honest scope.** `coverage_outcome` ([`services/research_evidence.py:65-75`](../../Python%20Scripts/services/research_evidence.py#L65-L75)) needs an `actual` or
+**Honest scope.** `coverage_outcome` ([`services/research/research_evidence.py:65-75`](../../Python%20Scripts/services/research/research_evidence.py#L65-L75)) needs an `actual` or
 `guidance` company fact before a session can be `ready`. Search returns documents, not facts,
 so it enriches packages and the contradiction evidence, but does not by itself turn
 `verified_company_facts_unavailable` sessions into `ready`. A "news-only readiness" route would
@@ -76,7 +76,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS evidence_document_fts USING fts5(document_id 
 - Backfill existing rows once in the market bootstrap.
 - Both schema files are in the bootstrap fingerprints, so the migrations rerun automatically.
 
-### 3. Operation contract ([`services/research_tools.py`](../../Python%20Scripts/services/research_tools.py))
+### 3. Operation contract ([`services/research/research_tools.py`](../../Python%20Scripts/services/research/research_tools.py))
 - Add `'search_archive': ('query',)` to `OPERATIONS`.
 - In `ResearchRequest.parse`, add a new `query` branch:
   - The value must be a string of 3–200 characters.
@@ -115,7 +115,7 @@ ORDER BY rank LIMIT ?
 - Interleave both hit lists by rank and keep the top 8.
 - If more hits exist, set `more_results_available=True` in the result. This is not a gap.
 
-**Snapshotting article hits** (new `services/research_search.py: snapshot_article(article_id,
+**Snapshotting article hits** (new `services/research/research_search.py: snapshot_article(article_id,
 company_id, *, db_path)`):
 - Build an `EvidenceDocument` with these fields:
 
@@ -159,7 +159,7 @@ using the same pattern as `get_event_documents`.
 - Bump `PROMPT_VERSION` to `'bounded-research-planner-v3-search'`. In-flight sessions end with
   `planner_version_changed_during_session`, which is the existing, intended behaviour.
 
-### 6. Flag and budget ([`services/evidence_research_policy.py`](../../Python%20Scripts/services/evidence_research_policy.py))
+### 6. Flag and budget ([`services/research/evidence_research_policy.py`](../../Python%20Scripts/services/research/evidence_research_policy.py))
 - Add `search_enabled: bool = False` to `EvidenceResearchPolicy`, read from
   `RESEARCH_SEARCH_ENABLED` in `from_env`. It is snapshotted into `progress['policy']`.
 - When the flag is off:
@@ -173,7 +173,7 @@ using the same pattern as `get_event_documents`.
 Snapshotted documents go into the final package's `document_ids` through
 `merge_evidence`/`final_package`, which are unchanged. Phase 4 claims cite them through
 `document_ids`, and quotes are verbatim-checked against `text`
-([`services/evidence_thesis_checks.py`](../../Python%20Scripts/services/evidence_thesis_checks.py)). No Phase 4 change is needed. Verify this in a test.
+([`services/thesis/evidence_thesis_checks.py`](../../Python%20Scripts/services/thesis/evidence_thesis_checks.py)). No Phase 4 change is needed. Verify this in a test.
 
 ### 8. Docs
 - [`docs/RESEARCH_PHASE3.md`](../../docs/RESEARCH_PHASE3.md):

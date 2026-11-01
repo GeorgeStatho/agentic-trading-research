@@ -13,8 +13,8 @@ from agent_stages.manager_model import MANAGER_RECOMMENDATION_SCHEMA
 from agent_stages.strategist_prompt import build_strategist_prompt
 from agent_stages.strategist_schema import strategist_recommendation_schema
 from agentCallers.decision_pipeline import _build_selected_option_output
-from services.entry_gates import ENTRY_GATES, entry_allowed
-from services.order_candidates import OrderCandidateBuilder
+from services.gates.entry_gates import ENTRY_GATES, entry_allowed
+from services.trading.order_candidates import OrderCandidateBuilder
 
 
 def typed_keys(typed_dict):

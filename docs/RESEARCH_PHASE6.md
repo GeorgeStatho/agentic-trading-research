@@ -166,12 +166,12 @@ instead of calling the model again.
 
 | Concern | Location |
 | --- | --- |
-| Policy | `Python Scripts/services/thesis_event_review_policy.py` |
-| Review service | `Python Scripts/services/thesis_event_review.py` |
+| Policy | `Python Scripts/services/thesis/thesis_event_review_policy.py` |
+| Review service | `Python Scripts/services/thesis/thesis_event_review.py` |
 | Queue split and debounced claim | `Data/market_db_modules/discovery_queue.py` (`claim_position_reviews`) |
 | Storage and summary | `Data/market_db_modules/thesis_event_reviews.py`, `thesis_event_reviews_schema.sql` |
 | Lookups | `list_open_position_theses_for_symbol` (`thesis_validator.py`), `latest_strategist_thesis_check` (`evidence_thesis.py`) |
-| Integration | `services/position_manager.py`, `Python Scripts/main.py`, `services/thesis_validator_service.py` (`rules_exit_active`) |
+| Integration | `services/options/position_manager.py`, `Python Scripts/main.py`, `services/thesis/thesis_validator_service.py` (`rules_exit_active`) |
 | Tests | `tests/test_event_thesis_review.py`, `tests/test_event_discovery.py` |
 
 ```bash

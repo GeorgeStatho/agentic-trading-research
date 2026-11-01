@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from services.settings import load_process_settings
+from services.core.settings import load_process_settings
 
 if __name__ == "__main__":
     # Before importing modules that read configuration at import time.

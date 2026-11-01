@@ -16,8 +16,8 @@ from market_db_modules.autopsy import list_decision_autopsy_ledger
 from news_db_modules.bootstrap import initialize_database as initialize_news
 from news_db_modules.entity_articles import add_company_news_article
 from news_db_modules.article_store import add_news_article
-from services.outcome_reconciliation import closed_round_trip, reconcile_closed_outcomes
-from services.evidence_continuation_gate import EvidenceContinuationPolicy, _evidence_snapshot
+from services.trading.outcome_reconciliation import closed_round_trip, reconcile_closed_outcomes
+from services.gates.evidence_continuation_gate import EvidenceContinuationPolicy, _evidence_snapshot
 
 
 NOW = datetime(2026, 9, 17, 15, tzinfo=timezone.utc)
@@ -47,7 +47,7 @@ class ClosedRoundTripTests(unittest.TestCase):
 
 class OrderHistoryTests(unittest.TestCase):
     def test_pagination_overlaps_and_deduplicates_boundary(self):
-        from services.trading_gateway import AlpacaTradingGateway
+        from services.trading.trading_gateway import AlpacaTradingGateway
         batch = [SimpleNamespace(id=str(i), symbol="NVDA261016C00150000", qty=1,
                                  submitted_at=NOW + timedelta(seconds=i)) for i in range(501)]
         client = Mock()
@@ -62,7 +62,7 @@ class OrderHistoryTests(unittest.TestCase):
                          batch[499].submitted_at - timedelta(microseconds=1))
 
     def test_saturated_page_raises_instead_of_silently_truncating(self):
-        from services.trading_gateway import AlpacaTradingGateway
+        from services.trading.trading_gateway import AlpacaTradingGateway
         batch = [SimpleNamespace(id=str(i), submitted_at=NOW) for i in range(500)]
         client = Mock()
         client.get_orders.return_value = batch

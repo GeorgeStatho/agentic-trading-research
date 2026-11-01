@@ -12,10 +12,10 @@ def main():
     db_path = args.db or None
     initialize_database(db_path=db_path)
     if args.command == 'scan':
-        from services.event_discovery import discover_company_events
+        from services.discovery.event_discovery import discover_company_events
         result = discover_company_events(db_path=db_path)
     elif args.command == 'consume':
-        from services.discovery_queue import process_discovery_queue
+        from services.discovery.discovery_queue import process_discovery_queue
         result = process_discovery_queue(db_path=db_path)
     elif args.command in {'checks', 'interest'}:
         from contextlib import closing

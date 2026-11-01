@@ -10,7 +10,7 @@ FinanceGym's paired rubrics score two things separately:
 The main finding is the gap between them: roughly 46–50% versus 10–13% for every system.
 
 This project scores decisions only by the sign of the option P&L (`resolved_outcome_label`, set
-in [`services/position_manager.py:54`](../../Python%20Scripts/services/position_manager.py#L54) and [`services/outcome_reconciliation.py:116`](../../Python%20Scripts/services/outcome_reconciliation.py#L116)). A loss
+in [`services/options/position_manager.py:54`](../../Python%20Scripts/services/options/position_manager.py#L54) and [`services/trading/outcome_reconciliation.py:116`](../../Python%20Scripts/services/trading/outcome_reconciliation.py#L116)). A loss
 cannot be traced to a cause. It could be:
 - **bad evidence:** an ungrounded or stale thesis;
 - **a wrong call on good evidence:** the underlying moved the other way;
@@ -36,7 +36,7 @@ Decision Autopsy show the evidence × direction matrix, and show whether the str
 
 ## Changes
 
-### 1. Pure scoring: `Python Scripts/services/decision_attribution.py`
+### 1. Pure scoring: `Python Scripts/services/evaluation/decision_attribution.py`
 `ATTRIBUTION_VERSION = 'decision-attribution-v2'`. All functions are pure and get their data
 passed in.
 
@@ -126,7 +126,7 @@ Functions:
   - the primary `candidate_catalysts` row.
 
 ### 3. Runner and cycle
-`services/decision_attribution_runner.py: attribute_decisions(*, limit=500, db_path=None)`:
+`services/evaluation/decision_attribution_runner.py: attribute_decisions(*, limit=500, db_path=None)`:
 - Loads closes with `market_db_modules.backtesting.daily_closes_after`, writes rows, and returns
   counts.
 - Hook it into [`Python Scripts/news_collector_main.py`](../../Python%20Scripts/news_collector_main.py)`:run_news_collection_cycle` after
@@ -147,7 +147,7 @@ Add an `attribution` subcommand to [`scripts/research.py`](../../scripts/researc
 - `expression`, for traded decisions only: every traded outcome above, `pending` and `unavailable` included.
 - `abstentions`: the distribution of `abs_move` for `neither`, against directional decisions.
 - Bootstrap standard errors (n=1000, seeded) on hit rates. Put the helper in
-  `services/decision_attribution.py` so plan B can reuse it.
+  `services/evaluation/decision_attribution.py` so plan B can reuse it.
 
 ### 5. Decision Autopsy surface
 - `api_support/decision_autopsy._serialize_ledger_row` (:75): left-join

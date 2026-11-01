@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from alpaca.trading.enums import OrderClass, OrderSide, PositionIntent, TimeInForce
 
-from services.trading_gateway import AlpacaTradingGateway
+from services.trading.trading_gateway import AlpacaTradingGateway
 
 LOGGER = logging.getLogger('test_trading_gateway_paper_orders')
 
@@ -20,7 +20,7 @@ def submitted_client():
 
 class GatewayCredentialsTests(unittest.TestCase):
     def test_explicit_keys_build_a_client_for_that_account(self):
-        with patch('services.trading_gateway.TradingClient') as client_class, \
+        with patch('services.trading.trading_gateway.TradingClient') as client_class, \
                 patch.dict('os.environ', {'PUBLIC_KEY': 'PROD-KEY', 'PRIVATE_KEY': 'PROD-SECRET'}):
             AlpacaTradingGateway(paper=True, logger=LOGGER, api_key='k2', api_secret='s2').create_client()
         self.assertEqual(client_class.call_args.kwargs['api_key'], 'k2')
@@ -28,7 +28,7 @@ class GatewayCredentialsTests(unittest.TestCase):
         self.assertIs(client_class.call_args.kwargs['paper'], True)
 
     def test_without_keys_production_env_is_used(self):
-        with patch('services.trading_gateway.TradingClient') as client_class, \
+        with patch('services.trading.trading_gateway.TradingClient') as client_class, \
                 patch.dict('os.environ', {'PUBLIC_KEY': 'PROD-KEY', 'PRIVATE_KEY': 'PROD-SECRET'}):
             AlpacaTradingGateway(paper=True, logger=LOGGER).create_client()
         self.assertEqual(client_class.call_args.kwargs['api_key'], 'PROD-KEY')

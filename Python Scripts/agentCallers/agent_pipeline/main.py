@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import logging
 
-from services.runtime_paths import DATA_DIR
-from services.settings import load_process_settings
+from services.core.runtime_paths import DATA_DIR
+from services.core.settings import load_process_settings
 
 if __name__ == "__main__":
     load_process_settings()

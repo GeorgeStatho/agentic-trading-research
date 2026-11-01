@@ -12,8 +12,8 @@ from .market import (
     _get_greek,
 )
 from .volatility import _assess_contract_volatility
-from services.option_dte_buckets import get_dte_bucket_selection_range
-from services.numbers import safe_float
+from services.options.option_dte_buckets import get_dte_bucket_selection_range
+from services.core.numbers import safe_float
 
 
 def _resolve_dte_range(

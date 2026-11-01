@@ -12,32 +12,52 @@ In practice, `services/` is where the repo keeps:
 
 If `agentCallers/` is the analysis and recommendation side of the system, `services/` is the runtime and execution side.
 
+## Layout
+
+Modules are grouped into subpackages by domain. Import them with the full path, for example
+`from services.core.settings import load_process_settings`.
+
+| Subpackage | What belongs there |
+|---|---|
+| `core/` | Shared configuration, paths, env parsing and small utilities. |
+| `runtime/` | Worker orchestration, startup checks and runtime telemetry. |
+| `trading/` | Broker access, order building, execution, journaling and follower accounts. |
+| `options/` | Option contracts: DTE buckets, pricing, symbols, position state and exits. |
+| `gates/` | Deterministic entry gates and their rollout policies. |
+| `thesis/` | Strategist theses: capture, claim checks, validation and event reviews. |
+| `research/` | Shadow research loop: contracts, inputs, orchestration, promotion and marks. |
+| `discovery/` | Event discovery, catalyst classification and company evidence collection. |
+| `evaluation/` | Backtests, benchmarks, forward evaluation and decision attribution. |
+
+When adding a module, put it in the subpackage whose description fits. Only create a new
+subpackage when none does.
+
 ## How The Pieces Fit Together
 
 The current trading runtime is layered rather than flat:
 
-1. `worker_application.py`
+1. `runtime/worker_application.py`
    Owns the main worker cadence and decides when to run entry execution and when to run option-position maintenance.
-2. `trading_config.py` and `runtime_paths.py`
+2. `core/trading_config.py` and `core/runtime_paths.py`
    Provide the typed settings and file paths used by every runtime service.
-3. `trade_executor.py`
+3. `trading/trade_executor.py`
    Handles new entries after agent output has already been converted into executable order candidates.
-4. `position_manager.py`
+4. `options/position_manager.py`
    Handles existing positions by calling the lower-level option-position workflow and wiring in broker callbacks.
-5. `trading_gateway.py`
+5. `trading/trading_gateway.py`
    Normalizes Alpaca account, position, order, and cancel operations for the service layer.
 6. `trading_support/option_positions.py`
    Acts as the compatibility facade for option-position management.
 7. `trading_support/_option_positions_*.py`
    Hold the split implementation details for market inspection, snapshot building, trailing-profit strategy, pending-order state, and manager orchestration.
-8. `trade_journal.py`
+8. `trading/trade_journal.py`
    Records executed entries and managed exits to the database.
 
 So the practical call flow for open positions is:
 
 `WorkerApplication` -> `OptionPositionManagerService` -> `trading_support.option_positions.ManageCurrentOptionPositions(...)` -> split `_option_positions_*` helpers
 
-Supporting modules like `env_parsing.py`, `numbers.py`, `status_files.py`, `option_dte_buckets.py`, `option_momentum.py`, and `option_position_state.py` provide shared utility logic used across both the service layer and the lower-level trading helpers.
+Supporting modules like `core/env_parsing.py`, `core/numbers.py`, `core/status_files.py`, `options/option_dte_buckets.py`, `options/option_momentum.py`, and `options/option_position_state.py` provide shared utility logic used across both the service layer and the lower-level trading helpers.
 
 ## Module Guide
 
@@ -47,7 +67,7 @@ Package marker for the `services` package.
 
 There are no importable runtime helpers here right now.
 
-### `runtime_paths.py`
+### `core/runtime_paths.py`
 
 Central location for path constants used across the service layer.
 
@@ -70,7 +90,7 @@ Exports:
 
 Use this module when a service needs a canonical repo path instead of rebuilding relative paths inline.
 
-### `env_parsing.py`
+### `core/env_parsing.py`
 
 Typed environment-variable readers. Each falls back to its default when the value is missing or malformed.
 
@@ -86,19 +106,19 @@ Typed environment-variable readers. Each falls back to its default when the valu
 
 Use these instead of parsing `os.getenv` by hand so every reader agrees on what a value means.
 
-### `numbers.py`
+### `core/numbers.py`
 
 - `safe_float(value)`
   Best-effort float conversion (`None` for blanks and unparseable values), used throughout trading and market-data code.
 
-### `option_symbols.py`
+### `options/option_symbols.py`
 
 - `looks_like_option_symbol(symbol, asset_class="")`
   Detects an option by asset class or OCC-style symbol.
 - `option_underlying_symbol(symbol)`
   The underlying ticker of an OCC option symbol.
 
-### `trading_config.py`
+### `core/trading_config.py`
 
 Typed runtime configuration for the worker, the API, and shared option-position logic.
 
@@ -133,7 +153,7 @@ Important internal helpers:
 
 This file is the main source of truth for env-driven runtime behavior.
 
-### `status_files.py`
+### `core/status_files.py`
 
 Small file-writing utilities used by the worker and monitoring surfaces.
 
@@ -148,7 +168,7 @@ Importable classes:
 
 Use this module when you want output persistence to stay consistent across workers and scripts.
 
-### `logging_utils.py`
+### `core/logging_utils.py`
 
 Centralized logging setup helpers for service entrypoints.
 
@@ -161,7 +181,7 @@ Importable helpers:
 
 Even though these helpers are currently internal-style by name, this module exists to keep logger setup consistent and out of the business logic.
 
-### `cold_start.py`
+### `runtime/cold_start.py`
 
 Performs the runtime’s database sanity check and optional initial market bootstrap.
 
@@ -173,7 +193,7 @@ Importable class:
 
 This is usually invoked early in worker startup so the rest of the runtime can assume the DB is in a usable state.
 
-### `order_candidates.py`
+### `trading/order_candidates.py`
 
 Converts agent output into normalized, executable option-order candidates.
 
@@ -197,7 +217,7 @@ Important internal behavior:
 - filters out ineligible confidence/decision combinations
 - deduplicates repeated option symbols
 
-### `trading_gateway.py`
+### `trading/trading_gateway.py`
 
 Broker adapter around Alpaca so the rest of the service layer can work with normalized plain-Python payloads.
 
@@ -229,7 +249,7 @@ Key methods:
 
 This is the module to change if broker-specific behavior needs to move without disturbing the rest of the runtime.
 
-### `trade_executor.py`
+### `trading/trade_executor.py`
 
 Handles new option-entry execution once the agent stack has already selected contracts.
 
@@ -261,7 +281,7 @@ Important internal responsibilities:
 - prevent orders from exceeding the deployable-buying-power cap
 - optionally record successful executions through `OptionTradeJournal`
 
-### `trade_journal.py`
+### `trading/trade_journal.py`
 
 Persists trade activity into the market database.
 
@@ -279,7 +299,7 @@ Key methods:
 
 This module keeps DB journaling separate from execution and exit logic.
 
-### `position_manager.py`
+### `options/position_manager.py`
 
 Service wrapper around the existing option-position maintenance workflow.
 
@@ -301,7 +321,7 @@ Important responsibilities:
 - records managed exits through `OptionTradeJournal`
 - writes the latest position-management output file for the dashboard/runtime
 
-### `option_dte_buckets.py`
+### `options/option_dte_buckets.py`
 
 Shared source of truth for option DTE bucket definitions and bucket-related helpers.
 
@@ -354,7 +374,7 @@ Importable helper functions:
 
 This module exists so manager logic, deterministic selection logic, and exit logic all use the same bucket definitions.
 
-### `option_momentum.py`
+### `options/option_momentum.py`
 
 Momentum-assessment helpers for existing option positions.
 
@@ -379,7 +399,7 @@ Importable functions:
 
 This module is used by option-position management when momentum-based exits are enabled.
 
-### `option_position_state.py`
+### `options/option_position_state.py`
 
 Persistent state store for option-position management.
 
@@ -409,7 +429,7 @@ Important internal helpers:
 
 This module lets trailing-profit and pending-exit logic survive across management cycles.
 
-### `worker_application.py`
+### `runtime/worker_application.py`
 
 Top-level orchestration for the main worker loop.
 
@@ -453,43 +473,43 @@ The actual option-position workflow now lives in `Python Scripts/trading_support
 - `_option_positions_momentum.py`
 - `_option_positions_defaults.py`
 
-`position_manager.py`, `option_dte_buckets.py`, `option_momentum.py`, `option_position_state.py`, and `trading_config.py` all exist partly to support that workflow cleanly from the service layer.
+`options/position_manager.py`, `options/option_dte_buckets.py`, `options/option_momentum.py`, `options/option_position_state.py`, and `core/trading_config.py` all exist partly to support that workflow cleanly from the service layer.
 
 ## Which Modules Are Safe To Import Directly?
 
 Most reusable imports come from:
 
-- `trading_config.py`
-- `env_parsing.py`
-- `numbers.py`
-- `runtime_paths.py`
-- `option_dte_buckets.py`
-- `option_momentum.py`
-- `option_position_state.py`
-- `order_candidates.py`
-- `trading_gateway.py`
-- `trade_executor.py`
-- `position_manager.py`
+- `core/trading_config.py`
+- `core/env_parsing.py`
+- `core/numbers.py`
+- `core/runtime_paths.py`
+- `options/option_dte_buckets.py`
+- `options/option_momentum.py`
+- `options/option_position_state.py`
+- `trading/order_candidates.py`
+- `trading/trading_gateway.py`
+- `trading/trade_executor.py`
+- `options/position_manager.py`
 
 The modules most tied to the live runtime are:
 
-- `worker_application.py`
-- `cold_start.py`
-- `trade_journal.py`
+- `runtime/worker_application.py`
+- `runtime/cold_start.py`
+- `trading/trade_journal.py`
 
 ## Practical Import Examples
 
 ```python
-from services.trading_config import WorkerPaths, WorkerSettings
-from services.option_dte_buckets import resolve_dte_bucket_for_days
-from services.order_candidates import OrderCandidateBuilder
-from services.trading_gateway import AlpacaTradingGateway
-from services.trade_executor import OptionTradeExecutor
-from services.position_manager import OptionPositionManagerService
+from services.core.trading_config import WorkerPaths, WorkerSettings
+from services.options.option_dte_buckets import resolve_dte_bucket_for_days
+from services.trading.order_candidates import OrderCandidateBuilder
+from services.trading.trading_gateway import AlpacaTradingGateway
+from services.trading.trade_executor import OptionTradeExecutor
+from services.options.position_manager import OptionPositionManagerService
 ```
 
 ## Notes
 
 - Functions or methods that start with `_` are internal helpers even if they are technically importable.
 - The service layer tries to return plain dictionaries for runtime payloads so the dashboard, API, and worker scripts can share them easily.
-- When changing option DTE buckets, start with `option_dte_buckets.py`; the rest of the service layer is now wired to follow that shared source of truth.
+- When changing option DTE buckets, start with `options/option_dte_buckets.py`; the rest of the service layer is now wired to follow that shared source of truth.

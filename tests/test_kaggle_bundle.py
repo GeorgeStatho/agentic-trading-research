@@ -18,9 +18,9 @@ class TraceChildTests(unittest.TestCase):
         spec.loader.exec_module(bundle)
         with tempfile.TemporaryDirectory() as directory, \
                 patch.object(sqlite3, "connect", sqlite3.connect), \
-                patch("services.settings.load_process_settings"), \
-                patch("services.llm_backtest.run_llm_backtest", return_value={}) as backtest, \
-                patch("services.llm_direction_score.run_direction_score", return_value={}):
+                patch("services.core.settings.load_process_settings"), \
+                patch("services.evaluation.llm_backtest.run_llm_backtest", return_value={}) as backtest, \
+                patch("services.evaluation.llm_direction_score.run_direction_score", return_value={}):
             bundle.trace_child(str(Path(directory) / "trace.db"), str(Path(directory) / "result.json"), None, None)
         return {call.kwargs["model"]: call.kwargs for call in backtest.call_args_list}
 

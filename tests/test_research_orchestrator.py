@@ -18,11 +18,11 @@ from market_db_modules.company_evidence import (
 )
 from market_db_modules.research_runtime import replay_research_session
 from research_foundation_contracts import CompanyFact
-from services.company_evidence_extraction import ingest_source
-from services.evidence_research_policy import EvidenceResearchPolicy
-from services.research_lock import ResearchSessionBusy
-from services.research_orchestrator import ResearchOrchestrator
-from services.research_tools import ResearchRequest, ResearchTools
+from services.discovery.company_evidence_extraction import ingest_source
+from services.research.evidence_research_policy import EvidenceResearchPolicy
+from services.research.research_lock import ResearchSessionBusy
+from services.research.research_orchestrator import ResearchOrchestrator
+from services.research.research_tools import ResearchRequest, ResearchTools
 from agent_stages.research_planner import ResearchPlanner, validate_plan
 
 

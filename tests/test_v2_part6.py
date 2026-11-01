@@ -18,18 +18,18 @@ from market_db_modules.research_reports import (
     promote_champion,
     strategy_table,
 )
-from services.contract_policy import ContractPolicy
-from services.research_contract import (
+from services.gates.contract_policy import ContractPolicy
+from services.research.research_contract import (
     ResearchPolicy,
     assert_information_cutoff,
     canonical,
     fingerprint,
 )
-from services.research_inputs import load_inputs, baseline_contract
-from services.research_promotion import approved, guard_policy, champion_allows, champion_check, source_hash
-from services.shadow_portfolio import simulate_option
-from services.order_candidates import OrderCandidateBuilder
-from services.trade_executor import TradeExecutionSession, OptionTradeExecutor
+from services.research.research_inputs import load_inputs, baseline_contract
+from services.research.research_promotion import approved, guard_policy, champion_allows, champion_check, source_hash
+from services.research.shadow_portfolio import simulate_option
+from services.trading.order_candidates import OrderCandidateBuilder
+from services.trading.trade_executor import TradeExecutionSession, OptionTradeExecutor
 
 START = '2026-09-01T20:00:00+00:00'
 ENTRY = '2026-09-02T20:00:00+00:00'
@@ -109,7 +109,7 @@ class ExecutionIdentityTests(unittest.TestCase):
                                        logger=logging.getLogger('fixture'))
         session = TradeExecutionSession(available_buying_power=20000, max_deployable_buying_power=10000,
                                         remaining_deployable_buying_power=10000, base_order_qty=1)
-        with patch('services.research_promotion.champion_check', spy), self.assertLogs('fixture', 'ERROR'):
+        with patch('services.research.research_promotion.champion_check', spy), self.assertLogs('fixture', 'ERROR'):
             result = executor.execute_candidate(trading_client=Mock(), candidate=built, session=session)
         self.assertFalse(result['submitted'])
         self.assertEqual(result['portfolio_guardrail'], 'research_champion_only')
@@ -290,7 +290,7 @@ class ResearchDatabaseTests(unittest.TestCase):
 
     def test_shared_liquidity_mode_needs_selection_and_execution_proofs(self):
         with patch.dict('os.environ', {'V2_LIQUIDITY_MODE': 'enforce'}), patch(
-                'services.research_promotion.approved', side_effect=lambda stage, *args, **kwargs: stage == 'LIQUIDITY'):
+                'services.research.research_promotion.approved', side_effect=lambda stage, *args, **kwargs: stage == 'LIQUIDITY'):
             self.assertEqual(ContractPolicy.from_env().liquidity_mode, 'shadow')
 
     def test_shadow_challenger_cannot_enter_capital_path(self):

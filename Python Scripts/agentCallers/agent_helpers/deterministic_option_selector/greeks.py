@@ -34,7 +34,7 @@ from .market import (
 )
 from .normalize import _normalize_decision, _normalize_option_id
 from .volatility import _assess_contract_volatility
-from services.numbers import safe_float
+from services.core.numbers import safe_float
 
 
 def _passes_short_swing_filters(

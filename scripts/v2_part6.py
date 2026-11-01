@@ -41,7 +41,7 @@ def main():
         if args.manifest:
             manifest = json.loads(Path(args.manifest).read_text())
         else:
-            from services.pipeline_version import build_pipeline_version
+            from services.core.pipeline_version import build_pipeline_version
             manifest = build_pipeline_version()
         result = start_run(manifest, kind=args.kind, target_candidates=args.candidates)
     elif args.command == 'collect':

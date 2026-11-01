@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from agent_analysis.industry_interest import getIndustryScores, getTopThreeIndustries
 from agent_analysis.sector_interest import getSectorScores, getTopThreeSectors
-from services.trading_config import AgentPipelineSettings
+from services.core.trading_config import AgentPipelineSettings
 from agent_contracts import RankingEntry, RankingsPayload
 
 

@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from services.trade_executor import OptionTradeExecutor, TradeExecutionSession
+from services.trading.trade_executor import OptionTradeExecutor, TradeExecutionSession
 
 
 class TradeExecutorFollowerFleetTests(unittest.TestCase):

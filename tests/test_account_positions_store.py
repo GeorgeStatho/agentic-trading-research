@@ -5,8 +5,8 @@ from contextlib import closing
 
 from db_common import get_connection
 from market_db_modules import account_positions as store
-from services.account_strategies import OrderLeg, OrderPlan, Skip
-from services.trading_accounts import TradingAccount
+from services.trading.account_strategies import OrderLeg, OrderPlan, Skip
+from services.trading.trading_accounts import TradingAccount
 from tests.db_fixtures import temporary_database
 
 SPREADS = TradingAccount('spreads', 'k1', 's1', 'follower', 'debit_spread', 'follow:production')

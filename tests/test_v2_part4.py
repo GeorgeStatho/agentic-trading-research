@@ -19,11 +19,11 @@ from market_db_modules.pricing_research import (
     store_response,
     store_history,
 )
-from services.option_hurdle_gate import evaluate_option_hurdle
+from services.gates.option_hurdle_gate import evaluate_option_hurdle
 from catalyst_models import classify_catalyst
-from services.market_regime_gate import evaluate_market_regime_gate, MarketRegimePolicy, apply_market_regime_gate_to_manager_result
-from services.pricing_policy import PricingPolicy
-from services.pricing_gates import apply_option_hurdle_to_manager_result
+from services.gates.market_regime_gate import evaluate_market_regime_gate, MarketRegimePolicy, apply_market_regime_gate_to_manager_result
+from services.gates.pricing_policy import PricingPolicy
+from services.gates.pricing_gates import apply_option_hurdle_to_manager_result
 
 NOW = datetime(2026, 8, 10, 20, tzinfo=timezone.utc)
 

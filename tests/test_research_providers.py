@@ -12,11 +12,11 @@ from tests.research_foundation_fixtures import ENTRY
 from agent_helpers.llm_client import Client
 from agent_stages.research_planner import ResearchPlanner, ResearchProviderError
 from agent_stages.research_thesis_writer import ResearchThesisWriter
-from services.research_model_policy import (
+from services.research.research_model_policy import (
     SUPPORTED_PROVIDERS, ResearchModelPolicy, billed, configured_provider, planner_manifest, thesis_provider,
 )
-from services.research_orchestrator import ResearchOrchestrator
-from services.settings import OpenAICompatibleSettings, use_settings
+from services.research.research_orchestrator import ResearchOrchestrator
+from services.core.settings import OpenAICompatibleSettings, use_settings
 
 MISTRAL = OpenAICompatibleSettings(base_url='https://api.mistral.ai/v1')
 RATES = ResearchModelPolicy(input_usd_per_million=1, output_usd_per_million=2)

@@ -9,8 +9,8 @@ Phase 0 adds persistence and comparison contracts. It does not enable new data p
 - `company_evidence.py` stores immutable documents/facts/packages and supports dated fact lookup. Revisions get new identities. Facts retain units, accounting basis, fiscal period, source span, and availability time. Unknown numeric values require a reason.
 - `research_foundation.py` supplies queue insertion/deduplication and session creation. Leasing, retries, session progress, retrieval steps, and report generation are reserved for later phases; their schema fields are available now.
 - `research_observations.py` records frozen source observations and their links to independently produced strategy candidates. A candidate must be linked at creation, before decision snapshots exist.
-- `services/research_versions.py` hashes evaluator implementation separately from a strategy's manifest. New runs carry an immutable evaluator identity; legacy runs retain their existing broad source checks.
-- `services/evidence_research_policy.py` records non-secret research budgets, provider/adapter inventory, foundation source hashes, and economics assumptions in pipeline manifests. No provider adapters are enabled in Phase 0.
+- `services/research/research_versions.py` hashes evaluator implementation separately from a strategy's manifest. New runs carry an immutable evaluator identity; legacy runs retain their existing broad source checks.
+- `services/research/evidence_research_policy.py` records non-secret research budgets, provider/adapter inventory, foundation source hashes, and economics assumptions in pipeline manifests. No provider adapters are enabled in Phase 0.
 
 Public storage APIs live in `market_db_modules.research_observations` and `market_db_modules.candidate_lifecycle`. Schema initialization remains the existing `initialize_database` operation; it adds the foundation tables on the next normal initialization. The new foundation tests use isolated databases. For broad existing-suite runs, set `DB_PATH` to a disposable database as some older tests exercise default storage paths.
 

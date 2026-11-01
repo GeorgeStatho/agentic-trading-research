@@ -30,7 +30,7 @@ from api_support.request_utils import (
     read_json_payload,
     safe_json_loads,
 )
-from services.numbers import safe_float
+from services.core.numbers import safe_float
 from api_support.context import (
     BOT_DOWN_THRESHOLD_SECONDS,
     DEFAULT_OPTION_ORDER_QTY,

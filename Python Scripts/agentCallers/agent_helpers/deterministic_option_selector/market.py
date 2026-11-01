@@ -7,8 +7,8 @@ from datetime import date, datetime
 from typing import Any
 
 from .config import MAX_TARGET_OTM_DOLLARS, MIN_TARGET_OTM_DOLLARS
-from services.option_dte_buckets import get_bucket_target_otm_pct, normalize_target_dte_bucket
-from services.numbers import safe_float
+from services.options.option_dte_buckets import get_bucket_target_otm_pct, normalize_target_dte_bucket
+from services.core.numbers import safe_float
 
 
 _SELECTION_DATE = ContextVar('selection_date', default=None)

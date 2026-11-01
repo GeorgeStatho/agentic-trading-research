@@ -27,10 +27,10 @@ def main():
         os.environ['V2_RESEARCH_SYMBOL_BUDGET'] = str(args.symbol_budget)
     from market_db_modules.bootstrap import initialize_database
     from market_db_modules.pricing_research import pricing_report, catalyst_stats
-    from services.pricing_policy import PricingPolicy
+    from services.gates.pricing_policy import PricingPolicy
     initialize_database()
     if args.command == 'collect':
-        from services.catalyst_response_collector import collect_catalyst_responses
+        from services.discovery.catalyst_response_collector import collect_catalyst_responses
         result = collect_catalyst_responses(refresh=not args.cached_only)
     elif args.command == 'stats':
         result = catalyst_stats(args.family, args.horizon_days, as_of=datetime.now(timezone.utc),

@@ -5,9 +5,9 @@ import json
 
 from db_common import get_connection
 from research_foundation_contracts import OBSERVATION_PROTOCOL
-from services.research_contract import utc
-from services.research_promotion import PAIRED_PREFIX, source_hash
-from services.research_versions import require_current_evaluator
+from services.research.research_contract import utc
+from services.research.research_promotion import PAIRED_PREFIX, source_hash
+from services.research.research_versions import require_current_evaluator
 from .bootstrap import initialize_database
 from .foundation_store import canonical, digest
 from .research_observations import bind_candidate_observation

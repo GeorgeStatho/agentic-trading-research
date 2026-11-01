@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from agent_stages.evidence_thesis_contract import REQUIRED_OUTPUT_EXAMPLE, THESIS_INSTRUCTIONS
-from services.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET, get_dte_bucket
+from services.options.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET, get_dte_bucket
 
 
 def _build_time_horizon_bucket_guidance_text() -> str:

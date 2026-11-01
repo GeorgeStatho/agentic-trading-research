@@ -7,7 +7,7 @@ from research_foundation_contracts import timestamp
 from .foundation_store import digest
 from .company_interest import register_interest
 from .company_interest import signal_discovery
-from services.company_evidence_policy import CompanyEvidencePolicy
+from services.discovery.company_evidence_policy import CompanyEvidencePolicy
 
 
 PIPELINE_SELECTION = 'pipeline_selection'

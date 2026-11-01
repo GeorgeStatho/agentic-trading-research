@@ -180,8 +180,8 @@ freshness assessment; an earlier cutoff or different company is rejected.
 | Concern | Location |
 | --- | --- |
 | SEC, release adapters and normalized responses | `Python Scripts/Webscraping/company_evidence/` |
-| Policy and collection | `Python Scripts/services/company_evidence_policy.py`, `company_evidence_service.py` |
-| Validation and package calculations | `Python Scripts/services/company_evidence_extraction.py`, `company_evidence_packages.py` |
+| Policy and collection | `Python Scripts/services/discovery/company_evidence_policy.py`, `company_evidence_service.py` |
+| Validation and package calculations | `Python Scripts/services/discovery/company_evidence_extraction.py`, `company_evidence_packages.py` |
 | Cache, quotas, identifiers, cursors | `Data/market_db_modules/company_collection.py`, `company_collection_schema.sql` |
 | Historical evidence access | `Data/market_db_modules/company_evidence.py` |
 | Bounded agent projection | `Python Scripts/agentCallers/agent_builders/company_evidence_payload.py` |

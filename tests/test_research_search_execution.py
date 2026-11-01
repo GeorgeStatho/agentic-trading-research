@@ -8,9 +8,9 @@ from unittest.mock import patch
 from db_common import get_connection
 from market_db_modules.company_evidence import get_evidence_document, get_evidence_package, record_evidence_document
 from research_foundation_contracts import EvidenceDocument
-from services.evidence_research_policy import EvidenceResearchPolicy
-from services.evidence_thesis_checks import build_thesis_sources, check_claim
-from services.research_tools import ResearchTools
+from services.research.evidence_research_policy import EvidenceResearchPolicy
+from services.thesis.evidence_thesis_checks import build_thesis_sources, check_claim
+from services.research.research_tools import ResearchTools
 from tests.research_foundation_fixtures import ENTRY, START
 from tests.test_event_discovery import later
 from tests.test_research_orchestrator import FakePlanner, ResearchFixture
@@ -21,7 +21,7 @@ BEFORE_CUTOFF = later(-3600, at=ENTRY)
 
 def research_search():
     # Looked up per call so a missing module fails these tests, not the whole file.
-    return importlib.import_module('services.research_search')
+    return importlib.import_module('services.research.research_search')
 
 
 class SearchFixture(ResearchFixture):

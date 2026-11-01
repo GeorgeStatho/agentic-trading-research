@@ -6,9 +6,9 @@ from typing import Any, Callable
 
 from alpaca.trading.client import TradingClient
 
-from services.trading_config import MomentumHistoryConfig, OptionPositionSettings
-from services.order_values import normalize_order_side, normalize_order_status
-from services.option_position_state import delete_position_state, get_position_state, load_state
+from services.core.trading_config import MomentumHistoryConfig, OptionPositionSettings
+from services.trading.order_values import normalize_order_side, normalize_order_status
+from services.options.option_position_state import delete_position_state, get_position_state, load_state
 
 from ._option_positions_market import _is_option_position_symbol
 from ._option_positions_state import (

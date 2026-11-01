@@ -5,12 +5,12 @@ import unittest
 from datetime import date, timedelta
 from unittest.mock import patch
 
-from services.option_dte_buckets import (
+from services.options.option_dte_buckets import (
     get_dte_bucket_range,
     get_dte_bucket_selection_range,
     target_dte_bucket_to_expiration_filters,
 )
-from services.trading_config import WorkerSettings, OptionPositionSettings
+from services.core.trading_config import WorkerSettings, OptionPositionSettings
 
 
 class OptionDteBucketRegressionTests(unittest.TestCase):

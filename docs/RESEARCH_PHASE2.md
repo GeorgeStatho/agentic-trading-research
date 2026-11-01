@@ -180,13 +180,13 @@ and linked candidate IDs. These commands contain no broker integration.
 
 | Concern | Location |
 | --- | --- |
-| Policy, bounds and shadow mode | `Python Scripts/services/discovery_policy.py` |
-| Event normalization and route merging | `Python Scripts/services/event_discovery.py` |
+| Policy, bounds and shadow mode | `Python Scripts/services/discovery/discovery_policy.py` |
+| Event normalization and route merging | `Python Scripts/services/discovery/event_discovery.py` |
 | Universe, schedules, watchlists and position inputs | `Data/market_db_modules/discovery_sources.py` |
 | Atomic claims, retries and expiry | `Data/market_db_modules/discovery_queue.py` |
 | Immutable shadow candidate persistence | `Data/market_db_modules/discovery_candidates.py` |
-| Worker and research input projection | `Python Scripts/services/discovery_queue.py` |
-| Research admission | `Python Scripts/services/discovery_admission.py` |
+| Worker and research input projection | `Python Scripts/services/discovery/discovery_queue.py` |
+| Research admission | `Python Scripts/services/discovery/discovery_admission.py` |
 | Additive schema | `Data/market_db_modules/discovery_schema.sql` |
 | Offline acceptance tests | `tests/test_event_discovery.py` |
 

@@ -20,15 +20,15 @@ from market_db_modules.thesis_validator import (  # noqa: E402
     summarize_thesis_validator_health,
 )
 from market_db_modules.bootstrap import initialize_database  # noqa: E402
-from services.thesis_validator_adjudicator import (  # noqa: E402
+from services.thesis.thesis_validator_adjudicator import (  # noqa: E402
     adjudicate_thesis,
     apply_consistency_gate,
     ground_sample,
 )
-from services.thesis_validator_arbiter import decide_thesis_arbiter_action  # noqa: E402
-from services.thesis_capture import build_position_thesis_record  # noqa: E402
-from services.thesis_evidence_pack import build_thesis_evidence_pack  # noqa: E402
-from services.thesis_validator_service import (  # noqa: E402
+from services.thesis.thesis_validator_arbiter import decide_thesis_arbiter_action  # noqa: E402
+from services.thesis.thesis_capture import build_position_thesis_record  # noqa: E402
+from services.thesis.thesis_evidence_pack import build_thesis_evidence_pack  # noqa: E402
+from services.thesis.thesis_validator_service import (  # noqa: E402
     ThesisValidatorService,
     ThesisValidatorSettings,
 )
@@ -107,7 +107,7 @@ class EvidencePackTests(unittest.TestCase):
         }
         with (
             patch(
-                "services.thesis_evidence_pack._symbol_move_since",
+                "services.thesis.thesis_evidence_pack._symbol_move_since",
                 side_effect=lambda symbol, *, since: {
                     "symbol": symbol,
                     "move_since_entry_pct": {"NVDA": 6.0, "SPY": 1.0, "XLK": 2.0}.get(symbol),
@@ -115,9 +115,9 @@ class EvidencePackTests(unittest.TestCase):
                     "error": "",
                 },
             ),
-            patch("services.thesis_evidence_pack._resolve_sector_etf_symbol", return_value="XLK"),
+            patch("services.thesis.thesis_evidence_pack._resolve_sector_etf_symbol", return_value="XLK"),
             patch(
-                "services.thesis_evidence_pack._news_since_entry",
+                "services.thesis.thesis_evidence_pack._news_since_entry",
                 return_value=[
                     {"article_id": 21, "source": "cnbc", "published_at": "", "title": "t", "summary": "s"}
                 ],
@@ -372,9 +372,9 @@ class ThesisValidatorServiceTests(unittest.TestCase):
             patch("market_db_modules.thesis_validator.get_thesis_validation_run_for_date", return_value=None),
             patch("market_db_modules.thesis_validator.count_thesis_validator_exits_for_date", return_value=0),
             patch("market_db_modules.thesis_validator.record_thesis_validation_run", side_effect=recorded_runs.append),
-            patch("services.thesis_evidence_pack.build_thesis_evidence_pack", return_value={"allowed_evidence_article_ids": []}),
+            patch("services.thesis.thesis_evidence_pack.build_thesis_evidence_pack", return_value={"allowed_evidence_article_ids": []}),
             patch(
-                "services.thesis_validator_adjudicator.adjudicate_thesis",
+                "services.thesis.thesis_validator_adjudicator.adjudicate_thesis",
                 return_value={
                     "thesis_state": "invalidated",
                     "would_open_today": "no",
@@ -417,7 +417,7 @@ class ThesisValidatorServiceTests(unittest.TestCase):
             ),
             patch("market_db_modules.thesis_validator.get_thesis_validation_run_for_date", return_value=None),
             patch("market_db_modules.thesis_validator.record_thesis_validation_run", side_effect=recorded_runs.append),
-            patch("services.thesis_validator_adjudicator.adjudicate_thesis") as mock_adjudicate,
+            patch("services.thesis.thesis_validator_adjudicator.adjudicate_thesis") as mock_adjudicate,
         ):
             summary = service.run_due_validation(positions=[position], now=late)
 

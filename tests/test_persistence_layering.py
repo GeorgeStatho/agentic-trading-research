@@ -19,8 +19,8 @@ from market_db_modules import bootstrap as market_bootstrap
 from market_db_modules import entities
 from news_db_modules import article_store
 from news_db_modules import bootstrap as news_bootstrap
-from services.research_lock import research_session_lock
-from services.research_promotion import approved, champion_check, policy_hash
+from services.research.research_lock import research_session_lock
+from services.research.research_promotion import approved, champion_check, policy_hash
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]

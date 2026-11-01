@@ -49,12 +49,12 @@ inputs, the deterministic selector, the regime gate, the evidence-thesis gate an
 callback therefore only ever receives finalized results, and the batch path carries the same gate
 through `selected_options`. The policy is read once per cycle.
 
-The gate is registered in `services/entry_gates.py`, so order candidates, decision history,
+The gate is registered in `services/gates/entry_gates.py`, so order candidates, decision history,
 selected-options output, candidate snapshots and Part 6 research inputs carry it automatically.
 
 ## The report
 
-`services/trade_economics.py` builds one report per directional result.
+`services/gates/trade_economics.py` builds one report per directional result.
 
 **Contracts.** It prices every side-matching contract in the bucket-refreshed chain (at most 40),
 always including the selected one. Rows mark `selected`. The report never chooses a different
@@ -192,7 +192,7 @@ while it is empty.
   matching `thesis_capture`. It is snapped down so the report never credits moves beyond the hold.
 - **Black-Scholes repricing, shared with Part 5.** Calibrating IV to the mid makes the model
   reproduce the entry price exactly. Large moves and convexity are handled by repricing, not a
-  Taylor expansion. `services/option_pricing.CalibratedOption` prices both this report and the
+  Taylor expansion. `services/options/option_pricing.CalibratedOption` prices both this report and the
   Part 5 scenario scorer.
 - **Ask/bid is the execution cost.** Measured market-order slippage is not added. It remains
   visible in the Part 5 execution baseline.
@@ -267,13 +267,13 @@ not change them; items 1 and 3 were fixed in a follow-up.
 
 | Concern | Location |
 | --- | --- |
-| Policy and promotion guard | `Python Scripts/services/trade_economics_policy.py` |
-| Black-Scholes and IV calibration | `Python Scripts/services/option_pricing.py` |
-| Report, gate, finalizer explanation, recheck | `Python Scripts/services/trade_economics.py` |
+| Policy and promotion guard | `Python Scripts/services/gates/trade_economics_policy.py` |
+| Black-Scholes and IV calibration | `Python Scripts/services/options/option_pricing.py` |
+| Report, gate, finalizer explanation, recheck | `Python Scripts/services/gates/trade_economics.py` |
 | Scenario query | `Data/market_db_modules/pricing_research.py` (`catalyst_return_scenarios`) |
 | Catalyst revision | `Data/news_db_modules/catalysts.py` (`get_catalyst_revision`) |
 | Storage and summary | `Data/market_db_modules/trade_economics.py`, `trade_economics_schema.sql` |
-| Integration | `agentCallers/decision_pipeline.py`, `services/entry_gates.py`, `services/trade_executor.py`, `agent_contracts.py` |
+| Integration | `agentCallers/decision_pipeline.py`, `services/gates/entry_gates.py`, `services/trading/trade_executor.py`, `agent_contracts.py` |
 | Tests | `tests/test_trade_economics.py` |
 
 ```bash

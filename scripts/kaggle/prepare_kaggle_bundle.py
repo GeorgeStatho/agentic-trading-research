@@ -126,7 +126,7 @@ def trace(db_path: Path, args: argparse.Namespace) -> dict[str, Any]:
 
 
 def trace_child(db_path: str, result_path: str, start_at: str | None, limit: int | None) -> None:
-    from services.settings import load_process_settings
+    from services.core.settings import load_process_settings
     load_process_settings()
 
     read, written, databases = set(), set(), set()
@@ -149,9 +149,9 @@ def trace_child(db_path: str, result_path: str, start_at: str | None, limit: int
         return conn
 
     sqlite3.connect = traced_connect
-    from services.llm_backtest import input_hash, run_llm_backtest
-    from services.llm_direction_score import run_direction_score
-    from services.option_dte_buckets import OPTION_DTE_BUCKETS
+    from services.evaluation.llm_backtest import input_hash, run_llm_backtest
+    from services.evaluation.llm_direction_score import run_direction_score
+    from services.options.option_dte_buckets import OPTION_DTE_BUCKETS
 
     buckets = [bucket.key for bucket in OPTION_DTE_BUCKETS]
 
@@ -278,8 +278,8 @@ def main() -> None:
 
     from agent_stages.manager_runner import MANAGER_PROMPT_VERSION
     from agent_stages.strategist_runner import strategist_prompt_version
-    from services.evidence_thesis_policy import EvidenceThesisPolicy
-    from services.settings import load_process_settings
+    from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
+    from services.core.settings import load_process_settings
     load_process_settings()
     print(f"Hashing {args.gguf} ...")
     manifest = {

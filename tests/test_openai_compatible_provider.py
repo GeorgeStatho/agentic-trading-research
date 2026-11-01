@@ -8,7 +8,7 @@ from agent_helpers import llm_client
 from agent_helpers.llm_client import Client, ask_llm_model
 from db_common import get_connection
 from market_db_modules.llm_usage_store import record_llm_call_usage
-from services.settings import OpenAICompatibleSettings, use_settings
+from services.core.settings import OpenAICompatibleSettings, use_settings
 from tests.db_fixtures import temporary_database
 
 SCHEMA = {"type": "object", "properties": {"decision": {"type": "string"}}}

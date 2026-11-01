@@ -24,8 +24,8 @@ from market_db_modules.research_foundation import (
     record_research_session,
     migrate_research_foundation,
 )
-from services.evidence_research_policy import foundation_manifest
-from services.research_contract import canonical, fingerprint
+from services.research.evidence_research_policy import foundation_manifest
+from services.research.research_contract import canonical, fingerprint
 from market_db_modules.research_runs import read_run
 
 
@@ -114,7 +114,7 @@ class MigrationAndManifestTests(unittest.TestCase):
         with patch("market_db_modules.research_foundation.migrate_research_foundation"):
             db = fixtures.database(self)
         manifest = fixtures.manifest()
-        from services.research_contract import ResearchPolicy
+        from services.research.research_contract import ResearchPolicy
         from dataclasses import asdict
         policy = asdict(ResearchPolicy())
         config_hash = fingerprint({"manifest": manifest, "policy": policy, "code_hash": "legacy",

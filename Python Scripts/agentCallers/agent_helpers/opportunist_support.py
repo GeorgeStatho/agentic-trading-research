@@ -13,7 +13,7 @@ import json
 from typing import Any
 
 from db_common import get_connection
-from services.settings import get_settings
+from services.core.settings import get_settings
 
 
 VALID_OPPORTUNIST_CONFIDENCE_LEVELS = {"high", "medium", "low"}

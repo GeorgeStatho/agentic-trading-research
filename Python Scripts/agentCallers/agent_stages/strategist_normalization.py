@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from agent_contracts import StrategistRecommendation
-from services.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET
+from services.options.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET
 from agent_stages.strategist_schema import (
     VALID_CONFIDENCE_LEVELS,
     VALID_DECISIONS,

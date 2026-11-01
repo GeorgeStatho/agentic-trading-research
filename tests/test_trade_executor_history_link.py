@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from services.trade_executor import OptionTradeExecutor, TradeExecutionSession  # noqa: E402
+from services.trading.trade_executor import OptionTradeExecutor, TradeExecutionSession  # noqa: E402
 
 
 class TradeExecutorHistoryLinkTests(unittest.TestCase):
@@ -58,7 +58,7 @@ class TradeExecutorHistoryLinkTests(unittest.TestCase):
             },
         }
 
-        with patch("services.trade_executor.link_manager_decision_to_trade_execution") as mock_link:
+        with patch("services.trading.trade_executor.link_manager_decision_to_trade_execution") as mock_link:
             mock_link.return_value = 55
             execution = executor.execute_candidate(
                 trading_client=object(),

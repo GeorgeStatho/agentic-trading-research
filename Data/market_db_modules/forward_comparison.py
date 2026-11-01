@@ -13,10 +13,10 @@ from statistics import median
 from zoneinfo import ZoneInfo
 
 from db_common import get_connection
-from services.forward_evaluation_policy import AcceptancePolicy
-from services.research_contract import canonical, fingerprint, utc
-from services.research_promotion import source_hash
-from services.research_versions import require_current_evaluator
+from services.evaluation.forward_evaluation_policy import AcceptancePolicy
+from services.research.research_contract import canonical, fingerprint, utc
+from services.research.research_promotion import source_hash
+from services.research.research_versions import require_current_evaluator
 from .bootstrap import initialize_database
 from .forward_evaluation import cohort_registrations
 from .pricing_research import quantile

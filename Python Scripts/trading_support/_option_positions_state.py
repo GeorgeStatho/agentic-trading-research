@@ -4,14 +4,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from services.order_values import normalize_order_status
-from services.option_position_state import get_position_state, update_position_state
+from services.trading.order_values import normalize_order_status
+from services.options.option_position_state import get_position_state, update_position_state
 
 from ._option_positions_momentum import _momentum_negative_score
-from services.trading_config import MomentumHistoryConfig, PendingExitConfig
+from services.core.trading_config import MomentumHistoryConfig, PendingExitConfig
 
 from ._option_positions_defaults import PENDING_ORDER_CLEAR_STATUSES, PENDING_ORDER_OPEN_STATUSES
-from services.numbers import safe_float
+from services.core.numbers import safe_float
 
 
 def _resolve_pending_order_id(symbol: str, order_summary: dict[str, Any]) -> str:

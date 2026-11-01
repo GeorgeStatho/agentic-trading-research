@@ -429,8 +429,8 @@ Count unique installs by unique `install_id` values on your telemetry receiver. 
 
 - [Python Scripts/main.py](Python%20Scripts/main.py): front-facing worker loop
 - [Python Scripts/option_manager_main.py](Python%20Scripts/option_manager_main.py): dedicated option-position management loop
-- [Python Scripts/services/worker_application.py](Python%20Scripts/services/worker_application.py): scheduled worker loop, Friday entry guard, and position-management orchestration
-- [Python Scripts/services/trade_journal.py](Python%20Scripts/services/trade_journal.py): records successful live option submissions into SQLite
+- [Python Scripts/services/runtime/worker_application.py](Python%20Scripts/services/runtime/worker_application.py): scheduled worker loop, Friday entry guard, and position-management orchestration
+- [Python Scripts/services/trading/trade_journal.py](Python%20Scripts/services/trading/trade_journal.py): records successful live option submissions into SQLite
 - [Python Scripts/trading_support](Python%20Scripts/trading_support): split trading helpers for client setup, account diagnostics, option management, and stock/order helpers
 - [Data/market_schema.sql](Data/market_schema.sql): market-side SQLite schema, including the executed-trade journal table
 - [Data/market_db_modules/](Data/market_db_modules): market-side DB writes and executed-trade query helpers

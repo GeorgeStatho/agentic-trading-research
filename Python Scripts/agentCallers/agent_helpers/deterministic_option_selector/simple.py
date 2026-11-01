@@ -26,8 +26,8 @@ from .market import (
     _resolve_target_otm_distance,
 )
 from .normalize import _normalize_decision
-from services.option_dte_buckets import normalize_target_dte_bucket
-from services.numbers import safe_float
+from services.options.option_dte_buckets import normalize_target_dte_bucket
+from services.core.numbers import safe_float
 
 
 def _pick_matching_contract_simple(

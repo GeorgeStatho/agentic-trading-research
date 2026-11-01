@@ -12,8 +12,8 @@ import json
 from statistics import mean, median
 
 from db_common import get_connection
-from services.research_contract import utc
-from services.research_promotion import research_only_candidate
+from services.research.research_contract import utc
+from services.research.research_promotion import research_only_candidate
 from .bootstrap import initialize_database
 
 ROUTES = ('production', 'discovery')

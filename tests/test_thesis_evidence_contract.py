@@ -19,16 +19,16 @@ from agent_stages.manager_strategist_context import _build_manager_visible_strat
 from db_common import get_connection
 from market_db_modules.evidence_thesis import get_evidence_thesis
 from market_db_modules.evidence_thesis_report import evidence_thesis_report
-from services.company_evidence_extraction import ingest_source
-from services.company_evidence_packages import build_company_package
-from services.company_evidence_policy import CompanyEvidencePolicy
-from services.evidence_thesis import (
+from services.discovery.company_evidence_extraction import ingest_source
+from services.discovery.company_evidence_packages import build_company_package
+from services.discovery.company_evidence_policy import CompanyEvidencePolicy
+from services.thesis.evidence_thesis import (
     check_evidence_thesis, compact_thesis_check, evaluate_evidence_thesis_gate, not_requested_check,
     persist_thesis_check,
 )
-from services.evidence_thesis_checks import _expectation_failures, _surprise_claimed_without_consensus
-from services.evidence_thesis_policy import EvidenceThesisPolicy
-from services.order_candidates import OrderCandidateBuilder
+from services.thesis.evidence_thesis_checks import _expectation_failures, _surprise_claimed_without_consensus
+from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
+from services.trading.order_candidates import OrderCandidateBuilder
 
 
 ARTICLE = {"article_id": 42, "title": "Fixture raises its quarterly outlook",

@@ -109,7 +109,7 @@ New `Python Scripts/agentCallers/agent_stages/catalyst_classifier.py`, with a he
 
 - **Model.**
   - Add `catalyst_classifier: StageModel` to `ModelSettings`
-    ([`services/settings.py:82-100`](../../Python%20Scripts/services/settings.py#L82-L100)) as `StageModel.from_environ(environ, "CATALYST_CLASSIFIER",
+    ([`services/core/settings.py:82-100`](../../Python%20Scripts/services/core/settings.py#L82-L100)) as `StageModel.from_environ(environ, "CATALYST_CLASSIFIER",
     "COMPANY_OPPURUNTIST")`, so it inherits the company opportunist's model.
   - Keep a cached client, like `_get_default_client`.
   - Call `ask_classifier_model(client, model, system, user, temperature=0,
@@ -134,7 +134,7 @@ New `Python Scripts/agentCallers/agent_stages/catalyst_classifier.py`, with a he
 - **Empty answers.** Handle the MAX_TOKENS empty-answer case as the company stage does (:237-247).
 
 ### 5. Runner and settings
-`services/catalyst_classification.py: classify_pending_catalysts(*, limit=None, db_path=None) -> dict`:
+`services/discovery/catalyst_classification.py: classify_pending_catalysts(*, limit=None, db_path=None) -> dict`:
 
 1. Select pending catalysts: `classification_status='needs_review' AND ticker IS NOT NULL`,
    at least one linked article, and not the placeholders `catalyst:unknown:%` or `catalyst:sector-discovery:%`;
@@ -155,7 +155,7 @@ Settings:
 In [`Python Scripts/news_collector_main.py`](../../Python%20Scripts/news_collector_main.py)`:run_news_collection_cycle`, before
 `collect_catalyst_responses`:
 ```python
-from services.catalyst_classification import classify_pending_catalysts
+from services.discovery.catalyst_classification import classify_pending_catalysts
 result['catalyst_classification'] = observe(classify_pending_catalysts)
 ```
 - It runs before registration, so new labels are priced in the same cycle.
@@ -170,7 +170,7 @@ New `scripts/catalysts.py` (argparse, `--db`, JSON output, like [`scripts/resear
 The backfill of about 7,257 catalysts takes about 360 calls.
 
 ### 8. Reporting
-`pricing_report` ([`services/catalyst_response_collector.py:180`](../../Python%20Scripts/services/catalyst_response_collector.py#L180)) adds counts by
+`pricing_report` ([`services/discovery/catalyst_response_collector.py:180`](../../Python%20Scripts/services/discovery/catalyst_response_collector.py#L180)) adds counts by
 `classification_source`. It also lists catalysts still `needs_review` because their type has no
 family: `supply_chain`, `management`, `capital_return`, `financing`.
 

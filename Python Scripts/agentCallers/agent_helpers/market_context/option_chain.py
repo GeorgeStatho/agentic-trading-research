@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
-from services.trading_config import AlpacaSettings
-from services.settings import get_settings
+from services.core.trading_config import AlpacaSettings
+from services.core.settings import get_settings
 from .alpaca_base import (
     ALPACA_IMPORT_ERROR,
     CLOSEST_EXPIRATION_GTE,
@@ -25,9 +25,9 @@ from .iv_history import (
     _enrich_with_alpaca_iv_percentiles,
     _resolve_iv_percentile_dte_bucket,
 )
-from services.option_dte_buckets import OPTION_DTE_BUCKETS, get_dte_bucket_selection_range
-from services.option_hurdle_gate import select_atm_research_contracts
-from services.numbers import safe_float
+from services.options.option_dte_buckets import OPTION_DTE_BUCKETS, get_dte_bucket_selection_range
+from services.gates.option_hurdle_gate import select_atm_research_contracts
+from services.core.numbers import safe_float
 
 
 def _extract_contract_items(contracts_response: Any) -> list[Any]:

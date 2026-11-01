@@ -6,9 +6,9 @@ import json
 from statistics import mean
 
 from db_common import get_connection
-from services.research_contract import STRATEGIES, canonical, direction, fingerprint, utc
-from services.research_promotion import GATE_BLOCKS, policy_hash, source_hash
-from services.shadow_portfolio import evaluate_gate, expectancy
+from services.research.research_contract import STRATEGIES, canonical, direction, fingerprint, utc
+from services.research.research_promotion import GATE_BLOCKS, policy_hash, source_hash
+from services.research.shadow_portfolio import evaluate_gate, expectancy
 from .research_runs import read_run
 from .research_observations import paired_champion_results, validate_strategy_evaluation
 

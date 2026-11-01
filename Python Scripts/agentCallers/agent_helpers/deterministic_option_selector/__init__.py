@@ -71,9 +71,9 @@ from .normalize import (  # noqa: E402
 )
 from .simple import _pick_matching_contract_simple  # noqa: E402
 from .volatility import _assess_contract_volatility  # noqa: E402
-from services.numbers import safe_float  # noqa: E402
-from services.option_dte_buckets import normalize_target_dte_bucket  # noqa: E402
-from services.liquidity_gate import filter_liquid_contracts
+from services.core.numbers import safe_float  # noqa: E402
+from services.options.option_dte_buckets import normalize_target_dte_bucket  # noqa: E402
+from services.gates.liquidity_gate import filter_liquid_contracts
 
 
 def _pick_matching_contract(
