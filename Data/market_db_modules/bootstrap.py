@@ -170,6 +170,8 @@ def _set_up(db_path: Path | str, schema_path: Path | str, fingerprint: str) -> N
         conn.executescript(Path(__file__).with_name('thesis_event_reviews_schema.sql').read_text(encoding='utf-8'))
         conn.executescript(Path(__file__).with_name('forward_evaluation_schema.sql').read_text(encoding='utf-8'))
         conn.executescript(Path(__file__).with_name('account_positions_schema.sql').read_text(encoding='utf-8'))
+        from .compact_storage import migrate_compact_storage
+        migrate_compact_storage(conn)
         move_payload_copies_out_of_ledger(conn)
         backfill_decision_autopsy_ledger(conn=conn)
         record_setup_fingerprint(conn, SETUP_NAME, fingerprint)

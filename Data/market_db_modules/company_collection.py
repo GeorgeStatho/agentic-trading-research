@@ -2,32 +2,48 @@
 from contextlib import closing
 from hashlib import sha256
 import json
+import zlib
 
 from db_common import get_connection
 from research_foundation_contracts import timestamp
 from .foundation_store import canonical, digest
 
 
-def cached_response(provider, url, *, db_path=None):
-    with closing(get_connection(db_path)) as conn:
-        row = conn.execute("""SELECT * FROM company_provider_responses WHERE provider=? AND url=?
-            ORDER BY observed_at DESC,rowid DESC LIMIT 1""", (provider, url)).fetchone()
-    if row is None:
-        return None
+def decode_response(row):
+    """A provider response row with its stored body restored and hash-checked.
+
+    Compressed rows keep `content_hash` (and so `response_id`) of the body as received; `stored_hash`
+    covers the stored text, which may omit parts a caller chose not to keep (see `cache_response`).
+    """
     result = dict(row)
-    if sha256(result['body'].encode()).hexdigest() != result['content_hash']:
+    compressed, stored_hash = result.pop('body_z', None), result.pop('stored_hash', None)
+    if compressed is not None:
+        result['body'] = zlib.decompress(compressed).decode()
+    if sha256(result['body'].encode()).hexdigest() != (stored_hash or result['content_hash']):
         raise ValueError('Corrupt provider response')
     return result
 
 
-def cache_response(provider, url, body, observed_at, *, db_path=None):
+def cached_response(provider, url, *, db_path=None):
+    with closing(get_connection(db_path)) as conn:
+        row = conn.execute("""SELECT * FROM company_provider_responses WHERE provider=? AND url=?
+            ORDER BY observed_at DESC,rowid DESC LIMIT 1""", (provider, url)).fetchone()
+    return None if row is None else decode_response(row)
+
+
+def cache_response(provider, url, body, observed_at, *, stored_body=None, db_path=None):
+    """Store `body` compressed; `stored_body` replaces it when the caller drops parts it never reads."""
     content_hash = sha256(body.encode()).hexdigest()
     identity = 'response:' + digest([provider, url, content_hash])
+    stored = body if stored_body is None else stored_body
     with closing(get_connection(db_path)) as conn, conn:
-        conn.execute('INSERT OR IGNORE INTO company_provider_responses VALUES (?,?,?,?,?,?)',
-                     (identity, provider, url, timestamp(observed_at), body, content_hash))
+        conn.execute('''INSERT OR IGNORE INTO company_provider_responses
+            (response_id, provider, url, observed_at, body, content_hash, body_z, stored_hash)
+            VALUES (?,?,?,?,'',?,?,?)''',
+                     (identity, provider, url, timestamp(observed_at), content_hash,
+                      zlib.compress(stored.encode(), 6), sha256(stored.encode()).hexdigest()))
         row = conn.execute('SELECT * FROM company_provider_responses WHERE response_id=?', (identity,)).fetchone()
-    return dict(row)
+    return decode_response(row)
 
 
 def collection_state(provider, scope, *, db_path=None):

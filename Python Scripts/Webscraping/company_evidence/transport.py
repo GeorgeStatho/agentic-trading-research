@@ -7,7 +7,8 @@ from urllib.parse import urlparse
 import requests
 
 from market_db_modules.company_collection import (
-    cache_response, cached_response, collection_state, reserve_provider_request, save_collection_state,
+    cache_response, cached_response, collection_state, decode_response, reserve_provider_request,
+    save_collection_state,
 )
 
 
@@ -32,7 +33,8 @@ class EvidenceHTTP:
                 or parsed.password or parsed.port not in (None, 443)):
             raise ValueError('Evidence URL is outside configured HTTPS sources')
 
-    def get(self, url, *, ttl_seconds=0):
+    def get(self, url, *, ttl_seconds=0, compact=None):
+        """`compact(body)` may return a smaller body to store; the response identity stays the original's."""
         self._validate_url(url)
         cached = cached_response(self.provider, url, db_path=self.db_path)
         scope = 'http:' + url
@@ -65,7 +67,8 @@ class EvidenceHTTP:
                         raise ProviderUnavailable(f'{self.provider} requires HTTP 200; redirects are not followed')
                     body = self._read_body(response)
                 observed = self.clock().isoformat()
-                saved = cache_response(self.provider, url, body, observed, db_path=self.db_path)
+                saved = cache_response(self.provider, url, body, observed,
+                                       stored_body=compact(body) if compact else None, db_path=self.db_path)
                 version_observed = (state.get('version_observed_at', saved['observed_at'])
                                     if state.get('response_id') == saved['response_id'] else observed)
                 save_collection_state(self.provider, scope,
@@ -86,7 +89,7 @@ class EvidenceHTTP:
         from db_common import get_connection
         with closing(get_connection(self.db_path)) as conn:
             row = conn.execute('SELECT * FROM company_provider_responses WHERE response_id=?', (identity,)).fetchone()
-        return dict(row) if row else fallback
+        return decode_response(row) if row else fallback
 
     def _read_body(self, response):
         chunks, size = [], 0

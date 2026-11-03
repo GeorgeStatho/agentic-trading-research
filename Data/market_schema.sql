@@ -619,7 +619,7 @@ CREATE TABLE IF NOT EXISTS candidate_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),
     stage TEXT NOT NULL, captured_at TEXT NOT NULL, information_cutoff_time TEXT NOT NULL,
     pipeline_version TEXT NOT NULL, snapshot_version TEXT NOT NULL, snapshot_hash TEXT NOT NULL,
-    snapshot_json TEXT NOT NULL, UNIQUE(candidate_id, stage)
+    snapshot_json TEXT NOT NULL, snapshot_encoding TEXT, UNIQUE(candidate_id, stage)
 );
 CREATE TABLE IF NOT EXISTS candidate_rejections (
     id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),

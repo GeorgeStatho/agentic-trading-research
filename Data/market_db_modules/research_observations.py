@@ -4,6 +4,7 @@ import json
 
 from db_common import get_connection
 from research_foundation_contracts import ResearchObservation, timestamp
+from .compact_storage import encode_snapshot
 from .foundation_store import canonical, digest, insert_record, read_record, record_data, verified_envelope
 from .bootstrap import initialize_database
 
@@ -95,11 +96,12 @@ def bind_candidate_observation(conn, candidate_id, observation_id):
                 "information_cutoff_time": observation["information_cutoff_time"],
                 "payload": source_witness(observation)}
     manifest = json.loads(candidate["pipeline_version_json"])
+    stored, encoding = encode_snapshot(conn, canonical(envelope))
     conn.execute("""INSERT INTO candidate_snapshots
         (candidate_id,stage,captured_at,information_cutoff_time,pipeline_version,
-         snapshot_version,snapshot_hash,snapshot_json) VALUES (?,?,?,?,?,?,?,?)""",
+         snapshot_version,snapshot_hash,snapshot_json,snapshot_encoding) VALUES (?,?,?,?,?,?,?,?,?)""",
         (candidate_id, "observation_input", candidate["created_at"], observation["information_cutoff_time"],
-         manifest["pipeline_version"], WITNESS_VERSION, digest(envelope), canonical(envelope)))
+         manifest["pipeline_version"], WITNESS_VERSION, digest(envelope), stored, encoding))
     return observation
 
 
@@ -113,7 +115,7 @@ def validate_candidate_observation(conn, candidate_id, observation):
     snapshots = conn.execute("SELECT * FROM candidate_snapshots WHERE candidate_id=?", (candidate_id,)).fetchall()
     witness_found = False
     for row in snapshots:
-        envelope = verified_envelope(row)
+        envelope = verified_envelope(row, conn)
         if envelope.get("observation_id") != observation["observation_id"]:
             raise ValueError("Candidate snapshot lacks its shared observation identity")
         if timestamp(row["information_cutoff_time"]) != observation["information_cutoff_time"]:

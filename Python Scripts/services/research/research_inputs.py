@@ -36,7 +36,7 @@ def load_inputs(conn, candidate, as_of):
                             (candidate['candidate_id'],)):
         if utc(row['captured_at']) > utc(as_of):
             continue
-        envelope = verified_envelope(row)
+        envelope = verified_envelope(row, conn)
         if (row['pipeline_version'] != json.loads(candidate['pipeline_version_json'])['pipeline_version']
                 or envelope.get('information_cutoff_time') != row['information_cutoff_time']):
             raise ValueError('Snapshot manifest or cutoff does not match its envelope')
