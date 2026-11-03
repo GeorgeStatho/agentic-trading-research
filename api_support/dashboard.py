@@ -33,6 +33,8 @@ from api_support.request_utils import (
 from services.core.numbers import safe_float
 from api_support.context import (
     BOT_DOWN_THRESHOLD_SECONDS,
+    BOT_ERROR_WINDOW_SECONDS,
+    BOT_STALL_SECONDS,
     DEFAULT_OPTION_ORDER_QTY,
     DAILY_OPTION_LOSS_LIMIT_DOLLARS,
     MAX_CONCURRENT_OPTION_POSITIONS,
@@ -44,6 +46,8 @@ from api_support.context import (
     MAX_DEPLOYABLE_BUYING_POWER_PCT,
     MAX_OPTION_ORDER_QTY_MULTIPLIER,
     MAX_OPTION_SECTOR_EXPOSURE_PCT,
+    MARKETDATA_EOD_SYNC_STATUS_PATH,
+    NEWS_COLLECTOR_STATUS_PATH,
     OPTION_MANAGER_STATUS_PATH,
     OPTION_POSITION_MANAGEMENT_OUTPUT_PATH,
     OPTION_POSITION_SETTINGS,
@@ -1029,50 +1033,67 @@ def summarize_market_status(clock_payload: dict) -> dict:
     }
 
 
-def status_snapshot(name: str, payload) -> dict[str, str]:
+def _age_seconds(value) -> float | None:
+    parsed = parse_datetime(str(value or ""))
+    if parsed is None:
+        return None
+    return (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds()
+
+
+def status_snapshot(name: str, payload) -> dict:
     if not isinstance(payload, dict):
         return {"name": name, "state": "down", "label": "Down", "updated_at": ""}
 
     updated_at = str(payload.get("updated_at") or "")
-    updated_at_dt = parse_datetime(updated_at)
-    is_fresh = False
-    if updated_at_dt is not None:
-        is_fresh = (
-            datetime.now(timezone.utc) - updated_at_dt.astimezone(timezone.utc)
-        ).total_seconds() <= BOT_DOWN_THRESHOLD_SECONDS
-
+    age = _age_seconds(updated_at)
     raw_state = str(payload.get("state") or "").strip().lower()
     state = raw_state if raw_state in {"starting", "running", "paused", "error"} else "unknown"
-    if not is_fresh:
+    # Writers heartbeat while alive, so staleness means the process is gone.
+    if age is None or age > BOT_DOWN_THRESHOLD_SECONDS:
         state = "down"
+    elif state == "running" and (_age_seconds(payload.get("state_since")) or 0) > BOT_STALL_SECONDS:
+        state = "stalled"
 
+    error_age = _age_seconds(payload.get("last_error_at"))
     label = state.replace("_", " ").title()
     return {
         "name": name,
         "state": state,
         "label": label,
         "updated_at": updated_at,
+        "state_since": str(payload.get("state_since") or ""),
+        "message": str(payload.get("message") or ""),
+        "last_error": str(payload.get("last_error") or ""),
+        "last_error_at": str(payload.get("last_error_at") or ""),
+        "recent_error": error_age is not None and error_age <= BOT_ERROR_WINDOW_SECONDS,
     }
 
 
-def summarize_bot_status(worker_status, option_manager_status) -> dict:
-    components = []
-    worker_snapshot = status_snapshot("Worker", worker_status)
-    if worker_snapshot.get("updated_at") or worker_snapshot.get("state") != "down":
-        components.append(worker_snapshot)
+def is_component_healthy(component: dict) -> bool:
+    return component["state"] in {"running", "paused", "starting"} and not component.get("recent_error")
 
-    option_snapshot = status_snapshot("Option Manager", option_manager_status)
-    if option_snapshot.get("updated_at") or option_snapshot.get("state") != "down":
-        components.append(option_snapshot)
 
-    if not components:
-        components = [worker_snapshot]
+def read_bot_components() -> list[tuple[str, object]]:
+    return [
+        ("Worker", read_json_payload(SCRIPT_STATUS_PATH)),
+        ("Option Manager", read_json_payload(OPTION_MANAGER_STATUS_PATH)),
+        ("News Collector", read_json_payload(NEWS_COLLECTOR_STATUS_PATH)),
+        ("EOD Sync", read_json_payload(MARKETDATA_EOD_SYNC_STATUS_PATH)),
+    ]
 
-    states = {component["state"] for component in components}
-    if states == {"running"}:
+
+def summarize_bot_status(statuses: list[tuple[str, object]]) -> dict:
+    snapshots = [status_snapshot(name, payload) for name, payload in statuses]
+    # A component that has never written a status is not deployed here, so it is left out.
+    components = [
+        snapshot for snapshot in snapshots
+        if snapshot.get("updated_at") or snapshot.get("state") != "down"
+    ] or snapshots[:1]
+
+    if all(is_component_healthy(component) for component in components):
         overall_state = "healthy"
         label = "Healthy"
-    elif states & {"running", "paused", "starting"}:
+    elif any(component["state"] in {"running", "paused", "starting"} for component in components):
         overall_state = "degraded"
         label = "Degraded"
     else:
@@ -1671,8 +1692,6 @@ def build_dashboard_kpis() -> dict:
         annual_risk_free_rate=DEFAULT_ANNUAL_RISK_FREE_RATE,
     )
     trade_performance = compute_trade_metrics(fills)
-    worker_status = read_json_payload(SCRIPT_STATUS_PATH)
-    option_manager_status = read_json_payload(OPTION_MANAGER_STATUS_PATH)
     top_rankings = _build_top_rankings_payload()
     usage_summary = _build_usage_summary()
     market_regime = build_market_regime_payload()
@@ -1716,7 +1735,7 @@ def build_dashboard_kpis() -> dict:
             "average_trade_return_pct": trade_performance.get("average_trade_return_pct"),
         },
         "usage_summary": usage_summary,
-        "bot_status": summarize_bot_status(worker_status, option_manager_status),
+        "bot_status": summarize_bot_status(read_bot_components()),
         "market_status": summarize_market_status(clock),
         "market_regime": market_regime,
         "top_rankings": top_rankings,

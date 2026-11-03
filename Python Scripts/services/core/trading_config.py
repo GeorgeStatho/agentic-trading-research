@@ -404,6 +404,8 @@ class ApiPaths:
     selected_options_output_path: Path
     option_position_management_output_path: Path
     option_manager_status_path: Path
+    news_collector_status_path: Path
+    marketdata_eod_sync_status_path: Path
 
     @classmethod
     def from_env(cls) -> ApiPaths:
@@ -421,6 +423,12 @@ class ApiPaths:
                     str(DATA_DIR / "option_manager_status.json"),
                 )
             ),
+            news_collector_status_path=Path(
+                os.getenv("NEWS_COLLECTOR_STATUS_PATH", str(DATA_DIR / "news_collector_status.json"))
+            ),
+            marketdata_eod_sync_status_path=Path(
+                os.getenv("MARKETDATA_EOD_SYNC_STATUS_PATH", str(DATA_DIR / "marketdata_eod_sync_status.json"))
+            ),
         )
 
 
@@ -429,6 +437,8 @@ class ApiSettings:
     """Shared API/runtime display settings."""
 
     bot_status_down_threshold_seconds: int
+    bot_status_stall_seconds: int
+    bot_status_error_window_seconds: int
     default_option_order_qty: int
     analyzed_company_news_default_page_size: int
     analyzed_company_news_max_page_size: int
@@ -451,6 +461,9 @@ class ApiSettings:
         default_page_size = env_positive_int("ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE", 5)
         return cls(
             bot_status_down_threshold_seconds=max(30, env_positive_int("BOT_STATUS_DOWN_THRESHOLD_SECONDS", 90)),
+            # News cycles take up to ~2h, so only a far longer run counts as hung.
+            bot_status_stall_seconds=env_positive_int("BOT_STATUS_STALL_SECONDS", 6 * 60 * 60),
+            bot_status_error_window_seconds=env_positive_int("BOT_STATUS_ERROR_WINDOW_SECONDS", 60 * 60),
             default_option_order_qty=worker.default_option_order_qty,
             analyzed_company_news_default_page_size=default_page_size,
             analyzed_company_news_max_page_size=max(

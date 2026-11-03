@@ -22,7 +22,7 @@ from market_db_modules.queries import get_all_companies, get_all_industries, get
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from services.core.env_parsing import env_flag, env_positive_int
-from services.core.status_files import JsonFileWriter
+from services.core.status_files import JsonFileWriter, StatusReporter
 from services.runtime.startup_readiness import StartupReadinessChecker
 from services.runtime.telemetry import send_startup_ping_async
 
@@ -35,6 +35,7 @@ class NewsCollectorSettings:
     interval_seconds: int
     cold_start_sanity_check_enabled: bool
     output_path: Path
+    status_path: Path
 
     @classmethod
     def from_env(cls) -> NewsCollectorSettings:
@@ -47,6 +48,7 @@ class NewsCollectorSettings:
                     str(DATA_DIR / "agent_pipeline_output.json"),
                 )
             ),
+            status_path=Path(os.getenv("NEWS_COLLECTOR_STATUS_PATH", str(DATA_DIR / "news_collector_status.json"))),
         )
 
 
@@ -135,6 +137,7 @@ def _configure_logging(log_path: Path) -> None:
 
 
 SETTINGS = NewsCollectorSettings.from_env()
+STATUS_REPORTER = StatusReporter(SETTINGS.status_path)
 
 
 def run_news_collection_cycle() -> dict[str, Any]:
@@ -175,16 +178,22 @@ def main_loop() -> None:
         SETTINGS.interval_seconds,
     )
 
-    _run_startup_readiness_check()
-    if SETTINGS.cold_start_sanity_check_enabled:
-        sanity_result = _run_cold_start_sanity_check()
-        LOGGER.info("Cold-start sanity check passed: %s", sanity_result)
+    STATUS_REPORTER.write("starting", "Running startup checks")
+    try:
+        _run_startup_readiness_check()
+        if SETTINGS.cold_start_sanity_check_enabled:
+            sanity_result = _run_cold_start_sanity_check()
+            LOGGER.info("Cold-start sanity check passed: %s", sanity_result)
+    except Exception as exc:
+        STATUS_REPORTER.write("error", f"Startup check failed: {exc}")
+        raise
 
     next_run_at = datetime.now()
 
     while True:
         current_time = datetime.now()
         if current_time >= next_run_at:
+            STATUS_REPORTER.write("running", "Collecting news")
             try:
                 result = run_news_collection_cycle()
                 LOGGER.info(
@@ -194,11 +203,14 @@ def main_loop() -> None:
                 )
             except Exception as exc:
                 LOGGER.exception("News collection cycle failed: %s", exc)
+                STATUS_REPORTER.write("error", f"News collection cycle failed: {exc}")
             finally:
                 next_run_at = datetime.now() + timedelta(seconds=SETTINGS.interval_seconds)
 
         sleep_seconds = max(1.0, (next_run_at - datetime.now()).total_seconds())
         LOGGER.info("News collector sleeping %.1f seconds until next refresh.", sleep_seconds)
+        STATUS_REPORTER.write("paused", "Sleeping until next refresh", sleep_seconds=sleep_seconds,
+                              next_run_at=next_run_at.isoformat())
         time.sleep(sleep_seconds)
 
 
