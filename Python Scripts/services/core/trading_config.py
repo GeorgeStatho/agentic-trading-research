@@ -406,6 +406,7 @@ class ApiPaths:
     option_manager_status_path: Path
     news_collector_status_path: Path
     marketdata_eod_sync_status_path: Path
+    db_backup_status_path: Path
 
     @classmethod
     def from_env(cls) -> ApiPaths:
@@ -429,6 +430,7 @@ class ApiPaths:
             marketdata_eod_sync_status_path=Path(
                 os.getenv("MARKETDATA_EOD_SYNC_STATUS_PATH", str(DATA_DIR / "marketdata_eod_sync_status.json"))
             ),
+            db_backup_status_path=Path(os.getenv("DB_BACKUP_STATUS_PATH", str(DATA_DIR / "db_backup_status.json"))),
         )
 
 

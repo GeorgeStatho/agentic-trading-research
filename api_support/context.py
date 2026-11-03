@@ -20,6 +20,7 @@ OPTION_POSITION_MANAGEMENT_OUTPUT_PATH = API_PATHS.option_position_management_ou
 OPTION_MANAGER_STATUS_PATH = API_PATHS.option_manager_status_path
 NEWS_COLLECTOR_STATUS_PATH = API_PATHS.news_collector_status_path
 MARKETDATA_EOD_SYNC_STATUS_PATH = API_PATHS.marketdata_eod_sync_status_path
+DB_BACKUP_STATUS_PATH = API_PATHS.db_backup_status_path
 
 BOT_DOWN_THRESHOLD_SECONDS = API_SETTINGS.bot_status_down_threshold_seconds
 BOT_STALL_SECONDS = API_SETTINGS.bot_status_stall_seconds

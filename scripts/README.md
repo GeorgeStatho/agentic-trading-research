@@ -62,3 +62,14 @@ python scripts/check_extractors.py morningstar.com --limit 10 --html-dir /tmp/pa
 ```
 
 A domain PASSES when 70% of its URLs return success, a title, a body of 500+ characters and a parseable `published_at`. Page loads are counted per domain in a JSON ledger (`--max-loads`, default 15, over all runs). Run one non-Yahoo domain per invocation, because Scrapy's reactor cannot restart.
+
+## Database compaction
+
+`scripts/compact_db.py` shrinks the two largest tables in place. In `candidate_snapshots`, repeated JSON subtrees move into the shared `json_blobs` table and are stored once, compressed. In `company_provider_responses`, bodies are compressed, and SEC submissions lose their binary attachments (images and archives), but only when what the SEC adapter reads stays identical. Every rewritten row is checked against its original hash before it replaces the stored text, and the script re-verifies every row before it runs `VACUUM`. New rows are written in this form already, so the script is needed once, for rows written before the change.
+
+```bash
+python scripts/compact_db.py --db path/to.db                          # dry run: packs a sample, then rolls back
+python scripts/compact_db.py --db path/to.db --apply --backup path/to/before-compact.db
+```
+
+Stop the Python services before running `--apply`. The rewrite holds the write lock batch by batch, and `VACUUM` needs the database to itself. The run is resumable: rows already packed or compressed are skipped.

@@ -1,0 +1,37 @@
+# Backups for the live database: Litestream streams every change for point-in-time recovery, and
+# db_backup replaces one full copy every night. See docs/BACKUPS.md. Run with the main stack:
+#   STOCK_DB_DIR=~/stock-restore/db-dev docker compose \
+#     -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.backup.yml up -d
+# STOCK_DB_DIR is the folder (or named volume) the other services mount at /var/lib/stock-experiment.
+services:
+  litestream:
+    image: litestream/litestream:0.3.13
+    restart: unless-stopped
+    command: ["replicate"]
+    volumes:
+      - ${STOCK_DB_DIR:-db_data}:/var/lib/stock-experiment
+      - ${BACKUP_DIR:-/mnt/e/StockBackups}:/backups
+      - ./config/litestream.yml:/etc/litestream.yml:ro
+
+  db_backup:
+    image: agentic-trading-python:local
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /var/lib/stock-experiment/stock_experiment.db
+      DB_BACKUP_DIR: /backups
+      DB_BACKUP_STATUS_PATH: /shared/db_backup_status.json
+    volumes:
+      - ${STOCK_DB_DIR:-db_data}:/var/lib/stock-experiment
+      - ${BACKUP_DIR:-/mnt/e/StockBackups}:/backups
+      - runtime_data:/shared
+    command: ["python", "Python Scripts/db_backup_main.py"]
+
+  api:
+    environment:
+      DB_BACKUP_STATUS_PATH: /shared/db_backup_status.json
+
+volumes:
+  db_data:
+  runtime_data:

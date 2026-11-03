@@ -35,6 +35,7 @@ from api_support.context import (
     BOT_DOWN_THRESHOLD_SECONDS,
     BOT_ERROR_WINDOW_SECONDS,
     BOT_STALL_SECONDS,
+    DB_BACKUP_STATUS_PATH,
     DEFAULT_OPTION_ORDER_QTY,
     DAILY_OPTION_LOSS_LIMIT_DOLLARS,
     MAX_CONCURRENT_OPTION_POSITIONS,
@@ -1079,6 +1080,7 @@ def read_bot_components() -> list[tuple[str, object]]:
         ("Option Manager", read_json_payload(OPTION_MANAGER_STATUS_PATH)),
         ("News Collector", read_json_payload(NEWS_COLLECTOR_STATUS_PATH)),
         ("EOD Sync", read_json_payload(MARKETDATA_EOD_SYNC_STATUS_PATH)),
+        ("DB Backup", read_json_payload(DB_BACKUP_STATUS_PATH)),
     ]
 
 

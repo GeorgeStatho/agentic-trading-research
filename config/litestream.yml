@@ -1,0 +1,10 @@
+# Point-in-time recovery for the live database; see docs/BACKUPS.md.
+dbs:
+  - path: /var/lib/stock-experiment/stock_experiment.db
+    replicas:
+      - type: file
+        path: /backups/litestream/stock_experiment
+        retention: 168h              # restore to any moment in the last 7 days
+        retention-check-interval: 1h
+        snapshot-interval: 24h       # a daily full snapshot bounds how much WAL a restore replays
+        validation-interval: 24h     # restore in memory and compare checksums once a day

@@ -16,6 +16,7 @@ history and are not updated when the code changes.
 | [INTERFACE_GUIDE.md](INTERFACE_GUIDE.md) | Preferred import surface versus compatibility wrappers |
 | [CleanCode.md](CleanCode.md) | Code style rules used in reviews |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Installing the project, running tests and entrypoints |
+| [BACKUPS.md](BACKUPS.md) | Database point-in-time recovery, the nightly backup, and how to restore |
 
 ### Research and decision pipeline
 
