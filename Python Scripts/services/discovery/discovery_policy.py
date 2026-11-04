@@ -1,4 +1,8 @@
-"""Discovery is disabled or shadow; there is deliberately no live mode in Phase 2."""
+"""Discovery is disabled, shadow, or enforce.
+
+Only `enforce` changes trading: admitted entry events then join the production strategist and manager
+(at most `production_limit` companies a cycle). The operator switches it on after the discovery ledger.
+"""
 from dataclasses import asdict, dataclass
 import os
 
@@ -22,10 +26,11 @@ class DiscoveryPolicy:
     market_event_limit: int = 0
     market_event_min_price: float = 10.0
     market_event_min_average_volume: float = 500_000
+    production_limit: int = 5  # discovery-only companies added to a trading cycle under enforce
 
     def __post_init__(self):
-        if self.mode not in {'disabled', 'shadow'}:
-            raise ValueError('Discovery supports only disabled or shadow mode')
+        if self.mode not in {'disabled', 'shadow', 'enforce'}:
+            raise ValueError(f'DISCOVERY_MODE must be disabled, shadow or enforce, not {self.mode!r}')
         if min(self.rescan_seconds, self.scan_limit, self.batch_size, self.lease_seconds, self.max_attempts,
                self.retry_seconds, self.stale_seconds) < 1:
             raise ValueError('Discovery limits must be positive')
@@ -35,7 +40,8 @@ class DiscoveryPolicy:
             raise ValueError('Discovery reservations must leave at least one general slot')
         if not 0 < self.aging_per_hour <= 100 or not 0 <= self.minimum_evidence_score <= 1:
             raise ValueError('Invalid discovery aging or evidence threshold')
-        if min(self.market_event_limit, self.market_event_min_price, self.market_event_min_average_volume) < 0:
+        if min(self.market_event_limit, self.market_event_min_price, self.market_event_min_average_volume,
+               self.production_limit) < 0:
             raise ValueError('Market event limits must not be negative')
 
     @classmethod
@@ -52,7 +58,8 @@ class DiscoveryPolicy:
                    stale_seconds=int(os.getenv('DISCOVERY_STALE_SECONDS', '604800')),
                    market_event_limit=int(os.getenv('DISCOVERY_MARKET_EVENT_LIMIT', '0')),
                    market_event_min_price=float(os.getenv('DISCOVERY_MARKET_EVENT_MIN_PRICE', '10')),
-                   market_event_min_average_volume=float(os.getenv('DISCOVERY_MARKET_EVENT_MIN_AVERAGE_VOLUME', '500000')))
+                   market_event_min_average_volume=float(os.getenv('DISCOVERY_MARKET_EVENT_MIN_AVERAGE_VOLUME', '500000')),
+                   production_limit=int(os.getenv('DISCOVERY_PRODUCTION_LIMIT', '5')))
 
     def manifest(self):
         return asdict(self)

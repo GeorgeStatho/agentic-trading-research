@@ -72,6 +72,9 @@ class StartupReadinessChecker:
         trading_gateway: Any | None = None,
         alpaca_paper: bool | None = None,
     ) -> dict[str, Any]:
+        # A mistyped mode must stop startup; read later inside observe() it would silently disable discovery.
+        from services.discovery.discovery_policy import DiscoveryPolicy
+        DiscoveryPolicy.from_env()
         if not startup_readiness_enabled():
             result = {
                 "runtime": runtime_name,
