@@ -1,5 +1,5 @@
 .company-news-page {
-  width: min(1180px, 94vw);
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -515,7 +515,7 @@
 
 @media (max-width: 720px) {
   .company-news-page {
-    width: min(96vw, 1180px);
+    width: 100%;
   }
 
   .company-news-company__header {

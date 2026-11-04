@@ -1,5 +1,5 @@
 .why-bot-panel {
-  width: min(1100px, 92vw);
+  width: 100%;
   border: 1px solid var(--outline-variant);
   border-radius: 18px;
   padding: 20px;

@@ -1,6 +1,6 @@
 /* Fills the screen below the app chrome; each column scrolls on its own instead of clipping. */
 .exposure-map {
-  width: min(1540px, 96vw);
+  width: 100%;
   height: calc(100dvh - var(--app-chrome));
   min-height: 480px;
   display: grid;
@@ -82,7 +82,7 @@
 .exposure-map__analysis-controls { display: flex; align-items: center; gap: 8px; }
 .exposure-map__analysis-controls input { width: 145px; padding: 9px 10px; border: 1px solid var(--outline-variant); border-radius: 999px; color: var(--text); background: transparent; }
 
-/* Same primary button as the rest of the app (App.css .button-primary). */
+/* Same primary button as the rest of the app (backtest.css .button-primary). */
 .exposure-map__analyze {
   min-height: 36px;
   border: 1px solid var(--primary);

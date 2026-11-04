@@ -35,10 +35,11 @@ existing links and bookmarks keep working.
 
 ## Main Files
 
-- [src/App.tsx](src/App.tsx): the shell — top nav, per-page sidebar, active page
+- [src/App.tsx](src/App.tsx): the shell — top bar, status line, view tabs, active page
+- [src/statusBar.tsx](src/statusBar.tsx) / [src/shellStatus.ts](src/shellStatus.ts): the status line under the top bar
+- [src/ui/](src/ui/): shared Tailwind components (Panel, StatStrip, DataTable, Tag, ...)
 - [src/routes.tsx](src/routes.tsx): the page table, hash routing and demo-mode rules
 - [src/dashboardHome.tsx](src/dashboardHome.tsx): the Overview page
-- [src/dashboardSections.ts](src/dashboardSections.ts): Overview's sidebar anchors
 - [src/scriptStatus.tsx](src/scriptStatus.tsx): status indicator
 - [src/Graph.tsx](src/Graph.tsx): portfolio-history chart
 - [src/orderCard.tsx](src/orderCard.tsx): trade execution cards
@@ -81,6 +82,12 @@ Run the Vite dev server:
 npm run dev
 ```
 
+Run the tests (Vitest + Testing Library):
+
+```bash
+npm test
+```
+
 By default, the app is available at:
 
 ```text
@@ -109,13 +116,10 @@ http://localhost:8080
 
 ## Styling
 
-The current UI is split across:
-
-- [src/index.css](src/index.css)
-- [src/App.css](src/App.css)
-- [src/graph.css](src/graph.css)
-- [src/card.css](src/card.css)
-- [src/status.css](src/status.css)
+Tailwind CSS v4 + daisyUI 5, themed in [src/index.css](src/index.css). The
+redesign in [docs/redesign/REDESIGN.md](docs/redesign/REDESIGN.md) is moving
+each component off its own `.css` file; components not yet converted still
+import one.
 
 ## Notes
 

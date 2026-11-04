@@ -132,4 +132,7 @@
   --sans: var(--font-sans);
   --heading: var(--font-sans);
   --mono: var(--font-mono);
+  /* Top bar + status line + page tabs + page padding, so the full-height
+     views (autopsy, exposure map) size themselves to what is left. */
+  --app-chrome: 146px;
 }

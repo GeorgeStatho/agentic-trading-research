@@ -342,8 +342,8 @@ Convert the shell to Tailwind and delete `App.css` in the same PR.
   Option manager paused · EOD sync paused · Last run 3:38 PM · No errors".
   Dots: running `bg-gain`, paused hollow `border border-dim`. This replaces the
   green "Healthy" card that contradicted its own detail text.
-  **Needs:** `bot_status` returned as a list of `{ component, state }` instead
-  of one prose `detail` string.
+  The API already returns `bot_status.components` (`name`, `state`,
+  `recent_error`); the sub-bar reads that, not the prose `detail`.
 - **Remove the Live sidebar.** It's scroll anchors for one page and leaves the
   right third of the screen empty. Delete the `sections` key from the Live tab;
   `dashboardSections.ts` and `useActiveSection.ts` can go once nothing uses them.
@@ -526,7 +526,7 @@ needed.
 
 | Endpoint (`api_routes/`) | Add |
 | --- | --- |
-| `dashboard.py` `/api/dashboard-kpis` | `unrealized_pl`; `bot_status.components: [{ component, state }]` |
+| `dashboard.py` `/api/dashboard-kpis` | `unrealized_pl` |
 | `dashboard.py` `/api/why-bot-traded` | fields listed in § 5 "Latest decision" |
 | `trades.py` `/api/executed-trades` | `fill_price`, `side`, `quantity`, `position_id` (pairs entry/exit) |
 | `dashboard.py` / pipeline | today's funnel counts: evaluated, strategist candidates, manager call/put, passed safeguards, filled |
@@ -544,9 +544,11 @@ and hide the parts whose fields are missing.
    `src/ui/chartTheme.ts`. No component changes; fix whatever Preflight
    shifts.
 2. `src/ui/` shared components, then the shell (top bar, status sub-bar, no
-   sidebar, no floating pill); delete `App.css`.
+   sidebar, no floating pill); delete `App.css`. The shell's container owns
+   page width, so legacy `width: min(…px, …vw)` page rules became `100%`.
 3. Live page (§ 5), latest-decision panel first; delete each converted
-   component's `.css`.
+   component's `.css`. The `charts/*` components land here and in step 5,
+   with the first page that feeds them data.
 4. Decisions merge (§ 6) with route aliases.
 5. Research pages (§ 7), then System route.
 6. Backend fields (§ 9) and wiring the placeholders.
@@ -554,7 +556,7 @@ and hide the parts whose fields are missing.
    `grep -rn "var(--" src/*.css` finds nothing (or no `.css` files remain
    besides `index.css`).
 
-**Check each PR with:** `npm run build` and `npm run lint` in `web_dashboard/`,
+**Check each PR with:** `npm test`, `npm run build` and `npm run lint` in `web_dashboard/`,
 demo mode on the views that support it (`#/decisions/map?demo=1`,
 `#/research/rollout?demo=1`, autopsy), old hash URLs still resolving, and the
 page at 390px wide.

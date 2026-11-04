@@ -1,5 +1,5 @@
 /* Fills the screen below the app chrome; each column scrolls on its own instead of clipping. */
-.autopsy-page { width: min(1540px, 96vw); height: calc(100dvh - var(--app-chrome)); display: flex; flex-direction: column; gap: 16px; }
+.autopsy-page { width: 100%; height: calc(100dvh - var(--app-chrome)); display: flex; flex-direction: column; gap: 16px; }
 .autopsy-layout > * { border: 1px solid var(--outline-variant); border-radius: 12px; background: var(--surface-container-low); box-shadow: var(--shadow); }
 .autopsy-eyebrow { margin: 0 0 4px; color: var(--text-dim); font-size: 10.5px; font-weight: 600; }
 .autopsy-queue small { color: var(--text-dim); font-size: 10.5px; }
@@ -15,7 +15,7 @@
 .autopsy-review { line-height: 1.45; }.autopsy-review__safety { margin-bottom: 18px; padding: 9px; border: 1px solid #e5a94f; border-radius: 10px; color: #ffcf87; font-size: 10.92px; font-weight: 700; }.autopsy-review > section { margin-top: 15px; }.autopsy-review h3 { font-size: 12.6px; }.autopsy-empty { padding: 28px; border: 1px dashed var(--outline-variant); border-radius: 18px; color: var(--text-dim); background: color-mix(in srgb, var(--bg) 95%, #172033); }
 .autopsy-demo-notice { padding: 11px 14px; border: 1px solid #e5a94f; border-radius: 12px; color: #ffcf87; background: color-mix(in srgb, #e5a94f 8%, transparent); }
 @media (max-width: 1180px) { .autopsy-page { height: auto; }.autopsy-layout { flex: none; grid-template-columns: minmax(220px, .8fr) minmax(480px, 2fr); }.autopsy-review { grid-column: 1 / -1; max-height: 360px; }.autopsy-detail { min-height: 650px; } }
-@media (max-width: 760px) { .autopsy-page { width: min(96vw, 1540px); }.autopsy-layout { grid-template-columns: 1fr; }.autopsy-queue { max-height: 300px; }.autopsy-review { grid-column: auto; }.autopsy-detail { min-height: 0; }.autopsy-detail__grid { grid-template-columns: 1fr; }.autopsy-detail dl, .autopsy-review dl { grid-template-columns: 1fr; }.autopsy-detail__header { align-items: start; flex-direction: column; } }
+@media (max-width: 760px) { .autopsy-page { width: 100%; }.autopsy-layout { grid-template-columns: 1fr; }.autopsy-queue { max-height: 300px; }.autopsy-review { grid-column: auto; }.autopsy-detail { min-height: 0; }.autopsy-detail__grid { grid-template-columns: 1fr; }.autopsy-detail dl, .autopsy-review dl { grid-template-columns: 1fr; }.autopsy-detail__header { align-items: start; flex-direction: column; } }
 
 .autopsy-verdicts ul { display: grid; gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
 .autopsy-verdicts li { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 3px 10px; padding: 9px; border-left: 3px solid #e5a94f; background: color-mix(in srgb, #e5a94f 6%, transparent); }

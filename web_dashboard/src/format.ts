@@ -145,6 +145,15 @@ export function formatDateTime(
     : placeholder;
 }
 
+/** Hours and minutes only, e.g. "3:38 PM": for one-line status text. */
+export function formatShortTime(
+  value: string | null | undefined,
+  { placeholder = MISSING_VALUE_PLACEHOLDER }: TextFormatOptions = {},
+): string {
+  const parsed = parseTimestamp(value);
+  return parsed ? new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(parsed) : placeholder;
+}
+
 export function formatTimeOfDay(
   value: string | null | undefined,
   { placeholder = MISSING_VALUE_PLACEHOLDER }: TextFormatOptions = {},

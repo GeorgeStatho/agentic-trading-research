@@ -1,4 +1,4 @@
-.decision-expectancy { width: min(1540px, 96vw); display: grid; gap: 16px; }
+.decision-expectancy { width: 100%; display: grid; gap: 16px; }
 .decision-expectancy__summary article, .decision-expectancy__table-card { border: 1px solid var(--outline-variant); border-radius: 12px; background: var(--surface-container-low); box-shadow: var(--shadow); }
 .decision-expectancy__table-card header p { margin: 0 0 4px; color: var(--text-dim); font-size: 10.5px; font-weight: 600; }
 .decision-expectancy h2 { margin: 0; color: var(--text-h); }

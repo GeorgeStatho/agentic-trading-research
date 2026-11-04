@@ -1,4 +1,4 @@
-.v2-status { width: min(1540px, 96vw); display: grid; gap: 16px; }
+.v2-status { width: 100%; display: grid; gap: 16px; }
 .v2-status__card { border: 1px solid var(--outline-variant); border-radius: 12px; background: var(--surface-container-low); box-shadow: var(--shadow); }
 .v2-status__card header p { margin: 0 0 4px; color: var(--text-dim); font-size: 10.5px; font-weight: 600; }
 .v2-status h2 { margin: 0; color: var(--text-h); }

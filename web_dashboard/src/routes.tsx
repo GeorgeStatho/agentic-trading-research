@@ -3,8 +3,6 @@ import AnalyzedCompanyNewsPage from './analyzedCompanyNews.tsx'
 import BacktestPage from './backtest.tsx'
 import CompanyDecisionsPage from './companyDecisions.tsx'
 import DashboardHome from './dashboardHome.tsx'
-import { DASHBOARD_SECTIONS } from './dashboardSections.ts'
-import type { DashboardSection } from './dashboardSections.ts'
 import DecisionAutopsyPage from './decisionAutopsy.tsx'
 import DecisionExpectancyPage from './decisionExpectancy.tsx'
 import ExposureMapPage from './exposureMap.tsx'
@@ -27,8 +25,6 @@ export type Tab = {
   label: string
   /** Demo mode seeds a read-only walkthrough; only these views render one. */
   supportsDemo?: boolean
-  /** Views that navigate their own sections; the shell draws them a sidebar. */
-  sections?: readonly DashboardSection[]
   render: (demoMode: boolean) => ReactNode
 }
 
@@ -49,7 +45,7 @@ export const ROUTES: readonly Route[] = [
     slug: 'live',
     label: 'Live',
     tabs: [
-      { slug: 'overview', label: 'Overview', sections: DASHBOARD_SECTIONS, render: () => <DashboardHome /> },
+      { slug: 'overview', label: 'Overview', render: () => <DashboardHome /> },
     ],
   },
   {
@@ -98,8 +94,6 @@ const ALIASES: Readonly<Record<string, string>> = {
   'v2-rollout': 'research/rollout',
 }
 
-/** Shared so a view without sections does not rebuild the scroll observer. */
-export const NO_SECTIONS: readonly DashboardSection[] = []
 
 function hashFor(path: string, demoMode: boolean): string {
   return `#/${path}${demoMode ? '?demo=1' : ''}`

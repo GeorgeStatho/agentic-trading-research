@@ -1,5 +1,5 @@
 .v2-safeguards {
-  width: min(1100px, 92vw);
+  width: 100%;
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--outline-variant));
   border-radius: 18px;
   padding: 20px;
