@@ -48,6 +48,16 @@ python3 scripts/research.py --db /path/to/market.db research-outcomes --days 30
 python3 scripts/research.py --db /path/to/market.db promote-challenger REPORT_ID
 ```
 
+`discovery-ledger` ends with `promotion_check`, the bar for setting `DISCOVERY_MODE=enforce`. It was
+fixed on 2026-11-04 before any results were read, and is evaluated on 5-day outcomes:
+
+- at least 14 days since the first discovery admission;
+- at least 40 resolved discovery-only events (events the ranking never sent to the strategist);
+- their mean absolute residual move and direction hit rate both at least the ranking-sourced events'.
+
+`failures` names each unmet criterion. Companies that enforce later routes into production still count as
+discovery-only, so the comparison stays readable after the switch.
+
 `forward-cycle` runs the collector's forward step once and, with a challenger on, calls models.
 The dashboard's **Research → V2 Rollout** page shows the same reading (`/api/forward-evaluation`)
 and has a fictional demo (`?demo=1`).

@@ -48,6 +48,16 @@ class EnforceFixture(DiscoveryFixture):
         from services.discovery.discovery_routing import admitted_entries
         return admitted_entries(policy=policy or self.policy, at=ENTRY, db_path=self.db)
 
+    def run_stack(self, mode):
+        from agentCallers import decision_pipeline as agent_main
+        with patch.dict(os.environ, {'DISCOVERY_MODE': mode, 'DISCOVERY_PRODUCTION_LIMIT': '5'}), \
+                patch.object(agent_main, 'run_agent_pipeline_from_existing_data', return_value={'sectors': []}), \
+                patch.object(agent_main, 'build_market_regime_snapshot', return_value={}), \
+                patch.object(agent_main, '_utc_now', return_value=ENTRY), \
+                patch('services.discovery.discovery_queue.run_discovery_shadow_cycle', return_value={}), \
+                patch.object(agent_main, 'decide_company_purchase', side_effect=reached):
+            return agent_main.run_full_agent_stack_from_existing_data()
+
 
 class AdmittedEntryTests(EnforceFixture):
     def test_a_ready_entry_is_offered_with_its_origin_and_interest_sources(self):
@@ -68,16 +78,6 @@ class AdmittedEntryTests(EnforceFixture):
 
 
 class ProductionRoutingTests(EnforceFixture):
-    def run_stack(self, mode):
-        from agentCallers import decision_pipeline as agent_main
-        with patch.dict(os.environ, {'DISCOVERY_MODE': mode, 'DISCOVERY_PRODUCTION_LIMIT': '5'}), \
-                patch.object(agent_main, 'run_agent_pipeline_from_existing_data', return_value={'sectors': []}), \
-                patch.object(agent_main, 'build_market_regime_snapshot', return_value={}), \
-                patch.object(agent_main, '_utc_now', return_value=ENTRY), \
-                patch('services.discovery.discovery_queue.run_discovery_shadow_cycle', return_value={}), \
-                patch.object(agent_main, 'decide_company_purchase', side_effect=reached):
-            return agent_main.run_full_agent_stack_from_existing_data()
-
     def test_enforce_sends_a_discovery_only_company_to_the_strategist_as_a_production_candidate(self):
         result = self.run_stack('enforce')
         failure, = result['failed_companies']
