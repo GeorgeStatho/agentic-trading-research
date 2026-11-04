@@ -1,6 +1,6 @@
 """Shared point-in-time contract for Part 6 features, labels and experiments."""
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 import math
@@ -19,11 +19,16 @@ def utc(value):
     return result.replace(tzinfo=timezone.utc) if result.tzinfo is None else result.astimezone(timezone.utc)
 
 
+# Provider timestamps (exchange quote times) come from another clock than our cutoffs. The live host's
+# clock has run up to ~1 s slow of NTP; a few seconds of skew carries no information for daily horizons.
+CLOCK_SKEW_TOLERANCE = timedelta(seconds=5)
+
+
 def assert_information_cutoff(timestamps, information_cutoff_time):
     """Require both observation and availability timestamps, supplied by adapters."""
     cutoff = utc(information_cutoff_time)
     for value in timestamps:
-        if value is None or utc(value) > cutoff:
+        if value is None or utc(value) > cutoff + CLOCK_SKEW_TOLERANCE:
             raise ValueError('Missing or future research input timestamp')
     return cutoff.isoformat()
 

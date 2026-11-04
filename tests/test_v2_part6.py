@@ -24,6 +24,7 @@ from services.research.research_contract import (
     assert_information_cutoff,
     canonical,
     fingerprint,
+    utc,
 )
 from services.research.research_inputs import load_inputs, baseline_contract
 from services.research.research_promotion import approved, guard_policy, champion_allows, champion_check, source_hash
@@ -56,6 +57,12 @@ class ContractTests(unittest.TestCase):
         for value in (None, END):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 assert_information_cutoff([value], ENTRY)
+
+    def test_a_provider_clock_slightly_ahead_of_ours_is_not_future_information(self):
+        # Exchange quote times come from the provider's clock; ours ran ~0.5-1 s slow on the live host.
+        assert_information_cutoff(['2026-09-02T20:00:01.100000+00:00'], ENTRY)
+        with self.assertRaises(ValueError):
+            assert_information_cutoff(['2026-09-02T20:00:06+00:00'], ENTRY)
 
     def test_invalid_policy_cannot_lower_promotion_floor(self):
         for fields in ({'minimum_promotion_samples': 99}, {'holding_days': 0}, {'fee_per_contract_side': float('nan')}):
@@ -232,6 +239,20 @@ class ResearchDatabaseTests(unittest.TestCase):
                          (serialized, sha256(serialized.encode()).hexdigest(), row['id']))
         with self.assertRaises(ValueError):
             collect_run(run_id, as_of=END, db_path=self.db)
+
+    def test_quote_stamped_a_second_after_capture_still_enrolls(self):
+        run_id = self.run_fixture()
+        self.candidate()
+        with closing(get_connection(self.db)) as conn, conn:
+            row = conn.execute("SELECT id,snapshot_json,information_cutoff_time FROM candidate_snapshots WHERE stage='post_contract_selection'").fetchone()
+            envelope = json.loads(row['snapshot_json'])
+            ahead = (utc(row['information_cutoff_time']) + timedelta(seconds=1)).isoformat()
+            envelope['payload']['market_context']['timestamp'] = ahead
+            serialized = canonical(envelope)
+            from hashlib import sha256
+            conn.execute('UPDATE candidate_snapshots SET snapshot_json=?,snapshot_hash=? WHERE id=?',
+                         (serialized, sha256(serialized.encode()).hexdigest(), row['id']))
+        self.assertEqual(collect_run(run_id, as_of=END, db_path=self.db)['candidates'], 1)
 
     def test_gate_and_champion_promotion_require_real_persisted_evidence(self):
         run_id = self.run_fixture(100)
