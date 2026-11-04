@@ -1,79 +1,64 @@
 import { getExecutedTrades } from './executedTradesApi';
-import type { ExecutedTrade, ExecutedTradesResponse } from './executedTradesApi';
-import { formatDateTime, formatToken } from './format';
+import type { ExecutedTrade } from './executedTradesApi';
+import { formatCurrency, formatShortDateTime, formatToken, hasNumericValue } from './format';
+import { formatOccSymbol } from './occ';
+import { orderTypeLabel, wasNotExecuted } from './orders';
+import { DataTable } from './ui/DataTable';
+import type { Column } from './ui/DataTable';
+import { Panel } from './ui/Panel';
+import { Tag } from './ui/Tag';
 import { useFetchedResource } from './useRemoteResource';
-import './card.css';
 
-function getExecutedTradeRows(payload: ExecutedTradesResponse): ExecutedTrade[] {
-  return Array.isArray(payload.trades) ? payload.trades : [];
+function StatusTag({ status }: { status: string | null }) {
+  const token = formatToken(status, { placeholder: 'Unknown' });
+  const label = token.charAt(0).toUpperCase() + token.slice(1);
+  return status === 'filled' ? <Tag tone="gain">{label}</Tag> : <Tag>{label}</Tag>;
 }
 
-function executedTradeToText(trade: ExecutedTrade): string {
-  const decisionText = formatToken(trade.decision).toLowerCase();
-  const companyName = trade.company_name || 'Unknown company';
-  const strikeText = trade.strike_price == null ? 'unknown strike' : `strike ${trade.strike_price}`;
-  const expirationText = trade.expiration_date || 'unknown expiration';
-  const statusText = trade.order_status || 'unknown';
-  const submittedText = trade.submitted_at ? ` Submitted ${formatDateTime(trade.submitted_at)}.` : '';
+const SUBMITTED: Column<ExecutedTrade> = {
+  key: 'submitted',
+  header: 'Submitted',
+  render: (trade) => <span className="font-mono whitespace-nowrap text-dim">{formatShortDateTime(trade.submitted_at)}</span>,
+};
+const CONTRACT: Column<ExecutedTrade> = {
+  key: 'contract',
+  header: 'Contract',
+  render: (trade) => <span className="font-mono whitespace-nowrap">{formatOccSymbol(trade.option_symbol)}</span>,
+};
+const TYPE: Column<ExecutedTrade> = { key: 'type', header: 'Type', render: orderTypeLabel };
+const FILL: Column<ExecutedTrade> = {
+  key: 'fill',
+  header: 'Fill',
+  align: 'right',
+  render: (trade) => <span className="font-mono">{formatCurrency(trade.fill_price, { placeholder: '—' })}</span>,
+};
+const STATUS: Column<ExecutedTrade> = { key: 'status', header: 'Status', render: (trade) => <StatusTag status={trade.order_status} /> };
 
-  return `Option order (${decisionText}) for ${trade.underlying_symbol} (${companyName}) used contract ${trade.option_symbol} expiring on ${expirationText} at ${strikeText} with status ${statusText}.${submittedText}`;
-}
+/** Every option order, newest first as the API returns them; canceled ones dimmed. */
+export function OrdersView({ trades }: { trades: readonly ExecutedTrade[] }) {
+  const hasFills = trades.some((trade) => hasNumericValue(trade.fill_price));
+  const columns = hasFills ? [SUBMITTED, CONTRACT, TYPE, FILL, STATUS] : [SUBMITTED, CONTRACT, TYPE, STATUS];
 
-function OrderCard({ trade }: { trade: ExecutedTrade }) {
   return (
-    <article className="order-card">
-      <div className="order-card__header">
-        <div>
-          <p className="order-card__eyebrow">{trade.company_name || 'Executed option order'}</p>
-          <h3 className="order-card__title">{trade.underlying_symbol} · {formatToken(trade.decision)}</h3>
-        </div>
-        <span className="order-card__status">{trade.order_status || 'Unknown status'}</span>
-      </div>
-      <p className="order-card__text">{executedTradeToText(trade)}</p>
-      {trade.error ? (
-        <p className="order-card__error">{trade.error}</p>
-      ) : null}
-    </article>
+    <Panel title="Orders" meta={`${trades.length} recorded`} flush>
+      <DataTable
+        columns={columns}
+        rows={trades}
+        rowKey={(trade) => String(trade.id)}
+        rowClassName={(trade) => (wasNotExecuted(trade.order_status) ? 'opacity-60' : '')}
+        emptyMessage="No orders yet."
+      />
+    </Panel>
   );
 }
 
 function OrderCardList() {
-  const { payload, error, isLoading } = useFetchedResource(getExecutedTrades, {
-    errorMessage: 'Failed to load executed trades.',
-  });
-  const trades = payload ? getExecutedTradeRows(payload) : [];
+  const { payload, error } = useFetchedResource(getExecutedTrades, { errorMessage: 'Failed to load executed trades.' });
 
-  if (isLoading) {
-    return <section className="order-card-list order-card-list--empty"><p>Loading executed trades…</p></section>;
+  if (!payload) {
+    return <Panel title="Orders"><p className={error ? 'text-error' : 'text-dim'}>{error ?? 'Loading orders…'}</p></Panel>;
   }
-
-  if (error) {
-    return <section className="order-card-list order-card-list--empty"><p>{error}</p></section>;
-  }
-
-  if (trades.length === 0) {
-    return (
-      <section className="order-card-list order-card-list--empty">
-        <div className="order-card-list__header"><div><p>Executed Orders</p><h2>Recent execution history</h2></div></div>
-        <p>No executed trades have been recorded yet.</p>
-      </section>
-    );
-  }
-
-  return (
-    <section className="order-card-list">
-      <div className="order-card-list__header">
-        <div><p>Executed Orders</p><h2>Recent execution history</h2></div>
-        <span>{trades.length} recorded</span>
-      </div>
-      {trades.map((trade) => (
-        <OrderCard
-          key={`${trade.id}-${trade.order_id}`}
-          trade={trade}
-        />
-      ))}
-    </section>
-  );
+  return <OrdersView trades={Array.isArray(payload.trades) ? payload.trades : []} />;
 }
 
 export default OrderCardList;

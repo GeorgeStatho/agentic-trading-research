@@ -1,5 +1,6 @@
 import { fetchPolledJson } from './api';
 import { asUtcTimestamp, formatToken } from './format';
+import { wasNotExecuted } from './orders';
 
 /**
  * The equity, drawdown and daily P/L series behind the Live charts, from
@@ -78,8 +79,6 @@ export type TradeMarker = {
   label: string;
 };
 
-const NOT_EXECUTED = new Set(['canceled', 'cancelled', 'rejected', 'expired']);
-
 const CONTRACT_LETTER: Readonly<Record<string, string>> = { call: ' C', put: ' P' };
 
 function entryLabel(trade: MarkerTrade): string {
@@ -91,7 +90,7 @@ export function tradeMarkers(points: readonly EquityPoint[], trades: readonly Ma
   const pointByDay = new Map(points.map((point) => [marketDay.format(point.time), point]));
 
   return trades.flatMap((trade) => {
-    if (!trade.submitted_at || NOT_EXECUTED.has(String(trade.order_status).toLowerCase())) {
+    if (!trade.submitted_at || wasNotExecuted(trade.order_status)) {
       return [];
     }
     const point = pointByDay.get(marketDay.format(new Date(asUtcTimestamp(trade.submitted_at))));

@@ -1,6 +1,7 @@
 import DashboardKpis from './dashboardKpis.tsx'
 import Graph from './Graph.tsx'
 import LiveDecisions from './liveDecisions.tsx'
+import LiveNewsLag from './liveNewsLag.tsx'
 import LiveNewsfeed from './liveNewsfeed.tsx'
 import OpenPositionsTable from './openPositionsTable.tsx'
 import OrderCardList from './orderCard.tsx'
@@ -20,8 +21,11 @@ function DashboardHome() {
         <div className="min-w-0 flex-[2_1_640px]"><LiveNewsfeed /></div>
         <div className="min-w-0 flex-[1_1_360px]"><LiveDecisions /></div>
       </div>
+      <div className="flex flex-wrap gap-3">
+        <div className="min-w-0 flex-[2_1_640px]"><OrderCardList /></div>
+        <div className="min-w-0 flex-[1_1_360px]"><LiveNewsLag /></div>
+      </div>
       <OpenPositionsTable />
-      <OrderCardList />
       <V2SafeguardsPanel />
     </main>
   )

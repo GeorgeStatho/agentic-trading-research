@@ -44,7 +44,7 @@ existing links and bookmarks keep working.
 - [src/systemHealth.tsx](src/systemHealth.tsx) / [src/systemRisk.tsx](src/systemRisk.tsx): System › Health and System › Risk
 - [src/Graph.tsx](src/Graph.tsx): the Live equity row — equity with trade markers, drawdown, daily P/L
 - [src/equitySeries.ts](src/equitySeries.ts): portfolio-history fetch and the series the charts plot
-- [src/orderCard.tsx](src/orderCard.tsx): trade execution cards
+- [src/orderCard.tsx](src/orderCard.tsx): the Live orders table ([src/occ.ts](src/occ.ts) formats option symbols)
 - [src/exposureMap.tsx](src/exposureMap.tsx): grounded article-to-position graph
 - [src/decisionAutopsy.tsx](src/decisionAutopsy.tsx): immutable decision review
 - [src/v2Status.tsx](src/v2Status.tsx): the V2 Rollout view — control modes, shadow verdicts, promotion evidence
