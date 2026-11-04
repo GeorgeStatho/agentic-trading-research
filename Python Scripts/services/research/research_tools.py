@@ -186,6 +186,16 @@ class ResearchTools:
             facts = [read_record(conn, 'company_facts', 'fact_id', row['fact_id']) for row in rows]
         return [f for f in facts[:MAX_RESULT_FACTS] if f['kind'] != 'derived'], len(rows) > MAX_RESULT_FACTS
 
+    def has_verified_facts(self):
+        """Whether any lookup could return an actual or guidance fact available by the cutoff."""
+        with closing(get_connection(self.db_path)) as conn:
+            for row in conn.execute("""SELECT fact_id FROM company_facts WHERE company_id=?
+                    AND julianday(available_at)<=julianday(?)""", (self.company_id, self.cutoff)):
+                fact = read_record(conn, 'company_facts', 'fact_id', row['fact_id'])
+                if fact['kind'] in {'actual', 'guidance'} and fact['value'] is not None:
+                    return True
+        return False
+
     def execute(self, request, *, timeout):
         if timeout <= 0:
             raise TimeoutError('Research deadline')

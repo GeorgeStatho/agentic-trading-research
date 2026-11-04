@@ -162,10 +162,15 @@ def run_news_collection_cycle() -> dict[str, Any]:
     result['decision_attribution'] = observe(attribute_decisions)
     from services.evaluation.forward_evaluation import run_forward_evaluation_cycle
     result['forward_evaluation'] = observe(run_forward_evaluation_cycle)
+    from services.discovery.market_events import collect_market_events
+    # Before evidence collection, so a newly interesting filer is collected in the same cycle.
+    result['market_events'] = observe(collect_market_events)
     from services.discovery.company_evidence_service import collect_company_evidence
     result['company_evidence_refresh'] = observe(collect_company_evidence)
     from services.discovery.event_discovery import discover_company_events
     result['event_discovery'] = observe(discover_company_events)
+    from services.discovery.discovery_queue import run_discovery_research_cycle
+    result['discovery_research'] = observe(run_discovery_research_cycle)
     JsonFileWriter.write(SETTINGS.output_path, result)
     LOGGER.info("Saved news collection output to %s", SETTINGS.output_path)
     return result

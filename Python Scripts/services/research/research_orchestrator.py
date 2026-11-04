@@ -123,6 +123,9 @@ class ResearchOrchestrator:
                 self.checkpoint({'kind': 'initial_evidence_validated'})
                 if candidate['research_input']['company_evidence'].get('freshness_at_read') == 'stale':
                     return self.finish('deferred_missing_evidence', 'primary_evidence_stale')
+                # No lookup can find facts the archive lacks; a planner call could only defer.
+                if not self.tools.has_verified_facts():
+                    return self.finish('deferred_missing_evidence', 'verified_company_facts_unavailable')
             return self.investigate()
         except ResearchBudgetExceeded as exc:
             return self.finish('budget_exhausted', str(exc))

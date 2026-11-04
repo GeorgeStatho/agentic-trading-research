@@ -1,4 +1,5 @@
 """Bounded shadow consumer. It produces frozen research inputs, never manager results."""
+from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -52,7 +53,8 @@ def process_discovery_queue(*, policy=None, owner=None, clock=utc_now, version=N
     owner = owner or 'discovery-worker:' + uuid4().hex
     if version is None:
         version = build_pipeline_version()
-    items = claim_discovery_batch(owner, at=clock(), policy=policy, db_path=db_path)
+    items = claim_discovery_batch(owner, at=clock(), policy=replace(policy, batch_size=policy.admission_batch_size),
+                                  db_path=db_path)
     results, failures = [], []
     for item in items:
         try:
@@ -75,11 +77,18 @@ def process_discovery_queue(*, policy=None, owner=None, clock=utc_now, version=N
 
 
 def run_discovery_shadow_cycle(*, sector_symbols=(), policy=None, clock=utc_now, db_path=None):
+    """Trading-cycle step: scan and admit events. Model-backed research runs in the collector."""
     policy = policy or DiscoveryPolicy.from_env()
     if policy.mode == 'disabled':
         return {'status': 'disabled', 'candidates': []}
     discovery = discover_company_events(sector_symbols=sector_symbols, policy=policy, at=clock(), db_path=db_path)
-    result = {**process_discovery_queue(policy=policy, clock=clock, db_path=db_path), 'discovery': discovery}
-    result['research'] = process_research_queue(clock=clock, limit=policy.batch_size, db_path=db_path)
-    result['theses'] = process_research_theses(clock=clock, limit=policy.batch_size, db_path=db_path)
-    return result
+    return {**process_discovery_queue(policy=policy, clock=clock, db_path=db_path), 'discovery': discovery}
+
+
+def run_discovery_research_cycle(*, policy=None, clock=utc_now, db_path=None):
+    """Collector step: research sessions and theses, which call models and may wait on retries."""
+    policy = policy or DiscoveryPolicy.from_env()
+    if policy.mode == 'disabled':
+        return {'status': 'disabled'}
+    return {'research': process_research_queue(clock=clock, limit=policy.batch_size, db_path=db_path),
+            'theses': process_research_theses(clock=clock, limit=policy.batch_size, db_path=db_path)}
