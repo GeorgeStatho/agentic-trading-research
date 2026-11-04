@@ -27,15 +27,31 @@ function detail() {
 }
 
 describe('Decisions page', () => {
-  it("counts today's decisions in the summary chips", () => {
+  it("counts the loaded decisions in the summary chips when the server sends no day count", () => {
     render(<DecisionsView payload={payload()} notices={[]} initialQuery="" />)
 
     const chips = screen.getByRole('group', { name: 'Decision summary' })
     expect(chips.textContent).toContain('2 evaluated')
+    expect(chips.textContent).toContain('1 trade candidate')
     expect(chips.textContent).toContain('1 call')
     expect(chips.textContent).toContain('0 put')
-    expect(chips.textContent).toContain('1 no trade')
     expect(chips.textContent).toContain('0 executed')
+  })
+
+  it("counts the whole day from the server, and says when the list holds only part of it", async () => {
+    const today = { market_day: '2026-11-04', evaluated: 122, trade_candidates: 13, call: 4, put: 1, executed: 1 }
+    render(<DecisionsView payload={payload({ today })} notices={[]} initialQuery="" />)
+
+    const chips = screen.getByRole('group', { name: 'Decision summary' })
+    expect(chips.textContent).toContain('122 evaluated')
+    expect(chips.textContent).toContain('13 trade candidates')
+    expect(chips.textContent).toContain('4 call')
+    expect(chips.textContent).toContain('1 executed')
+    expect(screen.getByText(/Listing the newest 2 of today's 122 decisions/)).toBeTruthy()
+
+    await userEvent.click(within(screen.getByRole('group', { name: 'When' })).getByRole('button', { name: 'All loaded' }))
+    expect(chips.textContent).toContain('3 evaluated')
+    expect(screen.queryByText(/Listing the newest/)).toBeNull()
   })
 
   it('lists one button per decision with the strategist and manager verdicts and why', () => {

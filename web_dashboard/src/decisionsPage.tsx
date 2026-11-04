@@ -7,6 +7,7 @@ import {
   decisionPath,
   diagnosticNotices,
   filterDecisions,
+  funnelCounts,
   getDecisions,
   getDemoDecisions,
   getDiagnostics,
@@ -432,7 +433,11 @@ export function DecisionsView({ payload, notices, initialQuery }: DecisionsViewP
 
   const update = (change: Partial<DecisionFilters>) => setFilters((current) => ({ ...current, ...change }));
   const records = filterDecisions(payload.records, filters, now);
-  const counts = decisionCounts(filterDecisions(payload.records, { ...NO_FILTERS, when: filters.when }, now));
+  const loadedInWindow = filterDecisions(payload.records, { ...NO_FILTERS, when: filters.when }, now);
+  // A busy day has more decisions than the page loads, so today's chips use the server's count.
+  const dayFunnel = filters.when === 'today' ? payload.today : undefined;
+  const counts = dayFunnel ? funnelCounts(dayFunnel) : decisionCounts(loadedInWindow);
+  const partialDay = dayFunnel !== undefined && dayFunnel.evaluated > loadedInWindow.length;
   const selected = records.find((record) => record.id === selectedId) ?? records[0] ?? null;
   const newest = payload.records[0];
 
@@ -456,12 +461,15 @@ export function DecisionsView({ payload, notices, initialQuery }: DecisionsViewP
       <div role="group" aria-label="Decision summary" className="flex flex-wrap gap-2 text-xs">
         {[
           `${counts.evaluated} evaluated`,
+          `${counts.tradeCandidates} trade candidate${counts.tradeCandidates === 1 ? '' : 's'}`,
           `${counts.call} call`,
           `${counts.put} put`,
-          `${counts.noTrade} no trade`,
           `${counts.executed} executed`,
         ].map((chip) => <span key={chip} className="rounded-sm bg-raised px-2 py-0.5 text-ink-2">{chip}</span>)}
       </div>
+      {partialDay ? (
+        <p className="text-[11px] text-dim">Listing the newest {loadedInWindow.length} of today's {dayFunnel.evaluated} decisions; search reaches only these.</p>
+      ) : null}
       {notices.length ? (
         <details className="text-xs text-warning">
           <summary className="cursor-pointer">{notices.length} latest {notices.length === 1 ? 'attempt' : 'attempts'} failed before reaching a decision</summary>

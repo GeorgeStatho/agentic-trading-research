@@ -601,9 +601,12 @@ and hide the parts whose fields are missing.
    its DTE, held to the rule's forced exit, without recording anything.
    Quotes are fetched for about a week after a decision, so "neither
    threshold before the last quote" is often the end of the data; the
-   trailing stop is not modelled. Not done: today's funnel counts (no panel
-   reads them until the § 8 phone layout exists; the Decisions page counts
-   client-side).
+   trailing stop is not modelled. Today's funnel (`today` on the autopsy
+   payload: evaluated, trade candidates, call, put, executed for the New York
+   trading day) feeds the Decisions chips when "Today" is chosen: a busy day
+   has 120-130 decisions and the page loads 100, so counting client-side
+   undercounted. "Passed safeguards" is left out: every decision that passed
+   them was filled, so it would repeat "executed".
 7. Delete the temporary legacy variable block from `index.css`. Done with
    step 5: no `.css` file besides `index.css` remains. Only `--app-chrome`
    survives, which the Exposure Map uses to size itself.

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from agent_helpers.deterministic_option_selector.market import _get_reference_stock_price
 from api_support.context import OPTION_POSITION_SETTINGS, logger
@@ -17,6 +18,30 @@ from trading_support._option_positions_defaults import build_option_exit_rules
 from trading_support._option_positions_market import _resolve_option_exit_thresholds
 
 EXIT_REASONS = {"take_profit_exit": "take_profit", "stop_loss_exit": "stop_loss"}
+MARKET_TIMEZONE = ZoneInfo("America/New_York")
+
+
+def todays_decision_funnel(*, now: datetime) -> dict[str, Any]:
+    """How far every decision of the current New York trading day got, not only the loaded page."""
+    market_day = now.astimezone(MARKET_TIMEZONE).date()
+    start = datetime.combine(market_day, time(0), MARKET_TIMEZONE)
+    # Stored run times are UTC ISO text, so UTC bounds compare correctly as strings.
+    bounds = (start.astimezone(timezone.utc).isoformat(), (start + timedelta(days=1)).astimezone(timezone.utc).isoformat())
+    with closing(get_connection()) as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS evaluated,
+                   COALESCE(SUM(LOWER(history.strategist_decision) = 'trade_candidate'), 0) AS trade_candidates,
+                   COALESCE(SUM(LOWER(history.manager_decision) = 'call'), 0) AS call,
+                   COALESCE(SUM(LOWER(history.manager_decision) = 'put'), 0) AS put,
+                   COALESCE(SUM(history.trade_executed = 1), 0) AS executed
+            FROM decision_autopsy_ledger AS ledger
+            JOIN manager_decision_history AS history ON history.id = ledger.manager_decision_history_id
+            WHERE ledger.decision_run_at >= ? AND ledger.decision_run_at < ?
+            """,
+            bounds,
+        ).fetchone()
+    return {"market_day": market_day.isoformat(), **{key: int(row[key]) for key in ("evaluated", "trade_candidates", "call", "put", "executed")}}
 
 
 def _string_list(value: Any) -> list[str]:
@@ -264,9 +289,10 @@ def build_decision_autopsy_payload(*, limit: int = 100) -> dict[str, Any]:
     for record in records:
         record["v2_verdicts"] = (verdicts or {}).get(record["manager_decision_history_id"], [])
     return {
-        "as_of": datetime.now(timezone.utc).isoformat(),
+        "as_of": now.isoformat(),
         "count": len(records),
         "records": records,
+        "today": todays_decision_funnel(now=now),
         "read_only": True,
         "no_trade_executed_by_feature": True,
         "v2_verdicts_available": verdicts is not None,

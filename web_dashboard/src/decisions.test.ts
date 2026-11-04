@@ -6,6 +6,7 @@ import {
   decisionPath,
   diagnosticNotices,
   filterDecisions,
+  funnelCounts,
   safeguardVerdicts,
   stoppedAt,
   whyLine,
@@ -112,13 +113,18 @@ describe('whyLine', () => {
 })
 
 describe('decisionCounts', () => {
-  it('counts evaluated, calls, puts, no trades and executed orders', () => {
+  it('counts each funnel stage: evaluated, trade candidates, calls, puts and executed orders', () => {
     const records = [
       decisionRecord(),
       blockedCall(),
       blockedCall({ id: 1, manager: { decision: 'put' }, outcome: { trade_executed: true } }),
     ]
-    expect(decisionCounts(records)).toEqual({ evaluated: 3, call: 1, put: 1, noTrade: 1, executed: 1 })
+    expect(decisionCounts(records)).toEqual({ evaluated: 3, tradeCandidates: 2, call: 1, put: 1, executed: 1 })
+  })
+
+  it("reads the same stages from the server's count of the whole day", () => {
+    expect(funnelCounts({ market_day: '2026-11-04', evaluated: 122, trade_candidates: 13, call: 4, put: 1, executed: 1 }))
+      .toEqual({ evaluated: 122, tradeCandidates: 13, call: 4, put: 1, executed: 1 })
   })
 })
 

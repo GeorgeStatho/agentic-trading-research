@@ -70,7 +70,17 @@ export type Counterfactual = {
   warnings: string[];
 };
 
-export type DecisionsPayload = { as_of: string; count: number; records: DecisionRecord[]; v2_verdicts_available?: boolean };
+/** Every decision of the current New York trading day, counted by the server. */
+export type DayFunnel = { market_day: string; evaluated: number; trade_candidates: number; call: number; put: number; executed: number };
+
+export type DecisionsPayload = {
+  as_of: string;
+  count: number;
+  records: DecisionRecord[];
+  v2_verdicts_available?: boolean;
+  /** Absent from the seeded demo payload. */
+  today?: DayFunnel;
+};
 
 export function getDecisions(): Promise<DecisionsPayload> {
   return fetchPolledJson<DecisionsPayload>('/api/decision-autopsies?limit=100', 'decisions');
@@ -181,17 +191,24 @@ export function whyLine(record: DecisionRecord): string {
   return record.manager.reason;
 }
 
-export type DecisionCounts = { evaluated: number; call: number; put: number; noTrade: number; executed: number };
+/** How far decisions got: evaluated → trade candidate → call or put → executed. */
+export type DecisionCounts = { evaluated: number; tradeCandidates: number; call: number; put: number; executed: number };
 
+/** The funnel over the loaded records only. */
 export function decisionCounts(records: readonly DecisionRecord[]): DecisionCounts {
   const count = (test: (record: DecisionRecord) => boolean) => records.filter(test).length;
   return {
     evaluated: records.length,
+    tradeCandidates: count((record) => record.strategist.decision === 'trade_candidate'),
     call: count((record) => record.manager.decision === 'call'),
     put: count((record) => record.manager.decision === 'put'),
-    noTrade: count((record) => !isDirectional(record.manager.decision)),
     executed: count((record) => record.outcome.trade_executed),
   };
+}
+
+/** The server's funnel over the whole trading day, which can hold more decisions than the page loads. */
+export function funnelCounts(today: DayFunnel): DecisionCounts {
+  return { evaluated: today.evaluated, tradeCandidates: today.trade_candidates, call: today.call, put: today.put, executed: today.executed };
 }
 
 export type VerdictFilter = 'all' | 'call' | 'put' | 'neither';
