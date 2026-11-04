@@ -154,10 +154,21 @@ keeps the old variable names alive until every component is converted.
     @apply min-w-80 bg-base-100 font-sans text-[13px] leading-snug text-base-content tabular-nums antialiased;
   }
   a { @apply text-primary hover:text-[#ffa347]; }
+  #root { min-height: 100svh; }
+  button, a { -webkit-tap-highlight-color: transparent; }
+  /* Preflight sets `cursor: default` on buttons. */
+  button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
+
+  /* TEMPORARY: browser defaults (heading size/weight, p/dl/list margins,
+     bullets, `small`) restored inside the roots of unconverted components.
+     See "Things that shift" below. */
+  :where(.autopsy-page, .backtest-page, /* ...every legacy root */) { ... }
 }
 
 /* TEMPORARY: old names, re-pointed, so unconverted component CSS keeps
-   working. Delete this block when `grep -rn "var(--" src/*.css` is empty. */
+   working. Delete this block when `grep -rn "var(--" src/*.css` is empty.
+   There is no legacy `--border`: daisyUI uses that name for border width,
+   so old CSS reads `--outline-variant` for the border color instead. */
 :root {
   --background: var(--color-base-100);
   --surface: var(--color-base-100);
@@ -180,10 +191,10 @@ keeps the old variable names alive until every component is converted.
   --text-dim: var(--color-dim);
   --text-h: var(--color-base-content);
   --bg: var(--color-base-100);
-  --border: var(--color-base-300);
   --accent: var(--color-primary);
   --accent-bg: var(--color-accent-bg);
   --accent-border: var(--color-accent-line);
+  --shadow: none;
   --sans: var(--font-sans);
   --heading: var(--font-sans);
   --mono: var(--font-mono);
@@ -196,16 +207,21 @@ keys) against the installed daisyUI version's theme docs; the
 
 ### Things that shift when Tailwind lands
 
-Tailwind's base reset (Preflight) removes default heading sizes, margins and
-list bullets. Expect on the first PR:
+PR 1 (setup) handled these so unconverted pages look as before apart from
+palette, font and the 13px body:
 
-- `h1`–`h3` render at body size until each component sets `text-*`.
-- Bullet lists (strategist thesis in the autopsy, risk lists) lose bullets;
-  add `list-disc pl-5`.
-- Buttons lose their browser background; the old `.css` files mostly style
-  these already.
-
-So PR 1 is setup + tokens only, checked page by page, before any conversion.
+- **`--border`.** daisyUI themes define `--border: 1px` (border width for
+  `btn`, `input`, ...). The old CSS used `var(--border)` as a color, so every
+  such use was renamed to `var(--outline-variant)` (same `base-300` value).
+- **`rem`.** The old `:root { font: 14px/... }` made `1rem` = 14px; Tailwind
+  leaves the root at 16px. The old `.css` files had their `rem` sizes
+  rewritten as px at 14px (`.75rem` → `10.5px`). New code uses Tailwind's
+  scale as usual.
+- **Preflight** removes heading sizes/weight, `p`/`dl`/list margins, bullets
+  and `small`'s size. A temporary block in `index.css` restores those browser
+  defaults inside the root class of each unconverted component. When you
+  convert a component, drop its root from that list, and give converted
+  markup explicit `text-*`, `font-*`, `list-disc pl-5` and margins.
 
 ### Chart colors: `src/ui/chartTheme.ts`
 

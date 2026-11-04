@@ -17,7 +17,7 @@
 }
 
 .company-decisions__eyebrow {
-  font-size: 0.8rem;
+  font-size: 11.2px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   opacity: 0.72;
@@ -29,12 +29,12 @@
   flex-wrap: wrap;
   gap: 10px;
   justify-content: end;
-  font-size: 0.92rem;
+  font-size: 12.88px;
 }
 
 .company-decisions__updated {
   color: var(--text-dim);
-  font-size: 0.75rem;
+  font-size: 10.5px;
   white-space: nowrap;
 }
 
@@ -47,7 +47,7 @@
 .company-decisions__metrics article {
   margin: 0;
   padding: 12px 14px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--outline-variant);
   border-radius: 12px;
   background: var(--surface-container-low);
 }
@@ -60,13 +60,13 @@
 
 .company-decisions__metrics article span {
   color: var(--text-dim);
-  font-size: 0.75rem;
+  font-size: 10.5px;
   font-weight: 600;
 }
 
 .company-decisions__metrics article strong {
   color: var(--text-h);
-  font-size: 1.3rem;
+  font-size: 18.2px;
 }
 
 .company-decisions__metric--positive strong { color: #86efac; }
@@ -89,14 +89,14 @@
 
 .company-decisions__search span {
   color: var(--text-dim);
-  font-size: 0.75rem;
+  font-size: 10.5px;
   font-weight: 600;
 }
 
 .company-decisions__search input {
   width: 100%;
   box-sizing: border-box;
-  border: 1px solid var(--border);
+  border: 1px solid var(--outline-variant);
   border-radius: 8px;
   padding: 10px 12px;
   color: var(--text-h);
@@ -117,18 +117,18 @@
 }
 
 .company-decisions__filter {
-  border: 1px solid var(--border);
+  border: 1px solid var(--outline-variant);
   border-radius: 999px;
   padding: 8px 11px;
   color: var(--text);
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 11.2px;
   background: transparent;
   cursor: pointer;
 }
 
 .company-decisions__filter:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--outline-variant));
   background: color-mix(in srgb, var(--accent) 9%, transparent);
 }
 
@@ -147,7 +147,7 @@
 }
 
 .company-decisions__card {
-  border: 1px solid var(--border);
+  border: 1px solid var(--outline-variant);
   border-radius: 12px;
   padding: 0;
   overflow: hidden;
@@ -161,11 +161,11 @@
   align-items: start;
   margin-bottom: 0;
   padding: 18px 22px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--outline-variant);
 }
 
 .company-decisions__symbol {
-  font-size: 1.25rem;
+  font-size: 17.5px;
   font-weight: 700;
   color: var(--text-h);
 }
@@ -182,23 +182,23 @@
 }
 
 .company-decisions__decision-badge {
-  border: 1px solid var(--border);
+  border: 1px solid var(--outline-variant);
   border-radius: 999px;
   padding: 5px 8px;
   color: var(--text-h);
-  font-size: .75rem;
+  font-size: 10.5px;
   font-weight: 700;
   background: color-mix(in srgb, var(--bg) 88%, #202838);
 }
 
 .company-decisions__decision-badge--positive {
-  border-color: color-mix(in srgb, #46a37a 52%, var(--border));
+  border-color: color-mix(in srgb, #46a37a 52%, var(--outline-variant));
   color: #86efac;
   background: color-mix(in srgb, #46a37a 12%, transparent);
 }
 
 .company-decisions__decision-badge--negative {
-  border-color: color-mix(in srgb, #dd5a63 52%, var(--border));
+  border-color: color-mix(in srgb, #dd5a63 52%, var(--outline-variant));
   color: #fca5a5;
   background: color-mix(in srgb, #dd5a63 12%, transparent);
 }
@@ -213,25 +213,25 @@
   padding: 18px 22px 22px;
 }
 
-.company-decisions__stage + .company-decisions__stage { border-left: 1px solid var(--border); }
+.company-decisions__stage + .company-decisions__stage { border-left: 1px solid var(--outline-variant); }
 
 .company-decisions__stage-label,
 .company-decisions__subheading {
   color: var(--text-dim);
-  font-size: 0.75rem;
+  font-size: 10.5px;
   font-weight: 600;
 }
 
 .company-decisions__stage-main {
   margin-top: 10px;
-  font-size: 1.3rem;
+  font-size: 18.2px;
   font-weight: 700;
   color: var(--text-h);
 }
 
 .company-decisions__detail {
   margin-top: 6px;
-  font-size: 0.95rem;
+  font-size: 13.3px;
 }
 
 .company-decisions__text {
@@ -241,13 +241,13 @@
 
 .company-decisions__diagnostic {
   margin-top: 16px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--outline-variant);
   border-radius: 12px;
   padding: 12px;
 }
 
 .company-decisions__diagnostic--error {
-  border-color: color-mix(in srgb, #dd5a63 52%, var(--border));
+  border-color: color-mix(in srgb, #dd5a63 52%, var(--outline-variant));
   background: color-mix(in srgb, #dd5a63 8%, transparent);
 }
 
@@ -284,7 +284,7 @@
 
 .company-decisions__facts dt {
   color: var(--text-dim);
-  font-size: 0.75rem;
+  font-size: 10.5px;
 }
 
 .company-decisions__facts dd {
@@ -305,7 +305,7 @@
 
 .company-decisions__history-details {
   margin-top: 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--outline-variant);
   padding-top: 14px;
 }
 
@@ -314,7 +314,7 @@
   align-items: center;
   justify-content: space-between;
   color: var(--text-h);
-  font-size: 0.85rem;
+  font-size: 11.9px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -326,7 +326,7 @@
   padding: 2px 6px;
   border-radius: 999px;
   color: var(--text);
-  font-size: 0.75rem;
+  font-size: 10.5px;
   text-align: center;
   background: var(--surface-container-high);
 }
@@ -334,7 +334,7 @@
 /* History entries sit inside the card already: a left rule, not another box. */
 .company-decisions__history-item {
   padding: 2px 0 2px 14px;
-  border-left: 2px solid var(--border);
+  border-left: 2px solid var(--outline-variant);
 }
 
 .company-decisions__history-header {
@@ -350,7 +350,7 @@
 }
 
 .company-decisions__history-time {
-  font-size: 0.9rem;
+  font-size: 12.6px;
   opacity: 0.78;
 }
 
@@ -358,7 +358,7 @@
   display: block;
   margin-top: 3px;
   color: var(--text-dim);
-  font-size: 0.78rem;
+  font-size: 10.92px;
 }
 
 @media (max-width: 860px) {
@@ -379,7 +379,7 @@
 
   .company-decisions__stage + .company-decisions__stage {
     border-left: 0;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--outline-variant);
   }
 
   .company-decisions__metrics {

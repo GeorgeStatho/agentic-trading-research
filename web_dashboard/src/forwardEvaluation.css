@@ -1,12 +1,12 @@
 .forward-eval__empty { margin: 0; padding: 16px 20px; color: var(--text-dim); }
-.forward-eval__comparison { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: color-mix(in srgb, var(--bg) 94%, #202838); }
+.forward-eval__comparison { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--outline-variant); border-radius: 14px; background: color-mix(in srgb, var(--bg) 94%, #202838); }
 .forward-eval__comparison header { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 0; border: 0; }
 .forward-eval__comparison header strong { color: var(--text-h); }
-.forward-eval__comparison header small { display: block; margin-top: 3px; color: var(--text-dim); font-size: .75rem; }
-.forward-eval__verdict--accepted { color: #86efac; border-color: color-mix(in srgb, #22c55e 34%, var(--border)); }
-.forward-eval__verdict--not_accepted { color: #fca5a5; border-color: color-mix(in srgb, #dc2626 34%, var(--border)); }
-.forward-eval__verdict--interim { color: #93c5fd; border-color: color-mix(in srgb, #3b82f6 32%, var(--border)); }
-.forward-eval__criteria { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px 16px; margin: 0; padding: 0; list-style: none; font-size: .78rem; }
+.forward-eval__comparison header small { display: block; margin-top: 3px; color: var(--text-dim); font-size: 10.5px; }
+.forward-eval__verdict--accepted { color: #86efac; border-color: color-mix(in srgb, #22c55e 34%, var(--outline-variant)); }
+.forward-eval__verdict--not_accepted { color: #fca5a5; border-color: color-mix(in srgb, #dc2626 34%, var(--outline-variant)); }
+.forward-eval__verdict--interim { color: #93c5fd; border-color: color-mix(in srgb, #3b82f6 32%, var(--outline-variant)); }
+.forward-eval__criteria { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px 16px; margin: 0; padding: 0; list-style: none; font-size: 10.92px; }
 .forward-eval__met { color: #86efac; }
 .forward-eval__unmet { color: #ffcf87; }
 .forward-eval__demo { padding: 13px 16px; border: 1px solid #e5a94f; border-radius: 12px; color: #ffcf87; background: color-mix(in srgb, #e5a94f 8%, transparent); }

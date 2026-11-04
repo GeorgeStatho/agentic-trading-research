@@ -1,6 +1,6 @@
 .risk-controls-panel {
   width: min(1100px, 92vw);
-  border: 1px solid var(--border);
+  border: 1px solid var(--outline-variant);
   border-radius: 12px;
   box-sizing: border-box;
   background: var(--surface-container-low);
@@ -20,7 +20,7 @@
 .risk-controls-panel__eyebrow {
   margin-bottom: 6px;
   color: var(--text-dim);
-  font-size: 0.75rem;
+  font-size: 10.5px;
   font-weight: 600;
 }
 
@@ -53,26 +53,26 @@
 .risk-controls-panel summary:hover .risk-controls-panel__title { color: var(--primary); }
 .risk-controls-panel summary:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 12px; }
 
-.risk-controls-panel__title { color: var(--text-h); font-size: 1rem; font-weight: 600; }
-.risk-controls-panel__summary-meta { color: var(--text-dim); font-size: 0.75rem; }
+.risk-controls-panel__title { color: var(--text-h); font-size: 14px; font-weight: 600; }
+.risk-controls-panel__summary-meta { color: var(--text-dim); font-size: 10.5px; }
 
-.risk-controls-panel__table-wrap { overflow-x: auto; border-top: 1px solid var(--border); }
+.risk-controls-panel__table-wrap { overflow-x: auto; border-top: 1px solid var(--outline-variant); }
 
 .risk-controls-table { width: 100%; min-width: 640px; border-collapse: collapse; text-align: left; }
 
 .risk-controls-table th,
 .risk-controls-table td {
   padding: 11px 20px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--outline-variant) 70%, transparent);
   vertical-align: top;
 }
 
 .risk-controls-table tbody tr:last-child :is(th, td) { border-bottom: 0; }
-.risk-controls-table thead th { color: var(--text-dim); font-size: 0.75rem; font-weight: 600; }
-.risk-controls-table tbody th { width: 22%; color: var(--text); font-size: 0.85rem; font-weight: 500; }
-.risk-controls-table__value { width: 30%; color: var(--text-h); font-size: 0.85rem; font-weight: 600; }
-.risk-controls-table__detail { color: var(--text-dim); font-size: 0.75rem; line-height: 1.45; }
-.risk-controls-table__missing { display: block; margin-top: 4px; color: #ffcf87; font-size: 0.75rem; font-weight: 500; }
+.risk-controls-table thead th { color: var(--text-dim); font-size: 10.5px; font-weight: 600; }
+.risk-controls-table tbody th { width: 22%; color: var(--text); font-size: 11.9px; font-weight: 500; }
+.risk-controls-table__value { width: 30%; color: var(--text-h); font-size: 11.9px; font-weight: 600; }
+.risk-controls-table__detail { color: var(--text-dim); font-size: 10.5px; line-height: 1.45; }
+.risk-controls-table__missing { display: block; margin-top: 4px; color: #ffcf87; font-size: 10.5px; font-weight: 500; }
 
 @media (max-width: 720px) {
   .risk-controls-panel summary { padding: 14px 16px; }

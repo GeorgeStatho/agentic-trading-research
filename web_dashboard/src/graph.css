@@ -1,6 +1,6 @@
 .graph-panel {
   width: min(1100px, 92vw);
-  border: 1px solid var(--border);
+  border: 1px solid var(--outline-variant);
   border-radius: 18px;
   padding: 18px;
   box-sizing: border-box;
@@ -21,14 +21,14 @@
 .graph-panel__header p {
   margin-bottom: 5px;
   color: var(--accent);
-  font-size: .75rem;
+  font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .graph-panel__header h2 { margin: 0; }
-.graph-panel__header span { color: var(--text-dim); font-size: 0.82rem; }
+.graph-panel__header span { color: var(--text-dim); font-size: 11.48px; }
 .graph-panel__empty { min-height: 230px; display: grid; place-items: center; color: var(--text-dim); }
 
 .graph { height: 330px; }

@@ -29,14 +29,14 @@ function EquityCurve({ points }: { points: { at: string; pnl_dollars: number }[]
   return <div className="backtest-page__equity-chart">
     <ResponsiveContainer width="100%" height={200}>
       <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 4 }}>
-        <CartesianGrid stroke="color-mix(in srgb, var(--border) 60%, transparent)" vertical={false} />
-        <XAxis dataKey="at" tickFormatter={(value: string) => formatDateTime(value, { placeholder: '' }).split(',')[0]} tick={{ fill: 'var(--text-dim)', fontSize: 12 }} stroke="var(--border)" minTickGap={24} />
-        <YAxis tickFormatter={(value: number) => formatCurrency(value, { digits: 0 })} tick={{ fill: 'var(--text-dim)', fontSize: 12 }} stroke="var(--border)" width={72} />
+        <CartesianGrid stroke="color-mix(in srgb, var(--outline-variant) 60%, transparent)" vertical={false} />
+        <XAxis dataKey="at" tickFormatter={(value: string) => formatDateTime(value, { placeholder: '' }).split(',')[0]} tick={{ fill: 'var(--text-dim)', fontSize: 12 }} stroke="var(--outline-variant)" minTickGap={24} />
+        <YAxis tickFormatter={(value: number) => formatCurrency(value, { digits: 0 })} tick={{ fill: 'var(--text-dim)', fontSize: 12 }} stroke="var(--outline-variant)" width={72} />
         <ReferenceLine y={0} stroke="var(--text-dim)" strokeOpacity={0.5} />
         <Tooltip
           formatter={(value) => [formatSignedCurrency(Number(value)), 'Cumulative P&L']}
           labelFormatter={(label) => formatDate(String(label))}
-          contentStyle={{ background: 'var(--surface-container-high)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-h)' }}
+          contentStyle={{ background: 'var(--surface-container-high)', border: '1px solid var(--outline-variant)', borderRadius: 8, color: 'var(--text-h)' }}
         />
         <Line type="stepAfter" dataKey="pnl" stroke={last < 0 ? '#fca5a5' : '#86efac'} strokeWidth={2} dot={{ r: 4, strokeWidth: 2, stroke: 'var(--surface-container-low)' }} isAnimationActive={false} />
       </LineChart>
