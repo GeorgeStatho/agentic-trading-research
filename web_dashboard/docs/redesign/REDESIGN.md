@@ -585,7 +585,19 @@ and hide the parts whose fields are missing.
    value carries a count ("31/37 closed"). Risk settings show open on their
    own page instead of a collapsed `<details>`. `DataTable` takes a `label`
    so pages with several tables name each one.
-6. Backend fields (§ 9) and wiring the placeholders.
+6. Backend fields (§ 9) and wiring the placeholders. Done for executed
+   trades, unrealized P/L, the latest decision and company news:
+   `fill_price` already existed in the table; `position_id` pairs a sell with
+   the latest filled buy of the same contract (exits store no link, so an
+   exit whose entry is older than the loaded window stays unpaired), and the
+   Orders table shows one row per trade. `side` and `quantity` were already
+   there as `order_side` / `order_qty`. The latest decision's `exit_plan`
+   comes from the option manager's own DTE resolver; the manager emits no
+   structured factors, so For/Against stays hidden. Company news loads all
+   four scopes so every count is real and ships only the viewed scope's
+   articles. Not done: today's funnel counts (no panel reads them until the
+   § 8 phone layout exists; the Decisions page counts client-side) and the
+   autopsy's counterfactual contract + P/L, which needs a pricing choice.
 7. Delete the temporary legacy variable block from `index.css`. Done with
    step 5: no `.css` file besides `index.css` remains. Only `--app-chrome`
    survives, which the Exposure Map uses to size itself.
