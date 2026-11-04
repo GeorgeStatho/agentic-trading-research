@@ -35,4 +35,9 @@ describe('System route', () => {
     expect(locationFromHash('#/system')).toMatchObject({ route: { slug: 'system' }, tab: { slug: 'health' } })
     expect(locationFromHash('#/system/risk')).toMatchObject({ route: { slug: 'system' }, tab: { slug: 'risk' } })
   })
+
+  it('holds Extraction, and the old Research address still opens it', () => {
+    expect(locationFromHash('#/system/extraction')).toMatchObject({ route: { slug: 'system' }, tab: { slug: 'extraction' } })
+    expect(locationFromHash('#/research/extraction')).toMatchObject({ route: { slug: 'system' }, tab: { slug: 'extraction' } })
+  })
 })

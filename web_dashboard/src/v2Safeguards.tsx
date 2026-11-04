@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { getV2Status } from './v2StatusApi';
+import { getV2Status, safeguardNotices } from './v2StatusApi';
 import type { ModeSummary, V2StatusPayload } from './v2StatusApi';
 import { usePolledResource } from './useRemoteResource';
 import './v2Safeguards.css';
@@ -43,27 +43,9 @@ export function V2SafeguardCounts({ modes }: { modes: ModeSummary }) {
 
 /** Everything that makes the counts above read differently than they look. */
 export function V2SafeguardNotices({ payload }: { payload: V2StatusPayload }) {
-  const modes = payload.mode_summary;
   return (
     <>
-      {modes.downgraded > 0 ? (
-        <p className="v2-safeguards__notice">
-          {modes.downgraded} control{modes.downgraded === 1 ? ' is' : 's are'} set to enforce but running in shadow: no
-          promotion proof matches the current thresholds and source.
-        </p>
-      ) : null}
-      {modes.misconfigured > 0 ? (
-        <p className="v2-safeguards__notice">
-          {modes.misconfigured} control{modes.misconfigured === 1 ? '' : 's'} could not be read. The same value raises in
-          the trading pipeline, so fix the variable before the next run.
-        </p>
-      ) : null}
-      {payload.activity_available ? null : (
-        <p className="v2-safeguards__notice">
-          No candidate lifecycle tables in this database, so shadow verdicts cannot be counted. The zeroes are absent
-          readings, not quiet gates.
-        </p>
-      )}
+      {safeguardNotices(payload).map((notice) => <p key={notice} className="v2-safeguards__notice">{notice}</p>)}
     </>
   );
 }

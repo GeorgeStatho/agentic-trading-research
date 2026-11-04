@@ -15,7 +15,8 @@ const COLUMNS = [
   {
     key: 'headline',
     header: 'Headline',
-    render: (row: NewsRow) => <a href={row.url} target="_blank" rel="noreferrer" className="text-base-content hover:text-primary">{row.headline}</a>,
+    // A floor on the headline width makes the table scroll on phones instead of wrapping word by word.
+    render: (row: NewsRow) => <a href={row.url} target="_blank" rel="noreferrer" className="block min-w-60 text-base-content hover:text-primary">{row.headline}</a>,
   },
   { key: 'source', header: 'Source', render: (row: NewsRow) => <span className="text-dim">{row.source}</span> },
   { key: 'confidence', header: 'Confidence', render: (row: NewsRow) => <span className="text-ink-2">{formatText(row.confidence, { placeholder: '—' })}</span> },

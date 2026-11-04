@@ -82,7 +82,7 @@
      variables below. Component CSS and utilities both override these. */
   :where(.autopsy-page, .backtest-page, .company-decisions, .company-news-page,
          .decision-expectancy, .exposure-map,
-         .positions-panel, .risk-controls-panel,
+         .risk-controls-panel,
          .v2-safeguards, .v2-status) {
     & h1 { margin-bottom: 0.67em; font-size: 2em; font-weight: bold; }
     & h2 { margin-bottom: 0.83em; font-size: 1.5em; font-weight: bold; }

@@ -48,7 +48,7 @@ existing links and bookmarks keep working.
 - [src/exposureMap.tsx](src/exposureMap.tsx): grounded article-to-position graph
 - [src/decisionAutopsy.tsx](src/decisionAutopsy.tsx): immutable decision review
 - [src/v2Status.tsx](src/v2Status.tsx): the V2 Rollout view — control modes, shadow verdicts, promotion evidence
-- [src/v2Safeguards.tsx](src/v2Safeguards.tsx): the mode counts and warnings, shown on Live and on the rollout view
+- [src/v2Safeguards.tsx](src/v2Safeguards.tsx): the mode counts and warnings on the rollout view; Live shows a compact version ([src/liveSafeguards.tsx](src/liveSafeguards.tsx))
 - [src/v2StatusApi.ts](src/v2StatusApi.ts): `/api/v2-status` types and fetch, shared by both
 - [nginx.conf](nginx.conf): nginx config used in the Docker image
 - [Dockerfile](Dockerfile): frontend build + nginx image

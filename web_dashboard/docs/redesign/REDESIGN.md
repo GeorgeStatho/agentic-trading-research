@@ -548,7 +548,12 @@ and hide the parts whose fields are missing.
    page width, so legacy `width: min(…px, …vw)` page rules became `100%`.
 3. Live page (§ 5), latest-decision panel first; delete each converted
    component's `.css`. The `charts/*` components land here and in step 5,
-   with the first page that feeds them data.
+   with the first page that feeds them data. Done; it also brought forward
+   the System route (Health, Risk, and Extraction with its
+   `research/extraction` alias) so what left Live had somewhere to go, and
+   made `/api/dashboard-kpis` one shared request per page: the endpoint is
+   slow and served one request at a time, so per-panel copies queued into
+   504s.
 4. Decisions merge (§ 6) with route aliases.
 5. Research pages (§ 7), then System route.
 6. Backend fields (§ 9) and wiring the placeholders.

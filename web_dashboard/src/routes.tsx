@@ -66,7 +66,6 @@ export const ROUTES: readonly Route[] = [
     tabs: [
       { slug: 'expectancy', label: 'Expectancy', render: () => <DecisionExpectancyPage /> },
       { slug: 'news-lag', label: 'News lag', render: () => <NewsLagPage /> },
-      { slug: 'extraction', label: 'Extraction', render: () => <NewsExtractionPage /> },
       { slug: 'backtests', label: 'Backtests', render: () => <BacktestPage /> },
       { slug: 'followers', label: 'Followers', render: () => <FollowerAccountsPage /> },
       { slug: 'rollout', label: 'V2 Rollout', supportsDemo: true, render: (demoMode) => <V2StatusPage demoMode={demoMode} /> },
@@ -78,6 +77,7 @@ export const ROUTES: readonly Route[] = [
     tabs: [
       { slug: 'health', label: 'Health', render: () => <SystemHealthPage /> },
       { slug: 'risk', label: 'Risk', render: () => <SystemRiskPage /> },
+      { slug: 'extraction', label: 'Extraction', render: () => <NewsExtractionPage /> },
     ],
   },
 ]
@@ -102,6 +102,7 @@ const ALIASES: Readonly<Record<string, string>> = {
   'decision-expectancy': 'research/expectancy',
   'backtests': 'research/backtests',
   'v2-rollout': 'research/rollout',
+  'research/extraction': 'system/extraction',
 }
 
 

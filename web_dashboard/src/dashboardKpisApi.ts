@@ -85,6 +85,34 @@ export type DashboardKpiPayload = {
   };
 };
 
+/**
+ * The shell, the stats strip and the safeguards panel all read this
+ * endpoint, which takes seconds and is served one request at a time. They
+ * share one request, and an answer younger than this, instead of queueing
+ * three copies behind each other.
+ */
+const SHARE_WINDOW_MS = 15_000;
+
+let shared: { requestedAt: number; response: Promise<DashboardKpiPayload> } | null = null;
+
 export function getDashboardKpis(): Promise<DashboardKpiPayload> {
-  return fetchPolledJson<DashboardKpiPayload>('/api/dashboard-kpis', 'KPI cards');
+  const now = Date.now();
+  if (shared && now - shared.requestedAt < SHARE_WINDOW_MS) {
+    return shared.response;
+  }
+
+  const response = fetchPolledJson<DashboardKpiPayload>('/api/dashboard-kpis', 'KPI cards');
+  const entry = { requestedAt: now, response };
+  shared = entry;
+  response.catch(() => {
+    if (shared === entry) {
+      shared = null;
+    }
+  });
+  return response;
+}
+
+/** Drops the shared answer; tests call this so one test's payload never reaches the next. */
+export function forgetSharedDashboardKpis(): void {
+  shared = null;
 }

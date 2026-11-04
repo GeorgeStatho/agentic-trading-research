@@ -133,3 +133,28 @@ export type V2StatusPayload = {
 export function getV2Status(): Promise<V2StatusPayload> {
   return fetchPolledJson<V2StatusPayload>('/api/v2-status', 'V2 rollout status');
 }
+
+/** The warnings the safeguard counts need, as sentences; shown on Live and on the rollout view. */
+export function safeguardNotices(payload: V2StatusPayload): string[] {
+  const { downgraded, misconfigured } = payload.mode_summary;
+  const notices: string[] = [];
+  if (downgraded > 0) {
+    notices.push(
+      `${downgraded} control${downgraded === 1 ? ' is' : 's are'} set to enforce but running in shadow: ` +
+        'no promotion proof matches the current thresholds and source.',
+    );
+  }
+  if (misconfigured > 0) {
+    notices.push(
+      `${misconfigured} control${misconfigured === 1 ? '' : 's'} could not be read. ` +
+        'The same value raises in the trading pipeline, so fix the variable before the next run.',
+    );
+  }
+  if (!payload.activity_available) {
+    notices.push(
+      'No candidate lifecycle tables in this database, so shadow verdicts cannot be counted. ' +
+        'The zeroes are absent readings, not quiet gates.',
+    );
+  }
+  return notices;
+}

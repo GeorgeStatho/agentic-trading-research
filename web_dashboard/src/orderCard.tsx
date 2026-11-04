@@ -25,7 +25,7 @@ const CONTRACT: Column<ExecutedTrade> = {
   header: 'Contract',
   render: (trade) => <span className="font-mono whitespace-nowrap">{formatOccSymbol(trade.option_symbol)}</span>,
 };
-const TYPE: Column<ExecutedTrade> = { key: 'type', header: 'Type', render: orderTypeLabel };
+const TYPE: Column<ExecutedTrade> = { key: 'type', header: 'Type', render: (trade) => <span className="whitespace-nowrap">{orderTypeLabel(trade)}</span> };
 const FILL: Column<ExecutedTrade> = {
   key: 'fill',
   header: 'Fill',
