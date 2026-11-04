@@ -119,6 +119,6 @@ describe('Decisions panel', () => {
 
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search decisions' }), 'amd')
     expect(screen.getByText(/No decisions for "amd" in the latest run/)).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'search all history' }).getAttribute('href')).toBe('#/decisions/ledger?q=amd')
+    expect(screen.getByRole('link', { name: 'search all history' }).getAttribute('href')).toBe('#/decisions/decisions?q=amd')
   })
 })

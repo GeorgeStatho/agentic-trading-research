@@ -122,7 +122,7 @@ export function LatestDecisionView({ payload }: { payload: WhyBotTradedPayload }
   const actions = (
     <>
       {payload.submitted ? <Tag tone="gain">Submitted</Tag> : <Tag>Not submitted</Tag>}
-      <a href="#/decisions/autopsy" className="text-[11px]">Open autopsy</a>
+      <a href="#/decisions/decisions" className="text-[11px]">Open in Decisions</a>
     </>
   );
 

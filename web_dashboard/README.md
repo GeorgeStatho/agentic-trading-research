@@ -12,7 +12,7 @@ page are tabs, and every page is reachable at `#/<page>` or `#/<page>/<view>`.
 | Page | Question | Views |
 | --- | --- | --- |
 | `#/live` | What is it doing right now? | worker status, account KPIs, risk controls, V2 safeguards, equity curve, open positions, executed orders |
-| `#/decisions` | Why did it do that? | Ledger, Autopsy, Company News, Exposure Map |
+| `#/decisions` | Why did it do that? | Decisions, News, Exposure map |
 | `#/research` | Is the strategy worth keeping? | Expectancy, Backtests, V2 Rollout |
 
 Live carries a V2 Safeguards strip: asking for `enforce` does not make a gate
@@ -20,13 +20,13 @@ enforce, so the counts there say how many controls are actually in force and
 name any that were silently downgraded. The proofs behind them are one click
 away on `#/research/rollout`.
 
-The Autopsy view carries the other half of that picture: for each decision it
+The Decisions view carries the other half of that picture: for each decision it
 lists the V2 gates that recorded a verdict against that candidate, and whether
 the verdict was shadow (recorded, but the trade went ahead) or enforced. Where
 the candidate lifecycle tables are absent it says so, because an unreadable
 ledger and a candidate nothing objected to are not the same thing.
 
-Demo Mode seeds a static, read-only walkthrough; the Autopsy and Exposure Map
+Demo Mode seeds a static, read-only walkthrough; the Decisions and Exposure Map
 views render it.
 
 The paths from when each view was its own page (`#/exposure-map`,
@@ -46,7 +46,7 @@ existing links and bookmarks keep working.
 - [src/equitySeries.ts](src/equitySeries.ts): portfolio-history fetch and the series the charts plot
 - [src/orderCard.tsx](src/orderCard.tsx): the Live orders table ([src/occ.ts](src/occ.ts) formats option symbols)
 - [src/exposureMap.tsx](src/exposureMap.tsx): grounded article-to-position graph
-- [src/decisionAutopsy.tsx](src/decisionAutopsy.tsx): immutable decision review
+- [src/decisionsPage.tsx](src/decisionsPage.tsx) and [src/decisions.ts](src/decisions.ts): every decision with its frozen evidence, decision path and gates (the old Ledger and Autopsy, merged)
 - [src/v2Status.tsx](src/v2Status.tsx): the V2 Rollout view — control modes, shadow verdicts, promotion evidence
 - [src/v2Safeguards.tsx](src/v2Safeguards.tsx): the mode counts and warnings on the rollout view; Live shows a compact version ([src/liveSafeguards.tsx](src/liveSafeguards.tsx))
 - [src/v2StatusApi.ts](src/v2StatusApi.ts): `/api/v2-status` types and fetch, shared by both

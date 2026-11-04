@@ -34,9 +34,9 @@ describe('Latest decision panel', () => {
     expect(within(panel()).getByText('low confidence')).toBeTruthy()
   })
 
-  it('links to the full decision autopsy', () => {
+  it('links to the full decision record', () => {
     render(<LatestDecisionView payload={payload()} />)
-    expect(within(panel()).getByRole('link', { name: 'Open autopsy' }).getAttribute('href')).toBe('#/decisions/autopsy')
+    expect(within(panel()).getByRole('link', { name: 'Open in Decisions' }).getAttribute('href')).toBe('#/decisions/decisions')
   })
 
   it('says "Not submitted" until an order goes out, then "Submitted"', () => {

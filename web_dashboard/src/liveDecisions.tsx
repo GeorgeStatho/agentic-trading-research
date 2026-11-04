@@ -24,7 +24,7 @@ export function LiveDecisionsView({ feed }: { feed: CompanyDecisionsFeed }) {
   const [query, setQuery] = useState('');
   const rows = visibleRows(decisionRows(feed), query, searchFields);
   const empty = query.trim() ? (
-    <>No decisions for "{query.trim()}" in the latest run · <a href={`#/decisions/ledger?q=${encodeURIComponent(query.trim())}`}>search all history</a></>
+    <>No decisions for "{query.trim()}" in the latest run · <a href={`#/decisions/decisions?q=${encodeURIComponent(query.trim())}`}>search all history</a></>
   ) : 'No decisions in the latest run.';
 
   return (

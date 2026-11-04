@@ -1,10 +1,9 @@
 import type { ReactNode } from 'react'
 import AnalyzedCompanyNewsPage from './analyzedCompanyNews.tsx'
 import BacktestPage from './backtest.tsx'
-import CompanyDecisionsPage from './companyDecisions.tsx'
 import DashboardHome from './dashboardHome.tsx'
-import DecisionAutopsyPage from './decisionAutopsy.tsx'
 import DecisionExpectancyPage from './decisionExpectancy.tsx'
+import DecisionsPage from './decisionsPage.tsx'
 import ExposureMapPage from './exposureMap.tsx'
 import FollowerAccountsPage from './followerAccounts.tsx'
 import NewsExtractionPage from './newsExtraction.tsx'
@@ -54,10 +53,9 @@ export const ROUTES: readonly Route[] = [
     slug: 'decisions',
     label: 'Decisions',
     tabs: [
-      { slug: 'ledger', label: 'Ledger', render: () => <CompanyDecisionsPage /> },
-      { slug: 'autopsy', label: 'Autopsy', supportsDemo: true, render: (demoMode) => <DecisionAutopsyPage demoMode={demoMode} /> },
-      { slug: 'news', label: 'Company News', render: () => <AnalyzedCompanyNewsPage /> },
-      { slug: 'map', label: 'Exposure Map', supportsDemo: true, render: (demoMode) => <ExposureMapPage demoMode={demoMode} /> },
+      { slug: 'decisions', label: 'Decisions', supportsDemo: true, render: (demoMode) => <DecisionsPage demoMode={demoMode} /> },
+      { slug: 'news', label: 'News', render: () => <AnalyzedCompanyNewsPage /> },
+      { slug: 'map', label: 'Exposure map', supportsDemo: true, render: (demoMode) => <ExposureMapPage demoMode={demoMode} /> },
     ],
   },
   {
@@ -96,8 +94,10 @@ const DEMO_ENTRY_PATH = 'decisions/map'
 const ALIASES: Readonly<Record<string, string>> = {
   'dashboard': 'live',
   'company-news': 'decisions/news',
-  'company-decisions': 'decisions/ledger',
-  'decision-autopsy': 'decisions/autopsy',
+  'company-decisions': 'decisions/decisions',
+  'decision-autopsy': 'decisions/decisions',
+  'decisions/ledger': 'decisions/decisions',
+  'decisions/autopsy': 'decisions/decisions',
   'exposure-map': 'decisions/map',
   'decision-expectancy': 'research/expectancy',
   'backtests': 'research/backtests',
@@ -126,8 +126,17 @@ export function locationFromHash(hash: string): Location {
   return { route, tab: route.tabs.find((entry) => entry.slug === tabSlug) ?? route.tabs[0] }
 }
 
+function hashParams(hash: string): URLSearchParams {
+  return new URLSearchParams(hash.split('?')[1] ?? '')
+}
+
 export function demoModeFromHash(hash: string): boolean {
-  return new URLSearchParams(hash.split('?')[1] ?? '').get('demo') === '1'
+  return hashParams(hash).get('demo') === '1'
+}
+
+/** The search a link hands a page, e.g. Live's "search all history". */
+export function searchFromHash(hash: string): string {
+  return hashParams(hash).get('q') ?? ''
 }
 
 /**

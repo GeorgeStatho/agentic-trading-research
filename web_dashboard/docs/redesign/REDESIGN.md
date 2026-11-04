@@ -554,7 +554,16 @@ and hide the parts whose fields are missing.
    made `/api/dashboard-kpis` one shared request per page: the endpoint is
    slow and served one request at a time, so per-panel copies queued into
    504s.
-4. Decisions merge (§ 6) with route aliases.
+4. Decisions merge (§ 6) with route aliases. The page is `decisionsPage.tsx`
+   with its logic in `decisions.ts` (not `decisions.tsx`, which would clash
+   on import). It reads only `/api/decision-autopsies`, plus
+   `/api/company-decisions` for the one thing the Ledger had that the
+   autopsy lacks: strategist attempts and price-history loads that failed
+   before any decision was recorded, folded into one warning line.
+   `attribution.horizon_returns` is keyed by trading days `"5"` and `"10"`
+   and holds fractions, so the counterfactual shows 5d / 10d, not 1d/3d/5d.
+   Risks render as a list, not chips: they are full sentences. Pages read a
+   linked search from `?q=` (`searchFromHash`).
 5. Research pages (§ 7), then System route.
 6. Backend fields (§ 9) and wiring the placeholders.
 7. Delete the temporary legacy variable block from `index.css` once
