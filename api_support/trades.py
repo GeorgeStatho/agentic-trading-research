@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any
 
 from api_support.request_utils import safe_json_loads
 from services.core.numbers import safe_float
-from db_common import current_database
-from api_support.context import SELECTED_OPTIONS_OUTPUT_PATH, TRADE_EXECUTION_OUTPUT_PATH
+from db_common import current_database, get_connection
+from api_support.context import OPTION_POSITION_SETTINGS, SELECTED_OPTIONS_OUTPUT_PATH, TRADE_EXECUTION_OUTPUT_PATH
 from market_db_modules.queries import list_option_trade_executions
+from trading_support._option_positions_defaults import build_option_exit_rules
+from trading_support._option_positions_market import _resolve_option_exit_thresholds
 
 EXECUTED_TRADES_MAX_AGE_DAYS = 30
 
@@ -81,6 +84,63 @@ def format_selected_contract(execution: dict) -> str:
     return f"{strike_text}{contract_letter} {expiration}"
 
 
+def _stopped_at(execution: dict) -> str | None:
+    """Which stage kept the latest decision from becoming an order, if one did."""
+    if execution.get("submitted"):
+        return None
+    if str(execution.get("decision") or "").strip().lower() in {"call", "put"}:
+        return "safeguard"
+    strategist = execution.get("strategist_recommendation")
+    strategist_decision = str(strategist.get("decision") or "") if isinstance(strategist, dict) else ""
+    return "strategist" if strategist_decision and strategist_decision != "trade_candidate" else "manager"
+
+
+def _selected_contract_details(execution: dict) -> dict | None:
+    option = execution.get("selected_option")
+    if not isinstance(option, dict):
+        return None
+    symbol = str(option.get("symbol") or execution.get("selected_option_symbol") or "").strip().upper()
+    dte = safe_float(option.get("days_to_expiration"))
+    if not symbol or dte is None:
+        return None
+    return {
+        "symbol": symbol,
+        "type": str(option.get("contract_type") or execution.get("decision") or "").strip().lower(),
+        "expiration_date": str(option.get("expiration_date") or execution.get("selected_expiration_date") or "").strip(),
+        "dte": int(dte),
+        "strike": safe_float(option.get("strike_price") or execution.get("selected_strike_price")),
+    }
+
+
+def _exit_plan(dte: int) -> dict:
+    """The take-profit and stop-loss the option manager applies at this DTE."""
+    thresholds = _resolve_option_exit_thresholds(
+        days_to_expiration=dte,
+        default_take_profit_pct=OPTION_POSITION_SETTINGS.take_profit_pct,
+        default_stop_loss_pct=OPTION_POSITION_SETTINGS.stop_loss_pct,
+        default_exit_hours_to_expiration=0.0,
+        exit_rules=build_option_exit_rules(OPTION_POSITION_SETTINGS.dte_rules),
+    )
+    return {"take_profit_pct": thresholds.take_profit_pct, "stop_loss_pct": thresholds.stop_loss_pct, "dte_bucket": thresholds.dte_rule_label}
+
+
+def _recorded_fill_price(order_id: str) -> float | None:
+    if not order_id:
+        return None
+    with closing(get_connection()) as conn:
+        row = conn.execute("SELECT fill_price FROM option_trade_executions WHERE order_id = ?", (order_id,)).fetchone()
+    return safe_float(row["fill_price"]) if row else None
+
+
+def _last_traded_contract() -> str:
+    with closing(get_connection()) as conn:
+        row = conn.execute(
+            "SELECT option_symbol FROM option_trade_executions WHERE order_side = 'buy' AND order_status = 'filled' "
+            "ORDER BY submitted_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+    return str(row["option_symbol"]) if row else ""
+
+
 def build_trade_explanation_payload() -> dict:
     trade_output = load_output_payload(TRADE_EXECUTION_OUTPUT_PATH)
     selected_output = load_output_payload(SELECTED_OPTIONS_OUTPUT_PATH)
@@ -122,6 +182,9 @@ def build_trade_explanation_payload() -> dict:
         }
 
     rejected_because = humanize_rejection_reason(chosen_execution.get("error"))
+    contract = _selected_contract_details(chosen_execution)
+    order = chosen_execution.get("order")
+    strategist = chosen_execution.get("strategist_recommendation")
     return {
         "ran_at": str(trade_output.get("ran_at") or selected_output.get("ran_at") or ""),
         "has_decision": True,
@@ -132,6 +195,14 @@ def build_trade_explanation_payload() -> dict:
         "selected_contract": format_selected_contract(chosen_execution),
         "rejected_because": rejected_because,
         "submitted": bool(chosen_execution.get("submitted")),
+        "company_name": str(chosen_execution.get("name") or "").strip(),
+        "strategist_decision": str(strategist.get("decision") or "").strip() if isinstance(strategist, dict) else "",
+        "stopped_at": _stopped_at(chosen_execution),
+        "contract": contract,
+        "quantity": int(safe_float(chosen_execution.get("order_qty")) or 0) or None,
+        "fill_price": _recorded_fill_price(str(order.get("id") or "") if isinstance(order, dict) else ""),
+        "exit_plan": _exit_plan(contract["dte"]) if contract else None,
+        "last_traded_contract": _last_traded_contract(),
     }
 
 

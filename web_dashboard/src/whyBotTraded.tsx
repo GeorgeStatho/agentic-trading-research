@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import { fetchPolledJson } from './api';
 import { formatCurrency, formatDateTime, formatSignedPercent, formatToken, hasNumericValue } from './format';
+import { formatOccSymbol } from './occ';
 import { Panel } from './ui/Panel';
 import { Tag } from './ui/Tag';
 import { TickerChip } from './ui/TickerChip';
@@ -10,9 +11,9 @@ import { usePolledResource } from './useRemoteResource';
 type StoppedAt = 'strategist' | 'manager' | 'safeguard';
 
 /**
- * `/api/why-bot-traded`. The optional fields are not returned yet
- * (REDESIGN.md section 5, "Latest decision"); each part of the panel that
- * needs one stays hidden until the API sends it.
+ * `/api/why-bot-traded`. The detail fields are null when the latest run has
+ * nothing to put there (no contract, no fill), and older API builds omit them;
+ * either way the part of the panel that needs one stays hidden.
  */
 export type WhyBotTradedPayload = {
   ran_at: string;
@@ -27,10 +28,10 @@ export type WhyBotTradedPayload = {
   company_name?: string;
   strategist_decision?: string;
   stopped_at?: StoppedAt | null;
-  contract?: { symbol: string; type: string; expiration_date: string; dte: number; strike: number };
-  quantity?: number;
+  contract?: { symbol: string; type: string; expiration_date: string; dte: number; strike: number | null } | null;
+  quantity?: number | null;
   fill_price?: number | null;
-  exit_plan?: { take_profit_pct: number; stop_loss_pct: number; dte_bucket: string };
+  exit_plan?: { take_profit_pct: number; stop_loss_pct: number; dte_bucket: string } | null;
   factors_for?: string[];
   factors_against?: string[];
   last_traded_contract?: string;
@@ -80,7 +81,7 @@ function SelectedContract({ payload }: { payload: WhyBotTradedPayload }) {
         {payload.last_traded_contract ? (
           <div className="mt-3">
             <div className="text-[11px] text-dim">Last contract traded</div>
-            <div className="font-mono text-xs">{payload.last_traded_contract}</div>
+            <div className="font-mono text-xs">{formatOccSymbol(payload.last_traded_contract)}</div>
           </div>
         ) : null}
       </div>
@@ -91,7 +92,7 @@ function SelectedContract({ payload }: { payload: WhyBotTradedPayload }) {
     <div role="group" aria-label="Selected contract" className="flex flex-col gap-3">
       <div>
         <div className="text-[11px] text-dim">Selected contract</div>
-        <div className="font-mono text-[17px] font-semibold">{payload.selected_contract}</div>
+        <div className="font-mono text-[17px] font-semibold">{contract ? formatOccSymbol(contract.symbol) : payload.selected_contract}</div>
       </div>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
         {contract ? (
@@ -100,7 +101,7 @@ function SelectedContract({ payload }: { payload: WhyBotTradedPayload }) {
             <Detail label="Expiry · DTE">{contract.expiration_date} · {contract.dte} DTE</Detail>
           </>
         ) : null}
-        {payload.quantity !== undefined ? <Detail label="Qty">{payload.quantity}</Detail> : null}
+        {payload.quantity != null ? <Detail label="Qty">{payload.quantity}</Detail> : null}
         {hasNumericValue(payload.fill_price) ? <Detail label="Fill">{formatCurrency(payload.fill_price)}</Detail> : null}
         {exitPlan ? (
           <>

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { LatestDecisionView } from './whyBotTraded.tsx'
 import type { WhyBotTradedPayload } from './whyBotTraded.tsx'
 
-/** Today's `/api/why-bot-traded` payload: no strategist verdict, contract or exit plan yet. */
+/** The legacy `/api/why-bot-traded` fields; tests add the detail fields they need. */
 function payload(overrides: Partial<WhyBotTradedPayload> = {}): WhyBotTradedPayload {
   return {
     ran_at: '2026-11-03T20:38:25',
@@ -118,8 +118,32 @@ describe('Latest decision panel', () => {
   })
 
   it('names the last contract actually traded when nothing was selected', () => {
-    render(<LatestDecisionView payload={payload({ last_traded_contract: 'ORCL 20 Nov $121P · closed -4.2%' })} />)
-    expect(within(panel()).getByText('ORCL 20 Nov $121P · closed -4.2%')).toBeTruthy()
+    render(<LatestDecisionView payload={payload({ last_traded_contract: 'TSLA261127C00415000' })} />)
+    expect(within(panel()).getByText('TSLA 27 Nov $415C')).toBeTruthy()
+  })
+
+  it('reads the selected contract from its OCC symbol once the API sends one', () => {
+    render(<LatestDecisionView payload={payload({
+      decision: 'Buy Put',
+      submitted: true,
+      selected_contract: '123P 2026-12-04',
+      contract: { symbol: 'ORCL261204P00123000', type: 'put', expiration_date: '2026-12-04', dte: 30, strike: 123 },
+    })} />)
+
+    const contract = within(panel()).getByRole('group', { name: 'Selected contract' })
+    expect(within(contract).getByText('ORCL 4 Dec $123P')).toBeTruthy()
+  })
+
+  it('hides every detail the API sends as null', () => {
+    render(<LatestDecisionView payload={payload({
+      selected_contract: '123P 2026-12-04', company_name: '', strategist_decision: '', stopped_at: null, contract: null,
+      quantity: null, fill_price: null, exit_plan: null, last_traded_contract: '',
+    })} />)
+
+    expect(within(panel()).queryByText('Strategist')).toBeNull()
+    expect(within(panel()).queryByText('Qty')).toBeNull()
+    expect(within(panel()).queryByText('Take profit')).toBeNull()
+    expect(within(panel()).getByText('123P 2026-12-04')).toBeTruthy()
   })
 
   it('shows the API message when there is no decision yet', () => {
