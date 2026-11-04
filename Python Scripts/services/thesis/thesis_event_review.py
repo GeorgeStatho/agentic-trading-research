@@ -9,7 +9,7 @@ failure only defers the queue item.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 import logging
 from typing import Any, Callable
 from uuid import uuid4
@@ -45,6 +45,7 @@ SUMMARY_MAX_CHARS = 700
 REVIEW_REASON = ('A new event arrived for this company. The articles listed in review_trigger.trigger_article_ids '
                  'are new since entry. Judge whether the original entry thesis still holds in light of them.')
 EVALUATED = 'evaluated'
+LIMITED = 'daily_limit_reached'
 
 
 class ReviewUnavailable(RuntimeError):
@@ -57,6 +58,12 @@ def utc_now() -> datetime:
 
 def market_day(at: str) -> str:
     return datetime.fromisoformat(at).astimezone(MARKET_TIMEZONE).date().isoformat()
+
+
+def next_market_day(at: str) -> str:
+    """Midnight New York after `at`, when the per-position daily review limit resets."""
+    day = datetime.fromisoformat(at).astimezone(MARKET_TIMEZONE).date() + timedelta(days=1)
+    return datetime.combine(day, time(), MARKET_TIMEZONE).astimezone(timezone.utc).isoformat()
 
 
 def evidence_hash(event: dict[str, Any]) -> str:
@@ -155,10 +162,10 @@ class EventThesisReviewService:
         return {'mode': self._policy.mode, 'policy_version': self._policy.policy_version,
                 'items': [self._review_item(item, open_positions, db_path=db_path) for item in items]}
 
-    def _finish(self, item, *, status, reason, db_path):
+    def _finish(self, item, *, status, reason, db_path, retry_at=None):
         try:
             finish_discovery_item(item['queue_id'], item['lease_token'], status=status, reason=reason,
-                                  at=self._now(), policy=self._discovery_policy, db_path=db_path)
+                                  at=self._now(), policy=self._discovery_policy, retry_at=retry_at, db_path=db_path)
         except ValueError:
             # A superseding revision or a reclaimed lease belongs to the next worker.
             self._logger.warning('Event review lease for %s was lost before completion', item['queue_id'])
@@ -178,6 +185,10 @@ class EventThesisReviewService:
             self._finish(item, status='deferred', reason='review_error:' + type(exc).__name__, db_path=db_path)
             return {'queue_id': item['queue_id'], 'symbol': symbol, 'error': type(exc).__name__}
         statuses = sorted({review['status'] for review in reviews})
+        if LIMITED in statuses:
+            # Reviews already recorded for this item are reused when it is retried.
+            self._finish(item, status='deferred', reason=LIMITED, retry_at=next_market_day(self._now()), db_path=db_path)
+            return {'queue_id': item['queue_id'], 'symbol': symbol, 'reviews': reviews}
         self._finish(item, status='completed', reason='reviewed:' + ','.join(statuses) if reviews else 'no_open_thesis',
                      db_path=db_path)
         return {'queue_id': item['queue_id'], 'symbol': symbol, 'reviews': reviews}
@@ -198,6 +209,8 @@ class EventThesisReviewService:
         new_articles = new_articles_since(event, opened_at)
         skipped = self._skip(review, position, new_articles, primary_evidence_is_new(event, opened_at), db_path=db_path)
         if skipped:
+            if skipped['status'] == LIMITED:  # not recorded: the item retries the next market day
+                return self._summary({**review, **skipped})
             return self._record({**review, **skipped}, db_path=db_path)
         return self._record(self._evaluate(review, thesis, position, event, new_articles, db_path=db_path), db_path=db_path)
 
@@ -217,8 +230,7 @@ class EventThesisReviewService:
         if same_evidence:
             return {'status': 'coalesced', 'coalesced_with': same_evidence['review_id']}
         if sum(record['review_day'] == review['review_day'] for record in earlier) >= self._policy.daily_reviews_per_position:
-            # The scheduled daily review still considers this evidence.
-            return {'status': 'daily_limit_reached'}
+            return {'status': LIMITED}
         return None
 
     def _evaluate(self, review, thesis, position, event, new_articles, *, db_path):

@@ -61,7 +61,9 @@ discovery slots. The same event is still researched through its `entry` item.
 - **Syndicated copies.** These never create a new revision; discovery groups them under one
   provenance root.
 - **Daily limit.** At most three model-backed reviews per position per New York day. Beyond that,
-  `daily_limit_reached` is recorded, and the scheduled daily review still sees the evidence.
+  nothing is recorded: the queue item is deferred to midnight New York, when the limit resets, and
+  reviewed then. Reviews the item already recorded are reused. The deferral counts toward
+  `DISCOVERY_MAX_ATTEMPTS`, and the item still expires with its evidence.
 - **Latency.** Reviews run inside the position-management loop, so their model calls delay the
   next mechanical check. One item per cycle bounds that delay to one review.
 
@@ -75,7 +77,6 @@ discovery slots. The same event is still researched through its `entry` item.
 | `active_exit_order` | no | An exit order is working; the review stays out of its way |
 | `no_new_evidence_since_entry` | no | Every event article was first seen before entry, with no new primary evidence |
 | `coalesced` | no | Same evidence as an earlier review of this thesis |
-| `daily_limit_reached` | no | Daily budget used |
 
 A model outage (every sample failed) or an unexpected error records nothing. The queue item is
 deferred and retried with backoff, up to `DISCOVERY_MAX_ATTEMPTS`, so an outage cannot mark an
