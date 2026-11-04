@@ -12,12 +12,11 @@ import {
   getDiagnostics,
   NO_FILTERS,
   safeguardVerdicts,
-  sentenceCase,
   verdictLabel,
   whyLine,
 } from './decisions';
 import type { DecisionFilters, DecisionRecord, DecisionsPayload, DiagnosticsFeed, PathStep, StepState, StopStage, VerdictFilter, WhenFilter } from './decisions';
-import { formatDateTime, formatDteBucket, formatShortDateTime, formatSignedPercent, formatToken, formatTokenList } from './format';
+import { formatDateTime, formatDteBucket, formatShortDateTime, formatSignedPercent, formatToken, formatTokenList, sentenceCase } from './format';
 import { formatOccSymbol } from './occ';
 import PageHeader from './pageHeader';
 import { searchFromHash } from './routes';

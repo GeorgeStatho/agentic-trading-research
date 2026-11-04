@@ -1,5 +1,5 @@
 import { fetchJson, fetchPolledJson } from './api';
-import { asUtcTimestamp, formatToken } from './format';
+import { asUtcTimestamp, formatToken, sentenceCase } from './format';
 import type { CompanyDecisionsFeed } from './liveFeeds';
 import { formatOccSymbol } from './occ';
 
@@ -68,10 +68,6 @@ const CONSEQUENCE_CODES = new Set(['not_applicable', 'manager_not_directional', 
 
 function isDirectional(decision: string): boolean {
   return decision === 'call' || decision === 'put';
-}
-
-export function sentenceCase(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** Guarded features carry a name ("Liquidity V2 (E2)"); pipeline stages only their code ("EXECUTION"). */

@@ -80,7 +80,7 @@
      components that still use their own `.css` file. Drop a root from this
      list when its component is converted; delete the block with the legacy
      variables below. Component CSS and utilities both override these. */
-  :where(.backtest-page, .company-news-page,
+  :where(.backtest-page,
          .decision-expectancy, .exposure-map,
          .risk-controls-panel,
          .v2-safeguards, .v2-status) {

@@ -235,6 +235,11 @@ export function formatDteBucket(
   return !raw || raw.toLowerCase() === 'none' ? placeholder : formatToken(raw);
 }
 
+/** "watchlist" → "Watchlist". */
+export function sentenceCase(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /** Maps each item of a list of stored values (e.g. gate or warning codes) to its label. */
 export function formatTokenList(values: readonly string[] | null | undefined, separator = ', '): string {
   return (values ?? []).filter(Boolean).map((value) => formatToken(value)).join(separator);

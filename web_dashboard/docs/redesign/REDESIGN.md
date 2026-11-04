@@ -531,6 +531,7 @@ needed.
 | `trades.py` `/api/executed-trades` | `fill_price`, `side`, `quantity`, `position_id` (pairs entry/exit) |
 | `dashboard.py` / pipeline | today's funnel counts: evaluated, strategist candidates, manager call/put, passed safeguards, filled |
 | `decision_autopsy.py` | counterfactual contract + P/L in `attribution` (stock move already there) |
+| `/api/opportunist-company-news` | an evidence score per article (for the feed's score bar); `section_article_counts` for every scope, not only the requested one |
 
 None of these block the visual work: build each panel against today's payload
 and hide the parts whose fields are missing.
@@ -564,6 +565,12 @@ and hide the parts whose fields are missing.
    and holds fractions, so the counterfactual shows 5d / 10d, not 1d/3d/5d.
    Risks render as a list, not chips: they are full sentences. Pages read a
    linked search from `?q=` (`searchFromHash`).
+   Company News: logic in `companyNews.ts`, one flat feed newest first, 50
+   rows at a time (a page of 5 companies carried ~1,000 article cards). One
+   search box filters loaded rows as you type and looks the company up on
+   Enter. All four scopes stay visible: the API fills in only the active
+   scope's count, so hiding zero counts would hide every other scope. No
+   evidence score bar: the payload has no score (§ 9).
 5. Research pages (§ 7), then System route.
 6. Backend fields (§ 9) and wiring the placeholders.
 7. Delete the temporary legacy variable block from `index.css` once
