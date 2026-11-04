@@ -1,5 +1,7 @@
 import DashboardKpis from './dashboardKpis.tsx'
 import Graph from './Graph.tsx'
+import LiveDecisions from './liveDecisions.tsx'
+import LiveNewsfeed from './liveNewsfeed.tsx'
 import OpenPositionsTable from './openPositionsTable.tsx'
 import OrderCardList from './orderCard.tsx'
 import PageHeader from './pageHeader.tsx'
@@ -14,6 +16,10 @@ function DashboardHome() {
       <DashboardKpis />
       <WhyBotTradedPanel />
       <Graph />
+      <div className="flex flex-wrap gap-3">
+        <div className="min-w-0 flex-[2_1_640px]"><LiveNewsfeed /></div>
+        <div className="min-w-0 flex-[1_1_360px]"><LiveDecisions /></div>
+      </div>
       <OpenPositionsTable />
       <OrderCardList />
       <V2SafeguardsPanel />
