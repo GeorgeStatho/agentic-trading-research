@@ -7,6 +7,8 @@ import json
 import inspect
 from pathlib import Path
 
+from services.core.trading_path import trading_path_hashes
+
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -67,23 +69,7 @@ def selector_constants():
 
 
 def pipeline_source_hashes():
-    source_files = [p for folder in ('services', 'trading_support', 'agentCallers')
-                    for p in (ROOT / 'Python Scripts' / folder).rglob('*.py')]
-    source_files.extend([ROOT / path for path in ('Data/catalyst_models.py', 'Data/catalyst_schema.py',
-        'Data/catalyst_schema.sql', 'Data/news_db_modules/provenance.py', 'Data/news_db_modules/catalysts.py',
-        'Data/news_db_modules/catalyst_labels.py',
-        'Data/market_db_modules/pricing_research.py', 'Data/market_db_modules/pricing_schema.sql',
-        'Data/market_db_modules/contract_research.py', 'config/risk_clusters.csv',
-        'Data/market_db_modules/trade_economics.py', 'Data/market_db_modules/trade_economics_schema.sql',
-        'Data/market_db_modules/thesis_event_reviews.py', 'Data/market_db_modules/thesis_event_reviews_schema.sql',
-        'Data/market_db_modules/research_runs.py', 'Data/market_db_modules/research_reports.py',
-        'Data/market_db_modules/research_schema.sql',
-        'Data/market_db_modules/forward_evaluation.py', 'Data/market_db_modules/forward_evaluation_schema.sql',
-        'Data/market_db_modules/forward_comparison.py', 'Data/market_db_modules/discovery_evaluation.py',
-        'Data/market_db_modules/research_outcomes.py',
-        'Data/market_db_modules/thesis_validator.py',
-        'Python Scripts/news_collector_main.py', 'Data/sector_etfs.json', 'config/source.json')])
-    return {str(p.relative_to(ROOT)): sha256(p.read_bytes()).hexdigest() for p in sorted(source_files)}
+    return trading_path_hashes()
 
 
 def build_pipeline_version(*, settings=None):

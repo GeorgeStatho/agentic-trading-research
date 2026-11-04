@@ -9,7 +9,6 @@ from services.research.research_contract import fingerprint
 ROOT = Path(__file__).resolve().parents[3]
 VERSION = "research-evaluator-v2"
 EVALUATOR_FILES = (
-    "Data/db_common.py",
     "Data/research_foundation_contracts.py",
     "Data/market_db_modules/foundation_store.py",
     "Data/market_db_modules/research_foundation.py",

@@ -1,16 +1,15 @@
 """Promotion proofs are bound to policy values and implementation sources."""
 from dataclasses import asdict, is_dataclass, replace
 from contextlib import closing
-from hashlib import sha256
 import logging
 from pathlib import Path
 import sqlite3
 
 from db_common import database_path
+from services.core.trading_path import trading_path_hashes
 from services.research.research_contract import fingerprint
 
 
-ROOT = Path(__file__).resolve().parents[3]
 MODE_KEYS = {'mode', 'enforcement_mode', 'provenance_mode', 'freshness_mode',
              'liquidity_mode', 'scenario_mode', 'cluster_mode', 'exit_mode'}
 GATE_BLOCKS = {'PROVENANCE': 'catalyst', 'FRESHNESS': 'catalyst', 'CONTINUATION': 'continuation',
@@ -22,16 +21,7 @@ GATE_BLOCKS = {'PROVENANCE': 'catalyst', 'FRESHNESS': 'catalyst', 'CONTINUATION'
 
 
 def source_hash():
-    paths = []
-    for folder in ('Python Scripts/services', 'Python Scripts/agentCallers', 'Python Scripts/trading_support',
-                   'Python Scripts/Webscraping/processing', 'Data/market_db_modules', 'Data/news_db_modules'):
-        paths.extend((ROOT / folder).rglob('*.py'))
-    paths.extend((ROOT / 'Data/market_db_modules').glob('*.sql'))
-    paths.extend(ROOT / name for name in ('config/risk_clusters.csv', 'config/source.json',
-                                        'Data/catalyst_models.py', 'Data/catalyst_schema.sql', 'Data/sector_etfs.json',
-                                        'Data/research_foundation_contracts.py'))
-    paths.extend((ROOT / 'Python Scripts/Webscraping/company_evidence').rglob('*.py'))
-    return fingerprint({str(p.relative_to(ROOT)): sha256(p.read_bytes()).hexdigest() for p in sorted(paths)})
+    return fingerprint(trading_path_hashes())
 
 
 def policy_hash(stage, policy, code_hash):
