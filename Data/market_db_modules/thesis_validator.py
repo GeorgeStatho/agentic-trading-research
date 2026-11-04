@@ -194,7 +194,10 @@ def record_thesis_validation_run(
     db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> int | None:
-    """Persist one adjudication run; unique per (thesis_id, run_date)."""
+    """Persist one adjudication run; unique per (thesis_id, run_date).
+
+    A retry replaces that day's run only when it produced no verdict (consistency 'error').
+    """
     if not isinstance(run, dict):
         return None
 
@@ -240,6 +243,19 @@ def record_thesis_validation_run(
                 error_text
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (thesis_id, run_date) DO UPDATE SET
+                option_symbol = excluded.option_symbol, symbol = excluded.symbol, run_at = excluded.run_at,
+                mode = excluded.mode, evidence_pack_json = excluded.evidence_pack_json,
+                raw_samples_json = excluded.raw_samples_json, sample_count = excluded.sample_count,
+                consistency = excluded.consistency, flip_detected = excluded.flip_detected,
+                grounded = excluded.grounded, thesis_state = excluded.thesis_state,
+                would_open_today = excluded.would_open_today, evidence_ids_json = excluded.evidence_ids_json,
+                rationale = excluded.rationale, confidence = excluded.confidence,
+                rules_verdict = excluded.rules_verdict, arbiter_action = excluded.arbiter_action,
+                arbiter_reason = excluded.arbiter_reason, executed = excluded.executed,
+                mark_mid_price = excluded.mark_mid_price, error_text = excluded.error_text,
+                attempts = thesis_validation_runs.attempts + 1
+            WHERE thesis_validation_runs.consistency = 'error'
             """,
             (
                 thesis_id,
@@ -269,7 +285,12 @@ def record_thesis_validation_run(
         )
     except sqlite3.IntegrityError:
         return None
-    return int(cursor.lastrowid)
+    if cursor.rowcount == 0:  # that day already has a verdict
+        return None
+    row = conn.execute(
+        "SELECT id FROM thesis_validation_runs WHERE thesis_id = ? AND run_date = ?", (thesis_id, run_date)
+    ).fetchone()
+    return int(row[0])
 
 
 def get_thesis_validation_run_for_date(

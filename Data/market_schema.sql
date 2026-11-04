@@ -457,6 +457,8 @@ CREATE TABLE IF NOT EXISTS thesis_validation_runs (
     executed INTEGER NOT NULL DEFAULT 0,
     mark_mid_price REAL,
     error_text TEXT,
+    -- A run without a verdict (consistency 'error') is retried that day; this counts the tries.
+    attempts INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (thesis_id) REFERENCES position_theses(id) ON DELETE CASCADE,
     UNIQUE (thesis_id, run_date)

@@ -32,6 +32,18 @@ class MarketSetupFingerprintTests(unittest.TestCase):
 
         self.assertIn("exit_reason", self.manager_history_columns())
 
+    def test_thesis_validation_runs_gain_the_attempts_column(self):
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("ALTER TABLE thesis_validation_runs DROP COLUMN attempts")
+            conn.execute("UPDATE schema_bootstrap SET fingerprint = 'older-setup'")
+            forget_setup(self.db_path)
+
+        initialize_database(db_path=self.db_path)
+
+        with closing(get_connection(self.db_path)) as conn:
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(thesis_validation_runs)")}
+        self.assertIn("attempts", columns)
+
     def test_setup_snapshots_decisions_that_predate_the_autopsy_ledger(self):
         with closing(get_connection(self.db_path)) as conn, conn:
             decision_id = conn.execute(

@@ -4,15 +4,17 @@ from __future__ import annotations
 
 Runs once per position per trading day, after the configured time (default
 15:30 ET), piggybacking on the option-position management cycle so it reuses
-the freshly computed rules-layer verdicts. In shadow mode (the default) the
-full pipeline runs and persists verdicts but executes nothing; the recorded
-option mid price at verdict time is the counterfactual exit mark.
+the freshly computed rules-layer verdicts. A run that produced no verdict, such
+as a model outage, is retried that day a few times, a few minutes apart. In
+shadow mode (the default) the full pipeline runs and persists verdicts but
+executes nothing; the recorded option mid price at verdict time is the
+counterfactual exit mark.
 """
 
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -25,6 +27,16 @@ LOGGER = logging.getLogger(__name__)
 
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
 VALID_MODES = {"off", "shadow", "live"}
+# The position-management cycle runs every few seconds, so a failed run waits before it is retried.
+MAX_DAILY_ATTEMPTS = 3
+RETRY_AFTER = timedelta(minutes=5)
+
+
+def _retry_due(run: dict[str, Any], now: datetime) -> bool:
+    """A run without a verdict may be retried, a bounded number of times, after a pause."""
+    if run.get("consistency") != "error" or int(run.get("attempts") or 1) >= MAX_DAILY_ATTEMPTS:
+        return False
+    return now - datetime.fromisoformat(str(run["run_at"])) >= RETRY_AFTER
 
 
 def rules_exit_active(position_summary: dict[str, Any]) -> bool:
@@ -150,7 +162,8 @@ class ThesisValidatorService:
             )
             return {"option_symbol": option_symbol, "status": "missing_thesis"}
 
-        if get_thesis_validation_run_for_date(thesis_id=int(thesis["id"]), run_date=run_date) is not None:
+        earlier = get_thesis_validation_run_for_date(thesis_id=int(thesis["id"]), run_date=run_date)
+        if earlier is not None and not _retry_due(earlier, datetime.fromisoformat(run_at)):
             return {"option_symbol": option_symbol, "status": "already_ran"}
 
         run_record: dict[str, Any] = {
