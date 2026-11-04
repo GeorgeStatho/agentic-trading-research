@@ -1,36 +1,49 @@
 """Admitted discovery entries that DISCOVERY_MODE=enforce sends to the production strategist and manager.
 
 Admission (evidence score and freshness) already happened in the discovery queue; research readiness
-is not required. Each admitted event is routed once, and only after the news collector has refreshed
-the company's sector, industry and company news since the admission.
+is not required. Each catalyst is routed once, only while it is still fresh, and only after the news
+collector has refreshed the company's sector, industry and company news since the admission.
 """
 from contextlib import closing
 import json
 
 from db_common import get_connection
+from services.gates.catalyst_gates import evaluate_catalyst_gates
+from services.research.research_contract import utc
 
 READY_ENTRIES = '''SELECT s.queue_id,s.payload_json,q.company_id,q.catalyst_id,c.symbol,c.name,
-        i.industry_key,i.name AS industry_name,se.sector_key
+        i.industry_key,i.name AS industry_name,se.sector_key,k.state_json AS catalyst_state
     FROM discovery_shadow_candidates s JOIN discovery_queue q ON q.queue_id=s.queue_id
     JOIN discovery_queue_details d ON d.queue_id=s.queue_id
     JOIN companies c ON c.id=q.company_id JOIN industries i ON i.id=c.industry_id
-    JOIN sectors se ON se.id=i.sector_id
+    JOIN sectors se ON se.id=i.sector_id JOIN catalysts k ON k.catalyst_id=q.catalyst_id
     WHERE s.admission_status='ready' AND q.purpose='entry' AND q.status='completed'
     AND julianday(s.created_at)<=julianday(?) AND julianday(d.expires_at)>julianday(?)
-    AND NOT EXISTS (SELECT 1 FROM discovery_production_routes r WHERE r.queue_id=s.queue_id)
+    AND NOT EXISTS (SELECT 1 FROM discovery_production_routes r JOIN discovery_queue rq ON rq.queue_id=r.queue_id
+        WHERE rq.company_id=q.company_id AND rq.catalyst_id=q.catalyst_id)
     AND {refreshed} (SELECT 1 FROM discovery_news_refreshes n WHERE n.company_id=q.company_id
         AND julianday(n.refreshed_at)>=julianday(s.created_at))
     ORDER BY d.base_priority DESC, s.created_at, s.queue_id'''
 
 
-def _ready_entries(conn, *, at, news_refreshed, exclude_symbols, limit):
+def _routable_age(catalyst_state, *, at, policy):
+    """The FRESHNESS gate's decay rule, whatever its mode; a fixed age limit where it has no half-life."""
+    state = json.loads(catalyst_state)
+    if state.get('expected_half_life_minutes'):
+        return evaluate_catalyst_gates(state, as_of=utc(at))['FRESHNESS']['would_allow']
+    # Family 'other', which every SEC company-evidence catalyst has, carries no decay prior.
+    first = state.get('first_public_time')
+    return bool(first) and 0 <= (utc(at) - utc(first)).total_seconds() <= policy.route_max_age_seconds
+
+
+def _ready_entries(conn, *, at, news_refreshed, exclude_symbols, limit, keep=None):
     """The highest-priority ready, unrouted entry per company, at most `limit` companies."""
     excluded = {symbol.upper() for symbol in exclude_symbols}
     entries = {}
     query = READY_ENTRIES.format(refreshed='EXISTS' if news_refreshed else 'NOT EXISTS')
     for row in conn.execute(query, (at, at)).fetchall():
         symbol = row['symbol'].upper()
-        if symbol in excluded or symbol in entries:
+        if symbol in excluded or symbol in entries or (keep and not keep(row)):
             continue
         if len(entries) >= limit:
             break
@@ -44,7 +57,8 @@ def admitted_entries(*, policy, at, exclude_symbols=(), db_path=None):
         return []
     with closing(get_connection(db_path)) as conn:
         entries = _ready_entries(conn, at=at, news_refreshed=True, exclude_symbols=exclude_symbols,
-                                 limit=policy.production_limit)
+                                 limit=policy.production_limit,
+                                 keep=lambda row: _routable_age(row['catalyst_state'], at=at, policy=policy))
         result = []
         for symbol, row in entries.items():
             origins = [r[0] for r in conn.execute(

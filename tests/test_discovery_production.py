@@ -25,6 +25,10 @@ def reached(symbol, **kwargs):
 class PolicyTests(unittest.TestCase):
     def test_enforce_is_a_mode_and_unknown_modes_are_errors(self):
         self.assertEqual(DiscoveryPolicy(mode='enforce').mode, 'enforce')
+        with patch.dict(os.environ, {'DISCOVERY_ROUTE_MAX_AGE_SECONDS': '3600'}):
+            self.assertEqual(DiscoveryPolicy.from_env().route_max_age_seconds, 3600)
+        with self.assertRaises(ValueError):
+            DiscoveryPolicy(route_max_age_seconds=0)
         with self.assertRaises(ValueError):
             DiscoveryPolicy(mode='live')
         with self.assertRaises(ValueError):
@@ -50,9 +54,9 @@ class EnforceFixture(DiscoveryFixture):
         from services.discovery.discovery_routing import record_news_refresh
         record_news_refresh(2, at, db_path=self.db)
 
-    def entries(self, policy=None):
+    def entries(self, policy=None, at=ENTRY):
         from services.discovery.discovery_routing import admitted_entries
-        return admitted_entries(policy=policy or self.policy, at=ENTRY, db_path=self.db)
+        return admitted_entries(policy=policy or self.policy, at=at, db_path=self.db)
 
     def run_stack(self, mode):
         from agentCallers import decision_pipeline as agent_main
@@ -88,6 +92,32 @@ class AdmittedEntryTests(EnforceFixture):
         self.refresh_news(ENTRY)
         self.assertEqual([entry['symbol'] for entry in self.entries()], ['OTHER'])
 
+    def test_an_earlier_revision_of_the_same_catalyst_already_routed_blocks_the_new_one(self):
+        from services.discovery.discovery_routing import record_routes
+        with closing(get_connection(self.db)) as conn, conn:
+            queue_id, = conn.execute("SELECT queue_id FROM discovery_queue WHERE purpose='entry'").fetchone()
+            conn.execute('''INSERT INTO discovery_queue SELECT 'queue:earlier-revision',company_id,catalyst_id,
+                'revision-earlier',purpose,status,attempts,next_attempt_at,lease_owner,lease_expires_at,
+                completion_reason,record_hash,record_json FROM discovery_queue WHERE queue_id=?''', (queue_id,))
+        record_routes([{'queue_id': 'queue:earlier-revision', 'symbol': 'OTHER', 'candidate_id': 'candidate-0'}],
+                      at=START, db_path=self.db)
+        self.assertEqual(self.entries(), [])
+
+    def test_a_catalyst_without_a_half_life_routes_only_within_the_fallback_age(self):
+        # The fixture's event was first public at START, one day before ENTRY.
+        self.assertEqual(len(self.entries(replace(self.policy, route_max_age_seconds=2 * 86400))), 1)
+        self.assertEqual(self.entries(replace(self.policy, route_max_age_seconds=12 * 3600)), [])
+
+    def test_a_catalyst_with_a_half_life_routes_only_while_fresh(self):
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute('''UPDATE catalysts SET state_json=json_set(state_json,'$.expected_half_life_minutes',?)
+                WHERE catalyst_id=(SELECT catalyst_id FROM discovery_queue WHERE purpose='entry')''', (60,))
+        self.assertEqual(self.entries(), [])
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute('''UPDATE catalysts SET state_json=json_set(state_json,'$.expected_half_life_minutes',?)
+                WHERE catalyst_id=(SELECT catalyst_id FROM discovery_queue WHERE purpose='entry')''', (30 * 1440,))
+        self.assertEqual(len(self.entries()), 1)
+
     def test_the_production_limit_caps_entries(self):
         self.assertEqual(self.entries(replace(self.policy, production_limit=0)), [])
 
@@ -120,6 +150,15 @@ class ProductionRoutingTests(EnforceFixture):
                                              (failure['candidate_id'],)).fetchone()[0])
         self.assertEqual(primary, event_catalyst)
         self.assertEqual(listed, [event_catalyst])
+
+    def test_a_route_whose_candidate_was_not_recorded_never_reaches_the_strategist(self):
+        with patch('services.runtime.candidate_lifecycle.begin_candidate', side_effect=RuntimeError('db locked')):
+            result = self.run_stack('enforce')
+        self.assertEqual((result['company_symbols'], result['failed_companies']), ([], []))
+        skipped, = result['skipped_companies_before_strategist_manager']
+        self.assertEqual((skipped['symbol'], skipped['skip_reason']), ('OTHER', 'discovery_candidate_not_recorded'))
+        with closing(get_connection(self.db)) as conn:
+            self.assertIsNone(conn.execute('SELECT 1 FROM discovery_production_routes').fetchone())
 
     def test_shadow_mode_never_reaches_the_strategist(self):
         result = self.run_stack('shadow')

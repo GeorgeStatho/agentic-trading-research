@@ -167,6 +167,10 @@ def _filter_company_symbols_by_high_confidence_support(
         route = (discovery_context_by_symbol or {}).get(symbol)
         context = observe(begin_candidate, symbol, version=version, catalyst_id=(route or {}).get("catalyst_id"))
         contexts[symbol] = context
+        if route and not context:
+            # Without a candidate the route is not recorded, so the entry is retried next cycle.
+            skipped_companies.append({"symbol": symbol, "skip_reason": "discovery_candidate_not_recorded"})
+            continue
         if route:
             # Discovery admitted this event on primary evidence; opportunist article counts do not apply.
             checkpoint(context, "SUPPORT", {"route": "discovery", "allowed": True, "admission": route["admission"],

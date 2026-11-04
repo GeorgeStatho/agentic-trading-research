@@ -27,12 +27,13 @@ class DiscoveryPolicy:
     market_event_min_price: float = 10.0
     market_event_min_average_volume: float = 500_000
     production_limit: int = 5  # discovery-only companies added to a trading cycle under enforce
+    route_max_age_seconds: int = 172800  # routing age limit for catalysts without a decay half-life
 
     def __post_init__(self):
         if self.mode not in {'disabled', 'shadow', 'enforce'}:
             raise ValueError(f'DISCOVERY_MODE must be disabled, shadow or enforce, not {self.mode!r}')
         if min(self.rescan_seconds, self.scan_limit, self.batch_size, self.lease_seconds, self.max_attempts,
-               self.retry_seconds, self.stale_seconds) < 1:
+               self.retry_seconds, self.stale_seconds, self.route_max_age_seconds) < 1:
             raise ValueError('Discovery limits must be positive')
         if self.admission_batch_size < self.batch_size:
             raise ValueError('The admission batch must be at least the research batch')
@@ -59,7 +60,8 @@ class DiscoveryPolicy:
                    market_event_limit=int(os.getenv('DISCOVERY_MARKET_EVENT_LIMIT', '0')),
                    market_event_min_price=float(os.getenv('DISCOVERY_MARKET_EVENT_MIN_PRICE', '10')),
                    market_event_min_average_volume=float(os.getenv('DISCOVERY_MARKET_EVENT_MIN_AVERAGE_VOLUME', '500000')),
-                   production_limit=int(os.getenv('DISCOVERY_PRODUCTION_LIMIT', '5')))
+                   production_limit=int(os.getenv('DISCOVERY_PRODUCTION_LIMIT', '5')),
+                   route_max_age_seconds=int(os.getenv('DISCOVERY_ROUTE_MAX_AGE_SECONDS', '172800')))
 
     def manifest(self):
         return asdict(self)
