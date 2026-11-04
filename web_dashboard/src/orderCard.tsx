@@ -1,8 +1,9 @@
 import { getExecutedTrades } from './executedTradesApi';
 import type { ExecutedTrade } from './executedTradesApi';
-import { formatCurrency, formatShortDateTime, formatToken, hasNumericValue } from './format';
+import { formatCurrency, formatShortDateTime, formatSignedPercent, formatToken, hasNumericValue } from './format';
 import { formatOccSymbol } from './occ';
-import { orderTypeLabel, wasNotExecuted } from './orders';
+import { groupOrders, orderTypeLabel, wasNotExecuted } from './orders';
+import type { OrderGroup } from './orders';
 import { DataTable } from './ui/DataTable';
 import type { Column } from './ui/DataTable';
 import { Panel } from './ui/Panel';
@@ -15,37 +16,70 @@ function StatusTag({ status }: { status: string | null }) {
   return status === 'filled' ? <Tag tone="gain">{label}</Tag> : <Tag>{label}</Tag>;
 }
 
-const SUBMITTED: Column<ExecutedTrade> = {
+function isTrade(group: OrderGroup): boolean {
+  return group.orders.length > 1;
+}
+
+function lead(group: OrderGroup): ExecutedTrade {
+  return group.entry ?? group.orders[group.orders.length - 1];
+}
+
+function fillText(group: OrderGroup): string {
+  const fill = (order: ExecutedTrade | null) => formatCurrency(order?.fill_price, { placeholder: '—' });
+  if (!isTrade(group)) return fill(group.orders[0]);
+  return group.exit ? `${fill(group.entry)} → ${fill(group.exit)}` : fill(group.entry);
+}
+
+const SUBMITTED: Column<OrderGroup> = {
   key: 'submitted',
   header: 'Submitted',
-  render: (trade) => <span className="font-mono whitespace-nowrap text-dim">{formatShortDateTime(trade.submitted_at)}</span>,
+  render: (group) => <span className="font-mono whitespace-nowrap text-dim">{formatShortDateTime(lead(group).submitted_at)}</span>,
 };
-const CONTRACT: Column<ExecutedTrade> = {
+const CONTRACT: Column<OrderGroup> = {
   key: 'contract',
   header: 'Contract',
-  render: (trade) => <span className="font-mono whitespace-nowrap">{formatOccSymbol(trade.option_symbol)}</span>,
+  render: (group) => <span className="font-mono whitespace-nowrap">{formatOccSymbol(group.orders[0].option_symbol)}</span>,
 };
-const TYPE: Column<ExecutedTrade> = { key: 'type', header: 'Type', render: (trade) => <span className="whitespace-nowrap">{orderTypeLabel(trade)}</span> };
-const FILL: Column<ExecutedTrade> = {
-  key: 'fill',
-  header: 'Fill',
+const TYPE: Column<OrderGroup> = {
+  key: 'type',
+  header: 'Type',
+  render: (group) => {
+    if (!isTrade(group)) return <span className="whitespace-nowrap">{orderTypeLabel(group.orders[0])}</span>;
+    return <>
+      <span className="whitespace-nowrap">{orderTypeLabel(lead(group))}{group.exit ? ` → ${orderTypeLabel(group.exit)}` : ' · open'}</span>
+      {group.canceled ? <span className="block text-[11px] text-dim">{group.canceled} canceled attempt{group.canceled === 1 ? '' : 's'}</span> : null}
+    </>;
+  },
+};
+const FILL: Column<OrderGroup> = { key: 'fill', header: 'Fill', align: 'right', render: (group) => <span className="font-mono whitespace-nowrap">{fillText(group)}</span> };
+const RETURN: Column<OrderGroup> = {
+  key: 'return',
+  header: 'P/L',
   align: 'right',
-  render: (trade) => <span className="font-mono">{formatCurrency(trade.fill_price, { placeholder: '—' })}</span>,
+  render: (group) => {
+    if (group.returnPct === null) return <span className="text-dim">—</span>;
+    return <span className={`font-mono ${group.returnPct < 0 ? 'text-loss' : 'text-gain'}`}>{formatSignedPercent(group.returnPct)}</span>;
+  },
 };
-const STATUS: Column<ExecutedTrade> = { key: 'status', header: 'Status', render: (trade) => <StatusTag status={trade.order_status} /> };
+const STATUS: Column<OrderGroup> = { key: 'status', header: 'Status', render: (group) => <StatusTag status={(group.exit ?? group.entry ?? group.orders[0]).order_status} /> };
 
-/** Every option order, newest first as the API returns them; canceled ones dimmed. */
+/** Every option order, newest first; an entry and its exit share one row once the API links them. */
 export function OrdersView({ trades }: { trades: readonly ExecutedTrade[] }) {
+  const groups = groupOrders(trades);
   const hasFills = trades.some((trade) => hasNumericValue(trade.fill_price));
-  const columns = hasFills ? [SUBMITTED, CONTRACT, TYPE, FILL, STATUS] : [SUBMITTED, CONTRACT, TYPE, STATUS];
+  const hasReturns = groups.some((group) => group.returnPct !== null);
+  const columns = [SUBMITTED, CONTRACT, TYPE, ...(hasFills ? [FILL] : []), ...(hasReturns ? [RETURN] : []), STATUS];
+  const meta = groups.length === trades.length
+    ? `${trades.length} recorded`
+    : `${groups.length} trade${groups.length === 1 ? '' : 's'} · ${trades.length} orders`;
 
   return (
-    <Panel title="Orders" meta={`${trades.length} recorded`} flush>
+    <Panel title="Orders" meta={meta} flush>
       <DataTable
         columns={columns}
-        rows={trades}
-        rowKey={(trade) => String(trade.id)}
-        rowClassName={(trade) => (wasNotExecuted(trade.order_status) ? 'opacity-60' : '')}
+        rows={groups}
+        rowKey={(group) => group.key}
+        rowClassName={(group) => (group.orders.every((order) => wasNotExecuted(order.order_status)) ? 'opacity-60' : '')}
         emptyMessage="No orders yet."
       />
     </Panel>

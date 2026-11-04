@@ -15,8 +15,9 @@ export type ExecutedTrade = {
   order_status: string | null;
   submitted_at: string | null;
   error: string | null;
-  /** Not returned yet (REDESIGN.md section 9); the Fill column waits for it. */
   fill_price?: number | null;
+  /** The entry order this one belongs to; null when no filled entry was found. */
+  position_id?: string | null;
 };
 
 export type ExecutedTradesResponse = {

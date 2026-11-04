@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { ExecutedTrade } from './executedTradesApi.ts'
 import { formatOccSymbol } from './occ.ts'
 import { OrdersView } from './orderCard.tsx'
-import { orderTypeLabel } from './orders.ts'
+import { groupOrders, orderTypeLabel } from './orders.ts'
 
 function trade(overrides: Partial<ExecutedTrade>): ExecutedTrade {
   return {
@@ -84,5 +84,52 @@ describe('Orders panel', () => {
     rerender(<OrdersView trades={[trade({ fill_price: 2.1 })]} />)
     expect(screen.getByRole('columnheader', { name: 'Fill' })).toBeTruthy()
     expect(screen.getByText('$2.10')).toBeTruthy()
+  })
+})
+
+describe('groupOrders', () => {
+  const orders = [
+    trade({ id: 4, order_id: 'exit', order_side: 'sell', decision: 'trailing_profit_stop', fill_price: 5.65, position_id: 'entry', submitted_at: '2026-11-03T14:41:00+00:00' }),
+    trade({ id: 3, order_id: 'cancel', order_side: 'sell', decision: 'trailing_profit_stop', order_status: 'canceled', position_id: 'entry', submitted_at: '2026-11-03T14:31:00+00:00' }),
+    trade({ id: 2, order_id: 'loose', order_side: 'sell', decision: 'stop_loss', position_id: null }),
+    trade({ id: 1, order_id: 'entry', fill_price: 5.9, position_id: 'entry' }),
+  ]
+
+  it('folds an entry, its exit and its canceled exit attempts into one trade, newest activity first', () => {
+    const groups = groupOrders(orders)
+
+    expect(groups).toHaveLength(2)
+    expect(groups[0].entry?.order_id).toBe('entry')
+    expect(groups[0].exit?.order_id).toBe('exit')
+    expect(groups[0].canceled).toBe(1)
+    expect(groups[1].orders.map((order) => order.order_id)).toEqual(['loose'])
+  })
+
+  it('computes the trade return from the two fills', () => {
+    expect(groupOrders(orders)[0].returnPct).toBeCloseTo(-4.237, 2)
+  })
+
+  it('leaves an open position without an exit or a return', () => {
+    const [open] = groupOrders([trade({ order_id: 'entry', fill_price: 5.9, position_id: 'entry' })])
+    expect(open.exit).toBeNull()
+    expect(open.returnPct).toBeNull()
+  })
+})
+
+describe('Orders panel with linked trades', () => {
+  it('shows each trade on one row: both fills, the return and the canceled attempts', () => {
+    render(<OrdersView trades={[
+      trade({ id: 3, order_id: 'exit', order_side: 'sell', decision: 'trailing_profit_stop', fill_price: 5.65, position_id: 'entry' }),
+      trade({ id: 2, order_id: 'cancel', order_side: 'sell', decision: 'trailing_profit_stop', order_status: 'canceled', position_id: 'entry' }),
+      trade({ id: 1, order_id: 'entry', fill_price: 5.9, position_id: 'entry' }),
+    ]} />)
+
+    const rows = screen.getAllByRole('row').slice(1)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].textContent).toContain('$5.90 → $5.65')
+    expect(rows[0].textContent).toContain('-4.24%')
+    expect(rows[0].textContent).toContain('Trailing profit stop · sell')
+    expect(rows[0].textContent).toContain('1 canceled attempt')
+    expect(screen.getByRole('region', { name: /Orders/ }).textContent).toContain('1 trade · 3 orders')
   })
 })

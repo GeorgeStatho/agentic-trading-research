@@ -135,6 +135,27 @@ def build_trade_explanation_payload() -> dict:
     }
 
 
+def _link_positions(trades: list[dict[str, Any]]) -> None:
+    """Sets `position_id`: the order id of the filled buy that opened the position.
+
+    Exits record no link to their entry, so a sell is paired with the latest
+    filled buy of the same contract before it.
+    shortcut: only the loaded rows are searched, so an exit whose entry is
+    older than the window stays unpaired (None); store the link at exit time
+    if that starts to matter.
+    """
+    open_entry: dict[str, str] = {}
+    for trade in sorted(trades, key=lambda item: (str(item["submitted_at"] or ""), item["id"])):
+        symbol = str(trade["option_symbol"] or "")
+        if str(trade["order_side"] or "").lower() == "buy":
+            filled = str(trade["order_status"] or "").lower() == "filled"
+            trade["position_id"] = trade["order_id"] if filled else None
+            if filled:
+                open_entry[symbol] = trade["order_id"]
+        else:
+            trade["position_id"] = open_entry.get(symbol)
+
+
 def build_executed_trades_payload(
     *,
     underlying_symbol: str | None = None,
@@ -175,9 +196,12 @@ def build_executed_trades_payload(
                 "time_in_force": row["time_in_force"],
                 "submitted_at": row["submitted_at"],
                 "recorded_at": row["recorded_at"],
+                "fill_price": row["fill_price"],
+                "filled_qty": row["filled_qty"],
                 "execution": raw_execution if isinstance(raw_execution, dict) else None,
             }
         )
+    _link_positions(trades)
 
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),
