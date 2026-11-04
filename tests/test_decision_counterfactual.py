@@ -9,12 +9,12 @@ from datetime import datetime
 from pathlib import Path
 
 from db_common import get_connection
-from market_db_modules.backtesting import counterfactual_trade, record_historical_option_quote
+from market_db_modules.backtesting import record_historical_option_quote
 from market_db_modules.bootstrap import initialize_database
 
 try:
     from api_support.context import OPTION_POSITION_SETTINGS
-    from api_support.decision_autopsy import counterfactual_for_row
+    from api_support.decision_autopsy import counterfactual_for_row, counterfactual_trade
     from trading_support._option_positions_defaults import build_option_exit_rules
     from trading_support._option_positions_market import _resolve_option_exit_thresholds
     FLASK_AVAILABLE = True
@@ -34,6 +34,7 @@ DECISION = {
 }
 
 
+@unittest.skipUnless(FLASK_AVAILABLE, "Flask is not installed in this environment.")
 class CounterfactualTradeTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()

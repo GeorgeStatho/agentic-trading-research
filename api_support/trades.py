@@ -227,6 +227,22 @@ def _link_positions(trades: list[dict[str, Any]]) -> None:
             trade["position_id"] = open_entry.get(symbol)
 
 
+def _recorded_fills(row_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """Fill price and quantity per execution row.
+
+    Read here rather than added to the shared executions query, which sits on the trading path:
+    changing it would invalidate research evidence on a dashboard-only deploy.
+    """
+    if not row_ids:
+        return {}
+    placeholders = ",".join("?" for _ in row_ids)
+    with closing(get_connection()) as conn:
+        rows = conn.execute(
+            f"SELECT id, fill_price, filled_qty FROM option_trade_executions WHERE id IN ({placeholders})", row_ids
+        ).fetchall()
+    return {row["id"]: dict(row) for row in rows}
+
+
 def build_executed_trades_payload(
     *,
     underlying_symbol: str | None = None,
@@ -237,9 +253,11 @@ def build_executed_trades_payload(
         within_days=EXECUTED_TRADES_MAX_AGE_DAYS,
         limit=limit,
     )
+    fills = _recorded_fills([row["id"] for row in rows])
 
     trades: list[dict[str, Any]] = []
     for row in rows:
+        fill = fills.get(row["id"], {})
         raw_execution = safe_json_loads(row["raw_json"])
         trades.append(
             {
@@ -267,8 +285,8 @@ def build_executed_trades_payload(
                 "time_in_force": row["time_in_force"],
                 "submitted_at": row["submitted_at"],
                 "recorded_at": row["recorded_at"],
-                "fill_price": row["fill_price"],
-                "filled_qty": row["filled_qty"],
+                "fill_price": fill.get("fill_price"),
+                "filled_qty": fill.get("filled_qty"),
                 "execution": raw_execution if isinstance(raw_execution, dict) else None,
             }
         )

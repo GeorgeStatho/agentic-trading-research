@@ -13,12 +13,34 @@ from db_common import get_connection
 from services.core.numbers import safe_float
 from api_support.v2_verdicts import shadow_verdicts_for_decisions
 from market_db_modules.autopsy import list_decision_autopsy_ledger
-from market_db_modules.backtesting import counterfactual_trade
+# The engine's own pricing steps, used read-only: its public entry points record a run and
+# snapshots. Kept here, off the trading path, so a dashboard deploy leaves research evidence valid.
+from market_db_modules.backtesting import _merged_config, _simulate_decision
 from trading_support._option_positions_defaults import build_option_exit_rules
 from trading_support._option_positions_market import _resolve_option_exit_thresholds
 
 EXIT_REASONS = {"take_profit_exit": "take_profit", "stop_loss_exit": "stop_loss"}
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
+
+
+def counterfactual_trade(
+    conn: sqlite3.Connection,
+    decision: dict[str, Any],
+    *,
+    take_profit_pct: float,
+    stop_loss_pct: float,
+    max_hold_hours: int,
+) -> dict[str, Any]:
+    """What a call or put that never became an order would have done, priced like a backtest.
+
+    Read-only: unlike a backtest it records no evidence snapshot or run, so a page can ask on
+    every load. The premium cap is not applied, since the question is the trade itself.
+    """
+    config = _merged_config({"take_profit_pct": take_profit_pct, "stop_loss_pct": stop_loss_pct,
+                             "max_hold_hours": max_hold_hours})
+    event = _simulate_decision({k: v for k, v in decision.items() if k != "max_premium_dollars"}, {"id": 0}, conn, config)
+    event.pop("evidence_snapshot_id", None)
+    return event
 
 
 def todays_decision_funnel(*, now: datetime) -> dict[str, Any]:

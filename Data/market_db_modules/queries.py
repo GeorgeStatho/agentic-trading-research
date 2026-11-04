@@ -259,8 +259,6 @@ def list_option_trade_executions(
             time_in_force,
             submitted_at,
             recorded_at,
-            fill_price,
-            filled_qty,
             raw_json
         FROM option_trade_executions
     """
