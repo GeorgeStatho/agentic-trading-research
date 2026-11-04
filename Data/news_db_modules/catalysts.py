@@ -121,7 +121,7 @@ def refresh_catalyst(catalyst_id, *, conn):
     return state
 
 
-def attach_candidate_catalysts(candidate_id, symbol, evidence, *, cutoff, conn):
+def attach_candidate_catalysts(candidate_id, symbol, evidence, *, cutoff, conn, event_catalyst_id=None):
     from .provenance import update_article_provenance
     from catalyst_schema import stamp_candidate_catalyst
     ids = set()
@@ -147,12 +147,21 @@ def attach_candidate_catalysts(candidate_id, symbol, evidence, *, cutoff, conn):
             stored = json.loads(conn.execute('SELECT state_json FROM catalysts WHERE catalyst_id=?', (catalyst,)).fetchone()[0])
             state.update(sector=stored.get('sector'), industry=stored.get('industry'))
             states.append(state)
-    if not states:
+    event = None
+    if event_catalyst_id:
+        event = json.loads(conn.execute('SELECT state_json FROM catalysts WHERE catalyst_id=?',
+                                        (event_catalyst_id,)).fetchone()[0])
+        event.update(candidate_ticker=symbol, relation='direct' if event.get('ticker') == symbol else 'readthrough')
+        states = [state for state in states if state['catalyst_id'] != event_catalyst_id]
+    if not states and not event:
         unknown = build_catalyst_state('catalyst:unknown:'+candidate_id, [], ticker=symbol)
         store_catalyst_state(unknown, conn=conn)
         states = [unknown]
     # Preserve company-level execution: select one explicit primary catalyst and retain all associations.
     states.sort(key=lambda row: (-(row['evidence_score'] or 0), row['catalyst_id']))
+    if event:
+        # A discovery-routed candidate exists because of this event, so it is the primary catalyst.
+        states.insert(0, event)
     for index, state in enumerate(states):
         conn.execute('INSERT INTO candidate_catalysts VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING',
                      (candidate_id, state['catalyst_id'], state['catalyst_family'], index == 0, json_text(state)))

@@ -32,12 +32,12 @@ def observe(function, *args, **kwargs):
         return None
 
 
-def begin_candidate(symbol, *, version=None, observation_id=None):
+def begin_candidate(symbol, *, version=None, observation_id=None, catalyst_id=None):
     version = version or build_pipeline_version()
     # The forward cohort must exist before the candidate, so the cohort is frozen prospectively.
     from services.evaluation.forward_cohorts import ensure_production_cohort
     observe(ensure_production_cohort, version)
-    context = record_candidate(symbol, version, observation_id=observation_id)
+    context = record_candidate(symbol, version, observation_id=observation_id, catalyst_id=catalyst_id)
     record_candidate_snapshot(context, 'candidate_created', context,
                               cutoff=context.get('observation_cutoff') or context['created_at'])
     from services.gates.catalyst_gates import record_catalyst_gates

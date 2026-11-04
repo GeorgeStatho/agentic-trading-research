@@ -164,9 +164,9 @@ def _filter_company_symbols_by_high_confidence_support(
     version = observe(build_pipeline_version)
     contexts = candidate_context_by_symbol if candidate_context_by_symbol is not None else {}
     for symbol in normalized_symbols:
-        context = observe(begin_candidate, symbol, version=version)
-        contexts[symbol] = context
         route = (discovery_context_by_symbol or {}).get(symbol)
+        context = observe(begin_candidate, symbol, version=version, catalyst_id=(route or {}).get("catalyst_id"))
+        contexts[symbol] = context
         if route:
             # Discovery admitted this event on primary evidence; opportunist article counts do not apply.
             checkpoint(context, "SUPPORT", {"route": "discovery", "allowed": True, "admission": route["admission"],

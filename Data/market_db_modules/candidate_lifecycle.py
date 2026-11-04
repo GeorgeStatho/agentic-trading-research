@@ -23,7 +23,7 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def record_candidate(symbol, version, *, evidence=None, observation_id=None, db_path=None):
+def record_candidate(symbol, version, *, evidence=None, observation_id=None, catalyst_id=None, db_path=None):
     initialize_database(db_path=db_path)
     candidate_id, created_at = str(uuid4()), now_iso()
     observation = None
@@ -59,7 +59,8 @@ def record_candidate(symbol, version, *, evidence=None, observation_id=None, db_
             conn.execute('UPDATE candidates SET catalyst_ids_json=? WHERE candidate_id=?',
                          (json_text([state['catalyst_id'] for state in states]), candidate_id))
         else:
-            states = attach_candidate_catalysts(candidate_id, symbol, evidence, cutoff=created_at, conn=conn)
+            states = attach_candidate_catalysts(candidate_id, symbol, evidence, cutoff=created_at, conn=conn,
+                                                event_catalyst_id=catalyst_id)
         catalyst_ids = [state['catalyst_id'] for state in states]
         if observation:
             bind_candidate_observation(conn, candidate_id, observation_id)

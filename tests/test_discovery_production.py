@@ -1,6 +1,7 @@
 """DISCOVERY_MODE=enforce lets admitted discovery entries reach the production strategist and manager."""
 from contextlib import closing
 from dataclasses import replace
+import json
 import logging
 import os
 import unittest
@@ -94,6 +95,17 @@ class ProductionRoutingTests(EnforceFixture):
         support = stage_payloads(failure['candidate_id'], ['SUPPORT'], db_path=self.db)['SUPPORT']
         self.assertEqual((support['route'], support['discovery_origins'], support['allowed']),
                          ('discovery', ['direct_event'], True))
+
+    def test_the_routed_candidate_carries_the_discovery_event_catalyst_as_primary(self):
+        failure, = self.run_stack('enforce')['failed_companies']
+        with closing(get_connection(self.db)) as conn:
+            event_catalyst, = conn.execute("SELECT catalyst_id FROM discovery_queue WHERE purpose='entry'").fetchone()
+            primary, = conn.execute('SELECT catalyst_id FROM candidate_catalysts WHERE candidate_id=? AND is_primary=1',
+                                    (failure['candidate_id'],)).fetchone()
+            listed = json.loads(conn.execute('SELECT catalyst_ids_json FROM candidates WHERE candidate_id=?',
+                                             (failure['candidate_id'],)).fetchone()[0])
+        self.assertEqual(primary, event_catalyst)
+        self.assertEqual(listed, [event_catalyst])
 
     def test_shadow_mode_never_reaches_the_strategist(self):
         result = self.run_stack('shadow')
