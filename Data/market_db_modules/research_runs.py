@@ -361,6 +361,7 @@ def collect_active_runs(*, as_of=None, db_path=None):
         run_ids = [row[0] for row in conn.execute('''SELECT run_id FROM research_runs
             WHERE status='open' OR EXISTS(SELECT 1 FROM research_shadow_positions p
                 WHERE p.run_id=research_runs.run_id AND p.status NOT IN ('complete','cash')) ORDER BY started_at''')]
+        paused = {row[0] for row in conn.execute('SELECT run_id FROM research_run_pauses')}
     at = utc(as_of or datetime.now(timezone.utc)).isoformat()
     results = []
     for run_id in run_ids:
@@ -369,10 +370,19 @@ def collect_active_runs(*, as_of=None, db_path=None):
         except (ValueError, TypeError) as exc:
             logging.getLogger(__name__).warning('Research run %s paused: %s', run_id, exc)
             results.append({'run_id': run_id, 'status': 'paused', 'reason': str(exc)})
-            _record_pause(run_id, at, getattr(exc, 'candidate_id', None), str(exc), db_path)
+            _write_pause(_record_pause, run_id, at, getattr(exc, 'candidate_id', None), str(exc), db_path)
         else:
-            _clear_pause(run_id, db_path)
+            if run_id in paused:
+                _write_pause(_clear_pause, run_id, db_path)
     return results
+
+
+def _write_pause(write, run_id, *args):
+    """Pause bookkeeping is a status view; a failed write must not stop the other runs collecting."""
+    try:
+        write(run_id, *args)
+    except Exception:
+        logging.getLogger(__name__).exception('Could not update the pause status of research run %s', run_id)
 
 
 def _record_pause(run_id, at, candidate_id, reason, db_path):

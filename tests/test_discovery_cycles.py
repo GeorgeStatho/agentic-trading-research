@@ -1,6 +1,7 @@
 """Discovery admission stays in the trading cycle; model-backed research runs in the collector."""
 from contextlib import closing
 from dataclasses import replace
+from datetime import datetime, timedelta
 import unittest
 from unittest.mock import patch
 
@@ -30,7 +31,7 @@ class TradingCycleTests(DiscoveryFixture):
         self.assertEqual([c['symbol'] for c in result['candidates']], ['NVDA'])
         self.assertNotIn('research', result)
 
-    def test_admission_takes_its_own_larger_batch(self):
+    def enqueue_four(self):
         with closing(get_connection(self.db)) as conn, conn:
             for company_id, symbol in ((1, 'NVDA'), (2, 'OTHER')):
                 for index in range(2):
@@ -48,10 +49,25 @@ class TradingCycleTests(DiscoveryFixture):
                                           purpose='entry', origin='direct_event', created_at=ENTRY,
                                           priority_components={'materiality': 10})
                 enqueue_discovery_event(item, event, expires_at=later(86400), db_path=self.db)
+
+    def test_admission_takes_its_own_larger_batch(self):
+        self.enqueue_four()
         policy = replace(self.policy, batch_size=2, direct_slots=1, admission_batch_size=4)
         result = discovery_queue.process_discovery_queue(policy=policy, clock=lambda: ENTRY, db_path=self.db,
                                                          version={'pipeline_version': 'discovery-test-v1'})
         self.assertEqual(len(result['candidates']), 4)
+
+    def test_late_items_in_a_large_admission_batch_keep_a_valid_lease(self):
+        self.enqueue_four()
+        ticks = iter(range(0, 3600, 15))
+
+        def clock():
+            # Each queue step reads the clock; 15 s per read outlasts one 120 s lease over four items.
+            return (datetime.fromisoformat(ENTRY) + timedelta(seconds=next(ticks))).isoformat()
+        policy = replace(self.policy, batch_size=2, direct_slots=1, admission_batch_size=4, lease_seconds=120)
+        result = discovery_queue.process_discovery_queue(policy=policy, clock=clock, db_path=self.db,
+                                                         version={'pipeline_version': 'discovery-test-v1'})
+        self.assertEqual((len(result['candidates']), result['failures']), (4, []))
 
     def test_an_admission_batch_smaller_than_the_research_batch_is_rejected(self):
         with self.assertRaises(ValueError):

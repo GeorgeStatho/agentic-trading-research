@@ -476,6 +476,13 @@ class ApiTests(unittest.TestCase):
             tables = conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
         self.assertEqual((payload['available'], tables), (False, 0))
 
+    def test_a_database_from_before_the_pause_table_is_reported_unavailable(self):
+        from api_support.forward_evaluation import build_forward_evaluation_payload
+        db = database(self)
+        with closing(get_connection(db)) as conn, conn:
+            conn.execute('DROP TABLE research_run_pauses')
+        self.assertFalse(build_forward_evaluation_payload(db_path=db)['available'])
+
 
 if __name__ == '__main__':
     unittest.main()

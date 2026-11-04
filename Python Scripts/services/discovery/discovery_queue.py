@@ -53,10 +53,8 @@ def process_discovery_queue(*, policy=None, owner=None, clock=utc_now, version=N
     owner = owner or 'discovery-worker:' + uuid4().hex
     if version is None:
         version = build_pipeline_version()
-    items = claim_discovery_batch(owner, at=clock(), policy=replace(policy, batch_size=policy.admission_batch_size),
-                                  db_path=db_path)
     results, failures = [], []
-    for item in items:
+    for item in _claim_in_chunks(owner, policy=policy, clock=clock, db_path=db_path):
         try:
             payload = build_discovery_research_input(item, db_path=db_path)
             admission = evaluate_discovery_admission(item['event'], payload['company_evidence'], at=clock(), policy=policy)
@@ -74,6 +72,19 @@ def process_discovery_queue(*, policy=None, owner=None, clock=utc_now, version=N
                 # A superseding revision or reclaimed lease belongs to the next worker.
                 pass
     return {'status': 'shadow', 'candidates': results, 'failures': failures}
+
+
+def _claim_in_chunks(owner, *, policy, clock, db_path):
+    """Claims research-batch-sized chunks, so each item's lease starts close to when it is worked on."""
+    claimed = 0
+    while claimed < policy.admission_batch_size:
+        size = min(policy.batch_size, policy.admission_batch_size - claimed)
+        items = claim_discovery_batch(owner, at=clock(), policy=replace(policy, batch_size=size,
+                                      direct_slots=min(policy.direct_slots, size - 1)), db_path=db_path)
+        if not items:
+            return
+        claimed += len(items)
+        yield from items
 
 
 def run_discovery_shadow_cycle(*, sector_symbols=(), policy=None, clock=utc_now, db_path=None):

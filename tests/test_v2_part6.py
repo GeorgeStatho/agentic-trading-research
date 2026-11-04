@@ -286,6 +286,29 @@ class ResearchDatabaseTests(unittest.TestCase):
         collect_active_runs(as_of=END, db_path=self.db)
         self.assertEqual(forward_status(db_path=self.db)['paused_runs'], [])
 
+    def test_a_failing_pause_write_does_not_stop_the_other_runs(self):
+        import sqlite3
+        first, second = self.run_fixture(), self.run_fixture(2)
+        collected = []
+
+        def collect(run_id, **kwargs):
+            if run_id == first:
+                raise ValueError('Candidate candidate-000: bad input')
+            collected.append(run_id)
+            return {'run_id': run_id}
+        with patch('market_db_modules.research_runs.collect_run', side_effect=collect), \
+                patch('market_db_modules.research_runs._record_pause',
+                      side_effect=sqlite3.OperationalError('database is locked')):
+            results = collect_active_runs(as_of=END, db_path=self.db)
+        self.assertEqual((collected, len(results)), ([second], 2))
+
+    def test_a_run_that_was_never_paused_writes_no_clearing(self):
+        self.run_fixture()
+        with patch('market_db_modules.research_runs.collect_run', return_value={}), \
+                patch('market_db_modules.research_runs._clear_pause') as clear:
+            collect_active_runs(as_of=END, db_path=self.db)
+        clear.assert_not_called()
+
     def test_gate_and_champion_promotion_require_real_persisted_evidence(self):
         run_id = self.run_fixture(100)
         for n in range(100):
