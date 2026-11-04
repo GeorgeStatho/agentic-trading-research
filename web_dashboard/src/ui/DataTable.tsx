@@ -15,6 +15,8 @@ type DataTableProps<Row> = {
   /** Extra classes per row, e.g. `opacity-60` for canceled orders. */
   rowClassName?: (row: Row) => string
   emptyMessage?: ReactNode
+  /** The table's accessible name, when a page has more than one. */
+  label?: string
 }
 
 function alignClass(align: Column<unknown>['align']): string {
@@ -22,10 +24,10 @@ function alignClass(align: Column<unknown>['align']): string {
 }
 
 /** A compact table that scrolls sideways inside its own box on narrow screens. */
-export function DataTable<Row>({ columns, rows, rowKey, rowClassName, emptyMessage = 'Nothing to show' }: DataTableProps<Row>) {
+export function DataTable<Row>({ columns, rows, rowKey, rowClassName, emptyMessage = 'Nothing to show', label }: DataTableProps<Row>) {
   return (
     <div className="overflow-x-auto">
-      <table className="table table-xs">
+      <table className="table table-xs" aria-label={label}>
         <thead>
           <tr className="bg-head">
             {columns.map((column) => (
