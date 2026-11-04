@@ -1,11 +1,19 @@
 import { useMemo, useState } from 'react'
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import type { ReactNode } from 'react'
+import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { formatDate, formatSignedCurrency, formatSignedPercent, formatToken } from './format'
 import PageHeader from './pageHeader'
+import { chartTheme } from './ui/chartTheme'
+import { AXIS_LINE, AXIS_TICK, TOOLTIP_STYLE } from './ui/charts/axis'
+import type { Column } from './ui/DataTable'
+import { DataTable } from './ui/DataTable'
+import { Panel } from './ui/Panel'
+import { Select } from './ui/Select'
+import { StatStrip } from './ui/StatStrip'
+import type { Stat } from './ui/StatStrip'
+import { TickerChip } from './ui/TickerChip'
 import { useFetchedResource } from './useRemoteResource'
-import './decisionExpectancy.css'
-import './followerAccounts.css'
 
 /**
  * Follower accounts against production on the same entries.
@@ -57,33 +65,30 @@ type Payload = {
   trades: Trade[]
 }
 
-type Measure = 'dollars' | 'return'
+type Account = [name: string, summary: AccountSummary]
 
-// Dark steps of the validated categorical palette, keyed by strategy so a line keeps its
-// colour when the window changes which accounts are present. Production is the neutral baseline.
+// Keyed by strategy so an account keeps its colour when the window changes which accounts are present.
 const STRATEGY_COLORS: Record<string, string> = {
-  debit_spread: '#3987e5',
-  itm_single: '#d95926',
-  longer_dte: '#199e70',
-  shares: '#c98500',
+  itm_single: chartTheme.info,
+  longer_dte: chartTheme.accent,
+  debit_spread: '#a371f7',
+  shares: chartTheme.gain,
 }
-const SPARE_COLORS = ['#d55181', '#008300', '#9085e9', '#e66767']
-const PRODUCTION_COLOR = '#c3c2b7'
+const SPARE_COLORS = ['#d55181', '#9085e9', '#e66767']
 
-function seriesColors(accounts: string[], payload: Payload): Record<string, string> {
+function seriesColors(accounts: readonly Account[]): Record<string, string> {
   const colors: Record<string, string> = {}
   const used = new Set<string>()
   const spare = [...SPARE_COLORS]
-  for (const account of [...accounts].sort()) {
-    const summary = payload.accounts[account]
-    if (summary?.role === 'primary') {
-      colors[account] = PRODUCTION_COLOR
+  for (const [name, summary] of accounts) {
+    if (summary.role === 'primary') {
+      colors[name] = chartTheme.ink
       continue
     }
-    const preferred = STRATEGY_COLORS[summary?.strategy ?? '']
-    const color = preferred && !used.has(preferred) ? preferred : spare.shift() ?? PRODUCTION_COLOR
+    const preferred = STRATEGY_COLORS[summary.strategy]
+    const color = preferred && !used.has(preferred) ? preferred : spare.shift() ?? chartTheme.neutral
     used.add(color)
-    colors[account] = color
+    colors[name] = color
   }
   return colors
 }
@@ -96,21 +101,24 @@ function formatReturn(value: number | null | undefined): string {
   return formatSignedPercent(value ?? null, { placeholder: EMPTY, digits: 1 })
 }
 
+function formatPoints(value: number): string {
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)} pts`
+}
+
 /** Average trade return minus production's on the same entries, in percentage points. */
 function differenceFromProduction(entry: AccountSummary): number | null {
   const production = entry.production_avg_pnl_pct ?? null
   return entry.avg_pnl_pct === null || production === null ? null : entry.avg_pnl_pct - production
 }
 
-function SkippedCell({ skipped }: { skipped: Record<string, number> | undefined }) {
-  const reasons = Object.entries(skipped ?? {})
-  if (!reasons.length) return <>0</>
-  return <>{reasons.map(([reason, count]) => <small key={reason}>{count} · {formatToken(reason)}</small>)}</>
+function returnTone(entry: AccountSummary | undefined): Stat['tone'] {
+  if (!entry || entry.closed < SAMPLE_GUARDRAIL || entry.avg_pnl_pct === null) return 'muted'
+  return entry.avg_pnl_pct < 0 ? 'loss' : 'gain'
 }
 
 function pnlClass(value: number | null | undefined): string {
-  if (value === null || value === undefined) return ''
-  return value < 0 ? 'decision-expectancy__negative' : 'decision-expectancy__positive'
+  if (value === null || value === undefined || value === 0) return ''
+  return value < 0 ? 'text-loss' : 'text-gain'
 }
 
 async function getFollowerAccounts(days: number): Promise<Payload> {
@@ -120,162 +128,176 @@ async function getFollowerAccounts(days: number): Promise<Payload> {
   return body as Payload
 }
 
-type ChartPoint = { at: number } & Record<string, number | null>
-
-/** One point per closed trade; every account carries its running total forward. */
-function cumulativeSeries(trades: Trade[], accounts: string[], measure: Measure): ChartPoint[] {
-  const pnl: Record<string, number> = {}
-  const capital: Record<string, number> = {}
-  return trades.map((trade) => {
-    pnl[trade.account] = (pnl[trade.account] ?? 0) + trade.pnl
-    capital[trade.account] = (capital[trade.account] ?? 0) + trade.capital
-    const point: ChartPoint = { at: new Date(trade.closed_at).getTime() }
-    for (const account of accounts) {
-      if (measure === 'dollars') point[account] = pnl[account] ?? 0
-      else point[account] = capital[account] ? (100 * pnl[account]) / capital[account] : null
-    }
-    return point
-  })
+/** Production first, then followers by name. */
+function orderedAccounts(payload: Payload): Account[] {
+  return Object.entries(payload.accounts).sort(([leftName, left], [rightName, right]) =>
+    Number(right.role === 'primary') - Number(left.role === 'primary') || leftName.localeCompare(rightName))
 }
 
-function CumulativeChart({ payload }: { payload: Payload }) {
-  const [measure, setMeasure] = useState<Measure>('return')
-  const accounts = useMemo(() => [...new Set(payload.trades.map((trade) => trade.account))], [payload])
-  const colors = useMemo(() => seriesColors(accounts, payload), [accounts, payload])
-  const data = useMemo(() => cumulativeSeries(payload.trades, accounts, measure), [payload, accounts, measure])
-  const format = measure === 'dollars' ? formatMoney : formatReturn
+// ---- Charts -----------------------------------------------------------------
 
-  return <section className="decision-expectancy__table-card follower-accounts__chart-card">
-    <header>
-      <div>
-        <p>Cumulative results</p>
-        <h2>{measure === 'dollars' ? 'Realized P&L by close date' : 'Return on capital deployed, by close date'}</h2>
-      </div>
-      <div className="follower-accounts__toggle" role="group" aria-label="Chart measure">
-        <button type="button" aria-pressed={measure === 'return'} onClick={() => setMeasure('return')}>Return on capital</button>
-        <button type="button" aria-pressed={measure === 'dollars'} onClick={() => setMeasure('dollars')}>Dollars</button>
-      </div>
-    </header>
-    {data.length ? <div className="follower-accounts__chart">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 16, right: 24, bottom: 4, left: 4 }}>
-          <CartesianGrid stroke="#2d3449" strokeDasharray="4 5" vertical={false} />
-          <XAxis dataKey="at" type="number" scale="time" domain={['dataMin', 'dataMax']}
-            tickFormatter={(value: number) => formatDate(new Date(value).toISOString())}
-            tick={{ fill: '#9ca3af', fontSize: 12 }} axisLine={{ stroke: '#3d4658' }} tickLine={false} />
-          <YAxis width="auto" tickFormatter={(value: number) => format(value)}
-            tick={{ fill: '#9ca3af', fontSize: 12 }} axisLine={false} tickLine={false} />
-          <Tooltip
-            labelFormatter={(value) => formatDate(new Date(Number(value)).toISOString())}
-            formatter={(value) => format(typeof value === 'number' ? value : null)}
-            cursor={{ stroke: '#5b6478', strokeWidth: 1 }}
-            contentStyle={{ background: '#202838', border: '1px solid #3d4658', borderRadius: 10 }}
-            labelStyle={{ color: '#f3f4f6' }} itemStyle={{ color: '#c4ccda' }} />
-          <Legend wrapperStyle={{ color: '#c4ccda', fontSize: 12 }} />
-          {accounts.map((account) => {
-            const production = payload.accounts[account]?.role === 'primary'
-            return <Line key={account} type="stepAfter" dataKey={account} name={production ? 'production (same entries)' : account}
-              stroke={colors[account]} strokeWidth={2} strokeDasharray={production ? '6 4' : undefined}
-              dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: '#171f33' }} connectNulls isAnimationActive={false} />
-          })}
-        </LineChart>
-      </ResponsiveContainer>
-    </div> : <p className="decision-expectancy__empty follower-accounts__inset">No follower trade has closed in this window yet.</p>}
-  </section>
+type EntryGroup = { label: string; returns: Record<string, number> }
+
+/** One group per production entry, in the order they closed. */
+function entryGroups(trades: readonly Trade[]): EntryGroup[] {
+  const groups = new Map<string, EntryGroup>()
+  for (const trade of trades) {
+    const group = groups.get(trade.source_order_id) ?? { label: `${trade.underlying ?? '?'} ${trade.decision ?? ''}`.trim(), returns: {} }
+    group.returns[trade.account] = trade.pnl_pct
+    groups.set(trade.source_order_id, group)
+  }
+  return [...groups.values()]
 }
 
-function StatsTable({ payload }: { payload: Payload }) {
-  const rows = Object.entries(payload.accounts).sort(([, left], [, right]) =>
-    Number(right.role === 'primary') - Number(left.role === 'primary'))
-  return <section className="decision-expectancy__table-card">
-    <header><div><p>Per account</p><h2>Each follower against production on the same entries</h2></div>
-      <span>Accounts with fewer than {SAMPLE_GUARDRAIL} closed trades are muted</span></header>
-    <div className="decision-expectancy__table-wrap"><table><thead><tr>
-      <th>Account</th><th>Closed</th><th>Active</th><th>Failed</th><th>Skipped</th><th>Win rate</th><th>P&amp;L</th>
-      <th>P&amp;L / capital</th><th>Avg trade</th><th>Production avg</th><th>Difference</th>
-    </tr></thead><tbody>{rows.map(([name, entry]) => {
-      const production = entry.role === 'primary'
-      const difference = differenceFromProduction(entry)
-      return <tr key={name} className={entry.closed < SAMPLE_GUARDRAIL ? 'decision-expectancy__muted' : ''}>
-        <td><strong>{name}</strong><small>{formatToken(entry.strategy)} · {production ? 'primary' : 'follower'}</small></td>
-        <td>{entry.closed}</td>
-        <td>{production ? EMPTY : entry.active}</td>
-        <td>{production ? EMPTY : entry.failed}</td>
-        <td>{production ? EMPTY : <SkippedCell skipped={entry.skipped} />}</td>
-        <td>{!production && entry.closed ? `${Math.round((100 * (entry.wins ?? 0)) / entry.closed)}%` : EMPTY}</td>
-        <td className={pnlClass(entry.pnl)}>{production ? EMPTY : formatMoney(entry.pnl)}</td>
-        <td className={pnlClass(entry.pnl)}>{!production && entry.capital ? formatReturn((100 * (entry.pnl ?? 0)) / entry.capital) : EMPTY}</td>
-        <td className={pnlClass(entry.avg_pnl_pct)}>{formatReturn(entry.avg_pnl_pct)}</td>
-        <td>{production ? EMPTY : formatReturn(entry.production_avg_pnl_pct)}</td>
-        <td className={pnlClass(difference)}>{formatReturn(difference)}</td>
-      </tr>
-    })}</tbody></table></div>
-  </section>
+function ReturnByVehicle({ trades, accounts, colors }: { trades: readonly Trade[]; accounts: readonly Account[]; colors: Record<string, string> }) {
+  const groups = entryGroups(trades)
+  const names = accounts.map(([name]) => name)
+  const label = groups.map((group) => `${group.label}: ${names.filter((name) => name in group.returns).map((name) => `${name} ${formatReturn(group.returns[name])}`).join(', ')}`).join('; ')
+  const data = groups.map((group) => ({ entry: group.label, ...group.returns }))
+  return <div role="img" aria-label={`Return by vehicle, same entry: ${label}`} className="h-56">
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barCategoryGap="20%">
+        <CartesianGrid stroke={chartTheme.grid} vertical={false} />
+        <XAxis dataKey="entry" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} />
+        <YAxis width="auto" tick={AXIS_TICK} axisLine={false} tickLine={false} tickFormatter={(value: number) => `${value}%`} />
+        <ReferenceLine y={0} stroke={chartTheme.axis} />
+        <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: chartTheme.grid }} formatter={(value) => formatReturn(Number(value))} />
+        {names.map((name) => <Bar key={name} dataKey={name} fill={colors[name]} isAnimationActive={false} />)}
+      </BarChart>
+    </ResponsiveContainer>
+  </div>
 }
 
-function RecentTrades({ trades }: { trades: Trade[] }) {
-  const recent = trades.filter((trade) => trade.role === 'follower').slice(-RECENT_TRADES).reverse()
-  return <section className="decision-expectancy__table-card">
-    <header><div><p>Recent closed follower trades</p><h2>Each follower trade next to production's result on that entry</h2></div>
-      <span>Latest {RECENT_TRADES}</span></header>
-    {recent.length ? <div className="decision-expectancy__table-wrap"><table><thead><tr>
-      <th>Account</th><th>Entry</th><th>Held</th><th>Exit</th><th>P&amp;L</th><th>Return</th><th>Production</th>
-    </tr></thead><tbody>{recent.map((trade) => <tr key={`${trade.account}-${trade.source_order_id}`}>
-      <td><strong>{trade.account}</strong><small>{formatToken(trade.strategy)}</small></td>
-      <td>{trade.underlying ?? EMPTY}<small>{trade.decision ?? EMPTY}</small></td>
-      <td>{formatDate(trade.opened_at ?? '', { placeholder: EMPTY })}<small>to {formatDate(trade.closed_at, { placeholder: EMPTY })}</small></td>
-      <td>{formatToken(trade.exit_reason, { placeholder: EMPTY })}</td>
-      <td className={pnlClass(trade.pnl)}>{formatMoney(trade.pnl)}</td>
-      <td className={pnlClass(trade.pnl_pct)}>{formatReturn(trade.pnl_pct)}</td>
-      <td className={pnlClass(trade.production_pnl_pct)}>{formatReturn(trade.production_pnl_pct)}</td>
-    </tr>)}</tbody></table></div> : <p className="decision-expectancy__empty follower-accounts__inset">No follower trade has closed in this window yet.</p>}
-  </section>
+function DifferenceBars({ followers }: { followers: readonly Account[] }) {
+  const rows = followers
+    .map(([name, entry]) => ({ name, entry, difference: differenceFromProduction(entry) }))
+    .filter((row): row is { name: string; entry: AccountSummary; difference: number } => row.difference !== null)
+    .sort((left, right) => right.difference - left.difference)
+  const scale = Math.max(1, ...rows.map((row) => Math.abs(row.difference)))
+  return <div role="img" aria-label={`Difference vs. production: ${rows.map((row) => `${row.name} ${formatPoints(row.difference)} (n=${row.entry.closed})`).join(', ')}`} className="flex flex-col gap-2">
+    {rows.map((row) => <div key={row.name} className={`grid grid-cols-[minmax(6rem,10rem)_1fr_4.5rem] items-center gap-2 text-[11px] ${row.entry.closed < SAMPLE_GUARDRAIL ? 'opacity-60' : ''}`}>
+      <span className="truncate text-ink-2">{row.name} <span className="text-dim">· {formatToken(row.entry.strategy)} · n={row.entry.closed}</span></span>
+      <span className="relative h-3">
+        <span className="absolute inset-y-0 left-1/2 w-px bg-base-300" />
+        <span className={`absolute inset-y-0 rounded-sm ${row.difference < 0 ? 'right-1/2 bg-loss' : 'left-1/2 bg-gain'}`} style={{ width: `${(Math.abs(row.difference) / scale) * 50}%` }} />
+      </span>
+      <span className={`text-right ${pnlClass(row.difference)}`}>{formatPoints(row.difference)}</span>
+    </div>)}
+  </div>
+}
+
+// ---- Tables -----------------------------------------------------------------
+
+function skippedText(skipped: Record<string, number> | undefined): string {
+  const reasons = Object.entries(skipped ?? {})
+  return reasons.length ? reasons.map(([reason, count]) => `${count} · ${formatToken(reason)}`).join(', ') : '0'
+}
+
+function followerOnly(render: (entry: AccountSummary) => ReactNode) {
+  return ([, entry]: Account) => (entry.role === 'primary' ? EMPTY : render(entry))
+}
+
+const ACCOUNT_COLUMNS: Column<Account>[] = [
+  { key: 'account', header: 'Account', render: ([name, entry]) => <><span className="font-medium">{name}</span><span className="block text-[11px] text-dim">{formatToken(entry.strategy)} · {entry.role === 'primary' ? 'primary' : 'follower'}</span></> },
+  { key: 'closed', header: 'Closed', align: 'right', render: ([, entry]) => entry.closed },
+  { key: 'active', header: 'Active', align: 'right', render: followerOnly((entry) => entry.active) },
+  { key: 'failed', header: 'Failed', align: 'right', render: followerOnly((entry) => entry.failed) },
+  { key: 'skipped', header: 'Skipped', render: followerOnly((entry) => skippedText(entry.skipped)) },
+  { key: 'win', header: 'Win rate', align: 'right', render: followerOnly((entry) => (entry.closed ? `${Math.round((100 * (entry.wins ?? 0)) / entry.closed)}%` : EMPTY)) },
+  { key: 'pnl', header: 'P/L', align: 'right', render: followerOnly((entry) => <span className={pnlClass(entry.pnl)}>{formatMoney(entry.pnl)}</span>) },
+  { key: 'pnl-capital', header: 'P/L / capital', align: 'right', render: followerOnly((entry) => (entry.capital ? <span className={pnlClass(entry.pnl)}>{formatReturn((100 * (entry.pnl ?? 0)) / entry.capital)}</span> : EMPTY)) },
+  { key: 'avg', header: 'Avg trade', align: 'right', render: ([, entry]) => <span className={pnlClass(entry.avg_pnl_pct)}>{formatReturn(entry.avg_pnl_pct)}</span> },
+  { key: 'production', header: 'Production avg', align: 'right', render: followerOnly((entry) => formatReturn(entry.production_avg_pnl_pct)) },
+  { key: 'difference', header: 'Difference', align: 'right', render: ([, entry]) => {
+    const difference = differenceFromProduction(entry)
+    return <span className={pnlClass(difference)}>{difference === null ? EMPTY : formatPoints(difference)}</span>
+  } },
+]
+
+const TRADE_COLUMNS: Column<Trade>[] = [
+  { key: 'account', header: 'Account', render: (trade) => <><span className="font-medium">{trade.account}</span><span className="block text-[11px] text-dim">{formatToken(trade.strategy)}</span></> },
+  { key: 'entry', header: 'Entry', render: (trade) => <>{trade.underlying ? <TickerChip symbol={trade.underlying} /> : EMPTY}<span className="block text-[11px] text-dim">{trade.decision ?? EMPTY}</span></> },
+  { key: 'held', header: 'Held', render: (trade) => <span className="whitespace-nowrap">{formatDate(trade.opened_at ?? '', { placeholder: EMPTY })} → {formatDate(trade.closed_at, { placeholder: EMPTY })}</span> },
+  { key: 'exit', header: 'Exit', render: (trade) => formatToken(trade.exit_reason, { placeholder: EMPTY }) },
+  { key: 'pnl', header: 'P/L', align: 'right', render: (trade) => <span className={pnlClass(trade.pnl)}>{formatMoney(trade.pnl)}</span> },
+  { key: 'return', header: 'Return', align: 'right', render: (trade) => <span className={pnlClass(trade.pnl_pct)}>{formatReturn(trade.pnl_pct)}</span> },
+  { key: 'production', header: 'Production', align: 'right', render: (trade) => <span className={pnlClass(trade.production_pnl_pct)}>{formatReturn(trade.production_pnl_pct)}</span> },
+]
+
+// ---- Page -------------------------------------------------------------------
+
+const WINDOW_OPTIONS = [
+  { value: '0', label: 'All history' },
+  { value: '30', label: '30 days' },
+  { value: '90', label: '90 days' },
+  { value: '180', label: '180 days' },
+  { value: '365', label: '365 days' },
+]
+
+function FollowerView({ payload }: { payload: Payload }) {
+  const accounts = orderedAccounts(payload)
+  const followers = accounts.filter(([, entry]) => entry.role === 'follower')
+  const colors = seriesColors(accounts)
+  const production = payload.accounts.production
+  const closedFollowerTrades = followers.reduce((total, [, entry]) => total + entry.closed, 0)
+  const productionEntries = payload.trades.filter((trade) => trade.role === 'primary').length
+  const skipped = followers.flatMap(([, entry]) => Object.entries(entry.skipped ?? {}))
+  const failed = followers.reduce((total, [, entry]) => total + (entry.failed ?? 0), 0)
+  const best = followers
+    .filter(([, entry]) => entry.closed >= SAMPLE_GUARDRAIL)
+    .map(([name, entry]) => ({ name, difference: differenceFromProduction(entry) }))
+    .filter((candidate): candidate is { name: string; difference: number } => candidate.difference !== null)
+    .sort((left, right) => right.difference - left.difference)[0]
+  const recent = payload.trades.filter((trade) => trade.role === 'follower').slice(-RECENT_TRADES).reverse()
+
+  return <>
+    <StatStrip items={[
+      { label: 'Follower accounts', value: followers.length, sub: followers.map(([name]) => name).join(' · ') },
+      { label: 'Closed follower trades', value: closedFollowerTrades, sub: `across ${productionEntries} production entries` },
+      { label: 'Production, mirrored entries', value: formatReturn(production?.avg_pnl_pct), sub: `avg of ${production?.closed ?? 0} closed trades`, tone: returnTone(production) },
+      { label: 'Best vs. production', value: best ? formatPoints(best.difference) : EMPTY, sub: best ? `${best.name}, avg trade on the same entries` : `needs ${SAMPLE_GUARDRAIL} closed trades in one account`, tone: best ? undefined : 'muted' },
+      { label: 'Skipped / failed', value: `${skipped.reduce((total, [, count]) => total + count, 0)} / ${failed}`, sub: skipped.map(([reason]) => formatToken(reason).toLowerCase()).join(', ') || undefined },
+    ]} />
+    <div className="flex flex-wrap gap-3">
+      <Panel
+        className="min-w-72 flex-[3_1_28rem]"
+        title="Return by vehicle, same entry"
+        actions={<div className="flex flex-wrap gap-x-3 gap-y-1">{accounts.map(([name]) => <span key={name} className="flex items-center gap-1.5 text-[11px] text-dim"><i className="size-2.5 rounded-sm" style={{ background: colors[name] }} />{name}</span>)}</div>}
+      >
+        {payload.trades.length ? <ReturnByVehicle trades={payload.trades} accounts={accounts} colors={colors} /> : <p className="text-dim">No follower trade has closed in this window yet.</p>}
+      </Panel>
+      <Panel className="min-w-72 flex-[2_1_20rem]" title="Difference vs. production" meta={followers.every(([, entry]) => entry.closed < SAMPLE_GUARDRAIL) ? `all below ${SAMPLE_GUARDRAIL} closed trades` : undefined}>
+        <DifferenceBars followers={followers} />
+        <p className="mt-2 text-[11px] text-dim">Average trade return minus production's on the same entries, in percentage points.</p>
+      </Panel>
+    </div>
+    <Panel title="Per account" meta={`accounts with fewer than ${SAMPLE_GUARDRAIL} closed trades are muted`} flush>
+      <DataTable label="Per account" columns={ACCOUNT_COLUMNS} rows={accounts} rowKey={([name]) => name} rowClassName={([, entry]) => (entry.closed < SAMPLE_GUARDRAIL ? 'opacity-60' : '')} />
+    </Panel>
+    <Panel title="Recent closed follower trades" meta={`latest ${RECENT_TRADES}`} flush>
+      <DataTable label="Recent closed follower trades" columns={TRADE_COLUMNS} rows={recent} rowKey={(trade) => `${trade.account}-${trade.source_order_id}`} emptyMessage="No follower trade has closed in this window yet." />
+    </Panel>
+    <p className="text-[11px] text-dim">Partial production exits are not mirrored: a follower closes in full when production fully closes. Production's dollars are its realized return on the premium it spent, the same budget each follower received.</p>
+  </>
 }
 
 function FollowerAccountsPage() {
   const [days, setDays] = useState(0)
   const load = useMemo(() => () => getFollowerAccounts(days), [days])
-  const { payload, error, isLoading: loading } = useFetchedResource(load, { errorMessage: 'Failed to load follower accounts.' })
+  const { payload, error, isLoading } = useFetchedResource(load, { errorMessage: 'Failed to load follower accounts.' })
+  const hasFollowers = Object.values(payload?.accounts ?? {}).some((entry) => entry.role === 'follower')
 
-  const followers = useMemo(() => Object.entries(payload?.accounts ?? {}).filter(([, entry]) => entry.role === 'follower'), [payload])
-  const closedFollowerTrades = followers.reduce((total, [, entry]) => total + entry.closed, 0)
-  const productionClosed = (payload?.trades ?? []).filter((trade) => trade.role === 'primary').length
-  const best = useMemo(() => followers
-    .filter(([, entry]) => entry.closed >= SAMPLE_GUARDRAIL)
-    .map(([name, entry]) => ({ name, difference: differenceFromProduction(entry) }))
-    .filter((candidate): candidate is { name: string; difference: number } => candidate.difference !== null)
-    .sort((left, right) => right.difference - left.difference)[0], [followers])
-
-  return <main className="decision-expectancy follower-accounts">
+  return <main className="flex flex-col gap-3">
     <PageHeader
       title="Follower accounts"
       description="Each follower mirrors production's entries with a different vehicle on its own paper account, and exits when production does. Read-only."
       meta={payload ? `As of ${formatDate(payload.as_of, { placeholder: 'Unknown' })}` : null}
+      actions={<Select label="Entries mirrored in" options={WINDOW_OPTIONS} value={String(days)} onChange={(value) => setDays(Number(value))} />}
     />
-
-    <section className="decision-expectancy__controls" aria-label="Follower filters">
-      <label>Entries mirrored in<select value={days} onChange={(event) => setDays(Number(event.target.value))}>
-        <option value={30}>30 days</option><option value={90}>90 days</option><option value={180}>180 days</option><option value={365}>365 days</option><option value={0}>All history</option>
-      </select></label>
-    </section>
-
-    {error ? <section className="decision-expectancy__empty" role="alert">{error}</section> : null}
-    {loading && !payload ? <section className="decision-expectancy__empty">Loading follower accounts…</section> : null}
-    {payload ? followers.length ? <>
-      <section className="decision-expectancy__summary" aria-label="Follower headline">
-        <article><span>Follower accounts</span><b>{followers.length}</b><small>{followers.map(([name]) => name).join(', ')}</small></article>
-        <article><span>Closed follower trades</span><b>{closedFollowerTrades}</b><small>Across {productionClosed} production entries that also closed</small></article>
-        <article><span>Best against production</span><b className={pnlClass(best?.difference)}>{best ? formatReturn(best.difference) : EMPTY}</b>
-          <small>{best ? `${best.name}, average trade vs production on the same entries` : `Needs ${SAMPLE_GUARDRAIL} closed trades in one account`}</small></article>
-        <article><span>Production on mirrored entries</span><b className={pnlClass(payload.accounts.production?.avg_pnl_pct)}>{formatReturn(payload.accounts.production?.avg_pnl_pct)}</b>
-          <small>{payload.accounts.production?.closed ?? 0} closed production trades</small></article>
-      </section>
-      <CumulativeChart payload={payload} />
-      <StatsTable payload={payload} />
-      <RecentTrades trades={payload.trades} />
-      <p className="follower-accounts__footnote">Partial production exits are not mirrored: a follower closes in full when production fully closes.
-        Production's dollars are its realized return on the premium it spent, the same budget each follower received.</p>
-    </> : <section className="decision-expectancy__empty">No follower positions in this window. Configure accounts with <code>TRADING_ACCOUNTS</code> to start mirroring production.</section> : null}
+    {error ? <p role="alert" className="text-xs text-error">{error}</p> : null}
+    {isLoading && !payload ? <p className="text-dim">Loading follower accounts…</p> : null}
+    {payload && hasFollowers ? <FollowerView payload={payload} /> : null}
+    {payload && !hasFollowers ? <p className="text-dim">No follower positions in this window. Configure accounts with <code className="font-mono">TRADING_ACCOUNTS</code> to start mirroring production.</p> : null}
   </main>
 }
 
