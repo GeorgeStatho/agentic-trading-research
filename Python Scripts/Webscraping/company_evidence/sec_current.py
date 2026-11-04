@@ -15,8 +15,14 @@ _ITEM = re.compile(r'Item (\d+\.\d+)')
 
 def parse_current_filings(atom_text):
     """One record per filing; the feed repeats a filing for each subject company, so only filer entries count."""
+    return _parse_page(atom_text)[0]
+
+
+def _parse_page(atom_text):
+    """The page's filings and its raw entry count, which alone tells whether more pages follow."""
     filings, seen = [], set()
-    for entry in ElementTree.fromstring(atom_text).iter(ATOM + 'entry'):
+    entries = list(ElementTree.fromstring(atom_text).iter(ATOM + 'entry'))
+    for entry in entries:
         title = _TITLE.match((entry.findtext(ATOM + 'title') or '').strip())
         accession = _ACCESSION.search(entry.findtext(ATOM + 'id') or '')
         if not title or not accession or title['role'] != 'Filer' or accession[1] in seen:
@@ -27,7 +33,7 @@ def parse_current_filings(atom_text):
         filings.append({'cik': title['cik'], 'form': title['form'], 'accession': accession[1],
                         'filed_at': filed.astimezone(timezone.utc).isoformat(),
                         'items': list(dict.fromkeys(_ITEM.findall(summary)))})
-    return filings
+    return filings, len(entries)
 
 
 class SECCurrentFilings:
@@ -42,8 +48,8 @@ class SECCurrentFilings:
         for form in self.forms:
             for page in range(self.max_pages):
                 url = CURRENT_URL.format(form=form, start=page * PAGE_SIZE, count=PAGE_SIZE)
-                batch = parse_current_filings(self.http.get(url, ttl_seconds=300)['body'])
+                batch, entry_count = _parse_page(self.http.get(url, ttl_seconds=300)['body'])
                 filings.extend(batch)
-                if len(batch) < PAGE_SIZE or (cutoff and datetime.fromisoformat(batch[-1]['filed_at']) <= cutoff):
+                if entry_count < PAGE_SIZE or (cutoff and batch and datetime.fromisoformat(batch[-1]['filed_at']) <= cutoff):
                     break
         return filings

@@ -43,14 +43,18 @@ def _priority(filing, company):
 
 
 def register_market_events(filings, *, issuer_map, policy, at, lifetime_seconds, db_path=None):
-    symbol_by_cik = {cik: symbol for symbol, cik in issuer_map.items()}
+    symbols_by_cik = {}
+    for symbol, cik in issuer_map.items():
+        symbols_by_cik.setdefault(cik, []).append(symbol)
     skipped, eligible, chosen = Counter(), [], {}
     with closing(get_connection(db_path)) as conn, conn:
         active = active_company_ids(conn, at=at)
         companies = {row['symbol'].upper().replace('.', '-'): row for row in
                      conn.execute('SELECT id,symbol,market_weight,raw_json FROM companies')}
         for filing in filings:
-            company = companies.get(symbol_by_cik.get(filing['cik'], ''))
+            # Share classes and preferreds share one CIK; the companies table holds one of them.
+            company = next((companies[symbol] for symbol in symbols_by_cik.get(filing['cik'], [])
+                            if symbol in companies), None)
             if company is None:
                 skipped['unknown_company'] += 1
             elif company['id'] in active:

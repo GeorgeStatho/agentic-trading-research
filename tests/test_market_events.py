@@ -47,6 +47,44 @@ class CurrentFeedParsingTests(unittest.TestCase):
             'filed_at': '2026-09-02T20:05:00+00:00', 'items': ['2.02', '9.01']}])
 
 
+def entry(number, role='Filer'):
+    accession = f'0000000003-26-{number:06d}'
+    return (f'<entry><title>8-K - Liquid Co (0000000003) ({role})</title><summary type="html">Item 8.01</summary>'
+            f'<updated>2026-09-02T16:05:00-04:00</updated>'
+            f'<id>urn:tag:sec.gov,2008:accession-number={accession}</id></entry>')
+
+
+def page(entries):
+    return '<feed xmlns="http://www.w3.org/2005/Atom">' + ''.join(entries) + '</feed>'
+
+
+class PagingFeed:
+    def __init__(self, *pages):
+        self.pages, self.urls = pages, []
+
+    def get(self, url, ttl_seconds):
+        self.urls.append(url)
+        index = len(self.urls) - 1
+        return {'body': self.pages[index] if index < len(self.pages) else page([])}
+
+
+class CurrentFeedPagingTests(unittest.TestCase):
+    def fetch(self, *pages, since=None):
+        from Webscraping.company_evidence.sec_current import SECCurrentFilings
+        http = PagingFeed(*pages)
+        return SECCurrentFilings(http, forms=('8-K',))(since=since), http.urls
+
+    def test_a_full_page_with_repeated_filings_is_not_mistaken_for_the_last_page(self):
+        first = page([entry(n) for n in range(99)] + [entry(0, role='Subject')])
+        filings, urls = self.fetch(first, page([entry(500)]))
+        self.assertEqual((len(filings), len(urls)), (100, 2))
+
+    def test_a_full_page_with_no_filer_entries_is_skipped_without_error(self):
+        filings, urls = self.fetch(page([entry(n, role='Subject') for n in range(100)]), page([entry(500)]),
+                                   since='2026-09-01T00:00:00+00:00')
+        self.assertEqual(([f['accession'] for f in filings], len(urls)), (['0000000003-26-000500'], 2))
+
+
 class MarketEventInterestTests(unittest.TestCase):
     def setUp(self):
         self.db = database(self)
@@ -78,6 +116,10 @@ class MarketEventInterestTests(unittest.TestCase):
         result = self.register([filing('0000000003', '0000000003-26-000001')])
         self.assertEqual(self.interest(), {'LIQ': '0000000003-26-000001'})
         self.assertEqual(result['registered'], ['LIQ'])
+
+    def test_a_cik_with_several_tickers_matches_the_one_in_the_companies_table(self):
+        self.issuers = {'LIQ': '0000000003', 'LIQ-P': '0000000003'}
+        self.assertEqual(self.register([filing('0000000003', '0000000003-26-000001')])['registered'], ['LIQ'])
 
     def test_illiquid_unmapped_and_already_interesting_filers_are_skipped_with_reasons(self):
         result = self.register([filing('0000000005', 'a-1'), filing('0000000006', 'a-2'), filing('0000000007', 'a-3'),
