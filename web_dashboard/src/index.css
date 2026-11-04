@@ -80,8 +80,7 @@
      components that still use their own `.css` file. Drop a root from this
      list when its component is converted; delete the block with the legacy
      variables below. Component CSS and utilities both override these. */
-  :where(.backtest-page,
-         .decision-expectancy,
+  :where(.decision-expectancy,
          .risk-controls-panel,
          .v2-safeguards, .v2-status) {
     & h1 { margin-bottom: 0.67em; font-size: 2em; font-weight: bold; }
