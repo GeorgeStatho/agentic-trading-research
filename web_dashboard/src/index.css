@@ -83,7 +83,7 @@
   :where(.autopsy-page, .backtest-page, .company-decisions, .company-news-page,
          .decision-expectancy, .exposure-map, .graph-panel, .order-card-list,
          .positions-panel, .risk-controls-panel,
-         .v2-safeguards, .v2-status, .why-bot-panel) {
+         .v2-safeguards, .v2-status) {
     & h1 { margin-bottom: 0.67em; font-size: 2em; font-weight: bold; }
     & h2 { margin-bottom: 0.83em; font-size: 1.5em; font-weight: bold; }
     & h3 { margin-bottom: 1em; font-size: 1.17em; font-weight: bold; }

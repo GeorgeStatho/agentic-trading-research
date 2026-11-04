@@ -12,8 +12,8 @@ function DashboardHome() {
     <main className="flex flex-col gap-3">
       <PageHeader title="Operations" description="What the bot holds and is doing right now. Paper trading through Alpaca." />
       <DashboardKpis />
-      <OpenPositionsTable />
       <WhyBotTradedPanel />
+      <OpenPositionsTable />
       <Graph />
       <OrderCardList />
       <V2SafeguardsPanel />

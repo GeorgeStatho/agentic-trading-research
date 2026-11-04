@@ -1,4 +1,5 @@
 import { fetchPolledJson } from './api';
+import { asUtcTimestamp } from './format';
 
 /**
  * What the shell's status line reads: the per-component bot heartbeat from
@@ -79,14 +80,6 @@ export function errorSummary(components: readonly BotComponent[]): string {
   return count === 1 ? '1 error' : `${count} errors`;
 }
 
-/**
- * `/api/script-status` writes UTC without a zone ("2026-11-04T07:15:53"),
- * which `Date` would read as the viewer's local time.
- */
-export function serverTimeAsUtc(value: string): string {
-  return /(Z|[+-]\d\d:?\d\d)$/.test(value) ? value : `${value}Z`;
-}
-
 /** True when the worker status could not be read, or its last report is too old. */
 export function heartbeatMissing(script: ScriptStatus | null, readFailed: boolean, now: number): boolean {
   if (readFailed) {
@@ -95,6 +88,6 @@ export function heartbeatMissing(script: ScriptStatus | null, readFailed: boolea
   if (!script) {
     return false;
   }
-  const reportedAt = new Date(serverTimeAsUtc(script.updated_at)).getTime();
+  const reportedAt = new Date(asUtcTimestamp(script.updated_at)).getTime();
   return Number.isNaN(reportedAt) || now - reportedAt > HEARTBEAT_TIMEOUT_MS;
 }

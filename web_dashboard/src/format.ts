@@ -120,8 +120,20 @@ export function formatRate(
   return hasNumericValue(value) ? `${(value * 100).toFixed(digits)}%` : placeholder;
 }
 
+const ZONELESS_DATE_TIME = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(:\d{2}(\.\d+)?)?)$/;
+
+/**
+ * The API writes UTC date-times without a zone ("2026-11-03T20:38:25"),
+ * which `Date` would read as the viewer's local time. Plain dates and
+ * timestamps that name their zone pass through unchanged.
+ */
+export function asUtcTimestamp(value: string): string {
+  const match = ZONELESS_DATE_TIME.exec(value);
+  return match ? `${match[1]}T${match[2]}Z` : value;
+}
+
 function parseTimestamp(value: string | null | undefined): Date | null {
-  const parsed = new Date(String(value ?? '').trim());
+  const parsed = new Date(asUtcTimestamp(String(value ?? '').trim()));
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 

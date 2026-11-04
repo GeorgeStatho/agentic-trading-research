@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { componentPills, errorSummary, heartbeatMissing, serverTimeAsUtc } from './shellStatus.ts'
+import { componentPills, errorSummary, heartbeatMissing } from './shellStatus.ts'
 
 describe('componentPills', () => {
   it('names each component in sentence case with its state', () => {
@@ -85,11 +85,5 @@ describe('worker timestamps', () => {
     const now = Date.parse('2026-11-04T07:16:00Z')
     expect(heartbeatMissing({ state: 'paused', updated_at: '2026-11-04T07:15:53.760331' }, false, now)).toBe(false)
     expect(heartbeatMissing({ state: 'paused', updated_at: '2026-11-04T07:10:00' }, false, now)).toBe(true)
-  })
-
-  it('leaves a timestamp that names its zone alone', () => {
-    expect(serverTimeAsUtc('2026-11-04T02:15:53-05:00')).toBe('2026-11-04T02:15:53-05:00')
-    expect(serverTimeAsUtc('2026-11-04T07:15:53Z')).toBe('2026-11-04T07:15:53Z')
-    expect(serverTimeAsUtc('2026-11-04T07:15:53.76')).toBe('2026-11-04T07:15:53.76Z')
   })
 })

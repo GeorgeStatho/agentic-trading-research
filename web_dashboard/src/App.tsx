@@ -9,7 +9,7 @@ import {
   tabHash,
 } from './routes.tsx'
 import type { Location } from './routes.tsx'
-import { heartbeatMissing, loadScriptStatus, serverTimeAsUtc } from './shellStatus.ts'
+import { heartbeatMissing, loadScriptStatus } from './shellStatus.ts'
 import { StatusBar } from './statusBar.tsx'
 import { Tag } from './ui/Tag.tsx'
 import { usePolledResource } from './useRemoteResource.ts'
@@ -76,7 +76,7 @@ function App() {
 
       <StatusBar
         components={kpis.payload ? kpis.payload.bot_status.components ?? [] : null}
-        lastRunAt={script.payload ? serverTimeAsUtc(script.payload.status.updated_at) : null}
+        lastRunAt={script.payload?.status.updated_at ?? null}
         workerSilent={heartbeatMissing(script.payload?.status ?? null, Boolean(script.error), script.payload?.checkedAt ?? 0)}
       />
 
