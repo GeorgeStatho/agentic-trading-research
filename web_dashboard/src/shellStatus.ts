@@ -1,29 +1,14 @@
 import { fetchPolledJson } from './api';
 
 /**
- * What the shell's top bar and status sub-bar read: the per-component bot
- * heartbeat and market clock from `/api/dashboard-kpis`, and the worker's
- * last update from `/api/script-status`.
+ * What the shell's status line reads: the per-component bot heartbeat from
+ * `/api/dashboard-kpis`, and the worker's last update from `/api/script-status`.
  */
 
 export type BotComponent = {
   name: string;
   state: string;
   recent_error?: boolean;
-};
-
-export type ShellKpis = {
-  bot_status: {
-    state: string;
-    label: string;
-    detail: string;
-    components?: BotComponent[];
-  };
-  market_status: {
-    state: string;
-    label: string;
-    detail: string;
-  };
 };
 
 export type ScriptStatus = {
@@ -38,12 +23,18 @@ export type ComponentPill = {
   tone: PillTone;
 };
 
-export function loadShellKpis(): Promise<ShellKpis> {
-  return fetchPolledJson<ShellKpis>('/api/dashboard-kpis', 'system status');
-}
+/** The worker reports every few seconds even while paused; silence past this means it is down. */
+export const HEARTBEAT_TIMEOUT_MS = 90_000;
 
-export function loadScriptStatus(): Promise<ScriptStatus> {
-  return fetchPolledJson<ScriptStatus>('/api/script-status', 'worker status');
+/** A worker status read, stamped with when it was fetched so staleness is judged against that. */
+export type ScriptStatusRead = {
+  status: ScriptStatus;
+  checkedAt: number;
+};
+
+export async function loadScriptStatus(): Promise<ScriptStatusRead> {
+  const status = await fetchPolledJson<ScriptStatus>('/api/script-status', 'worker status');
+  return { status, checkedAt: Date.now() };
 }
 
 function hasError(component: BotComponent): boolean {
@@ -86,4 +77,24 @@ export function errorSummary(components: readonly BotComponent[]): string {
     return 'No errors';
   }
   return count === 1 ? '1 error' : `${count} errors`;
+}
+
+/**
+ * `/api/script-status` writes UTC without a zone ("2026-11-04T07:15:53"),
+ * which `Date` would read as the viewer's local time.
+ */
+export function serverTimeAsUtc(value: string): string {
+  return /(Z|[+-]\d\d:?\d\d)$/.test(value) ? value : `${value}Z`;
+}
+
+/** True when the worker status could not be read, or its last report is too old. */
+export function heartbeatMissing(script: ScriptStatus | null, readFailed: boolean, now: number): boolean {
+  if (readFailed) {
+    return true;
+  }
+  if (!script) {
+    return false;
+  }
+  const reportedAt = new Date(serverTimeAsUtc(script.updated_at)).getTime();
+  return Number.isNaN(reportedAt) || now - reportedAt > HEARTBEAT_TIMEOUT_MS;
 }

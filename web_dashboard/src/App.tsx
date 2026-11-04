@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { getDashboardKpis } from './dashboardKpisApi.ts'
 import {
   ROUTES,
   demoModeFromHash,
@@ -8,7 +9,7 @@ import {
   tabHash,
 } from './routes.tsx'
 import type { Location } from './routes.tsx'
-import { loadScriptStatus, loadShellKpis } from './shellStatus.ts'
+import { heartbeatMissing, loadScriptStatus, serverTimeAsUtc } from './shellStatus.ts'
 import { StatusBar } from './statusBar.tsx'
 import { Tag } from './ui/Tag.tsx'
 import { usePolledResource } from './useRemoteResource.ts'
@@ -18,8 +19,8 @@ function App() {
   const [location, setLocation] = useState<Location>(() => locationFromHash(window.location.hash))
   const [demoMode, setDemoMode] = useState(() => demoModeFromHash(window.location.hash))
   const { route, tab } = location
-  const kpis = usePolledResource(loadShellKpis, { errorMessage: 'Failed to load system status' })
-  const script = usePolledResource(loadScriptStatus, { errorMessage: 'Failed to load worker status' })
+  const kpis = usePolledResource(getDashboardKpis, { errorMessage: 'Failed to load system status' })
+  const script = usePolledResource(loadScriptStatus, { errorMessage: 'Failed to load worker status', intervalMs: 15_000 })
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -75,7 +76,8 @@ function App() {
 
       <StatusBar
         components={kpis.payload ? kpis.payload.bot_status.components ?? [] : null}
-        lastRunAt={script.payload?.updated_at ?? null}
+        lastRunAt={script.payload ? serverTimeAsUtc(script.payload.status.updated_at) : null}
+        workerSilent={heartbeatMissing(script.payload?.status ?? null, Boolean(script.error), script.payload?.checkedAt ?? 0)}
       />
 
       {route.tabs.length > 1 ? (

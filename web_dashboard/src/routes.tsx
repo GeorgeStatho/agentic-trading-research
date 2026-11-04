@@ -9,14 +9,16 @@ import ExposureMapPage from './exposureMap.tsx'
 import FollowerAccountsPage from './followerAccounts.tsx'
 import NewsExtractionPage from './newsExtraction.tsx'
 import NewsLagPage from './newsLag.tsx'
+import SystemHealthPage from './systemHealth.tsx'
+import SystemRiskPage from './systemRisk.tsx'
 import V2StatusPage from './v2Status.tsx'
 
 /**
  * The dashboard's pages, and the views inside each one.
  *
- * Three pages, because the eight that came before answered only three
- * questions: what is it doing now, why did it do that, and is the strategy
- * worth keeping. Routing, both navigation strips and demo mode all read this
+ * Three pages answer the three questions the eight before them did: what is
+ * it doing now, why did it do that, and is the strategy worth keeping. A
+ * fourth, System, holds the operational detail none of them is about. Routing, both navigation strips and demo mode all read this
  * table, so a view is added or moved in one place.
  */
 
@@ -68,6 +70,14 @@ export const ROUTES: readonly Route[] = [
       { slug: 'backtests', label: 'Backtests', render: () => <BacktestPage /> },
       { slug: 'followers', label: 'Followers', render: () => <FollowerAccountsPage /> },
       { slug: 'rollout', label: 'V2 Rollout', supportsDemo: true, render: (demoMode) => <V2StatusPage demoMode={demoMode} /> },
+    ],
+  },
+  {
+    slug: 'system',
+    label: 'System',
+    tabs: [
+      { slug: 'health', label: 'Health', render: () => <SystemHealthPage /> },
+      { slug: 'risk', label: 'Risk', render: () => <SystemRiskPage /> },
     ],
   },
 ]

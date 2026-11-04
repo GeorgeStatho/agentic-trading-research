@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { componentPills, errorSummary } from './shellStatus.ts'
+import { componentPills, errorSummary, heartbeatMissing, serverTimeAsUtc } from './shellStatus.ts'
 
 describe('componentPills', () => {
   it('names each component in sentence case with its state', () => {
@@ -56,5 +56,40 @@ describe('errorSummary', () => {
       { name: 'Worker', state: 'error' },
       { name: 'DB Backup', state: 'paused', recent_error: true },
     ])).toBe('2 errors')
+  })
+})
+
+describe('heartbeatMissing', () => {
+  const now = Date.parse('2026-11-04T15:40:00Z')
+
+  it('is false while the worker reported within the last 90 seconds', () => {
+    expect(heartbeatMissing({ state: 'paused', updated_at: '2026-11-04T15:39:00Z' }, false, now)).toBe(false)
+  })
+
+  it('is true once the last report is older than 90 seconds', () => {
+    expect(heartbeatMissing({ state: 'running', updated_at: '2026-11-04T15:38:00Z' }, false, now)).toBe(true)
+  })
+
+  it('is true when the status cannot be read or has no usable time', () => {
+    expect(heartbeatMissing(null, true, now)).toBe(true)
+    expect(heartbeatMissing({ state: 'running', updated_at: 'garbage' }, false, now)).toBe(true)
+  })
+
+  it('is false before the first read finishes', () => {
+    expect(heartbeatMissing(null, false, now)).toBe(false)
+  })
+})
+
+describe('worker timestamps', () => {
+  it('reads a timestamp without a zone as UTC, which is what the server writes', () => {
+    const now = Date.parse('2026-11-04T07:16:00Z')
+    expect(heartbeatMissing({ state: 'paused', updated_at: '2026-11-04T07:15:53.760331' }, false, now)).toBe(false)
+    expect(heartbeatMissing({ state: 'paused', updated_at: '2026-11-04T07:10:00' }, false, now)).toBe(true)
+  })
+
+  it('leaves a timestamp that names its zone alone', () => {
+    expect(serverTimeAsUtc('2026-11-04T02:15:53-05:00')).toBe('2026-11-04T02:15:53-05:00')
+    expect(serverTimeAsUtc('2026-11-04T07:15:53Z')).toBe('2026-11-04T07:15:53Z')
+    expect(serverTimeAsUtc('2026-11-04T07:15:53.76')).toBe('2026-11-04T07:15:53.76Z')
   })
 })

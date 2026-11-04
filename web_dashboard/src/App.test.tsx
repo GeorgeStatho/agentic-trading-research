@@ -16,7 +16,8 @@ const KPIS = {
   market_status: { state: 'closed', label: 'Closed', detail: '' },
 }
 
-const SCRIPT_STATUS = { state: 'paused', message: 'Market is closed', pid: 1, updated_at: '2026-11-04T15:38:00' }
+// Months old, so the worker heartbeat reads as missing.
+const SCRIPT_STATUS = { state: 'paused', message: 'Market is closed', pid: 1, updated_at: '2026-01-04T15:38:00' }
 
 /** The shell's status endpoints answer; every page endpoint fails, so pages render their error states. */
 function stubApi() {
@@ -73,6 +74,13 @@ describe('App shell', () => {
     expect(within(status).getByText('Worker paused')).toBeTruthy()
     expect(within(status).getByText('No errors')).toBeTruthy()
     expect(await within(status).findByText(/^Last run /)).toBeTruthy()
+  })
+
+  it('says so when the worker has stopped reporting', async () => {
+    renderAt('#/research/expectancy')
+
+    const status = screen.getByRole('status', { name: 'System status' })
+    expect(await within(status).findByText('No worker heartbeat')).toBeTruthy()
   })
 
   it('has no section sidebar on the Live page', () => {

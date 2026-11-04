@@ -40,7 +40,8 @@ existing links and bookmarks keep working.
 - [src/ui/](src/ui/): shared Tailwind components (Panel, StatStrip, DataTable, Tag, ...)
 - [src/routes.tsx](src/routes.tsx): the page table, hash routing and demo-mode rules
 - [src/dashboardHome.tsx](src/dashboardHome.tsx): the Overview page
-- [src/scriptStatus.tsx](src/scriptStatus.tsx): status indicator
+- [src/liveStats.ts](src/liveStats.ts): the Live page's runtime-stats strip
+- [src/systemHealth.tsx](src/systemHealth.tsx) / [src/systemRisk.tsx](src/systemRisk.tsx): System › Health and System › Risk
 - [src/Graph.tsx](src/Graph.tsx): portfolio-history chart
 - [src/orderCard.tsx](src/orderCard.tsx): trade execution cards
 - [src/exposureMap.tsx](src/exposureMap.tsx): grounded article-to-position graph
@@ -124,4 +125,4 @@ import one.
 ## Notes
 
 - The graph currently fetches portfolio-history data on mount, not on a polling interval.
-- The status badge does poll the API so it can show `running`, `paused`, `error`, or `down`.
+- The status line polls the API so it can show each component's state, and flags the worker when its heartbeat is more than 90 seconds old.
