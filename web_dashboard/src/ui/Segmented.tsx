@@ -18,7 +18,7 @@ export function Segmented<T extends string>({ label, options, value, onChange }:
             key={option.value}
             type="button"
             aria-pressed={active}
-            className={`btn join-item btn-xs ${active ? 'btn-active border-accent-line bg-accent-bg text-primary' : ''}`}
+            className={`btn join-item btn-xs ${active ? 'btn-active border-accent-line bg-accent-bg text-primary' : 'btn-ghost font-normal text-ink-2'}`}
             onClick={() => onChange(option.value)}
           >
             {option.label}

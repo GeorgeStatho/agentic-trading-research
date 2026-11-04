@@ -13,8 +13,8 @@ function DashboardHome() {
       <PageHeader title="Operations" description="What the bot holds and is doing right now. Paper trading through Alpaca." />
       <DashboardKpis />
       <WhyBotTradedPanel />
-      <OpenPositionsTable />
       <Graph />
+      <OpenPositionsTable />
       <OrderCardList />
       <V2SafeguardsPanel />
     </main>

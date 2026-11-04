@@ -1,89 +1,69 @@
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { useState } from 'react';
 
-import { getGraphData } from './displayPreviousorder';
+import { equityPoints, getPortfolioHistory, pointsInRange, tradeMarkers } from './equitySeries';
+import type { ChartRange } from './equitySeries';
+import { getExecutedTrades } from './executedTradesApi';
+import { Panel } from './ui/Panel';
+import { Segmented } from './ui/Segmented';
+import { DailyPnlChart } from './ui/charts/DailyPnlChart';
+import { DrawdownChart } from './ui/charts/DrawdownChart';
+import { EquityChart } from './ui/charts/EquityChart';
 import { usePolledResource } from './useRemoteResource';
-import './graph.css';
 
-type GraphPoint = {
-  x: string;
-  y: number;
-  rawTimestamp: string | number;
-};
+const RANGES = [
+  { value: '1W', label: '1W' },
+  { value: '1M', label: '1M' },
+  { value: '3M', label: '3M' },
+  { value: 'All', label: 'All' },
+] as const satisfies readonly { value: ChartRange; label: string }[];
 
+function Legend() {
+  return (
+    <span className="flex items-center gap-3 text-[11px] text-dim" aria-hidden="true">
+      <span className="flex items-center gap-1"><span className="h-0.5 w-3 bg-primary" />Equity</span>
+      <span className="flex items-center gap-1"><span className="size-2 rounded-full border-2 border-info" />Entry</span>
+      <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-base-content" />Exit</span>
+    </span>
+  );
+}
+
+/** The Live equity row: equity with trade markers, and drawdown and daily P/L from the same sessions. */
 function Graph() {
-  const { payload, error } = usePolledResource<GraphPoint[]>(getGraphData, {
-    errorMessage: 'Failed to load chart data.',
-  });
-  const data = payload ?? [];
+  const [range, setRange] = useState<ChartRange>('1W');
+  const history = usePolledResource(getPortfolioHistory, { errorMessage: 'Failed to load equity history.' });
+  const trades = usePolledResource(getExecutedTrades, { errorMessage: 'Failed to load trades.' });
 
-  if (error) {
-    return (
-      <section className="graph-panel">
-        <div className="graph-panel__header">
-          <div><p>Equity History</p><h2>Portfolio curve unavailable</h2></div>
-        </div>
-        <p className="graph-panel__empty">{error}</p>
-      </section>
-    );
-  }
+  const allPoints = history.payload ? equityPoints(history.payload) : [];
+  const points = pointsInRange(allPoints, range);
+  const markers = tradeMarkers(points, trades.payload?.trades ?? []);
 
-  if (data.length === 0) {
+  if (!history.payload) {
     return (
-      <section className="graph-panel">
-        <div className="graph-panel__header">
-          <div><p>Equity History</p><h2>Portfolio equity curve</h2></div>
-        </div>
-        <p className="graph-panel__empty">Loading chart data…</p>
-      </section>
+      <Panel title="Strategy equity">
+        <p className={history.error ? 'text-error' : 'text-dim'}>{history.error ?? 'Loading equity history…'}</p>
+      </Panel>
     );
   }
 
   return (
-    <section className="graph-panel">
-      <div className="graph-panel__header">
-        <div>
-          <p>Equity History</p>
-          <h2>Portfolio equity curve</h2>
-        </div>
-        <span>{data.length} recorded points</span>
+    <div className="flex flex-wrap gap-3">
+      <Panel
+        title="Strategy equity"
+        className="flex-[2_1_640px]"
+        actions={<><Legend /><Segmented label="Chart range" options={RANGES} value={range} onChange={setRange} /></>}
+      >
+        {points.length ? <EquityChart points={points} markers={markers} /> : <p className="text-dim">The account has not been funded yet.</p>}
+        <p className="mt-2 text-[11px] text-dim">Trading sessions only; weekends and holidays are skipped.</p>
+      </Panel>
+      <div className="flex min-w-0 flex-[1_1_360px] flex-col gap-3">
+        <Panel title="Drawdown">
+          <DrawdownChart points={points} />
+        </Panel>
+        <Panel title="Daily P/L" meta={`last ${points.length} sessions`}>
+          <DailyPnlChart points={points} />
+        </Panel>
       </div>
-      <div className="graph">
-        <ResponsiveContainer width="100%" height="100%">
-        <LineChart
-          data={data}
-          margin={{
-            top: 20,
-            right: 20,
-            bottom: 5,
-            left: 0,
-          }}
-        >
-          <CartesianGrid stroke="#3d4658" strokeDasharray="4 5" />
-          <XAxis dataKey="x" tick={{ fill: '#9ca3af', fontSize: 12 }} axisLine={{ stroke: '#3d4658' }} tickLine={false} />
-          <YAxis width="auto" tick={{ fill: '#9ca3af', fontSize: 12 }} axisLine={{ stroke: '#3d4658' }} tickLine={false} />
-          <Tooltip contentStyle={{ background: '#202838', border: '1px solid #3d4658', borderRadius: 10 }} labelStyle={{ color: '#f3f4f6' }} itemStyle={{ color: '#c4ccda' }} />
-          <Legend />
-          <Line
-            type="monotone"
-            dataKey="y"
-            stroke="#a58cf4"
-            strokeWidth={2.5}
-            dot={false}
-            name="Equity"
-          />
-        </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </section>
+    </div>
   );
 }
 

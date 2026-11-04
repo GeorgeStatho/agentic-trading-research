@@ -81,7 +81,7 @@
      list when its component is converted; delete the block with the legacy
      variables below. Component CSS and utilities both override these. */
   :where(.autopsy-page, .backtest-page, .company-decisions, .company-news-page,
-         .decision-expectancy, .exposure-map, .graph-panel, .order-card-list,
+         .decision-expectancy, .exposure-map, .order-card-list,
          .positions-panel, .risk-controls-panel,
          .v2-safeguards, .v2-status) {
     & h1 { margin-bottom: 0.67em; font-size: 2em; font-weight: bold; }

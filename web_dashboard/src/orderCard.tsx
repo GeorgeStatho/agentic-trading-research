@@ -1,29 +1,8 @@
-import { fetchPolledJson } from './api';
+import { getExecutedTrades } from './executedTradesApi';
+import type { ExecutedTrade, ExecutedTradesResponse } from './executedTradesApi';
 import { formatDateTime, formatToken } from './format';
 import { useFetchedResource } from './useRemoteResource';
 import './card.css';
-
-type ExecutedTrade = {
-  id: number;
-  order_id: string;
-  underlying_symbol: string;
-  company_name: string | null;
-  option_symbol: string;
-  decision: string;
-  expiration_date: string | null;
-  strike_price: number | null;
-  order_status: string | null;
-  submitted_at: string | null;
-  error: string | null;
-};
-
-type ExecutedTradesResponse = {
-  trades: ExecutedTrade[];
-};
-
-function getExecutedTrades(): Promise<ExecutedTradesResponse> {
-  return fetchPolledJson<ExecutedTradesResponse>('/api/executed-trades', 'executed trades');
-}
 
 function getExecutedTradeRows(payload: ExecutedTradesResponse): ExecutedTrade[] {
   return Array.isArray(payload.trades) ? payload.trades : [];

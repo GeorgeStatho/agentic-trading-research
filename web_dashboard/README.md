@@ -42,14 +42,14 @@ existing links and bookmarks keep working.
 - [src/dashboardHome.tsx](src/dashboardHome.tsx): the Overview page
 - [src/liveStats.ts](src/liveStats.ts): the Live page's runtime-stats strip
 - [src/systemHealth.tsx](src/systemHealth.tsx) / [src/systemRisk.tsx](src/systemRisk.tsx): System › Health and System › Risk
-- [src/Graph.tsx](src/Graph.tsx): portfolio-history chart
+- [src/Graph.tsx](src/Graph.tsx): the Live equity row — equity with trade markers, drawdown, daily P/L
+- [src/equitySeries.ts](src/equitySeries.ts): portfolio-history fetch and the series the charts plot
 - [src/orderCard.tsx](src/orderCard.tsx): trade execution cards
 - [src/exposureMap.tsx](src/exposureMap.tsx): grounded article-to-position graph
 - [src/decisionAutopsy.tsx](src/decisionAutopsy.tsx): immutable decision review
 - [src/v2Status.tsx](src/v2Status.tsx): the V2 Rollout view — control modes, shadow verdicts, promotion evidence
 - [src/v2Safeguards.tsx](src/v2Safeguards.tsx): the mode counts and warnings, shown on Live and on the rollout view
 - [src/v2StatusApi.ts](src/v2StatusApi.ts): `/api/v2-status` types and fetch, shared by both
-- [src/displayPreviousorder.ts](src/displayPreviousorder.ts): portfolio-history fetch + transform helper
 - [nginx.conf](nginx.conf): nginx config used in the Docker image
 - [Dockerfile](Dockerfile): frontend build + nginx image
 
@@ -124,5 +124,4 @@ import one.
 
 ## Notes
 
-- The graph currently fetches portfolio-history data on mount, not on a polling interval.
 - The status line polls the API so it can show each component's state, and flags the worker when its heartbeat is more than 90 seconds old.
