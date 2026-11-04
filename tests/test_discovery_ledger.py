@@ -43,6 +43,7 @@ class PromotionCheckTests(unittest.TestCase):
 
     def test_the_criteria_are_reported_with_the_verdict(self):
         self.assertEqual(check()['criteria'], {'horizon': '5d', 'min_shadow_days': 14, 'min_discovery_only_events': 40,
+                                               'discovery_only_requires_company_news_days': 5,
                                                'discovery_only_at_least_ranking': ['mean_absolute_residual_return',
                                                                                    'hit_rate']})
 
@@ -76,10 +77,26 @@ class LedgerOriginTests(EnforceFixture):
 
     def test_a_candidate_enforce_routed_to_production_still_counts_as_discovery_only(self):
         self.production_candidate('candidate-routed', routed=True)
-        ledger, statuses = self.other_event()
-        self.assertEqual(statuses, {'production': 'not_evaluated', 'discovery': 'admitted'})
-        self.assertEqual(ledger['promotion_check']['discovery_only']['events'],
-                         ledger['outcomes_by_admission']['discovery_only']['5d']['events'])
+        self.assertEqual(self.other_event()[1], {'production': 'not_evaluated', 'discovery': 'admitted'})
+
+    def company_news(self, published_at):
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute('''INSERT INTO news_articles (id,source,article_key,title,source_url,published_at)
+                VALUES (90,'wire','article-90','Other news','https://wire.test/90',?)''', (published_at,))
+            conn.execute("INSERT INTO company_opportunist_impacts (article_id,company_id,confidence) VALUES (90,2,'high')")
+
+    def test_a_discovery_only_event_without_company_news_does_not_count_toward_the_check(self):
+        check = self.other_event()[0]['promotion_check']
+        self.assertEqual((check['discovery_only']['events'], check['discovery_only_without_news']), (0, 1))
+
+    def test_a_discovery_only_event_with_company_news_near_admission_counts(self):
+        self.company_news(ENTRY)
+        check = self.other_event()[0]['promotion_check']
+        self.assertEqual((check['discovery_only']['events'], check['discovery_only_without_news']), (1, 0))
+
+    def test_company_news_long_before_admission_does_not_count(self):
+        self.company_news('2026-08-01T00:00:00+00:00')
+        self.assertEqual(self.other_event()[0]['promotion_check']['discovery_only']['events'], 0)
 
 if __name__ == '__main__':
     unittest.main()

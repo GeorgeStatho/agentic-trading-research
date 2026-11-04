@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
 import subprocess
 import sys
@@ -24,11 +26,14 @@ from agent_stages.industry_opportunist import classify_sector_articles_to_indust
 from agent_stages.macro_news_to_sectors import classify_macro_news_to_sectors
 from agent_stages.sector_opportunist import classify_sector_articles
 from services.discovery.company_evidence_demand import request_pipeline_evidence
+from services.discovery.discovery_policy import DiscoveryPolicy
+from services.discovery.discovery_routing import news_refresh_companies, record_news_refresh
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SCRAPE_RESULT_MARKER = "__SCRAPE_RESULT__="
 ProgressCallback = Callable[[dict[str, Any]], None]
+LOGGER = logging.getLogger(__name__)
 
 
 def _emit_progress(
@@ -134,6 +139,44 @@ def _scrape_company_news(symbol: str) -> int:
     )
     print(f"Finished scraping company news for {symbol}: saved {saved} article(s)")
     return saved
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def refresh_discovery_company_news(
+    *,
+    ranked_symbols: set[str],
+    refreshed_sectors: set[str],
+    refreshed_industries: set[str],
+) -> dict[str, Any]:
+    """Give companies with an admitted discovery entry the sector, industry and company news ranked ones get."""
+    companies = news_refresh_companies(policy=DiscoveryPolicy.from_env(), at=_utc_now(),
+                                       exclude_symbols=ranked_symbols)
+    refreshed: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    for company in companies:
+        symbol, sector_key, industry_key = company["symbol"], company["sector_key"], company["industry_key"]
+        try:
+            if sector_key not in refreshed_sectors:
+                _scrape_sector_news(sector_key)
+                classify_sector_articles(sector_key)
+                classify_sector_articles_to_industries(sector_key)
+                refreshed_sectors.add(sector_key)
+            if industry_key not in refreshed_industries:
+                _scrape_industry_news(industry_key)
+                refreshed_industries.add(industry_key)
+            company_articles_saved = _scrape_company_news(symbol)
+            classify_company_articles(symbol)
+        except Exception as error:
+            # Retried next cycle: the refresh is only recorded once the company's news is classified.
+            LOGGER.exception("Discovery news refresh failed for %s", symbol)
+            failed.append({"symbol": symbol, "error": f"{type(error).__name__}: {error}"})
+            continue
+        record_news_refresh(company["company_id"], _utc_now())
+        refreshed.append({**company, "company_articles_saved": company_articles_saved})
+    return {"companies": refreshed, "failed": failed}
 
 
 def run_news_collection_pipeline(
@@ -281,6 +324,12 @@ def run_news_collection_pipeline(
         )
         print("Finished Sector:" + sector_key)
 
+    discovery_news = refresh_discovery_company_news(
+        ranked_symbols=set(scrape_results["companies"]),
+        refreshed_sectors=set(scrape_results["sectors"]),
+        refreshed_industries=set(scrape_results["industries"]),
+    )
+
     rankings_after_pipeline = get_current_rankings(
         top_sector_count=top_sector_count,
         top_industry_count=top_industry_count,
@@ -303,6 +352,7 @@ def run_news_collection_pipeline(
             "after_pipeline": rankings_after_pipeline,
         },
         "sectors": sector_results,
+        "discovery_news": discovery_news,
     }
 
 

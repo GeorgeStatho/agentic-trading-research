@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS discovery_production_routes (
     queue_id TEXT PRIMARY KEY REFERENCES discovery_queue(queue_id),
     symbol TEXT NOT NULL, candidate_id TEXT NOT NULL, routed_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS discovery_news_refreshes (
+    company_id INTEGER PRIMARY KEY REFERENCES companies(id), refreshed_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS discovery_scan_state (
     lane TEXT NOT NULL, company_id INTEGER NOT NULL REFERENCES companies(id), scanned_at TEXT NOT NULL,
     PRIMARY KEY(lane,company_id)

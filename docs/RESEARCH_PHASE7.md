@@ -52,7 +52,10 @@ python3 scripts/research.py --db /path/to/market.db promote-challenger REPORT_ID
 fixed on 2026-11-04 before any results were read, and is evaluated on 5-day outcomes:
 
 - at least 14 days since the first discovery admission;
-- at least 40 resolved discovery-only events (events the ranking never sent to the strategist);
+- at least 40 resolved discovery-only events (events the ranking never sent to the strategist) whose
+  company had classified company news published from 5 days before to 1 day after admission; the rest are
+  counted in `discovery_only_without_news` (this rule was added the same day, before any of these outcomes
+  had resolved);
 - their mean absolute residual move and direction hit rate both at least the ranking-sourced events'.
 
 `failures` names each unmet criterion. Companies that enforce later routes into production still count as

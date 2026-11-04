@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from db_common import get_connection
 from services.discovery.discovery_policy import DiscoveryPolicy
-from tests.research_foundation_fixtures import ENTRY
+from tests.research_foundation_fixtures import ENTRY, START
 from tests.test_company_evidence import COMPANY
 from tests.test_event_discovery import DiscoveryFixture
 
@@ -44,6 +44,11 @@ class EnforceFixture(DiscoveryFixture):
         self.discover()
         self.process()
         self.policy = replace(self.policy, mode='enforce', production_limit=5)
+        self.refresh_news()
+
+    def refresh_news(self, at=ENTRY):
+        from services.discovery.discovery_routing import record_news_refresh
+        record_news_refresh(2, at, db_path=self.db)
 
     def entries(self, policy=None):
         from services.discovery.discovery_routing import admitted_entries
@@ -73,6 +78,15 @@ class AdmittedEntryTests(EnforceFixture):
         entry, = self.entries()
         record_routes([{**entry, 'candidate_id': 'candidate-1'}], at=ENTRY, db_path=self.db)
         self.assertEqual(self.entries(), [])
+
+    def test_an_entry_is_not_routed_until_its_company_news_was_refreshed_after_admission(self):
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute('DELETE FROM discovery_news_refreshes')
+        self.assertEqual(self.entries(), [])
+        self.refresh_news(START)
+        self.assertEqual(self.entries(), [])
+        self.refresh_news(ENTRY)
+        self.assertEqual([entry['symbol'] for entry in self.entries()], ['OTHER'])
 
     def test_the_production_limit_caps_entries(self):
         self.assertEqual(self.entries(replace(self.policy, production_limit=0)), [])

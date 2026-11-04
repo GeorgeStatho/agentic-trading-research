@@ -20,7 +20,9 @@ ROUTES = ('production', 'discovery')
 HORIZONS = (1, 3, 5, 10)
 SIGN = {'positive': 1, 'negative': -1}
 # Pre-registered 2026-11-04, before any results were read: the bar for setting DISCOVERY_MODE=enforce.
+# Amended the same day, still before any discovery-only outcome resolved, to require company news.
 PROMOTION_CRITERIA = {'horizon': '5d', 'min_shadow_days': 14, 'min_discovery_only_events': 40,
+                      'discovery_only_requires_company_news_days': 5,
                       'discovery_only_at_least_ranking': ['mean_absolute_residual_return', 'hit_rate']}
 
 
@@ -100,6 +102,15 @@ def _responses(conn, catalyst_ids, as_of):
     return result
 
 
+def _has_company_news(conn, symbol, admitted_at):
+    """The strategist can only decide an event whose company has classified news around its admission."""
+    days = PROMOTION_CRITERIA['discovery_only_requires_company_news_days']
+    return conn.execute('''SELECT 1 FROM company_opportunist_impacts i JOIN companies c ON c.id=i.company_id
+        JOIN news_articles a ON a.id=i.article_id WHERE UPPER(c.symbol)=UPPER(?)
+        AND julianday(a.published_at) BETWEEN julianday(?) - ? AND julianday(?) + 1 LIMIT 1''',
+                        (symbol, admitted_at, days, admitted_at)).fetchone() is not None
+
+
 def _group_outcomes(rows, responses):
     summary = {}
     for horizon in HORIZONS:
@@ -174,9 +185,12 @@ def route_ledger(conn, *, days=30, as_of=None):
     horizon = PROMOTION_CRITERIA['horizon']
     discovery_admissions = [row['routes']['discovery']['admitted_at'] for row in admitted
                             if row['routes']['discovery']['status'] == 'admitted']
-    check = promotion_check(_group_outcomes(groups['discovery_only'], responses)[horizon],
+    with_news = [row for row in groups['discovery_only']
+                 if _has_company_news(conn, row['ticker'], row['routes']['discovery']['admitted_at'])]
+    check = promotion_check(_group_outcomes(with_news, responses)[horizon],
                             _group_outcomes(groups['production_only'] + groups['both'], responses)[horizon],
                             first_admitted_at=min(discovery_admissions, default=None), until=until)
+    check['discovery_only_without_news'] = len(groups['discovery_only']) - len(with_news)
     return {'window': {'since': since, 'until': until.isoformat()}, 'events_seen': len(ledger),
             'admitted_union': len(admitted),
             'route_status_counts': {route: dict(counts) for route, counts in route_counts.items()},
