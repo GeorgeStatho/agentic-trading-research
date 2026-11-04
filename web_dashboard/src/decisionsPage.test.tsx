@@ -102,6 +102,51 @@ describe('Decisions page', () => {
     expect(within(whatIf).getByText('-3.10%').className).toContain('text-loss-text')
   })
 
+  const COUNTERFACTUAL = {
+    option_symbol: 'ORCL261204P00123000', status: 'simulated_closed', entry_at: '2026-10-01T20:00:00+00:00', entry_price: 5.0125,
+    exit_at: '2026-10-03T20:00:00+00:00', exit_price: 2.394, realized_pnl_pct: -52.1, realized_pnl_dollars: -261.15,
+    pricing_source: 'marketdata_eod', exit_reason: 'stop_loss', still_open: false,
+    take_profit_pct: 55, stop_loss_pct: -30, dte_bucket: '20-30 DTE', warnings: ['stop_loss_exit'],
+  } as const
+
+  function whatIf(counterfactual: Record<string, unknown> | null) {
+    render(<DecisionsView payload={payload({ records: [blockedCall({ counterfactual } as never)] })} notices={[]} initialQuery="" />)
+    return within(detail()).getByRole('region', { name: /What if it had traded/ })
+  }
+
+  it('prices the contract a blocked decision picked under its exit rule', () => {
+    const panel = whatIf({ ...COUNTERFACTUAL })
+
+    expect(panel.textContent).toContain('ORCL 4 Dec $123P')
+    expect(panel.textContent).toMatch(/Bought \$5\.01 .*→ sold \$2\.39/)
+    expect(panel.textContent).toContain('Stop loss')
+    expect(panel.textContent).toContain('20-30 DTE rule: +55% / -30%')
+    expect(within(panel).getByText('-52.10%').className).toContain('text-loss-text')
+    expect(panel.textContent).toContain('end-of-day quotes')
+    expect(panel.textContent).not.toContain('not recorded yet')
+  })
+
+  it('says when the priced trade is still inside its holding window', () => {
+    expect(whatIf({ ...COUNTERFACTUAL, exit_reason: 'last_mark', still_open: true }).textContent).toContain('Still inside its holding window')
+  })
+
+  it('says when the quotes ran out before either threshold', () => {
+    expect(whatIf({ ...COUNTERFACTUAL, exit_reason: 'last_mark' }).textContent).toContain('Neither threshold hit before the last quote')
+  })
+
+  it('names modelled prices as modelled', () => {
+    expect(whatIf({ ...COUNTERFACTUAL, pricing_source: 'model_black_scholes_eod_iv' }).textContent).toContain('modelled')
+  })
+
+  it('says when there is no price after entry yet', () => {
+    const panel = whatIf({ ...COUNTERFACTUAL, status: 'no_exit_quote', exit_at: null, exit_price: null, realized_pnl_pct: null, exit_reason: null })
+    expect(panel.textContent).toContain('No price after entry yet')
+  })
+
+  it('says there is nothing to price when no contract was picked', () => {
+    expect(whatIf(null).textContent).toContain('No contract was picked, so there is no trade to price')
+  })
+
   it('shows the outcome instead for a decision that traded', () => {
     const traded = blockedCall({ v2_verdicts: [], outcome: { trade_executed: true, order_id: 'ord-1', pnl_pct: 12.5, resolved_outcome_label: 'take_profit' } })
     render(<DecisionsView payload={payload({ records: [traded] })} notices={[]} initialQuery="" />)

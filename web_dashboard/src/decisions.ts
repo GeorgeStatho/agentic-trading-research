@@ -46,6 +46,28 @@ export type DecisionRecord = {
   attribution?: { evidence_quality: string; evidence_source: string; direction_outcome: string; expression_outcome: string; primary_failure: string; horizon_returns: { [horizon: string]: number } } | null;
   /** Absent from the seeded demo payload, which records no candidate lifecycle. */
   v2_verdicts?: V2Verdict[];
+  /** The contract a blocked call or put picked, priced as if bought; null when there was none. */
+  counterfactual?: Counterfactual | null;
+};
+
+/** A backtest-priced trade that never happened: entry at the first quote, exit by the DTE rule. */
+export type Counterfactual = {
+  option_symbol: string;
+  /** `no_fill`: no usable entry quote; `no_exit_quote`: no price after entry yet. */
+  status: 'simulated_closed' | 'no_exit_quote' | 'no_fill';
+  entry_at: string | null;
+  entry_price: number | null;
+  exit_at: string | null;
+  exit_price: number | null;
+  realized_pnl_pct: number | null;
+  realized_pnl_dollars: number | null;
+  pricing_source: string;
+  exit_reason: 'take_profit' | 'stop_loss' | 'last_mark' | null;
+  still_open: boolean;
+  take_profit_pct: number;
+  stop_loss_pct: number;
+  dte_bucket: string;
+  warnings: string[];
 };
 
 export type DecisionsPayload = { as_of: string; count: number; records: DecisionRecord[]; v2_verdicts_available?: boolean };

@@ -813,6 +813,26 @@ def _store_event(conn: sqlite3.Connection, run_id: int, event: dict[str, Any]) -
     )
 
 
+def counterfactual_trade(
+    conn: sqlite3.Connection,
+    decision: dict[str, Any],
+    *,
+    take_profit_pct: float,
+    stop_loss_pct: float,
+    max_hold_hours: int,
+) -> dict[str, Any]:
+    """What a call or put that never became an order would have done, priced like a backtest.
+
+    Read-only: unlike a backtest it records no evidence snapshot or run, so a page can ask on
+    every load. The premium cap is not applied, since the question is the trade itself.
+    """
+    config = _merged_config({"take_profit_pct": take_profit_pct, "stop_loss_pct": stop_loss_pct,
+                             "max_hold_hours": max_hold_hours})
+    event = _simulate_decision({k: v for k, v in decision.items() if k != "max_premium_dollars"}, {"id": 0}, conn, config)
+    event.pop("evidence_snapshot_id", None)
+    return event
+
+
 def _simulate_decisions(
     conn: sqlite3.Connection,
     config: dict[str, Any],

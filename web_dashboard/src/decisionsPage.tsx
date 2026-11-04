@@ -15,7 +15,7 @@ import {
   verdictLabel,
   whyLine,
 } from './decisions';
-import type { DecisionFilters, DecisionRecord, DecisionsPayload, DiagnosticsFeed, PathStep, StepState, StopStage, VerdictFilter, WhenFilter } from './decisions';
+import type { Counterfactual, DecisionFilters, DecisionRecord, DecisionsPayload, DiagnosticsFeed, PathStep, StepState, StopStage, VerdictFilter, WhenFilter } from './decisions';
 import { formatDateTime, formatDteBucket, formatShortDateTime, formatSignedPercent, formatToken, formatTokenList, sentenceCase } from './format';
 import { formatOccSymbol } from './occ';
 import PageHeader from './pageHeader';
@@ -183,6 +183,51 @@ function ManagerPanel({ record }: { record: DecisionRecord }) {
   );
 }
 
+function exitText(trade: Counterfactual): string {
+  switch (trade.exit_reason) {
+    case 'take_profit':
+      return 'Take profit';
+    case 'stop_loss':
+      return 'Stop loss';
+    case 'last_mark':
+      return trade.still_open ? 'Still inside its holding window · marked at the latest close' : 'Neither threshold hit before the last quote';
+    default:
+      return trade.status === 'no_fill' ? 'No usable quote at entry' : 'No price after entry yet';
+  }
+}
+
+function money(value: number | null): string {
+  return value === null ? '—' : `$${value.toFixed(2)}`;
+}
+
+/** The blocked decision's contract, priced the way a backtest would under the live exit rule for its DTE. */
+function HypotheticalTrade({ trade }: { trade: Counterfactual | null }) {
+  if (!trade) {
+    return <p className="text-[11px] text-dim">No contract was picked, so there is no trade to price.</p>;
+  }
+  const modelled = trade.pricing_source.startsWith('model_');
+  return (
+    <div className="flex flex-col gap-1 border-t border-base-300 pt-3">
+      <Label>Hypothetical trade</Label>
+      <div className="font-mono font-semibold">{formatOccSymbol(trade.option_symbol)}</div>
+      {trade.status !== 'no_fill' ? (
+        <div className="text-ink-2">
+          Bought {money(trade.entry_price)} {formatShortDateTime(trade.entry_at ?? '', { placeholder: '' })}
+          {trade.exit_at ? ` → sold ${money(trade.exit_price)} ${formatShortDateTime(trade.exit_at, { placeholder: '' })}` : ''}
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span>{exitText(trade)}</span>
+        {trade.realized_pnl_pct !== null ? <span className={`font-semibold ${signedTone(trade.realized_pnl_pct)}`}>{formatSignedPercent(trade.realized_pnl_pct)}</span> : null}
+      </div>
+      <p className="text-[11px] text-dim">
+        {trade.dte_bucket} rule: {formatSignedPercent(trade.take_profit_pct, { digits: 0 })} / {formatSignedPercent(trade.stop_loss_pct, { digits: 0 })} ·{' '}
+        {modelled ? 'modelled from daily stock closes (Black-Scholes), no option quotes' : 'priced from end-of-day quotes'} · trailing stop not modelled
+      </p>
+    </div>
+  );
+}
+
 /** Monitoring only: the stock's move after a decision that did not trade. */
 function WhatIfPanel({ record }: { record: DecisionRecord }) {
   const { attribution } = record;
@@ -214,7 +259,7 @@ function WhatIfPanel({ record }: { record: DecisionRecord }) {
           </div>
         ) : <p className="text-ink-2">Not scored by the attribution runner yet.</p>}
         {record.review.status !== 'not_executed' ? <p className="text-ink-2">{record.review.what_proved_us_wrong}</p> : null}
-        <p className="text-[11px] text-dim">The hypothetical contract and its P/L under your exit rules are not recorded yet.</p>
+        <HypotheticalTrade trade={record.counterfactual ?? null} />
       </div>
     </Panel>
   );

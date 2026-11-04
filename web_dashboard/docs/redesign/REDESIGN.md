@@ -595,9 +595,15 @@ and hide the parts whose fields are missing.
    comes from the option manager's own DTE resolver; the manager emits no
    structured factors, so For/Against stays hidden. Company news loads all
    four scopes so every count is real and ships only the viewed scope's
-   articles. Not done: today's funnel counts (no panel reads them until the
-   § 8 phone layout exists; the Decisions page counts client-side) and the
-   autopsy's counterfactual contract + P/L, which needs a pricing choice.
+   articles. Each blocked call/put's `counterfactual` prices the contract
+   the selector picked with the backtest engine (end-of-day quotes, else
+   Black-Scholes on daily closes) under the live take-profit / stop-loss for
+   its DTE, held to the rule's forced exit, without recording anything.
+   Quotes are fetched for about a week after a decision, so "neither
+   threshold before the last quote" is often the end of the data; the
+   trailing stop is not modelled. Not done: today's funnel counts (no panel
+   reads them until the § 8 phone layout exists; the Decisions page counts
+   client-side).
 7. Delete the temporary legacy variable block from `index.css`. Done with
    step 5: no `.css` file besides `index.css` remains. Only `--app-chrome`
    survives, which the Exposure Map uses to size itself.
