@@ -20,7 +20,7 @@ export type DashboardKpiPayload = {
     fallback_take_profit_pct: number | null;
     fallback_stop_loss_pct: number | null;
   };
-  /** Not returned yet (REDESIGN.md section 9); the stat is hidden until it is. */
+  /** Broker unrealized P/L over open positions; null when a position lacked the figure. */
   unrealized_pl?: number | null;
   win_rate: {
     wins: number;

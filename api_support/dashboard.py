@@ -1643,6 +1643,14 @@ def _build_thesis_validator_kpi_payload() -> dict:
     }
 
 
+def total_unrealized_pl(positions: list) -> float | None:
+    """The broker's unrealized P/L summed over open positions; None if any figure is missing."""
+    values = [safe_float(position.get("unrealized_pl")) for position in positions]
+    if any(value is None for value in values):
+        return None
+    return round(sum(values), 2)
+
+
 def build_dashboard_kpis() -> dict:
     account = alpaca_get_json("/v2/account")
     positions = alpaca_get_json("/v2/positions")
@@ -1705,6 +1713,7 @@ def build_dashboard_kpis() -> dict:
         "buying_power": buying_power,
         "day_pl": day_pl,
         "day_pl_pct": day_pl_pct,
+        "unrealized_pl": total_unrealized_pl(normalized_positions),
         "open_positions": len(normalized_positions),
         "options_exposure": {
             "market_value": round(option_exposure, 2),
