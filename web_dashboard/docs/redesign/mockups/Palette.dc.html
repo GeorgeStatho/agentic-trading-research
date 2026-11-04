@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Palette options</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 720px; height: 620px; box-sizing: border-box; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); font-family: Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums">
+
+<div style="background: #121214; color: #E8E8EA; padding: 28px; display: flex; flex-direction: column; gap: 16px">
+<div>
+<div style="font-size: 12px; font-weight: 600; color: #F98309">A · Applied</div>
+<div style="font-size: 20px; font-weight: 700; margin-top: 2px">Charcoal + Orange</div>
+<div style="font-size: 13px; color: #9A9AA2; margin-top: 2px">QuantConnect's orange on neutral charcoal; GitHub-style green and red.</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px">
+<sc-for list="{{a}}" as="s" hint-placeholder-count="8">
+<div>
+<div style="{{s.chip}}"></div>
+<div style="font-size: 11px; color: #C2C2C8; margin-top: 6px">{{s.name}}</div>
+<div style="font-size: 11px; color: #9A9AA2; font-family: 'JetBrains Mono', monospace">{{s.hex}}</div>
+</div>
+</sc-for>
+</div>
+<div style="margin-top: auto; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px; padding: 14px">
+<div style="font-size: 11px; color: #9A9AA2">Equity</div>
+<div style="font-size: 24px; font-weight: 700">$2,379.77</div>
+<div style="font-size: 13px; font-weight: 600; color: #F85149">−$225.02 today</div>
+<div style="display: flex; gap: 6px; margin-top: 10px; align-items: center">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; color: #FFB066; background: #24180B; padding: 2px 6px; border-radius: 3px">PBF</span>
+<span style="font-size: 11px; padding: 2px 7px; border-radius: 3px; background: #12261A; color: #56D364">Candidate</span>
+<span style="font-size: 11px; padding: 2px 7px; border-radius: 3px; background: #232327; color: #C2C2C8">No trade</span>
+</div>
+</div>
+</div>
+
+<div style="background: #061012; color: #E6F0F0; padding: 28px; display: flex; flex-direction: column; gap: 16px">
+<div>
+<div style="font-size: 12px; font-weight: 600; color: #2DD4BF">B · Alternative</div>
+<div style="font-size: 20px; font-weight: 700; margin-top: 2px">Deep Teal</div>
+<div style="font-size: 13px; color: #86A0A3; margin-top: 2px">Blue-green black, cool accent, coral losses.</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px">
+<sc-for list="{{b}}" as="s" hint-placeholder-count="8">
+<div>
+<div style="{{s.chip}}"></div>
+<div style="font-size: 11px; color: #B4C6C8; margin-top: 6px">{{s.name}}</div>
+<div style="font-size: 11px; color: #86A0A3; font-family: 'JetBrains Mono', monospace">{{s.hex}}</div>
+</div>
+</sc-for>
+</div>
+<div style="margin-top: auto; background: #0C1A1D; border: 1px solid #1A2E32; border-radius: 6px; padding: 14px">
+<div style="font-size: 11px; color: #86A0A3">Equity</div>
+<div style="font-size: 24px; font-weight: 700">$2,379.77</div>
+<div style="font-size: 13px; font-weight: 600; color: #FB7185">−$225.02 today</div>
+<div style="display: flex; gap: 6px; margin-top: 10px; align-items: center">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; color: #5EEAD4; background: #0F2A2A; padding: 2px 6px; border-radius: 3px">PBF</span>
+<span style="font-size: 11px; padding: 2px 7px; border-radius: 3px; background: #1A2A0E; color: #BEF264">Candidate</span>
+<span style="font-size: 11px; padding: 2px 7px; border-radius: 3px; background: #12252A; color: #B4C6C8">No trade</span>
+</div>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":620}}'>
+class Component extends DCLogic {
+  renderVals() {
+    function sw(name, hex, edge) {
+      return { name: name, hex: hex, chip: 'height: 44px; border-radius: 6px; background: ' + hex + '; border: 1px solid ' + edge };
+    }
+    return {
+      a: [
+        sw('Ground', '#121214', '#2C2C31'), sw('Panel', '#1A1A1D', '#2C2C31'), sw('Border', '#2C2C31', '#44444B'), sw('Text', '#E8E8EA', '#E8E8EA'),
+        sw('Muted', '#9A9AA2', '#9A9AA2'), sw('Accent', '#F98309', '#F98309'), sw('Gain', '#3FB950', '#3FB950'), sw('Loss', '#F85149', '#F85149')
+      ],
+      b: [
+        sw('Ground', '#061012', '#1A2E32'), sw('Surface', '#0C1A1D', '#1A2E32'), sw('Border', '#1A2E32', '#2A464B'), sw('Text', '#E6F0F0', '#E6F0F0'),
+        sw('Muted', '#86A0A3', '#86A0A3'), sw('Accent', '#2DD4BF', '#2DD4BF'), sw('Gain', '#A3E635', '#A3E635'), sw('Loss', '#FB7185', '#FB7185')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

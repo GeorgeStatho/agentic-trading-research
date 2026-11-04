@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Live overview</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#121214}
+a{color:#F98309}a:hover{color:#FFA347}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #121214; color: #E8E8EA; font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 1.4; font-variant-numeric: tabular-nums">
+
+<header style="background: #161618; border-bottom: 1px solid #2C2C31">
+<div style="max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 48px">
+<div style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px">
+<span aria-hidden="true" style="width: 14px; height: 14px; border-radius: 3px; background: #F98309"></span>Agentic Trading Research
+</div>
+<nav aria-label="Main" style="display: flex; flex-wrap: wrap; flex: 1 1 auto; align-self: stretch">
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #E8E8EA; font-weight: 600; border-bottom: 2px solid #F98309">Live</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500; border-bottom: 2px solid transparent">Decisions</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500; border-bottom: 2px solid transparent">Research</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500; border-bottom: 2px solid transparent">System</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500; border-bottom: 2px solid transparent">Settings</a>
+</nav>
+<div style="display: flex; align-items: center; gap: 12px; font-size: 12px">
+<span style="color: #9A9AA2">Market <span style="color: #E8E8EA; font-weight: 600">Closed</span> · opens 9:30 ET</span>
+<span style="font-weight: 600; color: #F98309; border: 1px solid #5A3510; background: #24180B; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.04em">PAPER</span>
+</div>
+</div>
+<div style="border-top: 1px solid #232327">
+<div style="max-width: 1400px; margin: 0 auto; padding: 6px 20px; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: #9A9AA2">
+<span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 999px; background: #3FB950"></span>News collector running</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 999px; border: 1.5px solid #9A9AA2; box-sizing: border-box"></span>Worker paused</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 999px; border: 1.5px solid #9A9AA2; box-sizing: border-box"></span>Option manager paused</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 999px; border: 1.5px solid #9A9AA2; box-sizing: border-box"></span>EOD sync paused</span>
+<span>Last run 3:38 PM</span>
+<span>No errors · 12 ms</span>
+<span style="margin-left: auto">Refreshes every 60 s</span>
+</div>
+</div>
+</header>
+
+<div style="max-width: 1400px; margin: 0 auto; padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 12px">
+
+<section aria-label="Runtime statistics" style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px; display: flex; flex-wrap: wrap">
+<sc-for list="{{stats}}" as="s" hint-placeholder-count="10">
+<div style="flex: 1 1 120px; padding: 12px 16px; border-right: 1px solid #232327">
+<div style="font-size: 11px; color: #9A9AA2">{{s.label}}</div>
+<div style="{{s.valStyle}}">{{s.value}}</div>
+</div>
+</sc-for>
+</section>
+
+<section aria-label="Latest decision" style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Latest decision <span style="font-weight: 400; color: #9A9AA2">· {{ld.when}}</span></h2>
+<div style="display: flex; align-items: center; gap: 12px">
+<span style="{{ld.statusStyle}}">{{ld.status}}</span>
+<a href="#" style="font-size: 11px; text-decoration: none">Open autopsy</a>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap">
+<div style="flex: 2 1 520px; min-width: 0; padding: 16px 18px; border-right: 1px solid #2C2C31">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: #FFB066; background: #24180B; padding: 3px 8px; border-radius: 3px">{{ld.ticker}}</span>
+<span style="color: #9A9AA2">{{ld.company}}</span>
+<span aria-hidden="true" style="color: #3A3A40">|</span>
+<span style="font-size: 11px; color: #9A9AA2">Strategist</span>
+<span style="{{ld.sStyle}}">{{ld.s}}</span>
+<span aria-hidden="true" style="color: #62626A">→</span>
+<span style="font-size: 11px; color: #9A9AA2">Manager</span>
+<span style="{{ld.mStyle}}">{{ld.m}}</span>
+</div>
+<div style="font-size: 11px; color: #9A9AA2; margin-top: 16px">{{ld.reasonLabel}}</div>
+<p style="margin: 4px 0 0; font-size: 15px; line-height: 1.6; color: #E8E8EA; max-width: 80ch">{{ld.reason}}</p>
+<sc-if value="{{ld.hasFactors}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; align-items: center">
+<span style="font-size: 11px; color: #9A9AA2; margin-right: 2px">For</span>
+<sc-for list="{{ld.pros}}" as="p" hint-placeholder-count="3">
+<span style="font-size: 11px; padding: 2px 7px; border-radius: 3px; background: #12261A; color: #56D364">{{p}}</span>
+</sc-for>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center">
+<span style="font-size: 11px; color: #9A9AA2; margin-right: 2px">Against</span>
+<sc-for list="{{ld.cons}}" as="c" hint-placeholder-count="5">
+<span style="font-size: 11px; padding: 2px 7px; border-radius: 3px; background: #2D1617; color: #FF9B94">{{c}}</span>
+</sc-for>
+</div>
+</sc-if>
+</div>
+<div style="flex: 1 1 300px; min-width: 0; padding: 16px 18px; background: #18181B; border-radius: 0 0 6px 0">
+<div style="font-size: 11px; color: #9A9AA2">Selected contract</div>
+<sc-if value="{{ld.hasContract}}" hint-placeholder-val="{{ true }}">
+<div style="font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 600; margin-top: 4px">{{ld.contract}}</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin-top: 14px">
+<div><div style="font-size: 11px; color: #9A9AA2">Type</div><div style="font-weight: 500">{{ld.type}}</div></div>
+<div><div style="font-size: 11px; color: #9A9AA2">Expiry · DTE</div><div style="font-weight: 500">{{ld.expiry}}</div></div>
+<div><div style="font-size: 11px; color: #9A9AA2">Qty</div><div style="font-weight: 500">{{ld.qty}}</div></div>
+<div><div style="font-size: 11px; color: #9A9AA2">Fill</div><div style="font-weight: 500">{{ld.fill}}</div></div>
+<div><div style="font-size: 11px; color: #9A9AA2">Take profit</div><div style="font-weight: 500; color: #56D364">{{ld.tp}}</div></div>
+<div><div style="font-size: 11px; color: #9A9AA2">Stop loss</div><div style="font-weight: 500; color: #FF9B94">{{ld.sl}}</div></div>
+</div>
+<div style="font-size: 11px; color: #9A9AA2; margin-top: 12px">{{ld.contractNote}}</div>
+</sc-if>
+<sc-if value="{{ld.noContract}}" hint-placeholder-val="{{ false }}">
+<div style="font-size: 17px; font-weight: 600; margin-top: 4px; color: #C2C2C8">None selected</div>
+<div style="font-size: 12px; color: #9A9AA2; margin-top: 6px">{{ld.noContractWhy}}</div>
+<div style="font-size: 11px; color: #9A9AA2; margin-top: 16px">Last contract traded</div>
+<div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; margin-top: 2px; color: #C2C2C8">ORCL 20 Nov $121P · closed −4.2%</div>
+</sc-if>
+</div>
+</div>
+</section>
+
+<section style="display: flex; flex-wrap: wrap; gap: 12px">
+<div style="flex: 2 1 640px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Strategy equity</h2>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: 11px; color: #9A9AA2">
+<span style="display: inline-flex; align-items: center; gap: 5px"><span aria-hidden="true" style="width: 12px; height: 2px; background: #F98309"></span>Equity</span>
+<span style="display: inline-flex; align-items: center; gap: 5px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 999px; border: 2px solid #58A6FF; box-sizing: border-box"></span>Entry</span>
+<span style="display: inline-flex; align-items: center; gap: 5px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 999px; background: #E8E8EA"></span>Exit</span>
+<div role="group" aria-label="Range" style="display: flex; border: 1px solid #2C2C31; border-radius: 4px; overflow: hidden">
+<button type="button" style="font: inherit; font-size: 11px; padding: 4px 9px; border: 0; background: #2C2C31; color: #E8E8EA; cursor: pointer">1W</button>
+<button type="button" style="font: inherit; font-size: 11px; padding: 4px 9px; border: 0; background: transparent; color: #9A9AA2; cursor: pointer">1M</button>
+<button type="button" style="font: inherit; font-size: 11px; padding: 4px 9px; border: 0; background: transparent; color: #9A9AA2; cursor: pointer">3M</button>
+<button type="button" style="font: inherit; font-size: 11px; padding: 4px 9px; border: 0; background: transparent; color: #9A9AA2; cursor: pointer">All</button>
+</div>
+</div>
+</div>
+<div style="padding: 10px 14px 12px">
+<svg role="img" aria-label="Equity over the last 7 trading days: flat near 2,741 dollars, down to about 2,197 after the TSLA stop on Oct 30, up to about 2,605 on Nov 2, 2,380 on Nov 3" viewBox="0 0 800 280" style="width: 100%; height: auto; display: block">
+<g stroke="#26262B" stroke-width="1">
+<line x1="50" y1="20" x2="790" y2="20"></line>
+<line x1="50" y1="77" x2="790" y2="77"></line>
+<line x1="50" y1="134" x2="790" y2="134"></line>
+<line x1="50" y1="191" x2="790" y2="191"></line>
+<line x1="50" y1="250" x2="790" y2="250"></line>
+</g>
+<g fill="#9A9AA2" font-size="11" font-family="Inter, sans-serif">
+<text x="0" y="24">$2,800</text>
+<text x="0" y="81">$2,600</text>
+<text x="0" y="138">$2,400</text>
+<text x="0" y="195">$2,200</text>
+<text x="38" y="270">Oct 26</text>
+<text x="165" y="270">27</text>
+<text x="289" y="270">28</text>
+<text x="412" y="270">29</text>
+<text x="535" y="270">30</text>
+<text x="652" y="270">Nov 2</text>
+<text x="783" y="270">3</text>
+</g>
+<polygon points="50,37 173,37 297,37 420,37 543,192 667,76 790,140 790,250 50,250" fill="#F98309" fill-opacity="0.08"></polygon>
+<polyline points="50,37 173,37 297,37 420,37 543,192 667,76 790,140" fill="none" stroke="#F98309" stroke-width="2" stroke-linejoin="round"></polyline>
+<circle cx="420" cy="37" r="5" fill="#1A1A1D" stroke="#58A6FF" stroke-width="2"></circle>
+<circle cx="543" cy="192" r="5" fill="#E8E8EA"></circle>
+<circle cx="667" cy="76" r="5" fill="#1A1A1D" stroke="#58A6FF" stroke-width="2"></circle>
+<circle cx="790" cy="140" r="5" fill="#E8E8EA"></circle>
+<g font-size="11" font-family="'JetBrains Mono', monospace" fill="#C2C2C8">
+<text x="392" y="58">TSLA C</text>
+<text x="552" y="214">stop −44.2%</text>
+<text x="640" y="62">ORCL P</text>
+<text x="700" y="160">trail −4.2%</text>
+</g>
+</svg>
+<div style="font-size: 11px; color: #9A9AA2; margin-top: 4px">Shape approximated from Equity History · trading days only, weekends skipped</div>
+</div>
+</div>
+
+<div style="flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+<div style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Drawdown</h2>
+<span style="font-size: 11px; color: #9A9AA2">max <span style="color: #F85149; font-weight: 600">19.84%</span></span>
+</div>
+<div style="padding: 10px 14px">
+<svg role="img" aria-label="Drawdown: zero until Oct 30, then 19.8 percent, recovering to 5 percent on Nov 2 and 13.2 percent on Nov 3" viewBox="0 0 400 130" style="width: 100%; height: auto; display: block">
+<g stroke="#26262B" stroke-width="1">
+<line x1="34" y1="15" x2="396" y2="15"></line>
+<line x1="34" y1="60" x2="396" y2="60"></line>
+<line x1="34" y1="105" x2="396" y2="105"></line>
+</g>
+<g fill="#9A9AA2" font-size="10" font-family="Inter, sans-serif">
+<text x="0" y="18">0%</text>
+<text x="0" y="63">−10%</text>
+<text x="0" y="108">−20%</text>
+<text x="34" y="124">Oct 26</text>
+<text x="360" y="124">Nov 3</text>
+</g>
+<polygon points="40,15 99,15 158,15 217,15 278,104 337,37 396,74 396,15" fill="#F85149" fill-opacity="0.16"></polygon>
+<polyline points="40,15 99,15 158,15 217,15 278,104 337,37 396,74" fill="none" stroke="#F85149" stroke-width="1.5" stroke-linejoin="round"></polyline>
+</svg>
+</div>
+</div>
+
+<div style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Daily P/L</h2>
+<span style="font-size: 11px; color: #9A9AA2">last 7 sessions</span>
+</div>
+<div style="padding: 10px 14px">
+<svg role="img" aria-label="Daily profit and loss: no change Oct 26 to 29, minus about 544 dollars Oct 30, plus about 408 Nov 2, minus 225 Nov 3" viewBox="0 0 400 130" style="width: 100%; height: auto; display: block">
+<line x1="20" y1="62" x2="396" y2="62" stroke="#3A3A40" stroke-width="1"></line>
+<g fill="#3A3A40">
+<rect x="27" y="61" width="26" height="2"></rect>
+<rect x="85" y="61" width="26" height="2"></rect>
+<rect x="143" y="61" width="26" height="2"></rect>
+<rect x="201" y="61" width="26" height="2"></rect>
+</g>
+<rect x="259" y="62" width="26" height="50" fill="#F85149"></rect>
+<rect x="317" y="25" width="26" height="37" fill="#3FB950"></rect>
+<rect x="375" y="62" width="21" height="21" fill="#F85149"></rect>
+<g font-size="10" font-family="'JetBrains Mono', monospace" fill="#C2C2C8">
+<text x="250" y="124">−$544</text>
+<text x="308" y="18">+$408</text>
+<text x="352" y="96">−$225</text>
+</g>
+</svg>
+</div>
+</div>
+</div>
+</section>
+
+<section style="display: flex; flex-wrap: wrap; gap: 12px">
+<div style="flex: 7 1 600px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Newsfeed <span style="font-weight: 400; color: #9A9AA2">· 686 articles · 201 high confidence</span></h2>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+<input type="search" aria-label="Search news by ticker, company or headline" placeholder="Search ticker, company, headline" value="{{qNews}}" onChange="{{onNewsQ}}" style="font: inherit; font-size: 12px; color: #E8E8EA; background: #121214; border: 1px solid #36363C; border-radius: 4px; padding: 6px 10px; width: 220px">
+<div role="group" aria-label="Scope" style="display: flex; gap: 4px">
+<button type="button" style="font: inherit; font-size: 11px; padding: 4px 9px; border-radius: 4px; border: 1px solid #5A3510; background: #24180B; color: #F98309; cursor: pointer">Company</button>
+<button type="button" style="font: inherit; font-size: 11px; padding: 4px 9px; border-radius: 4px; border: 1px solid #2C2C31; background: transparent; color: #9A9AA2; cursor: pointer">Sector</button>
+<button type="button" style="font: inherit; font-size: 11px; padding: 4px 9px; border-radius: 4px; border: 1px solid #2C2C31; background: transparent; color: #9A9AA2; cursor: pointer">Macro</button>
+<button type="button" style="font: inherit; font-size: 11px; padding: 4px 9px; border-radius: 4px; border: 1px solid #2C2C31; background: transparent; color: #9A9AA2; cursor: pointer">High conf.</button>
+</div>
+</div>
+</div>
+<div style="overflow-x: auto">
+<table style="width: 100%; min-width: 620px; border-collapse: collapse; font-size: 12px">
+<thead>
+<tr style="text-align: left; color: #9A9AA2; font-size: 11px; background: #18181B">
+<th scope="col" style="font-weight: 500; padding: 7px 14px; border-bottom: 1px solid #2C2C31; white-space: nowrap">Time</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Ticker</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Headline</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Source</th>
+<th scope="col" style="font-weight: 500; padding: 7px 14px 7px 8px; border-bottom: 1px solid #2C2C31">Evidence</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{newsShown}}" as="n" hint-placeholder-count="5">
+<tr>
+<td style="padding: 8px 14px; border-bottom: 1px solid #232327; color: #9A9AA2; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 11px">{{n.time}}</td>
+<td style="padding: 8px; border-bottom: 1px solid #232327"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; color: #FFB066; background: #24180B; padding: 2px 6px; border-radius: 3px">{{n.ticker}}</span></td>
+<td style="padding: 8px; border-bottom: 1px solid #232327; color: #E8E8EA">{{n.headline}}</td>
+<td style="padding: 8px; border-bottom: 1px solid #232327; color: #9A9AA2; white-space: nowrap">{{n.source}}</td>
+<td style="padding: 8px 14px 8px 8px; border-bottom: 1px solid #232327; white-space: nowrap">
+<span style="display: inline-flex; align-items: center; gap: 6px"><span aria-hidden="true" style="width: 40px; height: 4px; border-radius: 2px; background: #2C2C31; display: inline-block; position: relative; overflow: hidden"><span style="{{n.bar}}"></span></span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px">{{n.score}}</span></span>
+</td>
+</tr>
+</sc-for>
+<sc-if value="{{noNews}}" hint-placeholder-val="{{ false }}">
+<tr><td colspan="5" style="padding: 16px 14px; color: #9A9AA2">No articles match “{{qNews}}” in the loaded window.</td></tr>
+</sc-if>
+</tbody>
+</table>
+</div>
+</div>
+
+<div style="flex: 5 1 420px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Decisions <span style="font-weight: 400; color: #9A9AA2">· 59 today · 1 call · 58 no trade</span></h2>
+<div style="display: flex; align-items: center; gap: 10px">
+<input type="search" aria-label="Search decisions by ticker or company" placeholder="Search ticker or company" value="{{qDec}}" onChange="{{onDecQ}}" style="font: inherit; font-size: 12px; color: #E8E8EA; background: #121214; border: 1px solid #36363C; border-radius: 4px; padding: 6px 10px; width: 180px">
+<a href="#" style="font-size: 11px; text-decoration: none">Open</a>
+</div>
+</div>
+<div style="overflow-x: auto">
+<table style="width: 100%; min-width: 380px; border-collapse: collapse; font-size: 12px">
+<thead>
+<tr style="text-align: left; color: #9A9AA2; font-size: 11px; background: #18181B">
+<th scope="col" style="font-weight: 500; padding: 7px 14px; border-bottom: 1px solid #2C2C31">Time</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Ticker</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Strategist</th>
+<th scope="col" style="font-weight: 500; padding: 7px 14px 7px 8px; border-bottom: 1px solid #2C2C31">Manager</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{decShown}}" as="d" hint-placeholder-count="6">
+<tr>
+<td style="padding: 8px 14px; border-bottom: 1px solid #232327; color: #9A9AA2; font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: nowrap">{{d.time}}</td>
+<td style="padding: 8px; border-bottom: 1px solid #232327"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; color: #FFB066; background: #24180B; padding: 2px 6px; border-radius: 3px">{{d.ticker}}</span></td>
+<td style="padding: 8px; border-bottom: 1px solid #232327"><span style="{{d.sStyle}}">{{d.s}}</span></td>
+<td style="padding: 8px 14px 8px 8px; border-bottom: 1px solid #232327"><span style="{{d.mStyle}}">{{d.m}}</span></td>
+</tr>
+</sc-for>
+<sc-if value="{{noDec}}" hint-placeholder-val="{{ false }}">
+<tr><td colspan="4" style="padding: 16px 14px; color: #9A9AA2">No decisions for “{{qDec}}” today · <a href="#" style="text-decoration: none">search all history</a></td></tr>
+</sc-if>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+
+<section style="display: flex; flex-wrap: wrap; gap: 12px">
+<div style="flex: 7 1 600px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Orders <span style="font-weight: 400; color: #9A9AA2">· 5 recorded</span></h2>
+<a href="#" style="font-size: 11px; text-decoration: none">Export CSV</a>
+</div>
+<div style="overflow-x: auto">
+<table style="width: 100%; min-width: 620px; border-collapse: collapse; font-size: 12px">
+<thead>
+<tr style="text-align: left; color: #9A9AA2; font-size: 11px; background: #18181B">
+<th scope="col" style="font-weight: 500; padding: 7px 14px; border-bottom: 1px solid #2C2C31">Submitted</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Contract</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Type</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Fill</th>
+<th scope="col" style="font-weight: 500; padding: 7px 14px 7px 8px; border-bottom: 1px solid #2C2C31">Status</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{orders}}" as="o" hint-placeholder-count="5">
+<tr style="{{o.rowStyle}}">
+<td style="padding: 8px 14px; border-bottom: 1px solid #232327; color: #9A9AA2; font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: nowrap">{{o.time}}</td>
+<td style="padding: 8px; border-bottom: 1px solid #232327; font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: nowrap">{{o.contract}}</td>
+<td style="padding: 8px; border-bottom: 1px solid #232327">{{o.type}}</td>
+<td style="padding: 8px; border-bottom: 1px solid #232327; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9A9AA2">{{o.fill}}</td>
+<td style="padding: 8px 14px 8px 8px; border-bottom: 1px solid #232327"><span style="{{o.statusStyle}}">{{o.status}}</span></td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</div>
+
+<div style="flex: 5 1 420px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">News lag vs. option P/L</h2>
+<span style="font-size: 11px; color: #9A9AA2">median lag 3.9 h</span>
+</div>
+<div style="padding: 10px 14px">
+<svg role="img" aria-label="Scatter of news-to-order lag against option P/L for four closed trades: NVDA 1.5 hours minus 30 percent, NVDA 2.1 hours plus 113 percent, NVDA 2.2 hours minus 35 percent, SKHY 2.7 hours minus 24 percent" viewBox="0 0 400 220" style="width: 100%; height: auto; display: block">
+<g stroke="#26262B" stroke-width="1">
+<line x1="40" y1="20" x2="390" y2="20"></line>
+<line x1="40" y1="80" x2="390" y2="80"></line>
+<line x1="40" y1="190" x2="390" y2="190"></line>
+<line x1="210" y1="20" x2="210" y2="190" stroke-dasharray="3 3"></line>
+</g>
+<line x1="40" y1="140" x2="390" y2="140" stroke="#3A3A40" stroke-width="1"></line>
+<g fill="#9A9AA2" font-size="10" font-family="Inter, sans-serif">
+<text x="0" y="24">+100%</text>
+<text x="10" y="84">+40%</text>
+<text x="18" y="144">0%</text>
+<text x="4" y="194">−50%</text>
+<text x="40" y="208">0 h</text>
+<text x="200" y="208">3 h</text>
+<text x="372" y="208">6 h</text>
+<text x="214" y="32">1 h target?</text>
+</g>
+<circle cx="125" cy="170" r="5" fill="#F85149"></circle>
+<circle cx="159" cy="27" r="5" fill="#3FB950"></circle>
+<circle cx="165" cy="175" r="5" fill="#F85149"></circle>
+<circle cx="193" cy="164" r="5" fill="#F85149"></circle>
+<g font-size="10" font-family="'JetBrains Mono', monospace" fill="#C2C2C8">
+<text x="90" y="160">NVDA</text>
+<text x="168" y="31">NVDA</text>
+<text x="200" y="168">SKHY</text>
+</g>
+</svg>
+<div style="font-size: 11px; color: #9A9AA2; margin-top: 4px">4 of 21 dated entries shown · 0 of 21 entered within 1 h</div>
+</div>
+</div>
+</section>
+
+<section style="display: flex; flex-wrap: wrap; gap: 12px">
+<div style="flex: 1 1 300px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="padding: 8px 14px; border-bottom: 1px solid #2C2C31"><h2 style="margin: 0; font-size: 12px; font-weight: 600">Holdings</h2></div>
+<div style="padding: 14px; color: #9A9AA2; font-size: 12px">No open positions · 100% cash · $2,379.77</div>
+</div>
+<div style="flex: 1 1 300px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="padding: 8px 14px; border-bottom: 1px solid #2C2C31"><h2 style="margin: 0; font-size: 12px; font-weight: 600">Data pipeline · 7 days</h2></div>
+<div style="padding: 12px 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<div><div style="font-size: 11px; color: #9A9AA2">Extraction</div><div style="font-weight: 600; font-size: 14px">100%</div></div>
+<div><div style="font-size: 11px; color: #9A9AA2">URLs saved</div><div style="font-weight: 600; font-size: 14px">4,402</div></div>
+<div><div style="font-size: 11px; color: #9A9AA2">Sources</div><div style="font-weight: 600; font-size: 14px">4</div></div>
+</div>
+</div>
+<div style="flex: 1 1 300px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="padding: 8px 14px; border-bottom: 1px solid #2C2C31"><h2 style="margin: 0; font-size: 12px; font-weight: 600">Safeguards</h2></div>
+<div style="padding: 12px 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<div><div style="font-size: 11px; color: #9A9AA2">V2 enforcing</div><div style="font-weight: 600; font-size: 14px">0 / 8</div></div>
+<div><div style="font-size: 11px; color: #9A9AA2">Downgraded</div><div style="font-weight: 600; font-size: 14px">3</div></div>
+<div><div style="font-size: 11px; color: #9A9AA2">Thesis flip</div><div style="font-weight: 600; font-size: 14px">12%</div></div>
+</div>
+</div>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"state":{"editor":"enum","options":["blocked","traded","watchlist"],"default":"blocked","section":"Latest decision"},"$preview":{"width":1440,"height":1900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var v = 'font-size: 15px; font-weight: 600; margin-top: 2px; ';
+    var neu = v + 'color: #E8E8EA';
+    var neg = v + 'color: #F85149';
+    var tag = 'font-size: 11px; padding: 2px 7px; border-radius: 3px; ';
+    var cand = tag + 'background: #12261A; color: #56D364';
+    var none = tag + 'background: #232327; color: #C2C2C8';
+    var watch = tag + 'background: #24180B; color: #FFB066';
+    var call = tag + 'background: #0E1F33; color: #79B8FF';
+    var filled = tag + 'background: #232327; color: #C2C2C8';
+    var cancel = tag + 'background: transparent; color: #9A9AA2; border: 1px solid #2C2C31';
+    function bar(s) { return 'position: absolute; left: 0; top: 0; bottom: 0; width: ' + Math.round(s * 100) + '%; background: #F98309'; }
+    var pill = 'font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; ';
+    var variants = {
+      blocked: {
+        when: 'Nov 3, 3:38 PM', ticker: 'PBF', company: 'PBF Energy',
+        s: 'Candidate', sStyle: cand, m: 'No trade · medium', mStyle: none,
+        status: 'Not submitted', statusStyle: pill + 'background: #232327; color: #C2C2C8; border: 1px solid #36363C',
+        reasonLabel: 'Manager’s reason',
+        reason: 'PBF’s Q3 beat is real (EPS $12.54 vs $9.37 consensus, revenue $12.13B vs $10.92B, operating margin 17.3% vs 3.7%), and sector/industry flows are net positive. But the evidence_thesis_check is deferred (expectation baseline unverified), contradictions are present, and live technicals are weak: price below VWAP and 20EMA, RSI 49, negative MACD, relative volume 0.69, and 20d underperformance of XLE by ~10.6%. With VIX in the 87th percentile, high-vol regime, ~77% IV and no IV percentile/term structure, call premium is unattractive for a chase. Wait for confirmation.',
+        hasFactors: true,
+        pros: ['EPS beat', 'Revenue beat', 'Margin 17.3% vs 3.7%', 'Sector flows +'],
+        cons: ['Evidence check deferred', 'Below VWAP & 20EMA', 'RSI 49 · MACD −', 'Rel. vol 0.69', '−10.6% vs XLE', 'IV ~77%'],
+        hasContract: false, noContract: true,
+        noContractWhy: 'Stopped at the manager. Evidence continuation gate also blocked (shadow).'
+      },
+      traded: {
+        when: 'Nov 2, 12:30 PM', ticker: 'ORCL', company: 'Oracle',
+        s: 'Candidate', sStyle: cand, m: 'Put · [confidence]', mStyle: tag + 'background: #2D1617; color: #FF9B94',
+        status: 'Filled', statusStyle: pill + 'background: #12261A; color: #56D364; border: 1px solid #1F4A2C',
+        reasonLabel: 'Manager’s reason',
+        reason: '[The manager’s full reasoning for the ORCL put, shown verbatim from the stored decision.]',
+        hasFactors: false, pros: [], cons: [],
+        hasContract: true, noContract: false,
+        contract: 'ORCL 20 Nov $121P', type: 'Put · single leg', expiry: 'Nov 20 · 18 DTE', qty: '[n]', fill: '[price]',
+        tp: '+35%', sl: '−25%', contractNote: 'Exits from the 12–20 DTE bucket in Risk Settings',
+        noContractWhy: ''
+      },
+      watchlist: {
+        when: '[time]', ticker: 'NVDA', company: 'NVIDIA',
+        s: 'Watchlist · low', sStyle: watch, m: 'Not asked', mStyle: none,
+        status: 'Not submitted', statusStyle: pill + 'background: #232327; color: #C2C2C8; border: 1px solid #36363C',
+        reasonLabel: 'Why the manager wasn’t asked',
+        reason: 'The strategist answered watchlist with low confidence, so the manager was not asked.',
+        hasFactors: false, pros: [], cons: [],
+        hasContract: false, noContract: true,
+        noContractWhy: 'Stopped at the strategist.'
+      }
+    };
+    var ld = variants[this.props.state] || variants.blocked;
+    var out = {
+      ld: ld,
+      stats: [
+        { label: 'Equity', value: '$2,379.77', valStyle: neu },
+        { label: 'Day P/L', value: '−$225.02', valStyle: neg },
+        { label: 'Return', value: '−13.17%', valStyle: neg },
+        { label: 'Unrealized', value: '$0.00', valStyle: neu },
+        { label: 'Holdings', value: '$0.00', valStyle: neu },
+        { label: 'Buying power', value: '$2,379.77', valStyle: neu },
+        { label: 'Max drawdown', value: '19.84%', valStyle: neg },
+        { label: 'Win rate', value: '0 / 2', valStyle: neu },
+        { label: 'Expectancy', value: '−25.2%', valStyle: neg },
+        { label: 'Regime', value: 'High vol', valStyle: neu }
+      ],
+      news: [
+        { time: 'Nov 3 17:30', ticker: 'ORCL', headline: 'If You Invested $1000 In Oracle Stock 20 Years Ago, You Would Have This Much Today', source: 'Benzinga', score: '—', bar: bar(0) },
+        { time: 'Oct 29 16:04', ticker: 'INTC', headline: 'Intel stock plunges 20% as chipmaker blames PC slowdown for weak guidance', source: 'CNBC', score: '0.81', bar: bar(0.81) },
+        { time: 'Oct 28 19:53', ticker: 'GOOGL', headline: 'As Waymo expands overseas, it remains a niche cash-burning business', source: 'CNBC', score: '0.81', bar: bar(0.81) },
+        { time: 'Oct 27 19:34', ticker: 'SKHY', headline: 'SK Hynix third-quarter profit sharply beats estimates on AI memory boost', source: 'CNBC', score: '0.79', bar: bar(0.79) },
+        { time: 'Oct 27 06:19', ticker: 'UPS', headline: 'UPS beats quarterly expectations, raises full-year guidance again', source: 'CNBC', score: '0.79', bar: bar(0.79) }
+      ],
+      decisions: [
+        { time: '15:38', ticker: 'PBF', s: 'Candidate', sStyle: cand, m: 'No trade', mStyle: none },
+        { time: '15:36', ticker: 'SUN', s: '[verdict]', sStyle: none, m: 'No trade', mStyle: none },
+        { time: '15:35', ticker: 'DINO', s: '[verdict]', sStyle: none, m: 'No trade', mStyle: none },
+        { time: '15:33', ticker: 'VLO', s: '[verdict]', sStyle: none, m: 'No trade', mStyle: none },
+        { time: '15:32', ticker: 'PSX', s: '[verdict]', sStyle: none, m: 'No trade', mStyle: none },
+        { time: '[time]', ticker: 'NVDA', s: 'Watchlist', sStyle: watch, m: 'Not asked', mStyle: none }
+      ],
+      orders: [
+        { time: 'Nov 3 09:41', contract: 'ORCL 20 Nov $121P', type: 'Trailing profit stop · sell', fill: '[price]', status: 'Filled', statusStyle: filled, rowStyle: '' },
+        { time: 'Nov 3 09:31', contract: 'ORCL 20 Nov $121P', type: 'Trailing profit stop · sell', fill: '—', status: 'Canceled', statusStyle: cancel, rowStyle: 'opacity: 0.6' },
+        { time: 'Nov 2 12:30', contract: 'ORCL 20 Nov $121P', type: 'Entry · buy put', fill: '[price]', status: 'Filled', statusStyle: filled, rowStyle: '' },
+        { time: 'Oct 30 09:32', contract: 'TSLA 27 Nov $415C', type: 'Stop loss · sell', fill: '[price]', status: 'Filled', statusStyle: filled, rowStyle: '' },
+        { time: 'Oct 29 11:21', contract: 'TSLA 27 Nov $415C', type: 'Entry · buy call', fill: '[price]', status: 'Filled', statusStyle: filled, rowStyle: '' }
+      ]
+    };
+    var st = this.state || {};
+    var self = this;
+    var co = { ORCL: 'Oracle', INTC: 'Intel', GOOGL: 'Alphabet Google Waymo', SKHY: 'SK Hynix', UPS: 'United Parcel Service', PBF: 'PBF Energy', SUN: 'Sunoco', DINO: 'HF Sinclair', VLO: 'Valero Energy', PSX: 'Phillips 66', NVDA: 'NVIDIA' };
+    var qn = String(st.qNews || '').toLowerCase().trim();
+    var qd = String(st.qDec || '').toLowerCase().trim();
+    function hit(q, fields) {
+      if (!q) return true;
+      for (var i = 0; i < fields.length; i++) {
+        if (String(fields[i] || '').toLowerCase().indexOf(q) !== -1) return true;
+      }
+      return false;
+    }
+    out.newsShown = out.news.filter(function (n) { return hit(qn, [n.ticker, co[n.ticker], n.headline, n.source]); });
+    out.decShown = out.decisions.filter(function (d) { return hit(qd, [d.ticker, co[d.ticker]]); });
+    out.noNews = out.newsShown.length === 0;
+    out.noDec = out.decShown.length === 0;
+    out.qNews = st.qNews || '';
+    out.qDec = st.qDec || '';
+    out.onNewsQ = function (e) { self.setState({ qNews: e.target.value }); };
+    out.onDecQ = function (e) { self.setState({ qDec: e.target.value }); };
+    return out;
+  }
+}
+</script>
+</body>
+</html>

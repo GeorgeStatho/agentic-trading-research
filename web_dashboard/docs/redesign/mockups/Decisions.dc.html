@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Decisions</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#121214}
+a{color:#F98309}a:hover{color:#FFA347}
+summary{cursor:pointer}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #121214; color: #E8E8EA; font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45; font-variant-numeric: tabular-nums">
+
+<header style="border-bottom: 1px solid #2C2C31; background: #161618">
+<div style="max-width: 1360px; margin: 0 auto; padding: 12px 32px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 32px">
+<div style="font-size: 17px; font-weight: 700; letter-spacing: -0.01em">Agentic Trading Research</div>
+<nav aria-label="Main" style="display: flex; flex-wrap: wrap; gap: 4px; flex: 1 1 auto">
+<a href="#" style="text-decoration: none; padding: 8px 12px; border-radius: 8px; color: #9A9AA2; font-weight: 500">Live</a>
+<a href="#" style="text-decoration: none; padding: 8px 12px; border-radius: 8px; background: #232327; color: #E8E8EA; font-weight: 600">Decisions</a>
+<a href="#" style="text-decoration: none; padding: 8px 12px; border-radius: 8px; color: #9A9AA2; font-weight: 500">Research</a>
+<a href="#" style="text-decoration: none; padding: 8px 12px; border-radius: 8px; color: #9A9AA2; font-weight: 500">System</a>
+<a href="#" style="text-decoration: none; padding: 8px 12px; border-radius: 8px; color: #9A9AA2; font-weight: 500">Settings</a>
+</nav>
+<span style="font-size: 12px; font-weight: 600; color: #FBBF24; border: 1px solid #5B4614; background: #2A2210; padding: 4px 10px; border-radius: 999px">Paper · Alpaca</span>
+</div>
+<div style="max-width: 1360px; margin: 0 auto; padding: 0 32px; display: flex; gap: 24px; flex-wrap: wrap">
+<a href="#" style="text-decoration: none; padding: 10px 0; color: #E8E8EA; font-weight: 600; border-bottom: 2px solid #F98309">Decisions</a>
+<a href="#" style="text-decoration: none; padding: 10px 0; color: #9A9AA2; font-weight: 500; border-bottom: 2px solid transparent">News</a>
+<a href="#" style="text-decoration: none; padding: 10px 0; color: #9A9AA2; font-weight: 500; border-bottom: 2px solid transparent">Exposure map</a>
+</div>
+</header>
+
+<div style="max-width: 1360px; margin: 0 auto; padding: 24px 32px 48px; display: flex; flex-direction: column; gap: 16px">
+
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px">
+<div>
+<h1 style="margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em">Decisions</h1>
+<div style="font-size: 13px; color: #9A9AA2; margin-top: 2px">Every proposal with its frozen evidence and what happened next · last run Nov 3, 3:38 PM · read-only</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px">
+<span style="padding: 6px 12px; border-radius: 8px; background: #1A1A1D; border: 1px solid #2C2C31"><b>59</b> <span style="color: #9A9AA2">evaluated</span></span>
+<span style="padding: 6px 12px; border-radius: 8px; background: #1A1A1D; border: 1px solid #2C2C31"><b>1</b> <span style="color: #9A9AA2">call</span></span>
+<span style="padding: 6px 12px; border-radius: 8px; background: #1A1A1D; border: 1px solid #2C2C31"><b>0</b> <span style="color: #9A9AA2">put</span></span>
+<span style="padding: 6px 12px; border-radius: 8px; background: #1A1A1D; border: 1px solid #2C2C31"><b>58</b> <span style="color: #9A9AA2">no trade</span></span>
+<span style="padding: 6px 12px; border-radius: 8px; background: #1A1A1D; border: 1px solid #2C2C31"><b>0</b> <span style="color: #9A9AA2">executed</span></span>
+</div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 12px; border-radius: 12px; background: #161618; border: 1px solid #2C2C31">
+<label style="display: flex; flex-direction: column; gap: 4px; flex: 1 1 260px; font-size: 12px; color: #9A9AA2">Search
+<input type="search" placeholder="Ticker, company, or reason" style="font: inherit; font-size: 14px; color: #E8E8EA; background: #121214; border: 1px solid #36363C; border-radius: 8px; padding: 9px 12px">
+</label>
+<div role="group" aria-label="Verdict" style="display: flex; gap: 4px; flex-wrap: wrap">
+<button type="button" style="font: inherit; font-size: 13px; padding: 9px 12px; border-radius: 8px; border: 1px solid #4E4E56; background: #232327; color: #E8E8EA; cursor: pointer">All</button>
+<button type="button" style="font: inherit; font-size: 13px; padding: 9px 12px; border-radius: 8px; border: 1px solid #2C2C31; background: transparent; color: #C2C2C8; cursor: pointer">Calls</button>
+<button type="button" style="font: inherit; font-size: 13px; padding: 9px 12px; border-radius: 8px; border: 1px solid #2C2C31; background: transparent; color: #C2C2C8; cursor: pointer">Puts</button>
+<button type="button" style="font: inherit; font-size: 13px; padding: 9px 12px; border-radius: 8px; border: 1px solid #2C2C31; background: transparent; color: #C2C2C8; cursor: pointer">No trade</button>
+</div>
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #9A9AA2">Stopped at
+<select style="font: inherit; font-size: 14px; color: #E8E8EA; background: #121214; border: 1px solid #36363C; border-radius: 8px; padding: 9px 12px">
+<option>Any stage</option>
+<option>Strategist</option>
+<option>Manager</option>
+<option>Safeguard</option>
+</select>
+</label>
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #9A9AA2">When
+<select style="font: inherit; font-size: 14px; color: #E8E8EA; background: #121214; border: 1px solid #36363C; border-radius: 8px; padding: 9px 12px">
+<option>Today</option>
+<option>Last 7 days</option>
+<option>All history</option>
+</select>
+</label>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+
+<section aria-label="Decision list" style="flex: 1 1 320px; min-width: 0; max-width: 100%; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 12px; padding: 8px">
+<div style="display: flex; justify-content: space-between; padding: 8px 10px; font-size: 12px; color: #9A9AA2"><span>59 decisions · newest first</span><span>Today</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
+<button type="button" style="{{r.rowStyle}}">
+<span style="display: flex; justify-content: space-between; gap: 8px; align-items: baseline">
+<span><span style="font-weight: 600">{{r.ticker}}</span> <span style="font-size: 12px; color: #9A9AA2">{{r.company}}</span></span>
+<span style="font-size: 12px; color: #9A9AA2; white-space: nowrap">{{r.time}}</span>
+</span>
+<span style="display: flex; align-items: center; gap: 4px; margin-top: 6px">
+<span style="{{r.sStyle}}">{{r.s}}</span>
+<span aria-hidden="true" style="color: #62626A">→</span>
+<span style="{{r.mStyle}}">{{r.m}}</span>
+</span>
+<span style="display: block; font-size: 12px; color: #C2C2C8; margin-top: 6px">{{r.why}}</span>
+</button>
+</sc-for>
+</div>
+</section>
+
+<article aria-label="Decision detail" style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+
+<div style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 12px; padding: 20px 24px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: flex-start">
+<div>
+<h2 style="margin: 0; font-size: 22px; font-weight: 700">PBF <span style="color: #9A9AA2; font-weight: 500">· No trade</span></h2>
+<div style="font-size: 13px; color: #9A9AA2; margin-top: 2px">PBF Energy · Nov 3, 2026, 3:38 PM · snapshot #3245</div>
+<div style="font-size: 12px; color: #9A9AA2; margin-top: 4px; font-family: 'JetBrains Mono', monospace">deepseek/deepseek-v4.1-flash-1017:nitro</div>
+</div>
+<div style="display: flex; gap: 6px; flex-wrap: wrap">
+<span style="font-size: 12px; padding: 4px 10px; border-radius: 999px; background: #232327; color: #C2C2C8; border: 1px solid #36363C">Medium confidence</span>
+<span style="font-size: 12px; padding: 4px 10px; border-radius: 999px; background: #232327; color: #C2C2C8; border: 1px solid #36363C">Not executed</span>
+</div>
+</div>
+
+<ol aria-label="Decision path" style="list-style: none; margin: 20px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px">
+<li style="padding: 12px; border-radius: 10px; background: #161618; border: 1px solid #1C4A33">
+<div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #86EFAC"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 999px; background: #4ADE80"></span>Passed</div>
+<div style="font-weight: 600; margin-top: 4px">News</div>
+<div style="font-size: 12px; color: #9A9AA2">[n] articles cited</div>
+</li>
+<li style="padding: 12px; border-radius: 10px; background: #161618; border: 1px solid #1C4A33">
+<div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #86EFAC"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 999px; background: #4ADE80"></span>Passed</div>
+<div style="font-weight: 600; margin-top: 4px">Strategist</div>
+<div style="font-size: 12px; color: #9A9AA2">Trade candidate</div>
+</li>
+<li style="padding: 12px; border-radius: 10px; background: #232327; border: 1px solid #9A9AA2">
+<div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #E8E8EA; font-weight: 600"><span aria-hidden="true" style="font-size: 13px; line-height: 1">×</span>Stopped here</div>
+<div style="font-weight: 600; margin-top: 4px">Manager</div>
+<div style="font-size: 12px; color: #C2C2C8">No trade, wait for confirmation</div>
+</li>
+<li style="padding: 12px; border-radius: 10px; background: #161618; border: 1px dashed #36363C">
+<div style="font-size: 12px; color: #9A9AA2">Also blocked</div>
+<div style="font-weight: 600; margin-top: 4px; color: #C2C2C8">Safeguards</div>
+<div style="font-size: 12px; color: #9A9AA2">Evidence gate</div>
+</li>
+<li style="padding: 12px; border-radius: 10px; background: #161618; border: 1px dashed #36363C">
+<div style="font-size: 12px; color: #9A9AA2">Not reached</div>
+<div style="font-weight: 600; margin-top: 4px; color: #C2C2C8">Order</div>
+<div style="font-size: 12px; color: #9A9AA2">No contract chosen</div>
+</li>
+</ol>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div style="flex: 1 1 320px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 12px; padding: 20px 24px">
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px">
+<h3 style="margin: 0; font-size: 15px; font-weight: 600">Strategist</h3>
+<span style="font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #10261C; color: #86EFAC; border: 1px solid #1C4A33">Candidate · medium</span>
+</div>
+<ul style="margin: 12px 0 0; padding-left: 18px; color: #C2C2C8; display: flex; flex-direction: column; gap: 6px; font-size: 13px">
+<li>Q3 adj. EPS $12.78 on $12.1B revenue, a sharp refining-driven beat</li>
+<li>Tight fuel supply and capacity limits support refining margins</li>
+<li>~3.4× earnings vs ~12.6× industry; muted reaction may underprice the beat</li>
+</ul>
+<div style="font-size: 12px; color: #9A9AA2; margin-top: 14px">Risks it flagged</div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px">
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #232327; color: #C2C2C8">Crude / freight spikes</span>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #232327; color: #C2C2C8">Peace-talk de-risking</span>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #232327; color: #C2C2C8">Valero Gulf Coast capacity</span>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #232327; color: #C2C2C8">Elevated volatility</span>
+</div>
+<details style="margin-top: 14px; font-size: 13px; color: #C2C2C8">
+<summary style="color: #F98309">Full strategist text</summary>
+<p style="margin: 8px 0 0">[Full stored strategist output]</p>
+</details>
+</div>
+
+<div style="flex: 1 1 320px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 12px; padding: 20px 24px">
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px">
+<h3 style="margin: 0; font-size: 15px; font-weight: 600">Manager</h3>
+<span style="font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #232327; color: #C2C2C8; border: 1px solid #36363C">No trade · medium</span>
+</div>
+<p style="margin: 12px 0 0; font-size: 13px; color: #C2C2C8">The beat is real, but the setup isn't confirmed and the premium is too rich to chase. Wait for confirmation.</p>
+<div style="font-size: 12px; color: #9A9AA2; margin-top: 14px">For</div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px">
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #10261C; color: #86EFAC">EPS $12.54 vs $9.37 est.</span>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #10261C; color: #86EFAC">Rev $12.13B vs $10.92B</span>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #10261C; color: #86EFAC">Op. margin 17.3% vs 3.7%</span>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #10261C; color: #86EFAC">Sector flows positive</span>
+</div>
+<div style="font-size: 12px; color: #9A9AA2; margin-top: 12px">Against</div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px">
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #2A1A1A; color: #FCA5A5">Evidence check deferred</span>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #2A1A1A; color: #FCA5A5">Below VWAP &amp; 20EMA</span>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #2A1A1A; color: #FCA5A5">RSI 49 · MACD negative</span>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #2A1A1A; color: #FCA5A5">Rel. volume 0.69</span>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #2A1A1A; color: #FCA5A5">−10.6% vs XLE (20d)</span>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #2A1A1A; color: #FCA5A5">VIX 87th pct</span>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #2A1A1A; color: #FCA5A5">IV ~77%, no IV rank</span>
+</div>
+<details style="margin-top: 14px; font-size: 13px; color: #C2C2C8">
+<summary style="color: #F98309">Full manager text</summary>
+<p style="margin: 8px 0 0">[Full stored manager output]</p>
+</details>
+</div>
+</div>
+
+<div style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 12px; padding: 20px 24px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px">
+<h3 style="margin: 0; font-size: 15px; font-weight: 600">What if it had traded?</h3>
+<span style="font-size: 12px; color: #9A9AA2">Resolves Nov 10 · 5 trading days</span>
+</div>
+<p style="margin: 4px 0 16px; font-size: 13px; color: #9A9AA2">Scores the block once the window closes. Feeds the gate's promotion proof in V2 rollout.</p>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
+<div style="padding: 14px; border-radius: 10px; background: #161618; border: 1px solid #232327">
+<div style="font-size: 12px; color: #9A9AA2">PBF since decision</div>
+<div style="font-size: 20px; font-weight: 700; margin-top: 4px; color: #9A9AA2">[+x.x%]</div>
+<div style="font-size: 12px; color: #9A9AA2">1d [ ] · 3d [ ] · 5d [ ]</div>
+</div>
+<div style="padding: 14px; border-radius: 10px; background: #161618; border: 1px solid #232327">
+<div style="font-size: 12px; color: #9A9AA2">Hypothetical contract</div>
+<div style="font-size: 14px; font-weight: 600; margin-top: 6px; font-family: 'JetBrains Mono', monospace; color: #C2C2C8">PBF [exp] [strike]C</div>
+<div style="font-size: 12px; color: #9A9AA2">picked by your normal rules</div>
+</div>
+<div style="padding: 14px; border-radius: 10px; background: #161618; border: 1px solid #232327">
+<div style="font-size: 12px; color: #9A9AA2">Its P/L with your exits</div>
+<div style="font-size: 20px; font-weight: 700; margin-top: 4px; color: #9A9AA2">[±y%]</div>
+<div style="font-size: 12px; color: #9A9AA2">after slippage and fees</div>
+</div>
+<div style="padding: 14px; border-radius: 10px; background: #161618; border: 1px dashed #4E4E56">
+<div style="font-size: 12px; color: #9A9AA2">Verdict on the block</div>
+<div style="font-size: 16px; font-weight: 600; margin-top: 6px">Pending</div>
+<div style="font-size: 12px; color: #9A9AA2">then: saved money / cost money</div>
+</div>
+</div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div style="flex: 1 1 320px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 12px; padding: 20px 24px">
+<h3 style="margin: 0; font-size: 15px; font-weight: 600">Gates</h3>
+<div style="overflow-x: auto; margin-top: 8px">
+<table style="width: 100%; border-collapse: collapse; font-size: 13px">
+<thead>
+<tr style="text-align: left; color: #9A9AA2; font-size: 12px">
+<th scope="col" style="font-weight: 500; padding: 8px 8px 8px 0; border-bottom: 1px solid #2C2C31">Gate</th>
+<th scope="col" style="font-weight: 500; padding: 8px; border-bottom: 1px solid #2C2C31">Mode</th>
+<th scope="col" style="font-weight: 500; padding: 8px 0 8px 8px; border-bottom: 1px solid #2C2C31">Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="padding: 10px 8px 10px 0; border-bottom: 1px solid #232327">Evidence continuation<div style="font-size: 11px; color: #9A9AA2; font-family: 'JetBrains Mono', monospace">evidence-continuation-v2-provenance</div></td>
+<td style="padding: 10px 8px; border-bottom: 1px solid #232327; color: #C2C2C8">Shadow</td>
+<td style="padding: 10px 0 10px 8px; border-bottom: 1px solid #232327; font-weight: 600">Blocked</td>
+</tr>
+<tr>
+<td style="padding: 10px 8px 10px 0; border-bottom: 1px solid #232327">Market regime</td>
+<td style="padding: 10px 8px; border-bottom: 1px solid #232327; color: #C2C2C8">Shadow</td>
+<td style="padding: 10px 0 10px 8px; border-bottom: 1px solid #232327; color: #C2C2C8">High volatility · [result]</td>
+</tr>
+<tr>
+<td style="padding: 10px 8px 10px 0; border-bottom: 1px solid #232327; color: #9A9AA2">Contract and liquidity</td>
+<td style="padding: 10px 8px; border-bottom: 1px solid #232327; color: #9A9AA2">—</td>
+<td style="padding: 10px 0 10px 8px; border-bottom: 1px solid #232327; color: #9A9AA2">Not reached</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+
+<div style="flex: 1 1 320px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 12px; padding: 20px 24px">
+<h3 style="margin: 0; font-size: 15px; font-weight: 600">Evidence cited</h3>
+<p style="margin: 4px 0 8px; font-size: 12px; color: #9A9AA2">Each article with its age when the decision ran.</p>
+<div style="display: flex; flex-direction: column">
+<div style="padding: 10px 0; border-bottom: 1px solid #232327; display: flex; justify-content: space-between; gap: 12px">
+<div><div style="font-weight: 500">[Headline the strategist cited]</div><div style="font-size: 12px; color: #9A9AA2">[source] · [published time]</div></div>
+<span style="font-size: 12px; color: #C2C2C8; white-space: nowrap">[x.x h] old</span>
+</div>
+<div style="padding: 10px 0; border-bottom: 1px solid #232327; display: flex; justify-content: space-between; gap: 12px">
+<div><div style="font-weight: 500">[Headline the strategist cited]</div><div style="font-size: 12px; color: #9A9AA2">[source] · [published time]</div></div>
+<span style="font-size: 12px; color: #C2C2C8; white-space: nowrap">[x.x h] old</span>
+</div>
+</div>
+</div>
+</div>
+
+</article>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var base = 'font: inherit; text-align: left; display: block; width: 100%; padding: 12px; border-radius: 8px; cursor: pointer; color: #E8E8EA; ';
+    var sel = base + 'background: #232327; border: 1px solid #4E4E56';
+    var row = base + 'background: transparent; border: 1px solid transparent';
+    var chip = 'font-size: 11px; padding: 2px 8px; border-radius: 999px; ';
+    var cand = chip + 'background: #10261C; color: #86EFAC; border: 1px solid #1C4A33';
+    var neutral = chip + 'background: #232327; color: #C2C2C8; border: 1px solid #36363C';
+    var watch = chip + 'background: #2A2210; color: #FCD34D; border: 1px solid #5B4614';
+    var call = chip + 'background: #0F1B2E; color: #93C5FD; border: 1px solid #1E3A5F';
+    return {
+      rows: [
+        { ticker: 'PBF', company: 'PBF Energy', time: '3:38 PM', s: 'Candidate', sStyle: cand, m: 'No trade', mStyle: neutral, why: 'Evidence gate blocked · weak technicals · IV ~77%', rowStyle: sel },
+        { ticker: 'SUN', company: 'Sunoco LP', time: '3:36 PM', s: '[verdict]', sStyle: neutral, m: 'No trade', mStyle: neutral, why: '[top blocking reason]', rowStyle: row },
+        { ticker: 'DINO', company: 'HF Sinclair', time: '3:35 PM', s: '[verdict]', sStyle: neutral, m: 'No trade', mStyle: neutral, why: '[top blocking reason]', rowStyle: row },
+        { ticker: 'VLO', company: 'Valero Energy', time: '3:33 PM', s: '[verdict]', sStyle: neutral, m: 'No trade', mStyle: neutral, why: '[top blocking reason]', rowStyle: row },
+        { ticker: 'PSX', company: 'Phillips 66', time: '3:32 PM', s: '[verdict]', sStyle: neutral, m: 'No trade', mStyle: neutral, why: '[top blocking reason]', rowStyle: row },
+        { ticker: '[ticker]', company: 'today’s one call', time: '[time]', s: 'Candidate', sStyle: cand, m: 'Call', mStyle: call, why: '[safeguard result · why no fill]', rowStyle: row },
+        { ticker: 'NVDA', company: 'NVIDIA', time: '[time]', s: 'Watchlist', sStyle: watch, m: 'Not asked', mStyle: neutral, why: 'Strategist chose watchlist · low confidence', rowStyle: row }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
