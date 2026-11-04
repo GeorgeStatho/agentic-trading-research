@@ -23,6 +23,8 @@ export type NewsArticle = {
   source: string;
   source_url: string;
   published_at: string;
+  /** 0–1; null for articles the scorer has not reached. */
+  evidence_score?: number | null;
   analysis_status: 'analyzed' | 'processed_no_assessment' | 'pending';
   assessments: ArticleAssessment[];
 };
@@ -71,7 +73,7 @@ export type CompanyNewsPayload = {
   page_company_count: number;
   company_count: number;
   article_count: number;
-  /** Only the requested view's count is filled in; the others come back 0. */
+  /** Every scope's count; only the requested view's articles are sent. */
   section_article_counts: Record<ScopeView, number>;
   companies: CompanyNewsEntry[];
 };

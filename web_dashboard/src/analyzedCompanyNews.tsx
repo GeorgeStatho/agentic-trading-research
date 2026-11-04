@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 
 import { buildCardsForView, feedRows, getCompanyNews } from './companyNews';
 import type { ConfidenceLevel, FeedRow, NewsArticle, NewsQuery, ScopeView } from './companyNews';
-import { formatNumber, formatShortDateTime, sentenceCase } from './format';
+import { formatDecimal, formatNumber, formatShortDateTime, sentenceCase } from './format';
 import PageHeader from './pageHeader';
 import { searchFromHash } from './routes';
 import { Panel } from './ui/Panel';
@@ -46,6 +46,17 @@ function companies(value: number): string {
   return `${count(value)} ${value === 1 ? 'company' : 'companies'}`;
 }
 
+/** The article's evidence score (0–1) as a short bar with the number beside it. */
+function EvidenceBar({ score }: { score: number }) {
+  const label = formatDecimal(score);
+  return (
+    <span role="img" aria-label={`Evidence score ${label}`} title="Evidence score" className="flex items-center gap-1 font-mono text-[11px] text-dim">
+      <span className="h-1.5 w-10 rounded-sm bg-base-300"><span className="block h-full rounded-sm bg-info" style={{ width: `${Math.min(1, Math.max(0, score)) * 100}%` }} /></span>
+      {label}
+    </span>
+  );
+}
+
 function ArticleRow({ row }: { row: FeedRow }) {
   const { article } = row;
   const title = article.title || 'Untitled article';
@@ -58,6 +69,7 @@ function ArticleRow({ row }: { row: FeedRow }) {
           ? <a href={article.source_url} target="_blank" rel="noreferrer" className="min-w-48 flex-1 font-medium text-base-content hover:text-primary">{title}</a>
           : <span className="min-w-48 flex-1 font-medium">{title}</span>}
         <span className="text-[11px] text-dim">{article.source}</span>
+        {article.evidence_score != null ? <EvidenceBar score={article.evidence_score} /> : null}
       </div>
       {row.assessments.length ? row.assessments.map((assessment, index) => (
         <div key={index} className="flex flex-wrap items-baseline gap-x-2 text-xs">
@@ -93,7 +105,7 @@ function AnalyzedCompanyNewsPage() {
   const remaining = rows.length - shown;
   const scopes = SCOPES.map((scope) => ({
     value: scope.value,
-    label: scope.value === payload?.active_view
+    label: payload
       ? <>{scope.label} <span className="font-normal text-dim">{count(payload.section_article_counts[scope.value])}</span></>
       : scope.label,
   }));

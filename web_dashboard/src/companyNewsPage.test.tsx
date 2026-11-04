@@ -62,13 +62,23 @@ describe('Company news page', () => {
     expect(within(toolbar).getByRole('combobox', { name: 'Companies per page' })).toBeTruthy()
   })
 
-  it('shows the article count on the scope being viewed', async () => {
+  it('shows the article count on every scope', async () => {
     render(<AnalyzedCompanyNewsPage />)
     await screen.findByRole('list', { name: 'Articles' })
 
     const scope = screen.getByRole('group', { name: 'Scope' })
     expect(within(scope).getByRole('button', { name: /Company/ }).textContent).toContain('1,909')
-    expect(within(scope).getByRole('button', { name: /Sector/ }).textContent).toBe('Sector')
+    expect(within(scope).getByRole('button', { name: /Sector/ }).textContent).toContain('412')
+    expect(within(scope).getByRole('button', { name: /Macro/ }).textContent).toContain('98')
+  })
+
+  it('bars each article by its evidence score, when it has one', async () => {
+    answer = newsPayload({ companies: [newsCompany({ company_news: [newsArticle(), newsArticle({ article_id: 2, evidence_score: null })] })] })
+    render(<AnalyzedCompanyNewsPage />)
+
+    const rows = within(await screen.findByRole('list', { name: 'Articles' })).getAllByRole('listitem')
+    expect(within(rows[0]).getByRole('img', { name: 'Evidence score 0.81' })).toBeTruthy()
+    expect(within(rows[1]).queryByRole('img', { name: /Evidence score/ })).toBeNull()
   })
 
   it('asks the API for another scope', async () => {

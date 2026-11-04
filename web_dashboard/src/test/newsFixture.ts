@@ -10,6 +10,7 @@ export function newsArticle(overrides: Partial<NewsArticle> = {}): NewsArticle {
     source: 'finance.yahoo.com',
     source_url: 'https://finance.yahoo.com/markets/stocks/articles/why-palantir.html',
     published_at: '2026-11-04T17:06:23Z',
+    evidence_score: 0.8124,
     analysis_status: 'analyzed',
     assessments: [{
       confidence: 'medium',
@@ -74,7 +75,7 @@ export function newsPayload(overrides: Partial<CompanyNewsPayload> = {}): Compan
     page_company_count: 1,
     company_count: 105,
     article_count: 1909,
-    section_article_counts: { company: 1909, sector: 0, industry: 0, macro: 0 },
+    section_article_counts: { company: 1909, sector: 412, industry: 230, macro: 98 },
     companies: [newsCompany()],
     ...overrides,
   }

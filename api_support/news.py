@@ -12,6 +12,7 @@ from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 from api_support.request_utils import parse_datetime, trim_text
 from api_support.context import ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE
 from db_common import database_path, get_connection
+from services.core.numbers import safe_float
 from scripts.news_quality_report import extraction_success_by_source
 
 VALID_ANALYZED_COMPANY_NEWS_VIEWS = {"company", "sector", "industry", "macro"}
@@ -327,6 +328,7 @@ def _append_scoped_news_row(section: dict, row_data: dict) -> None:
             "source": str(row_data.get("source") or "").strip(),
             "source_url": str(row_data.get("source_url") or "").strip(),
             "published_at": str(row_data.get("published_at") or "").strip(),
+            "evidence_score": safe_float(row_data.get("evidence_score")),
             "analysis_status": _normalize_analysis_status(row_data.get("analysis_status")),
             "assessments": [],
             "_assessment_keys": set(),
@@ -513,7 +515,7 @@ def build_analyzed_company_news_payload(
         ).fetchall()
 
         company_rows = []
-        if active_view == "company" and company_news_source_mode == "linked_articles":
+        if company_news_source_mode == "linked_articles":
             company_rows = conn.execute(
                 f"""
                 SELECT
@@ -534,6 +536,7 @@ def build_analyzed_company_news_payload(
                     na.source,
                     na.source_url,
                     na.published_at,
+                    na.evidence_score,
                     CASE
                         WHEN coi.article_id IS NOT NULL THEN 'analyzed'
                         WHEN cop.article_id IS NOT NULL THEN 'processed_no_assessment'
@@ -557,7 +560,7 @@ def build_analyzed_company_news_payload(
                 """,
                 (*company_ids, article_age_cutoff),
             ).fetchall()
-        elif active_view == "company" and company_news_source_mode == "opportunist_impacts":
+        elif company_news_source_mode == "opportunist_impacts":
             company_rows = conn.execute(
                 f"""
                 SELECT
@@ -578,6 +581,7 @@ def build_analyzed_company_news_payload(
                     na.source,
                     na.source_url,
                     na.published_at,
+                    na.evidence_score,
                     'analyzed' AS analysis_status
                 FROM company_opportunist_impacts AS coi
                 JOIN companies AS c ON c.id = coi.company_id
@@ -619,7 +623,7 @@ def build_analyzed_company_news_payload(
                 sector_ids.append(sector_id)
 
         industry_rows = []
-        if industry_ids and active_view == "industry":
+        if industry_ids:
             industry_placeholders = ",".join("?" for _ in industry_ids)
             industry_rows = conn.execute(
                 f"""
@@ -638,7 +642,8 @@ def build_analyzed_company_news_payload(
                     substr(COALESCE(content.body, na.summary, ''), 1, 320) AS body_preview,
                     na.source,
                     na.source_url,
-                    na.published_at
+                    na.published_at,
+                    na.evidence_score
                 FROM industry_opportunist_impacts AS ioi
                 JOIN industries AS i ON i.id = ioi.industry_id
                 JOIN news_articles AS na ON na.id = ioi.article_id
@@ -654,7 +659,7 @@ def build_analyzed_company_news_payload(
 
         sector_rows = []
         macro_rows = []
-        if sector_ids and active_view == "sector":
+        if sector_ids:
             sector_placeholders = ",".join("?" for _ in sector_ids)
             sector_rows = conn.execute(
                 f"""
@@ -673,7 +678,8 @@ def build_analyzed_company_news_payload(
                     substr(COALESCE(content.body, na.summary, ''), 1, 320) AS body_preview,
                     na.source,
                     na.source_url,
-                    na.published_at
+                    na.published_at,
+                    na.evidence_score
                 FROM sector_opportunist_impacts AS soi
                 JOIN sectors AS s ON s.id = soi.sector_id
                 JOIN news_articles AS na ON na.id = soi.article_id
@@ -687,7 +693,7 @@ def build_analyzed_company_news_payload(
                 (*sector_ids, article_age_cutoff),
             ).fetchall()
 
-        if sector_ids and active_view == "macro":
+        if sector_ids:
             sector_placeholders = ",".join("?" for _ in sector_ids)
             macro_rows = conn.execute(
                 f"""
@@ -707,7 +713,8 @@ def build_analyzed_company_news_payload(
                     combined.body_preview,
                     combined.source,
                     combined.source_url,
-                    combined.published_at
+                    combined.published_at,
+                    combined.evidence_score
                 FROM (
                     SELECT
                         'world' AS news_scope,
@@ -721,7 +728,8 @@ def build_analyzed_company_news_payload(
                         substr(COALESCE(content.body, na.summary, ''), 1, 320) AS body_preview,
                         na.source,
                         na.source_url,
-                        na.published_at
+                        na.published_at,
+                        na.evidence_score
                     FROM world_news_sector_impacts AS wsi
                     JOIN news_articles AS na ON na.id = wsi.article_id
                     LEFT JOIN news_article_content AS content ON content.article_id = na.id
@@ -743,7 +751,8 @@ def build_analyzed_company_news_payload(
                         substr(COALESCE(content.body, na.summary, ''), 1, 320) AS body_preview,
                         na.source,
                         na.source_url,
-                        na.published_at
+                        na.published_at,
+                        na.evidence_score
                     FROM us_news_sector_impacts AS usi
                     JOIN news_articles AS na ON na.id = usi.article_id
                     LEFT JOIN news_article_content AS content ON content.article_id = na.id
@@ -848,7 +857,6 @@ def build_analyzed_company_news_payload(
 
     normalized_companies: list[dict] = []
     section_article_counts = {"company": 0, "sector": 0, "industry": 0, "macro": 0}
-    total_article_count = 0
     for company_id in company_ids:
         company_entry = companies_by_id.get(company_id)
         if company_entry is None:
@@ -863,6 +871,9 @@ def build_analyzed_company_news_payload(
             finalized_section = _finalize_news_section_payload(company_entry[section_key])
             company_entry[section_key] = finalized_section
             section_article_counts[count_key] += finalized_section["article_count"]
+            # Every scope is loaded so each count is real; only the viewed one ships its articles.
+            if count_key != active_view:
+                finalized_section["articles"] = []
 
         company_entry["analyzed_article_count"] = (
             company_entry["company_news"]["article_count"]
@@ -882,7 +893,6 @@ def build_analyzed_company_news_payload(
             company_entry["industry_news"]["latest_published_at"],
             company_entry["macro_news"]["latest_published_at"],
         )
-        total_article_count += company_entry["analyzed_article_count"]
         normalized_companies.append(company_entry)
 
     return {
@@ -896,7 +906,7 @@ def build_analyzed_company_news_payload(
             total_company_count=total_company_count,
             page_company_count=len(normalized_companies),
         ),
-        "article_count": total_article_count,
+        "article_count": section_article_counts[active_view],
         "section_article_counts": section_article_counts,
         "active_view": active_view,
         "companies": normalized_companies,
