@@ -228,6 +228,7 @@ def forward_status_from(conn, *, limit=10):
         'SELECT record_json FROM challenger_approvals ORDER BY approved_at DESC LIMIT ?', (limit,))]
     for session in sessions:
         session['summary'] = json.loads(session.pop('summary_json') or 'null')
-    return {'cohorts': list(cohorts.values())[:limit], 'decision_observations': observations,
+    paused = [dict(row) for row in conn.execute('SELECT * FROM research_run_pauses ORDER BY paused_at DESC')]
+    return {'cohorts': list(cohorts.values())[:limit], 'paused_runs': paused, 'decision_observations': observations,
             'paired_evaluations': evaluations, 'mark_sessions': sessions, 'challenger_approvals': approvals,
             'authority': 'research only: no cohort, evaluation or approval places an order'}

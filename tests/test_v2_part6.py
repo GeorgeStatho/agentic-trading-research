@@ -11,7 +11,8 @@ from unittest.mock import Mock, patch
 
 from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database
-from market_db_modules.research_runs import start_run, collect_run
+from market_db_modules.forward_evaluation import forward_status
+from market_db_modules.research_runs import start_run, collect_run, collect_active_runs
 from market_db_modules.research_reports import (
     monthly_report,
     promote_gate,
@@ -253,6 +254,37 @@ class ResearchDatabaseTests(unittest.TestCase):
             conn.execute('UPDATE candidate_snapshots SET snapshot_json=?,snapshot_hash=? WHERE id=?',
                          (serialized, sha256(serialized.encode()).hexdigest(), row['id']))
         self.assertEqual(collect_run(run_id, as_of=END, db_path=self.db)['candidates'], 1)
+
+    def set_market_timestamp(self, value):
+        with closing(get_connection(self.db)) as conn, conn:
+            row = conn.execute("SELECT id,snapshot_json FROM candidate_snapshots WHERE stage='post_contract_selection'").fetchone()
+            envelope = json.loads(row['snapshot_json'])
+            envelope['payload']['market_context']['timestamp'] = value
+            serialized = canonical(envelope)
+            from hashlib import sha256
+            conn.execute('UPDATE candidate_snapshots SET snapshot_json=?,snapshot_hash=? WHERE id=?',
+                         (serialized, sha256(serialized.encode()).hexdigest(), row['id']))
+
+    def test_a_cohort_paused_by_a_candidate_says_which_candidate_and_why(self):
+        run_id = self.run_fixture()
+        candidate_id = self.candidate()
+        self.set_market_timestamp(END)
+        result, = collect_active_runs(as_of=END, db_path=self.db)
+        self.assertEqual(result['status'], 'paused')
+        pause, = forward_status(db_path=self.db)['paused_runs']
+        self.assertEqual((pause['run_id'], pause['candidate_id']), (run_id, candidate_id))
+        self.assertIn(END, pause['reason'])
+        self.assertIn(ENTRY, pause['reason'])
+        self.assertEqual(pause['paused_at'], END)
+
+    def test_a_pause_clears_once_the_cohort_collects_again(self):
+        self.run_fixture()
+        self.candidate()
+        self.set_market_timestamp(END)
+        collect_active_runs(as_of=END, db_path=self.db)
+        self.set_market_timestamp(ENTRY)
+        collect_active_runs(as_of=END, db_path=self.db)
+        self.assertEqual(forward_status(db_path=self.db)['paused_runs'], [])
 
     def test_gate_and_champion_promotion_require_real_persisted_evidence(self):
         run_id = self.run_fixture(100)

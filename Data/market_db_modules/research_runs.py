@@ -1,5 +1,5 @@
 """Durable, immutable experiments and repeatable shadow collection."""
-from contextlib import closing
+from contextlib import closing, contextmanager
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 import json
@@ -22,6 +22,22 @@ from .bootstrap import initialize_database
 from services.research.price_response import completed_at
 from services.research.research_contract import direction
 import logging
+
+
+class CandidatePausedRun(ValueError):
+    """A candidate's inputs failed validation; the whole run pauses rather than enroll a biased subset."""
+
+    def __init__(self, candidate_id, reason):
+        super().__init__(f'Candidate {candidate_id}: {reason}')
+        self.candidate_id = candidate_id
+
+
+@contextmanager
+def _validating(candidate_id):
+    try:
+        yield
+    except (ValueError, TypeError) as exc:
+        raise CandidatePausedRun(candidate_id, exc) from exc
 
 
 def migrate_research(conn):
@@ -277,11 +293,13 @@ def collect_run(run_id, *, as_of=None, db_path=None):
                                 utc(observation['information_cutoff_time']) < utc(run['started_at']))):
                         skipped_observations += 1
                         continue
-                    validate_candidate_observation(conn, candidate['candidate_id'], observation)
+                    with _validating(candidate['candidate_id']):
+                        validate_candidate_observation(conn, candidate['candidate_id'], observation)
                 finished = candidate_finished(conn, candidate['candidate_id'], at)
                 if run['kind'] == 'frozen_forward' and not finished and utc(at) - utc(candidate['created_at']) < timedelta(days=1):
                     continue
-                inputs = load_inputs(conn, candidate, at) if finished or run['kind'] != 'frozen_forward' else None
+                with _validating(candidate['candidate_id']):
+                    inputs = load_inputs(conn, candidate, at) if finished or run['kind'] != 'frozen_forward' else None
                 # Never run today's selector as if it were an older strategy's code.
                 # Recorded selections remain evaluable under an unchanged evaluator.
                 # A paired evaluation already ran the picker on its frozen chain; no contract is its outcome.
@@ -299,7 +317,7 @@ def collect_run(run_id, *, as_of=None, db_path=None):
                               'snapshot_hashes': {}, 'selection_source': 'missing_or_unfinished_snapshots'}
                 if observation:
                     if utc(inputs['information_cutoff_time']) != utc(observation['information_cutoff_time']):
-                        raise ValueError('Evaluation cutoff differs from the shared observation')
+                        raise CandidatePausedRun(candidate['candidate_id'], 'Evaluation cutoff differs from the shared observation')
                     inputs['observation_id'] = observation['observation_id']
                 conn.execute('INSERT INTO research_candidates VALUES (?,?,?,?,?)',
                              (run_id, candidate['candidate_id'], inputs['information_cutoff_time'], fingerprint(inputs), canonical(inputs)))
@@ -343,6 +361,7 @@ def collect_active_runs(*, as_of=None, db_path=None):
         run_ids = [row[0] for row in conn.execute('''SELECT run_id FROM research_runs
             WHERE status='open' OR EXISTS(SELECT 1 FROM research_shadow_positions p
                 WHERE p.run_id=research_runs.run_id AND p.status NOT IN ('complete','cash')) ORDER BY started_at''')]
+    at = utc(as_of or datetime.now(timezone.utc)).isoformat()
     results = []
     for run_id in run_ids:
         try:
@@ -350,4 +369,18 @@ def collect_active_runs(*, as_of=None, db_path=None):
         except (ValueError, TypeError) as exc:
             logging.getLogger(__name__).warning('Research run %s paused: %s', run_id, exc)
             results.append({'run_id': run_id, 'status': 'paused', 'reason': str(exc)})
+            _record_pause(run_id, at, getattr(exc, 'candidate_id', None), str(exc), db_path)
+        else:
+            _clear_pause(run_id, db_path)
     return results
+
+
+def _record_pause(run_id, at, candidate_id, reason, db_path):
+    """Keep the latest pause reason visible to forward-status."""
+    with closing(get_connection(db_path)) as conn, conn:
+        conn.execute('INSERT OR REPLACE INTO research_run_pauses VALUES (?,?,?,?)', (run_id, at, candidate_id, reason))
+
+
+def _clear_pause(run_id, db_path):
+    with closing(get_connection(db_path)) as conn, conn:
+        conn.execute('DELETE FROM research_run_pauses WHERE run_id=?', (run_id,))

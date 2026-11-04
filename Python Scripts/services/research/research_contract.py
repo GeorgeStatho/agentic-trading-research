@@ -28,8 +28,10 @@ def assert_information_cutoff(timestamps, information_cutoff_time):
     """Require both observation and availability timestamps, supplied by adapters."""
     cutoff = utc(information_cutoff_time)
     for value in timestamps:
-        if value is None or utc(value) > cutoff + CLOCK_SKEW_TOLERANCE:
-            raise ValueError('Missing or future research input timestamp')
+        if value is None:
+            raise ValueError(f'Missing research input timestamp (cutoff {cutoff.isoformat()})')
+        if utc(value) > cutoff + CLOCK_SKEW_TOLERANCE:
+            raise ValueError(f'Future research input timestamp {value} after cutoff {cutoff.isoformat()}')
     return cutoff.isoformat()
 
 
