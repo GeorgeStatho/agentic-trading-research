@@ -14,21 +14,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 # The dev-mode import roots in pyproject.toml, in sys.path order.
 IMPORT_ROOTS = ('.', 'Data', 'Python Scripts', 'Python Scripts/Webscraping', 'Python Scripts/agentCallers')
-# Decisions, orders and exits, plus the collector stages whose output the gates read.
+# Decisions, orders and exits, plus the collector stages whose output the gates read or that choose
+# which discovery companies can reach production.
 ENTRY_MODULES = (
     'decision_pipeline',
     'services.trading.trade_executor',
     'services.options.position_manager',
     'services.discovery.catalyst_classification',
     'services.discovery.catalyst_response_collector',
+    'services.discovery.market_events',
+    'services.discovery.company_evidence_service',
 )
 # Non-Python inputs read at run time; imports cannot find them.
-DATA_FILES = (
-    'config/risk_clusters.csv', 'config/source.json', 'Data/sector_etfs.json', 'Data/catalyst_schema.sql',
-    'Data/market_db_modules/pricing_schema.sql', 'Data/market_db_modules/trade_economics_schema.sql',
-    'Data/market_db_modules/thesis_event_reviews_schema.sql', 'Data/market_db_modules/research_schema.sql',
-    'Data/market_db_modules/forward_evaluation_schema.sql',
-)
+DATA_FILES = ('config/risk_clusters.csv', 'config/source.json', 'Data/sector_etfs.json')
+# Every schema the database bootstraps run, matched by pattern so a new schema file is never missed.
+SCHEMA_GLOBS = ('Data/*.sql', 'Data/market_db_modules/*.sql')
 
 
 class _Resolver:
@@ -117,7 +117,8 @@ def import_closure(entries, *, root=ROOT):
 def trading_path_files():
     """Relative paths, computed once per process; a running process's code cannot change."""
     files = {str(path.relative_to(ROOT)) for path in import_closure(ENTRY_MODULES)}
-    return tuple(sorted(files | set(DATA_FILES)))
+    schemas = {str(path.relative_to(ROOT)) for pattern in SCHEMA_GLOBS for path in ROOT.glob(pattern)}
+    return tuple(sorted(files | schemas | set(DATA_FILES)))
 
 
 def trading_path_hashes():

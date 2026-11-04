@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from services.core import trading_path
-from services.core.trading_path import import_closure, trading_path_files
+from services.core.trading_path import ROOT, import_closure, trading_path_files
 
 
 def write(root: Path, name: str, text: str = '') -> None:
@@ -80,6 +80,18 @@ class RepositoryTradingPathTests(unittest.TestCase):
                      'Data/news_db_modules/catalyst_labels.py',
                      'Data/catalyst_models.py',
                      'config/risk_clusters.csv'):
+            self.assertIn(path, files)
+
+    def test_covers_every_schema_bootstrap_runs_and_the_code_that_picks_discovery_companies(self):
+        files = set(trading_path_files())
+        schemas = {str(path.relative_to(ROOT)) for pattern in ('Data/*.sql', 'Data/market_db_modules/*.sql')
+                   for path in ROOT.glob(pattern)}
+        self.assertLessEqual({'Data/market_db_modules/discovery_schema.sql',
+                              'Data/market_db_modules/account_positions_schema.sql'}, schemas)
+        self.assertLessEqual(schemas, files)
+        for path in ('Python Scripts/services/discovery/market_events.py',
+                     'Python Scripts/services/discovery/company_evidence_service.py',
+                     'Python Scripts/Webscraping/company_evidence/sec_current.py'):
             self.assertIn(path, files)
 
     def test_is_cheap_enough_to_build_at_worker_start(self):
