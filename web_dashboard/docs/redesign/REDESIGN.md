@@ -5,6 +5,10 @@ QuantConnect's runtime-stats banner and stacked charts, Benzinga Pro's compact
 data tables, on a charcoal + orange palette. Mockups live in
 [`mockups/`](mockups/README.md); this file maps them onto the real code.
 
+Styling moves from hand-written per-component `.css` files to **Tailwind CSS
+v4 + daisyUI 5**: Tailwind utilities for layout, panels, tables and charts;
+daisyUI components for controls (buttons, inputs, selects, tabs, badges).
+
 Scope is **presentation first**. Every page keeps its current endpoint and
 data flow unless a section below lists a new field under "Needs".
 
@@ -14,138 +18,325 @@ data flow unless a section below lists a new field under "Needs".
 
 These apply to every page and are the main thing a reviewer should check.
 
-1. **One accent.** Orange (`--accent`) marks the active nav item, links, the
+1. **One accent.** Orange (`primary`) marks the active nav item, links, the
    primary button, the equity line and "requested enforce". Nothing else.
-2. **Red and green mean money.** Use `--loss` / `--gain` for P/L, pass/block
-   and errors only. "Market closed" and "high volatility" are neutral, not red.
+2. **Red and green mean money.** `gain` / `loss` (and daisyUI's `success` /
+   `error`, which share their values) are for P/L, pass/block and errors only.
+   "Market closed" and "high volatility" are neutral, not red.
 3. **Sentence-case labels.** Drop the uppercase/monospace eyebrow labels
-   (`ACCOUNT EQUITY`, `WHY DID THE BOT TRADE?`). Labels are 11px, `--text-dim`.
-4. **Numbers line up.** `font-variant-numeric: tabular-nums` on `:root`;
-   tickers, contracts, timestamps and run ids in `--mono`.
-5. **Density.** 12–13px body, 6px radius, 12px gaps, panels with a thin header
-   bar. No card-inside-card.
-6. **No banner walls.** The full-width yellow notice boxes become a single line
-   of `--warning` text under the stats strip. Keep the text; lose the box.
+   (`ACCOUNT EQUITY`, `WHY DID THE BOT TRADE?`). Labels are
+   `text-[11px] text-dim`.
+4. **Numbers line up.** `tabular-nums` is on `body` (see § 2); tickers,
+   contracts, timestamps and run ids use `font-mono`.
+5. **Density.** 12–13px body, `rounded-md` (6px) panels, `gap-3` (12px)
+   between panels, panels with a thin header bar. No card-inside-card.
+6. **No banner walls.** The full-width yellow notice boxes become one line of
+   `text-xs text-warning` under the stats strip. Keep the text; lose the box.
+   Don't use daisyUI `alert` for these.
 7. **Show sample size.** Any rate or average computed from fewer than the
    page's guardrail (5 closed trades) shows `n=` and is muted. Sharpe/Sortino
    are hidden until n ≥ 20.
-8. **One page width.** Every page uses the same `max-width: 1400px` container.
-   Today Live, Decisions and Research each use different widths.
-9. **Phone width works.** Rows are `flex-wrap` with `flex-basis` minimums,
-   wide tables scroll inside `overflow-x: auto`, nothing uses `100vh` sidebars.
+8. **One page width.** Every page uses the same container:
+   `mx-auto max-w-[1400px] px-5`. Today Live, Decisions and Research each use
+   different widths.
+9. **Phone width works.** Rows are `flex flex-wrap` with `basis-*` minimums,
+   wide tables scroll inside `overflow-x-auto`, nothing uses `100vh` sidebars.
+10. **Tailwind first, daisyUI for controls.** Use daisyUI for `btn`, `input`,
+    `select`, `tabs`, `badge`, `join`, `progress`, `collapse`, `loading`. Build
+    panels, stat strips, tables and chart layouts from plain utilities, because
+    daisyUI's `card` / `stats` defaults are roomier than this design.
 
 ---
 
-## 2. Tokens: `src/index.css`
+## 2. Setup and tokens
 
-Keep the existing variable **names** so current component CSS recolors for
-free, and change their **values**. Then add the new semantic tokens.
+### Install
+
+```bash
+cd web_dashboard
+npm install -D tailwindcss @tailwindcss/vite daisyui
+```
+
+`vite.config.ts`: add the plugin next to React:
+
+```ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  server: {
+    proxy: {
+      '/api': 'http://localhost:5000',
+    },
+  },
+})
+```
+
+### `src/index.css` (replaces the current file)
+
+Three layers: the daisyUI theme (colors daisyUI components read), Tailwind
+`@theme` tokens for the colors daisyUI doesn't have, and a temporary block that
+keeps the old variable names alive until every component is converted.
 
 ```css
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
 
+/* Only our theme; no built-in daisyUI themes in the bundle. */
+@plugin "daisyui" {
+  themes: false;
+}
+
+@plugin "daisyui/theme" {
+  name: "terminal";
+  default: true;
+  prefersdark: true;
+  color-scheme: dark;
+
+  --color-base-100: #121214;      /* page */
+  --color-base-200: #1a1a1d;      /* panels */
+  --color-base-300: #2c2c31;      /* borders */
+  --color-base-content: #e8e8ea;
+
+  --color-primary: #f98309;       /* QuantConnect orange */
+  --color-primary-content: #121214;
+  --color-secondary: #58a6ff;
+  --color-secondary-content: #0b1220;
+  --color-accent: #f98309;
+  --color-accent-content: #121214;
+  --color-neutral: #232327;
+  --color-neutral-content: #c2c2c8;
+
+  --color-info: #58a6ff;
+  --color-info-content: #0b1220;
+  --color-success: #3fb950;
+  --color-success-content: #0b1a10;
+  --color-warning: #ffb066;
+  --color-warning-content: #1f1406;
+  --color-error: #f85149;
+  --color-error-content: #1f0a09;
+
+  --radius-selector: 0.25rem;     /* badges, toggles */
+  --radius-field: 0.25rem;        /* buttons, inputs, selects */
+  --radius-box: 0.375rem;         /* panels, dropdowns */
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;          /* smaller controls than daisyUI's default */
+  --border: 1px;
+  --depth: 0;                     /* flat: no gradients or shadows */
+  --noise: 0;
+}
+
+/* Colors daisyUI has no slot for. Each becomes a utility:
+   bg-head, bg-raised, text-dim, text-ink-2, text-gain, bg-loss-bg, ... */
+@theme {
+  --color-head: #161618;          /* top bar, sub-bars, table header */
+  --color-raised: #232327;        /* row dividers, chips, selected row */
+  --color-grid: #26262b;          /* chart grid lines */
+  --color-ink-2: #c2c2c8;         /* secondary text */
+  --color-dim: #9a9aa2;           /* labels, 6:1 on panels */
+  --color-gain: #3fb950;
+  --color-gain-text: #56d364;
+  --color-gain-bg: #12261a;
+  --color-loss: #f85149;
+  --color-loss-text: #ff9b94;
+  --color-loss-bg: #2d1617;
+  --color-accent-bg: #24180b;     /* ticker chips, active filter */
+  --color-accent-line: #5a3510;
+  --color-ticker: #ffb066;        /* ticker text on accent-bg */
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+@layer base {
+  body {
+    @apply min-w-80 bg-base-100 font-sans text-[13px] leading-snug text-base-content tabular-nums antialiased;
+  }
+  a { @apply text-primary hover:text-[#ffa347]; }
+}
+
+/* TEMPORARY: old names, re-pointed, so unconverted component CSS keeps
+   working. Delete this block when `grep -rn "var(--" src/*.css` is empty. */
 :root {
-  /* surfaces */
-  --background: #121214;
-  --surface: #121214;
-  --surface-container-low: #161618;   /* header, sub-bars, table head */
-  --surface-container: #1a1a1d;       /* panels */
-  --surface-container-high: #232327;  /* row dividers, chips, selected row */
-  --surface-container-highest: #2c2c31;
-  --outline-variant: #2c2c31;         /* panel borders */
-  /* text */
-  --on-surface: #e8e8ea;
-  --on-surface-variant: #c2c2c8;
-  --text-dim: #9a9aa2;                /* labels; 6:1 on panels */
-  /* accent (QuantConnect orange) */
-  --primary: #f98309;
-  --primary-container: #24180b;
-  --accent-bg: #24180b;
-  --accent-border: #5a3510;
-  --accent-hover: #ffa347;
-  /* money + status */
-  --gain: #3fb950;      --gain-text: #56d364;  --gain-bg: #12261a;
-  --loss: #f85149;      --loss-text: #ff9b94;  --loss-bg: #2d1617;
-  --warning: #ffb066;
-  --info: #58a6ff;      /* trade entries, "our way" moves */
-  /* legacy names, re-pointed */
-  --secondary: var(--gain);
-  --tertiary: var(--loss-text);
-  --tertiary-container: var(--loss);
-  --text: var(--on-surface-variant);
-  --text-h: var(--on-surface);
-  --bg: var(--background);
-  --border: var(--outline-variant);
-  --accent: var(--primary);
-  --radius: 6px;
-  --sans: 'Inter', system-ui, sans-serif;
-  --heading: 'Inter', system-ui, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
-  font: 13px/1.4 var(--sans);
-  font-variant-numeric: tabular-nums;
+  --background: var(--color-base-100);
+  --surface: var(--color-base-100);
+  --surface-container-low: var(--color-head);
+  --surface-container: var(--color-base-200);
+  --surface-container-high: var(--color-raised);
+  --surface-container-highest: var(--color-base-300);
+  --outline-variant: var(--color-base-300);
+  --on-surface: var(--color-base-content);
+  --on-surface-variant: var(--color-ink-2);
+  --primary: var(--color-primary);
+  --primary-container: var(--color-accent-bg);
+  --secondary: var(--color-gain);
+  --secondary-container: var(--color-gain-bg);
+  --tertiary: var(--color-loss-text);
+  --tertiary-container: var(--color-loss);
+  --error-container: var(--color-loss-bg);
+  --on-error-container: var(--color-loss-text);
+  --text: var(--color-ink-2);
+  --text-dim: var(--color-dim);
+  --text-h: var(--color-base-content);
+  --bg: var(--color-base-100);
+  --border: var(--color-base-300);
+  --accent: var(--color-primary);
+  --accent-bg: var(--color-accent-bg);
+  --accent-border: var(--color-accent-line);
+  --sans: var(--font-sans);
+  --heading: var(--font-sans);
+  --mono: var(--font-mono);
 }
 ```
 
-After the swap, grep for hard-coded colors left in component CSS
-(`grep -rnE '#[0-9a-fA-F]{6}|rgba\(' src/*.css`) and replace them with tokens;
-`App.css`, `kpi.css`, `whyBotTraded.css` and `card.css` have the most.
+Check the daisyUI option names (`themes: false`, the `--size-*` / `--depth`
+keys) against the installed daisyUI version's theme docs; the
+[theme generator](https://daisyui.com/theme-generator/) prints a valid block.
 
-Alternative palette "Deep Teal" (not applied) is in `mockups/Palette.dc.html`
-if the orange is ever swapped: ground `#061012`, panel `#0c1a1d`, accent
-`#2dd4bf`, gain `#a3e635`, loss `#fb7185`.
+### Things that shift when Tailwind lands
+
+Tailwind's base reset (Preflight) removes default heading sizes, margins and
+list bullets. Expect on the first PR:
+
+- `h1`–`h3` render at body size until each component sets `text-*`.
+- Bullet lists (strategist thesis in the autopsy, risk lists) lose bullets;
+  add `list-disc pl-5`.
+- Buttons lose their browser background; the old `.css` files mostly style
+  these already.
+
+So PR 1 is setup + tokens only, checked page by page, before any conversion.
+
+### Chart colors: `src/ui/chartTheme.ts`
+
+Recharts writes colors as SVG attributes, where `var(--…)` is not reliably
+resolved, so charts take hex values from one module that mirrors the theme:
+
+```ts
+// Keep in sync with src/index.css.
+export const chartTheme = {
+  accent: '#f98309', gain: '#3fb950', loss: '#f85149', info: '#58a6ff',
+  ink: '#e8e8ea', dim: '#9a9aa2', grid: '#26262b', axis: '#3a3a40',
+  panel: '#1a1a1d', neutral: '#6e6e76',
+} as const
+```
+
+### Conversion rule
+
+When a component is restyled, its classes move into the JSX and its `.css`
+file is deleted in the same PR (e.g. `whyBotTraded.css` goes when
+`whyBotTraded.tsx` is converted). Don't mix: a converted component imports no
+`.css`. Optional: add `prettier-plugin-tailwindcss` to keep class order
+consistent.
+
+Alternative palette "Deep Teal" (not applied) is in `mockups/Palette.dc.html`:
+swap the theme values for ground `#061012`, panel `#0c1a1d`, primary
+`#2dd4bf`, success `#a3e635`, error `#fb7185`.
 
 ---
 
 ## 3. Shared components (new: `src/ui/`)
 
-The repo uses one `.tsx` + one `.css` per component; keep that. These replace
-the ad-hoc card markup repeated across pages.
+Tailwind classes only, no `.css` files. These replace the card markup that's
+repeated across pages. Class strings below are the starting point; match the
+mockups for anything not listed.
 
-| Component | Props (sketch) | Replaces / used by |
+### `Panel.tsx`
+
+```tsx
+type PanelProps = { title: ReactNode; meta?: ReactNode; actions?: ReactNode; flush?: boolean; className?: string; children: ReactNode }
+
+export function Panel({ title, meta, actions, flush, className = '', children }: PanelProps) {
+  return (
+    <section className={`min-w-0 rounded-box border border-base-300 bg-base-200 ${className}`}>
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 px-3.5 py-2">
+        <h2 className="text-xs font-semibold">
+          {title}{meta ? <span className="font-normal text-dim"> · {meta}</span> : null}
+        </h2>
+        {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+      </header>
+      <div className={flush ? '' : 'p-3.5'}>{children}</div>
+    </section>
+  )
+}
+```
+
+`flush` is for panels whose body is a table, so rows run edge to edge.
+
+### `StatStrip.tsx`
+
+The QuantConnect runtime-stats row. Replaces the KPI cards in
+`dashboardKpis.tsx` and the four-card summary rows on every Research page.
+
+```tsx
+type Stat = { label: string; value: ReactNode; sub?: ReactNode; tone?: 'gain' | 'loss' | 'muted' }
+const toneClass = { gain: 'text-gain', loss: 'text-loss', muted: 'text-dim' }
+
+export function StatStrip({ items }: { items: Stat[] }) {
+  return (
+    <section className="flex flex-wrap rounded-box border border-base-300 bg-base-200">
+      {items.map((s) => (
+        <div key={s.label} className="min-w-[120px] flex-1 border-r border-raised px-4 py-3 last:border-r-0">
+          <div className="text-[11px] text-dim">{s.label}</div>
+          <div className={`mt-0.5 text-[15px] font-semibold ${s.tone ? toneClass[s.tone] : ''}`}>{s.value}</div>
+          {s.sub ? <div className="text-[11px] text-dim">{s.sub}</div> : null}
+        </div>
+      ))}
+    </section>
+  )
+}
+```
+
+### The rest
+
+| Component | Build it with | Replaces / used by |
 | --- | --- | --- |
-| `Panel` | `title`, `meta?`, `actions?`, `children`, `flush?` (no body padding, for tables) | every `*-panel` section wrapper |
-| `StatStrip` | `items: { label, value, sub?, tone?: 'gain'\|'loss'\|'muted' }[]` | KPI cards (`dashboardKpis.tsx`) and the 4-card summary rows on every Research page |
-| `DataTable` | `columns`, `rows`, `empty`, `minWidth`, `rowTone?` | order cards, cohort tables, follower tables, control tables |
-| `Tag` | `tone: 'gain'\|'loss'\|'neutral'\|'accent'\|'info'`, `children` | decision/verdict pills, order status |
-| `TickerChip` | `symbol` | every ticker cell (orange mono on `--accent-bg`) |
-| `SearchInput` | `value`, `onChange`, `placeholder`, `label` | Newsfeed + Decisions panels on Live, Decisions list, Company News |
-| `Meter` | `value`, `max`, `tone?`, `label` | guardrail progress, rollout prerequisites, cohort enrollment |
-| `charts/EquityChart` | `points`, `markers: { at, kind: 'entry'\|'exit', label }[]`, `range` | `Graph.tsx` |
-| `charts/DrawdownChart` | `points` | new, derived from equity points |
-| `charts/DailyPnlChart` | `points` | new, derived from equity points |
-| `charts/LagScatter` | `trades` | Live + News lag page |
+| `DataTable` | daisyUI `table table-xs` inside `overflow-x-auto`; header row `bg-head text-[11px] font-medium text-dim`; rows `border-raised`; numeric columns `text-right`; optional `rowClassName(row)` for muted/canceled rows (`opacity-60`) | order cards (`orderCard.tsx`), cohort, follower and control tables, run history |
+| `Tag` | daisyUI `badge badge-sm rounded-sm` plus tone: gain `bg-gain-bg text-gain-text border-0`, loss `bg-loss-bg text-loss-text border-0`, neutral `bg-raised text-ink-2 border-0`, accent `bg-accent-bg text-ticker border-0`, info `bg-[#0e1f33] text-[#79b8ff] border-0` | decision/verdict pills, order status, Filled / Not submitted |
+| `TickerChip` | `font-mono text-[11px] font-semibold text-ticker bg-accent-bg px-1.5 py-0.5 rounded-sm` | every ticker cell |
+| `SearchInput` | `<label>` + daisyUI `input input-sm w-56 bg-base-100`, `type="search"`, an `aria-label` when there's no visible label | Newsfeed + Decisions panels on Live, Decisions list, Company News |
+| `Segmented` | daisyUI `join` of `btn btn-xs join-item`; active item `btn-active` with `bg-accent-bg text-primary border-accent-line` | verdict filter, chart range (1W/1M/3M/All), news scope |
+| `Select` | daisyUI `select select-sm` with a small `text-[11px] text-dim` label above | Research filters, "Stopped at", windows |
+| `Meter` | daisyUI `progress progress-primary h-2` (or `progress-success` for met prerequisites), with label and `n / max` text | guardrail progress, rollout prerequisites, cohort enrollment |
+| `Collapse` | native `<details>` with daisyUI `collapse collapse-arrow` | full strategist / manager text |
+| `charts/EquityChart` | Recharts `ComposedChart` + `Area` (fill `chartTheme.accent`, opacity 0.08) + `Line`, `type="linear"`; `ReferenceDot` per trade marker | `Graph.tsx` |
+| `charts/DrawdownChart` | Recharts `Area`, stroke/fill `chartTheme.loss` | new, derived from equity points |
+| `charts/DailyPnlChart` | Recharts `Bar` with per-`Cell` fill gain/loss | new, derived from equity points |
+| `charts/LagScatter` | Recharts `ScatterChart`, `ReferenceArea` for the first hour, `ReferenceLine` at the median | Live + News lag page |
 
-Charts use **Recharts** (already a dependency): `ComposedChart` + `Area` +
-`Line` for equity with `ReferenceDot` markers; `Area` for drawdown; `Bar` with
-per-cell `fill` for daily P/L; `ScatterChart` for lag. Chart colors come from
-the tokens; grid lines `#26262b`; no smoothing (`type="linear"` or
-`"stepAfter"`) because the current `monotone` spline invents curvature between
-points.
+All charts: grid `chartTheme.grid`, axis text `chartTheme.dim` at 11px, no
+smoothing (the current `monotone` spline invents curvature between points),
+wrapped in `ResponsiveContainer`, and each chart's container gets
+`role="img"` plus an `aria-label` that states the takeaway.
 
 ---
 
 ## 4. Shell: `src/App.tsx`, `src/App.css`, `src/routes.tsx`
 
-- **Top bar:** brand mark (14px orange square) + name, page nav with an orange
-  2px underline on the active page, then market state and a `PAPER` badge on
-  the right. Replace the bell/settings/user icon buttons with nothing until
-  they do something.
+Convert the shell to Tailwind and delete `App.css` in the same PR.
+
+- **Top bar** (`bg-head border-b border-base-300`): brand mark
+  (`size-3.5 rounded-sm bg-primary`) + name, page nav with a 2px
+  `border-primary` underline on the active page, then market state and a
+  `PAPER` tag (accent tone) on the right. Remove the bell/settings/user icon
+  buttons until they do something.
 - **Status sub-bar** (new, under the top bar, every page): per-component pills
   from `/api/dashboard-kpis` → `bot_status.detail` and `/api/script-status`
   (`state`, `stage`, `updated_at`): "News collector running · Worker paused ·
   Option manager paused · EOD sync paused · Last run 3:38 PM · No errors".
-  This replaces the green "Healthy" card that contradicted its own detail text.
+  Dots: running `bg-gain`, paused hollow `border border-dim`. This replaces the
+  green "Healthy" card that contradicted its own detail text.
   **Needs:** `bot_status` returned as a list of `{ component, state }` instead
   of one prose `detail` string.
-- **Remove the Live sidebar.** It is scroll anchors for one page and leaves the
+- **Remove the Live sidebar.** It's scroll anchors for one page and leaves the
   right third of the screen empty. Delete the `sections` key from the Live tab;
   `dashboardSections.ts` and `useActiveSection.ts` can go once nothing uses them.
 - **Remove the yellow "Now · Current Overview 1/5" floating pill.** It covers
   the chart axis.
-- **Sub-tabs** stay as the second strip (`page-tabs`), restyled like the
-  mockups: 12px, orange underline.
-- **Demo Mode** stays a text button at the end of the nav, neutral style.
-- **New route `system`** (see § Research → Extraction).
+- **Sub-tabs** stay as the second strip: daisyUI `tabs tabs-border tabs-sm`,
+  active tab underlined in `primary`.
+- **Demo Mode** stays a text button at the end of the nav: `btn btn-ghost btn-xs`.
+- **New route `system`** (see § 7, Extraction).
 
 Route changes in `routes.tsx` (keep old slugs in `ALIASES` so bookmarks work):
 
@@ -175,6 +366,9 @@ New order, top to bottom:
 | 5b | News lag vs option P/L | `charts/LagScatter` | `/api/news-lag` → `trades[]` (`lag_hours`, `option_pnl_pct`) |
 | 6 | Holdings · Data pipeline · Safeguards | `openPositionsTable.tsx` (compact), new small panels | `/api/open-positions`, `/api/news-extraction?days=7`, `/api/v2-status` + `thesis_validator` |
 
+Layout: the page is `flex flex-col gap-3`; rows 3–6 are `flex flex-wrap gap-3`
+with the wide panel `flex-[2_1_640px]` and the narrow one `flex-[1_1_360px]`.
+
 **Moved off Live:** Option take-profit / stop-loss ladders and
 `riskControls.tsx` → System › Risk. "People using it" (`usage_summary`) →
 System › Health. Sector/industry rankings (`top_rankings`) → Decisions page
@@ -184,12 +378,13 @@ sidebar or Research. Thesis validator card → the Safeguards panel (one line).
 ### Latest decision panel (most important panel on the page)
 
 Two columns. Left: ticker chip, company, `Strategist [verdict] → Manager
-[verdict]`, then the **manager's reason in full at 15px** (this is the text
-the user reads most), then For / Against chips. Right: the **selected
-contract** block: contract (`ORCL 20 Nov $121P`), type, expiry · DTE, qty,
-fill, take-profit and stop-loss for that DTE bucket. When nothing was
-selected: "None selected", where it stopped, and the last contract actually
-traded. Status tag top right: Filled (gain) / Not submitted (neutral).
+[verdict]`, then the **manager's reason in full** (`text-[15px] leading-relaxed
+max-w-[80ch]`, the text the user reads most), then For / Against chips
+(`Tag` gain / loss). Right (`bg-head`): the **selected contract** block:
+contract (`ORCL 20 Nov $121P`, `font-mono text-[17px] font-semibold`), type,
+expiry · DTE, qty, fill, take-profit and stop-loss for that DTE bucket. When
+nothing was selected: "None selected", where it stopped, and the last contract
+actually traded. Status tag top right: Filled (gain) / Not submitted (neutral).
 
 Today's payload: `ran_at, has_decision, ticker, decision, confidence, reason,
 selected_contract, rejected_because, submitted`.
@@ -205,48 +400,54 @@ show only the reason text.
 
 ### Search
 
-Both 4a and 4b get a `SearchInput` in the panel header. Filter client-side over
-the loaded rows (ticker, company name, headline, source); show an empty row
-"No decisions for "x" today · search all history" that links to the Decisions
-page with `?q=`. The Decisions page and Company News read the same `q`.
+Both 4a and 4b get a `SearchInput` in the `Panel` `actions` slot. Filter
+client-side over the loaded rows (ticker, company name, headline, source);
+show an empty row "No decisions for "x" today · search all history" that links
+to the Decisions page with `?q=`. The Decisions page and Company News read the
+same `q`.
 
 ### Orders table
 
 Columns: Submitted · Contract (formatted, not the raw OCC string) · Type
 (`Entry · buy put`, `Trailing profit stop · sell`) · Fill · Status. Canceled
-rows at 60% opacity. Group an entry and its exit into one "trade" row when
+rows `opacity-60`. Group an entry and its exit into one "trade" row when
 `/api/executed-trades` exposes a link between them. **Needs:** `fill_price`,
 `side`, and a `position_id`/`parent_order_id` to pair entry and exit.
 
 ### Equity chart
 
 Start at the first funded day, not 0 (today the line jumps from $0 to $3k).
-Default range 1W on trading days; 1M / 3M / All buttons. Entry markers hollow
-`--info`, exit markers filled `--on-surface`. Drawdown and daily P/L are
-computed client-side from the same points, no new endpoint.
+Default range 1W on trading days; 1M / 3M / All in a `Segmented`. Entry
+markers hollow `chartTheme.info`, exit markers filled `chartTheme.ink`.
+Drawdown and daily P/L are computed client-side from the same points, no new
+endpoint.
 
 ---
 
 ## 6. Decisions: merge Ledger + Autopsy  (mockup: `Decisions.dc.html`)
 
 New file `src/decisions.tsx` built from `companyDecisions.tsx` +
-`decisionAutopsy.tsx`. Layout: summary chips (evaluated / call / put / no trade
-/ executed), one filter toolbar (search, verdict segmented control, "Stopped
-at" select, date range), then list on the left, detail on the right.
+`decisionAutopsy.tsx` (delete `companyDecisions.css` and
+`decisionAutopsy.css` with them). Layout: summary chips (evaluated / call /
+put / no trade / executed), one filter toolbar (`SearchInput`, verdict
+`Segmented`, "Stopped at" `Select`, date range), then list on the left
+(`flex-[1_1_320px]`), detail on the right (`flex-[999_1_640px]`).
 
-**List row:** ticker, company, time, `S [verdict] → M [verdict]` tags, one line
-of why (manager reason truncated, or the blocking gate).
+**List row:** a full-width `<button>` per decision: ticker, company, time,
+`S [verdict] → M [verdict]` tags, one line of why (manager reason truncated,
+or the blocking gate). Selected row `bg-raised border-base-300`.
 
 **Detail, top to bottom:**
-1. Header: ticker · verdict, company, time, snapshot id, model (mono),
+1. Header: ticker · verdict, company, time, snapshot id, model (`font-mono`),
    confidence and execution tags.
-2. **Decision path** stepper: News → Strategist → Manager → Safeguards → Order.
-   Each step passed / stopped here / also blocked / not reached. Sources:
+2. **Decision path** stepper: News → Strategist → Manager → Safeguards → Order,
+   as an `<ol>` grid (`grid-cols-[repeat(auto-fit,minmax(140px,1fr))]`). Each
+   step passed / stopped here / also blocked / not reached. Sources:
    `strategist.decision`, `manager.decision`, `constraints.entry_gate.allowed`,
    `constraints.market_regime_gate.allowed`, `outcome.trade_executed`,
    `v2_verdicts[]`.
 3. Strategist (thesis bullets, risk chips) and Manager (reason, For / Against
-   chips) side by side; full text in `<details>`.
+   chips) side by side; full text in a `Collapse`.
 4. **"What if it had traded?"** counterfactual for no-trade decisions:
    `attribution.horizon_returns` (already in the autopsy payload) for 1d/3d/5d
    stock move, plus the hypothetical contract and its P/L under the normal exit
@@ -260,9 +461,9 @@ Autopsy's "Outcome & Review" column with mostly "Unavailable" goes away for
 no-trade decisions; it's replaced by the counterfactual.
 
 **Company News** (`analyzedCompanyNews.tsx`): filters collapse into one toolbar
-row (search · scope segmented control · confidence select · per-page), scope
-cards with a 0 count are hidden, articles render as a dense feed (time ·
-ticker chip · headline · source · evidence score bar).
+row (`SearchInput` · scope `Segmented` · confidence `Select` · per-page),
+scope cards with a 0 count are hidden, articles render as a dense feed (time ·
+`TickerChip` · headline · source · evidence score bar).
 
 **Exposure Map** (`exposureMap.tsx`): restyle only; don't show the empty graph
 canvas until an article is analyzed, show the prompt in its place.
@@ -271,17 +472,17 @@ canvas until an article is analyzed, show the prompt in its place.
 
 ## 7. Research
 
-All five pages share one header pattern: title + one-line description + "as
-of" + filters as compact selects on the right, then a `StatStrip`, then a
-one-line warning if any, then charts, then tables.
+All five pages share one header pattern: title (`text-lg font-bold`) +
+one-line description + "as of" + filters as `Select`s on the right, then a
+`StatStrip`, then a one-line warning if any, then charts, then tables.
 
 | Page | File | Charts to add | Tables | Data |
 | --- | --- | --- | --- | --- |
 | Expectancy (`ResearchExpectancy.dc.html`) | `decisionExpectancy.tsx` | expectancy bar per cohort (dashed outline when `pnl_sample_count` = 0), `Meter` per cohort toward `min_samples`, resolved vs unresolved bar | cohorts (`DataTable`, right-aligned numbers) | `/api/decision-expectancy` → `summary`, `cohorts[]` (`insufficient_sample` drives muting) |
-| News lag (`ResearchNewsLag.dc.html`) | `newsLag.tsx` | `LagScatter` with the first-hour band and median line; before/after split bar from `headline.median_pre_entry_share`; 21-cell grid for `favourable_but_lost` of `favourable_closed` | per-entry path table (keep the existing bar, colors: before `#6e6e76`, our way `--info`, against `--accent`) | `/api/news-lag` → `headline`, `trades[]`, `coverage` |
-| Backtests (`ResearchBacktests.dc.html`) | `backtest.tsx` | run detail: cumulative P/L from `metrics.equity_curve` (already returned), "where decisions went" bars (`filled_count`, `portfolio_rejected_count`, `no_fill_count`), expectancy-by-run bars across `runs[]` | run history as a table, selected row highlighted; config as one compact fieldset row | `/api/backtests`, `/api/backtests/:id` |
+| News lag (`ResearchNewsLag.dc.html`) | `newsLag.tsx` | `LagScatter` with the first-hour band and median line; before/after split bar from `headline.median_pre_entry_share`; 21-cell grid for `favourable_but_lost` of `favourable_closed` | per-entry path table (keep the existing bar; colors `chartTheme.neutral` before entry, `chartTheme.info` our way, `chartTheme.accent` against us) | `/api/news-lag` → `headline`, `trades[]`, `coverage` |
+| Backtests (`ResearchBacktests.dc.html`) | `backtest.tsx` | run detail: cumulative P/L from `metrics.equity_curve` (already returned), "where decisions went" bars (`filled_count`, `portfolio_rejected_count`, `no_fill_count`), expectancy-by-run bars across `runs[]` | run history as a `DataTable`, selected row highlighted; config as one compact fieldset row of `input input-xs font-mono` | `/api/backtests`, `/api/backtests/:id` |
 | Followers (`ResearchFollowers.dc.html`) | `followerAccounts.tsx` | grouped bars: each production entry × vehicle return; diverging bars: each account's difference vs production with `n=` | per account, recent trades | `/api/follower-accounts` |
-| V2 rollout (`ResearchRollout.dc.html`) | `v2Status.tsx`, `forwardEvaluation.tsx` | **would-block rate per control** (bar = would_block / observed, orange when requested enforce); prerequisite `Meter`s | controls (requested vs effective, proof, would block); forward cohorts with enrollment meters; discovery ledger as stacked bars | `/api/v2-status`, `/api/forward-evaluation` |
+| V2 rollout (`ResearchRollout.dc.html`) | `v2Status.tsx`, `forwardEvaluation.tsx` | **would-block rate per control** (bar = would_block / observed, `bg-primary` when requested enforce, `bg-[#6e6e76]` otherwise); prerequisite `Meter`s | controls (requested vs effective, proof, would block); forward cohorts with enrollment meters; discovery ledger as stacked bars | `/api/v2-status`, `/api/forward-evaluation` |
 
 The would-block chart is the headline of the rollout page: provenance and
 regime currently block 100% of what they see, so enforcing either as-is would
@@ -296,11 +497,12 @@ appear in the Live "Data pipeline" panel.
 
 ## 8. Mobile  (mockup: `Phone.dc.html`)
 
-At < 640px the Live page collapses to: status line → equity card with a
-sparkline and day P/L → today's pipeline counts (evaluated → call/put →
+At < 640px (`max-sm:`) the Live page collapses to: status line → equity card
+with a sparkline and day P/L → today's pipeline counts (evaluated → call/put →
 filled) → latest decision (manager reason + contract line) → last trade, with
-a bottom nav of Live / Decisions / Research. Tables scroll horizontally inside
-their panel; no other separate mobile build is needed.
+a bottom nav of Live / Decisions / Research (daisyUI `dock`, `sm:hidden`).
+Tables scroll horizontally inside their panel; no separate mobile build is
+needed.
 
 ---
 
@@ -321,13 +523,20 @@ and hide the parts whose fields are missing.
 
 ## 10. Suggested order (one PR each)
 
-1. Tokens in `index.css` + font swap + hard-coded color cleanup.
+1. **Setup:** install Tailwind + daisyUI, Vite plugin, new `index.css` with
+   the theme, `@theme` tokens and the temporary legacy block,
+   `src/ui/chartTheme.ts`. No component changes; fix whatever Preflight
+   shifts.
 2. `src/ui/` shared components, then the shell (top bar, status sub-bar, no
-   sidebar, no floating pill).
-3. Live page (§ 5), latest-decision panel first.
+   sidebar, no floating pill); delete `App.css`.
+3. Live page (§ 5), latest-decision panel first; delete each converted
+   component's `.css`.
 4. Decisions merge (§ 6) with route aliases.
 5. Research pages (§ 7), then System route.
 6. Backend fields (§ 9) and wiring the placeholders.
+7. Delete the temporary legacy variable block from `index.css` once
+   `grep -rn "var(--" src/*.css` finds nothing (or no `.css` files remain
+   besides `index.css`).
 
 **Check each PR with:** `npm run build` and `npm run lint` in `web_dashboard/`,
 demo mode on the views that support it (`#/decisions/map?demo=1`,
