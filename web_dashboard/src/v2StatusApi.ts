@@ -158,3 +158,48 @@ export function safeguardNotices(payload: V2StatusPayload): string[] {
   }
   return notices;
 }
+
+/** One bar of the would-block chart: a control's stage and how much of its stream it would stop. */
+export type WouldBlockRow = {
+  key: string;
+  label: string;
+  envVar: string;
+  requestedEnforce: boolean;
+  blocks: number;
+  observed: number;
+  /** 0–1; 0 when nothing was observed. */
+  rate: number;
+};
+
+/** Requested-enforce controls at or above this rate would stop nearly all trading if promoted as-is. */
+export const NEAR_TOTAL_BLOCK_RATE = 0.95;
+
+function stageName(stage: string): string {
+  const words = stage.toLowerCase().replaceAll('_', ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Every control stage with a candidate stream; a control with several stages gets a bar per stage. */
+export function wouldBlockRows(features: readonly Feature[]): WouldBlockRow[] {
+  return features.flatMap((feature) => {
+    const counted = feature.stages.filter((stage) => stage.activity);
+    return counted.map((stage) => {
+      const { shadow_blocks: blocks, observed_candidates: observed } = stage.activity!;
+      return {
+        key: `${feature.key}:${stage.stage}`,
+        label: counted.length === 1 ? feature.label : stageName(stage.stage),
+        envVar: feature.env_var,
+        requestedEnforce: feature.requested_mode === 'enforce',
+        blocks,
+        observed,
+        rate: observed ? blocks / observed : 0,
+      };
+    });
+  });
+}
+
+/** "31/37 closed" → 31 of 37, for a prerequisite meter; null when the value carries no count. */
+export function prerequisiteCount(value: string): { value: number; max: number } | null {
+  const match = /^(\d+)\s*\/\s*(\d+)/.exec(value.trim());
+  return match && Number(match[2]) > 0 ? { value: Number(match[1]), max: Number(match[2]) } : null;
+}

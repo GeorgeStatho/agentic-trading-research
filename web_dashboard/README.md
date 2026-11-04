@@ -47,9 +47,9 @@ existing links and bookmarks keep working.
 - [src/orderCard.tsx](src/orderCard.tsx): the Live orders table ([src/occ.ts](src/occ.ts) formats option symbols)
 - [src/exposureMap.tsx](src/exposureMap.tsx): grounded article-to-position graph
 - [src/decisionsPage.tsx](src/decisionsPage.tsx) and [src/decisions.ts](src/decisions.ts): every decision with its frozen evidence, decision path and gates (the old Ledger and Autopsy, merged)
-- [src/v2Status.tsx](src/v2Status.tsx): the V2 Rollout view — control modes, shadow verdicts, promotion evidence
-- [src/v2Safeguards.tsx](src/v2Safeguards.tsx): the mode counts and warnings on the rollout view; Live shows a compact version ([src/liveSafeguards.tsx](src/liveSafeguards.tsx))
-- [src/v2StatusApi.ts](src/v2StatusApi.ts): `/api/v2-status` types and fetch, shared by both
+- [src/v2Status.tsx](src/v2Status.tsx): the V2 Rollout view — mode counts, would-block rate per control, promotion evidence; Live shows a compact version ([src/liveSafeguards.tsx](src/liveSafeguards.tsx))
+- [src/v2StatusApi.ts](src/v2StatusApi.ts): `/api/v2-status` types, fetch and the would-block rows, shared by both
+- [src/decisionExpectancy.tsx](src/decisionExpectancy.tsx) / [src/expectancy.ts](src/expectancy.ts), [src/newsLag.tsx](src/newsLag.tsx), [src/backtest.tsx](src/backtest.tsx) / [src/backtests.ts](src/backtests.ts), [src/followerAccounts.tsx](src/followerAccounts.tsx): the other Research views
 - [nginx.conf](nginx.conf): nginx config used in the Docker image
 - [Dockerfile](Dockerfile): frontend build + nginx image
 
