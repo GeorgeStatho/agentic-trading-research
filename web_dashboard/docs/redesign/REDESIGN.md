@@ -574,11 +574,21 @@ and hide the parts whose fields are missing.
    Exposure Map: filters and legend also wait for an analyzed article. Its
    nodes never rendered React Flow handles, so no edge had ever drawn; they
    now carry hidden ones. Loading is derived rather than set in effects.
-5. Research pages (§ 7), then System route.
+5. Research pages (§ 7), then System route. Done. Expectancy pools its
+   cohorts into the stat strip (sample-weighted, and only when the cohorts
+   add up to the summary). Backtests' "where decisions went" counts event
+   statuses: the metrics' `no_fill_count` already includes guardrail
+   rejects. Followers follows its mockup: grouped bars per mirrored entry and
+   a difference-vs-production chart replace the cumulative line chart. The
+   rollout page leads with a stat strip, so `v2Safeguards.tsx` is gone (Live
+   has its own safeguards panel); prerequisites become meters only when their
+   value carries a count ("31/37 closed"). Risk settings show open on their
+   own page instead of a collapsed `<details>`. `DataTable` takes a `label`
+   so pages with several tables name each one.
 6. Backend fields (§ 9) and wiring the placeholders.
-7. Delete the temporary legacy variable block from `index.css` once
-   `grep -rn "var(--" src/*.css` finds nothing (or no `.css` files remain
-   besides `index.css`).
+7. Delete the temporary legacy variable block from `index.css`. Done with
+   step 5: no `.css` file besides `index.css` remains. Only `--app-chrome`
+   survives, which the Exposure Map uses to size itself.
 
 **Check each PR with:** `npm test`, `npm run build` and `npm run lint` in `web_dashboard/`,
 demo mode on the views that support it (`#/decisions/map?demo=1`,
