@@ -34,6 +34,7 @@ from services.evaluation.forward_evaluation_policy import ChallengerPolicy
 from services.runtime.candidate_lifecycle import observe
 from services.gates.catalyst_gates import catalyst_admission_allowed
 from services.discovery.company_evidence_demand import request_pipeline_evidence
+from services.discovery.company_evidence_service import collect_companies_now
 from services.gates.contract_observations import record_scenario_selection
 from services.evaluation.decision_observations import freeze_decision_observation
 from services.core.pipeline_version import build_pipeline_version
@@ -554,6 +555,12 @@ def _run_strategist_and_manager(
 
     from services.runtime.candidate_lifecycle import begin_candidate, checkpoint, observe
     request_pipeline_evidence(company_symbols, scope='manager')
+    # The queue above is worked by the news collector hours later; collect now so the strategist
+    # reads a package. A failure only means the strategist sees whatever evidence already exists.
+    evidence_collection = observe(collect_companies_now, company_symbols)
+    if evidence_collection:
+        LOGGER.info("Evidence before strategist: %s (%s companies)", evidence_collection.get("status"),
+                    len(evidence_collection.get("companies") or []))
     cycle_version = observe(build_pipeline_version)
     # One policy per cycle: the strategist request and the entry gate must agree on the mode.
     thesis_policy = EvidenceThesisPolicy.from_env()
