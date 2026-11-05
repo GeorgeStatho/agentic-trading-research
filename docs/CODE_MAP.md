@@ -30,10 +30,9 @@ Stock-trading-experiment/
 ├── config/
 │   ├── Modelfile
 │   └── model_knowledge_cutoffs.csv
-├── Data/nd evidence checks
-Strategist thesis
-Trade economics
-Manager a
+├── Data/
+│   ├── market_db_modules/
+│   ├── news_db_modules/
 │   ├── db_common.py
 │   ├── market_schema.sql
 │   ├── news_schema.sql
@@ -41,6 +40,20 @@ Manager a
 │   └── logs/
 ├── Python Scripts/
 │   ├── main.py
+│   ├── option_manager_main.py
+│   ├── news_collector_main.py
+│   ├── marketdata_eod_sync_main.py
+│   ├── db_backup_main.py
+│   ├── services/
+│   │   ├── core/         settings, paths, env parsing, status files
+│   │   ├── runtime/      worker orchestration, startup checks, telemetry, db_backup
+│   │   ├── trading/      broker gateway, executor, journal, follower accounts
+│   │   ├── options/      DTE buckets, pricing, symbols, position state and exits
+│   │   ├── gates/        deterministic entry gates and their policies
+│   │   ├── thesis/       thesis capture, checks, validation, event reviews
+│   │   ├── research/     shadow research loop
+│   │   ├── discovery/    event discovery, SEC market events, routing, company evidence
+│   │   └── evaluation/   backtests, benchmarks, forward evaluation, attribution
 │   ├── trading_support/
 │   │   ├── __init__.py
 │   │   ├── account.py
@@ -62,6 +75,7 @@ Manager a
 │   │   │   └── morningStarAPI.py
 │   │   ├── company_evidence/
 │   │   │   ├── sec.py
+│   │   │   ├── sec_current.py
 │   │   │   ├── sec_facts.py
 │   │   │   ├── issuer.py
 │   │   │   ├── releases.py
@@ -137,9 +151,16 @@ Manager a
 │           ├── init_agents.py
 │           ├── market_health.py
 │           └── researcher.py
-├── web_dashboard/
-│   ├── index.html
-│   └── server.py
+├── web_dashboard/        Vite + React dashboard, served by nginx
+│   ├── src/
+│   │   ├── routes.tsx    pages and views
+│   │   └── ui/           shared Tailwind components and charts
+│   ├── nginx.conf
+│   └── Dockerfile
+├── api.py, api_routes/, api_support/   Flask API
+├── scripts/              developer CLIs (project.py, research.py, compact_db.py, account_report.py, ...)
+├── config/litestream.yml
+├── docker-compose*.yml   main stack plus backup, observability, tunnel and bootstrap overlays
 └── html_pages/
     ├── Yahoo/
     ├── barrons/
@@ -290,21 +311,19 @@ This side of the repo looks older than the agent pipeline and is more prototype-
 
 ### Web Dashboard
 
-- `web_dashboard/server.py`
-  - Small Flask server that starts/stops local scripts.
-- `web_dashboard/index.html`
-  - UI for that server.
+- `web_dashboard/`
+  - Vite + React + TypeScript app, styled with Tailwind v4 and daisyUI 5. It has four pages: Live, Decisions, Research and System. `src/routes.tsx` lists them. [web_dashboard/README.md](../web_dashboard/README.md) maps the files.
+- `api.py`, `api_routes/`, `api_support/`
+  - The Flask API the dashboard reads. It never places trades or starts and stops the worker; its only writes are backtest and Exposure Map runs.
 
 Dashboard control flow:
 
 ```text
 browser
   ↓
-web_dashboard/server.py
-  ↓
-subprocess.Popen(...)
-  ↓
-main.py
+nginx (web container) ── /api/* ──> Flask API (api container)
+                                         ↓
+                              SQLite database + /shared status files
 ```
 
 
@@ -625,3 +644,34 @@ expression (pure functions, plus `bootstrap_se`). `Data/market_db_modules/decisi
 `services/evaluation/decision_attribution_runner.py` fills it from daily closes in each collector cycle.
 `Data/market_db_modules/decision_attribution_report.py` backs `scripts/research.py attribution`, and
 `api_support/decision_autopsy.py` shows each decision's labels.
+
+## Follower accounts
+
+`services/trading/trading_accounts.py` loads `TRADING_ACCOUNTS` from the environment. Production is the read-only
+primary, and each named follower has its own paper keys and strategy (`debit_spread`, `itm_single`, `longer_dte` or
+`shares`). `services/trading/account_strategies.py` turns one production entry into a follower's order plan or a `Skip`.
+It's pure: no broker or DB access. `services/trading/follower_fleet.py`, built in `Python Scripts/main.py`, places those
+orders and closes each follower position when production's position is gone. Partial production exits are not mirrored.
+Positions are stored by `Data/market_db_modules/account_positions.py` (schema in `account_positions_schema.sql`).
+`account_summary` there backs `scripts/account_report.py`, and `follower_report` backs `/api/follower-accounts`
+(Research › Followers).
+
+## Discovery routing and market events
+
+`services/discovery/market_events.py` reads EDGAR's market-wide current-filings feed
+(`Webscraping/company_evidence/sec_current.py`) in each news-collector cycle. It gives companies outside the ranking
+discovery interest, and nothing more (`DISCOVERY_MARKET_EVENT_LIMIT`, default 0 = off).
+`services/discovery/discovery_routing.py` picks the admitted entries that `DISCOVERY_MODE=enforce` hands to the
+production strategist and manager (`agentCallers/decision_pipeline.py`). Each catalyst is routed once, only while fresh,
+and only after the collector has refreshed that company's news. See [Research Guide](RESEARCH_GUIDE.md) and
+[Research Phase 7](RESEARCH_PHASE7.md).
+
+## Storage, backups and loop health
+
+- `Data/market_db_modules/compact_storage.py`: content-addressed `json_blobs` for `candidate_snapshots`, and compressed
+  provider bodies. New rows are written this way. `scripts/compact_db.py` converts older rows
+  ([scripts/README.md](../scripts/README.md#database-compaction)).
+- `Python Scripts/db_backup_main.py` + `services/runtime/db_backup.py`: the nightly full copy, plus a Litestream replica-lag
+  check (`config/litestream.yml`, `docker-compose.backup.yml`). See [BACKUPS.md](BACKUPS.md).
+- `services/core/status_files.py`: each loop's heartbeat file (`/shared/*_status.json`). `api_routes/health.py` turns
+  them into `/api/health/components`, which returns 503 when any loop is down, stalled or failed recently.

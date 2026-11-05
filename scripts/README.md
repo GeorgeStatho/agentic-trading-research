@@ -73,3 +73,14 @@ python scripts/compact_db.py --db path/to.db --apply --backup path/to/before-com
 ```
 
 Stop the Python services before running `--apply`. The rewrite holds the write lock batch by batch, and `VACUUM` needs the database to itself. The run is resumable: rows already packed or compressed are skipped.
+
+## Account report
+
+`scripts/account_report.py` puts each follower account next to production on the same entries. It reads the database only, never calls the broker and never runs schema setup.
+
+```bash
+python scripts/account_report.py --db ~/stock-restore/db-dev/stock_experiment.db
+python scripts/account_report.py --db PATH --since 2026-11-01T00:00:00 --json
+```
+
+Each row shows closed, active, failed and skipped positions, win rate, P&L, and the follower's average trade against production's average on the same entries. Partial production exits are not mirrored: a follower closes only when production fully closes.

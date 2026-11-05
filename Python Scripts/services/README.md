@@ -29,6 +29,13 @@ Modules are grouped into subpackages by domain. Import them with the full path, 
 | `discovery/` | Event discovery, catalyst classification and company evidence collection. |
 | `evaluation/` | Backtests, benchmarks, forward evaluation and decision attribution. |
 
+Recent additions worth knowing about:
+
+- `trading/trading_accounts.py`, `trading/account_strategies.py`, `trading/follower_fleet.py`: follower paper accounts. They mirror production's entries into other strategies, and production stays read-only.
+- `discovery/market_events.py`: EDGAR's market-wide 8-K/6-K feed adds discovery interest for companies outside the ranking.
+- `discovery/discovery_routing.py`: the admitted discovery entries that `DISCOVERY_MODE=enforce` sends to the production strategist and manager.
+- `runtime/db_backup.py`: the nightly full database copy, plus the Litestream replica-lag check (see `docs/BACKUPS.md`).
+
 When adding a module, put it in the subpackage whose description fits. Only create a new
 subpackage when none does.
 

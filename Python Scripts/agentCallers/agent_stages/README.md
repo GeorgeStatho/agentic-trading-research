@@ -57,6 +57,12 @@ Purpose:
 
 - classify company-linked articles into company-specific positive/negative impacts
 
+Batching:
+
+- sends several articles per request, because free tiers cap requests per day long before tokens
+- each body is cut to `COMPANY_OPPORTUNIST_ARTICLE_BODY_CHAR_LIMIT` (default 1200), and `CLASSIFIER_BATCH_TOKENS` sets the per-request token budget
+- the answer names each article. An article it leaves out is retried, not saved as "no impact"
+
 Recommended model tier:
 
 - `gemini-2.5-flash-lite`
@@ -98,3 +104,5 @@ Implementation notes:
 - Some stage files still carry older variable names like `OLLAMA_HOST` while the provider layer is being migrated.
 - The manager stage is the first explicit stage already moved to the generic `get_model_client()` / `ask_llm_model()` path.
 - Structured JSON output is preferred throughout the folder.
+- The news classifiers walk `CLASSIFIER_FALLBACKS` when a model is out of quota, retired (404) or failing server-side (5xx). A Google 500 is retried with backoff first. A malformed request is not passed down the chain, because it would fail on every model.
+- Catalyst classification (`catalyst_classifier.py`, run by `services/discovery/catalyst_classification.py`) uses the same `ask_classifier_model` call and fallback chain. It skips a batch when the model is unavailable, and stops for the cycle after three unavailable batches in a row.
