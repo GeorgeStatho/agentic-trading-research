@@ -1,5 +1,12 @@
 # Plan 06: Manager vs Strategist direction disagreement
 
+> **Status: closed, nothing to build (2026-11-04).** The flip rate can be measured from past data: every
+> decision stores the Strategist's recommendation in `manager_decision_payloads.manager_input_json`
+> (`strategist_recommendation`). Across all 3,367 Manager decisions (2026-05-26 → 2026-11-04):
+> 1,070 directional decisions agreed with the Strategist, **0 flipped**, 11 had a neutral Strategist and 2,286
+> were non-directional. That's under this plan's own threshold of about 10 flips, so no logging field or gate is
+> needed. Re-run the query if the Manager prompt or model changes.
+
 ## Context
 
 The Strategist states an expected stock direction and a preferred option direction. The Manager

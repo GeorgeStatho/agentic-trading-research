@@ -108,7 +108,6 @@ def capture_forward_returns(*, as_of, db_path):
         rows = [dict(row) for row in conn.execute('''SELECT * FROM candidate_price_observations
             WHERE forward_at IS NULL AND julianday(observed_at)+5<=julianday(?)
             AND json_extract(snapshot_json, '$.gate.metrics.status')='complete'
-            AND json_extract(snapshot_json, '$.direction') IN ('positive', 'negative')
             ORDER BY COALESCE(forward_checked_at, ''), observed_at LIMIT ?''', (as_of.isoformat(), FORWARD_BUDGET))]
     for row in rows:
         with closing(get_connection(db_path)) as conn, conn:
@@ -117,7 +116,7 @@ def capture_forward_returns(*, as_of, db_path):
         payload = json.loads(row['snapshot_json'])
         metrics = payload['gate']['metrics']
         sign = {'positive': 1, 'negative': -1}.get(payload['direction'])
-        if metrics.get('status') != 'complete' or not sign:
+        if metrics.get('status') != 'complete':
             continue
         histories = load_histories(payload['ticker'], payload['sector_symbol'], as_of=as_of, db_path=db_path)
         response = measure_response(histories, event_at=row['observed_at'], horizon_days=5,
@@ -132,7 +131,7 @@ def capture_forward_returns(*, as_of, db_path):
         with closing(get_connection(db_path)) as conn, conn:
             conn.execute('''UPDATE candidate_price_observations
                 SET forward_residual_return=?, forward_raw_residual_return=?, forward_at=? WHERE candidate_id=?''',
-                         (move * sign, move, response['outcome_at'], row['candidate_id']))
+                         (move * sign if sign else None, move, response['outcome_at'], row['candidate_id']))
 
 
 def collect_catalyst_responses(*, as_of=None, policy=None, fetcher=fetch_response_history, refresh=True, db_path=None):

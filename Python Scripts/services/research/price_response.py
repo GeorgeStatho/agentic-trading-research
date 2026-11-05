@@ -154,6 +154,27 @@ def atr_fraction(histories, *, before):
     return mean(ranges) / last if last else None
 
 
+def _absorption_allows(ratio, move, direction, threshold):
+    sign = {'positive': 1, 'negative': -1}.get(direction)
+    return None if ratio is None or sign is None else not (ratio > threshold and move * sign > 0)
+
+
+def directed_absorption(gate, decision):
+    """The candidate-time verdict signed by the Manager's call/put, for a catalyst with no direction of its own.
+
+    The ratio and residual were fixed at candidate creation; only the sign is new. None when nothing changes.
+    """
+    direction = {'call': 'positive', 'put': 'negative'}.get(decision)
+    metrics = (gate or {}).get('metrics') or {}
+    if not gate or direction is None or gate.get('would_allow') is not None or metrics.get('price_absorption_ratio') is None:
+        return None
+    would_allow = _absorption_allows(metrics['price_absorption_ratio'], metrics['residual_move_since_event'],
+                                     direction, gate['thresholds']['absorption_ratio'])
+    return {**gate, 'stage': 'PRICE_ABSORPTION_DIRECTED', 'would_allow': would_allow,
+            'reason_codes': ['already_priced' if not would_allow else 'price_response_pass'],
+            'metrics': {**metrics, 'catalyst_direction': direction, 'direction_source': 'manager_decision'}}
+
+
 def evaluate_price_absorption(state, histories, stats, *, as_of, policy=None):
     policy = policy or PricingPolicy.from_env()
     response = measure_response(histories, event_at=state.get('first_public_time'), as_of=as_of,
@@ -166,8 +187,7 @@ def evaluate_price_absorption(state, histories, stats, *, as_of, policy=None):
     bucket = ('unknown' if ratio is None else 'largely_unexpressed' if ratio < .30 else
               'partially_expressed' if ratio < .80 else 'substantially_expressed' if ratio <= 1.25 else
               'potentially_overabsorbed')
-    sign = {'positive': 1, 'negative': -1}.get(state.get('direction'))
-    would_allow = None if ratio is None or sign is None else not (ratio > policy.absorption_threshold and move * sign > 0)
+    would_allow = _absorption_allows(ratio, move, state.get('direction'), policy.absorption_threshold)
     return {'stage': 'PRICE_ABSORPTION', 'allowed': True, 'would_allow': would_allow,
             'enforcement_mode': 'shadow', 'policy_version': policy.version,
             'reason_codes': ['price_response_unknown' if would_allow is None else

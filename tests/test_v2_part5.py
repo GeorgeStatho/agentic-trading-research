@@ -234,6 +234,44 @@ class PositionRungTests(unittest.TestCase):
         kwargs['broker_unrealized_pl_pct_ratio'] = -.5
         action, _ = strategy._structured_exit_action(**kwargs)
         self.assertEqual(action['reason'], 'stop_loss')
+        kwargs['broker_unrealized_pl_pct_ratio'] = .1
+        kwargs['v2_exit_context'] = evaluate_position_rungs(
+            self.inputs(opened_at=(NOW - timedelta(days=1)).isoformat(), next_earnings_date='2026-09-21'),
+            as_of=NOW, policy=ContractPolicy(exit_mode='enforce'))
+        action, _ = strategy._structured_exit_action(**kwargs)
+        self.assertEqual(action['reason'], 'PRE_EARNINGS')
+
+    def test_pre_earnings_fires_from_1530_new_york_on_the_last_weekday_before_the_print(self):
+        # NOW is Monday 2026-09-21 11:00 New York.
+        def due(earnings, at, **inputs):
+            result = evaluate_position_rungs(self.inputs(next_earnings_date=earnings, **inputs), as_of=at,
+                                             policy=ContractPolicy(exit_mode='shadow'))
+            self.assertEqual(result['active_reasons'], [])
+            return 'PRE_EARNINGS' in result['shadow_reasons']
+        self.assertFalse(due('2026-09-22', NOW))
+        self.assertFalse(due('2026-09-22', NOW.replace(hour=19, minute=29)))
+        self.assertTrue(due('2026-09-22', NOW.replace(hour=19, minute=30)))
+        self.assertTrue(due('2026-09-21', NOW))
+        self.assertTrue(due('2026-09-21', NOW, catalyst_family='earnings_positive',
+                            opened_at=(NOW - timedelta(days=3)).isoformat()))
+        self.assertFalse(due(None, NOW))
+        self.assertTrue(due('2026-09-28', datetime(2026, 9, 25, 19, 30, tzinfo=timezone.utc)))  # Friday before a Monday print
+        self.assertFalse(due('2026-09-21', NOW, catalyst_family='earnings_positive', opened_at=NOW.isoformat()))
+
+    def test_next_earnings_date_reads_the_newest_fresh_yahoo_document(self):
+        from market_db_modules.company_evidence import next_earnings_date
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder) / 'test.db'
+            initialize_database(db_path=db)
+            with closing(get_connection(db)) as conn, conn:
+                for identity, observed, dates in (('old', '2026-09-01', ['2026-09-30']), ('new', '2026-09-10', ['2026-09-20', '2026-10-01'])):
+                    record = {'metadata': {'event_key': f'yahoo_consensus:NVDA:{dates[0]}',
+                                           'scheduled_events': [{'scheduled_at': date} for date in dates]}}
+                    conn.execute('INSERT INTO evidence_documents VALUES (?,?,?,?,?,?,?)',
+                                 (identity, 'yahoo_consensus', f'{observed}T12:00:00+00:00', None, identity, identity, json.dumps(record)))
+            self.assertEqual(next_earnings_date('NVDA', as_of=NOW.isoformat(), db_path=db), '2026-10-01')
+            self.assertIsNone(next_earnings_date('AMD', as_of=NOW.isoformat(), db_path=db))
+            self.assertIsNone(next_earnings_date('NVDA', as_of='2026-12-01T12:00:00+00:00', db_path=db))
 
 
 class ContractDatabaseTests(unittest.TestCase):

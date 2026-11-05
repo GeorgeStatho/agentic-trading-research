@@ -1,13 +1,35 @@
 """Observational pipeline adapters for Part 4; all pricing verdicts are shadow."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from catalyst_models import timestamp
 from market_db_modules.candidate_lifecycle import record_candidate_snapshot, record_candidate_rejection
 from market_db_modules.pricing_research import catalyst_stats, load_histories, record_price_observation, candidate_sector_symbol
 from services.runtime.candidate_lifecycle import GateResult
 from services.gates.option_hurdle_gate import evaluate_option_hurdle
-from services.research.price_response import evaluate_price_absorption
+from services.research.price_response import directed_absorption, evaluate_price_absorption
 from services.gates.pricing_policy import HORIZON_DAYS, PricingPolicy
+
+
+# Same tolerance measure_response allows between an event and its baseline bar.
+INTRADAY_REFRESH_WINDOW = timedelta(days=4)
+_INTRADAY_FETCHED = {}
+
+
+def refresh_intraday_history(symbols, *, as_of, fetcher=None, db_path=None):
+    """Cache hourly bars completed by `as_of`, at most once per symbol per half hour (bars end on :30 and :00)."""
+    from services.discovery.catalyst_response_collector import fetch_response_history, store_fetched_history
+    fetcher = fetcher or (lambda symbol, timeframe: fetch_response_history(symbol, timeframe, period='5d'))
+    def bucket(at):
+        return at.replace(minute=at.minute // 30 * 30, second=0, microsecond=0)
+
+    results = {}
+    for symbol in dict.fromkeys(filter(None, symbols)):
+        last = _INTRADAY_FETCHED.get(symbol)
+        # A fetch stamped later than `as_of` is invisible to this candidate, so it does not count.
+        if last is None or bucket(last) != bucket(as_of) or last > as_of:
+            _INTRADAY_FETCHED[symbol] = as_of
+            results[symbol] = store_fetched_history(symbol, '1h', fetcher, as_of=as_of, db_path=db_path)
+    return results
 
 
 def persist_gate(context, gate, *, as_of, db_path=None):
@@ -17,18 +39,39 @@ def persist_gate(context, gate, *, as_of, db_path=None):
                                                       gate['metrics'], gate['thresholds']), shadow=True, db_path=db_path)
 
 
-def record_candidate_price_response(context, *, db_path=None):
+def record_candidate_price_response(context, *, fetcher=None, db_path=None):
     policy = PricingPolicy.from_env()
     as_of = timestamp(context['created_at'])
     state = context['catalysts'][0]
     stats = catalyst_stats(state['catalyst_family'], HORIZON_DAYS.get(state.get('expected_horizon'), 5),
                            as_of=as_of, minimum_samples=policy.minimum_samples,
                            exclude_catalyst_id=state['catalyst_id'], db_path=db_path)
-    histories = load_histories(context['symbol'], candidate_sector_symbol(context['symbol'], db_path=db_path), as_of=as_of,
-                              captured_before=as_of.isoformat(), db_path=db_path)
-    gate = evaluate_price_absorption(state, histories, stats, as_of=as_of, policy=policy)
+    sector = candidate_sector_symbol(context['symbol'], db_path=db_path)
+
+    def evaluate():
+        histories = load_histories(context['symbol'], sector, as_of=as_of, captured_before=as_of.isoformat(), db_path=db_path)
+        return evaluate_price_absorption(state, histories, stats, as_of=as_of, policy=policy)
+
+    gate = evaluate()
+    event = timestamp(state.get('first_public_time'))
+    # Hourly bars are otherwise stored in a daily batch, so fresh news has no stored price after it yet.
+    # Fetched bars are stamped as captured at the candidate's creation and only include bars completed by then.
+    if gate['metrics'].get('status') == 'missing_aligned_prices' and event and as_of - event <= INTRADAY_REFRESH_WINDOW:
+        refresh = refresh_intraday_history((context['symbol'], 'SPY', sector), as_of=as_of, fetcher=fetcher, db_path=db_path)
+        gate = evaluate()
+        gate['metrics']['intraday_refresh'] = refresh
     persist_gate(context, gate, as_of=as_of, db_path=db_path)
     record_price_observation(context, gate, db_path=db_path)
+    return gate
+
+
+def record_directed_absorption(manager_result, *, as_of=None, db_path=None):
+    """Shadow only: sign an undirected catalyst's absorption verdict with the Manager's direction."""
+    context = manager_result.get('candidate_context')
+    gate = directed_absorption((context or {}).get('price_absorption_gate'),
+                               (manager_result.get('recommendation') or {}).get('decision'))
+    if gate is not None:
+        persist_gate(context, gate, as_of=as_of or datetime.now(timezone.utc), db_path=db_path)
     return gate
 
 

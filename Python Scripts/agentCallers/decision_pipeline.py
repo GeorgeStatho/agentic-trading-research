@@ -37,7 +37,7 @@ from services.discovery.company_evidence_demand import request_pipeline_evidence
 from services.gates.contract_observations import record_scenario_selection
 from services.evaluation.decision_observations import freeze_decision_observation
 from services.core.pipeline_version import build_pipeline_version
-from services.gates.pricing_gates import apply_option_hurdle_to_manager_result
+from services.gates.pricing_gates import apply_option_hurdle_to_manager_result, record_directed_absorption
 from services.options.scenario_selector import prepare_scenario_inputs
 from services.gates.trade_economics import apply_trade_economics
 from services.gates.trade_economics_policy import TradeEconomicsPolicy
@@ -461,6 +461,7 @@ def _apply_post_manager_gates(
     manager_result["candidate_id"] = (candidate_context or {}).get("candidate_id")
     checkpoint(candidate_context, "post_manager", manager_result)
     record_gate(candidate_context, "CONTINUATION", manager_result.get("entry_gate"))
+    observe(record_directed_absorption, manager_result)
     checkpoint(candidate_context, "pre_contract_selection", manager_result)
     manager_result = observe(apply_option_hurdle_to_manager_result, manager_result) or manager_result
     manager_result = observe(prepare_scenario_inputs, manager_result) or manager_result

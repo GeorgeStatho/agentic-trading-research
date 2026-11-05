@@ -1,5 +1,22 @@
 # Plan 03: Delta-first strike ranking
 
+> **Status: premise not supported; parked (2026-11-04).**
+>
+> - **Traded contracts already have even deltas.** The 20 live entries had |Δ| from 0.35 to 0.47 (mean about
+>   0.42) across IVs of 0.30–0.68. That's the band this plan proposes as per-bucket targets.
+> - **Offline re-rank.** Using the last 400 directional decisions' stored chains, with the selector pinned to each
+>   decision date via `selection_date`: moving the delta term ahead of the OTM-% term in `_hybrid_fast_score`
+>   changed the pick in 278 of 363 replayable decisions (77%). But it mostly shifts one strike further OTM
+>   (mean |Δ| 0.470 → 0.422), and the spread across tickers **does not tighten** (stdev 0.046 → 0.056).
+>   Delta-first ranking doesn't make the probability of profit more even. It acts like a lower delta target.
+> - **What's left** is a different question: is about 0.42Δ better than about 0.47Δ? Answering it needs outcomes
+>   (a follower or a backtest), not a ranking change. Revisit only with that question.
+> - **Out of date below:** `HYBRID_REQUIRE_MIN_OTM_DISTANCE` is already `False` (`config.py:31`), so step 2 of
+>   the proposed change is already done.
+>
+> The re-rank script was a one-off and wasn't committed. It monkeypatches `hybrid._hybrid_fast_score` around
+> `_pick_matching_contract_hybrid` and reads `manager_decision_payloads` read-only.
+
 ## Context
 
 Each DTE bucket targets a fixed OTM percentage (0.75% to 3.0%). The same 2.5% OTM is a very

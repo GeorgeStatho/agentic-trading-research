@@ -1,15 +1,31 @@
 """Catalyst expiry and IV-collapse rungs, with explicit clocks and missing data."""
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from catalyst_models import timestamp
 from db_common import get_connection
 from services.gates.contract_policy import ContractPolicy
 from services.runtime.execution_telemetry import number
 
-EXIT_PRIORITY = ('stop_loss', 'thesis_invalidated', 'CATALYST_EXPIRED', 'near_expiration',
+EXIT_PRIORITY = ('stop_loss', 'thesis_invalidated', 'CATALYST_EXPIRED', 'PRE_EARNINGS', 'near_expiration',
                  'VOLATILITY_REGIME_CHANGE', 'trailing_profit_stop', 'momentum_history_failed',
                  'static_take_profit', 'first_scale_out_trigger', 'second_scale_out_trigger')
+
+MARKET_TIMEZONE = ZoneInfo('America/New_York')
+PRE_EARNINGS_EXIT_AT = time(15, 30)
+
+
+def pre_earnings_due(earnings_date, now):
+    """True from 15:30 New York on the last weekday before the print. Yahoo gives a date only, so assume after-close."""
+    if not earnings_date:
+        return None
+    last_session = date.fromisoformat(earnings_date) - timedelta(days=1)
+    # shortcut: weekdays only, ignores exchange holidays; use the provider-bar session calendar if one lands before a print.
+    while last_session.weekday() >= 5:
+        last_session -= timedelta(days=1)
+    local = now.astimezone(MARKET_TIMEZONE)
+    return local.date() > last_session or (local.date() == last_session and local.time() >= PRE_EARNINGS_EXIT_AT)
 
 
 def evaluate_position_rungs(inputs, *, as_of=None, policy=None):
@@ -29,9 +45,16 @@ def evaluate_position_rungs(inputs, *, as_of=None, policy=None):
     collapse = 1 - current_iv / entry_iv if valid else None
     move = abs(current_stock / entry_stock - 1) if valid else None
     vol_exit = collapse >= policy.iv_collapse_fraction and move <= policy.underlying_stagnation_fraction if valid else None
+    earnings = inputs.get('next_earnings_date')
+    # The print that is the trade's own catalyst (entered on or after it) is the drift being traded, not a risk.
+    own_print = (str(inputs.get('catalyst_family') or '').startswith('earnings') and earnings and opened
+                 and earnings <= opened.astimezone(MARKET_TIMEZONE).date().isoformat())
+    earnings_due = None if own_print else pre_earnings_due(earnings, now)
     reasons = []
     if expired:
         reasons.append('CATALYST_EXPIRED')
+    if earnings_due:
+        reasons.append('PRE_EARNINGS')
     if vol_exit:
         reasons.append('VOLATILITY_REGIME_CHANGE')
     # Cached arbiter recommendations are observational, never a new authority to
@@ -45,7 +68,8 @@ def evaluate_position_rungs(inputs, *, as_of=None, policy=None):
                 'expiry_clock': 'observed_sessions' if use_sessions else 'calendar_days_fallback',
                 'expiry_threshold': resolution if use_sessions else horizon,
                 'catalyst_expired': expired, 'iv_collapse_fraction': collapse,
-                'absolute_underlying_move': move, 'volatility_exit': vol_exit},
+                'absolute_underlying_move': move, 'volatility_exit': vol_exit,
+                'next_earnings_date': earnings, 'pre_earnings_due': earnings_due},
             'thresholds': {'iv_collapse_fraction': policy.iv_collapse_fraction,
                            'underlying_stagnation_fraction': policy.underlying_stagnation_fraction}}
 
@@ -88,7 +112,13 @@ def build_position_exit_context(option_symbol, parsed, stock_quote, *, as_of=Non
               'current_underlying_price': stock_quote.get('price'), 'underlying_at': stock_quote.get('timestamp'),
               'thesis_arbiter_action': verdict['arbiter_action'] if verdict else None,
               'thesis_verdict_at': verdict['run_at'] if verdict else None,
-              'p75_resolution_sessions': None, 'sessions_held': None}
+              'p75_resolution_sessions': None, 'sessions_held': None,
+              'catalyst_family': thesis['catalyst_family']}
+    try:
+        from market_db_modules.company_evidence import next_earnings_date
+        inputs['next_earnings_date'] = next_earnings_date(thesis['symbol'], as_of=now.isoformat(), db_path=db_path)
+    except Exception as exc:
+        inputs['earnings_error'] = str(exc)
     if inputs['entry_iv'] and policy.exit_mode != 'disabled':
         try:
             current = iv_fetcher({**parsed, 'symbol': option_symbol})
