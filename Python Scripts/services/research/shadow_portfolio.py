@@ -131,3 +131,43 @@ def evaluate_gate(rows, stage):
             'expectancy': expectancy(pnl(passed_done), len(passed_done), len(seen), dollars),
             'denominator_basis': 'hypothetical passed trades; all gate-observed candidates; premium dollar-days',
             'coverage_complete': bool(seen) and len(completed) == len(seen) and unknown == 0}
+
+
+MOVE_BASIS = 'underlying_residual_move'
+# Share of direction-bearing verdicts that must have a resolved forward move; matches forward acceptance.
+MINIMUM_MOVE_COVERAGE = 0.9
+SIDES = {'call': 1, 'put': -1, 'positive': 1, 'negative': -1}
+
+
+def proposed_side(features):
+    """+1/-1 for the trade a candidate proposed: the manager's call/put, else the catalyst's direction."""
+    return SIDES.get(features.get('manager_direction') if features.get('manager_direction') in {'call', 'put'}
+                     else features.get('catalyst_direction'))
+
+
+def evaluate_gate_on_moves(rows, stage):
+    """Score one gate's verdicts on the underlying's forward residual move in the proposed direction.
+
+    No priced trade is needed, so candidates the manager never reached or passed on still count.
+    A rejected candidate whose move went against its side is a loss avoided; with it, a profit sacrificed.
+    """
+    verdicts = [row for row in rows if row['gates'].get(stage) in (True, False)]
+    applicable = [row for row in verdicts if proposed_side(row['features'])]
+    scored = [(row['gates'][stage], row['residual_return'] * proposed_side(row['features']))
+              for row in applicable if row.get('residual_return') is not None]
+    passed = [move for allowed, move in scored if allowed]
+    rejected = [move for allowed, move in scored if not allowed]
+    lost = -sum(move for move in rejected if move < 0)
+    sacrificed = sum(move for move in rejected if move > 0)
+    coverage = len(scored) / len(applicable) if applicable else 0.0
+    return {'stage': stage, 'basis': MOVE_BASIS,
+            'n_seen': len(applicable), 'n_no_direction': len(verdicts) - len(applicable),
+            'n_unknown_verdicts': sum(stage in row['gates'] and row['gates'][stage] is None for row in rows),
+            'n_passed': sum(row['gates'][stage] for row in applicable),
+            'n_rejected': sum(not row['gates'][stage] for row in applicable),
+            'n_evaluable': len(scored), 'n_missing_outcomes': len(applicable) - len(scored),
+            'mean_move_passed': sum(passed) / len(passed) if passed else None,
+            'mean_move_rejected': sum(rejected) / len(rejected) if rejected else None,
+            'losses_avoided': lost, 'profits_sacrificed': sacrificed, 'gate_value': lost - sacrificed,
+            'coverage': coverage, 'coverage_complete': bool(applicable) and coverage >= MINIMUM_MOVE_COVERAGE,
+            'denominator_basis': '5-day residual return signed by the proposed side; gate value in summed return units'}

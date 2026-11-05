@@ -10,7 +10,8 @@ from db_common import get_connection
 from services.research.research_contract import (ResearchPolicy, STRATEGIES, canonical, fingerprint,
                                         strategy_decisions, utc)
 from services.research.research_inputs import baseline_contract, load_inputs, replay_missing_selection
-from services.research.research_promotion import PAIRED_PREFIX, research_only_candidate, source_hash
+from services.research.research_promotion import (PAIRED_PREFIX, champion_identity, gate_code_hashes,
+                                                  research_only_candidate, source_hash)
 from services.research.research_versions import evaluation_version, require_current_evaluator
 from research_foundation_contracts import OBSERVATION_PROTOCOL
 from .research_observations import (
@@ -92,6 +93,17 @@ def enrolls_candidate(role, candidate_id):
     """Production cohorts exclude research-only candidates; paired cohorts hold nothing else."""
     paired = str(candidate_id).startswith(PAIRED_PREFIX)
     return paired if role in {'incumbent', 'challenger'} else not research_only_candidate(candidate_id)
+
+
+def same_strategy(candidate_manifest, run_manifest, role, run_identity):
+    """A production cohort spans deploys that leave prompts, models and thresholds alone.
+
+    Each enrolled row records its own gate-code hashes, so a report scores a gate only on rows
+    produced by the code its proof binds. Paired evaluations keep exact manifest identity.
+    """
+    if role != 'production':
+        return candidate_manifest == run_manifest
+    return champion_identity(candidate_manifest) == run_identity
 
 
 def read_run(conn, run_id):
@@ -262,6 +274,7 @@ def collect_run(run_id, *, as_of=None, db_path=None):
             'SELECT observation_id FROM strategy_evaluations WHERE run_id=?', (run_id,))}
         registration = run_registration(conn, run_id)
         role = registration['role'] if registration else 'production'
+        run_identity = champion_identity(run['manifest'])
         window_end = utc(registration['window_end']) if registration else None
         if run['status'] == 'open':
             candidates = conn.execute('''SELECT * FROM candidates WHERE candidate_id NOT IN
@@ -274,10 +287,11 @@ def collect_run(run_id, *, as_of=None, db_path=None):
                 # Avoid freezing a candidate while its ordinary pipeline is still running.
                 if utc(candidate['created_at']) > utc(at) - timedelta(minutes=5):
                     continue
+                candidate_manifest = json.loads(candidate['pipeline_version_json'])
                 if run['kind'] == 'frozen_forward':
                     if utc(candidate['created_at']) < utc(run['started_at']):
                         continue
-                    if json.loads(candidate['pipeline_version_json']) != run['manifest']:
+                    if not same_strategy(candidate_manifest, run['manifest'], role, run_identity):
                         skipped_versions += 1
                         continue
                 observation = candidate_observation(conn, candidate['candidate_id'])
@@ -303,8 +317,9 @@ def collect_run(run_id, *, as_of=None, db_path=None):
                 # Never run today's selector as if it were an older strategy's code.
                 # Recorded selections remain evaluable under an unchanged evaluator.
                 # A paired evaluation already ran the picker on its frozen chain; no contract is its outcome.
-                if inputs and role == 'production' and run['kind'] == 'frozen_forward' and run['code_hash'] == current_source:
-                    inputs = replay_missing_selection(inputs, run['manifest'])
+                if (inputs and role == 'production' and run['kind'] == 'frozen_forward'
+                        and fingerprint(candidate_manifest.get('source_hashes') or {}) == current_source):
+                    inputs = replay_missing_selection(inputs, candidate_manifest)
                 if inputs is None:
                     rejected_by = [row['stage'] for row in conn.execute('''SELECT DISTINCT stage FROM candidate_rejections
                         WHERE candidate_id=? AND julianday(occurred_at)<=julianday(?) ORDER BY stage''',
@@ -315,6 +330,7 @@ def collect_run(run_id, *, as_of=None, db_path=None):
                               'features': {'gates': {stage: False for stage in rejected_by}}, 'contracts': [],
                               'selected_contract': None, 'rejected_by': rejected_by,
                               'snapshot_hashes': {}, 'selection_source': 'missing_or_unfinished_snapshots'}
+                inputs['gate_code'] = gate_code_hashes(candidate_manifest.get('source_hashes') or {})
                 if observation:
                     if utc(inputs['information_cutoff_time']) != utc(observation['information_cutoff_time']):
                         raise CandidatePausedRun(candidate['candidate_id'], 'Evaluation cutoff differs from the shared observation')

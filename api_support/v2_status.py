@@ -149,6 +149,7 @@ class _Reading:
     conn: Any
     db_path: Any
     code_hash: str | None
+    source_hashes: dict | None
     activity: dict | None
     since: str
 
@@ -164,7 +165,9 @@ def build_v2_status_payload(
     since = (now - timedelta(days=window_days)).isoformat()
     policies = _load_policies()
     with closing(get_connection(db_path)) as conn:
-        reading = _Reading(conn, db_path, _source_hash(), _shadow_activity(conn, since), since)
+        hashes = _source_hashes()
+        code_hash = _fingerprint(hashes) if hashes else None
+        reading = _Reading(conn, db_path, code_hash, hashes, _shadow_activity(conn, since), since)
         features = [_feature_status(reading, feature, policies) for feature in GUARDED_FEATURES]
         return {
             "as_of": now.isoformat(),
@@ -206,14 +209,20 @@ def _load_policies() -> dict:
     return policies
 
 
-def _source_hash() -> str | None:
-    from services.research.research_promotion import source_hash
+def _source_hashes() -> dict | None:
+    from services.core.trading_path import trading_path_hashes
 
     try:
-        return source_hash()
+        return trading_path_hashes()
     except OSError as exc:
         logger.warning("V2 source hash could not be computed: %s", exc)
         return None
+
+
+def _fingerprint(hashes: dict) -> str:
+    from services.research.research_contract import fingerprint
+
+    return fingerprint(hashes)
 
 
 def _requested_mode(env_var: str) -> str:
@@ -249,10 +258,11 @@ def _feature_status(reading: _Reading, feature: dict, policies: dict) -> dict:
 
 def _stage_status(reading: _Reading, stage: str, policy, feature: dict) -> dict:
     """One promotion stage: its proof, and what the shadow stream has seen."""
-    from services.research.research_promotion import policy_hash
+    from services.research.research_promotion import gate_code_hash, policy_hash
 
     proofs = _promotion_rows(reading.conn, stage)
-    current_hash = policy_hash(stage, policy, reading.code_hash) if reading.code_hash else None
+    current_hash = (policy_hash(stage, policy, gate_code_hash(stage, reading.source_hashes))
+                    if reading.source_hashes else None)
     matching = next((row for row in proofs if row["policy_hash"] == current_hash), None)
     measured_on_candidates = feature.get("activity_basis", "candidates") == "candidates"
     return {
@@ -272,13 +282,13 @@ def _activity_for(activity: dict | None, stage: str) -> dict | None:
 def _enforcement_allowed(reading: _Reading, stage: str, policy) -> bool:
     """research_promotion.approved is the authority; never re-derive its rule.
 
-    The reading's code hash is passed through so one payload hashes the sources
+    The reading's source hashes are passed through so one payload hashes the sources
     once instead of once per stage.
     """
     from services.research.research_promotion import approved
 
     try:
-        return bool(approved(stage, policy, db_path=reading.db_path, code_hash=reading.code_hash))
+        return bool(approved(stage, policy, db_path=reading.db_path, source_hashes=reading.source_hashes))
     except Exception as exc:
         logger.warning("Promotion proof lookup failed for %s: %s", stage, exc)
         return False
@@ -450,6 +460,7 @@ def _gate_readiness(gate: dict, sample_floor: int) -> dict:
         "n_rejected": gate.get("n_rejected"),
         "n_missing_outcomes": gate.get("n_missing_outcomes"),
         "regimes": gate.get("regimes") or [],
+        "basis": gate.get("basis") or "option_pnl",
         "gate_value": safe_float(gate.get("gate_value")),
         "losses_avoided": safe_float(gate.get("losses_avoided")),
         "profits_sacrificed": safe_float(gate.get("profits_sacrificed")),
@@ -464,11 +475,13 @@ def _promotion_blockers(gate: dict, sample_floor: int) -> list[str]:
     single lumped error; this names the individual conditions so the panel can
     say what is still missing rather than only that something is.
     """
+    # Move-scored gates need forward stock returns, not priced option trades.
+    option_basis = gate.get("basis") != "underlying_residual_move"
     checks = (
         (not gate.get("policy_hash"), "no policy hash recorded for this stage"),
         (not gate.get("coverage_complete"), "counterfactual coverage is incomplete"),
-        (not gate.get("production_selection_complete"), "some production contract selections are unknown"),
-        (not gate.get("daily_coverage_complete"), "daily option marks are missing"),
+        (option_basis and not gate.get("production_selection_complete"), "some production contract selections are unknown"),
+        (option_basis and not gate.get("daily_coverage_complete"), "daily option marks are missing"),
         ((gate.get("n_evaluable") or 0) < sample_floor, "fewer than " + str(sample_floor) + " evaluable observations"),
         (not gate.get("n_passed"), "no passed observations"),
         (not gate.get("n_rejected"), "no rejected observations"),

@@ -11,6 +11,7 @@ from market_db_modules.foundation_store import digest
 from market_db_modules.forward_evaluation import ensure_cohort
 from research_foundation_contracts import DECISION_OBSERVATION_PROTOCOL
 from services.evaluation.forward_evaluation_policy import AcceptancePolicy, ForwardEvaluationPolicy
+from services.research.research_promotion import champion_identity
 
 SELECTION_BASIS = 'observation_bucket_chain'
 
@@ -48,7 +49,9 @@ def ensure_production_cohort(manifest, *, policy=None, acceptance=None, at=None,
     policy = policy or ForwardEvaluationPolicy.from_env()
     if not policy.enabled or not manifest or not manifest.get('pipeline_version'):
         return None
-    return ensure_cohort({'production': manifest}, base_pipeline_version=manifest['pipeline_version'],
+    # Keyed on strategy identity, not the source-hashed version, so a code-only deploy keeps the cohort.
+    identity = 'identity:' + digest(champion_identity(manifest))
+    return ensure_cohort({'production': manifest}, base_pipeline_version=identity,
                          challenger_id=None, acceptance=acceptance or AcceptancePolicy.from_env(),
                          at=at or utc_now(), db_path=db_path)
 

@@ -12,7 +12,8 @@ def record_catalyst_gate_observation(context, gate, *, db_path=None):
             ON CONFLICT(candidate_id, stage) DO NOTHING''',
             (context['candidate_id'], context['catalyst_id'], gate['stage'], context['created_at'],
              metrics.get('catalyst_age_minutes'), metrics.get('remaining_information_value'),
-             gate['would_allow'], gate['allowed'], gate['enforcement_mode']=='shadow', gate['policy_version'],
+             # A missing-input verdict (None) stays 0 here; this table reads "unknown" from a null age.
+             gate['would_allow'] is True, gate['allowed'], gate['enforcement_mode']=='shadow', gate['policy_version'],
              json_text(metrics), json_text(gate['thresholds'])))
 
 

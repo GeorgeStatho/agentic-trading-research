@@ -23,7 +23,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific te
 from db_common import get_connection, use_database
 from market_db_modules.bootstrap import initialize_database
 from services.gates.contract_policy import ContractPolicy
-from services.research.research_promotion import policy_hash, source_hash
+from services.core.trading_path import trading_path_hashes
+from services.research.research_promotion import gate_code_hash, policy_hash, source_hash
 
 NOW = datetime.now(timezone.utc)
 RECENT = (NOW - timedelta(days=1)).isoformat()
@@ -104,7 +105,7 @@ class V2StatusTests(unittest.TestCase):
 
     def test_matching_proof_reports_the_stage_as_enforceable(self) -> None:
         self._record_report("report-1", [])
-        expected = policy_hash("LIQUIDITY", ContractPolicy(), source_hash())
+        expected = policy_hash("LIQUIDITY", ContractPolicy(), gate_code_hash("LIQUIDITY", trading_path_hashes()))
         with closing(get_connection(self.db)) as conn, conn:
             conn.execute(
                 "INSERT INTO research_gate_promotions VALUES (?,?,?,?,?,?)",
@@ -120,7 +121,7 @@ class V2StatusTests(unittest.TestCase):
 
     def test_proof_is_found_in_the_current_database_when_no_path_is_given(self) -> None:
         self._record_report("report-1", [])
-        expected = policy_hash("LIQUIDITY", ContractPolicy(), source_hash())
+        expected = policy_hash("LIQUIDITY", ContractPolicy(), gate_code_hash("LIQUIDITY", trading_path_hashes()))
         with closing(get_connection(self.db)) as conn, conn:
             conn.execute(
                 "INSERT INTO research_gate_promotions VALUES (?,?,?,?,?,?)",

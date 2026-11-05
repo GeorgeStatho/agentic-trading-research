@@ -41,10 +41,11 @@ def evaluate_market_regime_gate(
     macro_window = (regime or {}).get("macro_event_window")
     macro_active = isinstance(macro_window, dict) and macro_window.get("active") is True
     reasons: list[str] = []
-    would_allow = True
+    would_allow: bool | None = True
 
     if decision not in {"call", "put"}:
-        would_allow = False
+        # No entry to permit: a verdict here is not applicable, never a block to count as evidence.
+        would_allow = None
         reasons.append("regime_gate_requires_directional_decision")
     elif macro_active:
         would_allow = False
@@ -104,7 +105,7 @@ def evaluate_market_regime_gate(
         else:
             reasons = ['regime_scope_opposition_pass']
 
-    allowed = would_allow or active_policy.mode in {"observe", "shadow"}
+    allowed = bool(would_allow) or active_policy.mode in {"observe", "shadow"}
     return {
         "allowed": allowed,
         "would_allow": would_allow,

@@ -123,6 +123,13 @@ class GateTests(unittest.TestCase):
                 'primary_source_present': False, 'evidence_score': .9, 'first_public_time': (NOW-timedelta(days=4)).isoformat(),
                 'latest_root_event_time': None, 'expected_half_life_minutes': 1440, **extra}
 
+    def test_missing_freshness_inputs_give_no_verdict_but_still_block_under_enforcement(self):
+        for state in (self.state(expected_half_life_minutes=None), self.state(first_public_time=None)):
+            for mode, allowed in (('shadow', True), ('enforce', False)):
+                gate = evaluate_catalyst_gates(state, as_of=NOW, policy=CatalystGatePolicy(freshness_mode=mode))['FRESHNESS']
+                self.assertIsNone(gate['would_allow'])
+                self.assertIs(gate['allowed'], allowed)
+
     def test_decay_threshold_and_shadow_default(self):
         gate = evaluate_catalyst_gates(self.state(), as_of=NOW)['FRESHNESS']
         self.assertAlmostEqual(gate['metrics']['remaining_information_value'], .0625)

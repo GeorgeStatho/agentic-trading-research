@@ -139,7 +139,10 @@ class ResearchDatabaseTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.db = Path(self.temp.name) / 'research.db'
         initialize_database(db_path=self.db)
-        self.manifest = {'pipeline_version': 'fixture-v1', 'gate_config': {'contracts': asdict(ContractPolicy())}}
+        # Proofs bind to the run's per-file source hashes, as a worker's manifest records them.
+        from services.core.trading_path import trading_path_hashes
+        self.manifest = {'pipeline_version': 'fixture-v1', 'gate_config': {'contracts': asdict(ContractPolicy())},
+                         'source_hashes': trading_path_hashes()}
 
     def run_fixture(self, n=1, kind='frozen_forward'):
         return start_run(self.manifest, kind=kind, target_candidates=n, now=START, db_path=self.db)['run_id']
@@ -383,6 +386,52 @@ class ResearchDatabaseTests(unittest.TestCase):
             conn.execute("UPDATE research_reports SET report_json='{}'")
         with self.assertRaises(ValueError):
             promote_gate(report['report_id'], 'LIQUIDITY', db_path=self.db)
+
+
+
+class GateEvidenceBasisTests(unittest.TestCase):
+    @staticmethod
+    def row(verdict, move, *, manager=None, catalyst='positive'):
+        return {'gates': {'PROVENANCE': verdict}, 'residual_return': move,
+                'features': {'manager_direction': manager, 'catalyst_direction': catalyst}}
+
+    def test_move_scoring_signs_by_the_proposed_side_and_counts_no_trade_candidates(self):
+        from services.research.shadow_portfolio import evaluate_gate_on_moves
+        rows = [self.row(True, .03), self.row(False, -.02), self.row(False, .01),
+                # The manager's put outranks the catalyst's direction: a falling stock is a winner it rejected.
+                self.row(False, -.04, manager='put'),
+                self.row(False, .05, catalyst='unknown'), self.row(None, .02), self.row(True, None)]
+        gate = evaluate_gate_on_moves(rows, 'PROVENANCE')
+        self.assertEqual((gate['n_seen'], gate['n_no_direction'], gate['n_unknown_verdicts']), (5, 1, 1))
+        self.assertEqual((gate['n_passed'], gate['n_rejected'], gate['n_evaluable']), (2, 3, 4))
+        self.assertAlmostEqual(gate['losses_avoided'], .02)
+        self.assertAlmostEqual(gate['profits_sacrificed'], .05)
+        self.assertAlmostEqual(gate['gate_value'], -.03)
+        self.assertAlmostEqual(gate['coverage'], .8)
+        self.assertFalse(gate['coverage_complete'])
+
+    def test_every_gate_file_is_hashed_and_a_proof_survives_unrelated_deploys(self):
+        from services.core.trading_path import trading_path_files, trading_path_hashes
+        from services.research.research_promotion import GATE_FILES, gate_code_hash
+        missing = {name for files in GATE_FILES.values() for name in files} - set(trading_path_files())
+        self.assertEqual(missing, set())
+        hashes = trading_path_hashes()
+        unrelated = {**hashes, 'Python Scripts/agentCallers/decision_pipeline.py': 'changed'}
+        self.assertEqual(gate_code_hash('PROVENANCE', unrelated), gate_code_hash('PROVENANCE', hashes))
+        self.assertNotEqual(gate_code_hash('SCENARIO_SELECTION', unrelated), gate_code_hash('SCENARIO_SELECTION', hashes))
+        gate_edit = {**hashes, 'Python Scripts/services/gates/catalyst_gates.py': 'changed'}
+        self.assertNotEqual(gate_code_hash('FRESHNESS', gate_edit), gate_code_hash('FRESHNESS', hashes))
+
+    def test_production_cohorts_span_code_only_deploys_but_not_threshold_changes(self):
+        from market_db_modules.research_runs import same_strategy
+        from services.research.research_promotion import champion_identity
+        run = {'pipeline_version': 'v2:a', 'source_hashes': {'x.py': '1'}, 'gate_config': {'regime': {'maximum_opposition': .75}}}
+        identity = champion_identity(run)
+        deployed = {**run, 'pipeline_version': 'v2:b', 'source_hashes': {'x.py': '2'}}
+        retuned = {**run, 'gate_config': {'regime': {'maximum_opposition': .5}}}
+        self.assertTrue(same_strategy(deployed, run, 'production', identity))
+        self.assertFalse(same_strategy(retuned, run, 'production', identity))
+        self.assertFalse(same_strategy(deployed, run, 'challenger', identity))
 
 
 if __name__ == '__main__':

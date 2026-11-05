@@ -156,3 +156,14 @@ class MarketRegimeGateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NonDirectionalRegimeVerdictTests(unittest.TestCase):
+    def test_a_decision_with_no_entry_has_no_verdict_and_still_no_permission_under_enforcement(self):
+        from services.gates.market_regime_gate import MarketRegimePolicy, evaluate_market_regime_gate
+        for mode, allowed in (('shadow', True), ('enforce', False)):
+            gate = evaluate_market_regime_gate(proposed_decision='neither', manager_confidence='high',
+                                               regime={'state': 'trend_up'}, policy=MarketRegimePolicy(mode=mode))
+            self.assertIsNone(gate['would_allow'])
+            self.assertIs(gate['allowed'], allowed)
+            self.assertEqual(gate['eligible_decision'], 'neither')
