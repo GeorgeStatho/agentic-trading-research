@@ -35,6 +35,7 @@ history and are not updated when the code changes.
 | [RESEARCH_PHASE6.md](RESEARCH_PHASE6.md) | Event-triggered thesis reviews of open positions (shadow) |
 | [RESEARCH_PHASE7.md](RESEARCH_PHASE7.md) | Forward cohorts, challenger comparisons and pre-registered promotion |
 | [finharness/README.md](finharness/README.md) | Proposed: four follow-ups adapted from the FinanceHarness paper |
+| [argon/00_INDEX.md](argon/00_INDEX.md) | Ratings of 20 Gemini-suggested trading ideas against the code, plus seven proposed plans |
 
 ### V2 trading architecture (implemented)
 
@@ -51,6 +52,13 @@ history and are not updated when the code changes.
 | --- | --- |
 | [guides/OPTION_TRAILING_PROFIT_AND_MOMENTUM_GUIDE.md](guides/OPTION_TRAILING_PROFIT_AND_MOMENTUM_GUIDE.md) | How the option exit engine manages open positions |
 | [guides/deterministic_option_selector_report.md](guides/deterministic_option_selector_report.md) | How the deterministic contract selector works |
+
+### Dashboard
+
+| Document | Contents |
+| --- | --- |
+| [web_dashboard/README.md](../web_dashboard/README.md) | Pages, views, files and the API routes the dashboard reads |
+| [web_dashboard/docs/redesign/REDESIGN.md](../web_dashboard/docs/redesign/REDESIGN.md) | The Tailwind + daisyUI redesign: spec, what each step built, what is still open |
 
 The repository root keeps [README.md](../README.md) (overview and setup),
 [SECURITY.md](../SECURITY.md), [PRIVACY.md](../PRIVACY.md) and the licence.
@@ -70,4 +78,5 @@ Kept for history. Where one conflicts with a current document, the current docum
 | [archive/LLMThesisValidator.md](archive/LLMThesisValidator.md) | Design notes for the position thesis validator, now implemented |
 | [archive/ORDER_LIFECYCLE_AUDIT.md](archive/ORDER_LIFECYCLE_AUDIT.md) | Dated audit (2026-07-27) |
 | [archive/HACKATHON_SUBMISSION.md](archive/HACKATHON_SUBMISSION.md) | Hackathon write-up |
+| [archive/argonchat.md](archive/argonchat.md) | The Gemini conversation whose suggestions argon/ rates |
 | `archive/scratch/` | Pasted logs and UI/design dumps (`Error.md`, `backtest.md`, `design.md`) |

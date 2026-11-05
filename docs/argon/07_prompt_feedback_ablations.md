@@ -16,13 +16,13 @@ paired replay on frozen inputs, measuring whether each input changes decisions a
 
 ## Current state
 
-- Autopsy and history settings: `services/settings.py:244-249`, with `MANAGER_RESOLVED_AUTOPSY_LIMIT`
+- Autopsy and history settings: `services/core/settings.py:244-249`, with `MANAGER_RESOLVED_AUTOPSY_LIMIT`
   defaulting to 3 and `MANAGER_DECISION_HISTORY_LIMIT` defaulting to 3. The **minimum is 1**
   (`_integer(..., minimum=1)` at `:36-37`), so a true zero isn't possible today.
 - The prompt's usage rules are at `agentCallers/agent_stages/manager_prompt.py:39`.
 - Strategist context given to the Manager: `agentCallers/agent_stages/manager_strategist_context.py`
   (`_build_manager_visible_strategist_context`).
-- Replay tooling: `agentCallers/offline_manager_evaluation.py` and `services/llm_backtest.py`
+- Replay tooling: `agentCallers/offline_manager_evaluation.py` and `services/evaluation/llm_backtest.py`
   (paired replays, frozen inputs, which refuse to run if `gate_config` has changed).
 
 ## Proposed change
@@ -56,7 +56,7 @@ paired replay on frozen inputs, measuring whether each input changes decisions a
 
 ## Files to touch
 
-- `services/settings.py` (minimums)
+- `services/core/settings.py` (minimums)
 - `agentCallers/agent_stages/manager_strategist_context.py` (variant flag)
 - `agentCallers/offline_manager_evaluation.py` (variant wiring)
 - `tests/test_manager_context*.py` and `tests/test_offline_manager_evaluation*.py` (extend)

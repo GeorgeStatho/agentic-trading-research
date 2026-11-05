@@ -21,8 +21,8 @@ blocking entries when earnings are 5 days away or fewer. That is the wrong windo
   consensus evidence document. Nothing reads it for trading.
 - Evidence store readers: `Data/market_db_modules/company_evidence.py:85-93`
   (`get_evidence_document`, `get_company_fact`, `latest_evidence_package`).
-- Forced-exit DTE per bucket: `services/option_dte_buckets.py` (`force_exit_days_to_expiration`).
-- Exit rungs and priority: `services/position_exit_policy.py:10` (`EXIT_PRIORITY`).
+- Forced-exit DTE per bucket: `services/options/option_dte_buckets.py` (`force_exit_days_to_expiration`).
+- Exit rungs and priority: `services/options/position_exit_policy.py:10` (`EXIT_PRIORITY`).
 - The catalyst taxonomy already has `earnings` and the families `earnings_positive` and
   `earnings_negative` (`Data/catalyst_models.py:12,18`).
 
@@ -47,14 +47,14 @@ clearly more. Otherwise record the result in this file and stop.
 1. **Reader:** add `next_earnings_date(company_id, *, as_of, db_path=None)` in
    `Data/market_db_modules/company_evidence.py`. It returns `{date, source, observed_at}`, or `None`
    when unknown or stale (older than 45 days).
-2. **Exit rung `PRE_EARNINGS`** (preferred mechanism) in `services/position_exit_policy.py`:
+2. **Exit rung `PRE_EARNINGS`** (preferred mechanism) in `services/options/position_exit_policy.py`:
    - fires at or after 15:30 New York time on the last regular session before the print;
    - a pre-market print means the session before; an after-close print means the same day. Yahoo
      only gives a date, so assume after-close for safety and exit the session before;
    - position in `EXIT_PRIORITY`: after `stop_loss` and `thesis_invalidated`, before `near_expiration`;
    - policy `EARNINGS_EXIT_MODE=shadow|enforce|disabled`, default shadow. In shadow it records the
      exit it *would* take.
-3. **Optional entry gate `EARNINGS_WINDOW`** in `services/entry_gates.py`:
+3. **Optional entry gate `EARNINGS_WINDOW`** in `services/gates/entry_gates.py`:
    - blocks only when the print is fewer than `EARNINGS_MIN_SESSIONS_BEFORE_ENTRY` (default 2)
      sessions away, i.e. too close for the pre-print IV ramp to pay for the spread;
    - shadow by default, with reason codes `earnings_too_close`, `earnings_date_unknown` and
@@ -66,9 +66,9 @@ clearly more. Otherwise record the result in this file and stop.
 ## Files to touch
 
 - `Data/market_db_modules/company_evidence.py` (reader)
-- `services/position_exit_policy.py` (rung)
-- `services/entry_gates.py` plus a new `services/earnings_window_gate.py` (gate)
-- `services/pipeline_version.py` (`gate_config`) and `services/research_promotion.py` (`GATE_BLOCKS`)
+- `services/options/position_exit_policy.py` (rung)
+- `services/gates/entry_gates.py` plus a new `services/gates/earnings_window_gate.py` (gate)
+- `services/core/pipeline_version.py` (`gate_config`) and `services/research/research_promotion.py` (`GATE_BLOCKS`)
 - `tests/test_earnings_window.py` (new)
 
 ## Risks / open questions

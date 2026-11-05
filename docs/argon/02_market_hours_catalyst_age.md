@@ -8,7 +8,7 @@ open, although the market has had no session to react. With the `analyst_action`
 1440 minutes, the gate counts that news as mostly decayed before any trading has happened.
 
 The other half of Gemini's idea, price drift since first print, **already exists**. The
-`PRICE_ABSORPTION` gate (`services/price_response.py:157`) measures the beta-adjusted residual move
+`PRICE_ABSORPTION` gate (`services/research/price_response.py:157`) measures the beta-adjusted residual move
 from the last completed close before publication, so overnight gaps are included. This plan does
 not touch it.
 
@@ -16,10 +16,10 @@ not touch it.
 
 - `Data/catalyst_models.py:24-27`: `HALF_LIFE_MINUTES` per family, with
   `DECAY_BASIS = 'elapsed_calendar_minutes'`.
-- `services/catalyst_gates.py:53-58`: `age` and `effective_age` are wall-clock minutes, and
+- `services/gates/catalyst_gates.py:53-58`: `age` and `effective_age` are wall-clock minutes, and
   `recency_score(effective_age/1440, half_life_days=...)`.
-- Session helpers: `services/price_response.py:21` (`completed_at`), and New York time handling in
-  `services/evaluation_clock.py`. Check whether it already has a session calendar before writing one.
+- Session helpers: `services/research/price_response.py:21` (`completed_at`), and New York time handling in
+  `services/evaluation/evaluation_clock.py`. Check whether it already has a session calendar before writing one.
 
 ## Proposed change
 
@@ -38,9 +38,9 @@ not touch it.
 
 ## Files to touch
 
-- `services/catalyst_gates.py`
+- `services/gates/catalyst_gates.py`
 - `Data/catalyst_models.py` (make `DECAY_BASIS` policy-driven, or add a second constant)
-- `services/pipeline_version.py` (the new policy field is picked up through `CatalystGatePolicy`)
+- `services/core/pipeline_version.py` (the new policy field is picked up through `CatalystGatePolicy`)
 - A small session-minutes helper, wherever `evaluation_clock.py` keeps New York time logic
 - `tests/test_catalyst_gates.py` (extend)
 

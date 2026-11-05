@@ -154,7 +154,7 @@ Add an `attribution` subcommand to [`scripts/research.py`](../../scripts/researc
   `decision_attributions` in the ledger query and add
   `"attribution": {evidence_quality, evidence_source, direction_outcome, expression_outcome,
   primary_failure, horizon_returns}`, or `null`.
-- [`web_dashboard/src/decisionAutopsy.tsx`](../../web_dashboard/src/decisionAutopsy.tsx) (:83): add a small "Attribution" row with three
+- `web_dashboard/src/decisionAutopsy.tsx` (now [`decisionsPage.tsx`](../../web_dashboard/src/decisionsPage.tsx) / [`decisions.ts`](../../web_dashboard/src/decisions.ts) after the dashboard redesign): add a small "Attribution" row with three
   chips: evidence, direction and expression. Use the existing chip and label styles, plus
   `formatLabel` from `analyzedCompanyNews.tsx`.
 - Add a fixture to Demo Mode so `?demo=1` renders it.

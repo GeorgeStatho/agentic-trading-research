@@ -9,19 +9,19 @@ same-direction cap limits that without needing beta or delta data.
 
 ## Current state
 
-- Concurrent cap: `services/trading_config.py:187` (`MAX_CONCURRENT_OPTION_POSITIONS=5`).
-- Exposure snapshot: `services/trade_executor.py:47-57`, with `cluster_exposure_by_key` and
-  `cluster_option_symbols`. The portfolio guardrail is at `services/trade_executor.py:322`
+- Concurrent cap: `services/core/trading_config.py:187` (`MAX_CONCURRENT_OPTION_POSITIONS=5`).
+- Exposure snapshot: `services/trading/trade_executor.py:47-57`, with `cluster_exposure_by_key` and
+  `cluster_option_symbols`. The portfolio guardrail is at `services/trading/trade_executor.py:322`
   (`_portfolio_guardrail_reason`).
-- Cluster evaluation: `services/risk_clusters.py:6` (`evaluate_cluster`).
-- Option side parsing: `services/option_symbols.py`.
+- Cluster evaluation: `services/gates/risk_clusters.py:6` (`evaluate_cluster`).
+- Option side parsing: `services/options/option_symbols.py`.
 
 ## Proposed change
 
 1. Add `open_direction_counts: {'call': n, 'put': n}` to the exposure snapshot. Count positions
    already open plus orders reserved earlier in the same session, so one cycle can't open three
    calls at once.
-2. Add a new verdict function in `services/direction_cap_gate.py`, `evaluate_direction_cap`.
+2. Add a new verdict function in `services/gates/direction_cap_gate.py`, `evaluate_direction_cap`.
    - Inputs: `{'proposed': 'call'|'put', 'counts': ...}` and a `DirectionCapPolicy`, with
      `max_same_direction` (env `MAX_SAME_DIRECTION_OPTION_POSITIONS`, default 4) and
      `mode` (default shadow).
@@ -32,10 +32,10 @@ same-direction cap limits that without needing beta or delta data.
 
 ## Files to touch
 
-- `services/trade_executor.py`
-- `services/direction_cap_gate.py` (new)
-- `services/trading_config.py` (env)
-- `services/pipeline_version.py` and `services/research_promotion.py`
+- `services/trading/trade_executor.py`
+- `services/gates/direction_cap_gate.py` (new)
+- `services/core/trading_config.py` (env)
+- `services/core/pipeline_version.py` and `services/research/research_promotion.py`
 - `tests/test_direction_cap_gate.py` (new) and `tests/test_trade_executor*.py` (extend)
 
 ## Risks / open questions

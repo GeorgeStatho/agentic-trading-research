@@ -17,9 +17,9 @@ distance from 0.38Δ, but only as a **tiebreak** after the OTM-% distance.
   `HYBRID_REQUIRE_MIN_OTM_DISTANCE=True`).
 - Hybrid ranking: `.../hybrid.py:138-153`. OTM distance comes first, delta distance second.
 - Shared sort key: `.../filters.py:132-172` (`_basic_sort_key`).
-- Bucket OTM targets: `services/option_dte_buckets.py` (`target_otm_pct`).
+- Bucket OTM targets: `services/options/option_dte_buckets.py` (`target_otm_pct`).
 - Follower accounts mirror production entries with alternative contract strategies:
-  `services/account_strategies.py:146` (`build_order`) and `services/follower_fleet.py`. They are
+  `services/trading/account_strategies.py:146` (`build_order`) and `services/trading/follower_fleet.py`. They are
   compared on the Followers research page.
 
 ## Proposed change
@@ -35,14 +35,14 @@ distance from 0.38Δ, but only as a **tiebreak** after the OTM-% distance.
 3. Add a per-bucket `target_abs_delta` to `DteBucket` as starting priors, not tuned values:
    12–20: 0.42, 20–30: 0.40, 30–45: 0.38, 45–60: 0.35.
 4. **Evaluation via a follower** (no production change): add a strategy `delta_target` to
-   `services/account_strategies.py`. For the same production decision and bucket, it picks the
+   `services/trading/account_strategies.py`. For the same production decision and bucket, it picks the
    delta-ranked strike and sizes it like production (one contract, within the premium cap).
 
 ## Files to touch
 
 - `.../deterministic_option_selector/config.py`, `hybrid.py`, `filters.py`
-- `services/option_dte_buckets.py`
-- `services/account_strategies.py` (new strategy) and the follower config that names strategies
+- `services/options/option_dte_buckets.py`
+- `services/trading/account_strategies.py` (new strategy) and the follower config that names strategies
 - `tests/test_deterministic_option_selector*.py` and `tests/test_account_strategies*.py` (extend)
 
 ## Risks / open questions

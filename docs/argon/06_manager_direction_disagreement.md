@@ -36,7 +36,7 @@ first step is to record the disagreement and look at the data.
 ## Files to touch
 
 - `agentCallers/decision_pipeline.py`
-- A small helper module, e.g. `services/direction_agreement.py`
+- A small helper module, e.g. `services/evaluation/direction_agreement.py`
 - The decision-history store, only if it needs a new column; prefer the existing JSON payload
 - `tests/test_direction_agreement.py` (new)
 
