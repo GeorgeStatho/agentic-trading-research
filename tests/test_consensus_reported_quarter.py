@@ -192,6 +192,17 @@ class PackageRetentionTests(unittest.TestCase):
         self.assertNotIn(two_reports_ago, kept)
         self.assertEqual({last_report, newest} & kept, {last_report, newest})
 
+    def test_the_kept_pre_report_estimate_does_not_reschedule_the_past_report(self):
+        # The pre-report estimate is kept only as a baseline; its earnings date has passed and must not
+        # appear among the package's scheduled events next to the real upcoming one.
+        primary = self.ingest(guidance(at=START))
+        last_report = self.ingest(two_metric_consensus_doc(at('2026-08-25'), '2026-08-26'))
+        newest = self.ingest(two_metric_consensus_doc(at('2026-09-01'), '2026-11-25'))
+        identity = build_company_package(COMPANY, [primary, last_report, newest], ENTRY, self.policy, db_path=self.db)
+        package = get_evidence_package(identity, db_path=self.db)
+        self.assertIn(last_report, package['document_ids'])
+        self.assertEqual([event['scheduled_at'] for event in package['scheduled_events']], ['2026-11-25'])
+
 
 class PayloadHintTests(unittest.TestCase):
     """The strategist sees which actual each consensus fact can be compared with."""
