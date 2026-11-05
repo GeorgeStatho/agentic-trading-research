@@ -109,20 +109,45 @@ def _mean(values):
     return sum(values) / len(values) if values else None
 
 
+def _production_dollars(row):
+    """Production's (P&L, capital) on a mirrored entry: its realized return on what it actually paid
+    (fill price x filled quantity), falling back to the premium every follower was given as its budget."""
+    capital = row['source_cost'] or row['budget']
+    if row['source_pnl_pct'] is None or not capital:
+        return None
+    return capital * row['source_pnl_pct'] / 100, capital
+
+
+def _on_capital_pct(pnl, capital):
+    return pnl / capital * 100 if capital else None
+
+
 def account_summary(*, since=None, db_path=None):
-    """Per-account results, plus the primary's own result on the entries the followers mirrored."""
+    """Per-account results, plus the primary's own result on the entries the followers mirrored.
+
+    Production is compared two ways on each follower's closed entries: the plain average of its
+    trade returns, and its total P&L over total capital (dollar-weighted, see _production_dollars).
+    """
     with closing(get_connection(db_path)) as conn:
         rows = conn.execute('''SELECT p.*, (SELECT AVG(h.realized_pnl_pct) FROM manager_decision_history h
-                WHERE h.trade_execution_order_id=p.source_order_id) AS source_pnl_pct
-            FROM account_positions p WHERE ? IS NULL OR datetime(p.created_at) >= datetime(?) ORDER BY p.id''',
+                WHERE h.trade_execution_order_id=p.source_order_id) AS source_pnl_pct,
+                e.fill_price * e.filled_qty * 100 AS source_cost
+            FROM account_positions p LEFT JOIN option_trade_executions e ON e.order_id=p.source_order_id
+            WHERE ? IS NULL OR datetime(p.created_at) >= datetime(?) ORDER BY p.id''',
                             (since, since)).fetchall()
-    summary, source_pnl = {}, {}
+    summary, source_pnl, source_dollars, source_open = {}, {}, {}, set()
     for row in map(_decoded, rows):
+        if row['source_pnl_pct'] is None:
+            source_open.add(row['source_order_id'])
         entry = summary.setdefault(row['account'], {
             'strategy': row['strategy'], 'role': row['role'], 'closed': 0, 'active': 0, 'failed': 0,
-            'skipped': {}, 'wins': 0, 'pnl': 0.0, 'capital': 0.0, 'pnl_pcts': [], 'source_pcts': []})
+            'skipped': {}, 'wins': 0, 'pnl': 0.0, 'capital': 0.0, 'pnl_pcts': [], 'source_pcts': [],
+            'source_pnl': 0.0, 'source_capital': 0.0})
+        production = _production_dollars(row)
         if row['source_pnl_pct'] is not None:
             source_pnl[row['source_order_id']] = row['source_pnl_pct']
+            if production:
+                source_dollars.setdefault(row['source_order_id'], production)
         if row['status'] == 'skipped':
             entry['skipped'][row['skip_reason']] = entry['skipped'].get(row['skip_reason'], 0) + 1
         elif row['status'] == 'failed':
@@ -138,12 +163,20 @@ def account_summary(*, since=None, db_path=None):
             entry['pnl_pcts'].append(pnl / capital * 100)
             if row['source_pnl_pct'] is not None:
                 entry['source_pcts'].append(row['source_pnl_pct'])
+            if production:
+                entry['source_pnl'] += production[0]
+                entry['source_capital'] += production[1]
     for entry in summary.values():
         entry['avg_pnl_pct'] = _mean(entry.pop('pnl_pcts'))
         entry['production_avg_pnl_pct'] = _mean(entry.pop('source_pcts'))
+        entry['production_pnl_on_capital_pct'] = _on_capital_pct(entry.pop('source_pnl'), entry.pop('source_capital'))
     if source_pnl:
+        # 'active' is mirrored entries production has not recorded a result for yet.
         summary[PRIMARY_NAME] = {'strategy': PRIMARY_STRATEGY, 'role': 'primary', 'closed': len(source_pnl),
-                                 'avg_pnl_pct': _mean(list(source_pnl.values()))}
+                                 'active': len(source_open), 'wins': sum(pct > 0 for pct in source_pnl.values()),
+                                 'avg_pnl_pct': _mean(list(source_pnl.values())),
+                                 'pnl': sum(pnl for pnl, _ in source_dollars.values()),
+                                 'capital': sum(capital for _, capital in source_dollars.values())}
     return summary
 
 
@@ -182,13 +215,12 @@ def follower_report(days=0, *, now=None, db_path=None):
                        'opened_at': _iso(row['entry_at']), 'closed_at': _iso(row['exit_at']),
                        'exit_reason': row['exit_reason'], 'pnl': pnl, 'capital': capital,
                        'pnl_pct': pnl / capital * 100})
-        source_capital = row['source_cost'] or row['budget']
-        if row['source_pnl_pct'] is not None and source_capital and row['source_order_id'] not in production:
+        dollars = _production_dollars(row)
+        if dollars and row['source_order_id'] not in production:
             production[row['source_order_id']] = {
                 **common, 'account': row['source_account'], 'strategy': PRIMARY_STRATEGY, 'role': 'primary',
                 'opened_at': None, 'closed_at': _iso(row['source_closed_at']), 'exit_reason': None,
-                'pnl': source_capital * row['source_pnl_pct'] / 100, 'capital': source_capital,
-                'pnl_pct': row['source_pnl_pct']}
+                'pnl': dollars[0], 'capital': dollars[1], 'pnl_pct': row['source_pnl_pct']}
     trades = sorted([*trades, *production.values()], key=lambda trade: trade['closed_at'])
     return {'as_of': now.isoformat(), 'days': days,
             'accounts': account_summary(since=since, db_path=db_path), 'trades': trades}
