@@ -50,6 +50,17 @@ class ApiTelemetryTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
 
+    def test_summary_is_closed_when_no_read_token_is_configured(self):
+        app = Flask(__name__)
+        register_telemetry_routes(app)
+        client = app.test_client()
+        unset = {"TELEMETRY_RECEIVER_READ_AUTH_TOKEN": "", "TELEMETRY_RECEIVER_AUTH_TOKEN": ""}
+
+        with patch.dict(os.environ, unset, clear=False):
+            response = client.get("/api/telemetry/summary", headers={"Authorization": "Bearer "})
+
+        self.assertEqual(response.status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()

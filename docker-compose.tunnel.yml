@@ -1,0 +1,19 @@
+# Serve the dashboard through a Cloudflare Tunnel instead of public ports.
+# Protect the hostname with a Cloudflare Access policy: this config has no Basic Auth on writes.
+# docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d
+services:
+  web:
+    # Cloudflare terminates TLS, so nginx serves plain HTTP inside the Docker network.
+    volumes: !override
+      - ./web_dashboard/nginx.bootstrap.conf:/etc/nginx/conf.d/default.conf:ro
+    ports: !reset []
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # Only the tunnel token; this container never needs the trading or cloud keys.
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    depends_on:
+      - web

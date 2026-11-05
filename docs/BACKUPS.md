@@ -56,16 +56,18 @@ cp /mnt/e/StockBackups/stock_experiment.latest.db stock_experiment.db
 
 ```bash
 STOCK_DB_DIR=~/stock-restore/db-dev docker compose \
-  -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.backup.yml run --rm litestream \
+  -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.backup.yml \
+  run --rm --no-deps --user "$(id -u):$(id -g)" litestream \
   restore -timestamp 2026-11-03T15:00:00Z -o /var/lib/stock-experiment/restored.db \
   /var/lib/stock-experiment/stock_experiment.db
 cd ~/stock-restore/db-dev
+rm -f restored.db.tmp-*
 sqlite3 restored.db "PRAGMA quick_check"   # expect: ok
 mv stock_experiment.db stock_experiment.db.replaced && rm -f stock_experiment.db-wal stock_experiment.db-shm
 mv restored.db stock_experiment.db
 ```
 
-The restore writes next to the live database, on the Linux disk, because SQLite is unreliable on the E: drive's 9p mount.
+The restore writes next to the live database, on the Linux disk, because SQLite is unreliable on the E: drive's 9p mount. `--user` makes the restored file yours. Without it, it's root-owned with mode 0600, and the host `sqlite3`/`mv` steps can't open it.
 
 Leave out `-timestamp` to restore the latest replicated state. Start the stack again with `up -d`. Litestream sees the replaced file and begins a new generation. Delete `stock_experiment.db.replaced` once the restored database looks right.
 
