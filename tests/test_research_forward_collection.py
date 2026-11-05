@@ -28,15 +28,15 @@ from market_db_modules.research_outcomes import collect_research_thesis_outcomes
 from market_db_modules.research_runs import collect_run, decision_quote, start_run
 from research_foundation_contracts import DECISION_OBSERVATION_PROTOCOL, ResearchObservation
 from tests.research_foundation_fixtures import database
-from services.challenger_evaluation import run_challenger_evaluations
-from services.decision_observations import freeze_decision_observation, manager_input_payload
-from services.forward_cohorts import ensure_comparison_cohort, ensure_production_cohort
-from services.forward_evaluation_policy import AcceptancePolicy, ChallengerPolicy, ForwardEvaluationPolicy
-from services.order_candidates import OrderCandidateBuilder
-from services.paired_decisions import finalize_paired_decision
-from services.research_contract import fingerprint
-from services.research_marks import collect_research_marks
-from services.research_promotion import champion_allows
+from services.evaluation.challenger_evaluation import run_challenger_evaluations
+from services.evaluation.decision_observations import freeze_decision_observation, manager_input_payload
+from services.evaluation.forward_cohorts import ensure_comparison_cohort, ensure_production_cohort
+from services.evaluation.forward_evaluation_policy import AcceptancePolicy, ChallengerPolicy, ForwardEvaluationPolicy
+from services.trading.order_candidates import OrderCandidateBuilder
+from services.evaluation.paired_decisions import finalize_paired_decision
+from services.research.research_contract import fingerprint
+from services.research.research_marks import collect_research_marks
+from services.research.research_promotion import champion_allows
 
 CUTOFF = '2026-09-02T15:00:00+00:00'
 EVALUATED = '2026-09-02T16:00:00+00:00'
@@ -254,7 +254,7 @@ class CohortTests(ForwardTestCase):
 
     def test_changed_evaluator_opens_a_new_production_cohort(self):
         first = ensure_production_cohort(BASE, acceptance=ACCEPTANCE, at=CUTOFF, db_path=self.db)
-        with patch('services.research_versions.evaluator_source_hash', return_value='changed-evaluator'):
+        with patch('services.research.research_versions.evaluator_source_hash', return_value='changed-evaluator'):
             again = ensure_production_cohort(BASE, acceptance=ACCEPTANCE, at=EVALUATED, db_path=self.db)
             # The replacement must be collectable under the new evaluator, or it would stall the same way.
             collect_run(again['runs']['production'], as_of=EVALUATED, db_path=self.db)
@@ -267,7 +267,7 @@ class CohortTests(ForwardTestCase):
             conn.execute("UPDATE research_run_acceptance SET policy_json='{}' WHERE cohort_id=?", (cohort['cohort_id'],))
 
     def test_misconfigured_research_settings_never_stop_the_manifest(self):
-        from services.pipeline_version import build_pipeline_version
+        from services.core.pipeline_version import build_pipeline_version
         with patch.dict(os.environ, {'RESEARCH_CHALLENGER_MODE': 'shadow', 'FORWARD_MINIMUM_PAIRED_OBSERVATIONS': '5',
                                      'EVENT_THESIS_REVIEW_MODE': 'live'}):
             manifest = build_pipeline_version()
@@ -415,7 +415,7 @@ class MarkTests(ForwardTestCase):
                          (run['run_id'], CUTOFF, CUTOFF, canonical({'option_symbol': FAR['symbol']})))
 
     def collect(self, now, fetch=None):
-        with patch('services.research_marks.collect_active_runs'):
+        with patch('services.research.research_marks.collect_active_runs'):
             return collect_research_marks(at=now, close_at=self.CLOSE, db_path=self.db, policy=ForwardEvaluationPolicy(),
                                           fetch_quotes=fetch or (lambda symbols: {symbol: {
                                               'bid_price': 2.5, 'ask_price': 2.6, 'timestamp': '2026-09-03T19:52:00+00:00'}
@@ -475,6 +475,13 @@ class ApiTests(unittest.TestCase):
         with closing(get_connection(empty)) as conn:
             tables = conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
         self.assertEqual((payload['available'], tables), (False, 0))
+
+    def test_a_database_from_before_the_pause_table_is_reported_unavailable(self):
+        from api_support.forward_evaluation import build_forward_evaluation_payload
+        db = database(self)
+        with closing(get_connection(db)) as conn, conn:
+            conn.execute('DROP TABLE research_run_pauses')
+        self.assertFalse(build_forward_evaluation_payload(db_path=db)['available'])
 
 
 if __name__ == '__main__':

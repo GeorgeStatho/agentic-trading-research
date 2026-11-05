@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from services.settings import get_settings
+from services.core.settings import get_settings
 from .alpaca_base import (
     ALPACA_IMPORT_ERROR,
     DataFeed,

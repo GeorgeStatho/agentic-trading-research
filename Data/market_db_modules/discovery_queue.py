@@ -180,7 +180,8 @@ def renew_discovery_lease(queue_id, token, *, at, seconds, db_path=None):
     return expiry
 
 
-def finish_discovery_item(queue_id, token, *, status, reason, at, policy, db_path=None):
+def finish_discovery_item(queue_id, token, *, status, reason, at, policy, retry_at=None, db_path=None):
+    """`retry_at` replaces the backoff for a deferral that waits on a known time, such as a daily limit."""
     if status not in {'completed', 'deferred', 'expired', 'failed'} or not reason.strip():
         raise ValueError('Queue completion needs a valid status and reason')
     with closing(get_connection(db_path)) as conn, conn:
@@ -190,6 +191,8 @@ def finish_discovery_item(queue_id, token, *, status, reason, at, policy, db_pat
             status, reason = 'failed', 'retry_exhausted:' + reason
         delay = policy.retry_seconds * 2 ** min(row['attempts'] - 1, 10)
         due = (datetime.fromisoformat(timestamp(at)) + timedelta(seconds=delay)).isoformat()
+        if status == 'deferred' and retry_at:
+            due = timestamp(retry_at)
         conn.execute('''UPDATE discovery_queue SET status=?,completion_reason=?,next_attempt_at=?,
             lease_owner=NULL,lease_expires_at=NULL WHERE queue_id=?''', (status, reason, due, queue_id))
         conn.execute('UPDATE discovery_queue_details SET lease_token=NULL WHERE queue_id=?', (queue_id,))

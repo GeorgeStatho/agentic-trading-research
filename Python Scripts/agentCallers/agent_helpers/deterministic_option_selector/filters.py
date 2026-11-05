@@ -4,6 +4,7 @@ from typing import Any
 
 from .normalize import _normalize_option_id
 from .market import (
+    _SELECTION_DATE,
     _get_ask_price,
     _get_bid_price,
     _get_contract_market_price,
@@ -11,8 +12,8 @@ from .market import (
     _get_greek,
 )
 from .volatility import _assess_contract_volatility
-from services.option_dte_buckets import get_dte_bucket_range
-from services.numbers import safe_float
+from services.options.option_dte_buckets import get_dte_bucket_selection_range
+from services.core.numbers import safe_float
 
 
 def _resolve_dte_range(
@@ -21,12 +22,12 @@ def _resolve_dte_range(
     default_min_dte: int,
     default_max_dte: int,
 ) -> tuple[int, int]:
-    bucket_range = get_dte_bucket_range(target_dte_bucket)
+    bucket_range = get_dte_bucket_selection_range(target_dte_bucket, today=_SELECTION_DATE.get())
     return bucket_range if bucket_range is not None else (default_min_dte, default_max_dte)
 
 
 def _contract_matches_target_dte_bucket(contract: dict[str, Any], target_dte_bucket: str) -> bool:
-    bucket_range = get_dte_bucket_range(target_dte_bucket)
+    bucket_range = get_dte_bucket_selection_range(target_dte_bucket, today=_SELECTION_DATE.get())
     if bucket_range is None:
         return True
     dte = _get_dte(contract)

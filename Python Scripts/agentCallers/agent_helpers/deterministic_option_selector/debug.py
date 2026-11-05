@@ -22,7 +22,7 @@ from .market import (
 )
 from .normalize import _normalize_option_id
 from .volatility import _assess_contract_volatility
-from services.numbers import safe_float
+from services.core.numbers import safe_float
 
 
 def _contract_debug_snapshot(

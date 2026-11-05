@@ -4,14 +4,14 @@ import argparse
 import json
 import logging
 
-from services.settings import get_settings, load_process_settings
+from services.core.settings import get_settings, load_process_settings
 
 if __name__ == "__main__":
     # Before importing modules that read configuration at import time.
     load_process_settings()
 
-from services.llm_backtest import STORED_MODEL, run_llm_backtest  # noqa: E402
-from services.llm_direction_score import HORIZONS, run_direction_score  # noqa: E402
+from services.evaluation.llm_backtest import STORED_MODEL, run_llm_backtest  # noqa: E402
+from services.evaluation.llm_direction_score import HORIZONS, run_direction_score  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:

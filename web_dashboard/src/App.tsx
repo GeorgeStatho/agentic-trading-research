@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
-import './App.css'
-import { Icon } from './icon.tsx'
+import { getDashboardKpis } from './dashboardKpisApi.ts'
 import {
-  NO_SECTIONS,
   ROUTES,
   demoModeFromHash,
   demoToggleHash,
@@ -11,14 +9,18 @@ import {
   tabHash,
 } from './routes.tsx'
 import type { Location } from './routes.tsx'
-import { useActiveSection } from './useActiveSection.ts'
+import { heartbeatMissing, loadScriptStatus } from './shellStatus.ts'
+import { StatusBar } from './statusBar.tsx'
+import { Tag } from './ui/Tag.tsx'
+import { usePolledResource } from './useRemoteResource.ts'
 
-/** The shell: page nav, the view strip and sidebar a page asks for, the view. */
+/** The shell: top bar, status line, the view strip a page asks for, the view. */
 function App() {
   const [location, setLocation] = useState<Location>(() => locationFromHash(window.location.hash))
   const [demoMode, setDemoMode] = useState(() => demoModeFromHash(window.location.hash))
   const { route, tab } = location
-  const activeSection = useActiveSection(tab.sections ?? NO_SECTIONS)
+  const kpis = usePolledResource(getDashboardKpis, { errorMessage: 'Failed to load system status' })
+  const script = usePolledResource(loadScriptStatus, { errorMessage: 'Failed to load worker status', intervalMs: 15_000 })
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -36,77 +38,70 @@ function App() {
     window.location.hash = demoToggleHash(location, demoMode)
   }
 
-  const scrollToSection = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
+  const marketLabel = kpis.payload?.market_status.label
 
   return (
-    <div className="app-shell">
-      <header className="app-topbar">
-        <div className="app-topbar__inner">
-          <div className="app-brand"><h1>Agentic Trading Research</h1></div>
-          <nav className="app-nav" aria-label="Dashboard pages">
-            {ROUTES.map((entry) => (
-              <a
-                key={entry.slug}
-                href={routeHash(entry, demoMode)}
-                className={`app-nav__link${entry.slug === route.slug ? ' app-nav__link--active' : ''}`}
-                aria-current={entry.slug === route.slug ? 'page' : undefined}
-              >
-                {entry.label}
-              </a>
-            ))}
-            <button type="button" className={`app-nav__demo${demoMode ? ' app-nav__demo--active' : ''}`} onClick={toggleDemoMode}>{demoMode ? 'Exit Demo' : 'Demo Mode'}</button>
+    <div className="flex min-h-svh flex-col">
+      <header className="border-b border-base-300 bg-head">
+        {/* On phones the page links drop to their own row under the brand. */}
+        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-6 px-5 sm:h-11 sm:flex-nowrap">
+          <div className="flex shrink-0 items-center gap-2 text-[13px] font-semibold">
+            <span aria-hidden="true" className="size-3.5 rounded-sm bg-primary" />
+            Agentic Trading Research
+          </div>
+          <nav className="order-last flex h-9 basis-full items-stretch gap-4 sm:order-none sm:h-full sm:basis-auto" aria-label="Dashboard pages">
+            {ROUTES.map((entry) => {
+              const active = entry.slug === route.slug
+              return (
+                <a
+                  key={entry.slug}
+                  href={routeHash(entry, demoMode)}
+                  className={`flex items-center border-b-2 ${active ? 'border-primary text-base-content' : 'border-transparent text-ink-2 hover:text-base-content'}`}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  {entry.label}
+                </a>
+              )
+            })}
+            <button type="button" className="btn btn-ghost btn-xs self-center" onClick={toggleDemoMode}>
+              {demoMode ? 'Exit Demo' : 'Demo Mode'}
+            </button>
           </nav>
-          <div className="app-topbar__actions" aria-label="Dashboard utilities">
-            <button type="button" className="app-topbar__icon" aria-label="Notifications"><Icon name="bell" /></button>
-            <button type="button" className="app-topbar__icon" aria-label="Settings"><Icon name="settings" /></button>
-            <button type="button" className="app-topbar__icon" aria-label="Account"><Icon name="user" /></button>
+          <div className="ml-auto flex h-11 shrink-0 items-center gap-3 text-[11px] text-ink-2 sm:h-auto">
+            {marketLabel ? <span>Market {marketLabel.toLowerCase()}</span> : null}
+            <Tag tone="accent">PAPER</Tag>
           </div>
         </div>
       </header>
 
-      <div className="app-layout">
-        {tab.sections ? (
-          <aside className="app-sidebar" aria-label="Page sections">
-            <div className="app-sidebar__status">
-              <span className="app-sidebar__status-dot" />
-              <div><p className="app-sidebar__status-label">System Active</p><p className="app-sidebar__latency">Latency: 12ms</p></div>
-            </div>
-            <nav className="app-sidebar__nav">
-              {tab.sections.map((section) => (
-                <button
-                  key={section.id}
-                  type="button"
-                  className={`app-sidebar__item${activeSection === section.id ? ' app-sidebar__item--active' : ''}`}
-                  onClick={() => scrollToSection(section.id)}
-                  aria-current={activeSection === section.id ? 'location' : undefined}
-                >
-                  <span className="app-sidebar__icon"><Icon name={section.icon} /></span>{section.label}
-                </button>
-              ))}
-            </nav>
-          </aside>
-        ) : null}
+      <StatusBar
+        components={kpis.payload ? kpis.payload.bot_status.components ?? [] : null}
+        lastRunAt={script.payload?.status.updated_at ?? null}
+        workerSilent={heartbeatMissing(script.payload?.status ?? null, Boolean(script.error), script.payload?.checkedAt ?? 0)}
+      />
 
-        <div className="app-page">
-          {route.tabs.length > 1 ? (
-            <nav className="page-tabs" aria-label={`${route.label} views`}>
-              {route.tabs.map((entry) => (
+      {route.tabs.length > 1 ? (
+        <div className="border-b border-base-300">
+          <nav className="tabs tabs-border tabs-sm mx-auto max-w-[1400px] flex-nowrap overflow-x-auto px-3" aria-label={`${route.label} views`}>
+            {route.tabs.map((entry) => {
+              const active = entry.slug === tab.slug
+              return (
                 <a
                   key={entry.slug}
                   href={tabHash(route, entry, demoMode)}
-                  className={`page-tabs__link${entry.slug === tab.slug ? ' page-tabs__link--active' : ''}`}
-                  aria-current={entry.slug === tab.slug ? 'page' : undefined}
+                  className={`tab whitespace-nowrap ${active ? 'tab-active text-base-content before:text-primary' : 'text-ink-2'}`}
+                  aria-current={active ? 'page' : undefined}
                 >
                   {entry.label}
                 </a>
-              ))}
-            </nav>
-          ) : null}
-
-          {tab.render(demoMode)}
+              )
+            })}
+          </nav>
         </div>
+      ) : null}
+
+      <div className="mx-auto w-full max-w-[1400px] min-w-0 px-5 py-5">
+        {tab.render(demoMode)}
       </div>
     </div>
   )

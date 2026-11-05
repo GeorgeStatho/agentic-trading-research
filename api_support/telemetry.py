@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import os
 from typing import Any
 
@@ -18,7 +19,7 @@ def _is_bearer_token_authorized(
     if not header_value.startswith("Bearer "):
         return False
     received_token = header_value.removeprefix("Bearer ").strip()
-    return bool(received_token) and received_token == expected_token
+    return bool(received_token) and hmac.compare_digest(received_token, expected_token)
 
 
 def is_startup_receiver_request_authorized(authorization_header: str | None) -> bool:
@@ -30,7 +31,8 @@ def is_summary_request_authorized(authorization_header: str | None) -> bool:
     expected_token = str(os.getenv("TELEMETRY_RECEIVER_READ_AUTH_TOKEN", "")).strip()
     if not expected_token:
         expected_token = str(os.getenv("TELEMETRY_RECEIVER_AUTH_TOKEN", "")).strip()
-    return _is_bearer_token_authorized(authorization_header, expected_token)
+    # Summary is a GET, so nginx doesn't guard it; an unset token must not make it public.
+    return bool(expected_token) and _is_bearer_token_authorized(authorization_header, expected_token)
 
 
 def validate_startup_ping_payload(payload: Any) -> str | None:

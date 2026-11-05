@@ -14,7 +14,7 @@ def main():
     args = parser.parse_args()
     db_path = args.db or None
     if args.command == 'collect':
-        from services.company_evidence_service import collect_company_evidence
+        from services.discovery.company_evidence_service import collect_company_evidence
         result = collect_company_evidence(db_path=db_path)
     else:
         from market_db_modules.company_evidence import get_evidence_package

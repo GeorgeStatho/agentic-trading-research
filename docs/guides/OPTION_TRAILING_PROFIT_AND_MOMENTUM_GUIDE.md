@@ -14,8 +14,8 @@ The implementation lives primarily in:
 - [Python Scripts/trading_support/_option_positions_snapshot.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/trading_support/_option_positions_snapshot.py>)
 - [Python Scripts/trading_support/_option_positions_state.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/trading_support/_option_positions_state.py>)
 - [Python Scripts/trading_support/_option_positions_momentum.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/trading_support/_option_positions_momentum.py>)
-- [Python Scripts/services/position_manager.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/services/position_manager.py>)
-- [Python Scripts/services/trading_config.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/services/trading_config.py>)
+- [Python Scripts/services/options/position_manager.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/services/options/position_manager.py>)
+- [Python Scripts/services/core/trading_config.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/services/core/trading_config.py>)
 - [.env.example](../../.env.example)
 
 ## Big Picture
@@ -69,7 +69,7 @@ For example:
 
 The exit engine uses shared DTE buckets from:
 
-- [Python Scripts/services/option_dte_buckets.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/services/option_dte_buckets.py>)
+- [Python Scripts/services/options/option_dte_buckets.py](</mnt/e/ComputerScience/SmallProjects/StockExperiment-AgenticVersion/Stock-trading-experiment/Python Scripts/services/options/option_dte_buckets.py>)
 
 Those buckets drive:
 

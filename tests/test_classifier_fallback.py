@@ -15,7 +15,7 @@ from db_common import use_database
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from market_db_modules.entities import add_sector
-from services.settings import (
+from services.core.settings import (
     ClassifierFallbackSettings,
     FallbackModel,
     VertexSettings,

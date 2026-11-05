@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Research: expectancy</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#121214}
+a{color:#F98309}a:hover{color:#FFA347}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #121214; color: #E8E8EA; font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 1.4; font-variant-numeric: tabular-nums">
+
+<header style="background: #161618; border-bottom: 1px solid #2C2C31">
+<div style="max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 48px">
+<div style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px"><span aria-hidden="true" style="width: 14px; height: 14px; border-radius: 3px; background: #F98309"></span>Agentic Trading Research</div>
+<nav aria-label="Main" style="display: flex; flex-wrap: wrap; flex: 1 1 auto">
+<a href="Main.dc.html" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Live</a>
+<a href="Decisions.dc.html" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Decisions</a>
+<a href="ResearchExpectancy.dc.html" style="text-decoration: none; padding: 14px 12px; color: #E8E8EA; font-weight: 600; border-bottom: 2px solid #F98309">Research</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">System</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Settings</a>
+</nav>
+<span style="font-size: 12px; font-weight: 600; color: #F98309; border: 1px solid #5A3510; background: #24180B; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.04em">PAPER</span>
+</div>
+<div style="border-top: 1px solid #232327">
+<nav aria-label="Research" style="max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; flex-wrap: wrap; gap: 20px; font-size: 12px">
+<a href="ResearchExpectancy.dc.html" style="text-decoration: none; padding: 9px 0; color: #E8E8EA; font-weight: 600; border-bottom: 2px solid #F98309">Expectancy</a>
+<a href="ResearchNewsLag.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">News lag</a>
+<a href="ResearchBacktests.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">Backtests</a>
+<a href="ResearchFollowers.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">Followers</a>
+<a href="ResearchRollout.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">V2 rollout</a>
+</nav>
+</div>
+</header>
+
+<div style="max-width: 1400px; margin: 0 auto; padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 12px">
+
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px">
+<div>
+<h1 style="margin: 0; font-size: 18px; font-weight: 700">Decision expectancy</h1>
+<div style="font-size: 12px; color: #9A9AA2; margin-top: 2px">Average marked P/L of executed decisions, grouped into cohorts · as of Nov 3, 2026 · read-only</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{filters}}" as="f" hint-placeholder-count="6">
+<label style="display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: #9A9AA2">{{f.label}}
+<select style="font: inherit; font-size: 12px; color: #E8E8EA; background: #1A1A1D; border: 1px solid #36363C; border-radius: 4px; padding: 5px 8px"><option>{{f.value}}</option></select>
+</label>
+</sc-for>
+</div>
+</div>
+
+<section aria-label="Summary" style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px; display: flex; flex-wrap: wrap">
+<sc-for list="{{stats}}" as="s" hint-placeholder-count="7">
+<div style="flex: 1 1 130px; padding: 12px 16px; border-right: 1px solid #232327">
+<div style="font-size: 11px; color: #9A9AA2">{{s.label}}</div>
+<div style="{{s.valStyle}}">{{s.value}}</div>
+<div style="font-size: 11px; color: #9A9AA2">{{s.sub}}</div>
+</div>
+</sc-for>
+</section>
+<div style="font-size: 12px; color: #FFB066">Marked P/L, not realized · samples expire when their freshness window ends · both cohorts are below the 5-sample guardrail</div>
+
+<section style="display: flex; flex-wrap: wrap; gap: 12px">
+<div style="flex: 3 1 560px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Expectancy by confidence</h2>
+<span style="font-size: 11px; color: #9A9AA2">bar = average marked P/L · n = resolved samples</span>
+</div>
+<div style="padding: 12px 14px">
+<svg role="img" aria-label="Expectancy by confidence: medium minus 25.17 percent from 2 samples; high has no resolved samples; low has no trades" viewBox="0 0 640 240" style="width: 100%; height: auto; display: block">
+<g stroke="#26262B" stroke-width="1">
+<line x1="60" y1="30" x2="630" y2="30"></line>
+<line x1="60" y1="190" x2="630" y2="190"></line>
+</g>
+<line x1="60" y1="70" x2="630" y2="70" stroke="#3A3A40" stroke-width="1"></line>
+<g fill="#9A9AA2" font-size="11" font-family="Inter, sans-serif">
+<text x="8" y="34">+10%</text>
+<text x="22" y="74">0%</text>
+<text x="8" y="194">−30%</text>
+</g>
+<rect x="120" y="70" width="110" height="101" fill="#F85149"></rect>
+<rect x="290" y="40" width="110" height="140" fill="none" stroke="#3A3A40" stroke-dasharray="4 4"></rect>
+<rect x="460" y="40" width="110" height="140" fill="none" stroke="#2C2C31" stroke-dasharray="4 4"></rect>
+<g font-family="'JetBrains Mono', monospace" font-size="12" fill="#E8E8EA">
+<text x="138" y="62">−25.17%</text>
+</g>
+<g font-family="Inter, sans-serif" font-size="11" fill="#9A9AA2">
+<text x="305" y="114">no samples yet</text>
+<text x="305" y="130">14 unresolved</text>
+<text x="482" y="114">no trades</text>
+</g>
+<g font-family="Inter, sans-serif" font-size="12" fill="#C2C2C8">
+<text x="140" y="214">Medium · n=2</text>
+<text x="316" y="214">High · n=0</text>
+<text x="488" y="214">Low · n=0</text>
+</g>
+</svg>
+</div>
+</div>
+
+<div style="flex: 2 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+<div style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="padding: 8px 14px; border-bottom: 1px solid #2C2C31"><h2 style="margin: 0; font-size: 12px; font-weight: 600">Samples toward guardrail (5)</h2></div>
+<div style="padding: 14px; display: flex; flex-direction: column; gap: 14px">
+<div>
+<div style="display: flex; justify-content: space-between; font-size: 12px"><span>Medium</span><span style="color: #9A9AA2">2 / 5</span></div>
+<div aria-hidden="true" style="height: 8px; background: #232327; border-radius: 4px; margin-top: 6px; overflow: hidden"><div style="width: 40%; height: 100%; background: #F98309"></div></div>
+</div>
+<div>
+<div style="display: flex; justify-content: space-between; font-size: 12px"><span>High</span><span style="color: #9A9AA2">0 / 5 · 14 waiting on marks</span></div>
+<div aria-hidden="true" style="height: 8px; background: #232327; border-radius: 4px; margin-top: 6px"></div>
+</div>
+</div>
+</div>
+<div style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="padding: 8px 14px; border-bottom: 1px solid #2C2C31"><h2 style="margin: 0; font-size: 12px; font-weight: 600">Resolution of 16 eligible trades</h2></div>
+<div style="padding: 14px">
+<div aria-hidden="true" style="display: flex; height: 22px; border-radius: 4px; overflow: hidden">
+<div style="width: 12.5%; background: #F98309"></div>
+<div style="width: 87.5%; background: #2C2C31"></div>
+</div>
+<div style="display: flex; gap: 16px; margin-top: 8px; font-size: 12px; color: #C2C2C8">
+<span><b style="color: #F98309">2</b> resolved</span>
+<span><b style="color: #E8E8EA">14</b> unresolved, latest Sep 29</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<section style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Cohorts</h2>
+<a href="#" style="font-size: 11px; text-decoration: none">Export CSV</a>
+</div>
+<div style="overflow-x: auto">
+<table style="width: 100%; min-width: 900px; border-collapse: collapse; font-size: 12px">
+<thead>
+<tr style="text-align: left; color: #9A9AA2; font-size: 11px; background: #18181B">
+<th scope="col" style="font-weight: 500; padding: 7px 14px; border-bottom: 1px solid #2C2C31">Cohort</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Trades</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Samples</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Win rate</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Expectancy</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Median</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Avg win</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Avg loss</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Profit factor</th>
+<th scope="col" style="font-weight: 500; padding: 7px 14px 7px 8px; border-bottom: 1px solid #2C2C31">Latest</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="padding: 9px 14px; border-bottom: 1px solid #232327"><div style="font-weight: 600">Medium</div><div style="font-size: 11px; color: #FFB066">below sample guardrail</div></td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right">2</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right">2</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right">0.0%</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #FF9B94; font-weight: 600">−25.17%</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #FF9B94">−25.17%</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #9A9AA2">—</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #FF9B94">−25.17%</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right">0.00</td>
+<td style="padding: 9px 14px 9px 8px; border-bottom: 1px solid #232327; color: #9A9AA2">Nov 2, 2026</td>
+</tr>
+<tr>
+<td style="padding: 9px 14px; border-bottom: 1px solid #232327"><div style="font-weight: 600">High</div><div style="font-size: 11px; color: #FFB066">below sample guardrail · 14 unresolved</div></td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right">14</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right">0</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #9A9AA2">—</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #9A9AA2">—</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #9A9AA2">—</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #9A9AA2">—</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #9A9AA2">—</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #9A9AA2">—</td>
+<td style="padding: 9px 14px 9px 8px; border-bottom: 1px solid #232327; color: #9A9AA2">Sep 29, 2026</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var v = 'font-size: 16px; font-weight: 600; margin-top: 2px; ';
+    return {
+      filters: [
+        { label: 'Basis', value: 'Marked P/L' }, { label: 'Group by', value: 'Confidence' }, { label: 'Window', value: '90 days' },
+        { label: 'Min samples', value: '5' }, { label: 'Decision', value: 'All' }, { label: 'Sector', value: 'Any' }
+      ],
+      stats: [
+        { label: 'Eligible trades', value: '16', sub: 'last 90 days', valStyle: v + 'color: #E8E8EA' },
+        { label: 'Resolved samples', value: '2', sub: 'have a marked P/L', valStyle: v + 'color: #E8E8EA' },
+        { label: 'Unresolved', value: '14', sub: 'all High confidence', valStyle: v + 'color: #E8E8EA' },
+        { label: 'Expectancy', value: '−25.17%', sub: 'per trade, all cohorts', valStyle: v + 'color: #F85149' },
+        { label: 'Win rate', value: '0 / 2', sub: 'resolved only', valStyle: v + 'color: #E8E8EA' },
+        { label: 'Profit factor', value: '0.00', sub: 'no winners yet', valStyle: v + 'color: #E8E8EA' },
+        { label: 'Basis', value: 'Marked', sub: 'not realized', valStyle: v + 'color: #E8E8EA' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

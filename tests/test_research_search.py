@@ -11,8 +11,8 @@ from market_db_modules.company_evidence import record_evidence_document
 from news_db_modules.article_store import add_news_article
 from news_db_modules.bootstrap import initialize_database as initialize_news
 from research_foundation_contracts import EvidenceDocument
-from services.research_tools import OPERATIONS, ResearchRequest
-from services import research_tools
+from services.research.research_tools import OPERATIONS, ResearchRequest
+from services.research import research_tools
 from tests.db_fixtures import temporary_database
 from tests.research_foundation_fixtures import ENTRY, START
 

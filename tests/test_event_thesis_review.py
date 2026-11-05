@@ -13,11 +13,11 @@ from market_db_modules.discovery_queue import claim_discovery_batch, enqueue_dis
 from market_db_modules.thesis_event_reviews import thesis_event_reviews
 from news_db_modules.bootstrap import initialize_database as initialize_news
 from research_foundation_contracts import DiscoveryQueueItem
-from services.discovery_policy import DiscoveryPolicy
-from services.thesis_event_review_policy import EventThesisReviewPolicy
-from services.position_manager import OptionPositionManagerService
-from services.thesis_event_review import EventThesisReviewService
-from services.thesis_validator_service import ThesisValidatorService, ThesisValidatorSettings
+from services.discovery.discovery_policy import DiscoveryPolicy
+from services.thesis.thesis_event_review_policy import EventThesisReviewPolicy
+from services.options.position_manager import OptionPositionManagerService
+from services.thesis.thesis_event_review import EventThesisReviewService
+from services.thesis.thesis_validator_service import ThesisValidatorService, ThesisValidatorSettings
 
 
 OPENED = datetime(2026, 9, 21, 14, tzinfo=timezone.utc)
@@ -130,12 +130,20 @@ class ShadowAuthorityTests(EventReviewFixture):
 
 
 class DebounceAndBudgetTests(EventReviewFixture):
-    def test_daily_limit_stops_model_calls(self):
+    def test_daily_limit_defers_the_review_to_the_next_market_day(self):
         for index in range(4):
             at = EVENT_AT + timedelta(hours=index)
             self.enqueue(f'revision-{index}', at=at)
             self.review(at + SETTLED)
-        self.assertEqual((self.adjudicate.call_count, self.statuses()[-1]), (3, 'daily_limit_reached'))
+        self.assertEqual((self.adjudicate.call_count, self.statuses()), (3, ['evaluated'] * 3))
+        with closing(get_connection(self.db)) as conn:
+            item = conn.execute("SELECT status, completion_reason, next_attempt_at FROM discovery_queue "
+                                "WHERE status != 'completed'").fetchone()
+        # Midnight New York (EDT) on 2026-09-23, when the per-position limit resets.
+        self.assertEqual(tuple(item), ('deferred', 'daily_limit_reached', '2026-09-23T04:00:00+00:00'))
+        self.assertIsNone(self.review(EVENT_AT + timedelta(hours=8)))
+        self.review(EVENT_AT + timedelta(days=1))
+        self.assertEqual((self.adjudicate.call_count, self.statuses()), (4, ['evaluated'] * 4))
 
     def test_discovery_worker_never_claims_review_items(self):
         self.enqueue()

@@ -25,9 +25,9 @@ from unittest.mock import Mock, patch
 from db_common import get_connection
 from market_db_modules.backtesting import record_historical_underlying_bar
 from market_db_modules.entities import add_company, add_industry, add_sector
-from services import llm_backtest
-from services.decision_attribution import bootstrap_se
-from services.llm_direction_score import run_direction_score
+from services.evaluation import llm_backtest
+from services.evaluation.decision_attribution import bootstrap_se
+from services.evaluation.llm_direction_score import run_direction_score
 from tests.test_llm_backtest import DatabaseFixture, TRADEABLE
 
 FIXTURE_CSV = Path(__file__).resolve().parent / "fixtures" / "model_cutoffs.csv"
@@ -36,7 +36,7 @@ NO_SUCH_CSV = Path(__file__).resolve().parent / "fixtures" / "does_not_exist.csv
 
 
 def cutoffs():
-    return importlib.import_module("services.model_cutoffs")
+    return importlib.import_module("services.evaluation.model_cutoffs")
 
 
 class PatchedCutoffTable(unittest.TestCase):
@@ -44,7 +44,7 @@ class PatchedCutoffTable(unittest.TestCase):
 
     def setUp(self) -> None:
         super().setUp()
-        patcher = patch("services.model_cutoffs.CUTOFFS_CSV", self.csv_path)
+        patcher = patch("services.evaluation.model_cutoffs.CUTOFFS_CSV", self.csv_path)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -168,7 +168,7 @@ class ContaminationGuardTests(PatchedCutoffTable, DatabaseFixture):
         self.assertEqual([d["id"] for d in run.decisions], [self.first_eligible_id, self.decision_id])
 
     def test_stored_bypasses_the_guard_without_reading_the_table(self) -> None:
-        with patch("services.model_cutoffs.CUTOFFS_CSV", NO_SUCH_CSV):
+        with patch("services.evaluation.model_cutoffs.CUTOFFS_CSV", NO_SUCH_CSV):
             run = self.build(llm_backtest.STORED_MODEL)
         self.assertEqual(len(run.decisions), 4)
         summary = self.summary(run)
@@ -201,7 +201,7 @@ ITEM_KEYS = {"manager_decision_history_id", "split", "stratum"}
 
 
 def selection():
-    return importlib.import_module("services.benchmark_selection")
+    return importlib.import_module("services.evaluation.benchmark_selection")
 
 
 def benchmarks():
@@ -209,7 +209,7 @@ def benchmarks():
 
 
 def runner():
-    return importlib.import_module("services.benchmark_runner")
+    return importlib.import_module("services.evaluation.benchmark_runner")
 
 
 def day(offset: int, hour: int = 15) -> str:

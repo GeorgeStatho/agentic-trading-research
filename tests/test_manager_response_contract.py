@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from agent_stages.manager_normalization import normalize_recommendation
-from services.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET
+from services.options.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET
 
 
 class ManagerResponseContractTests(unittest.TestCase):

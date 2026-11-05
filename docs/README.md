@@ -42,6 +42,13 @@ history and are not updated when the code changes.
 | [guides/OPTION_TRAILING_PROFIT_AND_MOMENTUM_GUIDE.md](guides/OPTION_TRAILING_PROFIT_AND_MOMENTUM_GUIDE.md) | How the option exit engine manages open positions |
 | [guides/deterministic_option_selector_report.md](guides/deterministic_option_selector_report.md) | How the deterministic contract selector works |
 
+### Dashboard
+
+| Document | Contents |
+| --- | --- |
+| [web_dashboard/README.md](../web_dashboard/README.md) | Pages, views, files and the API routes the dashboard reads |
+| [web_dashboard/docs/redesign/REDESIGN.md](../web_dashboard/docs/redesign/REDESIGN.md) | The Tailwind + daisyUI redesign: spec, what each step built, what is still open |
+
 The repository root keeps [README.md](../README.md) (overview and setup),
 [SECURITY.md](../SECURITY.md), [PRIVACY.md](../PRIVACY.md) and the licence.
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.settings import get_settings
+from services.core.settings import get_settings
 from .alpaca_base import (
     compute_realized_volatility,
 )

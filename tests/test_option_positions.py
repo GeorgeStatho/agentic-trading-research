@@ -17,14 +17,14 @@ TRADING_SUPPORT_DIR = PYTHON_SCRIPTS_DIR / "trading_support"
 OPTION_SYMBOL = "AAPL240621C00150000"
 
 
-from services.trading_config import (
+from services.core.trading_config import (
     MomentumHistoryConfig,
     OptionPositionSettings,
     OptionPriceMomentumConfig,
     PendingExitConfig,
     TrailingProfitConfig,
 )
-from services.option_momentum import MOMENTUM_GOOD, MOMENTUM_UNKNOWN
+from services.options.option_momentum import MOMENTUM_GOOD, MOMENTUM_UNKNOWN
 
 
 def _install_alpaca_stubs() -> None:

@@ -4,9 +4,9 @@ import logging
 import re
 from typing import Any
 
-from services.settings import StageModel, get_settings
+from services.core.settings import StageModel, get_settings
 from agent_helpers.llm_client import Client, ask_llm_model, get_model_client
-from services.option_dte_buckets import (
+from services.options.option_dte_buckets import (
     DEFAULT_MANAGER_TARGET_DTE_BUCKET,
     ORDERED_OPTION_DTE_BUCKET_KEYS_WITH_NONE,
     TIME_HORIZON_TO_DTE_BUCKET,

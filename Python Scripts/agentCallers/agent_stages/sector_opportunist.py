@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any
 
-from services.settings import StageModel, get_settings
+from services.core.settings import StageModel, get_settings
 from agent_helpers.sector_opportunist import (
     build_empty_sector_result,
     build_sector_opportunist_articles,

@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from services.settings import get_settings
+from services.core.settings import get_settings
 from . import iv_history as _iv_history
 from .account import _build_account_state, _serialize_position
 from .alpaca_base import (

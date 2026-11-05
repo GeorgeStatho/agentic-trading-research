@@ -1,100 +1,98 @@
-import { fetchPolledJson } from './api';
-import { formatDateTime, formatToken } from './format';
+import { getExecutedTrades } from './executedTradesApi';
+import type { ExecutedTrade } from './executedTradesApi';
+import { formatCurrency, formatShortDateTime, formatSignedPercent, formatToken, hasNumericValue } from './format';
+import { formatOccSymbol } from './occ';
+import { groupOrders, orderTypeLabel, wasNotExecuted } from './orders';
+import type { OrderGroup } from './orders';
+import { DataTable } from './ui/DataTable';
+import type { Column } from './ui/DataTable';
+import { Panel } from './ui/Panel';
+import { Tag } from './ui/Tag';
 import { useFetchedResource } from './useRemoteResource';
-import './card.css';
 
-type ExecutedTrade = {
-  id: number;
-  order_id: string;
-  underlying_symbol: string;
-  company_name: string | null;
-  option_symbol: string;
-  decision: string;
-  expiration_date: string | null;
-  strike_price: number | null;
-  order_status: string | null;
-  submitted_at: string | null;
-  error: string | null;
+function StatusTag({ status }: { status: string | null }) {
+  const token = formatToken(status, { placeholder: 'Unknown' });
+  const label = token.charAt(0).toUpperCase() + token.slice(1);
+  return status === 'filled' ? <Tag tone="gain">{label}</Tag> : <Tag>{label}</Tag>;
+}
+
+function isTrade(group: OrderGroup): boolean {
+  return group.orders.length > 1;
+}
+
+function lead(group: OrderGroup): ExecutedTrade {
+  return group.entry ?? group.orders[group.orders.length - 1];
+}
+
+function fillText(group: OrderGroup): string {
+  const fill = (order: ExecutedTrade | null) => formatCurrency(order?.fill_price, { placeholder: '—' });
+  if (!isTrade(group)) return fill(group.orders[0]);
+  return group.exit ? `${fill(group.entry)} → ${fill(group.exit)}` : fill(group.entry);
+}
+
+const SUBMITTED: Column<OrderGroup> = {
+  key: 'submitted',
+  header: 'Submitted',
+  render: (group) => <span className="font-mono whitespace-nowrap text-dim">{formatShortDateTime(lead(group).submitted_at)}</span>,
 };
-
-type ExecutedTradesResponse = {
-  trades: ExecutedTrade[];
+const CONTRACT: Column<OrderGroup> = {
+  key: 'contract',
+  header: 'Contract',
+  render: (group) => <span className="font-mono whitespace-nowrap">{formatOccSymbol(group.orders[0].option_symbol)}</span>,
 };
+const TYPE: Column<OrderGroup> = {
+  key: 'type',
+  header: 'Type',
+  render: (group) => {
+    if (!isTrade(group)) return <span className="whitespace-nowrap">{orderTypeLabel(group.orders[0])}</span>;
+    return <>
+      <span className="whitespace-nowrap">{orderTypeLabel(lead(group))}{group.exit ? ` → ${orderTypeLabel(group.exit)}` : ' · open'}</span>
+      {group.canceled ? <span className="block text-[11px] text-dim">{group.canceled} canceled attempt{group.canceled === 1 ? '' : 's'}</span> : null}
+    </>;
+  },
+};
+const FILL: Column<OrderGroup> = { key: 'fill', header: 'Fill', align: 'right', render: (group) => <span className="font-mono whitespace-nowrap">{fillText(group)}</span> };
+const RETURN: Column<OrderGroup> = {
+  key: 'return',
+  header: 'P/L',
+  align: 'right',
+  render: (group) => {
+    if (group.returnPct === null) return <span className="text-dim">—</span>;
+    return <span className={`font-mono ${group.returnPct < 0 ? 'text-loss' : 'text-gain'}`}>{formatSignedPercent(group.returnPct)}</span>;
+  },
+};
+const STATUS: Column<OrderGroup> = { key: 'status', header: 'Status', render: (group) => <StatusTag status={(group.exit ?? group.entry ?? group.orders[0]).order_status} /> };
 
-function getExecutedTrades(): Promise<ExecutedTradesResponse> {
-  return fetchPolledJson<ExecutedTradesResponse>('/api/executed-trades', 'executed trades');
-}
+/** Every option order, newest first; an entry and its exit share one row once the API links them. */
+export function OrdersView({ trades }: { trades: readonly ExecutedTrade[] }) {
+  const groups = groupOrders(trades);
+  const hasFills = trades.some((trade) => hasNumericValue(trade.fill_price));
+  const hasReturns = groups.some((group) => group.returnPct !== null);
+  const columns = [SUBMITTED, CONTRACT, TYPE, ...(hasFills ? [FILL] : []), ...(hasReturns ? [RETURN] : []), STATUS];
+  const meta = groups.length === trades.length
+    ? `${trades.length} recorded`
+    : `${groups.length} trade${groups.length === 1 ? '' : 's'} · ${trades.length} orders`;
 
-function getExecutedTradeRows(payload: ExecutedTradesResponse): ExecutedTrade[] {
-  return Array.isArray(payload.trades) ? payload.trades : [];
-}
-
-function executedTradeToText(trade: ExecutedTrade): string {
-  const decisionText = formatToken(trade.decision).toLowerCase();
-  const companyName = trade.company_name || 'Unknown company';
-  const strikeText = trade.strike_price == null ? 'unknown strike' : `strike ${trade.strike_price}`;
-  const expirationText = trade.expiration_date || 'unknown expiration';
-  const statusText = trade.order_status || 'unknown';
-  const submittedText = trade.submitted_at ? ` Submitted ${formatDateTime(trade.submitted_at)}.` : '';
-
-  return `Option order (${decisionText}) for ${trade.underlying_symbol} (${companyName}) used contract ${trade.option_symbol} expiring on ${expirationText} at ${strikeText} with status ${statusText}.${submittedText}`;
-}
-
-function OrderCard({ trade }: { trade: ExecutedTrade }) {
   return (
-    <article className="order-card">
-      <div className="order-card__header">
-        <div>
-          <p className="order-card__eyebrow">{trade.company_name || 'Executed option order'}</p>
-          <h3 className="order-card__title">{trade.underlying_symbol} · {formatToken(trade.decision)}</h3>
-        </div>
-        <span className="order-card__status">{trade.order_status || 'Unknown status'}</span>
-      </div>
-      <p className="order-card__text">{executedTradeToText(trade)}</p>
-      {trade.error ? (
-        <p className="order-card__error">{trade.error}</p>
-      ) : null}
-    </article>
+    <Panel title="Orders" meta={meta} flush>
+      <DataTable
+        columns={columns}
+        rows={groups}
+        rowKey={(group) => group.key}
+        rowClassName={(group) => (group.orders.every((order) => wasNotExecuted(order.order_status)) ? 'opacity-60' : '')}
+        emptyMessage="No orders yet."
+      />
+    </Panel>
   );
 }
 
 function OrderCardList() {
-  const { payload, error, isLoading } = useFetchedResource(getExecutedTrades, {
-    errorMessage: 'Failed to load executed trades.',
-  });
-  const trades = payload ? getExecutedTradeRows(payload) : [];
+  const { payload, error } = useFetchedResource(getExecutedTrades, { errorMessage: 'Failed to load executed trades.' });
 
-  if (isLoading) {
-    return <section className="order-card-list order-card-list--empty"><p>Loading executed trades…</p></section>;
+  if (!payload) {
+    return <Panel title="Orders"><p className={error ? 'text-error' : 'text-dim'}>{error ?? 'Loading orders…'}</p></Panel>;
   }
-
-  if (error) {
-    return <section className="order-card-list order-card-list--empty"><p>{error}</p></section>;
-  }
-
-  if (trades.length === 0) {
-    return (
-      <section className="order-card-list order-card-list--empty">
-        <div className="order-card-list__header"><div><p>Executed Orders</p><h2>Recent execution history</h2></div></div>
-        <p>No executed trades have been recorded yet.</p>
-      </section>
-    );
-  }
-
-  return (
-    <section className="order-card-list">
-      <div className="order-card-list__header">
-        <div><p>Executed Orders</p><h2>Recent execution history</h2></div>
-        <span>{trades.length} recorded</span>
-      </div>
-      {trades.map((trade) => (
-        <OrderCard
-          key={`${trade.id}-${trade.order_id}`}
-          trade={trade}
-        />
-      ))}
-    </section>
-  );
+  return <OrdersView trades={Array.isArray(payload.trades) ? payload.trades : []} />;
 }
 
 export default OrderCardList;

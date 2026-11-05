@@ -44,3 +44,7 @@ Notes:
 
 - The facade still exposes `OPTION_SELECTOR_MODE` and related tunables because tests currently patch the package directly.
 - The selector is responsible for contract-level viability, not for deciding trade direction.
+- After the manager decides, `MANAGER_OPTION_SELECTION_LIMIT_PER_TYPE` (default 30) contracts per type are fetched for the selector only.
+- Hybrid mode's gamma floor is per 1% stock move (`gamma * spot / 100 >= HYBRID_MIN_GAMMA_PER_PCT_MOVE`, 0.01), so high-priced stocks are not rejected for their naturally small raw gamma. Raw `HYBRID_MIN_GAMMA` applies only when the stock price is unknown.
+- The minimum-OTM-distance floor is off (`HYBRID_REQUIRE_MIN_OTM_DISTANCE = False`). OTM distance now only ranks candidates, because the hard floor dropped the most liquid strikes.
+- When a DTE bucket's window holds only weeklies, `get_dte_bucket_selection_range` (`services/options/option_dte_buckets.py`) extends it to the next monthly expiration, if that's at most 7 days past the window. Weeklies often have almost no open interest.

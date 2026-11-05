@@ -7,7 +7,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from services.trading_config import AlpacaSettings
+from services.core.trading_config import AlpacaSettings
 
 
 ROOT_DIR = Path(__file__).resolve().parent

@@ -53,11 +53,17 @@ class SnapshotHashMismatch(ValueError):
     pass
 
 
-def verified_envelope(row):
-    """A candidate_snapshots row's envelope, checked against the hash of its stored text."""
-    if sha256(row["snapshot_json"].encode()).hexdigest() != row["snapshot_hash"]:
+def verified_envelope(row, conn=None):
+    """A candidate_snapshots row's envelope, checked against the hash of its original text.
+
+    Packed rows (see compact_storage) are rebuilt through `conn` before the check.
+    """
+    from .compact_storage import snapshot_text  # compact_storage imports canonical from here
+
+    text = snapshot_text(row, conn)
+    if sha256(text.encode()).hexdigest() != row["snapshot_hash"]:
         raise SnapshotHashMismatch("Candidate snapshot hash mismatch")
-    return json.loads(row["snapshot_json"])
+    return json.loads(text)
 
 
 def load_record(db_path, table, key, identity):

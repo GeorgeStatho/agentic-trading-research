@@ -47,7 +47,7 @@ Import roots are declared once in `pyproject.toml` (see [DEVELOPMENT.md](DEVELOP
 
 ## Configuration
 
-Read settings through `services.settings.get_settings()` at call time; never read the
+Read settings through `services.core.settings.get_settings()` at call time; never read the
 environment when a module is imported. See [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Safety Boundaries

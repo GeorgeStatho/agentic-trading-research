@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from services.telemetry import TelemetrySettings, send_startup_ping
+from services.runtime.telemetry import TelemetrySettings, send_startup_ping
 
 
 class TelemetryTests(unittest.TestCase):
@@ -21,7 +21,7 @@ class TelemetryTests(unittest.TestCase):
                 auth_token="",
             )
 
-            with patch("services.telemetry.urlopen") as mocked_urlopen:
+            with patch("services.runtime.telemetry.urlopen") as mocked_urlopen:
                 sent = send_startup_ping("worker", settings=settings)
 
             self.assertFalse(sent)

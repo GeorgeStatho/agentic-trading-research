@@ -8,7 +8,7 @@ def run_benchmark_command(parser, args, db_path):
     if command == 'create':
         if args.size < 1 or not 0 <= args.holdout < 1:
             parser.error('--size must be positive and --holdout in [0, 1)')
-        from services.benchmark_selection import create_benchmark_set
+        from services.evaluation.benchmark_selection import create_benchmark_set
         return create_benchmark_set(args.set_id, size=args.size, holdout_share=args.holdout, start_at=args.start_at,
                                     end_at=args.end_at, db_path=db_path)
     if command == 'show':
@@ -17,10 +17,10 @@ def run_benchmark_command(parser, args, db_path):
     if command == 'run':
         if args.split == 'holdout' and not args.confirm_holdout:
             parser.error('the holdout can be scored only once per model; pass --confirm-holdout to spend it')
-        from services.benchmark_runner import run_benchmark
+        from services.evaluation.benchmark_runner import run_benchmark
         return run_benchmark(args.set_id, split=args.split, model=args.model, replay_strategist=args.replay_strategist,
                              allow_unknown_cutoff=args.allow_unknown_cutoff, db_path=db_path)
-    from services.benchmark_runner import compare_benchmark
+    from services.evaluation.benchmark_runner import compare_benchmark
     return compare_benchmark(args.set_id, a=args.a, b=args.b, split=args.split, db_path=db_path)
 
 
@@ -129,7 +129,7 @@ def main():
         result = thesis_event_review_summary(days=args.days, db_path=db_path)
     elif args.command == 'forward-status':
         from market_db_modules.forward_evaluation import forward_status
-        from services.research_marks import mark_status
+        from services.research.research_marks import mark_status
         result = {**forward_status(db_path=db_path), 'marks': mark_status(db_path=db_path)}
     elif args.command == 'compare':
         from market_db_modules.forward_comparison import comparison_report
@@ -163,17 +163,17 @@ def main():
     elif args.command == 'benchmark':
         result = run_benchmark_command(parser, args, db_path)
     elif args.command == 'forward-cycle':
-        from services.forward_evaluation import run_forward_evaluation_cycle
+        from services.evaluation.forward_evaluation import run_forward_evaluation_cycle
         result = run_forward_evaluation_cycle(db_path=db_path)
     elif args.command == 'theses':
         if not 1 <= args.limit <= 100:
             parser.error('--limit must be between 1 and 100')
-        from services.research_thesis import process_research_theses
+        from services.research.research_thesis import process_research_theses
         result = process_research_theses(limit=args.limit, db_path=db_path)
     else:
         if not 1 <= args.limit <= 100:
             parser.error('--limit must be between 1 and 100')
-        from services.research_orchestrator import process_research_queue
+        from services.research.research_orchestrator import process_research_queue
         result = process_research_queue(limit=args.limit, db_path=db_path)
     print(json.dumps(result, indent=2, allow_nan=False))
 

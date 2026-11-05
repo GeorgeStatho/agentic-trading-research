@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Live overview, phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#121214}
+a{color:#F98309}a:hover{color:#FFA347}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #121214; color: #E8E8EA; font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; overflow: hidden">
+
+<header style="padding: 20px 16px 12px; display: flex; justify-content: space-between; align-items: center">
+<div style="font-size: 16px; font-weight: 700">Live</div>
+<span style="font-size: 12px; font-weight: 600; color: #FBBF24; border: 1px solid #5B4614; background: #2A2210; padding: 4px 10px; border-radius: 999px">Paper</span>
+</header>
+
+<div style="flex: 1 1 auto; overflow-y: auto; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px">
+
+<div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; background: #161618; border: 1px solid #2C2C31; font-size: 13px">
+<span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 999px; background: #9A9AA2"></span>
+<span style="font-weight: 600">Market closed</span>
+<span style="color: #9A9AA2">· opens in 14h 50m</span>
+<span style="margin-left: auto; color: #86EFAC">No errors</span>
+</div>
+
+<div style="padding: 20px; border-radius: 12px; background: #1A1A1D; border: 1px solid #2C2C31">
+<div style="font-size: 12px; color: #9A9AA2">Account equity</div>
+<div style="font-size: 34px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; margin-top: 2px">$2,379.77</div>
+<div style="font-size: 15px; font-weight: 600; color: #F87171; margin-top: 4px">−$225.02 today · −8.64%</div>
+<svg aria-hidden="true" viewBox="0 0 320 60" style="width: 100%; height: auto; display: block; margin-top: 14px">
+<polyline points="0,10 225,10 241,52 278,48 301,27 320,55" fill="none" stroke="#F98309" stroke-width="2" stroke-linejoin="round"></polyline>
+</svg>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid #2C2C31">
+<div><div style="font-size: 12px; color: #9A9AA2">Open positions</div><div style="font-weight: 600">0 · flat</div></div>
+<div><div style="font-size: 12px; color: #9A9AA2">Max drawdown</div><div style="font-weight: 600; color: #F87171">19.84%</div></div>
+</div>
+</div>
+
+<div style="padding: 16px; border-radius: 12px; background: #1A1A1D; border: 1px solid #2C2C31">
+<div style="display: flex; justify-content: space-between; align-items: baseline">
+<h2 style="margin: 0; font-size: 14px; font-weight: 600">Today's pipeline</h2>
+<span style="font-size: 12px; color: #9A9AA2">last run 3:38 PM</span>
+</div>
+<div style="display: flex; align-items: baseline; gap: 6px; margin-top: 10px; font-size: 13px; color: #C2C2C8; flex-wrap: wrap">
+<span><b style="color: #E8E8EA">59</b> evaluated</span>
+<span aria-hidden="true" style="color: #62626A">→</span>
+<span><b style="color: #E8E8EA">1</b> call</span>
+<span aria-hidden="true" style="color: #62626A">→</span>
+<span><b style="color: #E8E8EA">0</b> filled</span>
+</div>
+</div>
+
+<div style="padding: 16px; border-radius: 12px; background: #1A1A1D; border: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 14px; font-weight: 600">Latest decision</h2>
+<div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px">
+<span style="font-weight: 600">PBF <span style="font-weight: 400; color: #9A9AA2">· 3:38 PM</span></span>
+<span style="font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #232327; color: #C2C2C8; border: 1px solid #36363C">No trade</span>
+</div>
+<div style="font-size: 11px; color: #9A9AA2; margin-top: 10px">Manager's reason</div>
+<p style="margin: 2px 0 0; font-size: 13px; color: #E8E8EA">Beat is real, but technicals are weak (below VWAP and 20EMA, RSI 49) and ~77% IV makes the call too rich to chase. Wait for confirmation.</p>
+<div style="display: flex; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 1px solid #2C2C31; font-size: 12px"><span style="color: #9A9AA2">Contract</span><span style="color: #C2C2C8">None selected</span></div>
+</div>
+
+<div style="padding: 16px; border-radius: 12px; background: #1A1A1D; border: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 14px; font-weight: 600">Last trade</h2>
+<div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px">
+<span style="font-weight: 600">ORCL $121 put</span>
+<span style="font-weight: 600; color: #F87171">−4.2%</span>
+</div>
+<div style="font-size: 12px; color: #9A9AA2; margin-top: 2px">Closed Nov 3 9:41 AM · trailing profit stop</div>
+</div>
+
+</div>
+
+<nav aria-label="Main" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #2C2C31; background: #161618">
+<a href="#" style="text-decoration: none; text-align: center; padding: 14px 0 22px; font-size: 12px; font-weight: 600; color: #E8E8EA">Live</a>
+<a href="#" style="text-decoration: none; text-align: center; padding: 14px 0 22px; font-size: 12px; font-weight: 500; color: #9A9AA2">Decisions</a>
+<a href="#" style="text-decoration: none; text-align: center; padding: 14px 0 22px; font-size: 12px; font-weight: 500; color: #9A9AA2">Research</a>
+</nav>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

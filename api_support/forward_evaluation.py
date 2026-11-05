@@ -17,7 +17,8 @@ from db_common import get_connection
 
 DEFAULT_WINDOW_DAYS = 30
 REQUIRED_TABLES = ("research_run_acceptance", "decision_observations", "forward_comparison_reports",
-                   "research_thesis_outcomes")
+                   "research_thesis_outcomes", "research_run_pauses", "discovery_production_routes",
+                   "company_opportunist_impacts")
 
 
 def build_forward_evaluation_payload(*, window_days: int = DEFAULT_WINDOW_DAYS, db_path: Any = None) -> dict:
@@ -42,7 +43,7 @@ def build_forward_evaluation_payload(*, window_days: int = DEFAULT_WINDOW_DAYS, 
 
 
 def _settings() -> dict:
-    from services.forward_evaluation_policy import AcceptancePolicy, ChallengerPolicy, ForwardEvaluationPolicy
+    from services.evaluation.forward_evaluation_policy import AcceptancePolicy, ChallengerPolicy, ForwardEvaluationPolicy
 
     result: dict[str, Any] = {}
     for key, read in (("forward_evaluation", lambda: {"mode": ForwardEvaluationPolicy.from_env().mode}),

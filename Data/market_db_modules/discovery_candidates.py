@@ -5,6 +5,7 @@ import json
 from db_common import get_connection
 from research_foundation_contracts import ResearchObservation
 from .discovery_queue import require_discovery_lease
+from .compact_storage import encode_snapshot
 from .foundation_store import canonical, digest
 from .research_observations import bind_candidate_observation, record_research_observation
 from .evidence_refresh import enqueue_refresh
@@ -44,10 +45,13 @@ def persist_discovery_candidate(item, payload, admission, version, *, at, db_pat
         envelope = {'candidate_id': candidate_id, 'stage': 'discovery_admission',
                     'snapshot_version': 'discovery-shadow-v1', 'information_cutoff_time': event['observed_at'],
                     'pipeline_version': version, 'observation_id': observation_id, 'payload': result}
+        stored, encoding = encode_snapshot(conn, canonical(envelope))
         conn.execute('''INSERT INTO candidate_snapshots
-            (candidate_id,stage,captured_at,information_cutoff_time,pipeline_version,snapshot_version,snapshot_hash,snapshot_json)
-            VALUES (?,?,?,?,?,?,?,?)''', (candidate_id, envelope['stage'], at, event['observed_at'],
-                                       version['pipeline_version'], envelope['snapshot_version'], digest(envelope), canonical(envelope)))
+            (candidate_id,stage,captured_at,information_cutoff_time,pipeline_version,snapshot_version,snapshot_hash,snapshot_json,
+             snapshot_encoding)
+            VALUES (?,?,?,?,?,?,?,?,?)''', (candidate_id, envelope['stage'], at, event['observed_at'],
+                                         version['pipeline_version'], envelope['snapshot_version'], digest(envelope),
+                                         stored, encoding))
         enqueue_refresh(conn, item['company_id'], 'research_candidate', candidate_id, at=at)
         conn.execute('''INSERT INTO discovery_shadow_candidates VALUES (?,?,?,?,?,?,?,?,1)''',
                      (item['queue_id'], candidate_id, observation_id, 'ready' if admission['allowed'] else 'deferred',

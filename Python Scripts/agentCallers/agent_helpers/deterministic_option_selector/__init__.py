@@ -9,7 +9,7 @@ import sys
 from typing import Any
 
 
-SELECTOR_VERSION = "deterministic-selector-v7-profit-path-scoring"
+SELECTOR_VERSION = "deterministic-selector-v8-monthly-reach"
 
 LOGGER = logging.getLogger(__name__)
 
@@ -23,6 +23,7 @@ from .config import (  # noqa: E402
     HYBRID_MIN_ABS_DELTA,
     HYBRID_MIN_DTE,
     HYBRID_MIN_GAMMA,
+    HYBRID_MIN_GAMMA_PER_PCT_MOVE,
     HYBRID_MIN_OPEN_INTEREST,
     HYBRID_PREFERRED_OTM_DISTANCE,
     HYBRID_REQUIRE_MIN_OTM_DISTANCE,
@@ -70,9 +71,9 @@ from .normalize import (  # noqa: E402
 )
 from .simple import _pick_matching_contract_simple  # noqa: E402
 from .volatility import _assess_contract_volatility  # noqa: E402
-from services.numbers import safe_float  # noqa: E402
-from services.option_dte_buckets import normalize_target_dte_bucket  # noqa: E402
-from services.liquidity_gate import filter_liquid_contracts
+from services.core.numbers import safe_float  # noqa: E402
+from services.options.option_dte_buckets import normalize_target_dte_bucket  # noqa: E402
+from services.gates.liquidity_gate import filter_liquid_contracts
 
 
 def _pick_matching_contract(
@@ -308,6 +309,7 @@ def apply_deterministic_option_selection(manager_result: dict[str, Any]) -> dict
                 "min_abs_delta": HYBRID_MIN_ABS_DELTA,
                 "target_abs_delta": HYBRID_TARGET_ABS_DELTA,
                 "min_gamma": HYBRID_MIN_GAMMA,
+                "min_gamma_per_pct_move": HYBRID_MIN_GAMMA_PER_PCT_MOVE,
                 "max_theta_to_price": HYBRID_MAX_THETA_TO_PRICE,
                 "require_min_otm_distance": HYBRID_REQUIRE_MIN_OTM_DISTANCE,
                 "preferred_otm_distance": HYBRID_PREFERRED_OTM_DISTANCE,

@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS company_provider_responses (
     response_id TEXT PRIMARY KEY, provider TEXT NOT NULL, url TEXT NOT NULL,
     observed_at TEXT NOT NULL, body TEXT NOT NULL, content_hash TEXT NOT NULL,
+    body_z BLOB, stored_hash TEXT,
     UNIQUE(provider,url,content_hash)
 );
 CREATE INDEX IF NOT EXISTS idx_company_responses_url ON company_provider_responses(provider,url,observed_at);

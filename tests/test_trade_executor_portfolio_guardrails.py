@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from services.trade_executor import OptionTradeExecutor, TradeExecutionSession  # noqa: E402
+from services.trading.trade_executor import OptionTradeExecutor, TradeExecutionSession  # noqa: E402
 
 
 class OptionTradeExecutorPortfolioGuardrailTests(unittest.TestCase):
@@ -72,8 +72,8 @@ class OptionTradeExecutorPortfolioGuardrailTests(unittest.TestCase):
         self.gateway.get_open_option_positions.return_value = [
             {"option_symbol": "MSFT260619C00450000", "underlying_symbol": "MSFT", "notional": 1_200.0},
         ]
-        with patch("services.trade_executor.get_company_sector_key", return_value="technology"), patch(
-            "services.trade_executor.get_realized_option_loss_since", return_value=300.0
+        with patch("services.trading.trade_executor.get_company_sector_key", return_value="technology"), patch(
+            "services.trading.trade_executor.get_realized_option_loss_since", return_value=300.0
         ):
             session = self.executor.create_session(trading_client=object())
 
@@ -133,7 +133,7 @@ class OptionTradeExecutorPortfolioGuardrailTests(unittest.TestCase):
 
     def test_rejects_entry_once_symbol_attempt_cap_is_reached(self) -> None:
         self.settings.max_symbol_entries_per_window = 2
-        with patch("services.trade_executor.count_option_entry_executions_since", return_value=2) as counter:
+        with patch("services.trading.trade_executor.count_option_entry_executions_since", return_value=2) as counter:
             self._assert_rejected(self._session(), "symbol_entry_attempt_cap")
         self.assertEqual(counter.call_args.kwargs["underlying_symbol"], "MSFT")
 
@@ -141,7 +141,7 @@ class OptionTradeExecutorPortfolioGuardrailTests(unittest.TestCase):
         # The journal write can lag or fail, so submissions already made in this
         # session still count toward the cap.
         self.settings.max_symbol_entries_per_window = 1
-        with patch("services.trade_executor.count_option_entry_executions_since", return_value=0):
+        with patch("services.trading.trade_executor.count_option_entry_executions_since", return_value=0):
             self._assert_rejected(
                 self._session(entries_by_underlying={"MSFT": 1}),
                 "symbol_entry_attempt_cap",
@@ -150,7 +150,7 @@ class OptionTradeExecutorPortfolioGuardrailTests(unittest.TestCase):
     def test_rejects_entry_during_stop_loss_cooldown(self) -> None:
         self.settings.symbol_stop_loss_cooldown_days = 7
         recent_stop = (datetime.now(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
-        with patch("services.trade_executor.get_latest_stop_loss_exit_at", return_value=recent_stop):
+        with patch("services.trading.trade_executor.get_latest_stop_loss_exit_at", return_value=recent_stop):
             self._assert_rejected(self._session(), "symbol_stop_loss_cooldown")
 
     def test_symbol_attempt_cap_falls_open_when_the_journal_read_fails(self) -> None:
@@ -159,7 +159,7 @@ class OptionTradeExecutorPortfolioGuardrailTests(unittest.TestCase):
         self.gateway.submit_option_market_order.return_value = {"id": "order-4"}
 
         with patch(
-            "services.trade_executor.count_option_entry_executions_since",
+            "services.trading.trade_executor.count_option_entry_executions_since",
             side_effect=RuntimeError("db down"),
         ):
             execution = self.executor.execute_candidate(

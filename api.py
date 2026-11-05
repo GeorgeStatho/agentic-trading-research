@@ -6,7 +6,7 @@ from flask import Flask
 
 if __name__ == "__main__":
     # Before route modules import services that still read configuration at import time.
-    from services.settings import load_process_settings
+    from services.core.settings import load_process_settings
     load_process_settings()
 
 from api_routes.dashboard import register_dashboard_routes
@@ -23,7 +23,7 @@ from api_routes.v2_status import register_v2_status_routes
 from api_routes.forward_evaluation import register_forward_evaluation_routes
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
-from services.telemetry import send_startup_ping_async
+from services.runtime.telemetry import send_startup_ping_async
 
 
 app = Flask(__name__)

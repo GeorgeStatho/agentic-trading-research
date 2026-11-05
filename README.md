@@ -75,7 +75,13 @@ Docker Compose currently runs:
 - `worker`: long-running strategist/manager/trading loop using existing DB data
 - `option_manager`: long-running existing-position management loop for options
 - `news_collector`: long-running scrape/classification refresh loop
+- `marketdata_eod_sync`: daily historical option-quote cache refresh (see below)
+- `certbot`: Let's Encrypt certificate renewal
 - `ollama`: optional profile only, for local fallback
+
+Optional overlays add services on top of `docker-compose.yml` (pass each with another `-f`):
+
+- [docker-compose.observability.yml](docker-compose.observability.yml): Dozzle (live container logs, `127.0.0.1:8081`) and Uptime Kuma (uptime alerts, `127.0.0.1:3001`). Both bind to localhost only, so reach them through an SSH tunnel. Point an Uptime Kuma HTTP monitor at `http://api:5000/api/health/components`, which returns 503 when a loop is down, stalled or failed in the last hour.
 
 ## What The Project Does Today
 
@@ -93,26 +99,25 @@ The implemented flow is roughly:
 9. `option_manager` monitors open option positions and can close them using DTE-aware exit thresholds
 10. the runtime writes outputs and logs for the dashboard and monitoring
 
+Two optional additions change what gets traded:
+
+- **Follower accounts.** `TRADING_ACCOUNTS` names extra paper accounts, each with its own keys and strategy (`debit_spread`, `itm_single`, `longer_dte` or `shares`). The worker mirrors each production entry into them and closes their positions once production's position is gone. Production itself is never touched. Compare them with `python scripts/account_report.py --db PATH` or on Research › Followers.
+- **Discovery enforce.** With `DISCOVERY_MODE=enforce`, admitted discovery entries for companies the ranking didn't choose also reach the strategist and manager, up to `DISCOVERY_PRODUCTION_LIMIT` per cycle. `DISCOVERY_MARKET_EVENT_LIMIT` (off by default) also feeds discovery from EDGAR's market-wide 8-K/6-K feed. See [docs/RESEARCH_GUIDE.md](docs/RESEARCH_GUIDE.md) before switching either on.
+
 The worker entrypoint is [Python Scripts/main.py](Python%20Scripts/main.py), the dedicated position-manager entrypoint is [Python Scripts/option_manager_main.py](Python%20Scripts/option_manager_main.py), the news refresh entrypoint is [Python Scripts/news_collector_main.py](Python%20Scripts/news_collector_main.py), and the orchestrated agent stack lives under [Python Scripts/agentCallers](Python%20Scripts/agentCallers).
 
 ## Dashboard
 
-The dashboard lives in [web_dashboard](web_dashboard) and currently shows:
+The dashboard lives in [web_dashboard](web_dashboard). It's React + Tailwind v4 + daisyUI 5, organised as four pages:
 
-- script status (`running`, `paused`, `error`, `down`)
-- combined worker + option-manager status via the API
-- portfolio-history graph from `/api/portfolio-history`
-- executed trade cards from the SQLite-backed `/api/executed-trades` endpoint
-- option position management output from the dedicated option manager
-- analyzed company news, company decisions, the Evidence Exposure Map, and the Decision Autopsy Ledger
-- a static, read-only Demo Mode at `#/exposure-map?demo=1`
+| Page | Shows |
+| --- | --- |
+| Live | account KPIs, latest decision, equity / drawdown / daily P/L, newsfeed, decisions, orders, news-lag scatter, holdings, data pipeline, V2 safeguards |
+| Decisions | every decision with its frozen evidence and gates; company news; the Evidence Exposure Map |
+| Research | expectancy, news lag, backtests, follower accounts, V2 rollout |
+| System | loop health, risk settings, news extraction |
 
-The main frontend files are:
-
-- [web_dashboard/src/App.tsx](web_dashboard/src/App.tsx)
-- [web_dashboard/src/Graph.tsx](web_dashboard/src/Graph.tsx)
-- [web_dashboard/src/orderCard.tsx](web_dashboard/src/orderCard.tsx)
-- [web_dashboard/src/scriptStatus.tsx](web_dashboard/src/scriptStatus.tsx)
+The status line under the top bar shows each loop's state (`running`, `paused`, `error`, `down`). Demo Mode is a static, read-only walkthrough at `#/decisions/map?demo=1`; older paths such as `#/exposure-map?demo=1` still redirect. [web_dashboard/README.md](web_dashboard/README.md) maps the files.
 
 ## Model Providers
 
@@ -123,6 +128,8 @@ The repo supports model backends behind a shared helper:
 - `openai`: OpenAI Responses API, including the configured Exposure Map model path
 
 The provider abstraction lives in [Python Scripts/agentCallers/agent_helpers/llm_client.py](Python%20Scripts/agentCallers/agent_helpers/llm_client.py).
+
+The company opportunist classifies several articles per request, because free tiers cap requests per day long before they cap tokens. Each article body is cut to `COMPANY_OPPORTUNIST_ARTICLE_BODY_CHAR_LIMIT` (default 1200 characters), and `CLASSIFIER_BATCH_TOKENS` sets the token budget per request.
 
 ### Recommended Vertex split
 
@@ -263,6 +270,12 @@ What the script does:
 4. restarts the web container with the production HTTPS Nginx config
 5. starts the full stack, including automatic certificate renewal via the `certbot` service
 
+To avoid opening ports, use the Cloudflare Tunnel overlay instead. Cloudflare terminates TLS, so this certificate step isn't needed:
+
+```bash
+docker compose -f docker-compose.yml -f the project notes (not in the public demo) up -d
+```
+
 ### 4. Open the dashboard
 
 Local Docker default:
@@ -344,23 +357,15 @@ gcloud auth application-default login --scopes=https://www.googleapis.com/auth/c
 
 ## API Endpoints
 
-The Flask service in [api.py](api.py) exposes:
+The Flask service in [api.py](api.py) registers its routes from [api_routes/](api_routes):
 
-- `GET /api/health`
-- `GET /api/portfolio-history`
-- `GET /api/script-status`
-- `GET /api/trade-execution-output`
-- `GET /api/executed-trades`
-- `GET /api/exposure-map/articles`
-- `GET /api/exposure-map/<article_id>`
-- `POST /api/exposure-map/runs`
-- `GET /api/decision-autopsies`
-- `GET /api/demo-mode`
-- `GET /api/v2-status`
-- `POST /api/telemetry/startup`
-- `GET /api/telemetry/summary`
+- Health: `GET /api/health`, `GET /api/health/components` (503 when a loop is down, stalled or recently failed), `GET /api/script-status`
+- Account and trades: `GET /api/portfolio-history`, `GET /api/dashboard-kpis`, `GET /api/open-positions`, `GET /api/executed-trades`, `GET /api/trade-execution-output`, `GET /api/why-bot-traded`, `GET /api/risk-controls`, `GET /api/market-regime`
+- Decisions and news: `GET /api/company-decisions`, `GET /api/decision-autopsies`, `GET /api/opportunist-company-news`, `GET /api/news-extraction`, `GET /api/exposure-map/articles`, `GET /api/exposure-map/<article_id>`, `POST /api/exposure-map/runs`
+- Research: `GET /api/decision-expectancy`, `GET /api/news-lag`, `GET /api/follower-accounts`, `GET /api/forward-evaluation`, `GET /api/thesis-validator`, `GET /api/v2-status`, `GET /api/backtests`, `GET /api/backtests/<run_id>`, `POST /api/backtests`, `POST /api/backtests/marketdata-eod`
+- Other: `GET /api/demo-mode`, `POST /api/telemetry/startup`, `GET /api/telemetry/summary`
 
-These are intended for the dashboard and internal monitoring.
+These are intended for the dashboard and internal monitoring. `GET /api/telemetry/summary` returns 401 unless `TELEMETRY_RECEIVER_READ_AUTH_TOKEN` (or `TELEMETRY_RECEIVER_AUTH_TOKEN`) is set and sent as a bearer token.
 
 ## Runtime Outputs
 
@@ -373,6 +378,7 @@ The shared JSON outputs currently written are:
 
 - `script_status.json`
 - `option_manager_status.json`
+- `news_collector_status.json`, `marketdata_eod_sync_status.json` and `db_backup_status.json` (loop heartbeats read by `/api/health/components`)
 - `trade_execution_output.json`
 - `selected_options_output.json`
 - `option_position_management_output.json`
@@ -431,8 +437,8 @@ Count unique installs by unique `install_id` values on your telemetry receiver. 
 
 - [Python Scripts/main.py](Python%20Scripts/main.py): front-facing worker loop
 - [Python Scripts/option_manager_main.py](Python%20Scripts/option_manager_main.py): dedicated option-position management loop
-- [Python Scripts/services/worker_application.py](Python%20Scripts/services/worker_application.py): scheduled worker loop, Friday entry guard, and position-management orchestration
-- [Python Scripts/services/trade_journal.py](Python%20Scripts/services/trade_journal.py): records successful live option submissions into SQLite
+- [Python Scripts/services/runtime/worker_application.py](Python%20Scripts/services/runtime/worker_application.py): scheduled worker loop, Friday entry guard, and position-management orchestration
+- [Python Scripts/services/trading/trade_journal.py](Python%20Scripts/services/trading/trade_journal.py): records successful live option submissions into SQLite
 - [Python Scripts/trading_support](Python%20Scripts/trading_support): split trading helpers for client setup, account diagnostics, option management, and stock/order helpers
 - [Data/market_schema.sql](Data/market_schema.sql): market-side SQLite schema, including the executed-trade journal table
 - [Data/market_db_modules/](Data/market_db_modules): market-side DB writes and executed-trade query helpers
@@ -443,7 +449,10 @@ Count unique installs by unique `install_id` values on your telemetry receiver. 
 - [Python Scripts/agentCallers/agent_stages/strategist_runner.py](Python%20Scripts/agentCallers/agent_stages/strategist_runner.py): buy/do-not-buy stage
 - [Python Scripts/agentCallers/agent_stages/manager_runner.py](Python%20Scripts/agentCallers/agent_stages/manager_runner.py): call/put/neither stage
 - [portfolio_history_service.py](portfolio_history_service.py): Alpaca portfolio-history fetch helper
-- [docker-compose.yml](docker-compose.yml): local/cloud VM orchestration
+- [Python Scripts/db_backup_main.py](Python%20Scripts/db_backup_main.py): nightly full database copy and backup health
+- [scripts/compact_db.py](scripts/compact_db.py): one-time compaction of rows written before compact storage
+- [scripts/account_report.py](scripts/account_report.py): follower accounts next to production
+- [docker-compose.yml](docker-compose.yml): local/cloud VM orchestration, plus the backup, observability and tunnel overlays listed above
 
 ## Current Status
 

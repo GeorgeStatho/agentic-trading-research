@@ -11,9 +11,9 @@ import json
 from statistics import mean, median
 
 from db_common import get_connection
-from services.price_response import measure_response
-from services.pricing_policy import RESPONSE_HORIZONS
-from services.research_contract import canonical, utc
+from services.research.price_response import measure_response
+from services.gates.pricing_policy import RESPONSE_HORIZONS
+from services.research.research_contract import canonical, utc
 from .bootstrap import initialize_database
 from .pricing_research import load_histories, sector_symbol
 

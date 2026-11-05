@@ -1,6 +1,9 @@
 """Persist evidence without performing provider retrieval or changing trading policy."""
 from contextlib import closing
+from datetime import datetime
 from hashlib import sha256
+import json
+from zoneinfo import ZoneInfo
 
 from db_common import get_connection
 from research_foundation_contracts import CompanyFact, EvidenceDocument, EvidencePackage, timestamp
@@ -119,3 +122,18 @@ def list_company_facts(company_id, *, as_of, db_path=None):
         rows = conn.execute("""SELECT fact_id FROM company_facts WHERE company_id=?
             AND julianday(available_at)<=julianday(?) ORDER BY available_at,fact_id""", (company_id, cutoff))
         return [read_record(conn, "company_facts", "fact_id", row["fact_id"]) for row in rows]
+
+
+def next_earnings_date(symbol, *, as_of, max_age_days=45, db_path=None):
+    """First Yahoo earnings date (New York date text) on or after `as_of`, from the newest consensus
+    document observed by then. None when no document, no future date, or the document is stale."""
+    cutoff = timestamp(as_of)
+    with closing(get_connection(db_path)) as conn:
+        row = conn.execute("""SELECT json_extract(record_json, '$.metadata.scheduled_events') FROM evidence_documents
+            WHERE provider='yahoo_consensus' AND json_extract(record_json, '$.metadata.event_key') GLOB ?
+            AND julianday(first_observed_at)<=julianday(?) AND julianday(first_observed_at)>julianday(?)-?
+            ORDER BY julianday(first_observed_at) DESC LIMIT 1""",
+                           (f'yahoo_consensus:{symbol}:*', cutoff, cutoff, max_age_days)).fetchone()
+    today = datetime.fromisoformat(cutoff).astimezone(ZoneInfo('America/New_York')).date().isoformat()
+    dates = sorted(str(event.get('scheduled_at') or '')[:10] for event in json.loads(row[0] or '[]')) if row else []
+    return next((date for date in dates if date >= today), None)

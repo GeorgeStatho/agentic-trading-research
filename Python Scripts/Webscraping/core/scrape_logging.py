@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +30,13 @@ def _configure_base_logger() -> logging.Logger:
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
+
+    # propagate is off, so without this scraper failures never reach stdout (docker logs).
+    # INFO is per-article chatter (~200 lines a minute) and stays in the file.
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(logging.WARNING)
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
 
     return logger
 

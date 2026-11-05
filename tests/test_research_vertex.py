@@ -11,8 +11,8 @@ from tests.research_foundation_fixtures import ENTRY
 from db_common import get_connection
 from agent_helpers.llm_client import Client, ask_llm_model
 from agent_stages.research_planner import PLAN_SCHEMA, ResearchPlanner, ResearchProviderError
-from services.research_model_policy import ResearchModelPolicy, planner_manifest
-from services.research_orchestrator import ResearchOrchestrator
+from services.research.research_model_policy import ResearchModelPolicy, planner_manifest
+from services.research.research_orchestrator import ResearchOrchestrator
 from market_db_modules.research_runtime import ResearchBudgetExceeded
 
 

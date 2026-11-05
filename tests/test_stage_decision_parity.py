@@ -12,8 +12,8 @@ from unittest.mock import patch
 
 import tests.test_thesis_evidence_contract as thesis_tests
 from agent_stages import manager_runner, strategist_runner
-from services.evidence_thesis import check_evidence_thesis
-from services.evidence_thesis_policy import EvidenceThesisPolicy
+from services.thesis.evidence_thesis import check_evidence_thesis
+from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
 
 
 def manager_payload(*, evidence=True):
@@ -98,6 +98,14 @@ class ManagerParityTests(unittest.TestCase):
                 self.assertEqual(replay_model.prompts, [])
                 self.assertEqual(replay["replay_skipped"], "strategist_declined")
                 self.assertEqual(replay["recommendation"], without_selection_debug(recommendation))
+
+    # History, the dashboard and the evidence-thesis gate read these from the result, skipped or not.
+    def test_a_declined_result_keeps_the_strategist_answer_and_context(self):
+        live = self.run_live(manager_payload(), StubModel(MANAGER_JSON),
+                             strategist_recommendation={"decision": "watchlist", "confidence": "medium"})
+        self.assertEqual(live["strategist_recommendation"]["decision"], "watchlist")
+        self.assertLessEqual({"supporting_articles", "company_evidence", "recent_manager_decision_history"},
+                             live.keys())
 
     def test_a_trade_candidate_still_asks_the_manager(self):
         live_model = StubModel(MANAGER_JSON)

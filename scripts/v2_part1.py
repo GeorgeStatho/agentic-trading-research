@@ -28,9 +28,9 @@ def main():
     logging.basicConfig(level=logging.INFO)
     if args.command == "outcomes":
         from market_db_modules.history_records import list_unresolved_manager_decisions
-        from services.outcome_reconciliation import reconcile_closed_outcomes
-        from services.trading_config import AlpacaSettings
-        from services.trading_gateway import AlpacaTradingGateway
+        from services.trading.outcome_reconciliation import reconcile_closed_outcomes
+        from services.core.trading_config import AlpacaSettings
+        from services.trading.trading_gateway import AlpacaTradingGateway
         if not list_unresolved_manager_decisions():
             result = {"examined": 0, "resolved": 0, "ready": [], "unresolved": []}
         else:
@@ -45,7 +45,7 @@ def main():
         from news_db_modules.provenance import backfill_news_provenance
         result = backfill_news_provenance()
     elif args.command == "regime":
-        from services.market_regime import build_market_regime_snapshot
+        from services.gates.market_regime import build_market_regime_snapshot
         result = build_market_regime_snapshot()
     else:
         from market_db_modules.shadow_gates import backfill_gate_verdicts, list_shadow_gate_outcomes

@@ -7,9 +7,9 @@ from tests.test_research_orchestrator import ResearchFixture
 from tests.research_foundation_fixtures import ENTRY
 from db_common import get_connection
 from market_db_modules.evidence_thesis import get_evidence_thesis, reserve_research_thesis
-from services.evidence_research_policy import EvidenceResearchPolicy
-from services.evidence_thesis_policy import EvidenceThesisPolicy
-from services.research_thesis import process_research_theses
+from services.research.evidence_research_policy import EvidenceResearchPolicy
+from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
+from services.research.research_thesis import process_research_theses
 
 
 class FakeWriter:

@@ -15,11 +15,11 @@ re-export them were removed; import the canonical modules directly.
 - Import roots are declared once, in `pyproject.toml`, and registered by
   `pip install -e .`. No module edits `sys.path`.
 - Only entrypoints load `.env` and settings, by calling
-  `services.settings.load_process_settings()` under `if __name__ == "__main__":`.
+  `services.core.settings.load_process_settings()` under `if __name__ == "__main__":`.
   Importing a module never loads `.env` or reads configuration; library code calls
-  `services.settings.get_settings()` when it runs.
+  `services.core.settings.get_settings()` when it runs.
 - Shared env parsing should live in reusable helpers or settings objects such as
-  `services/env_parsing.py` and `services/trading_config.py`.
+  `services/core/env_parsing.py` and `services/core/trading_config.py`.
 
 ## Agent Research System
 

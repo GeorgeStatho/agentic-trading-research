@@ -16,8 +16,8 @@ from market_db_modules.bootstrap import initialize_database
 from market_db_modules.entities import add_company, add_industry, add_sector
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from news_db_modules.strategist_runs import latest_answered_strategist_run, record_strategist_run
-from services.trading_config import AgentPipelineSettings
-from services.evidence_thesis_policy import EvidenceThesisPolicy
+from services.core.trading_config import AgentPipelineSettings
+from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "Data"
 MODEL = "test-model"

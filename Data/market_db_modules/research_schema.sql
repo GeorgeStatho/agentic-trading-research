@@ -5,6 +5,11 @@ CREATE TABLE IF NOT EXISTS research_runs (
     policy_json TEXT NOT NULL, config_hash TEXT NOT NULL, code_hash TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','sealed'))
 );
+-- The latest reason each run stopped collecting; cleared by its next successful collection.
+CREATE TABLE IF NOT EXISTS research_run_pauses (
+    run_id TEXT PRIMARY KEY REFERENCES research_runs(run_id),
+    paused_at TEXT NOT NULL, candidate_id TEXT, reason TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS research_candidates (
     run_id TEXT NOT NULL REFERENCES research_runs(run_id),
     candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),

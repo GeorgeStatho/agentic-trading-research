@@ -26,7 +26,7 @@ TRADING_DAYS = [date(2026, 3, 2) + timedelta(days=offset) for offset in range(14
 
 
 def attribution():
-    return importlib.import_module('services.decision_attribution')
+    return importlib.import_module('services.evaluation.decision_attribution')
 
 
 def store():
@@ -34,7 +34,7 @@ def store():
 
 
 def runner():
-    return importlib.import_module('services.decision_attribution_runner')
+    return importlib.import_module('services.evaluation.decision_attribution_runner')
 
 
 # --- inputs for the pure layers -------------------------------------------------------------------------------------
@@ -683,14 +683,14 @@ class CollectorHookTests(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.object(collector, 'run_news_collection_pipeline', return_value={}))
             stack.enter_context(patch.object(collector.JsonFileWriter, 'write'))
-            for target in ('services.market_regime.build_market_regime_snapshot',
-                           'services.forward_evaluation.run_forward_evaluation_cycle',
-                           'services.company_evidence_service.collect_company_evidence',
-                           'services.event_discovery.discover_company_events'):
+            for target in ('services.gates.market_regime.build_market_regime_snapshot',
+                           'services.evaluation.forward_evaluation.run_forward_evaluation_cycle',
+                           'services.discovery.company_evidence_service.collect_company_evidence',
+                           'services.discovery.event_discovery.discover_company_events'):
                 stack.enter_context(patch(target, return_value={}))
-            stack.enter_context(patch('services.catalyst_response_collector.collect_catalyst_responses',
+            stack.enter_context(patch('services.discovery.catalyst_response_collector.collect_catalyst_responses',
                                       side_effect=lambda *a, **k: calls.append('responses') or {}))
-            stack.enter_context(patch('services.decision_attribution_runner.attribute_decisions',
+            stack.enter_context(patch('services.evaluation.decision_attribution_runner.attribute_decisions',
                                       side_effect=lambda *a, **k: calls.append('attribution') or attribute_decisions()))
             return collector.run_news_collection_cycle(), calls
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import agent_helpers.market_context as market_context  # noqa: E402
-from services.settings import get_settings, use_settings
+from services.core.settings import get_settings, use_settings
 
 
 def iv_history_settings(**changes):

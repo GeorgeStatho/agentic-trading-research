@@ -120,8 +120,20 @@ export function formatRate(
   return hasNumericValue(value) ? `${(value * 100).toFixed(digits)}%` : placeholder;
 }
 
+const ZONELESS_DATE_TIME = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(:\d{2}(\.\d+)?)?)$/;
+
+/**
+ * The API writes UTC date-times without a zone ("2026-11-03T20:38:25"),
+ * which `Date` would read as the viewer's local time. Plain dates and
+ * timestamps that name their zone pass through unchanged.
+ */
+export function asUtcTimestamp(value: string): string {
+  const match = ZONELESS_DATE_TIME.exec(value);
+  return match ? `${match[1]}T${match[2]}Z` : value;
+}
+
 function parseTimestamp(value: string | null | undefined): Date | null {
-  const parsed = new Date(String(value ?? '').trim());
+  const parsed = new Date(asUtcTimestamp(String(value ?? '').trim()));
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -143,6 +155,26 @@ export function formatDateTime(
   return parsed
     ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
     : placeholder;
+}
+
+/** Month, day and time, e.g. "Nov 4, 1:20 AM": for rows in a feed that spans days. */
+export function formatShortDateTime(
+  value: string | null | undefined,
+  { placeholder = MISSING_VALUE_PLACEHOLDER }: TextFormatOptions = {},
+): string {
+  const parsed = parseTimestamp(value);
+  return parsed
+    ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(parsed)
+    : placeholder;
+}
+
+/** Hours and minutes only, e.g. "3:38 PM": for one-line status text. */
+export function formatShortTime(
+  value: string | null | undefined,
+  { placeholder = MISSING_VALUE_PLACEHOLDER }: TextFormatOptions = {},
+): string {
+  const parsed = parseTimestamp(value);
+  return parsed ? new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(parsed) : placeholder;
 }
 
 export function formatTimeOfDay(
@@ -201,6 +233,11 @@ export function formatDteBucket(
   if (match) return `${match[1]}–${match[2]} DTE`;
   const raw = String(value ?? '').trim();
   return !raw || raw.toLowerCase() === 'none' ? placeholder : formatToken(raw);
+}
+
+/** "watchlist" → "Watchlist". */
+export function sentenceCase(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** Maps each item of a list of stored values (e.g. gate or warning codes) to its label. */

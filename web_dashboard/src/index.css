@@ -1,51 +1,84 @@
-@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
 
-:root {
-  --background: #0b1326;
-  --surface: #0b1326;
-  --surface-container-low: #131b2e;
-  --surface-container: #171f33;
-  --surface-container-high: #222a3d;
-  --surface-container-highest: #2d3449;
-  --outline-variant: #464554;
-  --on-surface: #dae2fd;
-  --on-surface-variant: #c7c4d7;
-  --primary: #c0c1ff;
-  --primary-container: #8083ff;
-  --secondary: #4edea3;
-  --secondary-container: #00a572;
-  --on-secondary-container: #00311f;
-  --tertiary: #ffb2b7;
-  --tertiary-container: #ff516a;
-  --on-tertiary-container: #5b0017;
-  --error-container: #93000a;
-  --on-error-container: #ffdad6;
-  --text: var(--on-surface-variant);
-  --text-dim: var(--on-surface-variant);
-  --text-h: var(--on-surface);
-  --bg: var(--background);
-  --border: var(--outline-variant);
-  --accent: var(--primary);
-  --accent-bg: rgba(192, 193, 255, 0.1);
-  --accent-border: rgba(192, 193, 255, 0.5);
-  --shadow: none;
-  --sans: 'Hanken Grotesk', system-ui, sans-serif;
-  --heading: 'Hanken Grotesk', system-ui, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
-  color: var(--on-surface);
-  font: 14px/1.43 var(--sans);
-  color-scheme: dark;
-  background: var(--background);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* Only our theme; no built-in daisyUI themes in the bundle. */
+@plugin "daisyui" {
+  themes: false;
 }
 
-* { box-sizing: border-box; }
-html { background: var(--background); }
-body { min-width: 320px; margin: 0; background: var(--background); }
-button, a { -webkit-tap-highlight-color: transparent; }
-button { cursor: pointer; }
-#root { min-height: 100svh; }
-h1, h2, h3, p { margin-top: 0; }
+@plugin "daisyui/theme" {
+  name: "terminal";
+  default: true;
+  prefersdark: true;
+  color-scheme: dark;
+
+  --color-base-100: #121214;      /* page */
+  --color-base-200: #1a1a1d;      /* panels */
+  --color-base-300: #2c2c31;      /* borders */
+  --color-base-content: #e8e8ea;
+
+  --color-primary: #f98309;       /* QuantConnect orange */
+  --color-primary-content: #121214;
+  --color-secondary: #58a6ff;
+  --color-secondary-content: #0b1220;
+  --color-accent: #f98309;
+  --color-accent-content: #121214;
+  --color-neutral: #232327;
+  --color-neutral-content: #c2c2c8;
+
+  --color-info: #58a6ff;
+  --color-info-content: #0b1220;
+  --color-success: #3fb950;
+  --color-success-content: #0b1a10;
+  --color-warning: #ffb066;
+  --color-warning-content: #1f1406;
+  --color-error: #f85149;
+  --color-error-content: #1f0a09;
+
+  --radius-selector: 0.25rem;     /* badges, toggles */
+  --radius-field: 0.25rem;        /* buttons, inputs, selects */
+  --radius-box: 0.375rem;         /* panels, dropdowns */
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;          /* smaller controls than daisyUI's default */
+  --border: 1px;
+  --depth: 0;                     /* flat: no gradients or shadows */
+  --noise: 0;
+}
+
+/* Colors daisyUI has no slot for. Each becomes a utility:
+   bg-head, bg-raised, text-dim, text-ink-2, text-gain, bg-loss-bg, ... */
+@theme {
+  --color-head: #161618;          /* top bar, sub-bars, table header */
+  --color-raised: #232327;        /* row dividers, chips, selected row */
+  --color-grid: #26262b;          /* chart grid lines */
+  --color-ink-2: #c2c2c8;         /* secondary text */
+  --color-dim: #9a9aa2;           /* labels, 6:1 on panels */
+  --color-gain: #3fb950;
+  --color-gain-text: #56d364;
+  --color-gain-bg: #12261a;
+  --color-loss: #f85149;
+  --color-loss-text: #ff9b94;
+  --color-loss-bg: #2d1617;
+  --color-accent-bg: #24180b;     /* ticker chips, active filter */
+  --color-accent-line: #5a3510;
+  --color-ticker: #ffb066;        /* ticker text on accent-bg */
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+@layer base {
+  body {
+    @apply min-w-80 bg-base-100 font-sans text-[13px] leading-snug text-base-content tabular-nums antialiased;
+  }
+  a { @apply text-primary hover:text-[#ffa347]; }
+  #root { min-height: 100svh; }
+  button, a { -webkit-tap-highlight-color: transparent; }
+  /* Preflight sets `cursor: default` on buttons. */
+  button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
+}
+
+/* Top bar + status line + page tabs + page padding, so the full-height
+   views (exposure map) size themselves to what is left. */
+:root {
+  --app-chrome: 146px;
+}

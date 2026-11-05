@@ -18,11 +18,11 @@ The newer service layer usually calls into `trading_support/` instead of reimple
 
 The most important connection points are:
 
-- `services/worker_application.py`
+- `services/runtime/worker_application.py`
   Schedules when option-position management should run.
-- `services/position_manager.py`
+- `services/options/position_manager.py`
   Calls `ManageCurrentOptionPositions(...)` from `option_positions.py` and supplies the broker callbacks.
-- `services/trading_gateway.py`
+- `services/trading/trading_gateway.py`
   Provides the newer normalized Alpaca wrapper used by the service layer.
 
 So if `services/` is the runtime control layer, `trading_support/` is the lower-level trading helper layer that knows how to inspect positions, compute exits, reconcile orders, and translate that into broker-facing actions.
@@ -79,11 +79,11 @@ Importable constants and proxies:
 Important internal pieces:
 
 - `_get_alpaca_settings()`
-  Loads typed Alpaca settings from `services.trading_config`.
+  Loads typed Alpaca settings from `services.core.trading_config`.
 - `_LazyClientProxy`
   Defers actual client creation until an attribute is used.
 
-This file is the best place to import broker/data clients when you want the older trading helper path instead of the newer `services.trading_gateway` wrapper.
+This file is the best place to import broker/data clients when you want the older trading helper path instead of the newer `services.trading.trading_gateway` wrapper.
 
 ### `account.py`
 
@@ -134,7 +134,7 @@ This file is mostly a simple convenience wrapper around stock order submission a
 
 This is now the public facade for the option-position engine.
 
-It is still the main import surface that the newer `services.position_manager.OptionPositionManagerService` ultimately calls, but the implementation has been split across several focused internal modules.
+It is still the main import surface that the newer `services.options.position_manager.OptionPositionManagerService` ultimately calls, but the implementation has been split across several focused internal modules.
 
 Main responsibilities:
 
@@ -148,7 +148,7 @@ Main responsibilities:
 - return a normalized summary payload for every open option position
 
 Every exit setting (thresholds, DTE rules, trailing profit, momentum, volatility scaling, limit exits,
-pending exits) lives on one `services.trading_config.OptionPositionSettings`, read from the environment at
+pending exits) lives on one `services.core.trading_config.OptionPositionSettings`, read from the environment at
 call time. Nothing in this package reads environment variables.
 
 Importable dataclasses:
@@ -184,11 +184,11 @@ Current internal module split:
 
 Important current design details:
 
-- DTE bucket behavior is driven by `services.option_dte_buckets`
-- DTE exit thresholds come from `services.trading_config.OptionPositionSettings`
+- DTE bucket behavior is driven by `services.options.option_dte_buckets`
+- DTE exit thresholds come from `services.core.trading_config.OptionPositionSettings`
 - Trailing-profit giveback percentages are now dynamic by bucket key instead of hardcoded by label
-- Position state persistence is handled by `services.option_position_state`
-- Momentum exits reuse `services.option_momentum`
+- Position state persistence is handled by `services.options.option_position_state`
+- Momentum exits reuse `services.options.option_momentum`
 
 If you need to understand why an option position was held, partially exited, or closed, this is the file to read first.
 
@@ -229,7 +229,7 @@ from trading_support import (
 There are two styles in the repo right now:
 
 - Newer service-layer orchestration
-  Uses `services.worker_application`, `services.position_manager`, `services.trade_executor`, and `services.trading_gateway`
+  Uses `services.runtime.worker_application`, `services.options.position_manager`, `services.trading.trade_executor`, and `services.trading.trading_gateway`
 - Older direct helper usage
   Uses `trading_support.*` functions directly
 

@@ -73,6 +73,7 @@ services:
       <<: *google-cloud-env
       DB_PATH: /var/lib/stock-experiment/stock_experiment.db
       NEWS_COLLECTION_OUTPUT_PATH: /shared/agent_pipeline_output.json
+      NEWS_COLLECTOR_STATUS_PATH: /shared/news_collector_status.json
       TELEMETRY_INSTALLATION_ID_PATH: /shared/telemetry_installation.json
       OLLAMA_HOST: http://ollama:11434
       MANAGER_OLLAMA_HOST: http://ollama:11434
@@ -122,7 +123,9 @@ services:
       - .env
     environment:
       DB_PATH: /var/lib/stock-experiment/stock_experiment.db
+      MARKETDATA_EOD_SYNC_STATUS_PATH: /shared/marketdata_eod_sync_status.json
     volumes:
+      - runtime_data:/shared
       - db_data:/var/lib/stock-experiment
     command: ["python", "Python Scripts/marketdata_eod_sync_main.py"]
 
@@ -136,6 +139,8 @@ services:
       DB_PATH: /var/lib/stock-experiment/stock_experiment.db
       SCRIPT_STATUS_PATH: /shared/script_status.json
       OPTION_MANAGER_STATUS_PATH: /shared/option_manager_status.json
+      NEWS_COLLECTOR_STATUS_PATH: /shared/news_collector_status.json
+      MARKETDATA_EOD_SYNC_STATUS_PATH: /shared/marketdata_eod_sync_status.json
       TRADE_EXECUTION_OUTPUT_PATH: /shared/trade_execution_output.json
       SELECTED_OPTIONS_OUTPUT_PATH: /shared/selected_options_output.json
       AGENT_OUTPUT_PATH: /shared/agent_runner_output.json

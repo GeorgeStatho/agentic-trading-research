@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 from typing import Any, Callable
 
-from services.runtime_paths import DATA_DIR, LOGS_DIR, ROOT_DIR
-from services.settings import load_process_settings
+from services.core.runtime_paths import DATA_DIR, LOGS_DIR, ROOT_DIR
+from services.core.settings import load_process_settings
 
 
 if __name__ == "__main__":
@@ -23,25 +23,24 @@ from agent_stages.manager_runner import decide_company_option_position
 from agent_stages.manager_model import MANAGER_STAGE_VERSION
 from agent_stages.strategist_runner import decide_company_purchase
 from market_db_modules.history_records import record_manager_decision_history
-from services.trading_config import AgentPipelineSettings
-from services.market_regime import build_market_regime_snapshot
-from services.market_regime_gate import apply_market_regime_gate_to_manager_result
+from services.core.trading_config import AgentPipelineSettings
+from services.gates.market_regime import build_market_regime_snapshot
+from services.gates.market_regime_gate import apply_market_regime_gate_to_manager_result
 from agent_contracts import CompanyFailure, ManagerResult, StrategistResult
-from services.entry_gates import carry_gate_verdicts
-from services.evidence_thesis import evaluate_evidence_thesis_gate
-from services.evidence_thesis_policy import EvidenceThesisPolicy
-from services.forward_evaluation_policy import ChallengerPolicy
-from services.candidate_lifecycle import observe
-from services.catalyst_gates import catalyst_admission_allowed
-from services.company_evidence_demand import request_pipeline_evidence
-from services.contract_observations import record_scenario_selection
-from services.decision_observations import freeze_decision_observation
-from services.discovery_admission import evaluate_discovery_admission
-from services.pipeline_version import build_pipeline_version
-from services.pricing_gates import apply_option_hurdle_to_manager_result
-from services.scenario_selector import prepare_scenario_inputs
-from services.trade_economics import apply_trade_economics
-from services.trade_economics_policy import TradeEconomicsPolicy
+from services.gates.entry_gates import carry_gate_verdicts
+from services.thesis.evidence_thesis import evaluate_evidence_thesis_gate
+from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
+from services.evaluation.forward_evaluation_policy import ChallengerPolicy
+from services.runtime.candidate_lifecycle import observe
+from services.gates.catalyst_gates import catalyst_admission_allowed
+from services.discovery.company_evidence_demand import request_pipeline_evidence
+from services.gates.contract_observations import record_scenario_selection
+from services.evaluation.decision_observations import freeze_decision_observation
+from services.core.pipeline_version import build_pipeline_version
+from services.gates.pricing_gates import apply_option_hurdle_to_manager_result, record_directed_absorption
+from services.options.scenario_selector import prepare_scenario_inputs
+from services.gates.trade_economics import apply_trade_economics
+from services.gates.trade_economics_policy import TradeEconomicsPolicy
 
 
 LOGGER = logging.getLogger("agent_runner")
@@ -116,7 +115,7 @@ def _build_company_context_by_symbol(
                     "industry_name": industry_name,
                 }
 
-    for company in pipeline_result.get("discovery_targets", []):
+    for company in pipeline_result.get("discovery_companies", []):
         symbol = str(company.get("symbol") or "").upper()
         if symbol and symbol not in contexts:
             contexts[symbol] = {**company, "company_name": company.get("name"), "discovery_shadow": True}
@@ -146,10 +145,6 @@ def _emit_progress(
     on_progress(payload)
 
 
-def evaluate_primary_event_admission(event, evidence, *, at, policy):
-    return evaluate_discovery_admission(event, evidence, at=at, policy=policy)
-
-
 def _filter_company_symbols_by_high_confidence_support(
     company_symbols: list[str],
     *,
@@ -165,21 +160,24 @@ def _filter_company_symbols_by_high_confidence_support(
     allowed_symbols: list[str] = []
     skipped_companies: list[dict[str, Any]] = []
 
-    from services.candidate_lifecycle import begin_candidate, checkpoint, reject, observe
+    from services.runtime.candidate_lifecycle import begin_candidate, checkpoint, reject, observe
     version = observe(build_pipeline_version)
     contexts = candidate_context_by_symbol if candidate_context_by_symbol is not None else {}
     for symbol in normalized_symbols:
-        discovery_context = (discovery_context_by_symbol or {}).get(symbol)
-        if discovery_context:
-            admission = evaluate_primary_event_admission(**discovery_context)
-            contexts[symbol] = {'discovery_shadow': True, 'admission': admission}
-            if admission['allowed']:
-                allowed_symbols.append(symbol)
-            else:
-                skipped_companies.append({'symbol': symbol, 'skip_reason': admission['reason'], 'shadow': True})
-            continue
-        context = observe(begin_candidate, symbol, version=version)
+        route = (discovery_context_by_symbol or {}).get(symbol)
+        context = observe(begin_candidate, symbol, version=version, catalyst_id=(route or {}).get("catalyst_id"))
         contexts[symbol] = context
+        if route and not context:
+            # Without a candidate the route is not recorded, so the entry is retried next cycle.
+            skipped_companies.append({"symbol": symbol, "skip_reason": "discovery_candidate_not_recorded"})
+            continue
+        if route:
+            # Discovery admitted this event on primary evidence; opportunist article counts do not apply.
+            checkpoint(context, "SUPPORT", {"route": "discovery", "allowed": True, "admission": route["admission"],
+                       "discovery_origins": route["discovery_origins"], "interest_sources": route["interest_sources"],
+                       "queue_id": route["queue_id"]})
+            allowed_symbols.append(symbol)
+            continue
         try:
             summary = get_company_opportunist_summary(symbol, max_age_days=max_age_days)
         except Exception:
@@ -458,11 +456,12 @@ def _apply_post_manager_gates(
     The manager's direction and DTE bucket are a proposal until trade economics have priced the
     selected contract; the streaming execution callback only ever sees the finalized result.
     """
-    from services.candidate_lifecycle import checkpoint, reject, record_gate, observe
+    from services.runtime.candidate_lifecycle import checkpoint, reject, record_gate, observe
     manager_result["candidate_context"] = candidate_context
     manager_result["candidate_id"] = (candidate_context or {}).get("candidate_id")
     checkpoint(candidate_context, "post_manager", manager_result)
     record_gate(candidate_context, "CONTINUATION", manager_result.get("entry_gate"))
+    observe(record_directed_absorption, manager_result)
     checkpoint(candidate_context, "pre_contract_selection", manager_result)
     manager_result = observe(apply_option_hurdle_to_manager_result, manager_result) or manager_result
     manager_result = observe(prepare_scenario_inputs, manager_result) or manager_result
@@ -499,7 +498,7 @@ def _record_company_failure(
     on_progress: ProgressCallback | None,
     progress_base: dict[str, Any],
 ) -> CompanyFailure:
-    from services.candidate_lifecycle import reject
+    from services.runtime.candidate_lifecycle import reject
     LOGGER.error("%s failed for %s; continuing with the remaining companies", failure.stage, symbol,
                  exc_info=failure.error)
     # reason_code stage_error marks the candidate finished for research enrollment.
@@ -517,7 +516,7 @@ def _stop_after_consecutive_failures(
     candidate_context_by_symbol: dict[str, dict[str, Any]] | None,
 ) -> list[CompanyFailure]:
     """Repeated failures usually mean a shared outage; do not spend the cycle retrying it."""
-    from services.candidate_lifecycle import reject
+    from services.runtime.candidate_lifecycle import reject
     LOGGER.error("Stopping after %s consecutive company failures; %s companies not evaluated",
                  MAX_CONSECUTIVE_COMPANY_FAILURES, len(remaining_symbols))
     skipped: list[CompanyFailure] = []
@@ -553,7 +552,7 @@ def _run_strategist_and_manager(
         cycle_market_regime.get("as_of"),
     )
 
-    from services.candidate_lifecycle import begin_candidate, checkpoint, observe
+    from services.runtime.candidate_lifecycle import begin_candidate, checkpoint, observe
     request_pipeline_evidence(company_symbols, scope='manager')
     cycle_version = observe(build_pipeline_version)
     # One policy per cycle: the strategist request and the entry gate must agree on the mode.
@@ -679,35 +678,54 @@ def _run_strategist_and_manager(
     return strategist_results, manager_results, failures
 
 
-def run_full_agent_stack(
-    *,
-    on_progress: ProgressCallback | None = None,
-    on_manager_result: Callable[[dict[str, Any]], None] | None = None,
-) -> dict[str, Any]:
-    """Run the full agent pipeline plus strategist and manager follow-up stages."""
-    _emit_progress(
-        on_progress,
-        {
-            "stage": "pipeline",
-            "message": "Running pipeline refresh",
-        },
-    )
-    LOGGER.info("Starting agent pipeline stage")
-    pipeline_result = run_agent_pipeline(on_progress=on_progress)
-    LOGGER.info("Finished agent pipeline stage")
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
-    from services.discovery_queue import run_discovery_shadow_cycle
-    pipeline_result["discovery_shadow"] = observe(
-        run_discovery_shadow_cycle, sector_symbols=_dedupe_company_symbols(pipeline_result))
+
+def _discovery_routes(ranked_symbols: list[str]) -> list[dict[str, Any]]:
+    """Admitted discovery entries for companies the ranking did not choose; empty unless DISCOVERY_MODE=enforce."""
+    from services.discovery.discovery_policy import DiscoveryPolicy
+    from services.discovery.discovery_routing import admitted_entries
+    policy = DiscoveryPolicy.from_env()
+    if policy.mode != "enforce":
+        return []
+    return admitted_entries(policy=policy, at=_utc_now(), exclude_symbols=ranked_symbols)
+
+
+def _run_pipeline_companies(
+    pipeline_result: dict[str, Any],
+    *,
+    on_progress: ProgressCallback | None,
+    on_manager_result: Callable[[dict[str, Any]], None] | None,
+) -> dict[str, Any]:
+    """Shared tail of both full-stack runs: discovery, admission, then strategist and manager per company."""
+    from services.discovery.discovery_queue import run_discovery_shadow_cycle
+    from services.discovery.discovery_routing import record_routes
+    ranked_symbols = _dedupe_company_symbols(pipeline_result)
+    pipeline_result["discovery_shadow"] = observe(run_discovery_shadow_cycle, sector_symbols=ranked_symbols)
+    routes = observe(_discovery_routes, ranked_symbols) or []
     pipeline_settings = AgentPipelineSettings.from_env()
     company_context_by_symbol = _build_company_context_by_symbol(pipeline_result)
+    for route in routes:
+        company_context_by_symbol[route["symbol"]] = {
+            "company_id": route["company_id"], "company_name": route["name"], "sector_key": route["sector_key"],
+            "industry_key": route["industry_key"], "industry_name": route["industry_name"],
+            "discovery_origins": route["discovery_origins"]}
     candidate_contexts = {}
     company_symbols, skipped_companies = _filter_company_symbols_by_high_confidence_support(
-        _dedupe_company_symbols(pipeline_result),
+        ranked_symbols + [route["symbol"] for route in routes],
         minimum_high_confidence_articles=pipeline_settings.minimum_high_confidence_company_articles,
         max_age_days=DEFAULT_MAX_ARTICLE_AGE_DAYS,
         candidate_context_by_symbol=candidate_contexts,
+        discovery_context_by_symbol={route["symbol"]: route for route in routes},
     )
+    routed = []
+    for route in routes:
+        candidate_id = (candidate_contexts.get(route["symbol"]) or {}).get("candidate_id")
+        if candidate_id:
+            routed.append({**route, "candidate_id": candidate_id})
+    # Recorded before the models run, so each admitted event is tried once even if the cycle fails.
+    observe(record_routes, routed, at=_utc_now())
     strategist_results, manager_results, failed_companies = _run_strategist_and_manager(
         company_symbols,
         company_context_by_symbol=company_context_by_symbol,
@@ -727,6 +745,26 @@ def run_full_agent_stack(
         "failed_companies": failed_companies,
         "selected_options": _build_selected_option_output(ran_at=ran_at, manager_results=manager_results),
     }
+
+
+def run_full_agent_stack(
+    *,
+    on_progress: ProgressCallback | None = None,
+    on_manager_result: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Run the full agent pipeline plus strategist and manager follow-up stages."""
+    _emit_progress(
+        on_progress,
+        {
+            "stage": "pipeline",
+            "message": "Running pipeline refresh",
+        },
+    )
+    LOGGER.info("Starting agent pipeline stage")
+    pipeline_result = run_agent_pipeline(on_progress=on_progress)
+    LOGGER.info("Finished agent pipeline stage")
+
+    return _run_pipeline_companies(pipeline_result, on_progress=on_progress, on_manager_result=on_manager_result)
 
 
 def run_full_agent_stack_from_existing_data(
@@ -746,37 +784,7 @@ def run_full_agent_stack_from_existing_data(
     pipeline_result = run_agent_pipeline_from_existing_data(on_progress=on_progress)
     LOGGER.info("Finished agent pipeline stage using existing DB data")
 
-    from services.discovery_queue import run_discovery_shadow_cycle
-    pipeline_result["discovery_shadow"] = observe(
-        run_discovery_shadow_cycle, sector_symbols=_dedupe_company_symbols(pipeline_result))
-    pipeline_settings = AgentPipelineSettings.from_env()
-    company_context_by_symbol = _build_company_context_by_symbol(pipeline_result)
-    candidate_contexts = {}
-    company_symbols, skipped_companies = _filter_company_symbols_by_high_confidence_support(
-        _dedupe_company_symbols(pipeline_result),
-        minimum_high_confidence_articles=pipeline_settings.minimum_high_confidence_company_articles,
-        max_age_days=DEFAULT_MAX_ARTICLE_AGE_DAYS,
-        candidate_context_by_symbol=candidate_contexts,
-    )
-    strategist_results, manager_results, failed_companies = _run_strategist_and_manager(
-        company_symbols,
-        company_context_by_symbol=company_context_by_symbol,
-        candidate_context_by_symbol=candidate_contexts,
-        on_progress=on_progress,
-        on_manager_result=on_manager_result,
-    )
-    ran_at = datetime.now().isoformat()
-
-    return {
-        "ran_at": ran_at,
-        "company_symbols": company_symbols,
-        "skipped_companies_before_strategist_manager": skipped_companies,
-        "pipeline": pipeline_result,
-        "strategist": strategist_results,
-        "manager": manager_results,
-        "failed_companies": failed_companies,
-        "selected_options": _build_selected_option_output(ran_at=ran_at, manager_results=manager_results),
-    }
+    return _run_pipeline_companies(pipeline_result, on_progress=on_progress, on_manager_result=on_manager_result)
 
 
 def run_strategist_manager_only(

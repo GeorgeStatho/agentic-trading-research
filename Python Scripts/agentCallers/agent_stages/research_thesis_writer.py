@@ -1,7 +1,7 @@
 """Shadow thesis over a finished research package. It cannot grant trading authority."""
 from agent_stages.evidence_thesis_contract import EVIDENCE_THESIS_SCHEMA, THESIS_INSTRUCTIONS
 from agent_stages.research_planner import ResearchPlanner
-from services.research_model_policy import (
+from services.research.research_model_policy import (
     THESIS_PREFIX, ResearchModelPolicy, configured_model, configured_provider, thesis_host, thesis_provider,
     thesis_rates_configured,
 )

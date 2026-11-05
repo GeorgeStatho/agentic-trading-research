@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 
 from agent_helpers.deterministic_option_selector import apply_deterministic_option_selection  # noqa: E402
-from services.evidence_continuation_gate import EvidenceContinuationPolicy, evaluate_evidence_continuation_gate  # noqa: E402
-from services.order_candidates import OrderCandidateBuilder  # noqa: E402
+from services.gates.evidence_continuation_gate import EvidenceContinuationPolicy, evaluate_evidence_continuation_gate  # noqa: E402
+from services.trading.order_candidates import OrderCandidateBuilder  # noqa: E402
 
 
 def _payload(*, relative_volume: float = 1.5, sector_state: str = "outperforming", overextension: str = "low") -> dict:

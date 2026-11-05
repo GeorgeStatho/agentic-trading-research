@@ -22,8 +22,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific te
 
 from db_common import get_connection, use_database
 from market_db_modules.bootstrap import initialize_database
-from services.contract_policy import ContractPolicy
-from services.research_promotion import policy_hash, source_hash
+from services.gates.contract_policy import ContractPolicy
+from services.research.research_promotion import policy_hash, source_hash
 
 NOW = datetime.now(timezone.utc)
 RECENT = (NOW - timedelta(days=1)).isoformat()

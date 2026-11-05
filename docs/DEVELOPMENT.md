@@ -13,7 +13,7 @@ This installs the dependencies in `requirements.txt` and registers the import ro
 declared in `pyproject.toml` (`.`, `Data`, `Python Scripts`, `Python Scripts/agentCallers`
 and `Python Scripts/Webscraping`). Those roots are the only import configuration. Modules
 must not edit `sys.path`, and new code imports through them, for example
-`from services.trading_config import ...` or `from agent_stages.strategist_runner import ...`.
+`from services.core.trading_config import ...` or `from agent_stages.strategist_runner import ...`.
 
 If an import fails with `ModuleNotFoundError` for a project module, the checkout is
 not installed in the active environment. Run `pip install -e .` again.
@@ -79,7 +79,7 @@ Otherwise the market setup sees its own version stamp and skips the migrations (
 
 ## Configuration
 
-Settings are read once per process into one typed object, `services.settings.Settings`
+Settings are read once per process into one typed object, `services.core.settings.Settings`
 (models and Ollama hosts per stage, Vertex retry and cache, manager-context limits,
 opportunist limits and the continuation policy).
 
@@ -94,18 +94,18 @@ opportunist limits and the continuation policy).
 - The pipeline manifest records the loaded object under `process_settings`, so a decision's
   manifest shows the settings it actually used.
 
-Add a new setting to the relevant section in `services/settings.py` and to `.env.example`;
+Add a new setting to the relevant section in `services/core/settings.py` and to `.env.example`;
 the test bootstrap uses `.env.example` to isolate tests from local configuration.
 
-Not yet on `Settings`: the option exit settings (`services.trading_config.OptionPositionSettings`,
+Not yet on `Settings`: the option exit settings (`services.core.trading_config.OptionPositionSettings`,
 read at call time), the process composition roots in
 `Python Scripts/main.py` and `api_support/context.py` (built from the typed settings
-classes in `services/trading_config.py`), and `DB_PATH`, which the data layer reads when
+classes in `services/core/trading_config.py`), and `DB_PATH`, which the data layer reads when
 `db_common` is imported.
 
 ## Entry gates and pipeline contracts
 
-Entry gates are listed once in `services/entry_gates.py`. Order eligibility, selected-option
+Entry gates are listed once in `services/gates/entry_gates.py`. Order eligibility, selected-option
 summaries, decision history and research inputs iterate that registry, so adding a gate means
 one registry entry plus the code that computes its verdict. The strategist result, manager
 result, gate verdict and order candidate are TypedDicts in

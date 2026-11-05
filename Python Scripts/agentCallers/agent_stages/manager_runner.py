@@ -14,7 +14,7 @@ from agent_helpers.manager_inputs import (
 from agent_contracts import ManagerResult
 from agent_helpers.llm_client import Client, build_model_response_diagnostic
 from agent_helpers.text_utils import extract_json_value
-from services.evidence_continuation_gate import evaluate_evidence_continuation_gate
+from services.gates.evidence_continuation_gate import evaluate_evidence_continuation_gate
 from .manager_payload_context import (
     _build_context_snapshot,
     payload_has_evidence,
@@ -26,7 +26,7 @@ from .manager_normalization import (
     normalize_recommendation,
 )
 from .manager_prompt import build_manager_prompt
-from services.settings import get_settings
+from services.core.settings import get_settings
 from .manager_model import (
     LOGGER,
     MANAGER_PROMPT_VERSION,
@@ -134,7 +134,10 @@ def _refresh_market_context_for_target_dte_bucket(
         option_expiration_date_lte=translated_expiration_date_lte,
         option_strike_price_gte=option_strike_price_gte,
         option_strike_price_lte=option_strike_price_lte,
-        option_contract_limit_per_type=option_contract_limit_per_type,
+        option_contract_limit_per_type=max(
+            option_contract_limit_per_type,
+            get_settings().manager_context.option_selection_limit_per_type,
+        ),
     )
     if isinstance(market_context.get("market_regime"), dict):
         refreshed_market_context["market_regime"] = market_context["market_regime"]
@@ -225,7 +228,7 @@ def decide_manager_recommendation(
         task_override=task_override,
     )
     response_diagnostic: dict[str, Any] = {}
-    from services.candidate_lifecycle import checkpoint
+    from services.runtime.candidate_lifecycle import checkpoint
     checkpoint(candidate_context, "manager_prompt", {"model": model,
                "system_prompt": system_prompt, "user_prompt": user_prompt})
     raw_response = ask_model(
@@ -339,7 +342,7 @@ def decide_company_option_position(
     option_contracts = market_context.get("option_market", {}).get("contracts", [])
     context_snapshot = _build_context_snapshot(payload)
     context_snapshot["strategist_evidence_payload_applied"] = evidence_payload_applied
-    from services.candidate_lifecycle import checkpoint
+    from services.runtime.candidate_lifecycle import checkpoint
     checkpoint(candidate_context, "pre_manager", {"payload": payload, "model": model})
 
     decision = decide_manager_recommendation(
@@ -363,6 +366,11 @@ def decide_company_option_position(
                    "recommendation": no_evidence_result["recommendation"], "market_context": market_context})
         return {
             **no_evidence_result,
+            # Same context as an answered result: history, the dashboard and later gates read it either way.
+            "supporting_articles": payload.get("supporting_articles", {}),
+            "company_evidence": payload.get("company_evidence", {}),
+            "recent_manager_decision_history": payload.get("recent_manager_decision_history", []),
+            "strategist_recommendation": payload.get("strategist_recommendation", {}),
             "entry_gate": evaluate_evidence_continuation_gate(
                 recommendation=no_evidence_result["recommendation"],
                 payload=payload,
@@ -402,7 +410,7 @@ def decide_company_option_position(
             **upstream_bucket_refresh_debug,
         },
     }
-    from services.candidate_lifecycle import checkpoint
+    from services.runtime.candidate_lifecycle import checkpoint
     checkpoint(candidate_context, "pre_gates", {"payload": payload, "recommendation": recommendation,
                                                 "market_context": market_context})
     entry_gate = evaluate_evidence_continuation_gate(

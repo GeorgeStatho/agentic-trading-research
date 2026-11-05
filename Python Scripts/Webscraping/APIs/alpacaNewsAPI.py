@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 from core.scrape_logging import get_scrape_logger
 from engine.article_extraction import ArticleContentUnavailable, clean_text
 from processing.news_normalization import normalize_url
-from services.trading_config import AlpacaSettings
+from services.core.trading_config import AlpacaSettings
 
 LOGGER = get_scrape_logger("alpaca_news_api")
 
