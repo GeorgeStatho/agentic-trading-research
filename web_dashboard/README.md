@@ -6,14 +6,16 @@ This folder contains the React + TypeScript dashboard for the stock-trading expe
 
 The dashboard is a monitoring UI for the backend worker and API. It is not the trading engine itself.
 
-It is organised as three pages, each answering one question. Views within a
+It is organised as four pages, each answering one question. Views within a
 page are tabs, and every page is reachable at `#/<page>` or `#/<page>/<view>`.
+[src/routes.tsx](src/routes.tsx) is the source of truth.
 
 | Page | Question | Views |
 | --- | --- | --- |
-| `#/live` | What is it doing right now? | worker status, account KPIs, risk controls, V2 safeguards, equity curve, open positions, executed orders |
+| `#/live` | What is it doing right now? | Overview: account KPIs, latest decision, equity / drawdown / daily P/L, newsfeed, decisions, orders, news-lag scatter, holdings, data pipeline, V2 safeguards |
 | `#/decisions` | Why did it do that? | Decisions, News, Exposure map |
-| `#/research` | Is the strategy worth keeping? | Expectancy, Backtests, V2 Rollout |
+| `#/research` | Is the strategy worth keeping? | Expectancy, News lag, Backtests, Followers, V2 Rollout |
+| `#/system` | Is the machinery healthy? | Health, Risk, Extraction |
 
 Live carries a V2 Safeguards strip: asking for `enforce` does not make a gate
 enforce, so the counts there say how many controls are actually in force and
@@ -39,9 +41,12 @@ existing links and bookmarks keep working.
 - [src/statusBar.tsx](src/statusBar.tsx) / [src/shellStatus.ts](src/shellStatus.ts): the status line under the top bar
 - [src/ui/](src/ui/): shared Tailwind components (Panel, StatStrip, DataTable, Tag, ...)
 - [src/routes.tsx](src/routes.tsx): the page table, hash routing and demo-mode rules
-- [src/dashboardHome.tsx](src/dashboardHome.tsx): the Overview page
+- [src/dashboardHome.tsx](src/dashboardHome.tsx): Live › Overview, which lays out the panels below
+- [src/dashboardKpis.tsx](src/dashboardKpis.tsx) / [src/dashboardKpisApi.ts](src/dashboardKpisApi.ts): the account KPIs, including unrealized P/L
+- [src/whyBotTraded.tsx](src/whyBotTraded.tsx): the latest-decision panel (company, strategist, contract, fill and exit plan)
+- [src/liveNewsfeed.tsx](src/liveNewsfeed.tsx), [src/liveDecisions.tsx](src/liveDecisions.tsx), [src/liveNewsLag.tsx](src/liveNewsLag.tsx), [src/openPositionsTable.tsx](src/openPositionsTable.tsx), [src/livePipeline.tsx](src/livePipeline.tsx): the other Live panels
 - [src/liveStats.ts](src/liveStats.ts): the Live page's runtime-stats strip
-- [src/systemHealth.tsx](src/systemHealth.tsx) / [src/systemRisk.tsx](src/systemRisk.tsx): System › Health and System › Risk
+- [src/systemHealth.tsx](src/systemHealth.tsx) / [src/systemRisk.tsx](src/systemRisk.tsx) / [src/newsExtraction.tsx](src/newsExtraction.tsx): System › Health, Risk and Extraction
 - [src/Graph.tsx](src/Graph.tsx): the Live equity row — equity with trade markers, drawdown, daily P/L
 - [src/equitySeries.ts](src/equitySeries.ts): portfolio-history fetch and the series the charts plot
 - [src/orderCard.tsx](src/orderCard.tsx): the Live orders table ([src/occ.ts](src/occ.ts) formats option symbols)
@@ -55,17 +60,14 @@ existing links and bookmarks keep working.
 
 ## API Usage
 
-The frontend expects these routes:
+The frontend reads these routes:
 
-- `/api/health`
-- `/api/script-status`
-- `/api/portfolio-history`
-- `/api/trade-execution-output`
-- `/api/exposure-map/articles`
-- `/api/exposure-map/<article_id>`
-- `/api/decision-autopsies`
+- status and account: `/api/script-status`, `/api/dashboard-kpis`, `/api/portfolio-history`, `/api/open-positions`, `/api/executed-trades`, `/api/why-bot-traded`, `/api/risk-controls`
+- decisions and news: `/api/decision-autopsies`, `/api/company-decisions`, `/api/opportunist-company-news`, `/api/news-extraction`, `/api/exposure-map/articles`, `/api/exposure-map/<article_id>`, `/api/exposure-map/runs`
+- research: `/api/decision-expectancy`, `/api/news-lag`, `/api/backtests`, `/api/follower-accounts`, `/api/forward-evaluation`, `/api/v2-status`
 - `/api/demo-mode`
-- `/api/v2-status`
+
+The repo-level [README](../README.md#api-endpoints) lists every API route.
 
 In Docker, nginx proxies `/api/*` to the internal Flask service.
 
@@ -109,18 +111,21 @@ The production Docker image:
 2. copies the static bundle into nginx
 3. proxies API requests to the backend container
 
-When run through the repo-level `docker-compose.yml`, the dashboard is exposed on:
+The repo-level `docker-compose.yml` publishes ports 80 and 443. With the
+`docker-compose.local.yml` overlay, the dashboard is on:
 
 ```text
 http://localhost:8080
 ```
 
+With `docker-compose.tunnel.yml`, no ports are published and Cloudflare serves it.
+
 ## Styling
 
-Tailwind CSS v4 + daisyUI 5, themed in [src/index.css](src/index.css). The
-redesign in [docs/redesign/REDESIGN.md](docs/redesign/REDESIGN.md) is moving
-each component off its own `.css` file; components not yet converted still
-import one.
+Tailwind CSS v4 + daisyUI 5, themed in [src/index.css](src/index.css), which
+is the only stylesheet. The per-component `.css` files were removed in the
+redesign; see [docs/redesign/REDESIGN.md](docs/redesign/REDESIGN.md) for what it
+changed and what is still open.
 
 ## Notes
 
