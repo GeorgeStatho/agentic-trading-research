@@ -45,15 +45,19 @@ def build_company_package(company, document_ids, at, policy, *, db_path, gaps=()
     documents.update({identity: get_evidence_document(identity, db_path=db_path) for identity in document_ids})
     ordered = sorted(documents.values(), key=lambda doc: (doc['published_at'], doc['ingested_at'], doc['document_id']))
     gaps = list(gaps)
-    # Consensus is re-fetched every refresh with published_at=now; keep only the latest so it neither
-    # crowds primary documents out of the window nor stands in for them as the newest disclosure.
+    # Consensus is re-fetched every refresh with published_at=now; keep at most two (see
+    # _retained_consensus) so it neither crowds primary documents out of the window nor stands in for
+    # them as the newest disclosure.
     primary = [doc for doc in ordered if doc['document_type'] != 'consensus']
     if len(primary) > MAX_DOCUMENTS:
         gaps.append('document_history_truncated')
     kept = {doc['document_id'] for doc in primary[-MAX_DOCUMENTS:]}
     company_facts = list_company_facts(company['id'], as_of=at, db_path=db_path)
-    kept.update(_retained_consensus([doc for doc in ordered if doc['document_type'] == 'consensus'],
-                                    company_facts, at))
+    consensus = [doc for doc in ordered if doc['document_type'] == 'consensus']
+    retained_consensus = _retained_consensus(consensus, company_facts, at)
+    kept.update(retained_consensus)
+    # The pre-report estimate is kept only as a baseline; its earnings date is no longer upcoming.
+    baseline_only = retained_consensus - {consensus[-1]['document_id']} if consensus else set()
     ordered = [doc for doc in ordered if doc['document_id'] in kept]
     documents = {doc['document_id']: doc for doc in ordered}
     facts = [f for f in company_facts if f['document_id'] in documents and f['kind'] != 'derived']
@@ -76,6 +80,7 @@ def build_company_package(company, document_ids, at, policy, *, db_path, gaps=()
     superseded_documents = {doc.get('supersedes_document_id') for doc in ordered}
     scheduled = tuple({**event, 'document_id': doc['document_id'],
                        'superseded': doc['document_id'] in superseded_documents} for doc in ordered
+                      if doc['document_id'] not in baseline_only
                       for event in doc.get('metadata', {}).get('scheduled_events', []))
     if not scheduled:
         gaps.append('scheduled_earnings_event_unavailable')
