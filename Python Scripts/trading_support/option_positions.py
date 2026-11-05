@@ -43,14 +43,14 @@ from ._option_positions_strategy import (
     _round_option_sell_price_to_tick,
     _structured_exit_action,
 )
-from services.trading_config import WorkerPaths, MomentumHistoryConfig, OptionPositionSettings
-from services.option_momentum import (
+from services.core.trading_config import WorkerPaths, MomentumHistoryConfig, OptionPositionSettings
+from services.options.option_momentum import (
     MOMENTUM_BAD,
     MOMENTUM_GOOD,
     MOMENTUM_UNKNOWN,
     evaluate_option_momentum_from_snapshot,
 )
-from services.option_position_state import delete_position_state, get_position_state, update_position_state
+from services.options.option_position_state import delete_position_state, get_position_state, update_position_state
 
 
 def _get_latest_option_quote(symbol: str) -> dict[str, Any]:

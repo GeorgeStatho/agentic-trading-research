@@ -167,7 +167,7 @@ flowchart LR
 
 `Python Scripts/main.py` wires the services together and hands off to
 `WorkerApplication.run_main_loop()`
-([services/worker_application.py](../Python%20Scripts/services/worker_application.py)).
+([services/runtime/worker_application.py](../Python%20Scripts/services/runtime/worker_application.py)).
 The worker reads the pipeline state the collector already wrote; it does not scrape.
 
 ```mermaid
@@ -278,7 +278,7 @@ flowchart TD
     each -. "MAX_CONSECUTIVE_COMPANY_FAILURES<br/>→ stop cycle (shared outage)" .-> result
 ```
 
-The gate registry is [services/entry_gates.py](../Python%20Scripts/services/entry_gates.py):
+The gate registry is [services/gates/entry_gates.py](../Python%20Scripts/services/gates/entry_gates.py):
 
 | Gate | Result key | Missing verdict |
 | --- | --- | --- |
@@ -292,7 +292,7 @@ The gate registry is [services/entry_gates.py](../Python%20Scripts/services/entr
 ## 5. Order execution guardrails
 
 `OptionTradeExecutor` in
-[services/trade_executor.py](../Python%20Scripts/services/trade_executor.py).
+[services/trading/trade_executor.py](../Python%20Scripts/services/trading/trade_executor.py).
 A candidate that passed every entry gate can still be skipped here.
 
 ```mermaid
@@ -324,7 +324,7 @@ flowchart TD
 Runs in the dedicated `option_manager` container (`run_option_manager_loop`),
 and in the worker too if `WORKER_AUTO_MANAGE_OPTION_POSITIONS=true`.
 `OptionPositionManagerService.run_cycle()` in
-[services/position_manager.py](../Python%20Scripts/services/position_manager.py)
+[services/options/position_manager.py](../Python%20Scripts/services/options/position_manager.py)
 drives `trading_support/_option_positions_*`.
 
 ```mermaid
@@ -541,7 +541,7 @@ flowchart LR
 All model calls go through `agent_helpers/llm_client.py`
 (`get_model_client`, `ask_llm_model`), which picks Vertex AI, the Gemini API (AI Studio key),
 OpenAI, llama.cpp or Ollama from each stage's `<STAGE>_PROVIDER`, falling back to `LLM_PROVIDER`,
-and the per-stage model settings in `services.settings.get_settings()`. The news classifiers call
+and the per-stage model settings in `services.core.settings.get_settings()`. The news classifiers call
 `ask_classifier_model()`, which moves a quota-refused call down the `CLASSIFIER_FALLBACKS` models in order and returns
 the model that answered, for storage with the classification.
 

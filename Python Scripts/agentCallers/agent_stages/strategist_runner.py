@@ -7,8 +7,8 @@ import json
 import logging
 from typing import Any
 
-from services.trading_config import AgentPipelineSettings
-from services.settings import StageModel, get_settings
+from services.core.trading_config import AgentPipelineSettings
+from services.core.settings import StageModel, get_settings
 from agent_builders.strategist_payload import (
     DEFAULT_FULL_ARTICLE_LIMIT,
     DEFAULT_MAX_ARTICLE_AGE_DAYS,
@@ -34,13 +34,13 @@ from agent_stages.strategist_prompt import (
 )
 from agent_contracts import StrategistResult
 from agent_stages.strategist_schema import strategist_recommendation_schema
-from services.evidence_thesis import (
+from services.thesis.evidence_thesis import (
     check_evidence_thesis,
     compact_thesis_check,
     not_requested_check,
     persist_thesis_check,
 )
-from services.evidence_thesis_policy import EvidenceThesisPolicy
+from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
 
 
 LOGGER = logging.getLogger(__name__)
@@ -335,7 +335,7 @@ def decide_strategist_recommendation(
         task_override=task_override,
         include_thesis=include_thesis,
     )
-    from services.candidate_lifecycle import checkpoint
+    from services.runtime.candidate_lifecycle import checkpoint
     checkpoint(candidate_context, "strategist_prompt", {"model": model,
                "system_prompt": system_prompt, "user_prompt": user_prompt})
     response_diagnostic: dict[str, Any] = {}
@@ -432,7 +432,7 @@ def decide_company_purchase(
     if isinstance(market_regime, dict):
         payload["market_context"] = {"market_regime": market_regime}
 
-    from services.candidate_lifecycle import checkpoint
+    from services.runtime.candidate_lifecycle import checkpoint
     payload["candidate_id"] = (candidate_context or {}).get("candidate_id")
     checkpoint(candidate_context, "pre_strategist", payload)
     company = payload["company"]

@@ -19,11 +19,11 @@ from market_db_modules.pricing_research import (
     store_response,
     store_history,
 )
-from services.option_hurdle_gate import evaluate_option_hurdle
+from services.gates.option_hurdle_gate import evaluate_option_hurdle
 from catalyst_models import classify_catalyst
-from services.market_regime_gate import evaluate_market_regime_gate, MarketRegimePolicy, apply_market_regime_gate_to_manager_result
-from services.pricing_policy import PricingPolicy
-from services.pricing_gates import apply_option_hurdle_to_manager_result
+from services.gates.market_regime_gate import evaluate_market_regime_gate, MarketRegimePolicy, apply_market_regime_gate_to_manager_result
+from services.gates.pricing_policy import PricingPolicy
+from services.gates.pricing_gates import apply_option_hurdle_to_manager_result
 
 NOW = datetime(2026, 8, 10, 20, tzinfo=timezone.utc)
 
@@ -190,6 +190,89 @@ class PricingDatabaseTests(unittest.TestCase):
         self.assertIsNone(output['option_hurdle_gate']['would_allow'])
         with closing(get_connection(self.db)) as conn, conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM candidate_snapshots WHERE stage='OPTION_HURDLE'").fetchone()[0], 1)
+
+    def test_directed_absorption_signs_only_undirected_verdicts_and_persists_a_separate_stage(self):
+        from services.research.price_response import directed_absorption
+        from services.gates.pricing_gates import record_directed_absorption
+        undirected = {'stage': 'PRICE_ABSORPTION', 'allowed': True, 'would_allow': None, 'enforcement_mode': 'shadow',
+                      'reason_codes': ['price_response_unknown'], 'thresholds': {'absorption_ratio': 1.25},
+                      'metrics': {'price_absorption_ratio': 1.5, 'residual_move_since_event': .04}}
+        self.assertFalse(directed_absorption(undirected, 'call')['would_allow'])
+        self.assertTrue(directed_absorption(undirected, 'put')['would_allow'])
+        self.assertIsNone(directed_absorption(undirected, 'neither'))
+        self.assertIsNone(directed_absorption({**undirected, 'would_allow': True}, 'call'))
+        self.assertIsNone(directed_absorption({**undirected, 'metrics': {'price_absorption_ratio': None}}, 'call'))
+        self.assertIsNone(directed_absorption(None, 'call'))
+        context = {**self.candidate(), 'price_absorption_gate': undirected}
+        result = {'candidate_context': context, 'recommendation': {'decision': 'call'}}
+        gate = record_directed_absorption(result, as_of=NOW, db_path=self.db)
+        self.assertEqual((gate['stage'], gate['allowed'], gate['reason_codes']), ('PRICE_ABSORPTION_DIRECTED', True, ['already_priced']))
+        self.assertEqual(result['recommendation'], {'decision': 'call'})
+        with closing(get_connection(self.db)) as conn, conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM candidate_snapshots WHERE stage='PRICE_ABSORPTION_DIRECTED'").fetchone()[0], 1)
+            self.assertEqual(conn.execute("SELECT shadow FROM candidate_rejections WHERE stage='PRICE_ABSORPTION_DIRECTED'").fetchone()[0], 1)
+
+    def test_fresh_news_fetches_completed_hourly_bars_once_and_completes_the_verdict(self):
+        from market_db_modules.pricing_research import candidate_sector_symbol
+        from services.gates import pricing_gates
+        pricing_gates._INTRADAY_FETCHED.clear()
+        data = histories(as_of=NOW + timedelta(days=9))  # daily bars through the Friday before NOW (a Monday)
+        for role in data:
+            data[role] = [bar for bar in data[role] if bar['timeframe'] == '1d']
+        self.now = NOW - timedelta(days=1)  # captured before the candidate, or the gate may not read it
+        self.store_fixture_history(data)
+        event = NOW - timedelta(hours=3)
+        prices = {'NVDA': (101, 104), 'SPY': (400, 400), candidate_sector_symbol('NVDA', db_path=self.db): (200, 200)}
+        calls = []
+
+        def fetcher(symbol, timeframe):
+            calls.append((symbol, timeframe))
+            before, after = prices[symbol]
+            starts = (event - timedelta(hours=1, minutes=30), event + timedelta(minutes=30), NOW)  # the last one is unfinished
+            return 'fixture', [{'bar_at': start.isoformat(), 'close': close, 'high': close, 'low': close}
+                               for start, close in zip(starts, (before, after, after))]
+
+        state = {'catalyst_id': 'catalyst:fresh', 'catalyst_family': 'guidance_raise', 'expected_horizon': '1_3_days',
+                 'first_public_time': event.isoformat(), 'direction': 'positive'}
+        context = {**self.candidate(), 'catalysts': [state], 'created_at': NOW.isoformat()}
+        gate = pricing_gates.record_candidate_price_response(context, fetcher=fetcher, db_path=self.db)
+        self.assertEqual(sorted(symbol for symbol, _ in calls), sorted(prices))
+        self.assertEqual({timeframe for _, timeframe in calls}, {'1h'})
+        self.assertEqual(gate['metrics']['status'], 'complete')
+        self.assertGreater(gate['metrics']['residual_move_since_event'], 0)
+        self.assertLessEqual(datetime.fromisoformat(gate['metrics']['outcome_at']), NOW)
+        self.assertIn('NVDA', gate['metrics']['intraday_refresh'])
+        self.assertEqual(pricing_gates.refresh_intraday_history(list(prices), as_of=NOW + timedelta(minutes=5),
+                                                                fetcher=fetcher, db_path=self.db), {})
+        # An earlier candidate cannot see bars stamped at NOW, so it fetches again and the bars keep the earliest stamp.
+        earlier = NOW - timedelta(minutes=1)
+        self.assertEqual(set(pricing_gates.refresh_intraday_history(['NVDA'], as_of=earlier, fetcher=fetcher, db_path=self.db)), {'NVDA'})
+        store_history('NVDA', [{'bar_at': (event + timedelta(minutes=30)).isoformat(), 'close': 1}], provider='fixture',
+                      timeframe='1h', captured_at=NOW + timedelta(days=1), db_path=self.db)
+        with closing(get_connection(self.db)) as conn:
+            stamps = conn.execute("SELECT DISTINCT created_at FROM historical_underlying_bars WHERE symbol='NVDA' AND timeframe='1h'").fetchall()
+        self.assertEqual([row[0] for row in stamps], [earlier.isoformat()])
+
+    def test_forward_return_of_an_undirected_candidate_keeps_only_the_raw_residual(self):
+        import json
+        from services.discovery.catalyst_response_collector import capture_forward_returns
+        data = histories()
+        self.store_fixture_history(data)
+        observed = NOW - timedelta(days=60)
+        baseline = [bar['close_price'] for bar in (max((b for b in data[role] if datetime.fromisoformat(b['bar_at']) <= observed),
+                                                      key=lambda b: b['bar_at']) for role in ('stock', 'market', 'sector'))]
+        context = self.candidate()
+        payload = {'ticker': 'NVDA', 'sector_symbol': 'XLK', 'direction': 'unknown',
+                   'gate': {'metrics': {'status': 'complete', 'betas': {'beta_market': 1.0, 'beta_sector': 0.0},
+                                        'endpoint_prices': baseline}}}
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute('INSERT INTO candidate_price_observations (candidate_id, catalyst_id, observed_at, bucket, snapshot_json) VALUES (?,?,?,?,?)',
+                         (context['candidate_id'], context.get('catalyst_id'), observed.isoformat(), 'partially_expressed', json.dumps(payload)))
+        capture_forward_returns(as_of=NOW, db_path=self.db)
+        with closing(get_connection(self.db)) as conn, conn:
+            signed, raw = conn.execute('SELECT forward_residual_return, forward_raw_residual_return FROM candidate_price_observations').fetchone()
+        self.assertIsNone(signed)
+        self.assertIsNotNone(raw)
 
     def test_migration_is_repeatable_and_preserves_existing_articles(self):
         initialize_database(db_path=self.db)

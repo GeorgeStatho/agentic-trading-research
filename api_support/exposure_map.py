@@ -12,8 +12,8 @@ from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
-from services.gemini_models import default_vertex_model
-from services.order_values import normalize_order_side, normalize_order_status
+from services.core.gemini_models import default_vertex_model
+from services.trading.order_values import normalize_order_side, normalize_order_status
 
 
 PROMPT_VERSION = "exposure-map-v1"

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 
 from portfolio_history_service import DEFAULT_OUTPUT_PATH, fetch_portfolio_history, write_output
-from services.settings import load_process_settings
+from services.core.settings import load_process_settings
 
 
 def main() -> int:

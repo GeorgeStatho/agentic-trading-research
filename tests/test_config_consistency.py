@@ -5,8 +5,8 @@ import unittest
 from unittest.mock import patch
 
 from portfolio_history_service import build_portfolio_history_url
-from services.trading_config import AlpacaSettings, ApiPaths, ApiSettings, WorkerPaths, WorkerSettings
-from services.thesis_validator_service import ThesisValidatorSettings
+from services.core.trading_config import AlpacaSettings, ApiPaths, ApiSettings, WorkerPaths, WorkerSettings
+from services.thesis.thesis_validator_service import ThesisValidatorSettings
 
 
 class AlpacaPaperFlagTests(unittest.TestCase):

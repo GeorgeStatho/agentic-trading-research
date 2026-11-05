@@ -13,7 +13,7 @@ from db_common import get_connection
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.backtesting import record_historical_underlying_bar
-from services.llm_direction_score import run_direction_score, summarize
+from services.evaluation.llm_direction_score import run_direction_score, summarize
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "Data"
 DECIDED_AT = "2026-03-02T15:00:00+00:00"

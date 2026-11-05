@@ -2,9 +2,15 @@ import { useMemo, useState } from 'react'
 
 import { formatDate, formatSignedPercent, formatToken } from './format'
 import PageHeader from './pageHeader'
+import { chartTheme } from './ui/chartTheme'
+import { LagScatter } from './ui/charts/LagScatter'
+import type { Column } from './ui/DataTable'
+import { DataTable } from './ui/DataTable'
+import { Panel } from './ui/Panel'
+import { Select } from './ui/Select'
+import { StatStrip } from './ui/StatStrip'
+import { TickerChip } from './ui/TickerChip'
 import { useFetchedResource } from './useRemoteResource'
-import './decisionExpectancy.css'
-import './newsLag.css'
 
 /** Matches the Expectancy page: below this many closed trades a cohort is shown muted. */
 const SAMPLE_GUARDRAIL = 5
@@ -93,8 +99,8 @@ function formatMove(value: number | null): string {
 }
 
 function pnlClass(value: number | null): string {
-  if (value === null) return ''
-  return value < 0 ? 'decision-expectancy__negative' : 'decision-expectancy__positive'
+  if (value === null || value === 0) return ''
+  return value < 0 ? 'text-loss' : 'text-gain'
 }
 
 async function getNewsLag(days: number): Promise<Payload> {
@@ -106,6 +112,8 @@ async function getNewsLag(days: number): Promise<Payload> {
 
 // ---- Move-split bar ---------------------------------------------------------
 // Plain HTML positioned in percent, so the bar can narrow on phones without shrinking its axis text.
+
+const PATH_COLORS = { before: chartTheme.neutral, ourWay: chartTheme.info, againstUs: chartTheme.accent }
 
 type Scale = { min: number; max: number; x: (value: number) => number }
 
@@ -121,11 +129,11 @@ function makeScale(trades: Trade[]): Scale {
 }
 
 /** A segment from `from` to `to` (in percent of the track), rounded only at its data end. */
-function Segment({ from, to, className }: { from: number; to: number; className: string }) {
+function Segment({ from, to, color }: { from: number; to: number; color: string }) {
   if (Math.abs(to - from) < 0.2) return null
   return <span
-    className={`news-lag__segment ${className} ${to >= from ? 'news-lag__segment--right' : 'news-lag__segment--left'}`}
-    style={{ left: `${Math.min(from, to)}%`, width: `${Math.abs(to - from)}%` }}
+    className={`absolute top-[9px] h-2.5 ${to >= from ? 'rounded-r' : 'rounded-l'}`}
+    style={{ left: `${Math.min(from, to)}%`, width: `${Math.abs(to - from)}%`, background: color }}
   />
 }
 
@@ -140,110 +148,172 @@ function MoveSplit({ trade, scale }: { trade: Trade; scale: Scale }) {
   const post = trade.post_entry_move_pct
   const entry = pre ?? 0
   const summary = moveSummary(trade)
-  return <span className="news-lag__bar" role="img" aria-label={summary} title={summary}>
-    <span className="news-lag__zero" style={{ left: `${scale.x(0)}%` }} />
-    {pre !== null ? <Segment from={scale.x(0)} to={scale.x(pre)} className="news-lag__before" /> : null}
-    {post !== null ? <Segment from={scale.x(entry)} to={scale.x(entry + post)} className={post >= 0 ? 'news-lag__after-good' : 'news-lag__after-bad'} /> : null}
-    <span className={pre === null ? 'news-lag__entry news-lag__entry--unknown' : 'news-lag__entry'} style={{ left: `${scale.x(entry)}%` }} />
+  // The ring in the panel's colour separates the entry marker from both segments.
+  const marker = pre === null ? 'bg-base-200 border-[1.5px] border-dim' : 'bg-base-content'
+  return <span className="relative block h-7 w-36 sm:w-60" role="img" aria-label={summary} title={summary}>
+    <span className="absolute inset-y-0.5 w-px bg-base-300" style={{ left: `${scale.x(0)}%` }} />
+    {pre !== null ? <Segment from={scale.x(0)} to={scale.x(pre)} color={PATH_COLORS.before} /> : null}
+    {post !== null ? <Segment from={scale.x(entry)} to={scale.x(entry + post)} color={post >= 0 ? PATH_COLORS.ourWay : PATH_COLORS.againstUs} /> : null}
+    <span className={`absolute top-2.5 -ml-1 size-2 rounded-full ring-2 ring-base-200 ${marker}`} style={{ left: `${scale.x(entry)}%` }} />
   </span>
 }
 
+function tickPlacement(tick: number, scale: Scale): string {
+  if (tick === scale.min) return ''
+  if (tick === scale.max) return '-translate-x-full'
+  return '-translate-x-1/2'
+}
+
 function MoveAxis({ scale }: { scale: Scale }) {
-  return <span className="news-lag__axis" aria-hidden="true">
-    {[scale.min, 0, scale.max].map((tick) => <span key={tick} className={tick === scale.min ? 'news-lag__tick news-lag__tick--start' : tick === scale.max ? 'news-lag__tick news-lag__tick--end' : 'news-lag__tick'} style={{ left: `${scale.x(tick)}%` }}>
+  return <span className="relative mt-1.5 block h-3.5 w-36 sm:w-60" aria-hidden="true">
+    {[scale.min, 0, scale.max].map((tick) => <span key={tick} className={`absolute top-0 whitespace-nowrap font-mono text-[11px] text-dim ${tickPlacement(tick, scale)}`} style={{ left: `${scale.x(tick)}%` }}>
       {tick === 0 ? '0' : `${tick > 0 ? '+' : '−'}${Math.abs(tick)}%`}
     </span>)}
   </span>
 }
 
+function Swatch({ color, children }: { color: string; children: string }) {
+  return <span className="flex items-center gap-1.5 text-[11px] text-dim"><i className="h-2 w-3.5 rounded-sm" style={{ background: color }} />{children}</span>
+}
+
+// ---- Headline charts --------------------------------------------------------
+
+function MoveShare({ share }: { share: number | null }) {
+  if (share === null) return <p className="text-dim">No entry has both a publish and an exit price yet.</p>
+  const before = Math.round(share * 100)
+  return <div className="flex flex-col gap-2">
+    <div role="img" aria-label={`${before}% of the move came before entry, ${100 - before}% after`} className="flex h-5 overflow-hidden rounded-sm text-[11px] font-medium">
+      <div className="flex items-center px-1.5 text-base-content" style={{ width: `${before}%`, background: PATH_COLORS.before }}>{before}%</div>
+      <div className="flex flex-1 items-center justify-end px-1.5 text-info-content" style={{ background: PATH_COLORS.ourWay }}>{100 - before}%</div>
+    </div>
+    <p className="text-[11px] text-dim">Median share of the stock's publish-to-exit move that came before / after our entry</p>
+  </div>
+}
+
+function RightWayLost({ lost, closed }: { lost: number; closed: number }) {
+  if (!closed) return <p className="text-dim">No closed trade has gone our way yet.</p>
+  return <div className="flex flex-col gap-2">
+    <div role="img" aria-label={`${lost} of ${closed} closed trades went our way after entry but the option lost`} className="grid grid-cols-[repeat(auto-fill,minmax(14px,1fr))] gap-1">
+      {Array.from({ length: closed }, (_, index) => <span key={index} className={`h-3.5 rounded-sm ${index < lost ? 'bg-primary' : 'bg-base-300'}`} />)}
+    </div>
+    <p className="text-[11px] text-dim">{lost} of {closed} closed trades: the stock went our way after entry and the option still closed red. That points at contract choice and timing, not direction.</p>
+  </div>
+}
+
 // ---- Page -------------------------------------------------------------------
+
+const WINDOW_OPTIONS = [
+  { value: '0', label: 'All history' },
+  { value: '30', label: '30 days' },
+  { value: '90', label: '90 days' },
+  { value: '180', label: '180 days' },
+  { value: '365', label: '365 days' },
+]
+
+const BUCKET_COLUMNS: Column<[Bucket, BucketSummary]>[] = [
+  { key: 'lag', header: 'Lag', render: ([bucket, summary]) => <>
+    <span className="font-medium">{BUCKET_LABELS[bucket]}</span>
+    {summary.closed < SAMPLE_GUARDRAIL && summary.trades ? <span className="block text-[11px] text-dim">below sample guardrail</span> : null}
+  </> },
+  { key: 'entries', header: 'Entries', align: 'right', render: ([, summary]) => <>{summary.trades}<span className="block text-[11px] text-dim">{summary.closed} closed</span></> },
+  { key: 'win', header: 'Win rate', align: 'right', render: ([, summary]) => summary.option_pnl_pct.win_rate === null ? EMPTY : `${Math.round(summary.option_pnl_pct.win_rate * 100)}%` },
+  { key: 'mean', header: 'Mean P/L', align: 'right', render: ([, summary]) => <span className={pnlClass(summary.option_pnl_pct.mean)}>{formatMove(summary.option_pnl_pct.mean)}</span> },
+  { key: 'median', header: 'Median P/L', align: 'right', render: ([, summary]) => formatMove(summary.option_pnl_pct.median) },
+  { key: 'before', header: 'Median before', align: 'right', render: ([, summary]) => formatMove(summary.pre_entry_move_pct.median) },
+  { key: 'after', header: 'Median after', align: 'right', render: ([, summary]) => formatMove(summary.post_entry_move_pct.median) },
+  { key: 'share', header: 'Share before', align: 'right', render: ([, summary]) => formatShare(summary.pre_entry_share.median) },
+]
+
+function entryColumns(scale: Scale): Column<Trade>[] {
+  return [
+    { key: 'entry', header: 'Entry', render: (trade) => <>
+      <TickerChip symbol={trade.symbol} />
+      <span className="block whitespace-nowrap text-[11px] text-dim">{formatDate(trade.ordered_at ?? '', { placeholder: EMPTY })} · {trade.direction ?? EMPTY}</span>
+    </> },
+    { key: 'lag', header: 'Lag', render: (trade) => <>{formatLag(trade.lag_hours)}<span className="block whitespace-nowrap text-[11px] text-dim">{BUCKET_LABELS[trade.lag_bucket]}</span></> },
+    { key: 'path', header: <>Stock move, in trade direction<MoveAxis scale={scale} /></>, render: (trade) => <MoveSplit trade={trade} scale={scale} /> },
+    { key: 'before', header: 'Before', align: 'right', render: (trade) => formatMove(trade.pre_entry_move_pct) },
+    { key: 'after', header: 'After', align: 'right', render: (trade) => formatMove(trade.post_entry_move_pct) },
+    { key: 'pnl', header: 'Option P/L', align: 'right', render: (trade) => <>
+      <span className={pnlClass(trade.option_pnl_pct)}>{trade.closed ? formatMove(trade.option_pnl_pct) : 'Open'}</span>
+      {trade.favourable_but_lost ? <span className="block text-[11px] text-warning">Moved our way, option lost</span> : null}
+    </> },
+    { key: 'exit', header: 'Exit', render: (trade) => formatToken(trade.exit_reason, { placeholder: EMPTY }) },
+  ]
+}
 
 function NewsLagPage() {
   const [days, setDays] = useState(0)
   // A new loader per window re-reads the report; the hook keeps the last payload until it arrives.
   const load = useMemo(() => () => getNewsLag(days), [days])
-  const { payload, error, isLoading: loading } = useFetchedResource(load, { errorMessage: 'Failed to load the news-lag report.' })
+  const { payload, error, isLoading } = useFetchedResource(load, { errorMessage: 'Failed to load the news-lag report.' })
 
   const dated = useMemo(() => [...(payload?.trades ?? [])]
     .filter((trade) => trade.lag_hours !== null)
     .sort((left, right) => (left.lag_hours ?? 0) - (right.lag_hours ?? 0)), [payload])
   const scale = useMemo(() => makeScale(dated), [dated])
-  const headline = payload?.headline
   const dailySampled = payload?.all.daily_sampled_publish_prices ?? 0
 
-  return <main className="decision-expectancy news-lag">
+  return <main className="flex flex-col gap-3">
     <PageHeader
       title="How late we trade the news"
       description="Time from the newest article the strategist cited to our order, and how far the stock moved before and after we entered. Read-only."
       meta={payload ? `As of ${formatDate(payload.as_of, { placeholder: 'Unknown' })}` : null}
+      actions={<Select label="Window" options={WINDOW_OPTIONS} value={String(days)} onChange={(value) => setDays(Number(value))} />}
     />
 
-    <section className="decision-expectancy__controls" aria-label="News lag filters">
-      <label>Window<select value={days} onChange={(event) => setDays(Number(event.target.value))}>
-        <option value={30}>30 days</option><option value={90}>90 days</option><option value={180}>180 days</option><option value={365}>365 days</option><option value={0}>All history</option>
-      </select></label>
-    </section>
+    {error ? <p role="alert" className="text-xs text-error">{error}</p> : null}
+    {isLoading && !payload ? <p className="text-dim">Loading the news-lag report…</p> : null}
+    {payload ? <>
+      <StatStrip items={[
+        { label: 'Median news → order lag', value: formatLag(payload.headline.median_lag_hours), sub: `${payload.headline.within_1h} of ${payload.headline.dated_entries} entries within 1 h` },
+        { label: 'Move gone before entry', value: formatShare(payload.headline.median_pre_entry_share), sub: 'median share, publish → exit' },
+        { label: 'Right way, option lost', value: `${payload.headline.favourable_but_lost} of ${payload.headline.favourable_closed}`, sub: 'closed trades' },
+        { label: 'Measurable entries', value: `${payload.headline.measurable} of ${payload.headline.entries}`, sub: 'dated citation + prices' },
+        { label: 'Fastest entry', value: formatLag(dated[0]?.lag_hours ?? null), sub: dated[0] ? `${dated[0].symbol}, ${formatDate(dated[0].ordered_at ?? '', { placeholder: EMPTY })}` : undefined },
+      ]} />
 
-    {error ? <section className="decision-expectancy__empty" role="alert">{error}</section> : null}
-    {loading && !payload ? <section className="decision-expectancy__empty">Loading the news-lag report…</section> : null}
-    {payload && headline ? <>
-      <section className="decision-expectancy__summary news-lag__summary" aria-label="News lag headline">
-        <article><span>Median news-to-order lag</span><b>{formatLag(headline.median_lag_hours)}</b><small>{headline.within_1h} of {headline.dated_entries} entries within 1 hour</small></article>
-        <article><span>Move that happened before entry</span><b>{formatShare(headline.median_pre_entry_share)}</b><small>Median share of the stock's move between publish and exit</small></article>
-        <article><span>Stock moved our way, option lost</span><b>{headline.favourable_but_lost} of {headline.favourable_closed}</b><small>Of closed trades where the stock went our way after entry, the option still closed red</small></article>
-        <article><span>Measurable entries</span><b>{headline.measurable} of {headline.entries}</b><small>The rest lack a dated citation, a decision link or prices</small></article>
-      </section>
+      {dailySampled > 0 ? <p className="text-xs text-warning">{dailySampled} publish {dailySampled === 1 ? 'price falls' : 'prices fall'} back to the prior daily close, so their before-entry move includes overnight drift · fix: <code className="font-mono">research.py news-lag --fetch-missing</code></p> : null}
 
-      {dailySampled > 0 ? <section className="decision-expectancy__notice">{dailySampled} publish {dailySampled === 1 ? 'price falls' : 'prices fall'} back to the prior daily close, so their before-entry move includes overnight drift. Run <code>research.py news-lag --fetch-missing</code> on the server to cache hourly bars.</section> : null}
+      <div className="flex flex-wrap gap-3">
+        <Panel className="min-w-72 flex-[2_1_28rem]" title="Lag vs. option P/L" meta="each dot = one closed entry">
+          <LagScatter trades={payload.trades} medianLagHours={payload.headline.median_lag_hours} />
+          <p className="mt-2 text-[11px] text-dim">Shaded: the first hour after the news · dashed: the median lag</p>
+        </Panel>
+        <div className="flex min-w-64 flex-[1_1_18rem] flex-col gap-3">
+          <Panel title="Where the move happened"><MoveShare share={payload.headline.median_pre_entry_share} /></Panel>
+          <Panel title="Right direction, option still lost"><RightWayLost lost={payload.headline.favourable_but_lost} closed={payload.headline.favourable_closed} /></Panel>
+        </div>
+      </div>
 
-      <section className="decision-expectancy__table-card">
-        <header>
-          <div><p>Every dated entry</p><h2>Stock path from publish to entry to exit, ordered by lag</h2></div>
-          <ul className="news-lag__legend" aria-label="Bar legend">
-            <li><i className="news-lag__swatch news-lag__swatch--before" />Before entry</li>
-            <li><i className="news-lag__swatch news-lag__swatch--good" />After entry, our way</li>
-            <li><i className="news-lag__swatch news-lag__swatch--bad" />After entry, against us</li>
-          </ul>
-        </header>
-        {dated.length ? <div className="decision-expectancy__table-wrap"><table className="news-lag__trades"><thead><tr>
-          <th>Entry</th><th>Lag</th><th className="news-lag__bar-head">Stock move, in trade direction<MoveAxis scale={scale} /></th><th>Before</th><th>After</th><th>Option P&amp;L</th><th>Exit</th>
-        </tr></thead><tbody>{dated.map((trade) => <tr key={trade.order_id} className={trade.favourable_but_lost ? 'news-lag__flagged' : ''}>
-          <td><strong>{trade.symbol}</strong><small>{formatDate(trade.ordered_at ?? '', { placeholder: EMPTY })} · {trade.direction ?? EMPTY}</small><small className="news-lag__mobile-only">{formatLag(trade.lag_hours)} after the news</small></td>
-          <td>{formatLag(trade.lag_hours)}<small>{BUCKET_LABELS[trade.lag_bucket]}</small></td>
-          <td><MoveSplit trade={trade} scale={scale} /></td>
-          <td>{formatMove(trade.pre_entry_move_pct)}</td>
-          <td>{formatMove(trade.post_entry_move_pct)}</td>
-          <td><span className={pnlClass(trade.option_pnl_pct)}>{trade.closed ? formatMove(trade.option_pnl_pct) : 'Open'}</span>{trade.favourable_but_lost ? <small className="news-lag__flag">Moved our way, option lost</small> : null}</td>
-          <td>{formatToken(trade.exit_reason, { placeholder: EMPTY })}</td>
-        </tr>)}</tbody></table></div> : <p className="decision-expectancy__empty news-lag__inset">No entries with a dated citation in this window.</p>}
-      </section>
+      <Panel
+        title="Every dated entry"
+        meta="publish → entry → exit, ordered by lag"
+        actions={<>
+          <Swatch color={PATH_COLORS.before}>Before entry</Swatch>
+          <Swatch color={PATH_COLORS.ourWay}>After, our way</Swatch>
+          <Swatch color={PATH_COLORS.againstUs}>After, against us</Swatch>
+        </>}
+        flush
+      >
+        <DataTable label="Every dated entry" columns={entryColumns(scale)} rows={dated} rowKey={(trade) => trade.order_id} emptyMessage="No entries with a dated citation in this window." />
+      </Panel>
 
-      <section className="decision-expectancy__table-card">
-        <header><div><p>Lag buckets</p><h2>Option P&amp;L by how old the news was</h2></div><span>Buckets with fewer than {SAMPLE_GUARDRAIL} closed trades are muted</span></header>
-        <div className="decision-expectancy__table-wrap"><table><thead><tr>
-          <th>Lag</th><th>Entries</th><th>Win rate</th><th>Mean P&amp;L</th><th>Median P&amp;L</th><th>Median before</th><th>Median after</th><th>Share before</th>
-        </tr></thead><tbody>{(Object.keys(BUCKET_LABELS) as Bucket[]).map((bucket) => {
-          const summary = payload.buckets[bucket]
-          const muted = summary.closed < SAMPLE_GUARDRAIL
-          const pnl = summary.option_pnl_pct
-          return <tr key={bucket} className={muted ? 'decision-expectancy__muted' : ''}>
-            <td><strong>{BUCKET_LABELS[bucket]}</strong>{muted && summary.trades ? <small>Below sample guardrail</small> : null}</td>
-            <td>{summary.trades}<small>{summary.closed} closed</small></td>
-            <td>{pnl.win_rate === null ? EMPTY : `${Math.round(pnl.win_rate * 100)}%`}</td>
-            <td className={pnlClass(pnl.mean)}>{formatMove(pnl.mean)}</td>
-            <td>{formatMove(pnl.median)}</td>
-            <td>{formatMove(summary.pre_entry_move_pct.median)}</td>
-            <td>{formatMove(summary.post_entry_move_pct.median)}</td>
-            <td>{formatShare(summary.pre_entry_share.median)}</td>
-          </tr>
-        })}</tbody></table></div>
-      </section>
+      <Panel title="Option P/L by how old the news was" meta={`buckets with fewer than ${SAMPLE_GUARDRAIL} closed trades are muted`} flush>
+        <DataTable
+          label="Lag buckets"
+          columns={BUCKET_COLUMNS}
+          rows={(Object.keys(BUCKET_LABELS) as Bucket[]).map((bucket) => [bucket, payload.buckets[bucket]] as [Bucket, BucketSummary])}
+          rowKey={([bucket]) => bucket}
+          rowClassName={([, summary]) => (summary.closed < SAMPLE_GUARDRAIL ? 'opacity-60' : '')}
+        />
+      </Panel>
 
-      <section className="news-lag__coverage" aria-label="Coverage">
-        <p>{payload.coverage.entries} filled entries in this window.</p>
-        {Object.keys(payload.coverage.missing).length ? <ul>{Object.entries(payload.coverage.missing).map(([reason, count]) => <li key={reason}>{count} · {MISSING_LABELS[reason] ?? reason.replaceAll('_', ' ')}</li>)}</ul> : null}
-        {payload.coverage.future_dated_citations ? <p>{payload.coverage.future_dated_citations} cited {payload.coverage.future_dated_citations === 1 ? 'article is' : 'articles are'} dated after the order (likely re-scraped) and ignored for lag.</p> : null}
-      </section>
+      <p className="text-[11px] text-dim">
+        {payload.coverage.entries} filled entries in this window
+        {Object.entries(payload.coverage.missing).map(([reason, count]) => ` · ${count} ${MISSING_LABELS[reason] ?? reason.replaceAll('_', ' ')}`).join('')}
+        {payload.coverage.future_dated_citations ? ` · ${payload.coverage.future_dated_citations} cited ${payload.coverage.future_dated_citations === 1 ? 'article is' : 'articles are'} dated after the order (likely re-scraped) and ignored for lag` : ''}
+      </p>
     </> : null}
   </main>
 }

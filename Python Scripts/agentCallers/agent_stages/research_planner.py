@@ -5,8 +5,8 @@ import os
 from urllib.parse import urlsplit
 
 from agent_helpers.llm_client import ask_llm_model, get_model_client, provider_status_code
-from services.research_tools import OPERATIONS
-from services.research_model_policy import (
+from services.research.research_tools import OPERATIONS
+from services.research.research_model_policy import (
     SUPPORTED_PROVIDERS, ResearchModelPolicy, configured_model, configured_provider, planner_host, research_endpoint,
 )
 from dataclasses import asdict

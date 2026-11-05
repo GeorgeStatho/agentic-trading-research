@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from agent_helpers.llm_client import Client, _strict_compatible, ask_llm_model, provider_status_code
-from services.settings import VertexSettings, use_settings
+from services.core.settings import VertexSettings, use_settings
 
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["decision"],
           "properties": {"decision": {"type": "string"}}}

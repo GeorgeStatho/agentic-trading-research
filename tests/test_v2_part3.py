@@ -16,7 +16,7 @@ from news_db_modules.entity_articles import add_company_news_article
 from news_db_modules.impacts import add_company_opportunist_impact
 from news_db_modules.catalysts import build_catalyst_state, backfill_catalysts, enrich_impact
 from market_db_modules.candidate_lifecycle import record_candidate
-from services.catalyst_gates import evaluate_catalyst_gates, CatalystGatePolicy
+from services.gates.catalyst_gates import evaluate_catalyst_gates, CatalystGatePolicy
 
 NOW = datetime.now(timezone.utc)
 VERSION = {'pipeline_version': 'fixture-v3'}
@@ -135,7 +135,7 @@ class GateTests(unittest.TestCase):
             CatalystGatePolicy.from_env()
 
     def test_enforcement_cannot_bypass_missing_candidate_state(self):
-        from services.catalyst_gates import catalyst_admission_allowed
+        from services.gates.catalyst_gates import catalyst_admission_allowed
         self.assertTrue(catalyst_admission_allowed(None, policy=CatalystGatePolicy()))
         self.assertFalse(catalyst_admission_allowed(None, policy=CatalystGatePolicy(freshness_mode='enforce')))
         self.assertFalse(catalyst_admission_allowed({'catalyst_gates': {}}, policy=CatalystGatePolicy(provenance_mode='enforce')))
@@ -146,8 +146,8 @@ class GateTests(unittest.TestCase):
             context = {'candidate_id': 'fixture', 'catalyst_gates': {'PROVENANCE': {
                 'allowed': True, 'would_allow': True, 'enforcement_mode': mode,
                 'reason_codes': ['pass_with_single_primary_root']}}}
-            with patch('services.candidate_lifecycle.begin_candidate', return_value=context), \
-                 patch('services.candidate_lifecycle.checkpoint'), patch('services.candidate_lifecycle.reject'), \
+            with patch('services.runtime.candidate_lifecycle.begin_candidate', return_value=context), \
+                 patch('services.runtime.candidate_lifecycle.checkpoint'), patch('services.runtime.candidate_lifecycle.reject'), \
                  patch.object(agent_runner_main, 'get_company_opportunist_summary', return_value={
                      'company': {'symbol': 'NVDA'}, 'confidence_counts': {'high': 1}}):
                 allowed, skipped = agent_runner_main._filter_company_symbols_by_high_confidence_support(
@@ -158,8 +158,8 @@ class GateTests(unittest.TestCase):
         from tests.test_agent_runner_main import agent_runner_main
         context = {'candidate_id': 'fixture', 'catalyst_gates': {'PROVENANCE': {
             'allowed': False, 'would_allow': False, 'enforcement_mode': 'enforce'}}}
-        with patch('services.candidate_lifecycle.begin_candidate', return_value=context), \
-             patch('services.candidate_lifecycle.checkpoint'), patch('services.candidate_lifecycle.reject'), \
+        with patch('services.runtime.candidate_lifecycle.begin_candidate', return_value=context), \
+             patch('services.runtime.candidate_lifecycle.checkpoint'), patch('services.runtime.candidate_lifecycle.reject'), \
              patch.object(agent_runner_main, 'get_company_opportunist_summary', return_value={
                  'company': {'symbol': 'NVDA'}, 'confidence_counts': {'high': 3}}):
             allowed, skipped = agent_runner_main._filter_company_symbols_by_high_confidence_support(

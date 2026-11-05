@@ -17,11 +17,11 @@ from market_db_modules.evidence_refresh import (
     request_company_evidence,
 )
 from market_db_modules.research_runtime import replay_research_session
-from services.company_evidence_demand import request_pipeline_evidence
-from services.company_evidence_policy import CompanyEvidencePolicy
-from services.company_evidence_service import collect_company_evidence
-from services.research_continuation import prepare_research_continuations
-from services.research_orchestrator import process_research_queue
+from services.discovery.company_evidence_demand import request_pipeline_evidence
+from services.discovery.company_evidence_policy import CompanyEvidencePolicy
+from services.discovery.company_evidence_service import collect_company_evidence
+from services.research.research_continuation import prepare_research_continuations
+from services.research.research_orchestrator import process_research_queue
 from Webscraping.company_evidence.models import CollectionResult
 
 
@@ -32,7 +32,7 @@ class CollectorMixin:
         self.adapter.issuer_map.return_value = mapping if mapping is not None else {'NVDA': COMPANY['cik']}
         self.adapter.collect.return_value = CollectionResult(tuple(sources or [guidance()]), {})
         self.adapter.collect.side_effect = error
-        with patch('services.company_evidence_service.SECAdapter', return_value=self.adapter), \
+        with patch('services.discovery.company_evidence_service.SECAdapter', return_value=self.adapter), \
              patch.dict('os.environ', {'SEC_USER_AGENT': 'Fixture contact@example.test',
                                       'COMPANY_EVIDENCE_SYMBOLS': '', 'COMPANY_EVIDENCE_ISSUERS_FILE': '',
                                       'DISCOVERY_MODE': 'disabled', 'DISCOVERY_SYMBOLS': ''}):

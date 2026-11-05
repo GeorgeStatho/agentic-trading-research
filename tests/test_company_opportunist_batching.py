@@ -12,7 +12,7 @@ from unittest.mock import patch
 import agent_stages.company_opportunist as stage
 from agent_helpers.llm_client import Client, ModelAnswer
 from agent_helpers.opportunist_support import classifier_batch_token_limit
-from services.settings import OpportunistSettings, get_settings, use_settings
+from services.core.settings import OpportunistSettings, get_settings, use_settings
 
 COMPANY = {'company_id': 7, 'symbol': 'NVDA', 'name': 'NVIDIA', 'industry_key': 'semis', 'sector_key': 'tech'}
 IMPACT = {'confidence': 'high', 'impact_direction': 'positive', 'impact_magnitude': 'moderate', 'materiality': 'high',

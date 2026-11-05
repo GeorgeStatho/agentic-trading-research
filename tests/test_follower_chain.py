@@ -7,8 +7,8 @@ from datetime import date
 from unittest.mock import Mock, patch
 
 from agent_helpers.market_context import option_chain
-from services.follower_fleet import build_follower_fleet
-from services.trading_accounts import FollowerSettings, TradingAccount
+from services.trading.follower_fleet import build_follower_fleet
+from services.trading.trading_accounts import FollowerSettings, TradingAccount
 
 STRIKES = (300.0, 385.0, 405.0, 415.0, 440.0, 500.0)
 TODAY = date(2026, 10, 29)

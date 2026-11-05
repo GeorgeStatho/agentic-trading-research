@@ -9,7 +9,7 @@ from agent_helpers.catalyst_classifier import (CONFIDENCES, DIRECTIONS, TYPE_DEF
 from agent_helpers.llm_client import Client, ModelAnswer, ask_classifier_model, get_model_client
 from agent_helpers.text_utils import extract_json_value
 from catalyst_models import CATALYST_TYPES
-from services.settings import StageModel, get_settings
+from services.core.settings import StageModel, get_settings
 
 LOGGER = logging.getLogger(__name__)
 _classifier_client: Client | None = None

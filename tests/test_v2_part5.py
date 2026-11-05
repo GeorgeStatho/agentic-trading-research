@@ -19,13 +19,13 @@ from market_db_modules.contract_research import (
     record_observation,
     contract_report,
 )
-from services.contract_policy import ContractPolicy
-from services.liquidity_gate import evaluate_liquidity, filter_liquid_contracts
-from services.scenario_selector import score_contract, select_with_scenarios
-from services.limit_entry import buy_limit_price, entry_invalidation, next_entry_action, LimitEntryState
-from services.risk_clusters import evaluate_cluster
-from services.trade_executor import TradeExecutionSession, OptionTradeExecutor
-from services.position_exit_policy import evaluate_position_rungs
+from services.gates.contract_policy import ContractPolicy
+from services.gates.liquidity_gate import evaluate_liquidity, filter_liquid_contracts
+from services.options.scenario_selector import score_contract, select_with_scenarios
+from services.trading.limit_entry import buy_limit_price, entry_invalidation, next_entry_action, LimitEntryState
+from services.gates.risk_clusters import evaluate_cluster
+from services.trading.trade_executor import TradeExecutionSession, OptionTradeExecutor
+from services.options.position_exit_policy import evaluate_position_rungs
 
 NOW = datetime(2026, 9, 21, 15, tzinfo=timezone.utc)
 
@@ -69,7 +69,7 @@ class LiquidityTests(unittest.TestCase):
         stale['latest_quote']['timestamp'] = (NOW - timedelta(minutes=1)).isoformat()
         result = {'candidate_context': {'candidate_id': 'fixture'},
                   'market_context': {'option_market': {'contracts': [option(), stale]}}}
-        with patch('services.contract_observations.record_contract_observation'), patch('services.candidate_lifecycle.reject') as rejection:
+        with patch('services.gates.contract_observations.record_contract_observation'), patch('services.runtime.candidate_lifecycle.reject') as rejection:
             shadow = filter_liquid_contracts(result, as_of=NOW)
             self.assertEqual(len(shadow['market_context']['option_market']['contracts']), 2)
             self.assertTrue(rejection.call_args.kwargs['shadow'])
@@ -95,7 +95,7 @@ class ScenarioTests(unittest.TestCase):
         selected, comparison = select_with_scenarios(pool, context, spot=100)
         self.assertEqual(selected['symbol'], pool[0]['symbol'])
         self.assertEqual(comparison['scenario_option_symbol'], 'second')
-        with patch.dict('os.environ', {'V2_SCENARIO_MODE': 'enforce'}), patch('services.research_promotion.approved', return_value=True):
+        with patch.dict('os.environ', {'V2_SCENARIO_MODE': 'enforce'}), patch('services.research.research_promotion.approved', return_value=True):
             selected, _ = select_with_scenarios(pool, context, spot=100)
         self.assertEqual(selected['symbol'], 'second')
 
@@ -103,13 +103,13 @@ class ScenarioTests(unittest.TestCase):
         pool = [option(), option(symbol='second')]
         context = {'_v2_scenario_distribution': {'returns': [.02] * 30, 'sample_size': 30,
                                                 'minimum_samples': 30, 'horizon_days': 5, 'as_of': NOW.isoformat()}}
-        failing = patch('services.scenario_selector.rank_contracts', side_effect=ZeroDivisionError('fixture'))
-        with failing, self.assertLogs('services.scenario_selector', 'ERROR'):
+        failing = patch('services.options.scenario_selector.rank_contracts', side_effect=ZeroDivisionError('fixture'))
+        with failing, self.assertLogs('services.options.scenario_selector', 'ERROR'):
             selected, comparison = select_with_scenarios(pool, context, spot=100)
         self.assertEqual(selected['symbol'], pool[0]['symbol'])
         self.assertEqual((comparison['status'], comparison['error']), ('scenario_error', 'ZeroDivisionError: fixture'))
-        with failing, self.assertLogs('services.scenario_selector', 'ERROR'), patch.dict(
-                'os.environ', {'V2_SCENARIO_MODE': 'enforce'}), patch('services.research_promotion.approved', return_value=True):
+        with failing, self.assertLogs('services.options.scenario_selector', 'ERROR'), patch.dict(
+                'os.environ', {'V2_SCENARIO_MODE': 'enforce'}), patch('services.research.research_promotion.approved', return_value=True):
             selected, _ = select_with_scenarios(pool, context, spot=100)
         self.assertEqual(selected['symbol'], pool[0]['symbol'])
 
@@ -158,8 +158,8 @@ class ClusterTests(unittest.TestCase):
     def test_executor_applies_cluster_reason_at_actual_guardrail(self):
         executor = OptionTradeExecutor(settings=SimpleNamespace(), trading_gateway=Mock(), logger=logging.getLogger('fixture'))
         book = session(cluster_option_symbols={'AI_semiconductors': {'NVDA-option'}})
-        with patch('services.risk_clusters.get_risk_cluster', return_value='AI_semiconductors'), patch.dict(
-                'os.environ', {'V2_RISK_CLUSTER_MODE': 'enforce'}), patch('services.research_promotion.approved', return_value=True):
+        with patch('services.gates.risk_clusters.get_risk_cluster', return_value='AI_semiconductors'), patch.dict(
+                'os.environ', {'V2_RISK_CLUSTER_MODE': 'enforce'}), patch('services.research.research_promotion.approved', return_value=True):
             reason = executor._portfolio_guardrail_reason(option_symbol='AMD-option', underlying_symbol='AMD',
                 estimated_order_cost=500, sector_key='technology', session=book)
         self.assertEqual(reason, 'portfolio_risk_cluster_limit')
@@ -171,7 +171,7 @@ class ClusterTests(unittest.TestCase):
         stale = {**option()['latest_quote'], 'timestamp': (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()}
         fixture.gateway.get_execution_market_snapshot.return_value = {'option': stale}
         with patch.dict('os.environ', {'V2_LIQUIDITY_MODE': 'enforce'}), patch(
-                'services.risk_clusters.get_risk_cluster', return_value='mega_cap_tech'), patch('services.research_promotion.approved', return_value=True):
+                'services.gates.risk_clusters.get_risk_cluster', return_value='mega_cap_tech'), patch('services.research.research_promotion.approved', return_value=True):
             execution = fixture.executor._execute_candidate(trading_client=object(), candidate=fixture._candidate(), session=fixture._session())
         self.assertFalse(execution['submitted'])
         self.assertEqual(execution['portfolio_guardrail'], 'execution_liquidity_blocked')
@@ -234,6 +234,44 @@ class PositionRungTests(unittest.TestCase):
         kwargs['broker_unrealized_pl_pct_ratio'] = -.5
         action, _ = strategy._structured_exit_action(**kwargs)
         self.assertEqual(action['reason'], 'stop_loss')
+        kwargs['broker_unrealized_pl_pct_ratio'] = .1
+        kwargs['v2_exit_context'] = evaluate_position_rungs(
+            self.inputs(opened_at=(NOW - timedelta(days=1)).isoformat(), next_earnings_date='2026-09-21'),
+            as_of=NOW, policy=ContractPolicy(exit_mode='enforce'))
+        action, _ = strategy._structured_exit_action(**kwargs)
+        self.assertEqual(action['reason'], 'PRE_EARNINGS')
+
+    def test_pre_earnings_fires_from_1530_new_york_on_the_last_weekday_before_the_print(self):
+        # NOW is Monday 2026-09-21 11:00 New York.
+        def due(earnings, at, **inputs):
+            result = evaluate_position_rungs(self.inputs(next_earnings_date=earnings, **inputs), as_of=at,
+                                             policy=ContractPolicy(exit_mode='shadow'))
+            self.assertEqual(result['active_reasons'], [])
+            return 'PRE_EARNINGS' in result['shadow_reasons']
+        self.assertFalse(due('2026-09-22', NOW))
+        self.assertFalse(due('2026-09-22', NOW.replace(hour=19, minute=29)))
+        self.assertTrue(due('2026-09-22', NOW.replace(hour=19, minute=30)))
+        self.assertTrue(due('2026-09-21', NOW))
+        self.assertTrue(due('2026-09-21', NOW, catalyst_family='earnings_positive',
+                            opened_at=(NOW - timedelta(days=3)).isoformat()))
+        self.assertFalse(due(None, NOW))
+        self.assertTrue(due('2026-09-28', datetime(2026, 9, 25, 19, 30, tzinfo=timezone.utc)))  # Friday before a Monday print
+        self.assertFalse(due('2026-09-21', NOW, catalyst_family='earnings_positive', opened_at=NOW.isoformat()))
+
+    def test_next_earnings_date_reads_the_newest_fresh_yahoo_document(self):
+        from market_db_modules.company_evidence import next_earnings_date
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder) / 'test.db'
+            initialize_database(db_path=db)
+            with closing(get_connection(db)) as conn, conn:
+                for identity, observed, dates in (('old', '2026-09-01', ['2026-09-30']), ('new', '2026-09-10', ['2026-09-20', '2026-10-01'])):
+                    record = {'metadata': {'event_key': f'yahoo_consensus:NVDA:{dates[0]}',
+                                           'scheduled_events': [{'scheduled_at': date} for date in dates]}}
+                    conn.execute('INSERT INTO evidence_documents VALUES (?,?,?,?,?,?,?)',
+                                 (identity, 'yahoo_consensus', f'{observed}T12:00:00+00:00', None, identity, identity, json.dumps(record)))
+            self.assertEqual(next_earnings_date('NVDA', as_of=NOW.isoformat(), db_path=db), '2026-10-01')
+            self.assertIsNone(next_earnings_date('AMD', as_of=NOW.isoformat(), db_path=db))
+            self.assertIsNone(next_earnings_date('NVDA', as_of='2026-12-01T12:00:00+00:00', db_path=db))
 
 
 class ContractDatabaseTests(unittest.TestCase):

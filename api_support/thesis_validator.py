@@ -16,9 +16,9 @@ from market_db_modules.thesis_validator import (
     summarize_thesis_validator_health,
 )
 
-from services.numbers import safe_float
+from services.core.numbers import safe_float
 from api_support.context import logger
-from services.thesis_validator_service import ThesisValidatorSettings
+from services.thesis.thesis_validator_service import ThesisValidatorSettings
 
 DEFAULT_RUN_LIMIT = 50
 DEFAULT_HEALTH_WINDOW_DAYS = 60

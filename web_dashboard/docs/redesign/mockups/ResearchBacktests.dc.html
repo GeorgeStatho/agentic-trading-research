@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Research: backtests</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#121214}
+a{color:#F98309}a:hover{color:#FFA347}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #121214; color: #E8E8EA; font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 1.4; font-variant-numeric: tabular-nums">
+
+<header style="background: #161618; border-bottom: 1px solid #2C2C31">
+<div style="max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 48px">
+<div style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px"><span aria-hidden="true" style="width: 14px; height: 14px; border-radius: 3px; background: #F98309"></span>Agentic Trading Research</div>
+<nav aria-label="Main" style="display: flex; flex-wrap: wrap; flex: 1 1 auto">
+<a href="Main.dc.html" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Live</a>
+<a href="Decisions.dc.html" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Decisions</a>
+<a href="ResearchExpectancy.dc.html" style="text-decoration: none; padding: 14px 12px; color: #E8E8EA; font-weight: 600; border-bottom: 2px solid #F98309">Research</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">System</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Settings</a>
+</nav>
+<span style="font-size: 12px; font-weight: 600; color: #F98309; border: 1px solid #5A3510; background: #24180B; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.04em">PAPER</span>
+</div>
+<div style="border-top: 1px solid #232327">
+<nav aria-label="Research" style="max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; flex-wrap: wrap; gap: 20px; font-size: 12px">
+<a href="ResearchExpectancy.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">Expectancy</a>
+<a href="ResearchNewsLag.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">News lag</a>
+<a href="ResearchBacktests.dc.html" style="text-decoration: none; padding: 9px 0; color: #E8E8EA; font-weight: 600; border-bottom: 2px solid #F98309">Backtests</a>
+<a href="ResearchFollowers.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">Followers</a>
+<a href="ResearchRollout.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">V2 rollout</a>
+</nav>
+</div>
+</header>
+
+<div style="max-width: 1400px; margin: 0 auto; padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 12px">
+
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px">
+<div>
+<h1 style="margin: 0; font-size: 18px; font-weight: 700">Historical decision backtest</h1>
+<div style="font-size: 12px; color: #9A9AA2; margin-top: 2px">Replays stored decisions against historical option quotes · no live data, orders or account state</div>
+</div>
+<div style="display: flex; gap: 8px">
+<button type="button" style="font: inherit; font-size: 12px; font-weight: 500; padding: 8px 14px; border-radius: 4px; border: 1px solid #36363C; background: #1A1A1D; color: #E8E8EA; cursor: pointer">Fetch next EOD batch</button>
+<button type="button" style="font: inherit; font-size: 12px; font-weight: 600; padding: 8px 14px; border-radius: 4px; border: 1px solid #F98309; background: #F98309; color: #121214; cursor: pointer">Run backtest</button>
+</div>
+</div>
+
+<section aria-label="Run configuration" style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px; padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 12px 28px">
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+<fieldset style="border: 0; margin: 0; padding: 0; min-width: 0">
+<legend style="font-size: 11px; font-weight: 600; color: #C2C2C8; padding: 0; margin-bottom: 6px">{{g.name}}</legend>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{g.fields}}" as="f" hint-placeholder-count="3">
+<label style="display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: #9A9AA2">{{f.label}}
+<input type="text" value="{{f.value}}" style="font: inherit; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #E8E8EA; background: #121214; border: 1px solid #36363C; border-radius: 4px; padding: 5px 8px; width: 84px">
+</label>
+</sc-for>
+</div>
+</fieldset>
+</sc-for>
+</section>
+
+<section style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start">
+<div style="flex: 1 1 320px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Run history</h2>
+<span style="font-size: 11px; color: #9A9AA2">immutable</span>
+</div>
+<table style="width: 100%; border-collapse: collapse; font-size: 12px">
+<thead>
+<tr style="text-align: left; color: #9A9AA2; font-size: 11px; background: #18181B">
+<th scope="col" style="font-weight: 500; padding: 7px 14px; border-bottom: 1px solid #2C2C31">Run</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Model</th>
+<th scope="col" style="font-weight: 500; padding: 7px 14px 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Expectancy</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{runs}}" as="r" hint-placeholder-count="7">
+<tr style="{{r.rowStyle}}">
+<td style="padding: 8px 14px; border-bottom: 1px solid #232327"><div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600">#{{r.id}}</div><div style="font-size: 11px; color: #9A9AA2">{{r.when}}</div></td>
+<td style="padding: 8px; border-bottom: 1px solid #232327; font-size: 11px; color: #C2C2C8">{{r.model}}</td>
+<td style="padding: 8px 14px 8px 8px; border-bottom: 1px solid #232327; text-align: right"><span style="{{r.expStyle}}">{{r.exp}}</span></td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+
+<div style="flex: 2.4 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+<div style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Run #140 · <span style="font-family: 'JetBrains Mono', monospace">llm-replay-manager-v1</span> <span style="font-weight: 400; color: #9A9AA2">· stored decision model · Sep 21 – Sep 30</span></h2>
+<span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: #12261A; color: #56D364">Completed</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; border-bottom: 1px solid #2C2C31">
+<sc-for list="{{runStats}}" as="s" hint-placeholder-count="5">
+<div style="flex: 1 1 120px; padding: 12px 16px; border-right: 1px solid #232327">
+<div style="font-size: 11px; color: #9A9AA2">{{s.label}}</div>
+<div style="{{s.valStyle}}">{{s.value}}</div>
+<div style="font-size: 11px; color: #9A9AA2">{{s.sub}}</div>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; flex-wrap: wrap">
+<div style="flex: 3 1 380px; min-width: 0; padding: 12px 14px; border-right: 1px solid #232327">
+<div style="font-size: 11px; color: #9A9AA2; margin-bottom: 6px">Simulated cumulative P/L</div>
+<svg role="img" aria-label="Simulated cumulative P/L stepping from zero down to a 203.83 dollar drawdown, then up to 448.28 dollars over three fills" viewBox="0 0 520 220" style="width: 100%; height: auto; display: block">
+<g stroke="#26262B" stroke-width="1">
+<line x1="50" y1="20" x2="510" y2="20"></line>
+<line x1="50" y1="80" x2="510" y2="80"></line>
+<line x1="50" y1="200" x2="510" y2="200"></line>
+</g>
+<line x1="50" y1="140" x2="510" y2="140" stroke="#3A3A40" stroke-width="1"></line>
+<g fill="#9A9AA2" font-size="11" font-family="Inter, sans-serif">
+<text x="4" y="24">$600</text>
+<text x="4" y="84">$300</text>
+<text x="20" y="144">$0</text>
+<text x="0" y="204">−$300</text>
+</g>
+<polygon points="50,140 160,140 160,181 330,181 330,104 510,104 510,140" fill="#F85149" fill-opacity="0" ></polygon>
+<polyline points="50,140 160,140 160,181 330,181 330,104 450,104 450,50 510,50" fill="none" stroke="#F98309" stroke-width="2"></polyline>
+<g font-size="10" font-family="'JetBrains Mono', monospace" fill="#C2C2C8">
+<text x="166" y="198">−$203.83 max DD</text>
+<text x="440" y="42">$448.28</text>
+</g>
+</svg>
+<div style="font-size: 11px; color: #9A9AA2; margin-top: 4px">Step shape illustrative · wire to run #140 fills</div>
+</div>
+<div style="flex: 2 1 240px; min-width: 0; padding: 12px 14px">
+<div style="font-size: 11px; color: #9A9AA2; margin-bottom: 10px">Where the 35 decisions went</div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div><div style="display: flex; justify-content: space-between; font-size: 12px"><span>Filled</span><b>3</b></div><div aria-hidden="true" style="height: 8px; background: #232327; border-radius: 4px; margin-top: 4px; overflow: hidden"><div style="width: 8.6%; height: 100%; background: #F98309"></div></div></div>
+<div><div style="display: flex; justify-content: space-between; font-size: 12px"><span>Guardrail rejects</span><b>7</b></div><div aria-hidden="true" style="height: 8px; background: #232327; border-radius: 4px; margin-top: 4px; overflow: hidden"><div style="width: 20%; height: 100%; background: #6E6E76"></div></div></div>
+<div><div style="display: flex; justify-content: space-between; font-size: 12px"><span>No fill, other</span><b>25</b></div><div aria-hidden="true" style="height: 8px; background: #232327; border-radius: 4px; margin-top: 4px; overflow: hidden"><div style="width: 71.4%; height: 100%; background: #4E4E56"></div></div></div>
+</div>
+<div style="font-size: 11px; color: #9A9AA2; margin-top: 12px">Expectancy averages closed simulations only. 7 entries were rejected by portfolio limits.</div>
+</div>
+</div>
+</div>
+
+<div style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Expectancy by run</h2>
+<span style="font-size: 11px; color: #9A9AA2">stored-decision runs vs. live-model replays</span>
+</div>
+<div style="padding: 12px 14px">
+<svg role="img" aria-label="Expectancy by run: 134 no fills, 135 no fills, 136 38.81 percent, 137 38.81 percent, 138 51.12 percent, 139 no fills, 140 48.20 percent" viewBox="0 0 640 170" style="width: 100%; height: auto; display: block">
+<line x1="40" y1="140" x2="630" y2="140" stroke="#3A3A40" stroke-width="1"></line>
+<g stroke="#26262B" stroke-width="1"><line x1="40" y1="20" x2="630" y2="20"></line><line x1="40" y1="80" x2="630" y2="80"></line></g>
+<g fill="#9A9AA2" font-size="10" font-family="Inter, sans-serif"><text x="0" y="24">+60%</text><text x="0" y="84">+30%</text><text x="12" y="144">0%</text></g>
+<rect x="60" y="136" width="56" height="4" fill="#36363C"></rect>
+<rect x="144" y="136" width="56" height="4" fill="#36363C"></rect>
+<rect x="228" y="62" width="56" height="78" fill="#F98309" fill-opacity="0.75"></rect>
+<rect x="312" y="62" width="56" height="78" fill="#F98309" fill-opacity="0.75"></rect>
+<rect x="396" y="38" width="56" height="102" fill="#F98309" fill-opacity="0.75"></rect>
+<rect x="480" y="136" width="56" height="4" fill="#36363C"></rect>
+<rect x="564" y="44" width="56" height="96" fill="#F98309"></rect>
+<g font-size="10" font-family="'JetBrains Mono', monospace" fill="#C2C2C8">
+<text x="66" y="128">no fill</text><text x="150" y="128">no fill</text>
+<text x="232" y="56">+38.8%</text><text x="316" y="56">+38.8%</text><text x="400" y="32">+51.1%</text>
+<text x="486" y="128">no fill</text><text x="568" y="38">+48.2%</text>
+</g>
+<g font-size="10" font-family="Inter, sans-serif" fill="#9A9AA2">
+<text x="74" y="158">#134</text><text x="158" y="158">#135</text><text x="242" y="158">#136</text><text x="326" y="158">#137</text><text x="410" y="158">#138</text><text x="494" y="158">#139</text><text x="578" y="158">#140</text>
+</g>
+</svg>
+<div style="font-size: 11px; color: #9A9AA2; margin-top: 4px">Grey stubs: deepseek-v4.1-flash replays (#134, #135, #139) produced no simulated fills</div>
+</div>
+</div>
+</div>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1350}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var v = 'font-size: 16px; font-weight: 600; margin-top: 2px; ';
+    var sel = 'background: #232327';
+    var gain = 'font-family: \'JetBrains Mono\', monospace; font-size: 12px; font-weight: 600; color: #56D364';
+    var dash = 'font-family: \'JetBrains Mono\', monospace; font-size: 12px; color: #9A9AA2';
+    return {
+      groups: [
+        { name: 'Run scope', fields: [{ label: 'Decision window', value: 'All' }, { label: 'EOD batch', value: '10' }] },
+        { name: 'Costs', fields: [{ label: 'Entry slip (bps)', value: '25' }, { label: 'Exit slip (bps)', value: '25' }, { label: 'Comm. / contract', value: '0.65' }] },
+        { name: 'Risk limits', fields: [{ label: 'Take profit %', value: '50' }, { label: 'Stop loss %', value: '−50' }, { label: 'Max hold (h)', value: '168' }, { label: 'Max positions', value: '5' }, { label: 'Notional $', value: '50000' }, { label: 'Sector cap %', value: '50' }, { label: 'Daily loss $', value: '2000' }] }
+      ],
+      runs: [
+        { id: '140', when: 'Oct 26, 1:04 PM', model: 'Stored decision model', exp: '+48.20%', expStyle: gain, rowStyle: sel },
+        { id: '139', when: 'Oct 25, 11:47 PM', model: 'deepseek-v4.1-flash:floor', exp: '—', expStyle: dash, rowStyle: '' },
+        { id: '138', when: 'Oct 26, 12:59 PM', model: 'Stored decision model', exp: '+51.12%', expStyle: gain, rowStyle: '' },
+        { id: '137', when: 'Oct 26, 12:51 PM', model: 'Stored decision model', exp: '+38.81%', expStyle: gain, rowStyle: '' },
+        { id: '136', when: 'Oct 26, 1:31 AM', model: 'Stored decision model', exp: '+38.81%', expStyle: gain, rowStyle: '' },
+        { id: '135', when: 'Oct 26, 12:06 AM', model: 'deepseek-v4.1-flash:floor', exp: '—', expStyle: dash, rowStyle: '' },
+        { id: '134', when: 'Oct 26, 1:30 AM', model: 'deepseek-v4.1-flash:nitro', exp: '—', expStyle: dash, rowStyle: '' }
+      ],
+      runStats: [
+        { label: 'Filled', value: '3', sub: '8.57% fill rate', valStyle: v + 'color: #E8E8EA' },
+        { label: 'Expectancy', value: '+48.20%', sub: '66.7% win rate', valStyle: v + 'color: #3FB950' },
+        { label: 'Total P/L', value: '$448.28', sub: 'on $50k notional', valStyle: v + 'color: #3FB950' },
+        { label: 'Max drawdown', value: '$203.83', sub: 'simulated', valStyle: v + 'color: #F85149' },
+        { label: 'Examined', value: '35', sub: '32 no fill · 7 rejects', valStyle: v + 'color: #E8E8EA' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

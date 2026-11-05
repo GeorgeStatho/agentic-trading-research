@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from db_common import get_connection
-from services.decision_attribution import ATTRIBUTION_VERSION
+from services.evaluation.decision_attribution import ATTRIBUTION_VERSION
 from .bootstrap import initialize_database
 from .evidence_thesis import latest_strategist_thesis_check
 

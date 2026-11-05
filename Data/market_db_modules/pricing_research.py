@@ -77,11 +77,13 @@ def load_histories(ticker, sector, *, as_of, db_path=None, captured_before=None)
 
 
 def store_history(symbol, bars, *, provider, timeframe, captured_at, db_path=None):
+    """Callers store only bars completed by `captured_at`, so a re-fetch keeps the earliest capture time."""
     with closing(get_connection(db_path)) as conn, conn:
         conn.executemany('''INSERT INTO historical_underlying_bars
             (symbol, bar_at, timeframe, open_price, high_price, low_price, close_price, volume,
              provider, raw_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(symbol, bar_at, timeframe, provider) DO NOTHING''',
+            ON CONFLICT(symbol, bar_at, timeframe, provider) DO UPDATE SET created_at=excluded.created_at
+            WHERE julianday(excluded.created_at) < julianday(historical_underlying_bars.created_at)''',
             [(symbol, bar['bar_at'], timeframe, bar.get('open'), bar.get('high'), bar.get('low'),
               bar['close'], bar.get('volume'), provider, json_text({'available_at': bar.get('available_at')}),
               captured_at.isoformat()) for bar in bars])

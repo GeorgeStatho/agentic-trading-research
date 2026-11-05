@@ -7,8 +7,8 @@ import logging
 import os
 import time
 from typing import Any
-from services.gemini_models import default_vertex_model, temperature_for, thinking_level_for, uses_thinking_levels
-from services.settings import get_settings
+from services.core.gemini_models import default_vertex_model, temperature_for, thinking_level_for, uses_thinking_levels
+from services.core.settings import get_settings
 from market_db_modules.llm_usage_store import record_llm_call_usage
 
 try:

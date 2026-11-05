@@ -4,13 +4,13 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-from services.market_regime import (  # noqa: E402
+from services.gates.market_regime import (  # noqa: E402
     MarketRegimeSnapshotPolicy,
     build_market_regime_snapshot,
     classify_market_regime,
 )
-from services.market_regime_gate import MarketRegimePolicy, evaluate_market_regime_gate  # noqa: E402
-from services.order_candidates import OrderCandidateBuilder  # noqa: E402
+from services.gates.market_regime_gate import MarketRegimePolicy, evaluate_market_regime_gate  # noqa: E402
+from services.trading.order_candidates import OrderCandidateBuilder  # noqa: E402
 
 
 NOW = datetime(2026, 7, 21, 15, 0, tzinfo=timezone.utc)
@@ -72,15 +72,15 @@ class MarketRegimeClassificationTests(unittest.TestCase):
     def test_snapshot_records_a_failed_macro_refresh_without_disabling_fail_closed_behavior(self) -> None:
         with (
             patch(
-                "services.market_regime.refresh_macro_calendar_for_market_regime",
+                "services.gates.market_regime.refresh_macro_calendar_for_market_regime",
                 return_value={
                     "refreshed": False,
                     "macro_event_count": 0,
                     "reason_code": "macro_calendar_refresh_failed",
                 },
             ),
-            patch("services.market_regime._fetch_closes", side_effect=[([], None), ([], None)]),
-            patch("services.market_regime._load_macro_calendar", return_value=([], None)),
+            patch("services.gates.market_regime._fetch_closes", side_effect=[([], None), ([], None)]),
+            patch("services.gates.market_regime._load_macro_calendar", return_value=([], None)),
         ):
             snapshot = build_market_regime_snapshot(as_of=NOW, persist=False)
 

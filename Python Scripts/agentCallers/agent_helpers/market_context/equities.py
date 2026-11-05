@@ -18,7 +18,7 @@ from .alpaca_base import (
     _serialize_scalar,
     yf,
 )
-from services.numbers import safe_float
+from services.core.numbers import safe_float
 
 _SECTOR_ETF_MAP: dict[str, dict[str, Any]] | None = None
 

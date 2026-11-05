@@ -130,8 +130,8 @@ position a day.
   collecting for a few days, and set a planner model and, on Vertex, `RESEARCH_DAILY_COST_BUDGET`
   and the token rates.
 
-  Research currently runs inside the worker's trading cycle and can delay decisions by minutes
-  (see Known issues in the [guide](RESEARCH_GUIDE.md)).
+  Research runs in the news collector, so it never delays a trading decision. With
+  `RESEARCH_PLANNER_PROVIDER` empty, it uses the strategist's provider and model.
 - **Challenger (Phase 7).** Set `RESEARCH_CHALLENGER_MODE=shadow` and a challenger model.
 
   It costs up to about 100 extra model calls and about 240 MB of storage a week.

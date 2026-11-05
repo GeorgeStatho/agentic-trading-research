@@ -11,25 +11,27 @@ from unittest.mock import Mock, patch
 
 from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database
-from market_db_modules.research_runs import start_run, collect_run
+from market_db_modules.forward_evaluation import forward_status
+from market_db_modules.research_runs import start_run, collect_run, collect_active_runs
 from market_db_modules.research_reports import (
     monthly_report,
     promote_gate,
     promote_champion,
     strategy_table,
 )
-from services.contract_policy import ContractPolicy
-from services.research_contract import (
+from services.gates.contract_policy import ContractPolicy
+from services.research.research_contract import (
     ResearchPolicy,
     assert_information_cutoff,
     canonical,
     fingerprint,
+    utc,
 )
-from services.research_inputs import load_inputs, baseline_contract
-from services.research_promotion import approved, guard_policy, champion_allows, champion_check, source_hash
-from services.shadow_portfolio import simulate_option
-from services.order_candidates import OrderCandidateBuilder
-from services.trade_executor import TradeExecutionSession, OptionTradeExecutor
+from services.research.research_inputs import load_inputs, baseline_contract
+from services.research.research_promotion import approved, guard_policy, champion_allows, champion_check, source_hash
+from services.research.shadow_portfolio import simulate_option
+from services.trading.order_candidates import OrderCandidateBuilder
+from services.trading.trade_executor import TradeExecutionSession, OptionTradeExecutor
 
 START = '2026-09-01T20:00:00+00:00'
 ENTRY = '2026-09-02T20:00:00+00:00'
@@ -56,6 +58,12 @@ class ContractTests(unittest.TestCase):
         for value in (None, END):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 assert_information_cutoff([value], ENTRY)
+
+    def test_a_provider_clock_slightly_ahead_of_ours_is_not_future_information(self):
+        # Exchange quote times come from the provider's clock; ours ran ~0.5-1 s slow on the live host.
+        assert_information_cutoff(['2026-09-02T20:00:01.100000+00:00'], ENTRY)
+        with self.assertRaises(ValueError):
+            assert_information_cutoff(['2026-09-02T20:00:06+00:00'], ENTRY)
 
     def test_invalid_policy_cannot_lower_promotion_floor(self):
         for fields in ({'minimum_promotion_samples': 99}, {'holding_days': 0}, {'fee_per_contract_side': float('nan')}):
@@ -109,7 +117,7 @@ class ExecutionIdentityTests(unittest.TestCase):
                                        logger=logging.getLogger('fixture'))
         session = TradeExecutionSession(available_buying_power=20000, max_deployable_buying_power=10000,
                                         remaining_deployable_buying_power=10000, base_order_qty=1)
-        with patch('services.research_promotion.champion_check', spy), self.assertLogs('fixture', 'ERROR'):
+        with patch('services.research.research_promotion.champion_check', spy), self.assertLogs('fixture', 'ERROR'):
             result = executor.execute_candidate(trading_client=Mock(), candidate=built, session=session)
         self.assertFalse(result['submitted'])
         self.assertEqual(result['portfolio_guardrail'], 'research_champion_only')
@@ -233,6 +241,74 @@ class ResearchDatabaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             collect_run(run_id, as_of=END, db_path=self.db)
 
+    def test_quote_stamped_a_second_after_capture_still_enrolls(self):
+        run_id = self.run_fixture()
+        self.candidate()
+        with closing(get_connection(self.db)) as conn, conn:
+            row = conn.execute("SELECT id,snapshot_json,information_cutoff_time FROM candidate_snapshots WHERE stage='post_contract_selection'").fetchone()
+            envelope = json.loads(row['snapshot_json'])
+            ahead = (utc(row['information_cutoff_time']) + timedelta(seconds=1)).isoformat()
+            envelope['payload']['market_context']['timestamp'] = ahead
+            serialized = canonical(envelope)
+            from hashlib import sha256
+            conn.execute('UPDATE candidate_snapshots SET snapshot_json=?,snapshot_hash=? WHERE id=?',
+                         (serialized, sha256(serialized.encode()).hexdigest(), row['id']))
+        self.assertEqual(collect_run(run_id, as_of=END, db_path=self.db)['candidates'], 1)
+
+    def set_market_timestamp(self, value):
+        with closing(get_connection(self.db)) as conn, conn:
+            row = conn.execute("SELECT id,snapshot_json FROM candidate_snapshots WHERE stage='post_contract_selection'").fetchone()
+            envelope = json.loads(row['snapshot_json'])
+            envelope['payload']['market_context']['timestamp'] = value
+            serialized = canonical(envelope)
+            from hashlib import sha256
+            conn.execute('UPDATE candidate_snapshots SET snapshot_json=?,snapshot_hash=? WHERE id=?',
+                         (serialized, sha256(serialized.encode()).hexdigest(), row['id']))
+
+    def test_a_cohort_paused_by_a_candidate_says_which_candidate_and_why(self):
+        run_id = self.run_fixture()
+        candidate_id = self.candidate()
+        self.set_market_timestamp(END)
+        result, = collect_active_runs(as_of=END, db_path=self.db)
+        self.assertEqual(result['status'], 'paused')
+        pause, = forward_status(db_path=self.db)['paused_runs']
+        self.assertEqual((pause['run_id'], pause['candidate_id']), (run_id, candidate_id))
+        self.assertIn(END, pause['reason'])
+        self.assertIn(ENTRY, pause['reason'])
+        self.assertEqual(pause['paused_at'], END)
+
+    def test_a_pause_clears_once_the_cohort_collects_again(self):
+        self.run_fixture()
+        self.candidate()
+        self.set_market_timestamp(END)
+        collect_active_runs(as_of=END, db_path=self.db)
+        self.set_market_timestamp(ENTRY)
+        collect_active_runs(as_of=END, db_path=self.db)
+        self.assertEqual(forward_status(db_path=self.db)['paused_runs'], [])
+
+    def test_a_failing_pause_write_does_not_stop_the_other_runs(self):
+        import sqlite3
+        first, second = self.run_fixture(), self.run_fixture(2)
+        collected = []
+
+        def collect(run_id, **kwargs):
+            if run_id == first:
+                raise ValueError('Candidate candidate-000: bad input')
+            collected.append(run_id)
+            return {'run_id': run_id}
+        with patch('market_db_modules.research_runs.collect_run', side_effect=collect), \
+                patch('market_db_modules.research_runs._record_pause',
+                      side_effect=sqlite3.OperationalError('database is locked')):
+            results = collect_active_runs(as_of=END, db_path=self.db)
+        self.assertEqual((collected, len(results)), ([second], 2))
+
+    def test_a_run_that_was_never_paused_writes_no_clearing(self):
+        self.run_fixture()
+        with patch('market_db_modules.research_runs.collect_run', return_value={}), \
+                patch('market_db_modules.research_runs._clear_pause') as clear:
+            collect_active_runs(as_of=END, db_path=self.db)
+        clear.assert_not_called()
+
     def test_gate_and_champion_promotion_require_real_persisted_evidence(self):
         run_id = self.run_fixture(100)
         for n in range(100):
@@ -290,7 +366,7 @@ class ResearchDatabaseTests(unittest.TestCase):
 
     def test_shared_liquidity_mode_needs_selection_and_execution_proofs(self):
         with patch.dict('os.environ', {'V2_LIQUIDITY_MODE': 'enforce'}), patch(
-                'services.research_promotion.approved', side_effect=lambda stage, *args, **kwargs: stage == 'LIQUIDITY'):
+                'services.research.research_promotion.approved', side_effect=lambda stage, *args, **kwargs: stage == 'LIQUIDITY'):
             self.assertEqual(ContractPolicy.from_env().liquidity_mode, 'shadow')
 
     def test_shadow_challenger_cannot_enter_capital_path(self):

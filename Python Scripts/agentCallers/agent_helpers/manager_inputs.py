@@ -16,8 +16,8 @@ import sys
 from typing import Any
 from datetime import datetime
 
-from services.settings import get_settings
-from services.settings import load_process_settings
+from services.core.settings import get_settings
+from services.core.settings import load_process_settings
 
 
 if __name__ == "__main__":

@@ -9,8 +9,8 @@ from statistics import mean, median
 from typing import Any
 
 from db_common import get_connection
-from services.decision_attribution import bootstrap_se
-from services.llm_direction_score import DIRECTION_SIGN
+from services.evaluation.decision_attribution import bootstrap_se
+from services.evaluation.llm_direction_score import DIRECTION_SIGN
 from .decision_attribution import list_attributions
 
 GRADED = ('correct', 'wrong', 'flat')

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from market_db_modules.company_evidence import (
     get_company_fact, get_evidence_document, get_evidence_package, latest_evidence_package,
 )
-from services.company_evidence_policy import CompanyEvidencePolicy
+from services.discovery.company_evidence_policy import CompanyEvidencePolicy
 
 
 MAX_PAYLOAD_FACTS = 48

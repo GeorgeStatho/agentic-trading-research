@@ -1,12 +1,69 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import sqlite3
+from contextlib import closing
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from agent_helpers.deterministic_option_selector.market import _get_reference_stock_price
+from api_support.context import OPTION_POSITION_SETTINGS, logger
 from api_support.request_utils import safe_json_loads
-from services.numbers import safe_float
+from db_common import get_connection
+from services.core.numbers import safe_float
 from api_support.v2_verdicts import shadow_verdicts_for_decisions
 from market_db_modules.autopsy import list_decision_autopsy_ledger
+# The engine's own pricing steps, used read-only: its public entry points record a run and
+# snapshots. Kept here, off the trading path, so a dashboard deploy leaves research evidence valid.
+from market_db_modules.backtesting import _merged_config, _simulate_decision
+from trading_support._option_positions_defaults import build_option_exit_rules
+from trading_support._option_positions_market import _resolve_option_exit_thresholds
+
+EXIT_REASONS = {"take_profit_exit": "take_profit", "stop_loss_exit": "stop_loss"}
+MARKET_TIMEZONE = ZoneInfo("America/New_York")
+
+
+def counterfactual_trade(
+    conn: sqlite3.Connection,
+    decision: dict[str, Any],
+    *,
+    take_profit_pct: float,
+    stop_loss_pct: float,
+    max_hold_hours: int,
+) -> dict[str, Any]:
+    """What a call or put that never became an order would have done, priced like a backtest.
+
+    Read-only: unlike a backtest it records no evidence snapshot or run, so a page can ask on
+    every load. The premium cap is not applied, since the question is the trade itself.
+    """
+    config = _merged_config({"take_profit_pct": take_profit_pct, "stop_loss_pct": stop_loss_pct,
+                             "max_hold_hours": max_hold_hours})
+    event = _simulate_decision({k: v for k, v in decision.items() if k != "max_premium_dollars"}, {"id": 0}, conn, config)
+    event.pop("evidence_snapshot_id", None)
+    return event
+
+
+def todays_decision_funnel(*, now: datetime) -> dict[str, Any]:
+    """How far every decision of the current New York trading day got, not only the loaded page."""
+    market_day = now.astimezone(MARKET_TIMEZONE).date()
+    start = datetime.combine(market_day, time(0), MARKET_TIMEZONE)
+    # Stored run times are UTC ISO text, so UTC bounds compare correctly as strings.
+    bounds = (start.astimezone(timezone.utc).isoformat(), (start + timedelta(days=1)).astimezone(timezone.utc).isoformat())
+    with closing(get_connection()) as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS evaluated,
+                   COALESCE(SUM(LOWER(history.strategist_decision) = 'trade_candidate'), 0) AS trade_candidates,
+                   COALESCE(SUM(LOWER(history.manager_decision) = 'call'), 0) AS call,
+                   COALESCE(SUM(LOWER(history.manager_decision) = 'put'), 0) AS put,
+                   COALESCE(SUM(history.trade_executed = 1), 0) AS executed
+            FROM decision_autopsy_ledger AS ledger
+            JOIN manager_decision_history AS history ON history.id = ledger.manager_decision_history_id
+            WHERE ledger.decision_run_at >= ? AND ledger.decision_run_at < ?
+            """,
+            bounds,
+        ).fetchone()
+    return {"market_day": market_day.isoformat(), **{key: int(row[key]) for key in ("evaluated", "trade_candidates", "call", "put", "executed")}}
 
 
 def _string_list(value: Any) -> list[str]:
@@ -79,6 +136,84 @@ def _attribution(row: dict[str, Any]) -> dict[str, Any] | None:
     return {
         **{key: row[key] for key in ("evidence_quality", "evidence_source", "direction_outcome", "expression_outcome", "primary_failure")},
         "horizon_returns": horizon_returns or {},
+    }
+
+
+def _decided_at(value: Any) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value or "").strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def counterfactual_for_row(conn: sqlite3.Connection, row: dict[str, Any], *, now: datetime) -> dict[str, Any] | None:
+    """The contract a blocked call or put had picked, priced as if bought, under the exit rule for its DTE.
+
+    None when there is nothing to price: the trade went through, the manager chose no
+    direction, or no contract was selected.
+    """
+    if row.get("trade_executed"):
+        return None
+    snapshot = _json_dict(row.get("snapshot_json"))
+    manager_output = _json_dict(row.get("manager_output_json"))
+    recommendation = manager_output.get("recommendation") if isinstance(manager_output.get("recommendation"), dict) else {}
+    decision = str(snapshot.get("manager_decision") or recommendation.get("decision") or "").strip().lower()
+    contract = manager_output.get("selected_option")
+    decided_at = _decided_at(snapshot.get("decision_run_at") or row.get("decision_run_at"))
+    if decision not in {"call", "put"} or not isinstance(contract, dict) or not contract.get("symbol") or decided_at is None:
+        return None
+    dte = safe_float(contract.get("days_to_expiration"))
+    if dte is None:
+        return None
+    rule = _resolve_option_exit_thresholds(
+        days_to_expiration=int(dte),
+        default_take_profit_pct=OPTION_POSITION_SETTINGS.take_profit_pct,
+        default_stop_loss_pct=OPTION_POSITION_SETTINGS.stop_loss_pct,
+        default_exit_hours_to_expiration=0.0,
+        exit_rules=build_option_exit_rules(OPTION_POSITION_SETTINGS.dte_rules),
+    )
+    # Held until the rule's forced exit before expiry, as the option manager would.
+    hold = timedelta(days=max(1.0, dte - (rule.force_exit_days_to_expiration or 0)))
+    market_context = _json_dict(row.get("manager_input_json")).get("market_context")
+    event = counterfactual_trade(
+        conn,
+        {
+            "id": int(row.get("manager_decision_history_id") or 0),
+            "symbol": str(snapshot.get("symbol") or row.get("symbol") or "").strip().upper(),
+            "decision_run_at": decided_at.isoformat(),
+            "manager_decision": decision,
+            "manager_reason": str(recommendation.get("reason") or ""),
+            "selected_option_symbol": str(contract["symbol"]).strip().upper(),
+            "selected_contract": contract,
+            "reference_spot": _get_reference_stock_price(market_context) if isinstance(market_context, dict) else None,
+        },
+        take_profit_pct=rule.take_profit_pct,
+        stop_loss_pct=rule.stop_loss_pct,
+        max_hold_hours=int(hold.total_seconds() // 3600),
+    )
+    warnings = list(event.get("warnings") or [])
+    closed = event.get("status") == "simulated_closed"
+    # Neither threshold before the last quote we hold: quotes are fetched for about a week after
+    # each decision, so this is often the end of the data rather than the end of the window.
+    exit_reason = next((EXIT_REASONS[warning] for warning in warnings if warning in EXIT_REASONS), "last_mark" if closed else None)
+    return {
+        "option_symbol": event.get("option_symbol"),
+        "status": event.get("status"),
+        "entry_at": event.get("entry_at"),
+        "entry_price": event.get("entry_price"),
+        "exit_at": event.get("exit_at"),
+        "exit_price": event.get("exit_price"),
+        "realized_pnl_pct": event.get("realized_pnl_pct"),
+        "realized_pnl_dollars": event.get("realized_pnl_dollars"),
+        "pricing_source": event.get("pricing_source"),
+        "exit_reason": exit_reason,
+        # Not a closed trade yet: the window runs on, so this is the latest close, not the outcome.
+        "still_open": exit_reason == "last_mark" and decided_at + hold > now,
+        "take_profit_pct": rule.take_profit_pct,
+        "stop_loss_pct": rule.stop_loss_pct,
+        "dte_bucket": rule.dte_rule_label,
+        "warnings": warnings,
     }
 
 
@@ -157,7 +292,16 @@ def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
 
 
 def build_decision_autopsy_payload(*, limit: int = 100) -> dict[str, Any]:
-    records = [_serialize_ledger_row(row) for row in list_decision_autopsy_ledger(limit=limit)]
+    rows = [dict(row) for row in list_decision_autopsy_ledger(limit=limit)]
+    records = [_serialize_ledger_row(row) for row in rows]
+    now = datetime.now(timezone.utc)
+    with closing(get_connection()) as conn:
+        for record, row in zip(records, rows):
+            try:
+                record["counterfactual"] = counterfactual_for_row(conn, row, now=now)
+            except Exception:  # one unpriceable record must not take down the ledger
+                logger.warning("Counterfactual pricing failed for decision %s", record["manager_decision_history_id"], exc_info=True)
+                record["counterfactual"] = None
     # One query for the page, not one per record. None means the lifecycle
     # tables cannot be read, which a reader must not mistake for "nothing
     # objected to this decision".
@@ -167,9 +311,10 @@ def build_decision_autopsy_payload(*, limit: int = 100) -> dict[str, Any]:
     for record in records:
         record["v2_verdicts"] = (verdicts or {}).get(record["manager_decision_history_id"], [])
     return {
-        "as_of": datetime.now(timezone.utc).isoformat(),
+        "as_of": now.isoformat(),
         "count": len(records),
         "records": records,
+        "today": todays_decision_funnel(now=now),
         "read_only": True,
         "no_trade_executed_by_feature": True,
         "v2_verdicts_available": verdicts is not None,

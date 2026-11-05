@@ -20,11 +20,11 @@ from market_db_modules.backtesting import (
 )
 from market_db_modules.backtesting import run_decision_backtest
 from market_db_modules.candidate_lifecycle import record_candidate_snapshot
-from services import llm_backtest
-from services.trading_config import WorkerSettings
-from services.evidence_thesis_policy import EvidenceThesisPolicy
-from services.llm_backtest import ModelUnavailable, ProductionRules, run_llm_backtest
-from services.order_candidates import OrderCandidateBuilder
+from services.evaluation import llm_backtest
+from services.core.trading_config import WorkerSettings
+from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
+from services.evaluation.llm_backtest import ModelUnavailable, ProductionRules, run_llm_backtest
+from services.trading.order_candidates import OrderCandidateBuilder
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "Data"
 DECISION_AT = "2026-03-02T15:00:00+00:00"
@@ -238,7 +238,7 @@ class RecommendationEligibilityTests(unittest.TestCase):
     def test_recorded_decisions_skip_the_admission_check(self) -> None:
         view = {"decision": "call", "confidence": "high", "strategist_recommendation": {"decision": "trade_candidate"},
                 "entry_gate": {"allowed": True}, "market_regime_gate": {"allowed": True}}
-        with patch("services.order_candidates.catalyst_admission_allowed", return_value=False):
+        with patch("services.trading.order_candidates.catalyst_admission_allowed", return_value=False):
             self.assertTrue(OrderCandidateBuilder().recommendation_allows_entry(view))
 
 
@@ -327,7 +327,7 @@ class ContaminationMetricsTests(DatabaseFixture):
                          "VALUES (?, ?)", (history_id, json.dumps({"replay_input": {"company": {"symbol": "OLD"}}})))
         decide = Mock(return_value={"recommendation": TRADEABLE["recommendation"]})
         fixture_csv = Path(__file__).resolve().parent / "fixtures" / "model_cutoffs.csv"
-        with patch("services.model_cutoffs.CUTOFFS_CSV", fixture_csv), \
+        with patch("services.evaluation.model_cutoffs.CUTOFFS_CSV", fixture_csv), \
                 patch.object(llm_backtest, "finalize", return_value=TRADEABLE):
             result = run_llm_backtest(model="test-model", decide=decide, db_path=self.db_path)
         replay = result["run"]["metrics"]["replay"]
@@ -339,7 +339,7 @@ class ContaminationMetricsTests(DatabaseFixture):
     def test_an_allowed_unknown_cutoff_replays_everything_and_records_no_cutoff(self) -> None:
         decide = Mock(return_value={"recommendation": TRADEABLE["recommendation"]})
         fixture_csv = Path(__file__).resolve().parent / "fixtures" / "model_cutoffs.csv"
-        with patch("services.model_cutoffs.CUTOFFS_CSV", fixture_csv), \
+        with patch("services.evaluation.model_cutoffs.CUTOFFS_CSV", fixture_csv), \
                 patch.object(llm_backtest, "finalize", return_value=TRADEABLE):
             result = run_llm_backtest(model="mystery-model", decide=decide, allow_unknown_cutoff=True,
                                       db_path=self.db_path)
@@ -350,7 +350,7 @@ class ContaminationMetricsTests(DatabaseFixture):
 
     def test_an_unknown_model_is_refused_before_anything_is_replayed(self) -> None:
         decide = Mock()
-        with patch("services.model_cutoffs.CUTOFFS_CSV", Path(__file__).resolve().parent / "fixtures" / "model_cutoffs.csv"):
+        with patch("services.evaluation.model_cutoffs.CUTOFFS_CSV", Path(__file__).resolve().parent / "fixtures" / "model_cutoffs.csv"):
             with self.assertRaises(ValueError):
                 run_llm_backtest(model="mystery-model", decide=decide, db_path=self.db_path)
         decide.assert_not_called()

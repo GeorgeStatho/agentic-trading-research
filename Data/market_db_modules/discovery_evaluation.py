@@ -12,21 +12,31 @@ import json
 from statistics import mean, median
 
 from db_common import get_connection
-from services.research_contract import utc
-from services.research_promotion import research_only_candidate
+from services.research.research_contract import utc
+from services.research.research_promotion import research_only_candidate
 from .bootstrap import initialize_database
 
 ROUTES = ('production', 'discovery')
 HORIZONS = (1, 3, 5, 10)
 SIGN = {'positive': 1, 'negative': -1}
+# Pre-registered 2026-11-04, before any results were read: the bar for setting DISCOVERY_MODE=enforce.
+# Amended the same day, still before any discovery-only outcome resolved, to require company news.
+PROMOTION_CRITERIA = {'horizon': '5d', 'min_shadow_days': 14, 'min_discovery_only_events': 40,
+                      'discovery_only_requires_company_news_days': 5,
+                      'discovery_only_at_least_ranking': ['mean_absolute_residual_return', 'hit_rate']}
 
 
 def _production_route(conn, since, until):
-    """The existing sector/opportunist route: did a candidate for the event reach the strategist?"""
+    """The existing sector/opportunist route: did a candidate for the event reach the strategist?
+
+    Candidates DISCOVERY_MODE=enforce routed into production belong to the discovery route, not the ranking.
+    """
     events = defaultdict(list)
     for row in conn.execute('''SELECT c.candidate_id, c.created_at, cc.catalyst_id, cc.state_json FROM candidates c
             JOIN candidate_catalysts cc ON cc.candidate_id=c.candidate_id AND cc.is_primary=1
-            WHERE julianday(c.created_at) BETWEEN julianday(?) AND julianday(?)''', (since, until)):
+            WHERE julianday(c.created_at) BETWEEN julianday(?) AND julianday(?)
+            AND NOT EXISTS (SELECT 1 FROM discovery_production_routes r WHERE r.candidate_id=c.candidate_id)''',
+                            (since, until)):
         if research_only_candidate(row['candidate_id']):
             continue
         stages = {stage[0] for stage in conn.execute(
@@ -92,6 +102,15 @@ def _responses(conn, catalyst_ids, as_of):
     return result
 
 
+def _has_company_news(conn, symbol, admitted_at):
+    """The strategist can only decide an event whose company has classified news around its admission."""
+    days = PROMOTION_CRITERIA['discovery_only_requires_company_news_days']
+    return conn.execute('''SELECT 1 FROM company_opportunist_impacts i JOIN companies c ON c.id=i.company_id
+        JOIN news_articles a ON a.id=i.article_id WHERE UPPER(c.symbol)=UPPER(?)
+        AND julianday(a.published_at) BETWEEN julianday(?) - ? AND julianday(?) + 1 LIMIT 1''',
+                        (symbol, admitted_at, days, admitted_at)).fetchone() is not None
+
+
 def _group_outcomes(rows, responses):
     summary = {}
     for horizon in HORIZONS:
@@ -104,6 +123,24 @@ def _group_outcomes(rows, responses):
                                   'hit_rate': sum(value > 0 for value in signed) / len(signed) if signed else None,
                                   'mean_absolute_residual_return': mean(absolute) if absolute else None}
     return summary
+
+
+def promotion_check(discovery_only, ranking_sourced, *, first_admitted_at, until):
+    """Discovery-only admitted events must match ranking-sourced ones on enough shadow data."""
+    criteria = PROMOTION_CRITERIA
+    days = (utc(until) - utc(first_admitted_at)).total_seconds() / 86400 if first_admitted_at else 0
+    failures = []
+    if days < criteria['min_shadow_days']:
+        failures.append('shadow_days_below_minimum')
+    if discovery_only['resolved'] < criteria['min_discovery_only_events']:
+        failures.append('discovery_only_events_below_minimum')
+    for metric in criteria['discovery_only_at_least_ranking']:
+        if discovery_only[metric] is None or ranking_sourced[metric] is None:
+            failures.append(f'{metric}_unresolved')
+        elif discovery_only[metric] < ranking_sourced[metric]:
+            failures.append(f'{metric}_below_ranking')
+    return {'passed': not failures, 'failures': failures, 'criteria': criteria, 'shadow_days': days,
+            'discovery_only': discovery_only, 'ranking_sourced': ranking_sourced}
 
 
 def discovery_route_ledger(*, days=30, as_of=None, db_path=None):
@@ -145,6 +182,15 @@ def route_ledger(conn, *, days=30, as_of=None):
                 reasons[route][f"{entry['status']}:{entry['reason']}"] += 1
             elif row['first_public_time'] and entry['admitted_at']:
                 latency[route].append((utc(entry['admitted_at']) - utc(row['first_public_time'])).total_seconds())
+    horizon = PROMOTION_CRITERIA['horizon']
+    discovery_admissions = [row['routes']['discovery']['admitted_at'] for row in admitted
+                            if row['routes']['discovery']['status'] == 'admitted']
+    with_news = [row for row in groups['discovery_only']
+                 if _has_company_news(conn, row['ticker'], row['routes']['discovery']['admitted_at'])]
+    check = promotion_check(_group_outcomes(with_news, responses)[horizon],
+                            _group_outcomes(groups['production_only'] + groups['both'], responses)[horizon],
+                            first_admitted_at=min(discovery_admissions, default=None), until=until)
+    check['discovery_only_without_news'] = len(groups['discovery_only']) - len(with_news)
     return {'window': {'since': since, 'until': until.isoformat()}, 'events_seen': len(ledger),
             'admitted_union': len(admitted),
             'route_status_counts': {route: dict(counts) for route, counts in route_counts.items()},
@@ -152,6 +198,7 @@ def route_ledger(conn, *, days=30, as_of=None):
             'admission_latency_seconds_median': {route: median(values) if values else None
                                                  for route, values in latency.items()},
             'outcomes_by_admission': {group: _group_outcomes(rows, responses) for group, rows in sorted(groups.items())},
+            'promotion_check': check,
             'admitted_events': admitted,
             'basis': 'stored catalyst residual responses signed by catalyst direction; events whose catalyst was '
                      'never registered for response collection stay unresolved, never zero'}

@@ -4,9 +4,9 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
-from services.trading_config import MomentumHistoryConfig, OptionPositionSettings
-from services.option_momentum import evaluate_option_momentum_from_snapshot
-from services.option_position_state import get_position_state, update_position_state
+from services.core.trading_config import MomentumHistoryConfig, OptionPositionSettings
+from services.options.option_momentum import evaluate_option_momentum_from_snapshot
+from services.options.option_position_state import get_position_state, update_position_state
 
 from ._option_positions_momentum import (
     MOMENTUM_MIXED,
@@ -33,9 +33,9 @@ from ._option_positions_strategy import (
     _round_option_sell_price_to_tick,
     _structured_exit_action,
 )
-from services.candidate_lifecycle import observe
-from services.position_exit_policy import build_position_exit_context
-from services.numbers import safe_float
+from services.runtime.candidate_lifecycle import observe
+from services.options.position_exit_policy import build_position_exit_context
+from services.core.numbers import safe_float
 
 _TRUSTED_ENTRY_UNDERLYING_PRICE_SOURCES = {
     "broker_fill",

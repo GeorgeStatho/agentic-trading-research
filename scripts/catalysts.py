@@ -22,7 +22,7 @@ def main():
     args = parser.parse_args()
     db_path = args.db or None
     if args.command == 'classify':
-        from services.catalyst_classification import classify_pending_catalysts
+        from services.discovery.catalyst_classification import classify_pending_catalysts
         result = classify_pending_catalysts(limit=args.limit, db_path=db_path)
     else:
         from contextlib import closing

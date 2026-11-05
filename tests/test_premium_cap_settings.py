@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from services.trading_config import WorkerSettings  # noqa: E402
+from services.core.trading_config import WorkerSettings  # noqa: E402
 
 
 class PremiumCapSettingsTests(unittest.TestCase):

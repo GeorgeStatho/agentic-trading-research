@@ -10,7 +10,7 @@ from .alpaca_base import (
     _get_field,
     _serialize_scalar,
 )
-from services.numbers import safe_float
+from services.core.numbers import safe_float
 
 
 def _serialize_position(position: Any) -> dict[str, Any]:

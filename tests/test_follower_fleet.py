@@ -10,8 +10,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from market_db_modules import account_positions as store
-from services.follower_fleet import FollowerFleet, build_follower_fleet
-from services.trading_accounts import FollowerSettings, TradingAccount
+from services.trading.follower_fleet import FollowerFleet, build_follower_fleet
+from services.trading.trading_accounts import FollowerSettings, TradingAccount
 from tests.db_fixtures import temporary_database
 
 CHAIN = json.loads((Path(__file__).parent / 'fixtures' / 'follower_chain.json').read_text())
@@ -251,13 +251,13 @@ class BuildFollowerFleetTests(unittest.TestCase):
     """With only production configured, nothing new is built and no Alpaca client is created."""
 
     def test_production_only_builds_no_fleet_and_no_clients(self):
-        with patch('services.trading_gateway.TradingClient') as client_class:
+        with patch('services.trading.trading_gateway.TradingClient') as client_class:
             self.assertIsNone(build_follower_fleet([PRIMARY], logger=logging.getLogger('test')))
             self.assertIsNone(build_follower_fleet([], logger=logging.getLogger('test')))
         client_class.assert_not_called()
 
     def test_followers_build_a_fleet_without_connecting_yet(self):
-        with patch('services.trading_gateway.TradingClient') as client_class:
+        with patch('services.trading.trading_gateway.TradingClient') as client_class:
             fleet = build_follower_fleet([PRIMARY, follower('shares')], logger=logging.getLogger('test'),
                                          settings=FollowerSettings())
         self.assertIsInstance(fleet, FollowerFleet)

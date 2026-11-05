@@ -38,11 +38,11 @@ def stage():
 
 
 def runner():
-    return importlib.import_module('services.catalyst_classification')
+    return importlib.import_module('services.discovery.catalyst_classification')
 
 
 def settings_module():
-    return importlib.import_module('services.settings')
+    return importlib.import_module('services.core.settings')
 
 
 def model_answer(text, model):
@@ -438,12 +438,12 @@ class CollectorHookTests(ClassifierCase):
             stack.enter_context(patch.object(stage(), 'ask_model', model))
             stack.enter_context(patch.object(collector, 'run_news_collection_pipeline', return_value={}))
             stack.enter_context(patch.object(collector.JsonFileWriter, 'write'))
-            for target in ('services.market_regime.build_market_regime_snapshot',
-                           'services.forward_evaluation.run_forward_evaluation_cycle',
-                           'services.company_evidence_service.collect_company_evidence',
-                           'services.event_discovery.discover_company_events'):
+            for target in ('services.gates.market_regime.build_market_regime_snapshot',
+                           'services.evaluation.forward_evaluation.run_forward_evaluation_cycle',
+                           'services.discovery.company_evidence_service.collect_company_evidence',
+                           'services.discovery.event_discovery.discover_company_events'):
                 stack.enter_context(patch(target, return_value={}))
-            stack.enter_context(patch('services.catalyst_response_collector.collect_catalyst_responses',
+            stack.enter_context(patch('services.discovery.catalyst_response_collector.collect_catalyst_responses',
                                       side_effect=collect_responses))
             result = collector.run_news_collection_cycle()
         return result, seen
@@ -539,12 +539,12 @@ class BackfillCliTests(ClassifierCase):
 
 class WiringTests(unittest.TestCase):
     def test_pipeline_version_hashes_the_label_store_and_the_new_stage_files(self):
-        from services.pipeline_version import pipeline_source_hashes
+        from services.core.pipeline_version import pipeline_source_hashes
         hashed = set(pipeline_source_hashes())
         for path in ('Data/news_db_modules/catalyst_labels.py',
                      'Python Scripts/agentCallers/agent_stages/catalyst_classifier.py',
                      'Python Scripts/agentCallers/agent_helpers/catalyst_classifier.py',
-                     'Python Scripts/services/catalyst_classification.py'):
+                     'Python Scripts/services/discovery/catalyst_classification.py'):
             self.assertIn(path, hashed)
 
     def test_env_example_and_docs_describe_the_classifier(self):

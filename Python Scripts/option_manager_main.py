@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from services.settings import load_process_settings
+from services.core.settings import load_process_settings
 
 if __name__ == "__main__":
     # Before `main` imports services that still read configuration at import time.
     load_process_settings()
 
 from main import LOGGER, _build_log_path, _configure_logging, option_manager_loop
-from services.telemetry import send_startup_ping_async
+from services.runtime.telemetry import send_startup_ping_async
 
 
 if __name__ == "__main__":

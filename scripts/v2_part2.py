@@ -43,13 +43,13 @@ def main():
     elif args.command == 'exits':
         result = exit_attribution_report()
     elif args.command == 'post-exit':
-        from services.position_telemetry import refresh_post_exit_returns
+        from services.runtime.position_telemetry import refresh_post_exit_returns
         result = refresh_post_exit_returns()
     else:
-        from services.execution_telemetry import reconcile_execution_telemetry
-        from services.position_telemetry import ensure_tracked_positions
-        from services.trading_config import AlpacaSettings
-        from services.trading_gateway import AlpacaTradingGateway
+        from services.runtime.execution_telemetry import reconcile_execution_telemetry
+        from services.runtime.position_telemetry import ensure_tracked_positions
+        from services.core.trading_config import AlpacaSettings
+        from services.trading.trading_gateway import AlpacaTradingGateway
         gateway = AlpacaTradingGateway(paper=AlpacaSettings.from_env().paper,
                                        logger=logging.getLogger(__name__))
         result = reconcile_execution_telemetry(gateway=gateway, trading_client=gateway.create_client())

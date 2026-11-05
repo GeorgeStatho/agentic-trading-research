@@ -1,0 +1,98 @@
+"""Admitted discovery entries that DISCOVERY_MODE=enforce sends to the production strategist and manager.
+
+Admission (evidence score and freshness) already happened in the discovery queue; research readiness
+is not required. Each catalyst is routed once, only while it is still fresh, and only after the news
+collector has refreshed the company's sector, industry and company news since the admission.
+"""
+from contextlib import closing
+import json
+
+from db_common import get_connection
+from services.gates.catalyst_gates import evaluate_catalyst_gates
+from services.research.research_contract import utc
+
+READY_ENTRIES = '''SELECT s.queue_id,s.payload_json,q.company_id,q.catalyst_id,c.symbol,c.name,
+        i.industry_key,i.name AS industry_name,se.sector_key,k.state_json AS catalyst_state
+    FROM discovery_shadow_candidates s JOIN discovery_queue q ON q.queue_id=s.queue_id
+    JOIN discovery_queue_details d ON d.queue_id=s.queue_id
+    JOIN companies c ON c.id=q.company_id JOIN industries i ON i.id=c.industry_id
+    JOIN sectors se ON se.id=i.sector_id JOIN catalysts k ON k.catalyst_id=q.catalyst_id
+    WHERE s.admission_status='ready' AND q.purpose='entry' AND q.status='completed'
+    AND julianday(s.created_at)<=julianday(?) AND julianday(d.expires_at)>julianday(?)
+    AND NOT EXISTS (SELECT 1 FROM discovery_production_routes r JOIN discovery_queue rq ON rq.queue_id=r.queue_id
+        WHERE rq.company_id=q.company_id AND rq.catalyst_id=q.catalyst_id)
+    AND {refreshed} (SELECT 1 FROM discovery_news_refreshes n WHERE n.company_id=q.company_id
+        AND julianday(n.refreshed_at)>=julianday(s.created_at))
+    ORDER BY d.base_priority DESC, s.created_at, s.queue_id'''
+
+
+def _routable_age(catalyst_state, *, at, policy):
+    """The FRESHNESS gate's decay rule, whatever its mode; a fixed age limit where it has no half-life."""
+    state = json.loads(catalyst_state)
+    if state.get('expected_half_life_minutes'):
+        return evaluate_catalyst_gates(state, as_of=utc(at))['FRESHNESS']['would_allow']
+    # Family 'other', which every SEC company-evidence catalyst has, carries no decay prior.
+    first = state.get('first_public_time')
+    return bool(first) and 0 <= (utc(at) - utc(first)).total_seconds() <= policy.route_max_age_seconds
+
+
+def _ready_entries(conn, *, at, news_refreshed, exclude_symbols, limit, keep=None):
+    """The highest-priority ready, unrouted entry per company, at most `limit` companies."""
+    excluded = {symbol.upper() for symbol in exclude_symbols}
+    entries = {}
+    query = READY_ENTRIES.format(refreshed='EXISTS' if news_refreshed else 'NOT EXISTS')
+    for row in conn.execute(query, (at, at)).fetchall():
+        symbol = row['symbol'].upper()
+        if symbol in excluded or symbol in entries or (keep and not keep(row)):
+            continue
+        if len(entries) >= limit:
+            break
+        entries[symbol] = row
+    return entries
+
+
+def admitted_entries(*, policy, at, exclude_symbols=(), db_path=None):
+    """Ready entry events whose company news was refreshed since admission, at most `production_limit`."""
+    if policy.mode != 'enforce' or policy.production_limit == 0:
+        return []
+    with closing(get_connection(db_path)) as conn:
+        entries = _ready_entries(conn, at=at, news_refreshed=True, exclude_symbols=exclude_symbols,
+                                 limit=policy.production_limit,
+                                 keep=lambda row: _routable_age(row['catalyst_state'], at=at, policy=policy))
+        result = []
+        for symbol, row in entries.items():
+            origins = [r[0] for r in conn.execute(
+                'SELECT origin FROM discovery_queue_origins WHERE queue_id=? ORDER BY origin', (row['queue_id'],))]
+            sources = [r[0] for r in conn.execute('''SELECT DISTINCT source FROM company_interest WHERE company_id=?
+                AND julianday(selected_at)<=julianday(?) AND julianday(expires_at)>julianday(?) ORDER BY source''',
+                                                  (row['company_id'], at, at))]
+            result.append({
+                'symbol': symbol, 'company_id': row['company_id'], 'name': row['name'],
+                'sector_key': row['sector_key'], 'industry_key': row['industry_key'],
+                'industry_name': row['industry_name'], 'queue_id': row['queue_id'], 'catalyst_id': row['catalyst_id'],
+                'discovery_origins': origins, 'interest_sources': sources,
+                'admission': json.loads(row['payload_json'])['admission']})
+    return result
+
+
+def news_refresh_companies(*, policy, at, exclude_symbols=(), db_path=None):
+    """Companies with a ready entry admitted since their last discovery news refresh, in shadow and enforce."""
+    if policy.mode == 'disabled' or policy.production_limit == 0:
+        return []
+    with closing(get_connection(db_path)) as conn:
+        entries = _ready_entries(conn, at=at, news_refreshed=False, exclude_symbols=exclude_symbols,
+                                 limit=policy.production_limit)
+    return [{'symbol': symbol, 'company_id': row['company_id'], 'sector_key': row['sector_key'],
+             'industry_key': row['industry_key']} for symbol, row in entries.items()]
+
+
+def record_news_refresh(company_id, at, *, db_path=None):
+    with closing(get_connection(db_path)) as conn, conn:
+        conn.execute('''INSERT INTO discovery_news_refreshes VALUES (?,?)
+            ON CONFLICT(company_id) DO UPDATE SET refreshed_at=excluded.refreshed_at''', (company_id, at))
+
+
+def record_routes(routes, *, at, db_path=None):
+    with closing(get_connection(db_path)) as conn, conn:
+        conn.executemany('INSERT OR IGNORE INTO discovery_production_routes VALUES (?,?,?,?)',
+                         [(route['queue_id'], route['symbol'], route['candidate_id'], at) for route in routes])

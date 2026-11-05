@@ -26,9 +26,9 @@ from market_db_modules.position_outcomes import (
     record_position_observation,
     close_position_outcome,
 )
-from services.candidate_lifecycle import observe
-from services.execution_telemetry import fill_metrics, reconcile_execution_telemetry
-from services.pipeline_version import build_pipeline_version
+from services.runtime.candidate_lifecycle import observe
+from services.runtime.execution_telemetry import fill_metrics, reconcile_execution_telemetry
+from services.core.pipeline_version import build_pipeline_version
 
 SYMBOL = 'NVDA261016C00150000'
 VERSION = {'pipeline_version': 'v2:test', 'gate_config': {'continuation': {'min_roots': 2}}}
@@ -143,7 +143,7 @@ class TelemetryDatabaseTests(unittest.TestCase):
 
 class VersionAndGateTests(unittest.TestCase):
     def test_manifest_is_stable_but_threshold_changes_are_visible(self):
-        from services.trading_config import WorkerSettings
+        from services.core.trading_config import WorkerSettings
         settings = WorkerSettings.from_env()
         first = build_pipeline_version(settings=settings)
         self.assertEqual(first, build_pipeline_version(settings=settings))
@@ -153,7 +153,7 @@ class VersionAndGateTests(unittest.TestCase):
             self.assertNotIn('never-store-this-secret', json.dumps(build_pipeline_version(settings=settings)))
 
     def test_failed_observation_does_not_change_trading_control_flow(self):
-        with self.assertLogs('services.candidate_lifecycle', level='ERROR'):
+        with self.assertLogs('services.runtime.candidate_lifecycle', level='ERROR'):
             self.assertIsNone(observe(Mock(side_effect=RuntimeError('database unavailable'))))
 
     def test_coactive_exit_collection_preserves_priority_and_state(self):

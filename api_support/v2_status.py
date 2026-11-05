@@ -3,7 +3,7 @@ from __future__ import annotations
 """Read-side view of the V2 rollout: what is enforcing, what the shadow gates
 would have done, and what evidence each stage still needs to be promoted.
 
-Enforcement is not a setting. `services.research_promotion.guard_policy` rewrites
+Enforcement is not a setting. `services.research.research_promotion.guard_policy` rewrites
 any `enforce` request that has no matching counterfactual proof back to `shadow`,
 so an environment variable alone says nothing about live behaviour. Every feature
 row therefore carries the requested mode, the effective mode, and the promotion
@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from services.numbers import safe_float
+from services.core.numbers import safe_float
 from db_common import database_path, get_connection
 from api_support.context import logger
 
@@ -185,10 +185,10 @@ def _load_policies() -> dict:
     A malformed mode variable raises here exactly as it raises in the trading
     pipeline, so the exception is kept and reported against its own feature.
     """
-    from services.catalyst_gates import CatalystGatePolicy
-    from services.contract_policy import ContractPolicy
-    from services.evidence_continuation_policy import EvidenceContinuationPolicy
-    from services.market_regime_gate import MarketRegimePolicy
+    from services.gates.catalyst_gates import CatalystGatePolicy
+    from services.gates.contract_policy import ContractPolicy
+    from services.gates.evidence_continuation_policy import EvidenceContinuationPolicy
+    from services.gates.market_regime_gate import MarketRegimePolicy
 
     loaders = {
         "catalyst": CatalystGatePolicy.from_env,
@@ -207,7 +207,7 @@ def _load_policies() -> dict:
 
 
 def _source_hash() -> str | None:
-    from services.research_promotion import source_hash
+    from services.research.research_promotion import source_hash
 
     try:
         return source_hash()
@@ -249,7 +249,7 @@ def _feature_status(reading: _Reading, feature: dict, policies: dict) -> dict:
 
 def _stage_status(reading: _Reading, stage: str, policy, feature: dict) -> dict:
     """One promotion stage: its proof, and what the shadow stream has seen."""
-    from services.research_promotion import policy_hash
+    from services.research.research_promotion import policy_hash
 
     proofs = _promotion_rows(reading.conn, stage)
     current_hash = policy_hash(stage, policy, reading.code_hash) if reading.code_hash else None
@@ -275,7 +275,7 @@ def _enforcement_allowed(reading: _Reading, stage: str, policy) -> bool:
     The reading's code hash is passed through so one payload hashes the sources
     once instead of once per stage.
     """
-    from services.research_promotion import approved
+    from services.research.research_promotion import approved
 
     try:
         return bool(approved(stage, policy, db_path=reading.db_path, code_hash=reading.code_hash))
@@ -413,7 +413,7 @@ def _collection_version_matches(conn, run: dict, code_hash: str | None) -> bool:
     if not _table_exists(conn, "research_run_versions"):
         return False
     from market_db_modules.research_runs import read_run
-    from services.research_versions import require_current_evaluator
+    from services.research.research_versions import require_current_evaluator
     try:
         require_current_evaluator(read_run(conn, run["run_id"]), code_hash)
     except (ValueError, TypeError, KeyError):

@@ -19,7 +19,7 @@ from statistics import mean, median
 
 from catalyst_models import timestamp
 from db_common import get_connection
-from services.price_response import completed_at
+from services.research.price_response import completed_at
 
 LAG_BUCKETS = ('<1h', '1-6h', 'overnight', '>1d')
 UNKNOWN_BUCKET = 'unknown'
@@ -270,7 +270,7 @@ def news_lag_report(*, days=0, db_path=None, now=None):
 
 def fetch_missing_history(*, days=0, db_path=None, now=None, fetcher=None):
     """Cache daily and up to ~2 years of hourly bars for traded underlyings (network)."""
-    from services.catalyst_response_collector import fetch_response_history, store_fetched_history
+    from services.discovery.catalyst_response_collector import fetch_response_history, store_fetched_history
 
     now = now or datetime.now(timezone.utc)
     since = (now - timedelta(days=days)).isoformat() if days else None

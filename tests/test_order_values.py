@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from services.order_values import normalize_order_summary
-from services.trading_gateway import AlpacaTradingGateway
+from services.trading.order_values import normalize_order_summary
+from services.trading.trading_gateway import AlpacaTradingGateway
 
 
 class OrderValueTests(unittest.TestCase):

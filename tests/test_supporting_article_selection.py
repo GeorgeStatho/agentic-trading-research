@@ -208,7 +208,7 @@ class ShapeTests(unittest.TestCase):
 
 class ManifestTests(unittest.TestCase):
     def test_manifest_records_the_selection_version(self):
-        from services.pipeline_version import build_pipeline_version
+        from services.core.pipeline_version import build_pipeline_version
 
         manifest = build_pipeline_version()
         self.assertEqual(manifest["supporting_article_selection_version"], "company-first-quotas-v1")

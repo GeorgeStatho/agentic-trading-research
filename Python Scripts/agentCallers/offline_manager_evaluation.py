@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from services.settings import get_settings
-from services.settings import load_process_settings
+from services.core.settings import get_settings
+from services.core.settings import load_process_settings
 
 from agent_helpers.manager_inputs import (
     build_resolved_autopsy_insights,

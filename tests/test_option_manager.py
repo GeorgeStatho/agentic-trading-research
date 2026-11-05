@@ -12,9 +12,9 @@ from unittest.mock import MagicMock, patch
 ROOT_DIR = Path(__file__).resolve().parents[1]
 PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
 
-from services.trading_config import OptionPositionSettings  # noqa: E402
-from services.option_dte_buckets import OPTION_DTE_BUCKETS  # noqa: E402
-from services.position_manager import OptionPositionManagerService  # noqa: E402
+from services.core.trading_config import OptionPositionSettings  # noqa: E402
+from services.options.option_dte_buckets import OPTION_DTE_BUCKETS  # noqa: E402
+from services.options.position_manager import OptionPositionManagerService  # noqa: E402
 
 
 FRONT_MAIN_SPEC = importlib.util.spec_from_file_location(
@@ -89,10 +89,10 @@ def _build_position_manager_settings(bucket_giveback_fixture: dict[str, float], 
 
 
 class OptionPositionManagerServiceTests(VerboseTestCase):
-    @patch("services.position_manager.update_manager_decision_latest_pnl")
-    @patch("services.position_manager.get_latest_linked_manager_decision_for_option_symbol")
-    @patch("services.position_manager.expire_manager_decision_pnl")
-    @patch("services.position_manager.JsonFileWriter.write")
+    @patch("services.options.position_manager.update_manager_decision_latest_pnl")
+    @patch("services.options.position_manager.get_latest_linked_manager_decision_for_option_symbol")
+    @patch("services.options.position_manager.expire_manager_decision_pnl")
+    @patch("services.options.position_manager.JsonFileWriter.write")
     def test_run_cycle_refreshes_manager_history_pnl_for_open_position(
         self,
         mock_json_write,
@@ -159,10 +159,10 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
         self.assertIn("T", update_kwargs["pnl_expires_at"])
         self.log_pass("service refreshes manager decision history with current open-position P/L snapshots")
 
-    @patch("services.position_manager.update_manager_decision_latest_pnl")
-    @patch("services.position_manager.get_latest_linked_manager_decision_for_option_symbol")
-    @patch("services.position_manager.expire_manager_decision_pnl")
-    @patch("services.position_manager.JsonFileWriter.write")
+    @patch("services.options.position_manager.update_manager_decision_latest_pnl")
+    @patch("services.options.position_manager.get_latest_linked_manager_decision_for_option_symbol")
+    @patch("services.options.position_manager.expire_manager_decision_pnl")
+    @patch("services.options.position_manager.JsonFileWriter.write")
     def test_run_cycle_records_terminal_snapshot_when_close_is_submitted(
         self,
         mock_json_write,

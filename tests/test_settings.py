@@ -2,7 +2,7 @@
 from dataclasses import replace
 import unittest
 
-from services.settings import Settings, get_settings, use_settings
+from services.core.settings import Settings, get_settings, use_settings
 
 
 def settings_from(**environ):

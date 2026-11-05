@@ -14,22 +14,22 @@ from db_common import get_connection
 from market_db_modules.candidate_lifecycle import record_candidate
 from market_db_modules.trade_economics import get_candidate_economics_report
 from news_db_modules.catalysts import build_catalyst_state, store_catalyst_state
-from services.option_pricing import black_scholes_price
-from services.order_candidates import OrderCandidateBuilder
-from services.trade_economics import (
+from services.options.option_pricing import black_scholes_price
+from services.trading.order_candidates import OrderCandidateBuilder
+from services.gates.trade_economics import (
     apply_trade_economics,
     recheck_trade_economics,
     scenario_set,
     selected_row,
 )
-from services.trade_economics_policy import TradeEconomicsPolicy
+from services.gates.trade_economics_policy import TradeEconomicsPolicy
 from tests.db_fixtures import temporary_database
 
 
 NOW = datetime(2026, 9, 21, 15, tzinfo=timezone.utc)
 CATALYST = 'catalyst:economics-fixture'
 SYMBOL = 'NVDA261016C00101000'
-LOGGER = 'services.trade_economics'
+LOGGER = 'services.gates.trade_economics'
 
 
 def quote(*, bid=2.95, ask=3.05, at=NOW):
@@ -151,7 +151,7 @@ class ReportTests(EconomicsFixture):
         self.assertEqual((gate['allowed'], gate['reason_codes']), (False, ['economics_report_unpersisted']))
 
     def test_report_failure_is_a_blocking_verdict(self):
-        with patch('services.trade_economics.build_trade_economics_report', side_effect=RuntimeError('boom')), \
+        with patch('services.gates.trade_economics.build_trade_economics_report', side_effect=RuntimeError('boom')), \
                 self.assertLogs(LOGGER, logging.ERROR):
             gate = self.economics(mode='enforce')
         self.assertEqual((gate['allowed'], gate['reason_codes']), (False, ['economics_check_error']))
@@ -171,7 +171,7 @@ class PersistenceTests(EconomicsFixture):
 class PolicyTests(unittest.TestCase):
     def test_enforce_without_promotion_proof_stays_shadow(self):
         with patch.dict('os.environ', {'TRADE_ECONOMICS_MODE': 'enforce'}), \
-                patch('services.research_promotion.approved', return_value=False), self.assertLogs(level='WARNING'):
+                patch('services.research.research_promotion.approved', return_value=False), self.assertLogs(level='WARNING'):
             self.assertEqual(TradeEconomicsPolicy.from_env().mode, 'shadow')
 
 
@@ -203,7 +203,7 @@ class SubmissionRecheckTests(EconomicsFixture):
         self.assertEqual(self.recheck(option=quote(bid=2.0, ask=4.0, at=at))['reason_codes'], ['economics_edge_exhausted'])
 
     def test_enforced_candidate_without_a_report_is_blocked(self):
-        with patch('services.trade_economics.TradeEconomicsPolicy.from_env', return_value=TradeEconomicsPolicy(mode='enforce')):
+        with patch('services.gates.trade_economics.TradeEconomicsPolicy.from_env', return_value=TradeEconomicsPolicy(mode='enforce')):
             verdict = recheck_trade_economics({'selected_option_symbol': SYMBOL}, {}, as_of=NOW, db_path=self.db)
         self.assertEqual((verdict['allowed'], verdict['reason_codes']), (False, ['economics_report_missing']))
 
@@ -226,8 +226,8 @@ class ExecutorTests(unittest.TestCase):
         self.fixture.gateway.submit_option_market_order.return_value = {'id': 'order-1'}
 
     def execute(self, verdict):
-        with patch('services.trade_executor.recheck_trade_economics', return_value=verdict), \
-                patch('services.risk_clusters.get_risk_cluster', return_value='mega_cap_tech'):
+        with patch('services.trading.trade_executor.recheck_trade_economics', return_value=verdict), \
+                patch('services.gates.risk_clusters.get_risk_cluster', return_value='mega_cap_tech'):
             return self.fixture.executor._execute_candidate(trading_client=object(), candidate=self.fixture._candidate(),
                                                             session=self.fixture._session())
 

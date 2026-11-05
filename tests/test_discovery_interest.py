@@ -16,9 +16,9 @@ from market_db_modules.company_interest import (
     due_discovery_checks,
     finish_discovery_check,
 )
-from services.company_evidence_demand import request_pipeline_evidence
-from services.research_continuation import prepare_research_continuations
-from services.research_orchestrator import process_research_queue
+from services.discovery.company_evidence_demand import request_pipeline_evidence
+from services.research.research_continuation import prepare_research_continuations
+from services.research.research_orchestrator import process_research_queue
 
 
 class InterestDiscoveryTests(CollectorMixin, DiscoveryFixture):

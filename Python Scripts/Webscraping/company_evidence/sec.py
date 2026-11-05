@@ -1,4 +1,5 @@
 """Public SEC submissions, issuer-furnished releases and standard XBRL actuals."""
+from hashlib import sha256
 import json
 import re
 
@@ -10,6 +11,23 @@ from .sec_facts import normalize_company_facts
 
 TICKERS_URL = 'https://www.sec.gov/files/company_tickers.json'
 FORMS = {'10-K', '10-K/A', '10-Q', '10-Q/A', '8-K', '8-K/A', '20-F', '20-F/A', '6-K', '6-K/A'}
+# Attachment types that are images or archives; _read_filing never reads them.
+BINARY_TYPES = {'GRAPHIC', 'ZIP', 'PDF', 'EXCEL', 'XLSX'}
+_IN_DOCUMENT = r'(?:(?!</DOCUMENT>).)*?'
+_DOCUMENT = re.compile(rf'(<DOCUMENT>{_IN_DOCUMENT}<TYPE>([^\r\n<]+){_IN_DOCUMENT}<TEXT>)({_IN_DOCUMENT})(</TEXT>)',
+                       re.S | re.I)
+
+
+def strip_binary_attachments(raw):
+    """Replace the content of binary attachment documents with a note of their size and hash."""
+    def replace(match):
+        content = match[3]
+        uuencoded = re.match(r'\s*begin [0-7]{3} ', content) is not None
+        if match[2].strip().upper() not in BINARY_TYPES and not uuencoded:
+            return match[0]
+        note = f'[binary attachment removed: {len(content)} chars, sha256={sha256(content.encode()).hexdigest()}]'
+        return f'{match[1]}\n{note}\n{match[4]}'
+    return _DOCUMENT.sub(replace, raw)
 
 
 class SECAdapter:
@@ -68,7 +86,7 @@ class SECAdapter:
     def _filing_documents(self, company, filing, facts_response):
         accession = filing['accessionNumber']
         url = f"https://www.sec.gov/Archives/edgar/data/{int(company['cik'])}/{accession.replace('-', '')}/{accession}.txt"
-        response = self.http.get(url, ttl_seconds=self.policy.refresh_seconds)
+        response = self.http.get(url, ttl_seconds=self.policy.refresh_seconds, compact=self.compact_filing)
         accepted = filing.get('acceptanceDateTime')
         publication = timestamp(accepted) if accepted else response['observed_at']
         metadata = {'cik': company['cik'], 'accession': accession, 'form': filing['form'],
@@ -91,6 +109,13 @@ class SECAdapter:
                                                 normalized, publication, facts_response['observed_at'], accession,
                                                 {**metadata, 'raw_response_id': facts_response['response_id']}, facts))
         return documents
+
+    def compact_filing(self, raw):
+        """The submission without binary attachments, when that leaves everything read from it unchanged."""
+        stripped = strip_binary_attachments(raw)
+        if stripped == raw or self._read_filing(stripped) != self._read_filing(raw):
+            return raw
+        return stripped
 
     def _read_filing(self, raw):
         blocks = re.findall(r'<DOCUMENT>(.*?)</DOCUMENT>', raw, flags=re.S | re.I)

@@ -13,10 +13,10 @@ from tests.research_foundation_fixtures import database, ENTRY
 from tests.test_company_evidence import COMPANY, guidance
 from market_db_modules.company_evidence import get_company_fact, get_evidence_package
 from market_db_modules.foundation_store import digest
-from services.company_evidence_extraction import ingest_source, validate_extracted_fact
-from services.company_evidence_packages import build_company_package
-from services.company_evidence_policy import CompanyEvidencePolicy, provider_manifest
-from services.company_evidence_service import collect_company, collect_company_evidence
+from services.discovery.company_evidence_extraction import ingest_source, validate_extracted_fact
+from services.discovery.company_evidence_packages import build_company_package
+from services.discovery.company_evidence_policy import CompanyEvidencePolicy, provider_manifest
+from services.discovery.company_evidence_service import collect_company, collect_company_evidence
 from Webscraping.company_evidence.models import CollectionResult, SourceDocument
 from Webscraping.company_evidence.yahoo_consensus import YahooConsensusAdapter
 
@@ -288,15 +288,15 @@ class WiringTests(unittest.TestCase):
     """Run the real collector entry point with SEC and the per-company work replaced."""
     def setUp(self):
         self.db = database(self)
-        patches = [patch('services.company_evidence_service.SECAdapter', return_value=Mock(issuer_map=lambda: {'NVDA': '0001045810'})),
-                   patch('services.company_evidence_service.EvidenceHTTP'),
-                   patch('services.company_evidence_service.enqueue_company_interest'),
-                   patch('services.company_evidence_service.due_refresh_companies',
+        patches = [patch('services.discovery.company_evidence_service.SECAdapter', return_value=Mock(issuer_map=lambda: {'NVDA': '0001045810'})),
+                   patch('services.discovery.company_evidence_service.EvidenceHTTP'),
+                   patch('services.discovery.company_evidence_service.enqueue_company_interest'),
+                   patch('services.discovery.company_evidence_service.due_refresh_companies',
                          return_value=[{'id': 1, 'symbol': 'NVDA', 'name': 'Fixture'}]),
-                   patch('services.company_evidence_service.collect_company',
+                   patch('services.discovery.company_evidence_service.collect_company',
                          return_value={'package_id': 'package:x', 'providers': {}})]
         self.sec_cls, _, _, _, self.collect = [self.enterContext(p) for p in patches]
-        self.yahoo_cls = self.enterContext(patch('services.company_evidence_service.YahooConsensusAdapter'))
+        self.yahoo_cls = self.enterContext(patch('services.discovery.company_evidence_service.YahooConsensusAdapter'))
         self.enterContext(patch.dict(os.environ, {'SEC_USER_AGENT': 'tester test@example.test'}))
 
     def adapters(self, consensus, **kwargs):

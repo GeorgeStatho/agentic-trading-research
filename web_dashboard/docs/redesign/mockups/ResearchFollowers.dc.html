@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Research: followers</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#121214}
+a{color:#F98309}a:hover{color:#FFA347}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #121214; color: #E8E8EA; font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 1.4; font-variant-numeric: tabular-nums">
+
+<header style="background: #161618; border-bottom: 1px solid #2C2C31">
+<div style="max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 48px">
+<div style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px"><span aria-hidden="true" style="width: 14px; height: 14px; border-radius: 3px; background: #F98309"></span>Agentic Trading Research</div>
+<nav aria-label="Main" style="display: flex; flex-wrap: wrap; flex: 1 1 auto">
+<a href="Main.dc.html" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Live</a>
+<a href="Decisions.dc.html" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Decisions</a>
+<a href="ResearchExpectancy.dc.html" style="text-decoration: none; padding: 14px 12px; color: #E8E8EA; font-weight: 600; border-bottom: 2px solid #F98309">Research</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">System</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Settings</a>
+</nav>
+<span style="font-size: 12px; font-weight: 600; color: #F98309; border: 1px solid #5A3510; background: #24180B; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.04em">PAPER</span>
+</div>
+<div style="border-top: 1px solid #232327">
+<nav aria-label="Research" style="max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; flex-wrap: wrap; gap: 20px; font-size: 12px">
+<a href="ResearchExpectancy.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">Expectancy</a>
+<a href="ResearchNewsLag.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">News lag</a>
+<a href="ResearchBacktests.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">Backtests</a>
+<a href="ResearchFollowers.dc.html" style="text-decoration: none; padding: 9px 0; color: #E8E8EA; font-weight: 600; border-bottom: 2px solid #F98309">Followers</a>
+<a href="ResearchRollout.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">V2 rollout</a>
+</nav>
+</div>
+</header>
+
+<div style="max-width: 1400px; margin: 0 auto; padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 12px">
+
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px">
+<div>
+<h1 style="margin: 0; font-size: 18px; font-weight: 700">Follower accounts</h1>
+<div style="font-size: 12px; color: #9A9AA2; margin-top: 2px">Each follower mirrors production's entries with a different vehicle on its own paper account, and exits when production does</div>
+</div>
+<label style="display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: #9A9AA2">Entries mirrored in
+<select style="font: inherit; font-size: 12px; color: #E8E8EA; background: #1A1A1D; border: 1px solid #36363C; border-radius: 4px; padding: 5px 8px"><option>All history</option></select>
+</label>
+</div>
+
+<section aria-label="Summary" style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px; display: flex; flex-wrap: wrap">
+<sc-for list="{{stats}}" as="s" hint-placeholder-count="5">
+<div style="flex: 1 1 150px; padding: 12px 16px; border-right: 1px solid #232327">
+<div style="font-size: 11px; color: #9A9AA2">{{s.label}}</div>
+<div style="{{s.valStyle}}">{{s.value}}</div>
+<div style="font-size: 11px; color: #9A9AA2">{{s.sub}}</div>
+</div>
+</sc-for>
+</section>
+
+<section style="display: flex; flex-wrap: wrap; gap: 12px">
+<div style="flex: 3 1 560px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Return by vehicle, same entry</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 12px; font-size: 11px; color: #9A9AA2">
+<sc-for list="{{legend}}" as="l" hint-placeholder-count="5"><span style="display: inline-flex; align-items: center; gap: 5px"><span aria-hidden="true" style="{{l.sw}}"></span>{{l.name}}</span></sc-for>
+</div>
+</div>
+<div style="padding: 12px 14px">
+<svg role="img" aria-label="Return on capital by vehicle. ORCL put: production minus 4.2, itm minus 3.4, longer minus 4.5, spreads minus 8.2. TSLA call: production minus 44.2, longer minus 40.3, shares minus 3.8" viewBox="0 0 700 300" style="width: 100%; height: auto; display: block">
+<line x1="50" y1="30" x2="690" y2="30" stroke="#3A3A40" stroke-width="1"></line>
+<g stroke="#26262B" stroke-width="1">
+<line x1="50" y1="90" x2="690" y2="90"></line>
+<line x1="50" y1="150" x2="690" y2="150"></line>
+<line x1="50" y1="210" x2="690" y2="210"></line>
+<line x1="50" y1="270" x2="690" y2="270"></line>
+</g>
+<g fill="#9A9AA2" font-size="11" font-family="Inter, sans-serif">
+<text x="20" y="34">0%</text><text x="8" y="94">−12%</text><text x="8" y="154">−24%</text><text x="8" y="214">−36%</text><text x="8" y="274">−48%</text>
+</g>
+<rect x="90" y="30" width="40" height="21" fill="#E8E8EA"></rect>
+<rect x="136" y="30" width="40" height="17" fill="#58A6FF"></rect>
+<rect x="182" y="30" width="40" height="23" fill="#F98309"></rect>
+<rect x="228" y="30" width="40" height="41" fill="#A371F7"></rect>
+<rect x="274" y="30" width="40" height="2" fill="#3A3A40"></rect>
+<rect x="410" y="30" width="40" height="221" fill="#E8E8EA"></rect>
+<rect x="456" y="30" width="40" height="2" fill="#3A3A40"></rect>
+<rect x="502" y="30" width="40" height="202" fill="#F98309"></rect>
+<rect x="548" y="30" width="40" height="2" fill="#3A3A40"></rect>
+<rect x="594" y="30" width="40" height="19" fill="#3FB950"></rect>
+<g font-size="10" font-family="'JetBrains Mono', monospace" fill="#C2C2C8">
+<text x="92" y="66">−4.2</text><text x="138" y="62">−3.4</text><text x="184" y="68">−4.5</text><text x="230" y="86">−8.2</text><text x="276" y="46">skip</text>
+<text x="410" y="266">−44.2</text><text x="458" y="46">—</text><text x="502" y="246">−40.3</text><text x="550" y="46">—</text><text x="596" y="64">−3.8</text>
+</g>
+<g font-size="12" font-family="Inter, sans-serif" fill="#E8E8EA" font-weight="600">
+<text x="150" y="294">ORCL put · Nov 2–3</text>
+<text x="462" y="294">TSLA call · Oct 29–30</text>
+</g>
+</svg>
+</div>
+</div>
+
+<div style="flex: 2 1 380px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Difference vs. production</h2>
+<span style="font-size: 11px; color: #FFB066">all below 5 closed trades</span>
+</div>
+<div style="padding: 14px; display: flex; flex-direction: column; gap: 14px">
+<sc-for list="{{diffs}}" as="d" hint-placeholder-count="4">
+<div>
+<div style="display: flex; justify-content: space-between; font-size: 12px"><span><b>{{d.name}}</b> <span style="color: #9A9AA2">· {{d.kind}} · n={{d.n}}</span></span><span style="{{d.valStyle}}">{{d.value}}</span></div>
+<div aria-hidden="true" style="position: relative; height: 10px; background: #232327; border-radius: 3px; margin-top: 5px">
+<span style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #62626A"></span>
+<span style="{{d.bar}}"></span>
+</div>
+</div>
+</sc-for>
+<div style="font-size: 11px; color: #9A9AA2">Bars scaled ±45 pts. Shares only beat production because TSLA's option leg lost 44%.</div>
+</div>
+</div>
+</section>
+
+<section style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Per account</h2>
+<span style="font-size: 11px; color: #9A9AA2">accounts with fewer than 5 closed trades are muted</span>
+</div>
+<div style="overflow-x: auto">
+<table style="width: 100%; min-width: 980px; border-collapse: collapse; font-size: 12px">
+<thead>
+<tr style="text-align: left; color: #9A9AA2; font-size: 11px; background: #18181B">
+<th scope="col" style="font-weight: 500; padding: 7px 14px; border-bottom: 1px solid #2C2C31">Account</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Closed</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Failed</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Skipped</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Win rate</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">P/L</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">P/L / capital</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Avg trade</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Production avg</th>
+<th scope="col" style="font-weight: 500; padding: 7px 14px 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Difference</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{accounts}}" as="a" hint-placeholder-count="5">
+<tr>
+<td style="padding: 9px 14px; border-bottom: 1px solid #232327"><div style="font-weight: 600">{{a.name}}</div><div style="font-size: 11px; color: #9A9AA2">{{a.kind}}</div></td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right">{{a.closed}}</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #C2C2C8">{{a.failed}}</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; color: #9A9AA2; font-size: 11px">{{a.skipped}}</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #C2C2C8">{{a.win}}</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #FF9B94">{{a.pl}}</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #FF9B94">{{a.plc}}</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #FF9B94">{{a.avg}}</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #C2C2C8">{{a.prod}}</td>
+<td style="padding: 9px 14px 9px 8px; border-bottom: 1px solid #232327; text-align: right"><span style="{{a.diffStyle}}">{{a.diff}}</span></td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</section>
+
+<section style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Recent closed follower trades</h2>
+<span style="font-size: 11px; color: #9A9AA2">latest 25</span>
+</div>
+<div style="overflow-x: auto">
+<table style="width: 100%; min-width: 760px; border-collapse: collapse; font-size: 12px">
+<thead>
+<tr style="text-align: left; color: #9A9AA2; font-size: 11px; background: #18181B">
+<th scope="col" style="font-weight: 500; padding: 7px 14px; border-bottom: 1px solid #2C2C31">Account</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Entry</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Held</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">P/L</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Return</th>
+<th scope="col" style="font-weight: 500; padding: 7px 14px 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Production</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{trades}}" as="t" hint-placeholder-count="5">
+<tr>
+<td style="padding: 8px 14px; border-bottom: 1px solid #232327"><b>{{t.acct}}</b> <span style="font-size: 11px; color: #9A9AA2">{{t.kind}}</span></td>
+<td style="padding: 8px; border-bottom: 1px solid #232327"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; color: #FFB066; background: #24180B; padding: 2px 6px; border-radius: 3px">{{t.tk}}</span> <span style="font-size: 11px; color: #9A9AA2">{{t.leg}}</span></td>
+<td style="padding: 8px; border-bottom: 1px solid #232327; color: #C2C2C8; font-size: 11px">{{t.held}}</td>
+<td style="padding: 8px; border-bottom: 1px solid #232327; text-align: right; color: #FF9B94">{{t.pl}}</td>
+<td style="padding: 8px; border-bottom: 1px solid #232327; text-align: right; color: #FF9B94">{{t.ret}}</td>
+<td style="padding: 8px 14px 8px 8px; border-bottom: 1px solid #232327; text-align: right; color: #C2C2C8">{{t.prod}}</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<div style="padding: 8px 14px; font-size: 11px; color: #9A9AA2">Partial production exits aren't mirrored: a follower closes in full when production fully closes. Each follower gets the same premium budget production spent.</div>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1350}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var v = 'font-size: 16px; font-weight: 600; margin-top: 2px; ';
+    function sw(c) { return 'width: 10px; height: 10px; border-radius: 2px; background: ' + c; }
+    function bar(d) {
+      var w = Math.min(Math.abs(d) / 45 * 50, 50);
+      var c = d >= 0 ? '#3FB950' : '#F85149';
+      return 'position: absolute; top: 0; bottom: 0; border-radius: 3px; background: ' + c + '; width: ' + w + '%; ' + (d >= 0 ? 'left: 50%' : 'right: 50%');
+    }
+    var up = 'font-weight: 600; color: #56D364';
+    var dn = 'font-weight: 600; color: #FF9B94';
+    return {
+      stats: [
+        { label: 'Follower accounts', value: '4', sub: 'itm · longer · shares · spreads', valStyle: v + 'color: #E8E8EA' },
+        { label: 'Closed follower trades', value: '5', sub: 'across 2 production entries', valStyle: v + 'color: #E8E8EA' },
+        { label: 'Production, mirrored entries', value: '−24.2%', sub: 'avg of 2 closed trades', valStyle: v + 'color: #F85149' },
+        { label: 'Best vs. production', value: '—', sub: 'needs 5 closed trades in one account', valStyle: v + 'color: #9A9AA2' },
+        { label: 'Skipped / failed', value: '2 / 1', sub: 'no ITM strike, no short strike', valStyle: v + 'color: #E8E8EA' }
+      ],
+      legend: [
+        { name: 'production', sw: sw('#E8E8EA') }, { name: 'itm', sw: sw('#58A6FF') }, { name: 'longer', sw: sw('#F98309') },
+        { name: 'spreads', sw: sw('#A371F7') }, { name: 'shares', sw: sw('#3FB950') }
+      ],
+      diffs: [
+        { name: 'shares', kind: 'stock', n: '1', value: '+40.4 pts', valStyle: up, bar: bar(40.4) },
+        { name: 'longer', kind: 'longer DTE', n: '2', value: '+1.8 pts', valStyle: up, bar: bar(1.8) },
+        { name: 'itm', kind: 'ITM single', n: '1', value: '+0.8 pts', valStyle: up, bar: bar(0.8) },
+        { name: 'spreads', kind: 'debit spread', n: '1', value: '−4.0 pts', valStyle: dn, bar: bar(-4.0) }
+      ],
+      accounts: [
+        { name: 'production', kind: 'single leg · primary', closed: '2', failed: '—', skipped: '—', win: '—', pl: '—', plc: '—', avg: '−24.2%', prod: '—', diff: '—', diffStyle: 'color: #9A9AA2' },
+        { name: 'itm', kind: 'ITM single · follower', closed: '1', failed: '0', skipped: '1 · no ITM strike', win: '0%', pl: '−$45.00', plc: '−3.4%', avg: '−3.4%', prod: '−4.2%', diff: '+0.8%', diffStyle: up },
+        { name: 'longer', kind: 'longer DTE · follower', closed: '2', failed: '0', skipped: '0', win: '0%', pl: '−$675.00', plc: '−29.9%', avg: '−22.4%', prod: '−24.2%', diff: '+1.8%', diffStyle: up },
+        { name: 'shares', kind: 'shares · follower', closed: '1', failed: '1', skipped: '0', win: '0%', pl: '−$46.58', plc: '−3.8%', avg: '−3.8%', prod: '−44.2%', diff: '+40.4%', diffStyle: up },
+        { name: 'spreads', kind: 'debit spread · follower', closed: '1', failed: '0', skipped: '1 · no short strike', win: '0%', pl: '−$31.00', plc: '−8.2%', avg: '−8.2%', prod: '−4.2%', diff: '−4.0%', diffStyle: dn }
+      ],
+      trades: [
+        { acct: 'longer', kind: 'longer DTE', tk: 'ORCL', leg: 'put', held: 'Nov 2 → Nov 3', pl: '−$30.00', ret: '−4.5%', prod: '−4.2%' },
+        { acct: 'itm', kind: 'ITM single', tk: 'ORCL', leg: 'put', held: 'Nov 2 → Nov 3', pl: '−$45.00', ret: '−3.4%', prod: '−4.2%' },
+        { acct: 'spreads', kind: 'debit spread', tk: 'ORCL', leg: 'put', held: 'Nov 2 → Nov 3', pl: '−$31.00', ret: '−8.2%', prod: '−4.2%' },
+        { acct: 'shares', kind: 'shares', tk: 'TSLA', leg: 'call', held: 'Oct 29 → Oct 30', pl: '−$46.58', ret: '−3.8%', prod: '−44.2%' },
+        { acct: 'longer', kind: 'longer DTE', tk: 'TSLA', leg: 'call', held: 'Oct 29 → Oct 30', pl: '−$645.00', ret: '−40.3%', prod: '−44.2%' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

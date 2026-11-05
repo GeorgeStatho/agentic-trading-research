@@ -14,9 +14,9 @@ from market_db_modules.research_observations import (
 )
 from market_db_modules.research_runs import start_run, collect_run, read_run
 from market_db_modules.research_reports import monthly_report, promote_champion
-from services.research_contract import canonical, fingerprint
-from services.research_promotion import champion_allows
-from services.research_contract import ResearchPolicy
+from services.research.research_contract import canonical, fingerprint
+from services.research.research_promotion import champion_allows
+from services.research.research_contract import ResearchPolicy
 
 
 class ObservationIdentityTests(unittest.TestCase):
@@ -52,7 +52,7 @@ class ObservationIdentityTests(unittest.TestCase):
 
     def test_changed_evaluator_sources_pause_collection(self):
         run_id = self.run_fixture()
-        with patch("services.research_versions.evaluator_source_hash", return_value="changed"):
+        with patch("services.research.research_versions.evaluator_source_hash", return_value="changed"):
             with self.assertRaisesRegex(ValueError, "evaluator changed"):
                 self.collect(run_id)
 

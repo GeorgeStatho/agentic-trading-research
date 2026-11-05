@@ -14,10 +14,10 @@ from market_db_modules.company_evidence import (
     get_evidence_package,
     latest_evidence_package,
 )
-from services.company_evidence_extraction import ingest_source, validate_extracted_fact
-from services.company_evidence_packages import build_company_package
-from services.company_evidence_policy import CompanyEvidencePolicy, provider_manifest
-from services.company_evidence_service import collect_company, collect_company_evidence
+from services.discovery.company_evidence_extraction import ingest_source, validate_extracted_fact
+from services.discovery.company_evidence_packages import build_company_package
+from services.discovery.company_evidence_policy import CompanyEvidencePolicy, provider_manifest
+from services.discovery.company_evidence_service import collect_company, collect_company_evidence
 from agent_builders.company_evidence_payload import build_company_evidence_payload
 from Webscraping.company_evidence.models import CollectionResult, SourceDocument
 from Webscraping.company_evidence.releases import guidance_facts

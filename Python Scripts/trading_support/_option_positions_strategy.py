@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.trading_config import MomentumHistoryConfig, TrailingProfitConfig
+from services.core.trading_config import MomentumHistoryConfig, TrailingProfitConfig
 
 from ._option_positions_defaults import ExitThresholds
 from ._option_positions_market import _resolve_trailing_giveback_pct
@@ -11,8 +11,8 @@ from ._option_positions_state import (
     _coerce_bool,
     _evaluate_momentum_history_exit,
 )
-from services.position_exit_policy import shadow_exit_comparison
-from services.numbers import safe_float
+from services.options.position_exit_policy import shadow_exit_comparison
+from services.core.numbers import safe_float
 
 
 def _deterministic_option_exit_decision(
@@ -383,6 +383,8 @@ def _structured_exit_action_impl(
     active_v2 = set((v2_exit_context or {}).get('active_reasons') or []) - ignored_exit_reasons
     if 'CATALYST_EXPIRED' in active_v2:
         return v2_action('CATALYST_EXPIRED')
+    if 'PRE_EARNINGS' in active_v2:
+        return v2_action('PRE_EARNINGS')
     if "near_expiration" not in ignored_exit_reasons and hours_to_expiration is not None and hours_to_expiration <= exit_thresholds.exit_hours_to_expiration:
         updated_state["last_action"] = "sell_full"
         updated_state["last_decision_reason"] = "near_expiration"

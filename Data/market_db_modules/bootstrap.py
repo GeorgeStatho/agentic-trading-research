@@ -41,6 +41,11 @@ def _ensure_manager_decision_outcome_columns(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE manager_decision_history ADD COLUMN {column_name} {column_type}")
 
 
+def _ensure_thesis_validation_attempts(conn: sqlite3.Connection) -> None:
+    if table_exists(conn, "thesis_validation_runs") and "attempts" not in table_columns(conn, "thesis_validation_runs"):
+        conn.execute("ALTER TABLE thesis_validation_runs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 1")
+
+
 def _move_manager_decision_payloads(conn: sqlite3.Connection) -> None:
     """Move the manager JSON that older code kept on manager_decision_history into its own table."""
     lock_for_migration(conn)
@@ -148,6 +153,7 @@ def _set_up(db_path: Path | str, schema_path: Path | str, fingerprint: str) -> N
         else:
             conn.executescript(Path(schema_path).read_text(encoding="utf-8"))
         _ensure_manager_decision_outcome_columns(conn)
+        _ensure_thesis_validation_attempts(conn)
         _move_manager_decision_payloads(conn)
         from .telemetry_schema import migrate_telemetry_columns
         migrate_telemetry_columns(conn)
@@ -170,6 +176,8 @@ def _set_up(db_path: Path | str, schema_path: Path | str, fingerprint: str) -> N
         conn.executescript(Path(__file__).with_name('thesis_event_reviews_schema.sql').read_text(encoding='utf-8'))
         conn.executescript(Path(__file__).with_name('forward_evaluation_schema.sql').read_text(encoding='utf-8'))
         conn.executescript(Path(__file__).with_name('account_positions_schema.sql').read_text(encoding='utf-8'))
+        from .compact_storage import migrate_compact_storage
+        migrate_compact_storage(conn)
         move_payload_copies_out_of_ledger(conn)
         backfill_decision_autopsy_ledger(conn=conn)
         record_setup_fingerprint(conn, SETUP_NAME, fingerprint)

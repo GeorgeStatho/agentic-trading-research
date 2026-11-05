@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from db_common import clean_text, coerce_float, get_connection, json_text, table_exists
 from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
-from services.option_pricing import (CalibratedOption, black_scholes_price, expiration_close, implied_volatility,
+from services.options.option_pricing import (CalibratedOption, black_scholes_price, expiration_close, implied_volatility,
                                      option_side)
 
 

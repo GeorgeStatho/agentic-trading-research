@@ -24,8 +24,8 @@ every decision ──▶ forward cohorts + closing marks ──▶ comparison re
 
 | Process (container) | Research work it does | When |
 | --- | --- | --- |
-| `news_collector` | Price responses and forward labels, Phase 7 challenger evaluations and reports, Phase 1 SEC collection, Phase 2 discovery scan | Every collection cycle (3 h by default) |
-| `worker` | Opens production cohorts (P7). Before the strategist/manager: discovery consume (P2), research (P3), research theses (P4). During decisions: evidence thesis (P4), economics (P5), decision observations (P7). | Every trading cycle |
+| `news_collector` | Price responses and forward labels, Phase 7 challenger evaluations and reports, SEC market-wide filings (`market_event` interest), Phase 1 SEC collection, Phase 2 discovery scan, research (P3) and research theses (P4), and news for discovery companies outside the ranking | Every collection cycle (`NEWS_COLLECTION_INTERVAL_SECONDS`, 1 h in the template) |
+| `worker` | Opens production cohorts (P7). Before the strategist/manager: discovery scan and admission (P2, no model calls); with `DISCOVERY_MODE=enforce`, admitted events join the strategist and manager. During decisions: evidence thesis (P4), economics (P5), decision observations (P7). | Every trading cycle |
 | `option_manager` | Event thesis reviews (P6), closing marks for research positions (P7) | Each management cycle; marks once per session ~10 min before the close |
 | `api` | Read-only `/api/v2-status` and `/api/forward-evaluation` | On request |
 
@@ -37,7 +37,8 @@ database took about 3 s.
 | Setting | Template default | Needs | Model cost |
 | --- | --- | --- | --- |
 | `COMPANY_EVIDENCE_ENABLED` | `false` | `SEC_USER_AGENT` with an `@` contact | none |
-| `DISCOVERY_MODE` | `disabled` | Phase 1 for primary evidence; otherwise news only | none |
+| `DISCOVERY_MODE` | `disabled` (or `shadow`, `enforce`) | Phase 1 for primary evidence; otherwise news only | none in the queue; in `shadow` and `enforce`, news classification for each admitted company outside the ranking |
+| `DISCOVERY_MARKET_EVENT_LIMIT` | `0` (off) | `SEC_USER_AGENT`; companies above the price and volume floors | none |
 | `RESEARCH_MODE` | `disabled` | `DISCOVERY_MODE=shadow`, a planner model and, on a billed provider, a cost budget and rates | planner calls |
 | `EVIDENCE_THESIS_MODE` | `shadow` | Nothing on the production route; the research route needs `RESEARCH_MODE=shadow` | inside the strategist call; research theses add calls |
 | `TRADE_ECONOMICS_MODE` | `shadow` | Price-response history from the collector for scenarios | none |
@@ -77,8 +78,8 @@ Enable in this order. Each step feeds the next, and each can run for a while on 
      `interest` and `checks`.
    - The first scan queues every current catalyst for each company of interest, including
      position reviews for open positions. Most of the first reviews are skipped as pre-entry
-     evidence. Reviews beyond three per position per day are closed as `daily_limit_reached`,
-     not retried.
+     evidence. Reviews beyond three per position per day wait for the next New York day and are
+     reviewed then.
 
 3. **Research (P3/P4 research route).** Only after Phase 1 has collected facts.
 
@@ -89,9 +90,29 @@ Enable in this order. Each step feeds the next, and each can run for a while on 
    # and the per-million-token rates.
    ```
 
-   It runs inside the worker's trading cycle (see Known issues).
+   It runs in the news collector after discovery, so it never delays a trading decision. A
+   session for a company without verified facts defers before any planner call.
 
-4. **Challenger (P7), optional.**
+4. **Market-wide filings, optional.**
+
+   ```dotenv
+   DISCOVERY_MARKET_EVENT_LIMIT=20   # companies a cycle; 0 turns it off
+   ```
+
+   Each cycle reads SEC's current-filings feed and gives up to that many filers above
+   `DISCOVERY_MARKET_EVENT_MIN_PRICE` and `DISCOVERY_MARKET_EVENT_MIN_AVERAGE_VOLUME` a
+   `market_event` interest, so discovery sees companies outside the ranking.
+
+5. **Discovery into production (`enforce`), only after the ledger.** Wait until
+   `research.py discovery-ledger` reports `promotion_check.passed: true`
+   (Phase 7), then set `DISCOVERY_MODE=enforce`. Each cycle, up to
+   `DISCOVERY_PRODUCTION_LIMIT` (5) admitted companies join the strategist and manager, carrying
+   their event as the primary catalyst. An event is routed once, only after the collector has
+   refreshed that company's news, and only while it is fresh: the catalyst's decay rule, or
+   `DISCOVERY_ROUTE_MAX_AGE_SECONDS` (2 days) for catalysts without one. This is the one setting
+   here that changes trading.
+
+6. **Challenger (P7), optional.**
 
    ```dotenv
    RESEARCH_CHALLENGER_MODE=shadow
@@ -121,7 +142,7 @@ copy instead of the configured database; the path is inside the container.
 | What did event reviews conclude? | `docker compose exec worker python scripts/research.py event-reviews --days 7` |
 | Is forward evidence accumulating? | `docker compose exec worker python scripts/research.py forward-status` |
 | How does the challenger compare? | `docker compose exec worker python scripts/research.py compare COHORT_ID` (writes a report) |
-| Which route admits better events? | `docker compose exec worker python scripts/research.py discovery-ledger --days 30` |
+| Which route admits better events, and may discovery enforce? | `docker compose exec worker python scripts/research.py discovery-ledger --days 30` (see `promotion_check`) |
 | Do research theses hold up? | `docker compose exec worker python scripts/research.py research-outcomes --days 30` |
 | Which challenger is worth a cohort? | `docker compose exec worker python scripts/research.py benchmark run SET_ID --model M --split dev`, then `benchmark compare` (screening only; writes a benchmark run, never a promotion) |
 
@@ -180,7 +201,7 @@ Setting a mode to `enforce` is not enough. `guard_policy` keeps each gate in sha
 
 | Item | Size or cost |
 | --- | --- |
-| Candidate snapshots (existing) | About 2.3 GB per 9 days on live; a fifth of it is the repeated manifest (see Known issues) |
+| Candidate snapshots (existing) | About 2.3 GB per 9 days on live before the snapshot packing in 88c571f; a fifth of it was the repeated manifest (see Known issues) |
 | Production cohort (P7) | About 40 MB per 60-day cohort |
 | Challenger on (P7) | About 670 KB per decision, about 240 MB a week; up to ~100 extra model calls a day |
 | Event reviews (P6) | 3 adjudicator calls per evaluated review, at most 3 a position a day |
@@ -188,42 +209,39 @@ Setting a mode to `enforce` is not enough. `guard_policy` keeps each gate in sha
 
 ## Known issues
 
-These come from a review of all phases and runs against a migrated copy of the live database. They
-are not fixed yet.
+These come from a review of all phases and runs against a migrated copy of the live database.
 
-1. **Research blocks the trading cycle.**
-   - `run_discovery_shadow_cycle` runs synchronously in the worker before any strategist or
-     manager call. It covers discovery, then up to `DISCOVERY_BATCH_SIZE` (6) research sessions of
-     up to 90 s each, then their theses.
-   - Planner retries `sleep` for up to 30 s inside it.
-   - With `RESEARCH_MODE=shadow`, every trading decision can start several minutes late.
-2. **Research pays for a planner call that cannot help.** A session with no verified company facts
-   still calls the planner before deferring. On live data, 6 of 6 sessions did.
-3. **A model outage uses up the day's daily thesis review.** If every adjudicator sample fails, the
-   failure is saved as that day's only run, and a second run that day is silently dropped.
-4. **Every candidate snapshot embeds the full 36 KB pipeline manifest.** That is about 0.49 GB of
-   the 2.31 GB of snapshots in nine days. The snapshot's own column already holds the version id.
-5. **95% of catalysts are never classified.** On live, 4,535 of 4,758 are `needs_review`. Only
-   classified catalysts with a ticker get price responses, so economics scenarios, Part 4 hurdles,
-   calibration labels and the discovery ledger's outcomes see about 4% of events.
-   Mitigation: a cheap model (`CATALYST_CLASSIFIER_*`) labels the rule failures. Labels live in
-   `catalyst_model_labels`, survive catalyst refreshes and are read point-in-time for candidates. Run
-   `python3 scripts/catalysts.py classify --limit N`, spot-check with `review --sample 20`, then set
-   `CATALYST_CLASSIFIER_ENABLED=true` (default `false`) so each news cycle labels up to
-   `CATALYST_CLASSIFIER_MAX_PER_CYCLE` (200) new ones. `status` and `pricing_report` split catalysts by
-   `classification_source` (`rules` or `rules+model`); types without a family (`supply_chain`, `management`,
-   `capital_return`, `financing`) stay `needs_review` even when labelled.
-6. **Event reviews over the daily limit are never retried.** They close as
-   `daily_limit_reached`; only the next daily review sees that evidence. On the first discovery
-   scan, 4 of 17 review items for one position closed this way.
-7. **Dead admission path.** `_filter_company_symbols_by_high_confidence_support` accepts
-   `discovery_context_by_symbol`, but no caller passes it, so its primary-event admission branch
-   never runs.
+1. **Every candidate snapshot embeds the full 36 KB pipeline manifest.** Partly fixed: since
+   88c571f new snapshots store repeated subtrees, the manifest included, once in `json_blobs`.
+   Older rows keep their full copy until `scripts/compact_db.py` repacks them. Before the fix this
+   was about 0.49 GB of the 2.31 GB of snapshots in nine days.
+2. **Most catalysts are never classified by the rules.** On live, 4,535 of 4,758 were
+   `needs_review`. Only classified catalysts with a ticker get price responses, so economics
+   scenarios, Part 4 hurdles, calibration labels and the discovery ledger's outcomes saw about 4% of
+   events. Mitigated: the model classifier is on live (9,270 labels by 2026-11-04). A cheap model
+   (`CATALYST_CLASSIFIER_*`) labels the rule failures. Labels live in `catalyst_model_labels`,
+   survive catalyst refreshes and are read point-in-time for candidates. To turn it on elsewhere,
+   run `python3 scripts/catalysts.py classify --limit N`, spot-check with `review --sample 20`, then
+   set `CATALYST_CLASSIFIER_ENABLED=true` (default `false`) so each news cycle labels up to
+   `CATALYST_CLASSIFIER_MAX_PER_CYCLE` (200) new ones. `status` and `pricing_report` split catalysts
+   by `classification_source` (`rules` or `rules+model`). Types without a family (`supply_chain`,
+   `management`, `capital_return`, `financing`) stay `needs_review` even when labelled.
 
 Fixed since (kept here because they explain older data):
 
+- **Research blocked the trading cycle.** Research sessions and theses ran in the worker before the
+  strategist; they now run in the news collector.
+- **Research paid for a planner call that could not help.** A session with no verified company
+  facts now defers before calling the planner.
+- **A model outage used up the day's thesis review.** A daily validation with no verdict (every
+  sample failed, or an error) is now retried that day, at most 3 attempts, at least 5 minutes
+  apart. `thesis_validation_runs.attempts` counts them; a retry replaces the failed run.
+- **Event reviews over the daily limit were never retried.** They closed as `daily_limit_reached`;
+  on the first discovery scan, 4 of 17 review items for one position did. They now wait for the
+  next New York day. Older records with that status remain.
+- **Dead admission path.** `_filter_company_symbols_by_high_confidence_support` accepted
+  `discovery_context_by_symbol`, but no caller passed it. `enforce` routing now does.
 - `.env.example` set the daily thesis validator to `live`; it now matches the live server (`shadow`).
-
 - Part 6 forward collection never produced outcomes on live.
 - Empty `""` timestamps crashed collection.
 - Discovery candidates entered production runs.

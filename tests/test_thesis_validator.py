@@ -20,15 +20,15 @@ from market_db_modules.thesis_validator import (  # noqa: E402
     summarize_thesis_validator_health,
 )
 from market_db_modules.bootstrap import initialize_database  # noqa: E402
-from services.thesis_validator_adjudicator import (  # noqa: E402
+from services.thesis.thesis_validator_adjudicator import (  # noqa: E402
     adjudicate_thesis,
     apply_consistency_gate,
     ground_sample,
 )
-from services.thesis_validator_arbiter import decide_thesis_arbiter_action  # noqa: E402
-from services.thesis_capture import build_position_thesis_record  # noqa: E402
-from services.thesis_evidence_pack import build_thesis_evidence_pack  # noqa: E402
-from services.thesis_validator_service import (  # noqa: E402
+from services.thesis.thesis_validator_arbiter import decide_thesis_arbiter_action  # noqa: E402
+from services.thesis.thesis_capture import build_position_thesis_record  # noqa: E402
+from services.thesis.thesis_evidence_pack import build_thesis_evidence_pack  # noqa: E402
+from services.thesis.thesis_validator_service import (  # noqa: E402
     ThesisValidatorService,
     ThesisValidatorSettings,
 )
@@ -107,7 +107,7 @@ class EvidencePackTests(unittest.TestCase):
         }
         with (
             patch(
-                "services.thesis_evidence_pack._symbol_move_since",
+                "services.thesis.thesis_evidence_pack._symbol_move_since",
                 side_effect=lambda symbol, *, since: {
                     "symbol": symbol,
                     "move_since_entry_pct": {"NVDA": 6.0, "SPY": 1.0, "XLK": 2.0}.get(symbol),
@@ -115,9 +115,9 @@ class EvidencePackTests(unittest.TestCase):
                     "error": "",
                 },
             ),
-            patch("services.thesis_evidence_pack._resolve_sector_etf_symbol", return_value="XLK"),
+            patch("services.thesis.thesis_evidence_pack._resolve_sector_etf_symbol", return_value="XLK"),
             patch(
-                "services.thesis_evidence_pack._news_since_entry",
+                "services.thesis.thesis_evidence_pack._news_since_entry",
                 return_value=[
                     {"article_id": 21, "source": "cnbc", "published_at": "", "title": "t", "summary": "s"}
                 ],
@@ -372,9 +372,9 @@ class ThesisValidatorServiceTests(unittest.TestCase):
             patch("market_db_modules.thesis_validator.get_thesis_validation_run_for_date", return_value=None),
             patch("market_db_modules.thesis_validator.count_thesis_validator_exits_for_date", return_value=0),
             patch("market_db_modules.thesis_validator.record_thesis_validation_run", side_effect=recorded_runs.append),
-            patch("services.thesis_evidence_pack.build_thesis_evidence_pack", return_value={"allowed_evidence_article_ids": []}),
+            patch("services.thesis.thesis_evidence_pack.build_thesis_evidence_pack", return_value={"allowed_evidence_article_ids": []}),
             patch(
-                "services.thesis_validator_adjudicator.adjudicate_thesis",
+                "services.thesis.thesis_validator_adjudicator.adjudicate_thesis",
                 return_value={
                     "thesis_state": "invalidated",
                     "would_open_today": "no",
@@ -417,7 +417,7 @@ class ThesisValidatorServiceTests(unittest.TestCase):
             ),
             patch("market_db_modules.thesis_validator.get_thesis_validation_run_for_date", return_value=None),
             patch("market_db_modules.thesis_validator.record_thesis_validation_run", side_effect=recorded_runs.append),
-            patch("services.thesis_validator_adjudicator.adjudicate_thesis") as mock_adjudicate,
+            patch("services.thesis.thesis_validator_adjudicator.adjudicate_thesis") as mock_adjudicate,
         ):
             summary = service.run_due_validation(positions=[position], now=late)
 
@@ -425,6 +425,67 @@ class ThesisValidatorServiceTests(unittest.TestCase):
         self.assertEqual(summary["results"][0]["status"], "rules_exit_precedence")
         self.assertEqual(recorded_runs[0]["rules_verdict"], "exit")
         self.assertEqual(recorded_runs[0]["arbiter_action"], "none")
+
+
+RETRY_OPTION = "NVDA260619C00190000"
+DUE_AT = datetime(2026, 8, 25, 19, 30, tzinfo=timezone.utc)  # 15:30 New York
+GOOD_VERDICT = {"thesis_state": "intact", "would_open_today": "yes", "evidence_ids": [], "rationale": "r",
+                "confidence": 0.7, "consistency": "unanimous", "flip_detected": False, "grounded": True,
+                "sample_count": 3, "raw_samples": []}
+# What adjudicate_thesis returns when every sample's model call fails.
+OUTAGE_VERDICT = {**apply_consistency_gate([]), "sample_count": 0, "raw_samples": [{"error": "503 unavailable"}] * 3}
+
+
+class ValidationRetryTests(unittest.TestCase):
+    """A run that produced no verdict must not use up the day's only validation."""
+
+    def setUp(self) -> None:
+        from tests.db_fixtures import temporary_database
+
+        temporary_database(self)
+        self.thesis_id = record_position_thesis({"symbol": "NVDA", "option_symbol": RETRY_OPTION,
+                                                 "opened_at": "2026-08-20T14:00:00+00:00"})
+        self.adjudicate = patch("services.thesis.thesis_validator_adjudicator.adjudicate_thesis").start()
+        patch("services.thesis.thesis_evidence_pack.build_thesis_evidence_pack",
+              return_value={"allowed_evidence_article_ids": []}).start()
+        self.addCleanup(patch.stopall)
+
+    def run_after(self, minutes: int) -> str:
+        summary = ThesisValidatorService(settings=ThesisValidatorSettings(mode="shadow")).run_due_validation(
+            positions=[{"symbol": RETRY_OPTION, "decision": "hold", "quantity": 2, "mid_price": 3.0}],
+            now=DUE_AT + timedelta(minutes=minutes))
+        return summary["results"][0]["status"]
+
+    def stored(self) -> dict:
+        return get_thesis_validation_run_for_date(thesis_id=self.thesis_id, run_date="2026-08-25")
+
+    def test_outage_run_is_retried_later_the_same_day(self) -> None:
+        self.adjudicate.side_effect = [OUTAGE_VERDICT, GOOD_VERDICT]
+        self.assertEqual([self.run_after(0), self.run_after(5)], ["evaluated", "evaluated"])
+        stored = self.stored()
+        self.assertEqual((stored["consistency"], stored["thesis_state"], stored["attempts"]), ("unanimous", "intact", 2))
+
+    def test_raised_failure_is_retried(self) -> None:
+        self.adjudicate.side_effect = [RuntimeError("model down"), GOOD_VERDICT]
+        self.run_after(0)
+        self.run_after(5)
+        self.assertEqual((self.stored()["consistency"], self.stored()["error_text"]), ("unanimous", None))
+
+    def test_retry_waits_between_attempts(self) -> None:
+        self.adjudicate.return_value = OUTAGE_VERDICT
+        self.run_after(0)
+        self.assertEqual(self.run_after(4), "already_ran")
+        self.assertEqual(self.adjudicate.call_count, 1)
+
+    def test_retries_stop_after_three_attempts(self) -> None:
+        self.adjudicate.return_value = OUTAGE_VERDICT
+        statuses = [self.run_after(minutes) for minutes in (0, 5, 10, 15)]
+        self.assertEqual((statuses[-1], self.adjudicate.call_count, self.stored()["attempts"]), ("already_ran", 3, 3))
+
+    def test_a_verdict_is_never_rerun(self) -> None:
+        self.adjudicate.return_value = GOOD_VERDICT
+        self.assertEqual([self.run_after(0), self.run_after(5)], ["evaluated", "already_ran"])
+        self.assertEqual(self.adjudicate.call_count, 1)
 
 
 if __name__ == "__main__":

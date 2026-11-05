@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from services.trading_accounts import FollowerSettings, TradingAccount, load_trading_accounts
+from services.trading.trading_accounts import FollowerSettings, TradingAccount, load_trading_accounts
 
 PRODUCTION = {'PUBLIC_KEY': 'PROD-KEY', 'PRIVATE_KEY': 'PROD-SECRET'}
 PRIMARY = TradingAccount('production', 'PROD-KEY', 'PROD-SECRET', 'primary', 'single_leg', 'bucket_rules')
