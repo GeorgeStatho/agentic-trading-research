@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Research: V2 rollout</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#121214}
+a{color:#F98309}a:hover{color:#FFA347}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #121214; color: #E8E8EA; font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 1.4; font-variant-numeric: tabular-nums">
+
+<header style="background: #161618; border-bottom: 1px solid #2C2C31">
+<div style="max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 48px">
+<div style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px"><span aria-hidden="true" style="width: 14px; height: 14px; border-radius: 3px; background: #F98309"></span>Agentic Trading Research</div>
+<nav aria-label="Main" style="display: flex; flex-wrap: wrap; flex: 1 1 auto">
+<a href="Main.dc.html" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Live</a>
+<a href="Decisions.dc.html" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Decisions</a>
+<a href="ResearchExpectancy.dc.html" style="text-decoration: none; padding: 14px 12px; color: #E8E8EA; font-weight: 600; border-bottom: 2px solid #F98309">Research</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">System</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Settings</a>
+</nav>
+<span style="font-size: 12px; font-weight: 600; color: #F98309; border: 1px solid #5A3510; background: #24180B; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.04em">PAPER</span>
+</div>
+<div style="border-top: 1px solid #232327">
+<nav aria-label="Research" style="max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; flex-wrap: wrap; gap: 20px; font-size: 12px">
+<a href="ResearchExpectancy.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">Expectancy</a>
+<a href="ResearchNewsLag.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">News lag</a>
+<a href="ResearchBacktests.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">Backtests</a>
+<a href="ResearchFollowers.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">Followers</a>
+<a href="ResearchRollout.dc.html" style="text-decoration: none; padding: 9px 0; color: #E8E8EA; font-weight: 600; border-bottom: 2px solid #F98309">V2 rollout</a>
+</nav>
+</div>
+</header>
+
+<div style="max-width: 1400px; margin: 0 auto; padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 12px">
+
+<div>
+<h1 style="margin: 0; font-size: 18px; font-weight: 700">V2 rollout</h1>
+<div style="font-size: 12px; color: #9A9AA2; margin-top: 2px">Every V2 control stays in shadow until a counterfactual proof, bound to its current thresholds and source, says otherwise · as of Nov 3, 2026</div>
+</div>
+
+<section aria-label="Summary" style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px; display: flex; flex-wrap: wrap">
+<sc-for list="{{stats}}" as="s" hint-placeholder-count="6">
+<div style="flex: 1 1 130px; padding: 12px 16px; border-right: 1px solid #232327">
+<div style="font-size: 11px; color: #9A9AA2">{{s.label}}</div>
+<div style="font-size: 16px; font-weight: 600; margin-top: 2px">{{s.value}}</div>
+<div style="font-size: 11px; color: #9A9AA2">{{s.sub}}</div>
+</div>
+</sc-for>
+</section>
+<div style="font-size: 12px; color: #FFB066">3 controls are set to enforce but run in shadow: no promotion proof matches their current thresholds and source.</div>
+
+<section style="display: flex; flex-wrap: wrap; gap: 12px">
+<div style="flex: 3 1 600px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Would-block rate by control · shadow, last 30 days</h2>
+<div style="display: flex; gap: 12px; font-size: 11px; color: #9A9AA2">
+<span style="display: inline-flex; align-items: center; gap: 5px"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 2px; background: #F98309"></span>Requested enforce</span>
+<span style="display: inline-flex; align-items: center; gap: 5px"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 2px; background: #6E6E76"></span>Shadow / observe</span>
+</div>
+</div>
+<div style="padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px">
+<sc-for list="{{controls}}" as="c" hint-placeholder-count="8">
+<div style="display: grid; grid-template-columns: 190px minmax(0, 1fr) 120px; gap: 12px; align-items: center">
+<div><div style="font-size: 12px; font-weight: 500">{{c.name}}</div><div style="font-size: 10px; color: #9A9AA2; font-family: 'JetBrains Mono', monospace">{{c.env}}</div></div>
+<div aria-hidden="true" style="height: 12px; background: #232327; border-radius: 3px; overflow: hidden"><div style="{{c.bar}}"></div></div>
+<div style="text-align: right; font-size: 12px"><b>{{c.pct}}</b> <span style="color: #9A9AA2; font-size: 11px">{{c.frac}}</span></div>
+</div>
+</sc-for>
+<div style="font-size: 11px; color: #9A9AA2; margin-top: 4px; border-top: 1px solid #232327; padding-top: 10px">Provenance and regime would block every candidate they saw. Enforcing either as-is would stop trading entirely.</div>
+</div>
+</div>
+
+<div style="flex: 2 1 380px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="padding: 8px 14px; border-bottom: 1px solid #2C2C31"><h2 style="margin: 0; font-size: 12px; font-weight: 600">What promotion is waiting on</h2></div>
+<div style="padding: 14px; display: flex; flex-direction: column; gap: 14px">
+<sc-for list="{{prereqs}}" as="p" hint-placeholder-count="5">
+<div>
+<div style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px"><span>{{p.name}}</span><span style="{{p.statusStyle}}">{{p.status}}</span></div>
+<div aria-hidden="true" style="height: 8px; background: #232327; border-radius: 4px; margin-top: 5px; overflow: hidden"><div style="{{p.bar}}"></div></div>
+<div style="font-size: 11px; color: #9A9AA2; margin-top: 4px">{{p.note}}</div>
+</div>
+</sc-for>
+</div>
+</div>
+</section>
+
+<section style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Controls · requested vs. effective mode</h2>
+<span style="font-size: 11px; color: #9A9AA2">shadow activity, last 30 days</span>
+</div>
+<div style="overflow-x: auto">
+<table style="width: 100%; min-width: 980px; border-collapse: collapse; font-size: 12px">
+<thead>
+<tr style="text-align: left; color: #9A9AA2; font-size: 11px; background: #18181B">
+<th scope="col" style="font-weight: 500; padding: 7px 14px; border-bottom: 1px solid #2C2C31">Control</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">What it does</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Requested</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Effective</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Proof</th>
+<th scope="col" style="font-weight: 500; padding: 7px 14px 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Would block</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{controls}}" as="c" hint-placeholder-count="8">
+<tr>
+<td style="padding: 8px 14px; border-bottom: 1px solid #232327"><div style="font-weight: 600">{{c.name}}</div><div style="font-size: 10px; color: #9A9AA2; font-family: 'JetBrains Mono', monospace">{{c.env}}</div></td>
+<td style="padding: 8px; border-bottom: 1px solid #232327; color: #C2C2C8; font-size: 11px; max-width: 360px">{{c.what}}</td>
+<td style="padding: 8px; border-bottom: 1px solid #232327"><span style="{{c.reqStyle}}">{{c.req}}</span></td>
+<td style="padding: 8px; border-bottom: 1px solid #232327"><span style="font-size: 11px; padding: 2px 7px; border-radius: 3px; background: #232327; color: #C2C2C8">{{c.eff}}</span></td>
+<td style="padding: 8px; border-bottom: 1px solid #232327; color: #9A9AA2; font-size: 11px">{{c.proof}}</td>
+<td style="padding: 8px 14px 8px 8px; border-bottom: 1px solid #232327; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 11px">{{c.frac}}</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</section>
+
+<section style="display: flex; flex-wrap: wrap; gap: 12px">
+<div style="flex: 3 1 560px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Forward-evaluation cohorts</h2>
+<span style="font-size: 11px; color: #9A9AA2">challenger off · <span style="font-family: 'JetBrains Mono', monospace">RESEARCH_CHALLENGER_MODE=shadow</span> to start one</span>
+</div>
+<div style="overflow-x: auto">
+<table style="width: 100%; min-width: 560px; border-collapse: collapse; font-size: 12px">
+<thead>
+<tr style="text-align: left; color: #9A9AA2; font-size: 11px; background: #18181B">
+<th scope="col" style="font-weight: 500; padding: 7px 14px; border-bottom: 1px solid #2C2C31">Cohort</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Window</th>
+<th scope="col" style="font-weight: 500; padding: 7px 14px 7px 8px; border-bottom: 1px solid #2C2C31">Enrolled · resolved</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{cohorts}}" as="k" hint-placeholder-count="8">
+<tr>
+<td style="padding: 7px 14px; border-bottom: 1px solid #232327; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #C2C2C8">{{k.id}}</td>
+<td style="padding: 7px 8px; border-bottom: 1px solid #232327; color: #C2C2C8; font-size: 11px; white-space: nowrap">{{k.win}}</td>
+<td style="padding: 7px 14px 7px 8px; border-bottom: 1px solid #232327">
+<div style="display: flex; align-items: center; gap: 8px">
+<div aria-hidden="true" style="flex: 1 1 auto; height: 6px; background: #232327; border-radius: 3px; overflow: hidden; max-width: 220px"><div style="{{k.bar}}"></div></div>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: nowrap">{{k.n}}</span>
+</div>
+</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</div>
+
+<div style="flex: 2 1 380px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Discovery ledger · 30 days</h2>
+<span style="font-size: 11px; color: #9A9AA2">5,668 events</span>
+</div>
+<div style="padding: 14px; display: flex; flex-direction: column; gap: 14px">
+<div>
+<div style="display: flex; justify-content: space-between; font-size: 12px"><span>Production route</span><span style="color: #9A9AA2">median admission 0.3 d</span></div>
+<div aria-hidden="true" style="display: flex; height: 14px; border-radius: 3px; overflow: hidden; margin-top: 6px">
+<div style="width: 2.6%; background: #F98309"></div><div style="width: 22.9%; background: #6E6E76"></div><div style="width: 74.5%; background: #2C2C31"></div>
+</div>
+<div style="font-size: 11px; color: #C2C2C8; margin-top: 4px"><b style="color: #F98309">149</b> admitted · <b>1,300</b> not admitted · <b>4,219</b> not evaluated</div>
+</div>
+<div>
+<div style="display: flex; justify-content: space-between; font-size: 12px"><span>Discovery route</span><span style="color: #9A9AA2">median admission 6.2 d</span></div>
+<div aria-hidden="true" style="display: flex; height: 14px; border-radius: 3px; overflow: hidden; margin-top: 6px">
+<div style="width: 0.4%; min-width: 2px; background: #F98309"></div><div style="width: 1%; background: #6E6E76"></div><div style="width: 98.6%; background: #2C2C31"></div>
+</div>
+<div style="font-size: 11px; color: #C2C2C8; margin-top: 4px"><b style="color: #F98309">2</b> admitted · <b>54</b> not admitted · <b>5,612</b> not evaluated</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; border-top: 1px solid #232327; padding-top: 12px">
+<div><div style="font-size: 11px; color: #9A9AA2">5-day signed residual</div><div style="font-size: 15px; font-weight: 600; color: #3FB950">+3.34%</div><div style="font-size: 11px; color: #9A9AA2">production only · 18 resolved</div></div>
+<div><div style="font-size: 11px; color: #9A9AA2">Research route</div><div style="font-size: 15px; font-weight: 600">3 theses</div><div style="font-size: 11px; color: #9A9AA2">12 calls · 0 resolved</div></div>
+</div>
+</div>
+</div>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    function bar(p, req) { return 'height: 100%; width: ' + p + '%; min-width: ' + (p > 0 ? '2px' : '0') + '; background: ' + (req ? '#F98309' : '#6E6E76'); }
+    function meter(p, c) { return 'height: 100%; width: ' + p + '%; background: ' + (c || '#F98309'); }
+    var reqE = 'font-size: 11px; padding: 2px 7px; border-radius: 3px; background: #24180B; color: #FFB066';
+    var reqS = 'font-size: 11px; padding: 2px 7px; border-radius: 3px; background: #232327; color: #C2C2C8';
+    var ok = 'font-size: 11px; font-weight: 600; color: #56D364';
+    var wait = 'font-size: 11px; font-weight: 600; color: #FFB066';
+    return {
+      stats: [
+        { label: 'Enforcing', value: '0', sub: 'of 8 controls' },
+        { label: 'Shadow', value: '8', sub: '3 requested enforce' },
+        { label: 'Disabled', value: '0', sub: '' },
+        { label: 'Downgraded', value: '3', sub: 'proof doesn’t match thresholds' },
+        { label: 'Candidates · 30 d', value: '3,009', sub: '~702 a week' },
+        { label: 'Outcomes resolved', value: '31 / 37', sub: '6 executed, no close yet' }
+      ],
+      controls: [
+        { name: 'Provenance roots · P1', env: 'V2_PROVENANCE_MODE', what: 'Admits a catalyst only on two independent roots, or a scored single-primary exception', req: 'Enforce', reqStyle: reqE, eff: 'Shadow', proof: 'none', pct: '100%', frac: '3009 / 3009', bar: bar(100, true) },
+        { name: 'Catalyst freshness · P3', env: 'V2_FRESHNESS_MODE', what: 'Decays a catalyst’s remaining value by calendar-time priors; refuses stale ones', req: 'Enforce', reqStyle: reqE, eff: 'Shadow', proof: 'none', pct: '91%', frac: '2744 / 3009', bar: bar(91.2, true) },
+        { name: 'Market regime scope · G3', env: 'MARKET_REGIME_GATE_MODE', what: 'Weights regime opposition by scope; missing regime and macro blackouts veto', req: 'Enforce', reqStyle: reqE, eff: 'Shadow', proof: 'none', pct: '100%', frac: '472 / 472', bar: bar(100, true) },
+        { name: 'Liquidity V2 · E2', env: '[ENV_VAR]', what: '[description]', req: 'Shadow', reqStyle: reqS, eff: 'Shadow', proof: 'none', pct: '[x%]', frac: '449 / [n]', bar: bar(95, false) },
+        { name: 'Evidence continuation', env: 'EVIDENCE_CONTINUATION_MODE', what: 'Requires independent sources, evidence score and relative strength before entry', req: 'Shadow', reqStyle: reqS, eff: 'Shadow', proof: 'none', pct: '0%', frac: '0 / 472 · 1 blocked', bar: bar(0, false) },
+        { name: 'Option hurdle · G2', env: 'observe only', what: 'Compares the option’s breakeven against the catalyst family’s historical move', req: 'Observe', reqStyle: reqS, eff: 'Shadow', proof: 'needs sample', pct: '8.9%', frac: '42 / 472', bar: bar(8.9, false) },
+        { name: 'Price absorption · G1', env: 'observe only', what: 'How much of the catalyst the underlying already absorbed before entry', req: 'Observe', reqStyle: reqS, eff: 'Shadow', proof: 'needs R1 calibration', pct: '0.6%', frac: '19 / 3009', bar: bar(0.6, false) },
+        { name: 'Adaptive limit entry · E1', env: 'observe only', what: 'Shadows a repricing limit ladder against the market orders actually sent', req: 'Observe', reqStyle: reqS, eff: 'Shadow', proof: 'no broker-fill baseline', pct: '0%', frac: '0 / 2', bar: bar(0, false) }
+      ],
+      prereqs: [
+        { name: 'Candidate stream', status: '3,009 in 30 d', statusStyle: ok, bar: meter(100, '#3FB950'), note: 'Last seen Nov 3, 7:39 PM' },
+        { name: 'Regime diversity', status: '3 known in 30 d', statusStyle: ok, bar: meter(100, '#3FB950'), note: 'Cohort needs 2 known regimes; “unknown” is discarded' },
+        { name: 'Daily option marks', status: '2,428 quotes', statusStyle: ok, bar: meter(100, '#3FB950'), note: '297 option symbols cached' },
+        { name: 'Outcome resolution', status: '31 / 37', statusStyle: wait, bar: meter(84), note: '6 executed decisions have no closed outcome yet' },
+        { name: 'Frozen-forward enrollment', status: '0 / 100', statusStyle: wait, bar: meter(0), note: '3 runs open, evaluation changed, each needs a new run' }
+      ],
+      cohorts: [
+        { id: 'v2:b4ab5851…', win: 'Nov 2 – Jan 1', n: '0 · 0', bar: meter(0) },
+        { id: 'v2:ae0bc244…', win: 'Oct 29 – Dec 28', n: '0 · 0', bar: meter(0) },
+        { id: 'v2:37e1d82f…', win: 'Oct 28 – Dec 27', n: '0 · 0', bar: meter(0) },
+        { id: 'v2:68d4f3a6…', win: 'Oct 27 – Dec 26', n: '266 · 266', bar: meter(24.6) },
+        { id: 'v2:042c98b4…', win: 'Oct 8 – Dec 7', n: '1 · 1', bar: meter(0.5) },
+        { id: 'v2:13573c59…', win: 'Oct 8 – Dec 7', n: '540 · 540', bar: meter(50) },
+        { id: 'v2:fe452723…', win: 'Oct 6 – Dec 5', n: '1080 · 1080', bar: meter(100) },
+        { id: 'v2:d6c0ad3e…', win: 'Oct 5 – Dec 4', n: '540 · 540', bar: meter(50) }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

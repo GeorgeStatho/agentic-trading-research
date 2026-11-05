@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Research: news lag</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#121214}
+a{color:#F98309}a:hover{color:#FFA347}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #121214; color: #E8E8EA; font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 1.4; font-variant-numeric: tabular-nums">
+
+<header style="background: #161618; border-bottom: 1px solid #2C2C31">
+<div style="max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 48px">
+<div style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px"><span aria-hidden="true" style="width: 14px; height: 14px; border-radius: 3px; background: #F98309"></span>Agentic Trading Research</div>
+<nav aria-label="Main" style="display: flex; flex-wrap: wrap; flex: 1 1 auto">
+<a href="Main.dc.html" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Live</a>
+<a href="Decisions.dc.html" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Decisions</a>
+<a href="ResearchExpectancy.dc.html" style="text-decoration: none; padding: 14px 12px; color: #E8E8EA; font-weight: 600; border-bottom: 2px solid #F98309">Research</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">System</a>
+<a href="#" style="text-decoration: none; padding: 14px 12px; color: #9A9AA2; font-weight: 500">Settings</a>
+</nav>
+<span style="font-size: 12px; font-weight: 600; color: #F98309; border: 1px solid #5A3510; background: #24180B; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.04em">PAPER</span>
+</div>
+<div style="border-top: 1px solid #232327">
+<nav aria-label="Research" style="max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; flex-wrap: wrap; gap: 20px; font-size: 12px">
+<a href="ResearchExpectancy.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">Expectancy</a>
+<a href="ResearchNewsLag.dc.html" style="text-decoration: none; padding: 9px 0; color: #E8E8EA; font-weight: 600; border-bottom: 2px solid #F98309">News lag</a>
+<a href="ResearchBacktests.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">Backtests</a>
+<a href="ResearchFollowers.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">Followers</a>
+<a href="ResearchRollout.dc.html" style="text-decoration: none; padding: 9px 0; color: #9A9AA2; border-bottom: 2px solid transparent">V2 rollout</a>
+</nav>
+</div>
+</header>
+
+<div style="max-width: 1400px; margin: 0 auto; padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 12px">
+
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px">
+<div>
+<h1 style="margin: 0; font-size: 18px; font-weight: 700">How late we trade the news</h1>
+<div style="font-size: 12px; color: #9A9AA2; margin-top: 2px">Time from the newest article the strategist cited to our order, and how far the stock moved before and after · as of Nov 3, 2026</div>
+</div>
+<label style="display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: #9A9AA2">Window
+<select style="font: inherit; font-size: 12px; color: #E8E8EA; background: #1A1A1D; border: 1px solid #36363C; border-radius: 4px; padding: 5px 8px"><option>All history</option><option>90 days</option><option>30 days</option></select>
+</label>
+</div>
+
+<section aria-label="Summary" style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px; display: flex; flex-wrap: wrap">
+<sc-for list="{{stats}}" as="s" hint-placeholder-count="5">
+<div style="flex: 1 1 150px; padding: 12px 16px; border-right: 1px solid #232327">
+<div style="font-size: 11px; color: #9A9AA2">{{s.label}}</div>
+<div style="font-size: 18px; font-weight: 600; margin-top: 2px">{{s.value}}</div>
+<div style="font-size: 11px; color: #9A9AA2">{{s.sub}}</div>
+</div>
+</sc-for>
+</section>
+<div style="font-size: 12px; color: #FFB066">12 publish prices fall back to the prior daily close, so their before-entry move includes overnight drift · fix: <code style="font-family: 'JetBrains Mono', monospace; color: #E8E8EA; background: #1A1A1D; padding: 1px 6px; border-radius: 3px">research.py news-lag --fetch-missing</code></div>
+
+<section style="display: flex; flex-wrap: wrap; gap: 12px">
+<div style="flex: 3 1 560px; min-width: 0; background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Lag vs. option P/L</h2>
+<span style="font-size: 11px; color: #9A9AA2">each dot = one closed entry</span>
+</div>
+<div style="padding: 12px 14px">
+<svg role="img" aria-label="Scatter of lag in hours against option P/L: NVDA 1.5 h minus 30 percent, NVDA 2.1 h plus 113 percent, NVDA 2.2 h minus 35 percent, SKHY 2.7 h minus 24 percent; median lag 3.9 hours" viewBox="0 0 700 300" style="width: 100%; height: auto; display: block">
+<rect x="60" y="20" width="80" height="240" fill="#3FB950" fill-opacity="0.06"></rect>
+<g stroke="#26262B" stroke-width="1">
+<line x1="60" y1="20" x2="690" y2="20"></line>
+<line x1="60" y1="100" x2="690" y2="100"></line>
+<line x1="60" y1="260" x2="690" y2="260"></line>
+</g>
+<line x1="60" y1="180" x2="690" y2="180" stroke="#3A3A40" stroke-width="1"></line>
+<line x1="372" y1="20" x2="372" y2="260" stroke="#F98309" stroke-width="1" stroke-dasharray="4 4"></line>
+<g fill="#9A9AA2" font-size="11" font-family="Inter, sans-serif">
+<text x="8" y="24">+120%</text>
+<text x="14" y="104">+60%</text>
+<text x="28" y="184">0%</text>
+<text x="14" y="264">−60%</text>
+<text x="56" y="284">0 h</text>
+<text x="136" y="284">1 h</text>
+<text x="216" y="284">2 h</text>
+<text x="296" y="284">3 h</text>
+<text x="376" y="284">4 h</text>
+<text x="456" y="284">5 h</text>
+<text x="536" y="284">6 h</text>
+<text x="66" y="36">within 1 h</text>
+<text x="378" y="36" fill="#F98309">median 3.9 h</text>
+</g>
+<circle cx="180" cy="220" r="6" fill="#F85149"></circle>
+<circle cx="228" cy="30" r="6" fill="#3FB950"></circle>
+<circle cx="236" cy="227" r="6" fill="#F85149"></circle>
+<circle cx="276" cy="212" r="6" fill="#F85149"></circle>
+<g font-size="11" font-family="'JetBrains Mono', monospace" fill="#C2C2C8">
+<text x="140" y="240">NVDA</text>
+<text x="240" y="34">NVDA +112.6%</text>
+<text x="246" y="246">NVDA</text>
+<text x="286" y="208">SKHY</text>
+</g>
+</svg>
+<div style="font-size: 11px; color: #9A9AA2; margin-top: 4px">4 of 21 dated entries plotted here · none entered inside the first hour</div>
+</div>
+</div>
+
+<div style="flex: 2 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+<div style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="padding: 8px 14px; border-bottom: 1px solid #2C2C31"><h2 style="margin: 0; font-size: 12px; font-weight: 600">Where the move happened</h2></div>
+<div style="padding: 14px">
+<div aria-hidden="true" style="display: flex; height: 24px; border-radius: 4px; overflow: hidden">
+<div style="width: 33%; background: #6E6E76"></div>
+<div style="width: 67%; background: #58A6FF"></div>
+</div>
+<div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px">
+<span><b>33%</b> <span style="color: #9A9AA2">before entry</span></span>
+<span><b>67%</b> <span style="color: #9A9AA2">after entry</span></span>
+</div>
+<div style="font-size: 11px; color: #9A9AA2; margin-top: 6px">Median share of the stock's publish-to-exit move</div>
+</div>
+</div>
+<div style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="padding: 8px 14px; border-bottom: 1px solid #2C2C31"><h2 style="margin: 0; font-size: 12px; font-weight: 600">Right direction, option still lost</h2></div>
+<div style="padding: 14px">
+<div style="display: grid; grid-template-columns: repeat(21, minmax(0, 1fr)); gap: 3px" aria-label="8 of 21 closed trades" role="img">
+<sc-for list="{{waffle}}" as="w" hint-placeholder-count="21"><span style="{{w}}"></span></sc-for>
+</div>
+<div style="font-size: 12px; margin-top: 10px"><b>8 of 21</b> <span style="color: #9A9AA2">closed trades: the stock went our way after entry, the option closed red. Points at contract choice and timing, not direction.</span></div>
+</div>
+</div>
+</div>
+</section>
+
+<section style="background: #1A1A1D; border: 1px solid #2C2C31; border-radius: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid #2C2C31">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600">Every dated entry · publish → entry → exit, ordered by lag</h2>
+<div style="display: flex; gap: 14px; font-size: 11px; color: #9A9AA2">
+<span style="display: inline-flex; align-items: center; gap: 5px"><span aria-hidden="true" style="width: 10px; height: 6px; background: #6E6E76"></span>Before entry</span>
+<span style="display: inline-flex; align-items: center; gap: 5px"><span aria-hidden="true" style="width: 10px; height: 6px; background: #58A6FF"></span>After, our way</span>
+<span style="display: inline-flex; align-items: center; gap: 5px"><span aria-hidden="true" style="width: 10px; height: 6px; background: #F98309"></span>After, against us</span>
+</div>
+</div>
+<div style="overflow-x: auto">
+<table style="width: 100%; min-width: 960px; border-collapse: collapse; font-size: 12px">
+<thead>
+<tr style="text-align: left; color: #9A9AA2; font-size: 11px; background: #18181B">
+<th scope="col" style="font-weight: 500; padding: 7px 14px; border-bottom: 1px solid #2C2C31">Entry</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Lag</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31">Stock path, in trade direction (−6% … +10%)</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Before</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">After</th>
+<th scope="col" style="font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #2C2C31; text-align: right">Option P/L</th>
+<th scope="col" style="font-weight: 500; padding: 7px 14px 7px 8px; border-bottom: 1px solid #2C2C31">Exit</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="5">
+<tr>
+<td style="padding: 9px 14px; border-bottom: 1px solid #232327"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; color: #FFB066; background: #24180B; padding: 2px 6px; border-radius: 3px">{{r.ticker}}</span> <span style="font-size: 11px; color: #9A9AA2; margin-left: 4px">{{r.date}}</span></td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 11px">{{r.lag}}</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327">
+<div aria-hidden="true" style="position: relative; width: 160px; height: 12px">
+<span style="position: absolute; left: 60px; top: 0; bottom: 0; width: 1px; background: #4E4E56"></span>
+<span style="{{r.pre}}"></span>
+<span style="{{r.post}}"></span>
+</div>
+</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #C2C2C8">{{r.before}}</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right; color: #C2C2C8">{{r.after}}</td>
+<td style="padding: 9px 8px; border-bottom: 1px solid #232327; text-align: right"><span style="{{r.plStyle}}">{{r.pl}}</span><div style="font-size: 11px; color: #FFB066">{{r.flag}}</div></td>
+<td style="padding: 9px 14px 9px 8px; border-bottom: 1px solid #232327; color: #C2C2C8">{{r.exit}}</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<div style="padding: 8px 14px; font-size: 11px; color: #9A9AA2">10 of 48 entries measurable · the rest lack a dated citation, a decision link or prices</div>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1250}}'>
+class Component extends DCLogic {
+  renderVals() {
+    function seg(from, to, color) {
+      if (from === to) return 'display: none';
+      var a = 60 + from * 10, b = 60 + to * 10;
+      return 'position: absolute; top: 3px; height: 6px; border-radius: 2px; left: ' + Math.min(a, b) + 'px; width: ' + Math.abs(b - a) + 'px; background: ' + color;
+    }
+    var pos = 'font-weight: 600; color: #56D364';
+    var neg = 'font-weight: 600; color: #FF9B94';
+    var waffle = [];
+    for (var i = 0; i < 21; i++) {
+      waffle.push('display: block; height: 14px; border-radius: 2px; background: ' + (i < 8 ? '#F98309' : '#2C2C31'));
+    }
+    return {
+      stats: [
+        { label: 'Median news → order lag', value: '3.9 h', sub: '0 of 21 entries within 1 h' },
+        { label: 'Move gone before entry', value: '33%', sub: 'median share, publish → exit' },
+        { label: 'Right way, option lost', value: '8 of 21', sub: 'closed trades' },
+        { label: 'Measurable entries', value: '10 of 48', sub: 'dated citation + prices' },
+        { label: 'Fastest entry', value: '1.5 h', sub: 'NVDA, Aug 18' }
+      ],
+      waffle: waffle,
+      rows: [
+        { ticker: 'NVDA', date: 'Aug 18 · call', lag: '1.5 h', pre: 'display: none', post: seg(0, -3.63, '#F98309'), before: '—', after: '−3.63%', pl: '−30.33%', plStyle: neg, flag: '', exit: 'Stop loss' },
+        { ticker: 'NVDA', date: 'Sep 1 · call', lag: '2.1 h', pre: seg(0, -1.44, '#6E6E76'), post: seg(-1.44, 6.42, '#58A6FF'), before: '−1.44%', after: '+7.86%', pl: '+112.59%', plStyle: pos, flag: '', exit: 'Trailing profit stop' },
+        { ticker: 'NVDA', date: 'Sep 22 · call', lag: '2.2 h', pre: seg(0, 0.62, '#6E6E76'), post: seg(0.62, -1.31, '#F98309'), before: '+0.62%', after: '−1.93%', pl: '−35.29%', plStyle: neg, flag: '', exit: 'Stop loss' },
+        { ticker: 'SKHY', date: 'Aug 26 · call', lag: '2.7 h', pre: 'display: none', post: seg(0, 3.17, '#58A6FF'), before: '—', after: '+3.17%', pl: '−23.85%', plStyle: neg, flag: 'moved our way, option lost', exit: 'Stop loss' },
+        { ticker: 'XOM', date: '[date] · call', lag: '2.8 h', pre: 'display: none', post: 'display: none', before: '—', after: '—', pl: 'Open', plStyle: 'color: #C2C2C8', flag: '', exit: '—' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

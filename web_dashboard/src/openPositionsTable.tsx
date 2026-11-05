@@ -1,16 +1,12 @@
 import { fetchPolledJson } from './api';
-import {
-  MISSING_VALUE_PLACEHOLDER,
-  formatCurrency,
-  formatNumber,
-  formatPercent,
-  formatSignedPercent,
-  formatToken,
-} from './format';
+import { formatCurrency, formatSignedPercent, formatToken, hasNumericValue } from './format';
+import { formatOccSymbol } from './occ';
+import { DataTable } from './ui/DataTable';
+import type { Column } from './ui/DataTable';
+import { Panel } from './ui/Panel';
 import { usePolledResource } from './useRemoteResource';
-import './positions.css';
 
-type OpenPosition = {
+export type OpenPosition = {
   symbol: string;
   contract_symbol: string;
   position_kind: 'option' | 'stock';
@@ -56,222 +52,61 @@ type OpenPositionsPayload = {
   positions: OpenPosition[];
 };
 
-const POSITION_PERCENT_DIGITS = 1;
-
 function getOpenPositions(): Promise<OpenPositionsPayload> {
   return fetchPolledJson<OpenPositionsPayload>('/api/open-positions', 'open positions');
 }
 
-function formatPositionPercent(value: number | null): string {
-  return formatPercent(value, { digits: POSITION_PERCENT_DIGITS });
+function PnlPercent({ value }: { value: number | null }) {
+  if (!hasNumericValue(value)) {
+    return <span className="text-dim">—</span>;
+  }
+  let tone = '';
+  if (value > 0) {
+    tone = 'text-gain';
+  } else if (value < 0) {
+    tone = 'text-loss';
+  }
+  return <span className={tone}>{formatSignedPercent(value)}</span>;
 }
 
-function formatProfitLossPercent(value: number | null): string {
-  return formatSignedPercent(value, { digits: POSITION_PERCENT_DIGITS, suffix: ' P/L' });
+function exitFloor(position: OpenPosition): string {
+  const protection = position.profit_protection;
+  if (!protection || protection.floor_type === 'unavailable') {
+    return '—';
+  }
+  const kind = protection.floor_type === 'trailing_profit' ? 'Profit floor' : 'Stop';
+  return `${kind} ${formatSignedPercent(protection.floor_profit_pct, { placeholder: '' })}`.trim();
 }
 
-function formatBidAsk(position: OpenPosition): string {
-  if (position.current_bid === null && position.current_ask === null) {
-    return MISSING_VALUE_PLACEHOLDER;
-  }
+const COLUMNS: readonly Column<OpenPosition>[] = [
+  { key: 'contract', header: 'Contract', render: (position) => <span className="font-mono whitespace-nowrap">{formatOccSymbol(position.contract_symbol)}</span> },
+  { key: 'qty', header: 'Qty', align: 'right', render: (position) => position.quantity ?? '—' },
+  { key: 'entry', header: 'Entry', align: 'right', render: (position) => formatCurrency(position.entry_price, { placeholder: '—' }) },
+  { key: 'mark', header: 'Mark', align: 'right', render: (position) => formatCurrency(position.mark_price, { placeholder: '—' }) },
+  { key: 'pnl', header: 'P/L', align: 'right', render: (position) => <PnlPercent value={position.unrealized_pl_pct} /> },
+  { key: 'dte', header: 'DTE', align: 'right', render: (position) => position.days_to_expiration ?? '—' },
+  { key: 'floor', header: 'Exit floor', render: exitFloor },
+  { key: 'thesis', header: 'Thesis', render: (position) => formatToken(position.thesis_verdict?.thesis_state, { placeholder: '—' }) },
+];
 
-  return `${formatCurrency(position.current_bid)} / ${formatCurrency(position.current_ask)}`;
-}
-
-function getExitStatusTone(status: string): string {
-  const normalized = status.trim().toLowerCase();
-  if (normalized.includes('stop loss') || normalized.includes('triggered')) {
-    return 'negative';
-  }
-  if (normalized.includes('take profit')) {
-    return 'positive';
-  }
-  if (normalized.includes('expiration')) {
-    return 'warning';
-  }
-  return 'neutral';
-}
-
-function getThesisTone(state: string): string {
-  switch (state) {
-    case 'intact':
-      return 'positive';
-    case 'degraded':
-      return 'warning';
-    case 'invalidated':
-      return 'negative';
-    default:
-      return 'neutral';
-  }
-}
-
-
-function buildThesisTooltip(verdict: NonNullable<OpenPosition['thesis_verdict']>): string {
-  const parts = [
-    verdict.rationale || '',
-    verdict.would_open_today ? `Would open today: ${verdict.would_open_today}` : '',
-    verdict.consistency ? `Samples: ${verdict.consistency}` : '',
-    verdict.run_date ? `Checked ${verdict.run_date} (${verdict.mode ?? 'shadow'} mode)` : '',
-  ];
-  return parts.filter(Boolean).join('\n');
-}
-
-function getFloorLabel(position: OpenPosition): string {
-  if (position.profit_protection?.floor_type === 'trailing_profit') {
-    return 'Profit floor';
-  }
-  if (position.profit_protection?.floor_type === 'stop_loss') {
-    return 'Stop-loss floor';
-  }
-  return 'Floor unavailable';
+/** What the account holds right now, one row per position. */
+export function HoldingsView({ positions }: { positions: readonly OpenPosition[] }) {
+  return (
+    <Panel title="Holdings" meta={positions.length ? `${positions.length} open` : undefined} flush>
+      {positions.length === 0 ? <p className="p-3.5 text-ink-2">No open positions.</p> : (
+        <DataTable columns={COLUMNS} rows={positions} rowKey={(position) => position.contract_symbol} />
+      )}
+    </Panel>
+  );
 }
 
 function OpenPositionsTable() {
-  const { payload, error } = usePolledResource(getOpenPositions, {
-    errorMessage: 'Failed to load open positions.',
-  });
-
-  if (error) {
-    return (
-      <section className="positions-panel">
-        <div className="positions-panel__header">
-          <div>
-            <p className="positions-panel__eyebrow">Open Positions</p>
-            <h2>Positions table unavailable</h2>
-          </div>
-        </div>
-        <p className="positions-panel__empty">{error}</p>
-      </section>
-    );
-  }
+  const { payload, error } = usePolledResource(getOpenPositions, { errorMessage: 'Failed to load open positions.' });
 
   if (!payload) {
-    return (
-      <section className="positions-panel">
-        <div className="positions-panel__header">
-          <div>
-            <p className="positions-panel__eyebrow">Open Positions</p>
-            <h2>Loading positions</h2>
-          </div>
-        </div>
-        <p className="positions-panel__empty">Fetching live Alpaca positions and option manager snapshots.</p>
-      </section>
-    );
+    return <Panel title="Holdings"><p className={error ? 'text-error' : 'text-dim'}>{error ?? 'Loading positions…'}</p></Panel>;
   }
-
-  return (
-    <section className="positions-panel">
-      <div className="positions-panel__header">
-        <div>
-          <p className="positions-panel__eyebrow">Open Positions</p>
-          <h2>Live position monitor</h2>
-        </div>
-        <p className="positions-panel__summary">
-          {payload.position_count} total, {payload.option_count} options, {payload.stock_count} stocks
-        </p>
-      </div>
-
-      {payload.positions.length === 0 ? (
-        <p className="positions-panel__empty">No open positions right now.</p>
-      ) : (
-        <div className="positions-table-shell">
-          <table className="positions-table">
-            <thead>
-              <tr>
-                <th>Symbol</th>
-                <th>Type</th>
-                <th>Strike</th>
-                <th>Expiration</th>
-                <th>Qty</th>
-                <th>Entry</th>
-                <th>Current Bid/Ask</th>
-                <th>Current Mark</th>
-                <th>Mid Price</th>
-                <th>P/L %</th>
-                <th>Manager Sell Floor</th>
-                <th>Highest Recorded</th>
-                <th>Days to Expiration</th>
-                <th>Exit Rule Status</th>
-                <th>Thesis</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payload.positions.map((position) => (
-                <tr key={position.contract_symbol}>
-                  <td>
-                    <div className="positions-table__symbol-cell">
-                      <span className="positions-table__symbol">{position.symbol}</span>
-                      {position.position_kind === 'option' ? (
-                        <span className="positions-table__contract">{position.contract_symbol}</span>
-                      ) : null}
-                    </div>
-                  </td>
-                  <td>{position.type}</td>
-                  <td>{formatNumber(position.strike)}</td>
-                  <td>{position.expiration || MISSING_VALUE_PLACEHOLDER}</td>
-                  <td>{formatNumber(position.quantity)}</td>
-                  <td>{formatCurrency(position.entry_price)}</td>
-                  <td>{formatBidAsk(position)}</td>
-                  <td>{formatCurrency(position.mark_price)}</td>
-                  <td>{formatCurrency(position.mid_price)}</td>
-                  <td className={position.unrealized_pl_pct !== null && position.unrealized_pl_pct < 0 ? 'positions-table__negative' : position.unrealized_pl_pct !== null && position.unrealized_pl_pct > 0 ? 'positions-table__positive' : ''}>
-                    {formatPositionPercent(position.unrealized_pl_pct)}
-                  </td>
-                  <td>
-                    <div className={`positions-table__protection${position.profit_protection?.trailing_profit_armed ? ' positions-table__protection--armed' : ''}`}>
-                      <span className="positions-table__protection-label">{getFloorLabel(position)}</span>
-                      <strong>{formatCurrency(position.profit_protection?.floor_mark_price ?? null)}</strong>
-                      <span>{formatProfitLossPercent(position.profit_protection?.floor_profit_pct ?? null)}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="positions-table__protection">
-                      <span className="positions-table__protection-label">High-water mark</span>
-                      <strong>{formatCurrency(position.profit_protection?.high_water_mark_price ?? null)}</strong>
-                      <span>{formatProfitLossPercent(position.profit_protection?.high_water_profit_pct ?? null)}</span>
-                    </div>
-                  </td>
-                  <td>{position.days_to_expiration === null ? 'N/A' : formatNumber(position.days_to_expiration)}</td>
-                  <td>
-                    <span className={`positions-table__badge positions-table__badge--${getExitStatusTone(position.exit_rule_status)}`}>
-                      {position.exit_rule_status}
-                    </span>
-                    {position.decision_reasons.length > 0 ? (
-                      <p className="positions-table__reason">{position.decision_reasons[0]}</p>
-                    ) : null}
-                  </td>
-                  <td>
-                    {position.thesis_verdict ? (
-                      <>
-                        <span
-                          className={`positions-table__badge positions-table__badge--${getThesisTone(position.thesis_verdict.thesis_state)}`}
-                          title={buildThesisTooltip(position.thesis_verdict)}
-                        >
-                          {formatToken(position.thesis_verdict.thesis_state)}
-                        </span>
-                        {position.thesis_verdict.arbiter_action && position.thesis_verdict.arbiter_action !== 'none' ? (
-                          <p className="positions-table__reason">
-                            {position.thesis_verdict.executed ? '' : 'shadow: '}
-                            {formatToken(position.thesis_verdict.arbiter_action)}
-                          </p>
-                        ) : null}
-                      </>
-                    ) : position.position_kind === 'option' ? (
-                      <span className="positions-table__badge positions-table__badge--neutral" title="No thesis captured or not validated yet.">
-                        not checked
-                      </span>
-                    ) : (
-                      MISSING_VALUE_PLACEHOLDER
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
+  return <HoldingsView positions={payload.positions} />;
 }
 
 export default OpenPositionsTable;
