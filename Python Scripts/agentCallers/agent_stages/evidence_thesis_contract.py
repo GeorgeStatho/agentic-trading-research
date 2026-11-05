@@ -91,6 +91,8 @@ THESIS_INSTRUCTIONS = (
     "Every number in an observed_fact or calculation statement must match a cited fact, a calculation over cited compatible facts, "
     "or text in a cited quote or article. Set fiscal_period to the cited fact's exact fiscal_period, or an empty string. "
     "Never combine different accounting bases, fiscal period types, currencies, units or scales. "
+    "The one exception: a consensus fact's matches_actual_fact_ids are the actuals of the quarter it estimated; "
+    "cite the consensus fact with one of them to compare result against consensus (baseline_type consensus). "
     "change_vs_prior_expectations compares against a cited baseline: prior_guidance, consensus or prior_actual. "
     "When no cited baseline exists use assessment unknown and baseline_type none. A guidance change is not a market surprise; "
     "never claim a beat, miss or surprise without a cited consensus fact. "
