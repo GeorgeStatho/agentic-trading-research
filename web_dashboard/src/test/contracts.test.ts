@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { expectancyPayload } from './expectancyFixture.ts'
 import { kpiPayload } from './kpiFixture.ts'
+import { executionQualityPayload } from './reportFixtures.ts'
 
 // tests/test_api_contracts.py writes each contract from the real Python payload. A path in a typed
 // fixture that the API no longer sends means the dashboard type is stale.
@@ -25,6 +26,7 @@ describe('API contracts', () => {
   it.each([
     ['decision-expectancy', expectancyPayload()],
     ['dashboard-kpis', kpiPayload()],
+    ['execution-quality', executionQualityPayload()],
   ])('every path the %s fixture uses is in the API contract', (name, fixture) => {
     const known = contract(name)
     expect(keyPaths(fixture).filter((path) => !known.has(path))).toEqual([])

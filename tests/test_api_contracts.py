@@ -74,6 +74,20 @@ def _kpi_payload(test: unittest.TestCase) -> dict:
         return build_dashboard_kpis()
 
 
+def _execution_quality_payload(test: unittest.TestCase) -> dict:
+    from api import app
+    from db_common import get_connection
+    from contextlib import closing
+
+    temporary_database(test)
+    now = datetime.now(timezone.utc).isoformat()
+    with closing(get_connection()) as conn, conn:
+        conn.execute("""INSERT INTO option_trade_executions (order_id, option_symbol, paper, order_side, order_qty,
+            filled_qty, submitted_at, fill_observed_at, fill_price, slippage_vs_mid, slippage_vs_arrival, spread_paid_pct)
+            VALUES ('a', 'AAPL1', 1, 'buy', 1, 1, ?, ?, 2.0, 0.05, 0.01, 4.0)""", (now, now))
+    return app.test_client().get("/api/execution-quality?days=30").get_json()
+
+
 class ApiContractTests(unittest.TestCase):
     def assert_contract(self, name: str, payload: dict) -> None:
         paths = sorted(key_paths(payload))
@@ -89,6 +103,9 @@ class ApiContractTests(unittest.TestCase):
 
     def test_dashboard_kpis(self):
         self.assert_contract("dashboard-kpis", _kpi_payload(self))
+
+    def test_execution_quality(self):
+        self.assert_contract("execution-quality", _execution_quality_payload(self))
 
 
 if __name__ == "__main__":
