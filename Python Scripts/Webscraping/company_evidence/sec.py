@@ -1,7 +1,9 @@
 """Public SEC submissions, issuer-furnished releases and standard XBRL actuals."""
 from hashlib import sha256
+from html import unescape
 import json
 import re
+from urllib.parse import urlparse
 
 from research_foundation_contracts import timestamp
 from .models import CollectionResult, SourceDocument
@@ -15,7 +17,15 @@ FORMS = {'10-K', '10-K/A', '10-Q', '10-Q/A', '8-K', '8-K/A', '20-F', '20-F/A', '
 EXHIBIT_FORMS = {'8-K', '8-K/A', '6-K', '6-K/A'}
 MAX_EXHIBITS = 3
 _ARCHIVE_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*')
-_EX99 = re.compile(r'ex[-_]?99', re.I)
+# Filenames are the issuer's choice and often never say "ex99"; the filing index's Type column does.
+_EX99_TYPE = re.compile(r'EX-99(?:\.[0-9A-Z]+)*', re.I)
+_INDEX_ROW = re.compile(r'<tr[^>]*>(.*?)</tr>', re.S | re.I)
+_INDEX_CELL = re.compile(r'<td[^>]*>(.*?)</td>', re.S | re.I)
+_HREF = re.compile(r'href="([^"]+)"', re.I)
+
+
+def _cell_text(cell):
+    return unescape(re.sub(r'<[^>]+>', '', cell)).strip()
 
 
 def _int(value):
@@ -154,7 +164,7 @@ class SECAdapter:
         response = self.http.get(url, ttl_seconds=self.policy.refresh_seconds)
         texts, exhibit_ids = [release_text(response['body'])], []
         if filing['form'] in EXHIBIT_FORMS:
-            for name in self._exhibit_names(folder, primary):
+            for name in self._exhibit_names(folder, filing, primary):
                 try:
                     exhibit = self.http.get(f'{folder}/{name}', ttl_seconds=self.policy.refresh_seconds)
                 except Exception:
@@ -166,15 +176,28 @@ class SECAdapter:
         text = '\n'.join(part for part in texts if part)
         return self._text_document(company, filing, url, text, response['observed_at'], metadata)
 
-    def _exhibit_names(self, folder, primary):
-        listing = self.http.get(f'{folder}/index.json', ttl_seconds=self.policy.refresh_seconds)
+    def _exhibit_names(self, folder, filing, primary):
+        """EX-99 documents of this filing, in index order, from the EDGAR filing index page's
+        Document Format Files rows (Seq, Description, Document, Type, Size). An unreadable index
+        costs only the exhibits."""
+        try:
+            listing = self.http.get(f"{folder}/{filing['accessionNumber']}-index.htm",
+                                    ttl_seconds=self.policy.refresh_seconds)
+        except Exception:
+            return []
+        folder_path = urlparse(folder).path
         names = []
-        for item in json.loads(listing['body']).get('directory', {}).get('item', []):
-            name = str(item.get('name', ''))
-            size = _int(item.get('size'))
-            if (name != primary and _ARCHIVE_NAME.fullmatch(name) and _EX99.search(name)
+        for row in _INDEX_ROW.findall(listing['body']):
+            cells = _INDEX_CELL.findall(row)
+            href = _HREF.search(cells[2]) if len(cells) >= 5 else None
+            if not href or not _EX99_TYPE.fullmatch(_cell_text(cells[3])):
+                continue
+            path = unescape(href[1]).removeprefix('/ix?doc=')
+            directory, _, name = path.rpartition('/')
+            size = _int(_cell_text(cells[4]))
+            if (directory == folder_path and name != primary and _ARCHIVE_NAME.fullmatch(name)
                     and name.lower().endswith(('.htm', '.html', '.txt'))
-                    and not (size and size > self.policy.max_response_bytes)):
+                    and not (size and size > self.policy.max_response_bytes) and name not in names):
                 names.append(name)
         return names[:MAX_EXHIBITS]
 
