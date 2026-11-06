@@ -108,6 +108,17 @@ describe('Expectancy page', () => {
     }
   })
 
+  it('downloads the cohorts on screen as CSV, with the current filters', async () => {
+    render(<DecisionExpectancyPage />)
+    await loaded()
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Group by' }), 'ticker')
+
+    const href = new URL(screen.getByRole('link', { name: 'Download CSV' }).getAttribute('href')!, 'http://x')
+    expect(href.pathname).toBe('/api/decision-expectancy')
+    expect(href.searchParams.get('group_by')).toBe('ticker')
+    expect(href.searchParams.get('format')).toBe('csv')
+  })
+
   it('shows the error the API gives', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: 'basis must be marked or closed' }, { status: 400 })))
     render(<DecisionExpectancyPage />)

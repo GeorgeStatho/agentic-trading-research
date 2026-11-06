@@ -174,6 +174,11 @@ describe('Decisions page', () => {
     expect(outcome.textContent).toContain('ord-1')
   })
 
+  it('downloads the loaded decisions as CSV', () => {
+    render(<DecisionsView payload={payload()} notices={[]} initialQuery="" />)
+    expect(screen.getByRole('link', { name: 'Download CSV' }).getAttribute('href')).toBe('/api/decision-autopsies?limit=250&format=csv')
+  })
+
   it('compares a traded decision with SPY and its sector', () => {
     const benchmark = { underlying_move: 3.2, spy_return: 1.1, sector_return: 2.0, residual_move: 1.2,
       iv_at_entry: 0.42, iv_at_exit: 0.35, return_1d_after_exit: -0.5, return_3d_after_exit: 0.8 }
