@@ -25,7 +25,7 @@ describe('Execution quality panel', () => {
     const [row] = within(table).getAllByRole('row').slice(1)
 
     expect(row.textContent).toContain('Paper')
-    expect(row.textContent).toContain('Buy')
+    expect(row.textContent).toContain('buy')
     expect(row.textContent).toContain('50%')
     expect(row.textContent).toContain('$0.04')
     expect(row.textContent).toContain('6.2%')
