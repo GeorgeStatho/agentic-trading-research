@@ -17,6 +17,7 @@ import json
 import os
 from contextlib import closing
 from dataclasses import dataclass
+from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -209,11 +210,17 @@ def _load_policies() -> dict:
     return policies
 
 
-def _source_hashes() -> dict | None:
-    from services.core.trading_path import trading_path_hashes
+@lru_cache(maxsize=1)
+def _trading_path_hashes() -> dict:
+    """Once per process: a running process's code cannot change. A raised error is not cached."""
+    from services.core import trading_path
 
+    return trading_path.trading_path_hashes()
+
+
+def _source_hashes() -> dict | None:
     try:
-        return trading_path_hashes()
+        return dict(_trading_path_hashes())
     except OSError as exc:
         logger.warning("V2 source hash could not be computed: %s", exc)
         return None
