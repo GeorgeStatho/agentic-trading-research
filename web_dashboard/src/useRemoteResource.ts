@@ -69,11 +69,19 @@ function useRemoteResource<T>(
       };
     }
 
-    const intervalId = window.setInterval(read, intervalMs);
+    // A hidden tab skips its polls and catches up the moment it is shown again.
+    const readWhenShown = () => {
+      if (!document.hidden) {
+        read();
+      }
+    };
+    const intervalId = window.setInterval(readWhenShown, intervalMs);
+    document.addEventListener('visibilitychange', readWhenShown);
 
     return () => {
       isMounted = false;
       window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', readWhenShown);
     };
   }, [load, errorMessage, intervalMs]);
 
