@@ -133,5 +133,47 @@ class EvaluatorHashCacheTests(unittest.TestCase):
         self.assertEqual(read.call_count, len(research_versions.EVALUATOR_FILES))
 
 
+class CollectionReadsTests(unittest.TestCase):
+    """A collection holds the write lock, so each price series is read once, not once per candidate."""
+
+    def setUp(self):
+        self.db = fixtures.database(self)
+        self.manifest = fixtures.manifest()
+        self.run_id = start_run(self.manifest, target_candidates=100, now=fixtures.START, db_path=self.db)["run_id"]
+        for index in range(3):
+            fixtures.candidate(self.db, self.manifest, fixtures.observation(self.db, index))
+        fixtures.prices(self.db, 3)
+
+    def _collect_tracing(self):
+        from market_db_modules import research_runs
+
+        statements = []
+
+        def traced(*args, **kwargs):
+            conn = get_connection(*args, **kwargs)
+            conn.set_trace_callback(statements.append)
+            return conn
+
+        with patch.object(research_runs, "get_connection", side_effect=traced):
+            collect_run(self.run_id, as_of=fixtures.END, db_path=self.db)
+        return statements
+
+    def test_each_price_series_is_read_once_per_collection(self):
+        statements = self._collect_tracing()
+        bars = [sql for sql in statements if "FROM historical_underlying_bars WHERE symbol=" in sql and "SPY" not in sql]
+        quotes = [sql for sql in statements if "FROM historical_option_quotes WHERE option_symbol=" in sql]
+        self.assertEqual(len(bars), 2)  # SMH and QQQ
+        with closing(get_connection(self.db)) as conn:
+            symbols = conn.execute("SELECT COUNT(DISTINCT option_symbol) FROM historical_option_quotes").fetchone()[0]
+        self.assertLessEqual(len(quotes), symbols)
+
+    def test_benchmarks_are_still_priced_for_every_candidate(self):
+        self._collect_tracing()
+        with closing(get_connection(self.db)) as conn:
+            rows = conn.execute("""SELECT strategy, status, COUNT(*) FROM research_shadow_positions
+                WHERE run_id=? AND strategy IN ('SMH','QQQ') GROUP BY strategy, status""", (self.run_id,)).fetchall()
+        self.assertEqual({tuple(row) for row in rows}, {("SMH", "complete", 3), ("QQQ", "complete", 3)})
+
+
 if __name__ == "__main__":
     unittest.main()
