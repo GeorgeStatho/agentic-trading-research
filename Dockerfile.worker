@@ -15,9 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY requirements.txt constraints.txt ./
 RUN python -m pip install --upgrade pip setuptools wheel
-RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt -c constraints.txt
 
 
 FROM python:3.11-slim@sha256:9635410349cba3531fabde484e07f14e625abb40e1bc8b23fffa046cb497ce2d
@@ -35,9 +35,10 @@ RUN python -m pip install --upgrade pip setuptools wheel \
 
 RUN playwright install --with-deps chromium
 
-# The build's test step runs in parallel when pytest-xdist is present (pins match the dev extra in
-# pyproject.toml). Installed before COPY so code changes reuse this cached layer.
-RUN pip install "pytest>=8" "pytest-xdist>=3"
+# The build's test step runs in parallel when pytest-xdist is present (versions from constraints.txt).
+# Installed before COPY so code changes reuse this cached layer.
+COPY constraints.txt .
+RUN pip install pytest pytest-xdist -c constraints.txt
 
 COPY . .
 

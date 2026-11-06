@@ -5,6 +5,9 @@ import unittest
 from tests import ROOT_DIR
 
 
+DASHBOARD_DOCKERFILE = ROOT_DIR / "web_dashboard" / "Dockerfile"
+
+
 def _names(text: str) -> set[str]:
     names = set()
     for line in text.splitlines():
@@ -42,8 +45,9 @@ class DependencyPinTests(unittest.TestCase):
         self.assertRegex(dockerfile, r"pip wheel [^\n]*-r requirements\.txt -c constraints\.txt")
         self.assertRegex(dockerfile, r"pip install [^\n]*pytest[^\n]*-c constraints\.txt")
 
+    @unittest.skipUnless(DASHBOARD_DOCKERFILE.exists(), "the worker image leaves out web_dashboard/")
     def test_the_dashboard_image_installs_the_lockfile(self):
-        dockerfile = (ROOT_DIR / "web_dashboard" / "Dockerfile").read_text(encoding="utf-8")
+        dockerfile = DASHBOARD_DOCKERFILE.read_text(encoding="utf-8")
 
         self.assertIn("npm ci", dockerfile)
         self.assertNotIn("npm install", dockerfile)

@@ -6,10 +6,11 @@ The project is an application run from its checkout. Install it editable into yo
 Python 3.11+ environment:
 
 ```bash
-pip install -e .
+pip install -e . -c constraints.txt
 ```
 
-This installs the dependencies in `requirements.txt` and registers the import roots
+This installs the dependencies in `requirements.txt`, at the exact versions in
+`constraints.txt` (the worker image's environment), and registers the import roots
 declared in `pyproject.toml` (`.`, `Data`, `Python Scripts`, `Python Scripts/agentCallers`
 and `Python Scripts/Webscraping`). Those roots are the only import configuration. Modules
 must not edit `sys.path`, and new code imports through them, for example
@@ -35,7 +36,7 @@ python3 scripts/project.py test
 python3 scripts/project.py test tests.test_thesis_evidence_contract   # selected modules
 ```
 
-With the dev extras installed (`pip install -e ".[dev]"`), the whole suite runs in
+With the dev extras installed (`pip install -e ".[dev]" -c constraints.txt`), the whole suite runs in
 parallel through `pytest -n auto`; without them it runs one test at a time through
 `unittest`. Selected modules always run through `unittest`. Tests are written as
 `unittest` test cases either way.

@@ -40,7 +40,8 @@ TESTMON_DATA = ROOT_DIR / ".testmondata"
 TEST_INPUTS_FINGERPRINT = ROOT_DIR / ".testmon-inputs.json"
 # Files the code reads at run time. testmon only sees executed Python, so a change to any of
 # these cannot be traced to the tests it affects; it re-runs every test once and re-records.
-NON_PYTHON_TEST_INPUTS = ("*.sql", "config/*", "Data/*.json", ".env.example", "pyproject.toml", "requirements.txt")
+NON_PYTHON_TEST_INPUTS = ("*.sql", "config/*", "Data/*.json", ".env.example", "pyproject.toml", "requirements.txt",
+                          "constraints.txt")
 
 
 def _test_inputs_fingerprint() -> str | None:
