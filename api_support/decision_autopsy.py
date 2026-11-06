@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -43,12 +43,15 @@ def counterfactual_trade(
     return event
 
 
-def todays_decision_funnel(*, now: datetime) -> dict[str, Any]:
-    """How far every decision of the current New York trading day got, not only the loaded page."""
-    market_day = now.astimezone(MARKET_TIMEZONE).date()
+def market_day_bounds(market_day: date) -> tuple[str, str]:
+    """A New York trading day as UTC ISO bounds, [start, end); stored run times are UTC ISO text, so they compare as strings."""
     start = datetime.combine(market_day, time(0), MARKET_TIMEZONE)
-    # Stored run times are UTC ISO text, so UTC bounds compare correctly as strings.
-    bounds = (start.astimezone(timezone.utc).isoformat(), (start + timedelta(days=1)).astimezone(timezone.utc).isoformat())
+    end = datetime.combine(market_day + timedelta(days=1), time(0), MARKET_TIMEZONE)
+    return start.astimezone(timezone.utc).isoformat(), end.astimezone(timezone.utc).isoformat()
+
+
+def decision_funnel(market_day: date) -> dict[str, Any]:
+    """How far every decision of one New York trading day got, not only the loaded page."""
     with closing(get_connection()) as conn:
         row = conn.execute(
             """
@@ -61,9 +64,14 @@ def todays_decision_funnel(*, now: datetime) -> dict[str, Any]:
             JOIN manager_decision_history AS history ON history.id = ledger.manager_decision_history_id
             WHERE ledger.decision_run_at >= ? AND ledger.decision_run_at < ?
             """,
-            bounds,
+            market_day_bounds(market_day),
         ).fetchone()
     return {"market_day": market_day.isoformat(), **{key: int(row[key]) for key in ("evaluated", "trade_candidates", "call", "put", "executed")}}
+
+
+def todays_decision_funnel(*, now: datetime) -> dict[str, Any]:
+    """The funnel for the New York trading day `now` falls on."""
+    return decision_funnel(now.astimezone(MARKET_TIMEZONE).date())
 
 
 def _string_list(value: Any) -> list[str]:
@@ -308,8 +316,10 @@ def _benchmarks_for_decisions(decision_ids: list[int]) -> dict[int, dict[str, An
     return {row["manager_decision_history_id"]: {column: row[column] for column in BENCHMARK_COLUMNS} for row in rows}
 
 
-def build_decision_autopsy_payload(*, limit: int = 100) -> dict[str, Any]:
-    rows = [dict(row) for row in list_decision_autopsy_ledger(limit=limit)]
+def build_decision_autopsy_payload(*, limit: int = 100, day: date | None = None) -> dict[str, Any]:
+    """The newest `limit` decisions, or with `day` the newest `limit` of that New York trading day."""
+    since, until = market_day_bounds(day) if day is not None else (None, None)
+    rows = [dict(row) for row in list_decision_autopsy_ledger(limit=limit, since=since, as_of=until)]
     records = [_serialize_ledger_row(row) for row in rows]
     now = datetime.now(timezone.utc)
     with closing(get_connection()) as conn:
@@ -334,6 +344,7 @@ def build_decision_autopsy_payload(*, limit: int = 100) -> dict[str, Any]:
         "count": len(records),
         "records": records,
         "today": todays_decision_funnel(now=now),
+        **({"day": decision_funnel(day)} if day is not None else {}),
         "read_only": True,
         "no_trade_executed_by_feature": True,
         "v2_verdicts_available": verdicts is not None,

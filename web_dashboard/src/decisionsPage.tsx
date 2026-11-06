@@ -1,18 +1,21 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import {
   articleAgeHours,
   decisionCounts,
   decisionPath,
+  decisionsUrl,
   diagnosticNotices,
   filterDecisions,
   funnelCounts,
   getDecisions,
   getDemoDecisions,
   getDiagnostics,
+  marketDayOf,
   NO_FILTERS,
   safeguardVerdicts,
+  shiftDay,
   verdictLabel,
   whyLine,
 } from './decisions';
@@ -52,10 +55,30 @@ const STOPPED_OPTIONS: { value: StopStage | 'any'; label: string }[] = [
   { value: 'order', label: 'Order' },
 ];
 
+// No option is pressed while a past day is picked.
 const WHEN_OPTIONS: { value: WhenFilter; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: 'all', label: 'All loaded' },
 ];
+
+/** Steps back and forth through trading days; a day before today is the `'day'` window. */
+function DayPicker({ value, today, onChange }: { value: string; today: string; onChange: (day: string) => void }) {
+  const step = 'btn btn-ghost btn-xs font-normal text-ink-2';
+  return (
+    <div role="group" aria-label="Day" className="flex items-center gap-1">
+      <button type="button" className={step} aria-label="Previous day" onClick={() => onChange(shiftDay(value, -1))}>‹</button>
+      <input
+        type="date"
+        aria-label="Decision day"
+        className="input input-xs input-bordered font-mono"
+        value={value}
+        max={today}
+        onChange={(event) => { if (event.target.value) onChange(event.target.value); }}
+      />
+      <button type="button" className={step} aria-label="Next day" disabled={value >= today} onClick={() => onChange(shiftDay(value, 1))}>›</button>
+    </div>
+  );
+}
 
 const STEP_STATE: Record<StepState, { label: string; className: string }> = {
   passed: { label: 'Passed', className: 'border-base-300 text-gain-text' },
@@ -439,24 +462,42 @@ type DecisionsViewProps = {
   notices: string[];
   /** A search handed over by a link, e.g. from Live. */
   initialQuery: string;
+  /**
+   * Asks the server for one day's decisions (null: the newest page). Without it, as in the
+   * seeded demo, a past day is filtered from what is already loaded.
+   */
+  onDayChange?: (day: string | null) => void;
 };
 
-export function DecisionsView({ payload, notices, initialQuery }: DecisionsViewProps) {
+export function DecisionsView({ payload, notices, initialQuery, onDayChange }: DecisionsViewProps) {
   const now = Date.parse(payload.as_of);
+  const today = marketDayOf(now);
   const [filters, setFilters] = useState<DecisionFilters>(() => {
-    const ranToday = filterDecisions(payload.records, { ...NO_FILTERS, when: 'today' }, now).length > 0;
-    return { query: initialQuery, verdict: 'all', stoppedAt: 'any', when: ranToday && !initialQuery ? 'today' : 'all' };
+    const ranToday = filterDecisions(payload.records, { ...NO_FILTERS, when: 'today', day: today }, now).length > 0;
+    return { query: initialQuery, verdict: 'all', stoppedAt: 'any', when: ranToday && !initialQuery ? 'today' : 'all', day: today };
   });
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const detailRef = useRef<HTMLElement>(null);
 
   const update = (change: Partial<DecisionFilters>) => setFilters((current) => ({ ...current, ...change }));
-  const records = filterDecisions(payload.records, filters, now);
-  const loadedInWindow = filterDecisions(payload.records, { ...NO_FILTERS, when: filters.when }, now);
-  // A busy day has more decisions than the page loads, so today's chips use the server's count.
-  const dayFunnel = filters.when === 'today' ? payload.today : undefined;
-  const counts = dayFunnel ? funnelCounts(dayFunnel) : decisionCounts(loadedInWindow);
+  const pickWhen = (when: WhenFilter) => {
+    update({ when, day: today });
+    onDayChange?.(null);
+  };
+  const pickDay = (day: string) => {
+    if (day >= today) return pickWhen('today');
+    update({ when: 'day', day });
+    onDayChange?.(day);
+  };
+  const pastDay = filters.when === 'day';
+  // Until the server answers for a newly picked day, the list still holds the previous page.
+  const loadingDay = pastDay && onDayChange !== undefined && payload.day?.market_day !== filters.day;
+  const records = loadingDay ? [] : filterDecisions(payload.records, filters, now);
+  const loadedInWindow = filterDecisions(payload.records, { ...NO_FILTERS, when: filters.when, day: filters.day }, now);
+  // A busy day has more decisions than the page loads, so the chips use the server's count for that day.
+  const dayFunnel = filters.when === 'today' ? payload.today : pastDay && !loadingDay ? payload.day : undefined;
+  const counts = dayFunnel ? funnelCounts(dayFunnel) : decisionCounts(loadingDay ? [] : loadedInWindow);
   const partialDay = dayFunnel !== undefined && dayFunnel.evaluated > loadedInWindow.length;
   const selected = records.find((record) => record.id === selectedId) ?? records[0] ?? null;
   const newest = payload.records[0];
@@ -477,7 +518,7 @@ export function DecisionsView({ payload, notices, initialQuery }: DecisionsViewP
         title="Decisions"
         description="Every proposal with its frozen evidence and what happened next. Read-only."
         meta={newest ? `last run ${formatDateTime(newest.decision_run_at)} · newest ${payload.records.length} loaded` : undefined}
-        actions={<CsvLink href="/api/decision-autopsies?limit=250&format=csv" />}
+        actions={<CsvLink href={decisionsUrl(pastDay ? filters.day : undefined, 'csv')} />}
       />
       <div role="group" aria-label="Decision summary" className="flex flex-wrap gap-2 text-xs">
         {[
@@ -489,7 +530,7 @@ export function DecisionsView({ payload, notices, initialQuery }: DecisionsViewP
         ].map((chip) => <span key={chip} className="rounded-sm bg-raised px-2 py-0.5 text-ink-2">{chip}</span>)}
       </div>
       {partialDay ? (
-        <p className="text-[11px] text-dim">Listing the newest {loadedInWindow.length} of today's {dayFunnel.evaluated} decisions; search reaches only these.</p>
+        <p className="text-[11px] text-dim">Listing the newest {loadedInWindow.length} of {pastDay ? "this day's" : "today's"} {dayFunnel.evaluated} decisions; search reaches only these.</p>
       ) : null}
       {notices.length ? (
         <details className="text-xs text-warning">
@@ -508,7 +549,10 @@ export function DecisionsView({ payload, notices, initialQuery }: DecisionsViewP
         <Select label="Stopped at" options={STOPPED_OPTIONS} value={filters.stoppedAt} onChange={(stopped) => update({ stoppedAt: stopped })} />
         <div className="flex flex-col gap-1">
           <Label>When</Label>
-          <Segmented label="When" options={WHEN_OPTIONS} value={filters.when} onChange={(when) => update({ when })} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmented label="When" options={WHEN_OPTIONS} value={filters.when} onChange={pickWhen} />
+            <DayPicker value={filters.day} today={today} onChange={pickDay} />
+          </div>
         </div>
       </div>
       <div className="flex flex-wrap items-start gap-3">
@@ -520,7 +564,7 @@ export function DecisionsView({ payload, notices, initialQuery }: DecisionsViewP
                   <DecisionRow key={record.id} record={record} selected={record.id === selected?.id} onSelect={() => select(record.id)} />
                 ))}
               </ul>
-            ) : <p className="p-3.5 text-dim">No decisions match these filters.</p>}
+            ) : <p className="p-3.5 text-dim">{loadingDay ? 'Loading this day’s decisions…' : 'No decisions match these filters.'}</p>}
           </Panel>
         </div>
         <section ref={detailRef} aria-label="Selected decision" className="flex min-w-0 flex-[999_1_640px] flex-col gap-3">
@@ -536,7 +580,10 @@ function noDiagnostics(): Promise<DiagnosticsFeed> {
 }
 
 function DecisionsPage({ demoMode = false }: { demoMode?: boolean }) {
-  const decisions = usePolledResource(demoMode ? getDemoDecisions : getDecisions, { errorMessage: 'Failed to load decisions.' });
+  // null: the newest page; a YYYY-MM-DD New York day: that whole day.
+  const [day, setDay] = useState<string | null>(null);
+  const loadDecisions = useCallback(() => (demoMode ? getDemoDecisions() : getDecisions(day ?? undefined)), [demoMode, day]);
+  const decisions = usePolledResource(loadDecisions, { errorMessage: 'Failed to load decisions.' });
   const diagnostics = usePolledResource(demoMode ? noDiagnostics : getDiagnostics, { errorMessage: 'Failed to load company decisions.' });
   const [initialQuery] = useState(() => searchFromHash(window.location.hash));
 
@@ -553,7 +600,7 @@ function DecisionsPage({ demoMode = false }: { demoMode?: boolean }) {
   return (
     <>
       {demoMode ? <p className="mb-2 text-xs text-warning">Seeded fictional walkthrough. This review creates no trade, order, or live outcome.</p> : null}
-      <DecisionsView payload={decisions.payload} notices={notices} initialQuery={initialQuery} />
+      <DecisionsView payload={decisions.payload} notices={notices} initialQuery={initialQuery} onDayChange={demoMode ? undefined : setDay} />
     </>
   );
 }

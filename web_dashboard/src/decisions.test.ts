@@ -4,10 +4,13 @@ import {
   articleAgeHours,
   decisionCounts,
   decisionPath,
+  decisionsUrl,
   diagnosticNotices,
   filterDecisions,
   funnelCounts,
+  marketDayOf,
   safeguardVerdicts,
+  shiftDay,
   stoppedAt,
   whyLine,
 } from './decisions.ts'
@@ -132,7 +135,7 @@ describe('filterDecisions', () => {
   const now = Date.parse('2026-11-04T20:00:00Z')
   const yesterday = decisionRecord({ id: 1, symbol: 'PBF', company_name: 'PBF Energy', decision_run_at: '2026-11-03T20:38:00+00:00' })
   const records = [decisionRecord(), blockedCall(), yesterday]
-  const all = { query: '', verdict: 'all', stoppedAt: 'any', when: 'all' } as const
+  const all = { query: '', verdict: 'all', stoppedAt: 'any', when: 'all', day: '' } as const
 
   function ids(filters: Partial<Parameters<typeof filterDecisions>[1]>) {
     return filterDecisions(records, { ...all, ...filters }, now).map((record) => record.symbol)
@@ -160,6 +163,29 @@ describe('filterDecisions', () => {
 
   it('keeps only decisions from the current trading day (ET) for "today"', () => {
     expect(ids({ when: 'today' })).toEqual(['DVN', 'MSFT'])
+  })
+
+  it('keeps only decisions from the picked trading day (ET) for "day"', () => {
+    expect(ids({ when: 'day', day: '2026-11-03' })).toEqual(['PBF'])
+    expect(ids({ when: 'day', day: '2026-11-02' })).toEqual([])
+  })
+})
+
+describe('days', () => {
+  it('reads the New York trading day, which can differ from the UTC date', () => {
+    expect(marketDayOf('2026-11-04T04:00:00+00:00')).toBe('2026-11-03')
+    expect(marketDayOf('not a time')).toBe('')
+  })
+
+  it('steps whole calendar days across month ends', () => {
+    expect(shiftDay('2026-11-01', -1)).toBe('2026-10-31')
+    expect(shiftDay('2026-12-31', 1)).toBe('2027-01-01')
+  })
+
+  it("asks the server for a day's decisions, or for the newest page", () => {
+    expect(decisionsUrl()).toBe('/api/decision-autopsies?limit=100')
+    expect(decisionsUrl('2026-11-03')).toBe('/api/decision-autopsies?day=2026-11-03&limit=250')
+    expect(decisionsUrl(undefined, 'csv')).toBe('/api/decision-autopsies?limit=250&format=csv')
   })
 })
 

@@ -85,10 +85,19 @@ export type DecisionsPayload = {
   v2_verdicts_available?: boolean;
   /** Absent from the seeded demo payload. */
   today?: DayFunnel;
+  /** The requested day's funnel; present only when the request named a day. */
+  day?: DayFunnel;
 };
 
-export function getDecisions(): Promise<DecisionsPayload> {
-  return fetchPolledJson<DecisionsPayload>('/api/decision-autopsies?limit=100', 'decisions');
+/** The newest 100 decisions, or with `day` (YYYY-MM-DD, New York) up to 250 from that trading day. */
+export function getDecisions(day?: string): Promise<DecisionsPayload> {
+  return fetchPolledJson<DecisionsPayload>(decisionsUrl(day), 'decisions');
+}
+
+export function decisionsUrl(day?: string, format?: 'csv'): string {
+  const params = new URLSearchParams(day ? { day, limit: '250' } : { limit: format ? '250' : '100' });
+  if (format) params.set('format', format);
+  return `/api/decision-autopsies?${params}`;
 }
 
 export async function getDemoDecisions(): Promise<DecisionsPayload> {
@@ -217,11 +226,12 @@ export function funnelCounts(today: DayFunnel): DecisionCounts {
 }
 
 export type VerdictFilter = 'all' | 'call' | 'put' | 'neither';
-export type WhenFilter = 'today' | 'all';
-export type DecisionFilters = { query: string; verdict: VerdictFilter; stoppedAt: StopStage | 'any'; when: WhenFilter };
+export type WhenFilter = 'today' | 'day' | 'all';
+/** `day` (YYYY-MM-DD, New York) applies when `when` is `'day'`. */
+export type DecisionFilters = { query: string; verdict: VerdictFilter; stoppedAt: StopStage | 'any'; when: WhenFilter; day: string };
 
 /** Every decision in the chosen window; the summary chips count these. */
-export const NO_FILTERS: Omit<DecisionFilters, 'when'> = { query: '', verdict: 'all', stoppedAt: 'any' };
+export const NO_FILTERS: Omit<DecisionFilters, 'when' | 'day'> = { query: '', verdict: 'all', stoppedAt: 'any' };
 
 function matchesVerdict(decision: string, verdict: VerdictFilter): boolean {
   switch (verdict) {
@@ -236,9 +246,22 @@ function matchesVerdict(decision: string, verdict: VerdictFilter): boolean {
 
 const marketDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' });
 
-function sameMarketDay(timestamp: string, now: number): boolean {
-  const time = Date.parse(asUtcTimestamp(timestamp));
-  return !Number.isNaN(time) && marketDay.format(time) === marketDay.format(now);
+/** The New York trading day (YYYY-MM-DD) a timestamp falls on, or '' when it does not parse. */
+export function marketDayOf(timestamp: string | number): string {
+  const time = typeof timestamp === 'number' ? timestamp : Date.parse(asUtcTimestamp(timestamp));
+  return Number.isNaN(time) ? '' : marketDay.format(time);
+}
+
+/** A YYYY-MM-DD day moved by whole calendar days. */
+export function shiftDay(day: string, days: number): string {
+  const date = new Date(`${day}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function inWindow(timestamp: string, filters: DecisionFilters, now: number): boolean {
+  if (filters.when === 'all') return true;
+  return marketDayOf(timestamp) === (filters.when === 'today' ? marketDayOf(now) : filters.day);
 }
 
 /** `now` is the payload's `as_of`, so "today" is the server's trading day. */
@@ -248,7 +271,7 @@ export function filterDecisions(records: readonly DecisionRecord[], filters: Dec
     if (needle && ![record.symbol, record.company_name].some((field) => field.toLowerCase().includes(needle))) return false;
     if (!matchesVerdict(record.manager.decision, filters.verdict)) return false;
     if (filters.stoppedAt !== 'any' && stoppedAt(record) !== filters.stoppedAt) return false;
-    return filters.when === 'all' || sameMarketDay(record.decision_run_at, now);
+    return inWindow(record.decision_run_at, filters, now);
   });
 }
 
