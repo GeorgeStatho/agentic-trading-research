@@ -41,6 +41,17 @@ class DbBackupTests(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in self.settings.backup_dir.iterdir()), [LATEST_NAME, MANIFEST_NAME])
         self.assertEqual(list(self.settings.temp_dir.iterdir()), [])
 
+    def test_backup_refreshes_the_live_databases_planner_statistics(self):
+        # The nightly backup is the one daily job, so it keeps sqlite_stat1 current for the query planner.
+        backup_database(self.settings, schedule_date=date(2026, 11, 4))
+        with closing(sqlite3.connect(self.db)) as conn:
+            self.assertTrue(conn.execute("SELECT 1 FROM sqlite_master WHERE name='sqlite_stat1'").fetchone())
+
+    def test_a_failed_analyze_does_not_fail_the_backup(self):
+        with patch.object(db_backup, "analyze_database", side_effect=sqlite3.OperationalError("locked")):
+            manifest = backup_database(self.settings, schedule_date=date(2026, 11, 4))
+        self.assertEqual(manifest["quick_check"], "ok")
+
     def test_failed_check_keeps_the_previous_backup(self):
         backup_database(self.settings, schedule_date=date(2026, 11, 4))
         previous = (self.settings.backup_dir / LATEST_NAME).read_bytes()
