@@ -88,6 +88,33 @@ def _execution_quality_payload(test: unittest.TestCase) -> dict:
     return app.test_client().get("/api/execution-quality?days=30").get_json()
 
 
+def _exit_attribution_payload(test: unittest.TestCase) -> dict:
+    from api import app
+    from db_common import get_connection
+    from contextlib import closing
+
+    temporary_database(test)
+    with closing(get_connection()) as conn, conn:
+        conn.execute("""INSERT INTO position_outcomes (option_symbol, entry_order_id, opened_at, closed_at,
+            primary_exit_reason, mfe_option, realized_pnl_pct) VALUES ('A1', 'o1', '2026-11-01', '2026-11-02',
+            'stop_loss', 10.0, -30.0)""")
+    return app.test_client().get("/api/exit-attribution").get_json()
+
+
+def _decision_attribution_payload() -> dict:
+    """The report's shape with every group present, as the live database has it."""
+    from api_support.reports import decision_attribution_payload
+
+    group = {"count": 2, "graded": 2, "hit_rate": 0.5, "hit_rate_se": 0.35}
+    report = {"days": 90, "horizon": 5, "total": 2,
+              "matrix": {"adequate": {**group, "cells": {"correct": {"count": 1, "mean_signed_return": 0.04}}}},
+              "by_evidence_source": {"grounding_proxy": group}, "model_self_rating_calibration": {"high": group},
+              "primary_failure_counts": {"none": 2}, "expression": {"captured": 1},
+              "abstentions": {"neither": {"count": 1, "mean_abs_move": 0.02, "median_abs_move": 0.02}}}
+    with mock.patch("api_support.reports.decision_attribution_report", return_value=report):
+        return decision_attribution_payload(days=90, horizon=5)
+
+
 class ApiContractTests(unittest.TestCase):
     def assert_contract(self, name: str, payload: dict) -> None:
         paths = sorted(key_paths(payload))
@@ -103,6 +130,12 @@ class ApiContractTests(unittest.TestCase):
 
     def test_dashboard_kpis(self):
         self.assert_contract("dashboard-kpis", _kpi_payload(self))
+
+    def test_exit_attribution(self):
+        self.assert_contract("exit-attribution", _exit_attribution_payload(self))
+
+    def test_decision_attribution(self):
+        self.assert_contract("decision-attribution", _decision_attribution_payload())
 
     def test_execution_quality(self):
         self.assert_contract("execution-quality", _execution_quality_payload(self))
