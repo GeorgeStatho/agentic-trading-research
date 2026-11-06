@@ -68,8 +68,40 @@ def sgml(form, body):
     return (f'CENTRAL INDEX KEY: 0001045810\n<DOCUMENT><TYPE>{form}\n<TEXT><p>{body}</p></TEXT></DOCUMENT>')
 
 
-def index(*items):
-    return {'directory': {'item': [{'name': name, 'size': str(size), 'type': 'text.gif'} for name, size in items]}}
+def index_url(accession):
+    return f'{folder(accession)}/{accession}-index.htm'
+
+
+def _row(sequence, description, href, name, kind, size, inline=False):
+    link = f'<a href="{href}">{name}</a>' + (' &nbsp;&nbsp;<span style="color: green">iXBRL</span>' if inline else '')
+    return (f'<tr>\n<td scope="row">{sequence}</td>\n<td scope="row">{description}</td>\n'
+            f'<td scope="row">{link}</td>\n<td scope="row">{kind}</td>\n<td scope="row">{size}</td>\n</tr>\n')
+
+
+def index_page(accession, documents, data_files=()):
+    """An EDGAR filing index page: the Document Format Files table, then the Data Files table.
+
+    `documents` rows are (name, type, size) or (name, type, size, href); the primary document's link
+    goes through the inline-XBRL viewer as EDGAR renders it.
+    """
+    path = f"/Archives/edgar/data/1045810/{accession.replace('-', '')}"
+    header = ('<tr>\n<th scope="col"><acronym title="Sequence Number">Seq</acronym></th>\n'
+              '<th scope="col">Description</th>\n<th scope="col">Document</th>\n'
+              '<th scope="col">Type</th>\n<th scope="col">Size</th>\n</tr>\n')
+    rows = []
+    for sequence, document in enumerate(documents, 1):
+        name, kind, size = document[:3]
+        inline = sequence == 1
+        href = document[3] if len(document) > 3 else (f'/ix?doc={path}/{name}' if inline else f'{path}/{name}')
+        rows.append(_row(sequence, kind, href, name, kind, size, inline))
+    rows.append(_row('&nbsp;', 'Complete submission text file', f'{path}/{accession}.txt', f'{accession}.txt',
+                     '&nbsp;', 99_000_000))
+    data = ''.join(_row(len(documents) + n, 'XBRL TAXONOMY EXTENSION SCHEMA DOCUMENT', f'{path}/{name}', name,
+                        kind, 5000) for n, (name, kind) in enumerate(data_files, 1))
+    return ('<html><body><div id="formDiv"><div class="formGrouping">'
+            '<table class="tableFile" summary="Document Format Files">\n' + header + ''.join(rows) + '</table>\n'
+            '<table class="tableFile" summary="Data Files">\n' + header + data + '</table>\n'
+            '</div></div></body></html>')
 
 
 class OversizeFilingTests(unittest.TestCase):
@@ -82,18 +114,19 @@ class OversizeFilingTests(unittest.TestCase):
         result = SECAdapter(sec, self.policy).collect(COMPANY, {})
         return sec, result
 
+    def collect_8k(self, documents, routes, data_files=()):
+        routes = {f'{folder(ACCESSION)}/nvda-8k.htm': '<p>Results furnished in exhibit 99.1.</p>',
+                  index_url(ACCESSION): index_page(ACCESSION, documents, data_files), **routes}
+        return self.collect([filing(ACCESSION, '8-K', size=self.cap + 1, primary='nvda-8k.htm')], routes)
+
     def filings_of(self, result, document_type):
         return [document for document in result.documents if document.document_type == document_type]
 
     def test_oversize_8k_reads_primary_document_and_ex99_instead_of_full_submission(self):
         release = guidance().text
-        routes = {
-            f'{folder(ACCESSION)}/nvda-8k.htm': '<p>Results furnished in exhibit 99.1.</p>',
-            f'{folder(ACCESSION)}/index.json': index(('nvda-8k.htm', 4000), ('ex99-1.htm', 9000),
-                                                     ('R1.htm', 300), ('Financial_Report.xlsx', 80000)),
-            f'{folder(ACCESSION)}/ex99-1.htm': f'<p>{release}</p>',
-        }
-        sec, result = self.collect([filing(ACCESSION, '8-K', size=self.cap + 1, primary='nvda-8k.htm')], routes)
+        # Real issuers' release filenames often never say "ex99" (this one is from a stored filing).
+        sec, result = self.collect_8k([('nvda-8k.htm', '8-K', 4000), ('a3q26earningspr.htm', 'EX-99.1', 9000)],
+                                      {f'{folder(ACCESSION)}/a3q26earningspr.htm': f'<p>{release}</p>'})
 
         self.assertNotIn(full_submission(ACCESSION), sec.requested)
         [document] = self.filings_of(result, 'regulatory_filing')
@@ -101,20 +134,63 @@ class OversizeFilingTests(unittest.TestCase):
         self.assertIn(release, document.text)
         self.assertTrue(document.facts, 'guidance in the EX-99 release is still extracted')
         self.assertEqual(document.metadata['source_scope'], 'primary_document')
-        self.assertNotIn(f'{folder(ACCESSION)}/R1.htm', sec.requested)
+        self.assertEqual(document.metadata['exhibit_response_ids'],
+                         [f'response:{folder(ACCESSION)}/a3q26earningspr.htm'])
+
+    def test_exhibits_are_chosen_by_index_type_not_filename(self):
+        exhibit = f'{folder(ACCESSION)}/'
+        sec, result = self.collect_8k(
+            [('nvda-8k.htm', '8-K', 4000), ('ex99-letter.htm', 'EX-10.1', 3000),
+             ('cop-20261105x8kexx991.htm', 'EX-99.1', 9000), ('uberq326earningspressrelea.htm', 'EX-99.2', 8000),
+             ('nvda-20261105_g1.jpg', 'GRAPHIC', 2000), ('R1.htm', 'XML', 300)],
+            {exhibit + 'cop-20261105x8kexx991.htm': '<p>Third quarter release.</p>',
+             exhibit + 'uberq326earningspressrelea.htm': '<p>Supplemental tables.</p>'},
+            data_files=[('nvda-20261105.xsd', 'EX-101.SCH'), ('nvda-20261105_lab.xml', 'EX-101.LAB')])
+
+        [document] = self.filings_of(result, 'regulatory_filing')
+        self.assertIn('Third quarter release.', document.text)
+        self.assertIn('Supplemental tables.', document.text)
+        for skipped in ('ex99-letter.htm', 'nvda-20261105_g1.jpg', 'R1.htm', 'nvda-20261105.xsd',
+                        'nvda-20261105_lab.xml'):
+            self.assertNotIn(exhibit + skipped, sec.requested)
+        self.assertNotIn(full_submission(ACCESSION), sec.requested)
+        self.assertNotIn(exhibit + 'index.json', sec.requested)
+
+    def test_at_most_three_ex99_exhibits_in_index_order(self):
+        names = [f'release{n}.htm' for n in range(1, 5)]
+        sec, _ = self.collect_8k([('nvda-8k.htm', '8-K', 4000)] + [(name, f'EX-99.{n}', 1000)
+                                                                  for n, name in enumerate(names, 1)],
+                                 {f'{folder(ACCESSION)}/{name}': f'<p>{name}</p>' for name in names})
+        fetched = [url.rsplit('/', 1)[1] for url in sec.requested if url.rsplit('/', 1)[1] in names]
+        self.assertEqual(fetched, names[:3])
 
     def test_oversize_exhibit_is_skipped(self):
-        routes = {
-            f'{folder(ACCESSION)}/nvda-8k.htm': '<p>Cover page.</p>',
-            f'{folder(ACCESSION)}/index.json': index(('nvda-8k.htm', 4000), ('ex99-1.htm', self.cap + 1)),
-        }
-        sec, result = self.collect([filing(ACCESSION, '8-K', size=self.cap + 1, primary='nvda-8k.htm')], routes)
-        self.assertNotIn(f'{folder(ACCESSION)}/ex99-1.htm', sec.requested)
+        sec, result = self.collect_8k([('nvda-8k.htm', '8-K', 4000), ('a3q26earningspr.htm', 'EX-99.1', self.cap + 1)],
+                                      {})
+        self.assertNotIn(f'{folder(ACCESSION)}/a3q26earningspr.htm', sec.requested)
         self.assertEqual(len(self.filings_of(result, 'regulatory_filing')), 1)
+
+    def test_exhibit_linked_outside_the_filing_folder_is_not_fetched(self):
+        elsewhere = '/Archives/edgar/data/999999/000099999926000001/release.htm'
+        sec, result = self.collect_8k([('nvda-8k.htm', '8-K', 4000), ('release.htm', 'EX-99.1', 1000, elsewhere)],
+                                      {})
+        self.assertFalse([url for url in sec.requested if url.endswith('/release.htm')])
+        self.assertEqual(len(self.filings_of(result, 'regulatory_filing')), 1)
+
+    def test_unreadable_index_or_exhibit_keeps_the_primary_document(self):
+        for routes in ({index_url(ACCESSION): ProviderUnavailable('sec HTTP 503')},
+                       {f'{folder(ACCESSION)}/a3q26earningspr.htm': ProviderUnavailable('sec HTTP 503')}):
+            with self.subTest(failing=next(iter(routes))):
+                _, result = self.collect_8k([('nvda-8k.htm', '8-K', 4000), ('a3q26earningspr.htm', 'EX-99.1', 9000)],
+                                            routes)
+                [document] = self.filings_of(result, 'regulatory_filing')
+                self.assertIn('Results furnished in exhibit 99.1.', document.text)
+                self.assertEqual(document.metadata['exhibit_response_ids'], [])
 
     def test_oversize_10q_reads_primary_document_without_looking_for_exhibits(self):
         routes = {f'{folder(ACCESSION)}/nvda-10q.htm': '<p>Quarterly report.</p>'}
         sec, result = self.collect([filing(ACCESSION, '10-Q', size=self.cap * 5, primary='nvda-10q.htm')], routes)
+        self.assertNotIn(index_url(ACCESSION), sec.requested)
         self.assertNotIn(f'{folder(ACCESSION)}/index.json', sec.requested)
         self.assertNotIn(full_submission(ACCESSION), sec.requested)
         [document] = self.filings_of(result, 'regulatory_filing')
