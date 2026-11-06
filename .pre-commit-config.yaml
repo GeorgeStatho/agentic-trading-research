@@ -1,0 +1,7 @@
+# Optional local hook: pip install pre-commit && pre-commit install
+# Runs the same ruff check as CI on the files being committed. Keep rev equal to ruff in constraints.txt.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.4
+    hooks:
+      - id: ruff

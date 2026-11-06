@@ -63,6 +63,16 @@ python3 -m pytest -n auto --cov --cov-report=term-missing
 
 Coverage settings live under `[tool.coverage.*]` in `pyproject.toml`.
 
+## Lint and CI
+
+`ruff check .` runs the bug-finding rules configured under `[tool.ruff]` in `pyproject.toml`
+(no formatter), and `tests/test_static_checks.py` fails when it finds anything. To run it on
+each commit, `pip install pre-commit && pre-commit install`.
+
+`.github/workflows/ci.yml` runs on every push and pull request: the Python job installs with
+`-c constraints.txt` on the worker image's Python version, then runs ruff and the test suite;
+the dashboard job runs `npm ci`, lint, vitest and the production build.
+
 Keep the checkout on the Linux filesystem when you work in WSL (for example under
 `~/code`, not `/mnt/c` or `/mnt/e`). Every file access on a Windows drive goes through a
 slow file-sharing layer, and the suite runs about five times slower there.
