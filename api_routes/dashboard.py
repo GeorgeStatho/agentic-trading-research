@@ -7,14 +7,10 @@ from flask import jsonify, request
 
 from api_support.request_utils import internal_error, read_json_file
 from api_support.context import SCRIPT_STATUS_PATH
-from api_support.dashboard import (
-    build_company_decisions_payload,
-    build_decision_expectancy_payload,
-    build_dashboard_kpis,
-    build_open_positions_payload,
-    build_risk_controls_payload,
-    build_market_regime_payload,
-)
+from api_support.company_decisions import build_company_decisions_payload, build_market_regime_payload
+from api_support.dashboard import build_dashboard_kpis, build_risk_controls_payload
+from api_support.decision_expectancy import build_decision_expectancy_payload
+from api_support.open_positions import build_open_positions_payload
 
 
 def register_dashboard_routes(app) -> None:

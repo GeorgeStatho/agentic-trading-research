@@ -7,7 +7,7 @@ from tests.db_fixtures import temporary_database
 
 
 try:
-    from api_support.dashboard import build_open_positions_payload
+    from api_support.open_positions import build_open_positions_payload
 
     FLASK_AVAILABLE = True
 except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific test guard
@@ -34,11 +34,11 @@ class DashboardOpenPositionsTests(unittest.TestCase):
             }
         ]
 
-        with patch("api_support.dashboard.alpaca_get_json", return_value=raw_positions), patch(
-            "api_support.dashboard.load_option_management_snapshot",
+        with patch("api_support.open_positions.alpaca_get_json", return_value=raw_positions), patch(
+            "api_support.open_positions.load_option_management_snapshot",
             return_value=({}, {}),
         ), patch(
-            "api_support.dashboard.get_latest_option_quote",
+            "api_support.open_positions.get_latest_option_quote",
             return_value={
                 "bid_price": 3.67,
                 "ask_price": 3.86,

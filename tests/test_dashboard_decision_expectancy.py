@@ -16,7 +16,7 @@ from market_db_modules.bootstrap import initialize_database  # noqa: E402
 from market_db_modules.history_records import record_manager_decision_closed_outcome  # noqa: E402
 
 try:
-    from api_support.dashboard import build_decision_expectancy_payload
+    from api_support.decision_expectancy import build_decision_expectancy_payload
 
     FLASK_AVAILABLE = True
 except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific test guard
@@ -63,7 +63,7 @@ class DecisionExpectancyDashboardTests(unittest.TestCase):
         self.now = datetime(2026, 6, 15, tzinfo=timezone.utc)
 
     def _payload(self, rows: list[dict], **kwargs) -> dict:
-        with patch("api_support.dashboard.list_decision_expectancy_rows", return_value=rows):
+        with patch("api_support.decision_expectancy.list_decision_expectancy_rows", return_value=rows):
             return build_decision_expectancy_payload(now=self.now, min_samples=2, **kwargs)
 
     def test_confidence_dte_sector_and_time_zone_cohorts_use_deterministic_values(self) -> None:

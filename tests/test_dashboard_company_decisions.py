@@ -15,7 +15,7 @@ from market_db_modules.entities import add_company, add_industry, add_sector
 
 
 try:
-    from api_support.dashboard import build_company_decisions_payload
+    from api_support.company_decisions import build_company_decisions_payload
 
     FLASK_AVAILABLE = True
 except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific test guard

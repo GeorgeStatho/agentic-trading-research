@@ -130,7 +130,11 @@ Stock-trading-experiment/
 │       │   ├── opportunist_payload.py
 │       │   └── strategist_payload.py
 │       ├── agent_helpers/
-│       │   ├── llm_client.py
+│       │   ├── llm_client.py      entry point: get_model_client, ask_llm_model, ask_classifier_model
+│       │   ├── llm_vertex.py      Vertex/Gemini clients, model aliases, prompt cache
+│       │   ├── llm_openai.py      OpenAI, OpenAI-compatible and llama.cpp
+│       │   ├── llm_errors.py      provider exceptions and retry classification
+│       │   ├── llm_usage.py       response diagnostics and llm_call_usage records
 │       │   ├── text_utils.py
 │       │   ├── macro_news.py
 │       │   ├── sector_opportunist.py
@@ -315,6 +319,9 @@ This side of the repo looks older than the agent pipeline and is more prototype-
   - Vite + React + TypeScript app, styled with Tailwind v4 and daisyUI 5. It has four pages: Live, Decisions, Research and System. `src/routes.tsx` lists them. [web_dashboard/README.md](../web_dashboard/README.md) maps the files.
 - `api.py`, `api_routes/`, `api_support/`
   - The Flask API the dashboard reads. It never places trades or starts and stops the worker; its only writes are backtest and Exposure Map runs.
+  - Dashboard payloads in `api_support/`: `dashboard.py` (KPIs, risk controls, rankings),
+    `open_positions.py`, `company_decisions.py` (with the market regime), `decision_expectancy.py`
+    and `bot_status.py` (loop health, also read by `/api/health/components`).
 
 Dashboard control flow:
 

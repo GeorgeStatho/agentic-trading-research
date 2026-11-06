@@ -82,7 +82,8 @@ def build_pipeline_version(*, settings=None):
     from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
     from agent_stages.manager_runner import MANAGER_PROMPT_VERSION
     from agent_helpers.deterministic_option_selector import SELECTOR_VERSION
-    from agent_helpers.llm_client import _normalize_provider, _resolve_model_name
+    from agent_helpers.llm_client import _normalize_provider
+    from agent_helpers.llm_vertex import _resolve_model_name
     from agent_stages.strategist_runner import decide_company_purchase
     from agent_stages.manager_runner import decide_company_option_position
     from catalyst_models import HALF_LIFE_MINUTES, CLASSIFICATION_VERSION, DECAY_BASIS

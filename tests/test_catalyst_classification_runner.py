@@ -311,7 +311,7 @@ class RunnerValidationTests(ClassifierCase):
 
 class RunnerFailureTests(ClassifierCase):
     def test_quota_exhaustion_stops_the_loop_without_raising(self):
-        from agent_helpers.llm_client import ModelQuotaExhausted
+        from agent_helpers.llm_errors import ModelQuotaExhausted
         self.catalysts(45)
         outcomes = iter([None, ModelQuotaExhausted('daily quota used up')])
 
@@ -325,7 +325,7 @@ class RunnerFailureTests(ClassifierCase):
         self.assertEqual(len(self.label_rows()), 20)
 
     def test_quota_on_the_first_call_is_reported_not_raised(self):
-        from agent_helpers.llm_client import ModelQuotaExhausted
+        from agent_helpers.llm_errors import ModelQuotaExhausted
         self.catalysts(2)
         result, _ = self.classify(StubModel(lambda items: ModelQuotaExhausted('no quota')))
         self.assertEqual((result['selected'], result['labeled'], result['quota_stopped']), (2, 0, True))
@@ -354,7 +354,7 @@ class RunnerFailureTests(ClassifierCase):
         self.assertEqual(len(self.label_rows()), 20)
 
     def test_an_unavailable_batch_is_skipped_and_the_run_carries_on(self):
-        from agent_helpers.llm_client import ModelUnavailable
+        from agent_helpers.llm_errors import ModelUnavailable
         self.catalysts(45)
         outcomes = iter([ModelUnavailable('500 INTERNAL'), None, None])
 
@@ -367,14 +367,14 @@ class RunnerFailureTests(ClassifierCase):
         self.assertEqual((result['labeled'], result['quota_stopped'], result['unavailable_stopped']), (25, False, False))
 
     def test_three_unavailable_batches_in_a_row_stop_the_run_without_raising(self):
-        from agent_helpers.llm_client import ModelUnavailable
+        from agent_helpers.llm_errors import ModelUnavailable
         self.catalysts(100)
         result, model = self.classify(StubModel(lambda items: ModelUnavailable('500 INTERNAL')))
         self.assertEqual(len(model.calls), 3)            # batches four and five are never asked
         self.assertEqual((result['labeled'], result['unavailable_stopped']), (0, True))
 
     def test_a_good_batch_resets_the_unavailable_count(self):
-        from agent_helpers.llm_client import ModelUnavailable
+        from agent_helpers.llm_errors import ModelUnavailable
         self.catalysts(120)
         down = ModelUnavailable('500 INTERNAL')
         outcomes = iter([down, down, None, down, down, None])

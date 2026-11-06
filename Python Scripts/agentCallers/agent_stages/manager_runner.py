@@ -12,7 +12,8 @@ from agent_helpers.manager_inputs import (
     build_market_context,
 )
 from agent_contracts import ManagerResult
-from agent_helpers.llm_client import Client, build_model_response_diagnostic
+from agent_helpers.llm_client import Client
+from agent_helpers.llm_usage import build_model_response_diagnostic
 from agent_helpers.text_utils import extract_json_value
 from services.gates.evidence_continuation_gate import evaluate_evidence_continuation_gate
 from .manager_payload_context import (

@@ -52,7 +52,8 @@ class ApiRoutesSmokeTests(unittest.TestCase):
         temporary_database(self)
         for target, fake in (
             ("api_support.dashboard.alpaca_get_json", _fake_alpaca),
-            ("api_support.dashboard.alpaca_data_get_json", _fake_alpaca_data),
+            ("api_support.open_positions.alpaca_get_json", _fake_alpaca),
+            ("api_support.open_positions.alpaca_data_get_json", _fake_alpaca_data),
             ("api_support.dashboard.fetch_portfolio_history", lambda *args, **kwargs: EMPTY_PORTFOLIO_HISTORY),
             ("api_routes.health.fetch_portfolio_history", lambda *args, **kwargs: EMPTY_PORTFOLIO_HISTORY),
         ):

@@ -127,7 +127,7 @@ The repo supports model backends behind a shared helper:
 - `ollama`: optional local fallback
 - `openai`: OpenAI Responses API, including the configured Exposure Map model path
 
-The provider abstraction lives in [Python Scripts/agentCallers/agent_helpers/llm_client.py](Python%20Scripts/agentCallers/agent_helpers/llm_client.py).
+The provider abstraction lives in [Python Scripts/agentCallers/agent_helpers/llm_client.py](Python%20Scripts/agentCallers/agent_helpers/llm_client.py), with each provider family in its own `llm_vertex.py` / `llm_openai.py` beside it.
 
 The company opportunist classifies several articles per request, because free tiers cap requests per day long before they cap tokens. Each article body is cut to `COMPANY_OPPORTUNIST_ARTICLE_BODY_CHAR_LIMIT` (default 1200 characters), and `CLASSIFIER_BATCH_TOKENS` sets the token budget per request.
 
