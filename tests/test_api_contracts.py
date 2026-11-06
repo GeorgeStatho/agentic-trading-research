@@ -139,6 +139,7 @@ def _llm_usage_payload(test: unittest.TestCase) -> dict:
     return llm_usage_payload(days=30)
 
 
+@unittest.skipUnless(CONTRACTS_DIR.exists(), "the worker image leaves out web_dashboard/")
 class ApiContractTests(unittest.TestCase):
     def assert_contract(self, name: str, payload: dict) -> None:
         paths = sorted(key_paths(payload))
