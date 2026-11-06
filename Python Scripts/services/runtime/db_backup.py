@@ -10,14 +10,17 @@ from dataclasses import dataclass
 from datetime import date, datetime, time as clock_time, timezone
 from hashlib import sha256
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
 import sqlite3
 from zoneinfo import ZoneInfo
 
-from db_common import database_path
+from db_common import analyze_database, database_path
 from services.core.runtime_paths import DATA_DIR
+
+LOGGER = logging.getLogger(__name__)
 
 MARKET_TZ = ZoneInfo("America/New_York")
 LATEST_NAME = "stock_experiment.latest.db"
@@ -104,6 +107,11 @@ def backup_database(settings: DbBackupSettings, *, schedule_date: date, now=lamb
     manifest_temp = settings.backup_dir / f"{MANIFEST_NAME}.tmp"
     manifest_temp.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     os.replace(manifest_temp, settings.backup_dir / MANIFEST_NAME)
+    try:
+        analyze_database(settings.db_path)
+    except sqlite3.Error as exc:
+        # Statistics are an optimisation; a busy database must not turn a good backup into a failure.
+        LOGGER.warning("Planner statistics were not refreshed: %s", exc)
     return manifest
 
 
