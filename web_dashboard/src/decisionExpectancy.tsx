@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 
-import { getExpectancy, pooledStats, sortCohorts } from './expectancy'
+import { expectancyPath, getExpectancy, pooledStats, sortCohorts } from './expectancy'
 import type { Basis, Cohort, ExpectancyPayload, GroupBy, SortKey } from './expectancy'
 import { formatDate, formatDecimal, formatPercent, formatSignedPercent } from './format'
 import PageHeader from './pageHeader'
 import type { Column } from './ui/DataTable'
+import { CsvLink } from './ui/CsvLink'
 import { DataTable } from './ui/DataTable'
 import { Meter } from './ui/Meter'
 import { Panel } from './ui/Panel'
@@ -189,6 +190,7 @@ function DecisionExpectancyPage() {
         <span className="text-[11px] text-dim">Sector</span>
         <input className="input input-sm w-32" value={sector} onChange={(event) => setSector(event.target.value)} placeholder="Any" />
       </label>
+      <CsvLink href={`${expectancyPath({ basis, groupBy, withinDays, minSamples, decision, confidence, sector })}&format=csv`} />
     </div>
   )
   const warning = payload ? warningLine(payload) : ''

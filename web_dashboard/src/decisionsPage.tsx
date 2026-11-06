@@ -20,6 +20,7 @@ import type { Counterfactual, DecisionFilters, DecisionRecord, DecisionsPayload,
 import { formatDateTime, formatDteBucket, formatRate, formatShortDateTime, formatSignedPercent, formatToken, formatTokenList, sentenceCase } from './format';
 import { formatOccSymbol } from './occ';
 import PageHeader from './pageHeader';
+import { CsvLink } from './ui/CsvLink';
 import { searchFromHash } from './routes';
 import { Collapse } from './ui/Collapse';
 import { DataTable } from './ui/DataTable';
@@ -476,6 +477,7 @@ export function DecisionsView({ payload, notices, initialQuery }: DecisionsViewP
         title="Decisions"
         description="Every proposal with its frozen evidence and what happened next. Read-only."
         meta={newest ? `last run ${formatDateTime(newest.decision_run_at)} · newest ${payload.records.length} loaded` : undefined}
+        actions={<CsvLink href="/api/decision-autopsies?limit=250&format=csv" />}
       />
       <div role="group" aria-label="Decision summary" className="flex flex-wrap gap-2 text-xs">
         {[

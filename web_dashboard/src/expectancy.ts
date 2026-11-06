@@ -36,7 +36,8 @@ export type ExpectancyPayload = {
 
 export type ExpectancyFilters = { basis: Basis; groupBy: GroupBy; withinDays: number; minSamples: number; decision: string; confidence: string; sector: string }
 
-export async function getExpectancy(filters: ExpectancyFilters): Promise<ExpectancyPayload> {
+/** The query for these filters; the page's CSV link reuses it so a download matches the screen. */
+export function expectancyPath(filters: ExpectancyFilters): string {
   const params = new URLSearchParams({
     basis: filters.basis,
     group_by: filters.groupBy,
@@ -46,7 +47,11 @@ export async function getExpectancy(filters: ExpectancyFilters): Promise<Expecta
     confidence: filters.confidence,
   })
   if (filters.sector.trim()) params.set('sector', filters.sector.trim().toLowerCase())
-  const response = await fetch(`/api/decision-expectancy?${params.toString()}`)
+  return `/api/decision-expectancy?${params.toString()}`
+}
+
+export async function getExpectancy(filters: ExpectancyFilters): Promise<ExpectancyPayload> {
+  const response = await fetch(expectancyPath(filters))
   const body = await response.json().catch(() => null) as ExpectancyPayload | { error?: string } | null
   if (!response.ok) throw new Error((body as { error?: string } | null)?.error ?? `Failed to load expectancy: ${response.status}`)
   return body as ExpectancyPayload

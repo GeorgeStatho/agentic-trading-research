@@ -41,6 +41,13 @@ class CsvResponseTests(ApiTestCase):
         self.assertIn('filename=trades.csv', response.headers["Content-Disposition"])
         self.assertEqual(_rows(response), [["name", "outcome.pnl"], ['a, "b"', "1.5"], ["c", ""]])
 
+    def test_text_a_spreadsheet_would_run_as_a_formula_is_neutralised(self):
+        from api_support.request_utils import csv_response
+
+        with self.app.test_request_context():
+            response = csv_response([{"name": "=HYPERLINK(1)", "pnl": -5.0}], ("name", "pnl"), "x.csv")
+        self.assertEqual(_rows(response)[1], ["'=HYPERLINK(1)", "-5.0"])
+
 
 class CsvRouteTests(ApiTestCase):
     def setUp(self) -> None:

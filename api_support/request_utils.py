@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 from pathlib import Path
 from typing import Any
 
-from flask import jsonify
+from flask import Response, jsonify
 
 from api_support.context import OPTION_POSITION_SETTINGS, logger
 
@@ -73,3 +75,26 @@ def read_json_file(path: Path) -> tuple[dict, int]:
         return jsonify({"error": f"File not found: {path.name}"}), 404
     except Exception as exc:
         return internal_error(f"Failed to read {path.name}.", exc)
+
+
+# A spreadsheet runs a cell that starts with one of these as a formula.
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_value(row: dict, column: str):
+    value = row
+    for key in column.split("."):
+        value = value.get(key) if isinstance(value, dict) else None
+    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
+        return f"'{value}"
+    return "" if value is None else value
+
+
+def csv_response(rows, columns, filename: str):
+    """Rows as a CSV download. A column is a key or a dotted path into nested objects; absent values are blank."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(columns)
+    writer.writerows([_csv_value(row, column) for column in columns] for row in rows)
+    return Response(buffer.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={filename}"})

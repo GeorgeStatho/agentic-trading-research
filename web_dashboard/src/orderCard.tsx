@@ -1,3 +1,4 @@
+import { CsvLink } from './ui/CsvLink';
 import { getExecutedTrades } from './executedTradesApi';
 import type { ExecutedTrade } from './executedTradesApi';
 import { formatCurrency, formatShortDateTime, formatSignedPercent, formatToken, hasNumericValue } from './format';
@@ -74,7 +75,7 @@ export function OrdersView({ trades }: { trades: readonly ExecutedTrade[] }) {
     : `${groups.length} trade${groups.length === 1 ? '' : 's'} · ${trades.length} orders`;
 
   return (
-    <Panel title="Orders" meta={meta} flush>
+    <Panel title="Orders" meta={meta} actions={<CsvLink href="/api/executed-trades?limit=500&format=csv" />} flush>
       <DataTable
         columns={columns}
         rows={groups}
