@@ -60,7 +60,8 @@ class V2StatusTests(unittest.TestCase):
         with patch.dict(os.environ, environment, clear=False):
             return build_v2_status_payload(db_path=self.db)
 
-    def _record_candidate(self, candidate_id: str, stage: str, *, occurred_at: str, shadow: int = 1) -> None:
+    def _record_candidate(self, candidate_id: str, stage: str, *, occurred_at: str, shadow: int = 1,
+                          reason: str = "gate_rejected") -> None:
         with closing(get_connection(self.db)) as conn, conn:
             _insert_candidate(conn, candidate_id, "NVDA", occurred_at)
             conn.execute(
@@ -75,7 +76,7 @@ class V2StatusTests(unittest.TestCase):
                    (candidate_id, symbol, stage, reason_code, metrics_json, thresholds_json,
                     config_version, occurred_at, shadow)
                    VALUES (?,?,?,?,?,?,?,?,?)""",
-                (candidate_id, "NVDA", stage, "gate_rejected", "{}", "{}", "v2:test", occurred_at, shadow),
+                (candidate_id, "NVDA", stage, reason, "{}", "{}", "v2:test", occurred_at, shadow),
             )
 
     def _record_report(self, report_id: str, gates: list[dict], *, run_id: str = "run-1",
@@ -145,6 +146,18 @@ class V2StatusTests(unittest.TestCase):
         self.assertEqual(stage["superseded_proofs"], 1)
         self.assertFalse(stage["enforcement_allowed"])
 
+    def test_rejections_are_counted_by_reason_code(self) -> None:
+        self._record_candidate("c1", "LIQUIDITY", occurred_at=RECENT, reason="liquidity_wide_spread")
+        self._record_candidate("c2", "LIQUIDITY", occurred_at=RECENT, reason="liquidity_wide_spread")
+        self._record_candidate("c3", "SUPPORT", occurred_at=RECENT, shadow=0, reason="insufficient_independent_roots")
+        self._record_candidate("c4", "LIQUIDITY", occurred_at=STALE, reason="liquidity_wide_spread")
+        self._record_candidate("discovery:c5", "LIQUIDITY", occurred_at=RECENT, reason="liquidity_wide_spread")
+
+        self.assertEqual(self._payload()["rejection_reasons"], [
+            {"stage": "LIQUIDITY", "reason_code": "liquidity_wide_spread", "shadow": True, "candidates": 2},
+            {"stage": "SUPPORT", "reason_code": "insufficient_independent_roots", "shadow": False, "candidates": 1},
+        ])
+
     def test_source_files_are_hashed_once_per_process(self) -> None:
         # A running process's code cannot change, and every 60s poll used to re-read ~280 files.
         from api_support import v2_status
@@ -184,6 +197,7 @@ class V2StatusWithoutMigrationTests(unittest.TestCase):
         payload = build_v2_status_payload(db_path=self.db)
 
         self.assertFalse(payload["activity_available"])
+        self.assertIsNone(payload["rejection_reasons"])
         self.assertIsNone(_stage(payload, "continuation", "CONTINUATION")["activity"])
         self.assertFalse(payload["research"]["available"])
         self.assertIn("Part 6 migration", payload["research"]["reason"])
