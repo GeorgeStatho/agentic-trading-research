@@ -65,8 +65,8 @@ def _kpi_payload(test: unittest.TestCase) -> dict:
     history = {"timestamp": [1762300800, 1762387200, 1762473600], "equity": [2740.0, 2604.79, 2379.77],
                "profit_loss": [0.0, -135.21, -225.02], "profit_loss_pct": [0.0, -0.0493, -0.0864],
                "base_value": 2740.0, "timeframe": "1D"}
-    rankings = {"sectors": [{"sector_key": "technology", "name": "Technology", "score": 74,
-                             "industries": [{"industry_key": "semiconductors", "name": "Semiconductors", "score": 35}]}]}
+    rankings = {"top_sectors": [{"sector_key": "technology", "score": 74}],
+                "top_industries_by_sector": {"technology": [{"industry_key": "semiconductors", "score": 35}]}}
     temporary_database(test)
     with mock.patch("api_support.dashboard.alpaca_get_json", side_effect=_fake_alpaca), \
             mock.patch("api_support.dashboard.fetch_portfolio_history", return_value=history), \

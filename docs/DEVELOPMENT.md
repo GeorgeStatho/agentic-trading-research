@@ -73,6 +73,14 @@ each commit, `pip install pre-commit && pre-commit install`.
 `-c constraints.txt` on the worker image's Python version, then runs ruff and the test suite;
 the dashboard job runs `npm ci`, lint, vitest and the production build.
 
+## API contracts
+
+The dashboard's TypeScript types are written by hand, so `tests/test_api_contracts.py` pins the key
+paths of the payloads it reads (`web_dashboard/src/test/contracts/*.json`), and the dashboard's
+`contracts.test.ts` fails when a typed test fixture uses a path the API no longer sends. After an
+intended payload change, regenerate with `UPDATE_API_CONTRACTS=1 python3 -m pytest
+tests/test_api_contracts.py`, then update the TypeScript type and fixture until vitest passes.
+
 Keep the checkout on the Linux filesystem when you work in WSL (for example under
 `~/code`, not `/mnt/c` or `/mnt/e`). Every file access on a Windows drive goes through a
 slow file-sharing layer, and the suite runs about five times slower there.
