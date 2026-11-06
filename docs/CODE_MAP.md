@@ -557,7 +557,7 @@ That split explains why the repo feels mixed: it contains both the older trading
   `manager_model.py`: versioned ordinal thesis, timing and execution confidence.
 - `scripts/v2_part6.py`: start, collect, report, status and explicit promotion commands.
 - `tests/test_v2_part6.py`: cutoff, quote-path, denominator, calibration, freeze,
-  coverage and promotion tests. See `TRADINGBOT_V2_PART6_CHANGES.md` for assumptions
+  coverage and promotion tests. See [TRADINGBOT_V2_PART6_CHANGES.md](v2/TRADINGBOT_V2_PART6_CHANGES.md) for assumptions
   and the distinction between implementation and live evidence acceptance.
 - [TRADINGBOT_V2_PART5_CHANGES.md](v2/TRADINGBOT_V2_PART5_CHANGES.md): implementation
   rationale, configuration, validation and explicit E1/live-thesis deferrals.
