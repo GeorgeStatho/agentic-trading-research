@@ -91,5 +91,32 @@ class AttributionTests(ReportRouteTestCase):
         self.assertEqual(self.client.get("/api/decision-attribution?horizon=7").status_code, 400)
 
 
+class MacroCalendarTests(ReportRouteTestCase):
+    def add_event(self, key: str, at: datetime, importance: str = "high") -> None:
+        self.execute(
+            """INSERT INTO macro_events (source, event_key, event_name, event_date, country, currency,
+               importance, forecast, previous, scheduled_at_utc) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            ("calendar", key, f"Event {key}", at.date().isoformat(), "United States", "USD", importance,
+             "1%", "0.5%", at.isoformat()),
+        )
+
+    def test_upcoming_events_inside_the_window_in_time_order(self):
+        from api_support.reports import macro_calendar_payload
+
+        now = datetime(2026, 11, 2, 12, tzinfo=timezone.utc)
+        self.add_event("past", now - timedelta(hours=1))
+        self.add_event("later", now + timedelta(days=2))
+        self.add_event("soon", now + timedelta(hours=3), importance="low")
+        self.add_event("beyond", now + timedelta(days=9))
+        payload = macro_calendar_payload(days=7, now=now)
+        self.assertEqual([event["event_name"] for event in payload["events"]], ["Event soon", "Event later"])
+        self.assertEqual(payload["events"][0]["importance"], "low")
+        self.assertEqual(payload["calendar_through"], (now + timedelta(days=9)).isoformat())
+
+    def test_route_answers_an_empty_calendar(self):
+        payload = self.client.get("/api/macro-calendar?days=7").get_json()
+        self.assertEqual((payload["days"], payload["events"], payload["calendar_through"]), (7, [], None))
+
+
 if __name__ == "__main__":
     unittest.main()

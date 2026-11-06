@@ -115,6 +115,20 @@ def _decision_attribution_payload() -> dict:
         return decision_attribution_payload(days=90, horizon=5)
 
 
+def _macro_calendar_payload(test: unittest.TestCase) -> dict:
+    from api_support.reports import macro_calendar_payload
+    from db_common import get_connection
+    from contextlib import closing
+
+    temporary_database(test)
+    now = datetime(2026, 11, 2, 12, tzinfo=timezone.utc)
+    with closing(get_connection()) as conn, conn:
+        conn.execute("""INSERT INTO macro_events (source, event_key, event_name, event_date, country, currency,
+            importance, forecast, previous, scheduled_at_utc) VALUES ('calendar', 'k', 'ISM Services PMI',
+            '2026-11-03', 'United States', 'USD', 'high', '52', '51', '2026-11-03T15:00:00+00:00')""")
+    return macro_calendar_payload(days=7, now=now)
+
+
 class ApiContractTests(unittest.TestCase):
     def assert_contract(self, name: str, payload: dict) -> None:
         paths = sorted(key_paths(payload))
@@ -136,6 +150,9 @@ class ApiContractTests(unittest.TestCase):
 
     def test_decision_attribution(self):
         self.assert_contract("decision-attribution", _decision_attribution_payload())
+
+    def test_macro_calendar(self):
+        self.assert_contract("macro-calendar", _macro_calendar_payload(self))
 
     def test_execution_quality(self):
         self.assert_contract("execution-quality", _execution_quality_payload(self))

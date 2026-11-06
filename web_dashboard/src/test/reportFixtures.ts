@@ -1,4 +1,4 @@
-import type { DecisionAttributionPayload, ExecutionQualityPayload, ExitAttributionPayload } from '../reportsApi.ts'
+import type { DecisionAttributionPayload, ExecutionQualityPayload, ExitAttributionPayload, MacroCalendarPayload, MacroEvent } from '../reportsApi.ts'
 
 /** Shaped like `/api/execution-quality?days=30`: paper buys, half of them filled in full. */
 export function executionQualityPayload(): ExecutionQualityPayload {
@@ -38,5 +38,24 @@ export function decisionAttributionPayload(): DecisionAttributionPayload {
     by_source: [group('grounding_proxy', 900, 400, 0.51, 0.025)],
     by_self_rating: [group('high', 700, 300, 0.55, 0.03), group('low', 200, 80, 0.41, 0.055)],
     primary_failures: [{ key: 'none', count: 1200 }, { key: 'thin_evidence', count: 600 }],
+  }
+}
+
+function macroEvent(name: string, at: string, importance: string, currency = 'USD', country = 'United States'): MacroEvent {
+  return { event_name: name, scheduled_at_utc: at, country, currency, importance, forecast: '0.3%', previous: '0.2%' }
+}
+
+/** Shaped like `/api/macro-calendar?days=7` early in a week: the calendar runs to Friday. */
+export function macroCalendarPayload(): MacroCalendarPayload {
+  return {
+    days: 7,
+    calendar_through: '2026-11-06T21:45:00+00:00',
+    events: [
+      macroEvent('Goods Trade Balance', '2026-11-03T00:30:00+00:00', 'low', 'AUD', 'Australia'),
+      macroEvent('ISM Services PMI', '2026-11-03T15:00:00+00:00', 'high'),
+      macroEvent('German Factory Orders m/m', '2026-11-04T07:00:00+00:00', 'medium', 'EUR', 'Euro Area'),
+      macroEvent('Unemployment Claims', '2026-11-05T13:30:00+00:00', 'medium'),
+      macroEvent('Non-Farm Employment Change', '2026-11-06T13:30:00+00:00', 'high'),
+    ],
   }
 }
