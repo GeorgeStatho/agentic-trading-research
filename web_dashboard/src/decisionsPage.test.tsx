@@ -174,6 +174,20 @@ describe('Decisions page', () => {
     expect(outcome.textContent).toContain('ord-1')
   })
 
+  it('compares a traded decision with SPY and its sector', () => {
+    const benchmark = { underlying_move: 3.2, spy_return: 1.1, sector_return: 2.0, residual_move: 1.2,
+      iv_at_entry: 0.42, iv_at_exit: 0.35, return_1d_after_exit: -0.5, return_3d_after_exit: 0.8 }
+    const traded = blockedCall({ v2_verdicts: [], benchmark, outcome: { trade_executed: true, order_id: 'ord-1', pnl_pct: 12.5 } })
+    render(<DecisionsView payload={payload({ records: [traded] })} notices={[]} initialQuery="" />)
+
+    const market = within(detail()).getByRole('region', { name: /Outcome/ }).textContent ?? ''
+    expect(market).toContain('vs SPY')
+    expect(market).toContain('+3.20%')
+    expect(market).toContain('+1.10%')
+    expect(market).toContain('+1.20%')
+    expect(market).toContain('42% → 35%')
+  })
+
   it('lists each gate with its mode and result, enforced and shadow apart', async () => {
     render(<DecisionsView payload={payload()} notices={[]} initialQuery="" />)
     await userEvent.click(within(list()).getAllByRole('button')[1])

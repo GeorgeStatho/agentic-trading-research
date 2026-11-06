@@ -83,6 +83,7 @@ export function decisionRecord(overrides: RecordOverrides = {}): DecisionRecord 
       primary_failure: 'none',
       horizon_returns: {},
     },
+    benchmark: null,
     v2_verdicts: [
       { stage: 'MANAGER', label: 'MANAGER', reason_code: 'non_directional_decision', shadow: false, occurred_at: '2026-11-04T16:27:24Z' },
       { stage: 'ORDER_ELIGIBILITY', label: 'ORDER_ELIGIBILITY', reason_code: 'ineligible_recommendation', shadow: false, occurred_at: '2026-11-04T16:27:24Z' },
