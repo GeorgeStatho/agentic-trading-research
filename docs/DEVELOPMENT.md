@@ -104,6 +104,16 @@ A test that simulates a database left by older code must also clear `schema_boot
 Otherwise the market setup sees its own version stamp and skips the migrations (see
 [ARCHITECTURE.md](ARCHITECTURE.md)).
 
+## Query performance
+
+Measured on 2026-11-06 against a snapshot of the live database (7.4 GB) on ext4, with Alpaca faked:
+- Every GET route answers in under 0.7 s once warm. The slowest are `/api/dashboard-kpis`, `/api/forward-evaluation` and `/api/decision-autopsies`.
+- No `julianday(col)` filter needs an expression index yet. The slowest, `discovery_evaluation._production_route`, takes about 100 ms but keeps about 40% of `candidates`, so an index would not narrow it. The `v2_status` shadow-activity scans take 30–45 ms.
+- `PRAGMA mmap_size` made no measurable difference, so connections leave it unset.
+- `analyze_database()` (`Data/db_common.py`) writes `sqlite_stat1` in about 1 s cold. It runs at API startup and after the nightly backup.
+
+Before adding an index, time the query and read its `EXPLAIN QUERY PLAN` on a snapshot (see the `verify` skill). An expression index is used only when the query repeats its expression exactly, for example `julianday(captured_at)`.
+
 ## Configuration
 
 Settings are read once per process into one typed object, `services.core.settings.Settings`
