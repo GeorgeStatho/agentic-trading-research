@@ -43,6 +43,11 @@ export type DecisionRecord = {
   execution?: { record_id: number | null; mode: ExecutionMode; paper: boolean | null; status: string; option_symbol: string; underlying_symbol: string; quantity: number | null; side: string; submitted_at: string };
   review: { status: string; headline: string; what_proved_us_wrong: string };
   /** Null until the attribution runner has scored the decision. */
+  /** Percent moves over the holding period and IV as a 0-1 rate; null until the position has an outcome row. */
+  benchmark?: {
+    underlying_move: number | null; spy_return: number | null; sector_return: number | null; residual_move: number | null
+    iv_at_entry: number | null; iv_at_exit: number | null; return_1d_after_exit: number | null; return_3d_after_exit: number | null
+  } | null;
   attribution?: { evidence_quality: string; evidence_source: string; direction_outcome: string; expression_outcome: string; primary_failure: string; horizon_returns: { [horizon: string]: number } } | null;
   /** Absent from the seeded demo payload, which records no candidate lifecycle. */
   v2_verdicts?: V2Verdict[];

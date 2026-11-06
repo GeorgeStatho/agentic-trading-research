@@ -17,7 +17,7 @@ import {
   whyLine,
 } from './decisions';
 import type { Counterfactual, DecisionFilters, DecisionRecord, DecisionsPayload, DiagnosticsFeed, PathStep, StepState, StopStage, VerdictFilter, WhenFilter } from './decisions';
-import { formatDateTime, formatDteBucket, formatShortDateTime, formatSignedPercent, formatToken, formatTokenList, sentenceCase } from './format';
+import { formatDateTime, formatDteBucket, formatRate, formatShortDateTime, formatSignedPercent, formatToken, formatTokenList, sentenceCase } from './format';
 import { formatOccSymbol } from './occ';
 import PageHeader from './pageHeader';
 import { searchFromHash } from './routes';
@@ -266,6 +266,24 @@ function WhatIfPanel({ record }: { record: DecisionRecord }) {
   );
 }
 
+/** The stock's move over the holding period against SPY and its sector, session close to session close. */
+function MarketComparison({ benchmark }: { benchmark: NonNullable<DecisionRecord['benchmark']> }) {
+  const move = (value: number | null) => <span className={signedTone(value ?? 0)}>{formatSignedPercent(value)}</span>;
+  return (
+    <div>
+      <Label>Stock vs SPY and sector</Label>
+      <dl className="mt-1 grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-x-4 gap-y-2">
+        <Fact label="Stock">{move(benchmark.underlying_move)}</Fact>
+        <Fact label="SPY">{move(benchmark.spy_return)}</Fact>
+        <Fact label="Sector">{move(benchmark.sector_return)}</Fact>
+        <Fact label="Residual">{move(benchmark.residual_move)}</Fact>
+        <Fact label="IV entry → exit">{formatRate(benchmark.iv_at_entry)} → {formatRate(benchmark.iv_at_exit)}</Fact>
+        <Fact label="After exit 1d / 3d">{formatSignedPercent(benchmark.return_1d_after_exit)} / {formatSignedPercent(benchmark.return_3d_after_exit)}</Fact>
+      </dl>
+    </div>
+  );
+}
+
 function OutcomePanel({ record }: { record: DecisionRecord }) {
   const { outcome, execution } = record;
   const contract = execution?.option_symbol || record.constraints.selected_option_symbol;
@@ -283,6 +301,7 @@ function OutcomePanel({ record }: { record: DecisionRecord }) {
           <Fact label="Status">{formatToken(execution?.status, { placeholder: 'Unavailable' })}</Fact>
           <Fact label="Submitted">{formatDateTime(execution?.submitted_at, { placeholder: 'Unavailable' })}</Fact>
         </dl>
+        {record.benchmark ? <MarketComparison benchmark={record.benchmark} /> : null}
         <div>
           <Label>What proved us wrong?</Label>
           <p className="text-ink-2">{record.review.what_proved_us_wrong}</p>

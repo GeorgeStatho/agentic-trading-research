@@ -291,6 +291,23 @@ def _serialize_ledger_row(raw_row: Any) -> dict[str, Any]:
     }
 
 
+BENCHMARK_COLUMNS = ("underlying_move", "spy_return", "sector_return", "residual_move", "iv_at_entry",
+                     "iv_at_exit", "return_1d_after_exit", "return_3d_after_exit")
+
+
+def _benchmarks_for_decisions(decision_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """How each traded decision's position moved against SPY and its sector; one query per page."""
+    if not decision_ids:
+        return {}
+    with closing(get_connection()) as conn:
+        rows = conn.execute(
+            f"SELECT manager_decision_history_id, {', '.join(BENCHMARK_COLUMNS)} FROM position_outcomes "
+            f"WHERE manager_decision_history_id IN ({', '.join('?' * len(decision_ids))})",
+            decision_ids,
+        ).fetchall()
+    return {row["manager_decision_history_id"]: {column: row[column] for column in BENCHMARK_COLUMNS} for row in rows}
+
+
 def build_decision_autopsy_payload(*, limit: int = 100) -> dict[str, Any]:
     rows = [dict(row) for row in list_decision_autopsy_ledger(limit=limit)]
     records = [_serialize_ledger_row(row) for row in rows]
@@ -308,8 +325,10 @@ def build_decision_autopsy_payload(*, limit: int = 100) -> dict[str, Any]:
     verdicts = shadow_verdicts_for_decisions(
         (record["manager_decision_history_id"] for record in records)
     )
+    benchmarks = _benchmarks_for_decisions([record["manager_decision_history_id"] for record in records])
     for record in records:
         record["v2_verdicts"] = (verdicts or {}).get(record["manager_decision_history_id"], [])
+        record["benchmark"] = benchmarks.get(record["manager_decision_history_id"])
     return {
         "as_of": now.isoformat(),
         "count": len(records),
