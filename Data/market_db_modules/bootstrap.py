@@ -160,6 +160,54 @@ def initialize_database(
         mark_setup_current(SETUP_NAME, db_path, fingerprint)  # only after success
 
 
+def _schema_file(name: str):
+    def run(conn: sqlite3.Connection) -> None:
+        conn.executescript(Path(__file__).with_name(name).read_text(encoding="utf-8"))
+    run.__name__ = f"run_{name}"
+    return run
+
+
+def _setup_steps() -> tuple:
+    """The steps after the base schema, in order.
+
+    Every step must be idempotent: any edit under Data/ changes the setup fingerprint and re-runs
+    them all, on new and existing databases alike. Append a schema change as a new step. The
+    imports are here because those modules import this one.
+    """
+    from catalyst_schema import migrate_catalysts
+    from .compact_storage import migrate_compact_storage
+    from .contract_research import migrate_contract_research
+    from .pricing_research import backfill_raw_residuals
+    from .research_foundation import migrate_research_foundation
+    from .telemetry_schema import migrate_telemetry_columns
+
+    return (
+        _ensure_manager_decision_outcome_columns,
+        _ensure_thesis_validation_attempts,
+        _move_manager_decision_payloads,
+        migrate_telemetry_columns,
+        migrate_catalysts,
+        _schema_file("pricing_schema.sql"),
+        backfill_raw_residuals,
+        migrate_contract_research,
+        _schema_file("research_schema.sql"),
+        migrate_research_foundation,
+        _schema_file("company_collection_schema.sql"),
+        _schema_file("company_interest_schema.sql"),
+        _schema_file("discovery_schema.sql"),
+        _schema_file("research_runtime_schema.sql"),
+        _schema_file("evidence_thesis_schema.sql"),
+        _schema_file("trade_economics_schema.sql"),
+        _schema_file("thesis_event_reviews_schema.sql"),
+        _schema_file("forward_evaluation_schema.sql"),
+        _schema_file("account_positions_schema.sql"),
+        _ensure_account_position_exposure,
+        migrate_compact_storage,
+        move_payload_copies_out_of_ledger,
+        lambda conn: backfill_decision_autopsy_ledger(conn=conn),
+    )
+
+
 def _set_up(db_path: Path | str, schema_path: Path | str, fingerprint: str) -> None:
     # sqlite3 keeps a self-referencing statement cache, so a connection left to the garbage
     # collector holds the file open long after the caller is done with it.
@@ -170,33 +218,6 @@ def _set_up(db_path: Path | str, schema_path: Path | str, fingerprint: str) -> N
             _migrate_legacy_schema(conn)
         else:
             conn.executescript(Path(schema_path).read_text(encoding="utf-8"))
-        _ensure_manager_decision_outcome_columns(conn)
-        _ensure_thesis_validation_attempts(conn)
-        _move_manager_decision_payloads(conn)
-        from .telemetry_schema import migrate_telemetry_columns
-        migrate_telemetry_columns(conn)
-        from catalyst_schema import migrate_catalysts
-        migrate_catalysts(conn)
-        conn.executescript(Path(__file__).with_name('pricing_schema.sql').read_text(encoding='utf-8'))
-        from .pricing_research import backfill_raw_residuals
-        backfill_raw_residuals(conn)
-        from .contract_research import migrate_contract_research
-        migrate_contract_research(conn)
-        conn.executescript(Path(__file__).with_name('research_schema.sql').read_text(encoding='utf-8'))
-        from .research_foundation import migrate_research_foundation
-        migrate_research_foundation(conn)
-        conn.executescript(Path(__file__).with_name('company_collection_schema.sql').read_text(encoding='utf-8'))
-        conn.executescript(Path(__file__).with_name('company_interest_schema.sql').read_text(encoding='utf-8'))
-        conn.executescript(Path(__file__).with_name('discovery_schema.sql').read_text(encoding='utf-8'))
-        conn.executescript(Path(__file__).with_name('research_runtime_schema.sql').read_text(encoding='utf-8'))
-        conn.executescript(Path(__file__).with_name('evidence_thesis_schema.sql').read_text(encoding='utf-8'))
-        conn.executescript(Path(__file__).with_name('trade_economics_schema.sql').read_text(encoding='utf-8'))
-        conn.executescript(Path(__file__).with_name('thesis_event_reviews_schema.sql').read_text(encoding='utf-8'))
-        conn.executescript(Path(__file__).with_name('forward_evaluation_schema.sql').read_text(encoding='utf-8'))
-        conn.executescript(Path(__file__).with_name('account_positions_schema.sql').read_text(encoding='utf-8'))
-        _ensure_account_position_exposure(conn)
-        from .compact_storage import migrate_compact_storage
-        migrate_compact_storage(conn)
-        move_payload_copies_out_of_ledger(conn)
-        backfill_decision_autopsy_ledger(conn=conn)
+        for step in _setup_steps():
+            step(conn)
         record_setup_fingerprint(conn, SETUP_NAME, fingerprint)

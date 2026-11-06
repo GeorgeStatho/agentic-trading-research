@@ -12,7 +12,12 @@ Use this checklist when adding a feature so implementation remains discoverable 
 
 ## Persisted Feature
 
-1. Add tables and indexes to the appropriate schema file with idempotent SQL.
+1. Add tables and indexes to the appropriate schema file with idempotent SQL. A change to an
+   existing table (a new column, a data move) is a new idempotent step appended to
+   `_setup_steps()` in `Data/market_db_modules/bootstrap.py` or `_MIGRATION_STEPS` in
+   `Data/news_db_modules/bootstrap.py`. Any edit under `Data/` re-runs every step on every
+   database, so each step must be safe to run again. Regenerate the schema snapshot with
+   `UPDATE_SCHEMA_SNAPSHOT=1 python3 -m pytest tests/test_bootstrap_steps.py` and review its diff.
 2. Add database functions under the correct `*_db_modules/` package.
 3. Import the new functions from their owning module; do not add a re-export. Give store functions `db_path=None`.
 4. Test empty databases, invalid input, and read-after-write behavior.
