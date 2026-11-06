@@ -7,6 +7,9 @@ from urllib.request import Request, urlopen
 
 from api_support.context import ALPACA_SETTINGS
 
+# A stalled broker call must not hold a request thread open indefinitely.
+ALPACA_TIMEOUT_SECONDS = 15
+
 
 def alpaca_base_url() -> str:
     return ALPACA_SETTINGS.trading_base_url
@@ -34,7 +37,7 @@ def alpaca_get_json(path: str, query: dict[str, str] | None = None):
     )
 
     try:
-        with urlopen(request) as response:
+        with urlopen(request, timeout=ALPACA_TIMEOUT_SECONDS) as response:
             return json.load(response)
     except HTTPError as exc:
         details = exc.read().decode("utf-8", errors="replace")
@@ -61,7 +64,7 @@ def alpaca_data_get_json(path: str, query: dict[str, str] | None = None):
     )
 
     try:
-        with urlopen(request) as response:
+        with urlopen(request, timeout=ALPACA_TIMEOUT_SECONDS) as response:
             return json.load(response)
     except HTTPError as exc:
         details = exc.read().decode("utf-8", errors="replace")

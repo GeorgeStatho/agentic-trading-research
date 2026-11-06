@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from agent_pipeline.ranking import get_current_rankings
@@ -362,16 +363,19 @@ def total_unrealized_pl(positions: list) -> float | None:
 
 
 def build_dashboard_kpis() -> dict:
-    account = alpaca_get_json("/v2/account")
-    positions = alpaca_get_json("/v2/positions")
-    clock = alpaca_get_json("/v2/clock")
-    portfolio_history = fetch_portfolio_history()
-
+    # The five broker reads are independent, so they wait on Alpaca together rather than in turn.
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        account_call = pool.submit(alpaca_get_json, "/v2/account")
+        positions_call = pool.submit(alpaca_get_json, "/v2/positions")
+        clock_call = pool.submit(alpaca_get_json, "/v2/clock")
+        history_call = pool.submit(fetch_portfolio_history)
+        fills_call = pool.submit(alpaca_get_json, "/v2/account/activities/FILL", {"direction": "desc", "page_size": "100"})
+    account = account_call.result()
+    positions = positions_call.result()
+    clock = clock_call.result()
+    portfolio_history = history_call.result()
     try:
-        fills = alpaca_get_json(
-            "/v2/account/activities/FILL",
-            {"direction": "desc", "page_size": "100"},
-        )
+        fills = fills_call.result()
     except Exception:
         fills = []
 
