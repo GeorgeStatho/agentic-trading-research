@@ -26,7 +26,7 @@ ENV_READERS = {
 }
 ENVIRONMENT_MAPPINGS = {"environ", "env"}
 # Set by the script itself from its own command-line flag, never by the operator.
-NOT_OPERATOR_SETTINGS = {"CHECK_EXTRACTORS_HTML_DIR"}
+NOT_OPERATOR_SETTINGS = {"CHECK_EXTRACTORS_HTML_DIR", "RUN_E2E"}
 
 
 def _source_paths():

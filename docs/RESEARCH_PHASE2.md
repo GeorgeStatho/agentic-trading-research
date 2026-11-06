@@ -214,6 +214,6 @@ python3 scripts/discovery.py --db /path/to/database.db interest
 python3 scripts/discovery.py --db /path/to/database.db checks
 ```
 
-`tests/test_discovery_interest.py` covers selection replacement and expiry,
+`tests/integration/test_discovery_interest.py` covers selection replacement and expiry,
 notifications, periodic recovery, collection dependencies, worker exclusion,
 immutable replay, and discovery/continuation ownership in both arrival orders.

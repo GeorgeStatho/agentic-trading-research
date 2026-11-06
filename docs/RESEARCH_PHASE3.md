@@ -144,7 +144,7 @@ Replay reads only saved input, journal and evidence snapshots. It does not call 
 
 `tests/test_research_vertex.py` covers provider inheritance, SDK request controls, retry/deadline limits, paid reservations, thinking-token usage, unknown costs, overage handling and interrupted retries. Its optional real-SDK tests use an in-memory HTTP transport and fixture credentials; they make no network or paid model calls. `tests/test_research_providers.py` covers the other providers' selection, endpoints and billing, and `tests/test_shared_request_controls.py` the shared client's single-attempt, timeout, output-cap and usage controls.
 
-`tests/test_evidence_refresh.py` covers pipeline-driven requests, transactional
+`tests/integration/test_evidence_refresh.py` covers pipeline-driven requests, transactional
 opportunist handoff, collection limits/cache/retries, concurrent workers, new-cutoff
 continuations, unchanged parent replay, supersession and shared daily budgets.
 

@@ -6,7 +6,7 @@ from unittest.mock import call, patch
 
 from db_common import get_connection
 from tests.research_foundation_fixtures import ENTRY, START
-from tests.test_discovery_production import EnforceFixture
+from tests.integration.test_discovery_production import EnforceFixture
 
 
 def company(symbol, sector='technology', industry='semiconductors', company_id=2):

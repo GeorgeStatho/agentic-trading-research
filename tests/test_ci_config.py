@@ -19,7 +19,8 @@ class ContinuousIntegrationTests(unittest.TestCase):
         self.assertRegex(self.workflow, r"(?m)^\s+pull_request:")
 
     def test_runs_the_python_checks_with_pinned_dependencies(self):
-        for command in ('pip install -e ".[dev]" -c constraints.txt', "ruff check", "scripts/project.py test"):
+        for command in ('pip install -e ".[dev]" -c constraints.txt', "ruff check", "scripts/project.py test",
+                        "scripts/project.py test --e2e"):
             with self.subTest(command=command):
                 self.assertIn(command, self.workflow)
 

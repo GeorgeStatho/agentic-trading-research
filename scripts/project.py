@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -113,6 +114,8 @@ def _parse_args() -> argparse.Namespace:
     test_parser.add_argument("modules", nargs="*", help="Optional unittest modules, for example tests.test_exposure_map.")
     test_parser.add_argument("--changed", action="store_true",
                              help="Run only tests affected by changes since the last --changed run (needs the dev extras).")
+    test_parser.add_argument("--e2e", action="store_true",
+                             help="Run the end-to-end trading-cycle tests in tests/e2e (skipped by a plain run).")
 
     dashboard_parser = subparsers.add_parser("dashboard", help="Run a dashboard development command.")
     dashboard_parser.add_argument("target", choices=("dev", "build"))
@@ -134,6 +137,9 @@ def main() -> int:
                 print("--changed selects tests itself; do not also name modules.", file=sys.stderr)
                 return 2
             return _run_changed_tests()
+        if args.e2e:
+            os.environ["RUN_E2E"] = "1"
+            return _run([PYTHON, "-m", "unittest", "discover", "-s", "tests/e2e", "-t", ".", "-p", "test_*.py"])
         return _run(_test_command(args.modules))
     if args.command == "dashboard":
         return _run(["npm", "run", args.target], cwd=ROOT_DIR / "web_dashboard")

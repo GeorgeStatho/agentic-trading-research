@@ -29,6 +29,8 @@ jobs:
         run: ruff check --output-format github .
       - name: Test
         run: python scripts/project.py test
+      - name: End-to-end
+        run: python scripts/project.py test --e2e
 
   dashboard:
     runs-on: ubuntu-latest
