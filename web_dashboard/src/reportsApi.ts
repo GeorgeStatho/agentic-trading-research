@@ -57,3 +57,20 @@ export type DecisionAttributionPayload = {
 export function getDecisionAttribution(horizon: number): Promise<DecisionAttributionPayload> {
   return fetchJson(`/api/decision-attribution?days=90&horizon=${horizon}`, 'decision attribution')
 }
+
+export type MacroEvent = {
+  event_name: string
+  scheduled_at_utc: string
+  country: string | null
+  currency: string | null
+  importance: string | null
+  forecast: string | null
+  previous: string | null
+}
+
+/** `calendar_through` is the last stored event: the calendar is fetched a week at a time. */
+export type MacroCalendarPayload = { days: number; calendar_through: string | null; events: MacroEvent[] }
+
+export function getMacroCalendar(): Promise<MacroCalendarPayload> {
+  return fetchJson('/api/macro-calendar?days=7', 'the macro calendar')
+}

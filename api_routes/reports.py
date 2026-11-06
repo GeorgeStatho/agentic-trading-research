@@ -42,3 +42,12 @@ def register_report_routes(app) -> None:
             return jsonify(decision_attribution_payload(days=days, horizon=horizon)), 200
         except Exception as exc:
             return internal_error("Failed to load decision attribution.", exc)
+
+    @app.get("/api/macro-calendar")
+    def macro_calendar():
+        from api_support.reports import macro_calendar_payload
+
+        try:
+            return jsonify(macro_calendar_payload(days=safe_int(request.args.get("days"), 7, maximum=31))), 200
+        except Exception as exc:
+            return internal_error("Failed to load the macro calendar.", exc)
