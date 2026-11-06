@@ -97,6 +97,17 @@ describe('Expectancy page', () => {
     await waitFor(() => expect(requests[requests.length - 1].get('within_days')).toBe('30'))
   })
 
+  it('offers ticker, industry, exit reason, catalyst and holding period groupings', async () => {
+    render(<DecisionExpectancyPage />)
+    await loaded()
+
+    const groupBy = screen.getByRole('combobox', { name: 'Group by' })
+    for (const value of ['ticker', 'industry', 'exit_reason', 'catalyst_family', 'holding_period']) {
+      await userEvent.selectOptions(groupBy, value)
+      await waitFor(() => expect(requests[requests.length - 1].get('group_by')).toBe(value))
+    }
+  })
+
   it('shows the error the API gives', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: 'basis must be marked or closed' }, { status: 400 })))
     render(<DecisionExpectancyPage />)

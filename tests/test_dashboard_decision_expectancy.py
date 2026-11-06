@@ -37,6 +37,10 @@ def _row(
     realized_pnl: float | None = None,
     outcome_status: str | None = "open",
     decision_time: str = "2026-06-14T14:20:00+00:00",
+    symbol: str = "MSFT",
+    exit_reason: str | None = None,
+    catalyst_family: str | None = None,
+    closed_at: str | None = None,
 ) -> dict:
     return {
         "id": identifier,
@@ -51,9 +55,12 @@ def _row(
         "realized_pnl_pct": realized_pnl,
         "outcome_status": outcome_status,
         "resolved_outcome_label": "closed_profit" if realized_pnl and realized_pnl > 0 else "open_loss",
-        "symbol": "MSFT",
+        "symbol": symbol,
         "industry_key": "software",
         "sector_key": sector,
+        "closed_at": closed_at,
+        "primary_exit_reason": exit_reason,
+        "catalyst_family": catalyst_family,
     }
 
 
@@ -92,7 +99,52 @@ class DecisionExpectancyDashboardTests(unittest.TestCase):
         self.assertEqual(time_payload["cohorts"][0]["key"], "opening_hour")
 
 
+    def test_ticker_industry_exit_reason_and_catalyst_cohorts(self) -> None:
+        rows = [
+            _row(identifier=1, marked_pnl=10.0, symbol="NVDA", exit_reason="stop_loss", catalyst_family="earnings_positive"),
+            _row(identifier=2, marked_pnl=-5.0, symbol="NVDA", exit_reason="stop_loss"),
+            _row(identifier=3, marked_pnl=1.0),
+        ]
+        keys = lambda group_by: {item["key"]: item["trade_count"] for item in self._payload(rows, group_by=group_by)["cohorts"]}
+        self.assertEqual(keys("ticker"), {"nvda": 2, "msft": 1})
+        self.assertEqual(keys("industry"), {"software": 3})
+        self.assertEqual(keys("exit_reason"), {"stop_loss": 2, "unknown": 1})
+        self.assertEqual(keys("catalyst_family"), {"earnings_positive": 1, "unknown": 2})
+
+    def test_holding_period_buckets_by_time_from_decision_to_close(self) -> None:
+        decided = "2026-06-01T14:00:00+00:00"
+        rows = [
+            _row(identifier=1, marked_pnl=1.0, decision_time=decided, closed_at="2026-06-01T20:00:00+00:00"),
+            _row(identifier=2, marked_pnl=1.0, decision_time=decided, closed_at="2026-06-03T14:00:00+00:00"),
+            _row(identifier=3, marked_pnl=1.0, decision_time=decided, closed_at="2026-06-06T14:00:00+00:00"),
+            _row(identifier=4, marked_pnl=1.0, decision_time=decided, closed_at="2026-06-12T14:00:00+00:00"),
+            _row(identifier=5, marked_pnl=1.0, decision_time=decided),
+        ]
+        cohorts = self._payload(rows, group_by="holding_period")["cohorts"]
+        self.assertEqual({item["key"]: item["trade_count"] for item in cohorts},
+                         {"under_1d": 1, "1_3d": 1, "3_7d": 1, "7d_plus": 1, "open": 1})
+
+
 class DecisionExpectancyReaderTests(unittest.TestCase):
+    def test_rows_carry_the_positions_exit_reason_and_catalyst_family(self) -> None:
+        from market_db_modules.queries import list_decision_expectancy_rows
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "expectancy-outcomes.db"
+            initialize_database(db_path=db_path, schema_path=DATA_DIR / "market_schema.sql")
+            with closing(get_connection(db_path)) as conn, conn:
+                traded, untraded = (conn.execute(
+                    "INSERT INTO manager_decision_history (symbol, decision_run_at, trade_executed) VALUES (?, ?, 1)",
+                    (symbol, "2026-06-14T14:20:00+00:00")).lastrowid for symbol in ("MSFT", "NVDA"))
+                conn.execute("""INSERT INTO position_outcomes (option_symbol, entry_order_id, opened_at,
+                    manager_decision_history_id, primary_exit_reason, catalyst_family)
+                    VALUES ('MSFT1', 'o1', '2026-06-14T14:21:00+00:00', ?, 'stop_loss', 'earnings_positive')""", (traded,))
+            rows = {row["id"]: dict(row) for row in list_decision_expectancy_rows(
+                within_days=30, as_of="2026-06-15T00:00:00+00:00", db_path=db_path)}
+        self.assertEqual((rows[traded]["primary_exit_reason"], rows[traded]["catalyst_family"]),
+                         ("stop_loss", "earnings_positive"))
+        self.assertEqual((rows[untraded]["primary_exit_reason"], rows[untraded]["catalyst_family"]), (None, None))
+
     def test_closed_outcomes_require_explicit_broker_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "expectancy-closed.db"
