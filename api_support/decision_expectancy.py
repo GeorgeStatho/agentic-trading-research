@@ -23,6 +23,11 @@ DECISION_EXPECTANCY_GROUPS = {
     "trend_state",
     "relative_strength_state",
     "volume_state",
+    "ticker",
+    "industry",
+    "exit_reason",
+    "catalyst_family",
+    "holding_period",
 }
 
 
@@ -83,6 +88,26 @@ def _expectancy_time_of_day_bucket(value: object) -> str:
     return "after_hours"
 
 
+def _holding_period_bucket(decided_at: object, closed_at: object) -> str:
+    """Decision to close; a decision still open has no holding period yet."""
+    if not closed_at:
+        return "open"
+    try:
+        start, end = (datetime.fromisoformat(str(value).replace("Z", "+00:00")) for value in (decided_at, closed_at))
+    except ValueError:
+        return "unknown"
+    if (start.tzinfo is None) != (end.tzinfo is None):
+        return "unknown"
+    days = (end - start).total_seconds() / 86400
+    if days < 1:
+        return "under_1d"
+    if days < 3:
+        return "1_3d"
+    if days < 7:
+        return "3_7d"
+    return "7d_plus"
+
+
 def _expectancy_label(value: str, *, kind: str) -> str:
     if value == "unknown":
         return "Unknown"
@@ -98,6 +123,11 @@ def _expectancy_label(value: str, *, kind: str) -> str:
             "closing_hour": "Closing hour ET",
             "after_hours": "After-hours ET",
         }.get(value, titleize_key(value))
+    if kind == "holding_period":
+        return {"under_1d": "Under 1 day", "1_3d": "1–3 days", "3_7d": "3–7 days", "7d_plus": "7+ days",
+                "open": "Still open"}.get(value, titleize_key(value))
+    if kind == "ticker":
+        return value.upper()
     if kind == "entry_gate":
         return {"allowed": "Continuation allowed", "blocked": "Continuation blocked"}.get(value, titleize_key(value))
     return titleize_key(value)
@@ -162,6 +192,11 @@ def _expectancy_group(row: dict, group_by: str) -> tuple[str, str]:
         "trend_state": (row["trend_state"], "generic"),
         "relative_strength_state": (row["relative_strength_state"], "generic"),
         "volume_state": (row["volume_state"], "generic"),
+        "ticker": (row["ticker"], "ticker"),
+        "industry": (row["industry"], "generic"),
+        "exit_reason": (row["exit_reason"], "generic"),
+        "catalyst_family": (row["catalyst_family"], "generic"),
+        "holding_period": (row["holding_period"], "holding_period"),
     }
     if group_by in field_labels:
         value, kind = field_labels[group_by]
@@ -233,6 +268,11 @@ def build_decision_expectancy_payload(
             "trend_state": _expectancy_text(gate_technical.get("trend_state")),
             "relative_strength_state": _expectancy_text(gate_technical.get("relative_strength_confirmation")),
             "volume_state": _expectancy_text(gate_technical.get("volume_confirmation")),
+            "ticker": _expectancy_text(raw_row.get("symbol")),
+            "industry": _expectancy_text(raw_row.get("industry_key")),
+            "exit_reason": _expectancy_text(raw_row.get("primary_exit_reason")),
+            "catalyst_family": _expectancy_text(raw_row.get("catalyst_family")),
+            "holding_period": _holding_period_bucket(raw_row.get("decision_run_at"), raw_row.get("closed_at")),
             "pnl_pct": _expectancy_pnl(raw_row, basis=normalized_basis, reference_time=reference_time),
         }
         if normalized_decision != "all" and row["decision"] != normalized_decision:

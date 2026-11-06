@@ -29,6 +29,11 @@ const GROUP_OPTIONS: { value: GroupBy; label: string }[] = [
   { value: 'trend_state', label: 'Trend state' },
   { value: 'relative_strength_state', label: 'Relative strength' },
   { value: 'volume_state', label: 'Volume state' },
+  { value: 'ticker', label: 'Ticker' },
+  { value: 'industry', label: 'Industry' },
+  { value: 'exit_reason', label: 'Exit reason' },
+  { value: 'catalyst_family', label: 'Catalyst family' },
+  { value: 'holding_period', label: 'Holding period' },
   { value: 'confidence_x_dte_bucket', label: 'Confidence × DTE' },
   { value: 'confidence_x_selector_mode', label: 'Confidence × selector' },
 ]
