@@ -26,6 +26,10 @@ __pycache__/
 .testmondata*
 .testmon-inputs.json
 
+# Coverage data, written by `pytest --cov`.
+.coverage
+.coverage.*
+
 # Local scraping/debug artifacts
 html_pages/
 Data/logs/

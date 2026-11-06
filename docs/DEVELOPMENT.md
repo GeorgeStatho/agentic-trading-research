@@ -54,6 +54,14 @@ or dependency files (`*.sql`, `config/`, `Data/*.json`, `.env.example`, `pyproje
 executed and cannot be traced to individual tests. The map lives in `.testmondata` and is
 ignored by git. Run the whole suite before committing; the image build always does.
 
+To see which lines the suite exercises (dev extras):
+
+```bash
+python3 -m pytest -n auto --cov --cov-report=term-missing
+```
+
+Coverage settings live under `[tool.coverage.*]` in `pyproject.toml`.
+
 Keep the checkout on the Linux filesystem when you work in WSL (for example under
 `~/code`, not `/mnt/c` or `/mnt/e`). Every file access on a Windows drive goes through a
 slow file-sharing layer, and the suite runs about five times slower there.
@@ -96,6 +104,8 @@ opportunist limits and the continuation policy).
 
 Add a new setting to the relevant section in `services/core/settings.py` and to `.env.example`;
 the test bootstrap uses `.env.example` to isolate tests from local configuration.
+`tests/test_env_example_coverage.py` fails when the code reads a setting `.env.example` does not
+list; list optional ones commented out with their default (`# NAME=default`).
 
 Not yet on `Settings`: the option exit settings (`services.core.trading_config.OptionPositionSettings`,
 read at call time), the process composition roots in
