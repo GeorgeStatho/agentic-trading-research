@@ -145,6 +145,29 @@ class V2StatusTests(unittest.TestCase):
         self.assertEqual(stage["superseded_proofs"], 1)
         self.assertFalse(stage["enforcement_allowed"])
 
+    def test_source_files_are_hashed_once_per_process(self) -> None:
+        # A running process's code cannot change, and every 60s poll used to re-read ~280 files.
+        from api_support import v2_status
+        from services.core import trading_path
+
+        v2_status._trading_path_hashes.cache_clear()
+        self.addCleanup(v2_status._trading_path_hashes.cache_clear)
+        with patch.object(trading_path, "trading_path_hashes", wraps=trading_path.trading_path_hashes) as hashes:
+            first = self._payload()
+            second = self._payload()
+        self.assertEqual(hashes.call_count, 1)
+        self.assertEqual(first["source_hash"], second["source_hash"])
+
+    def test_a_failed_source_hash_is_retried_on_the_next_poll(self) -> None:
+        from api_support import v2_status
+        from services.core import trading_path
+
+        v2_status._trading_path_hashes.cache_clear()
+        self.addCleanup(v2_status._trading_path_hashes.cache_clear)
+        with patch.object(trading_path, "trading_path_hashes", side_effect=[OSError("gone"), {"a.py": "h"}]):
+            self.assertIsNone(self._payload()["source_hash"])
+            self.assertIsNotNone(self._payload()["source_hash"])
+
 
 @unittest.skipUnless(FLASK_AVAILABLE, "flask is not installed in this environment")
 class V2StatusWithoutMigrationTests(unittest.TestCase):

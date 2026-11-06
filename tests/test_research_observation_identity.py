@@ -120,6 +120,18 @@ class PairingRulesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "same complete shared"):
             paired_champion_results(self.run, self.old, self.run, self.new)
 
+class EvaluatorHashCacheTests(unittest.TestCase):
+    def test_evaluator_files_are_hashed_once_per_process(self):
+        from pathlib import Path
+        from services.research import research_versions
+
+        research_versions.evaluator_source_hash.cache_clear()
+        self.addCleanup(research_versions.evaluator_source_hash.cache_clear)
+        with patch.object(Path, "read_bytes", autospec=True, side_effect=lambda path: b"x") as read:
+            research_versions.evaluator_source_hash()
+            research_versions.evaluator_source_hash()
+        self.assertEqual(read.call_count, len(research_versions.EVALUATOR_FILES))
+
 
 if __name__ == "__main__":
     unittest.main()
