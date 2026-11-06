@@ -17,6 +17,7 @@ function v2(overrides: Partial<V2StatusPayload> = {}): V2StatusPayload {
     source_hash: null,
     mode_summary: { enforcing: 0, shadow: 8, disabled: 0, downgraded: 3, misconfigured: 0 },
     activity_available: true,
+    rejection_reasons: [],
     features: Array.from({ length: 8 }, () => ({}) as V2StatusPayload['features'][number]),
     shadow_only_features: [],
     research: {} as V2StatusPayload['research'],

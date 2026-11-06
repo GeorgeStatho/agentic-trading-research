@@ -176,6 +176,7 @@ def build_v2_status_payload(
             "source_hash": reading.code_hash,
             "mode_summary": _mode_summary(features),
             "activity_available": reading.activity is not None,
+            "rejection_reasons": _rejection_reasons(conn, since) if reading.activity is not None else None,
             "features": features,
             "shadow_only_features": [_shadow_only_status(feature, reading.activity) for feature in SHADOW_ONLY_FEATURES],
             "research": _research_status(conn, reading.code_hash, run_limit),
@@ -336,6 +337,18 @@ def _shadow_activity(conn, since: str) -> dict | None:
         counter = "shadow_blocks" if row["shadow"] else "enforced_blocks"
         activity.setdefault(row["stage"], dict(EMPTY_ACTIVITY))[counter] = row["blocked"]
     return activity
+
+
+def _rejection_reasons(conn, since: str) -> list[dict]:
+    """Candidates stopped per stage and reason code in the window, enforced and shadow apart."""
+    rows = conn.execute(
+        f"""SELECT stage, reason_code, shadow, COUNT(DISTINCT candidate_id) AS candidates FROM candidate_rejections
+           WHERE julianday(occurred_at) >= julianday(?) AND {PRODUCTION_CANDIDATE}
+           GROUP BY stage, reason_code, shadow ORDER BY candidates DESC, stage, reason_code""",
+        (since,),
+    )
+    return [{"stage": row["stage"], "reason_code": row["reason_code"], "shadow": bool(row["shadow"]),
+             "candidates": row["candidates"]} for row in rows]
 
 
 def _scenario_divergence(reading: _Reading) -> dict | None:

@@ -118,12 +118,17 @@ export type ModeSummary = {
   misconfigured: number;
 };
 
+/** Candidates one stage stopped for one reason in the window; shadow verdicts did not act. */
+export type RejectionReason = { stage: string; reason_code: string; shadow: boolean; candidates: number };
+
 export type V2StatusPayload = {
   as_of: string;
   window_days: number;
   source_hash: string | null;
   mode_summary: ModeSummary;
   activity_available: boolean;
+  /** Null when the database has no candidate lifecycle tables. */
+  rejection_reasons: RejectionReason[] | null;
   features: Feature[];
   shadow_only_features: ShadowOnlyFeature[];
   research: Research;
