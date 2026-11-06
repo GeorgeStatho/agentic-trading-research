@@ -48,8 +48,8 @@ def make_region_pipeline(
             saved,
             get_log_file_path(),
         )
-        print(f"Saved {saved} {region_label} articles")
-        print(f"Scrape log written to {get_log_file_path()}")
+        LOGGER.info("Saved %s %s articles", saved, region_label)
+        LOGGER.info("Scrape log written to %s", get_log_file_path())
         return saved
 
     def get_news(urls: list[str]) -> int:

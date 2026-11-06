@@ -28,7 +28,8 @@ def main():
     load_env_file()
     if args.db:
         os.environ['DB_PATH'] = str(Path(args.db).resolve())
-    logging.basicConfig(level=logging.INFO)
+    from services.core.logging_utils import configure_logging
+    configure_logging()
     from market_db_modules.bootstrap import initialize_database
     from market_db_modules.execution_telemetry import execution_telemetry_report
     from market_db_modules.candidate_lifecycle import candidate_funnel, load_candidate_lifecycle

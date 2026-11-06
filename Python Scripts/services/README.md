@@ -177,16 +177,15 @@ Use this module when you want output persistence to stay consistent across worke
 
 ### `core/logging_utils.py`
 
-Centralized logging setup helpers for service entrypoints.
+The one place logging is set up. Every entrypoint calls `configure_logging()` once under
+`if __name__ == "__main__":`:
 
-Importable helpers:
+- `configure_logging("news_collector")` logs INFO and above to stdout and to a new
+  timestamped `LOGS_DIR/news_collector_<time>.log`, and returns that path.
+- `configure_logging()` logs to stdout only.
 
-- `_build_log_path(...)`
-  Builds a timestamped log-file path.
-- `_configure_logging(...)`
-  Configures the logger used by runtime entrypoints.
-
-Even though these helpers are currently internal-style by name, this module exists to keep logger setup consistent and out of the business logic.
+Library and service code logs through `logging.getLogger(__name__)` and never calls
+`print`; `tests/test_logging_setup.py` enforces both.
 
 ### `runtime/cold_start.py`
 

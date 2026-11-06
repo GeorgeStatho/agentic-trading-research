@@ -230,9 +230,9 @@ def get_industry_news(industry_identifier: str) -> int:
         total_saved,
         get_log_file_path(),
     )
-    print(f"Saved {listing_saved} listing-page articles for {industry['name']}")
-    print(f"Saved {search_saved} search-page articles for {industry['name']}")
-    print(f"Scrape log written to {get_log_file_path()}")
+    LOGGER.info("Saved %s listing-page articles for %s", listing_saved, industry['name'])
+    LOGGER.info("Saved %s search-page articles for %s", search_saved, industry['name'])
+    LOGGER.info("Scrape log written to %s", get_log_file_path())
     return total_saved
 
 
@@ -246,7 +246,7 @@ def get_sector_industry_news(sector_identifier: str) -> int:
             sector["name"],
             sector["sector_key"],
         )
-        print(f"No industries found for sector {sector['name']}")
+        LOGGER.info("No industries found for sector %s", sector['name'])
         return 0
 
     LOGGER.info(
@@ -264,8 +264,8 @@ def get_sector_industry_news(sector_identifier: str) -> int:
         search_saved = saved_counts.get((industry["id"], "search"), 0)
         industry_total = listing_saved + search_saved
         total_saved += industry_total
-        print(f"Saved {listing_saved} listing-page articles for {industry['name']}")
-        print(f"Saved {search_saved} search-page articles for {industry['name']}")
+        LOGGER.info("Saved %s listing-page articles for %s", listing_saved, industry['name'])
+        LOGGER.info("Saved %s search-page articles for %s", search_saved, industry['name'])
 
     LOGGER.info(
         "Finished sector-scoped industry scrape for %s (%s): saved %s articles. Log file: %s",
@@ -274,7 +274,7 @@ def get_sector_industry_news(sector_identifier: str) -> int:
         total_saved,
         get_log_file_path(),
     )
-    print(f"Scrape log written to {get_log_file_path()}")
+    LOGGER.info("Scrape log written to %s", get_log_file_path())
     return total_saved
 
 
@@ -290,12 +290,12 @@ def get_all_industry_news() -> None:
 
     for industry in industries:
         listing_saved = saved_counts.get((industry["id"], "listing"), 0)
-        print(f"Saved {listing_saved} listing-page articles for {industry['name']}")
+        LOGGER.info("Saved %s listing-page articles for %s", listing_saved, industry['name'])
 
         search_saved = saved_counts.get((industry["id"], "search"), 0)
-        print(f"Saved {search_saved} search-page articles for {industry['name']}")
+        LOGGER.info("Saved %s search-page articles for %s", search_saved, industry['name'])
     LOGGER.info("Finished all-industry scrape. Log file: %s", get_log_file_path())
-    print(f"Scrape log written to {get_log_file_path()}")
+    LOGGER.info("Scrape log written to %s", get_log_file_path())
 
 
 if __name__ == "__main__":

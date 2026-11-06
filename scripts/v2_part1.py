@@ -25,7 +25,8 @@ def main():
     load_env_file()
     if args.db:
         os.environ["DB_PATH"] = str(Path(args.db).resolve())
-    logging.basicConfig(level=logging.INFO)
+    from services.core.logging_utils import configure_logging
+    configure_logging()
     if args.command == "outcomes":
         from market_db_modules.history_records import list_unresolved_manager_decisions
         from services.trading.outcome_reconciliation import reconcile_closed_outcomes

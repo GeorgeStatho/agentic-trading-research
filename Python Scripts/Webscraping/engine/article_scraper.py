@@ -83,7 +83,7 @@ class _KeyboardStopMonitor:
 
         self._stop_event.set()
         LOGGER.warning("Keyboard stop requested with %s; stopping crawl early", key_label)
-        print(f"\nStopping crawl early because {key_label} was pressed...")
+        LOGGER.info("Stopping crawl early because %s was pressed...", key_label)
         from twisted.internet import reactor
 
         reactor.callFromThread(self.process.stop)
@@ -422,7 +422,7 @@ def _run_crawl(urls: list[str], *, enable_keyboard_stop: bool, announce_log: boo
     stop_monitor = _KeyboardStopMonitor(process)
     if enable_keyboard_stop and sys.stdin and sys.stdin.isatty():
         LOGGER.info("Keyboard stop enabled: press q, Esc, or Ctrl+C to stop the crawl early")
-        print("Press q, Esc, or Ctrl+C to stop the crawl early.")
+        LOGGER.info("Press q, Esc, or Ctrl+C to stop the crawl early.")
 
     if enable_keyboard_stop:
         stop_monitor.start()
@@ -430,7 +430,7 @@ def _run_crawl(urls: list[str], *, enable_keyboard_stop: bool, announce_log: boo
         process.start()
     except KeyboardInterrupt:
         LOGGER.warning("KeyboardInterrupt received; stopping crawl early")
-        print("\nStopping crawl early because Ctrl+C was pressed...")
+        LOGGER.info("Stopping crawl early because Ctrl+C was pressed...")
         process.stop()
     finally:
         if enable_keyboard_stop:
@@ -446,7 +446,7 @@ def _run_crawl(urls: list[str], *, enable_keyboard_stop: bool, announce_log: boo
         failure_count,
     )
     if announce_log:
-        print(f"Scrape log written to {log_file}")
+        LOGGER.info("Scrape log written to %s", log_file)
     return items
 
 

@@ -90,7 +90,7 @@ print("__SCRAPE_RESULT__=" + json.dumps(result))
                 result_value = json.loads(line[len(SCRAPE_RESULT_MARKER) :])
                 continue
 
-            print(line)
+            LOGGER.info("%s", line)
             output_lines.append(line)
     finally:
         process.stdout.close()
@@ -109,35 +109,35 @@ print("__SCRAPE_RESULT__=" + json.dumps(result))
 
 
 def _scrape_sector_news(sector_key: str) -> int:
-    print("Scraping sector news: " + sector_key)
+    LOGGER.info("Scraping sector news: %s", sector_key)
     saved = _run_scrape_subprocess(
         "pipelines.sectorNewsPipeline",
         "get_sector_news_from_rss",
         sector_key,
     )
-    print(f"Finished scraping sector news for {sector_key}: saved {saved} article(s)")
+    LOGGER.info("Finished scraping sector news for %s: saved %s article(s)", sector_key, saved)
     return saved
 
 
 def _scrape_industry_news(industry_key: str) -> int:
-    print("Scraping industry news: " + industry_key)
+    LOGGER.info("Scraping industry news: %s", industry_key)
     saved = _run_scrape_subprocess(
         "pipelines.industryNewsPipeline",
         "get_industry_news",
         industry_key,
     )
-    print(f"Finished scraping industry news for {industry_key}: saved {saved} article(s)")
+    LOGGER.info("Finished scraping industry news for %s: saved %s article(s)", industry_key, saved)
     return saved
 
 
 def _scrape_company_news(symbol: str) -> int:
-    print("Scraping company news: " + symbol)
+    LOGGER.info("Scraping company news: %s", symbol)
     saved = _run_scrape_subprocess(
         "pipelines.companyNewsPipeline",
         "get_company_news",
         symbol,
     )
-    print(f"Finished scraping company news for {symbol}: saved {saved} article(s)")
+    LOGGER.info("Finished scraping company news for %s: saved %s article(s)", symbol, saved)
     return saved
 
 
@@ -189,27 +189,27 @@ def run_news_collection_pipeline(
 ) -> dict[str, Any]:
     """Run the scrape plus sector/industry/company pipeline end to end."""
     ranking_max_age_days = resolve_ranking_max_age_days(ranking_max_age_days)
-    print("Scraping U.S. news from RSS")
+    LOGGER.info("Scraping U.S. news from RSS")
     us_news_saved = _run_scrape_subprocess(
         "pipelines.USNewsPipeline",
         "get_us_news_from_rss",
     )
-    print(f"Finished scraping U.S. news: saved {us_news_saved} article(s)")
+    LOGGER.info("Finished scraping U.S. news: saved %s article(s)", us_news_saved)
 
-    print("Scraping world news from RSS")
+    LOGGER.info("Scraping world news from RSS")
     world_news_saved = _run_scrape_subprocess(
         "pipelines.worldNewsPipeline",
         "get_world_news_from_rss",
     )
-    print(f"Finished scraping world news: saved {world_news_saved} article(s)")
+    LOGGER.info("Finished scraping world news: saved %s article(s)", world_news_saved)
 
-    print("Classifying US macro news to sectors")
+    LOGGER.info("Classifying US macro news to sectors")
     us_macro_pairs = classify_macro_news_to_sectors(news_scope="us")
-    print(f"Finished classifying US macro news: {len(us_macro_pairs)} sector pair(s)")
+    LOGGER.info("Finished classifying US macro news: %s sector pair(s)", len(us_macro_pairs))
 
-    print("Classifying world macro news to sectors")
+    LOGGER.info("Classifying world macro news to sectors")
     world_macro_pairs = classify_macro_news_to_sectors(news_scope="world")
-    print(f"Finished classifying world macro news: {len(world_macro_pairs)} sector pair(s)")
+    LOGGER.info("Finished classifying world macro news: %s sector pair(s)", len(world_macro_pairs))
 
     rankings_before_sector_stage = get_current_rankings(
         top_sector_count=top_sector_count,
@@ -241,7 +241,7 @@ def run_news_collection_pipeline(
         sector_scrape_saved = _scrape_sector_news(sector_key)
         scrape_results["sectors"][sector_key] = sector_scrape_saved
 
-        print("Processing Sectors: " + sector_key)
+        LOGGER.info("Processing Sectors: %s", sector_key)
         sector_opportunist_result = classify_sector_articles(sector_key)
         industry_opportunist_result = classify_sector_articles_to_industries(sector_key)
 
@@ -265,7 +265,7 @@ def run_news_collection_pipeline(
             industry_scrape_saved = _scrape_industry_news(industry_key)
             scrape_results["industries"][industry_key] = industry_scrape_saved
 
-            print("Processing industry: " + industry_key)
+            LOGGER.info("Processing industry: %s", industry_key)
             company_selection = collect_ranked_companies_for_industry(
                 industry_key,
                 top_company_count=top_company_count,
@@ -294,10 +294,10 @@ def run_news_collection_pipeline(
                 company_scrape_saved = _scrape_company_news(company["symbol"])
                 scrape_results["companies"][company["symbol"]] = company_scrape_saved
 
-                print("Processing: " + company["symbol"])
+                LOGGER.info("Processing: %s", company["symbol"])
                 company_result = classify_company_articles(company["symbol"])
                 company_results.append(company_result)
-                print("Finished: " + company["symbol"])
+                LOGGER.info("Finished: %s", company["symbol"])
 
             company_opportunist_summaries: list[dict[str, Any]] = []
             for result in company_results:
@@ -311,7 +311,7 @@ def run_news_collection_pipeline(
                     "company_opportunist_summaries": company_opportunist_summaries,
                 }
             )
-            print("Finished industry:" + industry_key)
+            LOGGER.info("Finished industry:%s", industry_key)
 
         sector_results.append(
             {
@@ -322,7 +322,7 @@ def run_news_collection_pipeline(
                 "industries": industry_results,
             }
         )
-        print("Finished Sector:" + sector_key)
+        LOGGER.info("Finished Sector:%s", sector_key)
 
     discovery_news = refresh_discovery_company_news(
         ranked_symbols=set(scrape_results["companies"]),

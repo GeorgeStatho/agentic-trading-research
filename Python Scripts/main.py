@@ -23,7 +23,7 @@ from services.runtime.cold_start import ColdStartSanityChecker
 from services.core.trading_config import WorkerPaths, WorkerSettings
 from services.runtime.worker_application import WorkerApplication
 from services.core.status_files import StatusReporter
-from services.core.logging_utils import _build_log_path, _configure_logging
+from services.core.logging_utils import configure_logging
 from services.trading.order_candidates import OrderCandidateBuilder
 from services.options.position_manager import OptionPositionManagerService
 from services.thesis.thesis_capture import PositionThesisJournal
@@ -140,8 +140,7 @@ def option_manager_loop() -> None:
 
 
 if __name__ == "__main__":
-    log_path = _build_log_path()
-    _configure_logging(log_path)
+    log_path = configure_logging("front_main")
 
     LOGGER.info("Front-facing main log started at %s", log_path)
     main_loop()

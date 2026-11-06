@@ -18,6 +18,8 @@ from services.runtime.telemetry import send_startup_ping_async
 from services.trading.trade_executor import OptionExposureSnapshot, OptionTradeExecutor
 from services.trading.trading_gateway import TradingClient
 
+LOGGER = logging.getLogger(__name__)
+
 
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
 FRIDAY_WEEKDAY = 4
@@ -597,7 +599,7 @@ class WorkerApplication:
                 else:
                     try:
                         result = self._run_scheduled_trading_cycle(trading_client=trading_client)
-                        print(json.dumps(result, ensure_ascii=True, indent=2))
+                        LOGGER.info("%s", json.dumps(result, ensure_ascii=True, indent=2))
                     except Exception as exc:
                         self._status_reporter.write("error", f"Front-facing main cycle failed: {exc}")
                         self._logger.exception("Front-facing main cycle failed: %s", exc)

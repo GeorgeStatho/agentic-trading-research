@@ -369,8 +369,8 @@ def get_company_news(company_identifier: str) -> int:
         saved,
         get_log_file_path(),
     )
-    print(f"Saved {saved} articles for {company['name']} ({company['symbol']})")
-    print(f"Scrape log written to {get_log_file_path()}")
+    LOGGER.info("Saved %s articles for %s (%s)", saved, company['name'], company['symbol'])
+    LOGGER.info("Scrape log written to %s", get_log_file_path())
     return saved
 
 
@@ -386,9 +386,9 @@ def get_all_company_news() -> None:
 
     for company in companies:
         saved = saved_counts.get(company["id"], 0)
-        print(f"Saved {saved} articles for {company['name']} ({company['symbol']})")
+        LOGGER.info("Saved %s articles for %s (%s)", saved, company['name'], company['symbol'])
     LOGGER.info("Finished all-company scrape. Log file: %s", get_log_file_path())
-    print(f"Scrape log written to {get_log_file_path()}")
+    LOGGER.info("Scrape log written to %s", get_log_file_path())
 
 
 def get_industries_company_news(industry_identifiers: list[str]) -> int:
@@ -397,7 +397,7 @@ def get_industries_company_news(industry_identifiers: list[str]) -> int:
     industries, companies = _get_companies_for_industries(industry_identifiers)
     if not companies:
         LOGGER.info("No companies found for industries: %s", industry_identifiers)
-        print("No companies found for the supplied industries")
+        LOGGER.info("No companies found for the supplied industries")
         return 0
 
     LOGGER.info(
@@ -412,7 +412,7 @@ def get_industries_company_news(industry_identifiers: list[str]) -> int:
     for company in companies:
         saved = saved_counts.get(company["id"], 0)
         total_saved += saved
-        print(f"Saved {saved} articles for {company['name']} ({company['symbol']})")
+        LOGGER.info("Saved %s articles for %s (%s)", saved, company['name'], company['symbol'])
 
     LOGGER.info(
         "Finished company scrape for industries %s: saved %s articles. Log file: %s",
@@ -420,7 +420,7 @@ def get_industries_company_news(industry_identifiers: list[str]) -> int:
         total_saved,
         get_log_file_path(),
     )
-    print(f"Scrape log written to {get_log_file_path()}")
+    LOGGER.info("Scrape log written to %s", get_log_file_path())
     return total_saved
 
 
@@ -431,7 +431,7 @@ def get_top_companies_news(*, top_company_count: int = 25) -> int:
     companies = _get_top_companies(top_company_count)
     if not companies:
         LOGGER.info("No top companies available for company news scrape")
-        print("No top companies available")
+        LOGGER.info("No top companies available")
         return 0
 
     LOGGER.info(
@@ -445,7 +445,7 @@ def get_top_companies_news(*, top_company_count: int = 25) -> int:
     for company in companies:
         saved = saved_counts.get(company["id"], 0)
         total_saved += saved
-        print(f"Saved {saved} articles for {company['name']} ({company['symbol']})")
+        LOGGER.info("Saved %s articles for %s (%s)", saved, company['name'], company['symbol'])
 
     LOGGER.info(
         "Finished company scrape for top %s companies: saved %s articles. Log file: %s",
@@ -453,7 +453,7 @@ def get_top_companies_news(*, top_company_count: int = 25) -> int:
         total_saved,
         get_log_file_path(),
     )
-    print(f"Scrape log written to {get_log_file_path()}")
+    LOGGER.info("Scrape log written to %s", get_log_file_path())
     return total_saved
 
 
@@ -466,7 +466,7 @@ def get_top_processed_industries_company_news(
     sector_keys = _get_top_processed_sector_keys(top_sector_count)
     if not sector_keys:
         LOGGER.info("No processed sectors available for top-industry company news scrape")
-        print("No processed sectors available")
+        LOGGER.info("No processed sectors available")
         return 0
 
     selected_industry_keys: list[str] = []
@@ -485,7 +485,7 @@ def get_top_processed_industries_company_news(
             "No processed industries available for sectors %s during company news scrape",
             sector_keys,
         )
-        print("No processed industries available from the top sectors")
+        LOGGER.info("No processed industries available from the top sectors")
         return 0
 
     LOGGER.info(

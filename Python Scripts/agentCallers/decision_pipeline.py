@@ -3,11 +3,10 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
-import sys
 from typing import Any, Callable
 
-from services.core.runtime_paths import DATA_DIR, LOGS_DIR
+from services.core.runtime_paths import DATA_DIR
+from services.core.logging_utils import configure_logging
 from services.core.settings import load_process_settings
 
 
@@ -51,22 +50,8 @@ MAX_CONSECUTIVE_COMPANY_FAILURES = 3
 COMPANY_FAILURE_MESSAGE_CHARS = 300
 
 
-def _build_log_path() -> Path:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return LOGS_DIR / f"agent_runner_{timestamp}.log"
 
 
-def _configure_logging(log_path: Path) -> None:
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[
-            logging.FileHandler(log_path, encoding="utf-8"),
-            logging.StreamHandler(sys.stdout),
-        ],
-        force=True,
-    )
 
 
 def _dedupe_company_symbols(pipeline_result: dict[str, Any]) -> list[str]:
@@ -821,8 +806,7 @@ def run_strategist_manager_only(
 
 
 if __name__ == "__main__":
-    log_path = _build_log_path()
-    _configure_logging(log_path)
+    log_path = configure_logging("agent_runner")
 
     LOGGER.info("Agent runner log started at %s", log_path)
     result = run_full_agent_stack()
