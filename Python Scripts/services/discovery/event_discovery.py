@@ -14,7 +14,7 @@ from market_db_modules.company_evidence import (
 from market_db_modules.discovery_queue import enqueue_discovery_event
 from market_db_modules.discovery_sources import (
     company_event_articles, get_catalyst, latest_discovery_event, mark_discovery_scanned,
-    review_company_ids, sector_support_articles, watchlist_snapshot,
+    sector_support_articles, watchlist_snapshot,
 )
 from market_db_modules.foundation_store import digest
 from research_foundation_contracts import DiscoveryQueueItem, EvidencePackage, timestamp

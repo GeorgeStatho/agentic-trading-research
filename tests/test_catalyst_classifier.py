@@ -21,6 +21,7 @@ NOW = datetime.now(timezone.utc)
 FIRST_SEEN = NOW - timedelta(hours=47)
 PUBLISHED = NOW - timedelta(days=2)
 LABELED_AT = NOW - timedelta(hours=24)
+LABELED_AT_TEXT = LABELED_AT.isoformat()
 RULE_FAILURE = 'Nvidia shares jump as investors cheer AI demand'   # no rule matches: other / unknown
 LABEL_V1 = 'catalyst-llm-v1'
 
@@ -370,7 +371,7 @@ class CatalystLabelImmutabilityTests(unittest.TestCase):
         self.addCleanup(self.conn.close)
         self.insert('catalyst:one', 'v1')
 
-    def insert(self, catalyst_id, version, labeled_at=LABELED_AT.isoformat()):
+    def insert(self, catalyst_id, version, labeled_at=LABELED_AT_TEXT):
         with self.conn:
             self.conn.execute('''INSERT INTO catalyst_model_labels (catalyst_id, label_version, catalyst_type, direction,
                 confidence, anchor_article_id, model, answered_by_json, labeled_at) VALUES (?, ?, 'legal', 'negative',

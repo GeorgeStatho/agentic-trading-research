@@ -3,7 +3,6 @@ from __future__ import annotations
 from contextlib import closing
 from dataclasses import replace
 from datetime import date, datetime, time as clock_time, timedelta, timezone
-import json
 import os
 from pathlib import Path
 import sqlite3

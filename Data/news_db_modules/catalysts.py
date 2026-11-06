@@ -51,7 +51,6 @@ def build_catalyst_state(catalyst_id, articles, *, ticker=None, as_of=None, labe
             roots.setdefault(row['root_event_id'], []).append(row)
     root_times = [min((value for value in (_earliest(rows, 'event_time'), _earliest(rows, 'root_first_public_time')) if value), default=None)
                   for rows in roots.values()]
-    from . import shared  # Establish the existing scraping-module import path.
     from processing.scoring import confirmation_score, compute_evidence_score
     confirmation = confirmation_score(len(roots) or (1 if articles else 0))
     scores = [compute_evidence_score(recency=row.get('recency_score') or 0,

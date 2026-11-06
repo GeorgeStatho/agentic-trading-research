@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
 import os
+import sqlite3
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -263,7 +264,7 @@ class CohortTests(ForwardTestCase):
 
     def test_pre_registration_cannot_be_rewritten(self):
         cohort = ensure_comparison_cohort(BASE, CHALLENGER, acceptance=ACCEPTANCE, at=CUTOFF, db_path=self.db)
-        with closing(get_connection(self.db)) as conn, self.assertRaises(Exception):
+        with closing(get_connection(self.db)) as conn, self.assertRaises(sqlite3.IntegrityError):
             conn.execute("UPDATE research_run_acceptance SET policy_json='{}' WHERE cohort_id=?", (cohort['cohort_id'],))
 
     def test_misconfigured_research_settings_never_stop_the_manifest(self):

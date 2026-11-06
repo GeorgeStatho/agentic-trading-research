@@ -6,12 +6,10 @@ from typing import Any
 
 from db_common import get_connection, json_text
 from .provenance import update_article_provenance
+from processing.news_normalization import build_content_hash, normalize_title, normalize_url
 from .shared import (
-    build_content_hash,
     coerce_float,
     coerce_int,
-    normalize_title,
-    normalize_url,
     score_from_raw_json,
 )
 

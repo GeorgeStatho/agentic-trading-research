@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from services.core.settings import get_settings
-from services.core.settings import StageModel, get_settings
+from services.core.settings import StageModel
 from agent_helpers.company_opportunist import (
     build_company_opportunist_articles,
     build_company_valid_reference_sets,

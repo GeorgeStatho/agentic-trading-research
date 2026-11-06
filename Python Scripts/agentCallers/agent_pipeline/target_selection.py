@@ -5,6 +5,7 @@ from typing import Any
 from agent_builders.company_opportunity import get_industry_company_groups
 
 from agent_contracts import (
+    CompanySummary,
     CompanyOpportunistSummaryPayload,
     IndustryCompanySelectionPayload,
     PipelineTargetsPayload,

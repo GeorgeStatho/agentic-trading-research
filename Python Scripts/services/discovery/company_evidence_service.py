@@ -1,6 +1,6 @@
 """Collector-owned ingestion; decision payloads only read its persisted packages."""
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import os
 from urllib.parse import urlparse
 
@@ -18,7 +18,6 @@ from Webscraping.company_evidence.sec import SECAdapter
 from Webscraping.company_evidence.transport import EvidenceHTTP, utc_now
 from Webscraping.company_evidence.yahoo_consensus import YahooConsensusAdapter
 from market_db_modules.evidence_refresh import due_refresh_companies, due_refresh_requests, finish_refresh_requests
-from market_db_modules.evidence_refresh import finish_refresh_requests
 from services.discovery.company_evidence_demand import enqueue_company_interest
 from services.research.research_lock import ResearchSessionBusy, research_session_lock
 

@@ -10,8 +10,9 @@ from .manager_payload_context import (
     _build_manager_visible_views_summary,
 )
 from .manager_strategist_context import _build_manager_visible_strategist_context
+from services.options.option_dte_buckets import DEFAULT_MANAGER_TARGET_DTE_BUCKET
+
 from .manager_model import (
-    DEFAULT_MANAGER_TARGET_DTE_BUCKET,
     MANAGER_REASON_MAX_CHARS,
     TARGET_DTE_BUCKET_CHOICES_TEXT,
     TIME_HORIZON_DTE_MAPPING_TEXT,

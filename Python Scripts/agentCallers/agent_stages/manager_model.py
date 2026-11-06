@@ -7,15 +7,12 @@ from typing import Any
 from services.core.settings import StageModel, get_settings
 from agent_helpers.llm_client import Client, ask_llm_model, get_model_client
 from services.options.option_dte_buckets import (
-    DEFAULT_MANAGER_TARGET_DTE_BUCKET,
     ORDERED_OPTION_DTE_BUCKET_KEYS_WITH_NONE,
     TIME_HORIZON_TO_DTE_BUCKET,
     VALID_OPTION_DTE_BUCKET_KEYS_WITH_NONE,
     get_all_target_dte_bucket_aliases,
     get_target_dte_bucket_choices_text,
     get_time_horizon_mapping_text,
-    normalize_target_dte_bucket,
-    target_dte_bucket_to_expiration_filters,
 )
 
 

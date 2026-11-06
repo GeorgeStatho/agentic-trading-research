@@ -9,14 +9,11 @@ from services.options.option_momentum import evaluate_option_momentum_from_snaps
 from services.options.option_position_state import get_position_state, update_position_state
 
 from ._option_positions_momentum import (
-    MOMENTUM_MIXED,
     evaluate_combined_option_momentum,
     evaluate_option_price_momentum,
 )
 from ._option_positions_market import (
     _days_to_expiration,
-    _get_latest_stock_price,
-    _get_latest_option_quote,
     _hours_to_expiration,
     _normalize_pct_ratio,
     _normalize_unrealized_pl_pct,

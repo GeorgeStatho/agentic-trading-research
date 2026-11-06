@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import Any
 
 from agent_builders.strategist_payload_rollup_common import (
     _build_empty_count_map,

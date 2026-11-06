@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Any, Awaitable, Callable, cast
+from typing import Any, Callable, cast
 
 import yfinance as yf
 

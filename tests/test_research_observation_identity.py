@@ -6,13 +6,10 @@ from unittest.mock import patch
 
 from tests import research_foundation_fixtures as fixtures
 from db_common import get_connection
-from research_foundation_contracts import ResearchObservation
 from market_db_modules.research_observations import (
-    record_research_observation,
-    get_research_observation,
     paired_champion_results,
 )
-from market_db_modules.research_runs import start_run, collect_run, read_run
+from market_db_modules.research_runs import start_run, collect_run
 from market_db_modules.research_reports import monthly_report, promote_champion
 from services.research.research_contract import canonical, fingerprint
 from services.research.research_promotion import champion_allows

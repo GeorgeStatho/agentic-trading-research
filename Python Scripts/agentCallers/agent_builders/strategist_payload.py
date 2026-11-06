@@ -12,55 +12,13 @@ from agent_builders.strategist_payload_articles import (
     SUPPORTING_ARTICLE_SELECTION_VERSION,
     _build_supporting_articles,
     _build_view,
-    _serialize_signal,
 )
 from agent_stages.strategist_grounding import build_strategist_grounding
-from agent_builders import strategist_payload_company as _company_helpers
 from agent_builders.strategist_payload_company import (
-    _build_company_price_context,
-    _deserialize_company_raw_json,
-    _get_company_market_record,
     _serialize_company_scope,
 )
-from agent_builders.strategist_payload_price import (
-    _build_company_historical_price_data,
-    _empty_historical_snapshot,
-    _empty_trend_quality_payload,
-    _extract_close_values_from_frame,
-    _fetch_ticker_history_frame,
-    _safe_float,
-    _safe_int,
-    _serialize_timestamp,
-    _summarize_history_frame,
-    _summarize_trend_quality_frame,
-    _summarize_trend_quality_from_closes,
-    DEFAULT_TREND_QUALITY_RISK_FREE_RATE,
-    DEFAULT_TREND_QUALITY_TRADING_PERIODS_PER_YEAR,
-    HISTORICAL_PERIOD_CONFIG,
-    TREND_QUALITY_WINDOW_CONFIG,
-)
 from agent_builders.strategist_payload_rollup import (
-    _build_grouped_rollups,
     _build_opportunist_rollup,
-    _build_rollup_section,
-)
-from agent_builders.strategist_payload_rollup_common import (
-    _build_empty_count_map,
-    _build_empty_weight_map,
-    _build_top_reasons,
-    _get_signal_weight,
-    _normalize_reason_key,
-    _pick_dominant_bucket,
-    _round_rollup_metric,
-    CONFIDENCE_WEIGHTS,
-    EFFECT_TYPE_WEIGHTS,
-    MAGNITUDE_WEIGHTS,
-    MATERIALITY_WEIGHTS,
-    ROLLUP_DIRECTIONS,
-    ROLLUP_EFFECT_TYPES,
-    ROLLUP_HORIZONS,
-    ROLLUP_MATERIALITY,
-    ROLLUP_RELATIVE_POSITIONING,
 )
 
 

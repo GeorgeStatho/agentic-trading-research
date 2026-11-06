@@ -21,9 +21,10 @@ from services.core.settings import OpenAICompatibleSettings, use_settings
 MISTRAL = OpenAICompatibleSettings(base_url='https://api.mistral.ai/v1')
 RATES = ResearchModelPolicy(input_usd_per_million=1, output_usd_per_million=2)
 READY = {'outcome': 'ready', 'reason': 'Evidence available', 'requests': []}
+READY_JSON = json.dumps(READY)
 
 
-def completion(content=json.dumps(READY), finish_reason='stop'):
+def completion(content=READY_JSON, finish_reason='stop'):
     return SimpleNamespace(model='mistral-small-2509', choices=[
         SimpleNamespace(message=SimpleNamespace(content=content), finish_reason=finish_reason)],
         usage=SimpleNamespace(prompt_tokens=300, completion_tokens=40, total_tokens=340,

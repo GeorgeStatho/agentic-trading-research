@@ -5,11 +5,8 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Iterable
 
-from agent_helpers.market_context.alpaca_base import REQUEST_HANDLER, yf
-from agent_helpers.market_context.underlying import _extract_bar_close, _extract_bar_timestamp, _fetch_daily_stock_bars
 from agent_helpers.market_context.underlying_indicators import (
     _compute_exponential_moving_average,
     _compute_simple_moving_average,
@@ -323,9 +320,6 @@ def refresh_macro_calendar_for_market_regime() -> dict[str, Any]:
     Keep this integration here, at the cycle-level market service, rather than
     refreshing once per company recommendation.
     """
-    webscraping_dir = Path(__file__).resolve().parents[2] / "Webscraping"
-    normalized_webscraping_dir = str(webscraping_dir)
-
     try:
         from pipelines.macroNewsPipeline import ingest_macro_and_news
 

@@ -8,7 +8,6 @@ other filings or its XBRL actuals.
 from datetime import datetime
 import json
 import unittest
-from unittest.mock import Mock
 
 from tests.research_foundation_fixtures import database, START, ENTRY
 from tests.test_company_evidence import ACCESSION, COMPANY, guidance

@@ -56,7 +56,6 @@ from api_support.context import (
     SCRIPT_STATUS_PATH,
 )
 from api_support.thesis_validator import load_latest_thesis_verdicts
-from api_support.trades import build_trade_explanation_payload
 from api_support.context import logger
 import os
 

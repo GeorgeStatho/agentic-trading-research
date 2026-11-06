@@ -1,5 +1,5 @@
 from contextlib import closing
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from datetime import timedelta
 import json
 from pathlib import Path
@@ -17,18 +17,15 @@ from market_db_modules.research_reports import (
     monthly_report,
     promote_gate,
     promote_champion,
-    strategy_table,
 )
 from services.gates.contract_policy import ContractPolicy
 from services.research.research_contract import (
     ResearchPolicy,
     assert_information_cutoff,
     canonical,
-    fingerprint,
     utc,
 )
-from services.research.research_inputs import load_inputs, baseline_contract
-from services.research.research_promotion import approved, guard_policy, champion_allows, champion_check, source_hash
+from services.research.research_promotion import approved, guard_policy, champion_allows, champion_check
 from services.research.shadow_portfolio import simulate_option
 from services.trading.order_candidates import OrderCandidateBuilder
 from services.trading.trade_executor import TradeExecutionSession, OptionTradeExecutor

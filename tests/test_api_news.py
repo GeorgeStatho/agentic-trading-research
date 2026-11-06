@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
 
 from db_common import use_database
 from market_db_modules.bootstrap import initialize_database as initialize_market_database

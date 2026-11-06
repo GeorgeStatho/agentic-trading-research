@@ -16,7 +16,6 @@ from market_db_modules.discovery_queue import (
     discovery_queue_status,
     enqueue_discovery_event,
     finish_discovery_item,
-    preview_discovery_queue,
 )
 from market_db_modules.discovery_sources import select_discovery_companies
 from research_foundation_contracts import DiscoveryQueueItem

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import sqlite3
-from pathlib import Path
 from typing import Any
 
 from db_common import DATA_DIR, clean_text, coerce_float, table_columns, table_exists

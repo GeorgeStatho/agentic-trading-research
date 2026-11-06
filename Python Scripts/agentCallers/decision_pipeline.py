@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 from typing import Any, Callable
 
-from services.core.runtime_paths import DATA_DIR, LOGS_DIR, ROOT_DIR
+from services.core.runtime_paths import DATA_DIR, LOGS_DIR
 from services.core.settings import load_process_settings
 
 

@@ -4,7 +4,6 @@ from typing import Any
 
 from db_common import DATA_DIR
 
-from processing.news_normalization import build_content_hash, normalize_title, normalize_url
 
 SCHEMA_PATH = DATA_DIR / "news_schema.sql"
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
-from dataclasses import replace
 import json
 from pathlib import Path
 import tempfile
@@ -14,7 +13,7 @@ from market_db_modules.bootstrap import initialize_database
 from news_db_modules.bootstrap import initialize_database as initialize_news
 from news_db_modules.entity_articles import add_company_news_article
 from news_db_modules.impacts import add_company_opportunist_impact
-from news_db_modules.catalysts import build_catalyst_state, backfill_catalysts, enrich_impact
+from news_db_modules.catalysts import backfill_catalysts, enrich_impact
 from market_db_modules.candidate_lifecycle import record_candidate
 from services.gates.catalyst_gates import evaluate_catalyst_gates, CatalystGatePolicy
 

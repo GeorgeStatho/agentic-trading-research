@@ -34,9 +34,8 @@ from .manager_model import (
     ask_model,
     get_default_client,
     normalize_decision,
-    normalize_target_dte_bucket,
-    target_dte_bucket_to_expiration_filters,
 )
+from services.options.option_dte_buckets import normalize_target_dte_bucket, target_dte_bucket_to_expiration_filters
 
 
 def _apply_manager_evidence_payload(

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .config import DTE_BUCKET_TO_TARGET_OTM_PCT, SIMPLE_REQUIRE_ONE_DOLLAR_OTM
+from services.options.option_dte_buckets import DTE_BUCKET_TO_TARGET_OTM_PCT
+
+from .config import SIMPLE_REQUIRE_ONE_DOLLAR_OTM
 from .filters import (
     _get_spread_pct,
     _get_theta_to_price,

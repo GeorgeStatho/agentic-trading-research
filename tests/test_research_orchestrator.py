@@ -1,8 +1,7 @@
 """Phase 3 acceptance: bounded investigation, auditability, recovery and isolation."""
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
-from dataclasses import asdict, replace
-from datetime import datetime, timedelta
+from dataclasses import replace
 import threading
 import unittest
 from unittest.mock import Mock, patch
@@ -22,7 +21,7 @@ from services.discovery.company_evidence_extraction import ingest_source
 from services.research.evidence_research_policy import EvidenceResearchPolicy
 from services.research.research_lock import ResearchSessionBusy
 from services.research.research_orchestrator import ResearchOrchestrator
-from services.research.research_tools import ResearchRequest, ResearchTools
+from services.research.research_tools import ResearchTools
 from agent_stages.research_planner import ResearchPlanner, validate_plan
 
 

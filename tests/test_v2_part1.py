@@ -15,7 +15,6 @@ from market_db_modules.history_records import record_manager_decision_history
 from market_db_modules.autopsy import list_decision_autopsy_ledger
 from news_db_modules.bootstrap import initialize_database as initialize_news
 from news_db_modules.entity_articles import add_company_news_article
-from news_db_modules.article_store import add_news_article
 from services.trading.outcome_reconciliation import closed_round_trip, reconcile_closed_outcomes
 from services.gates.evidence_continuation_gate import EvidenceContinuationPolicy, _evidence_snapshot
 

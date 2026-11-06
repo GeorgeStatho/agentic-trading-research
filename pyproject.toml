@@ -12,7 +12,26 @@ dynamic = ["dependencies"]
 
 [project.optional-dependencies]
 # Parallel test runs, `project.py test --changed` and coverage: pip install -e ".[dev]"
-dev = ["pytest>=8", "pytest-xdist>=3", "pytest-testmon>=2.2", "pytest-cov>=5"]
+dev = ["pytest>=8", "pytest-xdist>=3", "pytest-testmon>=2.2", "pytest-cov>=5", "ruff>=0.15"]
+
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["graft", "web_dashboard", "html_pages", "docs", "shared", "stock-backup-*"]
+
+[tool.ruff.lint]
+# Bug-finding rules only: pyflakes, syntax errors, and the bugbear checks for shared mutable
+# defaults, call defaults, blind assertRaises and closures over loop variables. No style rules.
+select = ["F", "E9", "B006", "B008", "B017", "B023"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI declares query parameters through call defaults.
+extend-immutable-calls = ["fastapi.Query"]
+
+[tool.ruff.lint.per-file-ignores]
+# Package __init__ modules define each package's public names by importing them.
+"__init__.py" = ["F401"]
+# The package facade re-exports its private modules' names.
+"Python Scripts/trading_support/option_positions.py" = ["F401", "F403"]
 
 # python -m pytest -n auto --cov --cov-report=term-missing
 [tool.coverage.run]

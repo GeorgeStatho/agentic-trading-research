@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import urljoin
 
 import requests

@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from services.core.settings import get_settings
-from services.core.settings import StageModel, get_settings
+from services.core.settings import StageModel
 from agent_helpers.macro_news import (
     get_recent_macro_news_articles,
     get_scope_config,

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from db_common import get_connection
-from .shared import normalize_url
+from processing.news_normalization import normalize_url
 from processing.scoring import confirmation_score, compute_evidence_score
 from sources.source_config import get_source_metadata
 

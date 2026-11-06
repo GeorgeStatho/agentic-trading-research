@@ -1,5 +1,5 @@
 """Yahoo consensus adapter, its package freshness rules and collector wiring; fully offline."""
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 import json
 import os
 import unittest
