@@ -1191,7 +1191,7 @@
   "table",
   "llm_call_usage",
   "llm_call_usage",
-  "CREATE TABLE llm_call_usage (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    called_at TEXT NOT NULL,\n    model TEXT NOT NULL,\n    served_model TEXT,\n    upstream_provider TEXT,\n    generation_id TEXT,\n    prompt_tokens INTEGER,\n    completion_tokens INTEGER,\n    reasoning_tokens INTEGER,\n    cached_tokens INTEGER,\n    cost_usd REAL\n)"
+  "CREATE TABLE llm_call_usage (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    called_at TEXT NOT NULL,\n    model TEXT NOT NULL,\n    served_model TEXT,\n    upstream_provider TEXT,\n    generation_id TEXT,\n    prompt_tokens INTEGER,\n    completion_tokens INTEGER,\n    reasoning_tokens INTEGER,\n    cached_tokens INTEGER,\n    cost_usd REAL,\n    -- The pipeline stage that asked (manager, strategist, ...); NULL for calls recorded before stages were.\n    stage TEXT\n)"
  ],
  [
   "table",

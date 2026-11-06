@@ -28,6 +28,8 @@ class Client:
     raw_client: Any
     host: str | None = None
     label: str | None = None
+    # The pipeline stage this client serves; recorded with each call's usage.
+    stage: str | None = None
 
 
 @dataclass(frozen=True)
@@ -55,10 +57,13 @@ def _normalize_provider(provider: str | None = None) -> str:
     return str(provider or os.getenv("LLM_PROVIDER", "ollama")).strip().lower()
 
 
-def get_model_client(label: str | None = None, provider: str | None = None) -> Client:
+def get_model_client(label: str | None = None, provider: str | None = None, *, stage: str | None = None) -> Client:
     # Choose the model backend once and return the callable/client pair the rest of the code should use.
     # A blank provider uses LLM_PROVIDER.
-    provider = _normalize_provider(provider)
+    return replace(_build_client(label, _normalize_provider(provider)), stage=stage)
+
+
+def _build_client(label: str | None, provider: str) -> Client:
 
     if provider == "vertex":
         return Client(provider=provider, raw_client=_build_vertex_client(), label=label)

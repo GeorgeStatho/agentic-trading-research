@@ -41,7 +41,7 @@ class GeminiClientTests(unittest.TestCase):
         with use_settings(models=models), patch.object(sector_opportunist, "_sector_opportunist_client", None), \
                 patch.object(sector_opportunist, "get_model_client") as factory:
             sector_opportunist._get_default_client()
-        factory.assert_called_once_with("host", "gemini")
+        factory.assert_called_once_with("host", "gemini", stage="sector_opportunist")
 
 
 class GeminiRequestTests(unittest.TestCase):

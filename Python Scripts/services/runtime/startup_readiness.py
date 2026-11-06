@@ -145,7 +145,7 @@ class StartupReadinessChecker:
     def _check_llm(self) -> dict[str, Any]:
         model_name = resolve_startup_readiness_model()
         backend_label = resolve_startup_readiness_backend_label()
-        client = get_model_client(backend_label)
+        client = get_model_client(backend_label, stage="startup_readiness")
         response = ask_llm_model(
             client,
             model_name,

@@ -140,7 +140,7 @@ class ResearchPlanner:
         reported = {}
         try:
             if self._client is None:
-                self._client = get_model_client(self.host, self.provider)
+                self._client = get_model_client(self.host, self.provider, stage='research_planner')
             # One request: the orchestrator owns retries, and each one reserves its own call and cost.
             # Gemini 3+ thinks at LOW unless RESEARCH_PLANNER_THINKING_LEVEL says otherwise.
             text = ask_llm_model(self._client, self.model, system, user, temperature=0,

@@ -10,7 +10,7 @@ from db_common import get_connection
 from .bootstrap import initialize_database
 
 USAGE_COLUMNS = ("model", "served_model", "upstream_provider", "generation_id", "prompt_tokens",
-                 "completion_tokens", "reasoning_tokens", "cached_tokens", "cost_usd")
+                 "completion_tokens", "reasoning_tokens", "cached_tokens", "cost_usd", "stage")
 
 
 def record_llm_call_usage(usage: dict[str, Any], *, db_path: Path | str | None = None) -> None:

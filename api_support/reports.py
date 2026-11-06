@@ -46,3 +46,29 @@ def macro_calendar_payload(*, days: int, now: datetime | None = None) -> dict:
         ).fetchall()
         through = conn.execute("SELECT MAX(scheduled_at_utc) FROM macro_events").fetchone()[0]
     return {"days": days, "calendar_through": through, "events": [dict(event) for event in events]}
+
+
+USAGE_SUMS = ("COUNT(*) AS calls, ROUND(COALESCE(SUM(cost_usd), 0), 4) AS cost_usd, "
+              "COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, COALESCE(SUM(completion_tokens), 0) AS completion_tokens, "
+              "COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens")
+# Key expression and order for each breakdown; calls recorded before stages were show as "unknown".
+USAGE_BREAKDOWNS = {
+    "by_stage": ("COALESCE(stage, 'unknown')", "cost_usd DESC, calls DESC, key"),
+    "by_model": ("model", "cost_usd DESC, calls DESC, key"),
+    "by_provider": ("COALESCE(upstream_provider, 'unknown')", "cost_usd DESC, calls DESC, key"),
+    "by_day": ("substr(called_at, 1, 10)", "key DESC"),
+}
+
+
+def llm_usage_payload(*, days: int, now: datetime | None = None) -> dict:
+    """Hosted-model spend and tokens over the last `days`, in total and per stage, model, provider and day."""
+    now = now or datetime.now(timezone.utc)
+    since = (now - timedelta(days=days)).isoformat()
+    with closing(get_connection()) as conn:
+        totals = dict(conn.execute(f"SELECT {USAGE_SUMS} FROM llm_call_usage WHERE called_at >= ?", (since,)).fetchone())
+        week = conn.execute("SELECT ROUND(COALESCE(SUM(cost_usd), 0), 4) FROM llm_call_usage WHERE called_at >= ?",
+                            ((now - timedelta(days=7)).isoformat(),)).fetchone()[0]
+        breakdowns = {name: [dict(row) for row in conn.execute(
+            f"SELECT {key} AS key, {USAGE_SUMS} FROM llm_call_usage WHERE called_at >= ? GROUP BY 1 ORDER BY {order}",
+            (since,))] for name, (key, order) in USAGE_BREAKDOWNS.items()}
+    return {"days": days, "totals": totals, "last_7_days_cost_usd": week, **breakdowns}

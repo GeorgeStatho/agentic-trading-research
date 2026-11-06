@@ -223,7 +223,7 @@ def ask_chat_completions_model(
                   thoughts=getattr(getattr(usage, "completion_tokens_details", None), "reasoning_tokens", None),
                   total=getattr(usage, "total_tokens", None))
     if client.provider == "openai_compatible" and usage is not None:
-        store_call_usage(model, response, usage)
+        store_call_usage(model, response, usage, client.stage)
 
     content = choice.message.content if choice is not None else None
     # Before the empty check: reasoning can use the whole budget and leave no content.

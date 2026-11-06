@@ -43,7 +43,7 @@ def _stage_model() -> StageModel:
 def _get_default_client() -> Client:
     global _classifier_client
     if _classifier_client is None:
-        _classifier_client = get_model_client(_stage_model().ollama_host, _stage_model().provider)
+        _classifier_client = get_model_client(_stage_model().ollama_host, _stage_model().provider, stage="catalyst_classifier")
     return _classifier_client
 
 

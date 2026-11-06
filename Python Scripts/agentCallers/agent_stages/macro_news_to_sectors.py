@@ -60,7 +60,7 @@ MACRO_SECTOR_PAIRS_SCHEMA: dict[str, Any] = {
 def _get_default_client() -> Client:
     global _macro_news_classifier_client
     if _macro_news_classifier_client is None:
-        _macro_news_classifier_client = get_model_client(_stage_model().ollama_host, _stage_model().provider)
+        _macro_news_classifier_client = get_model_client(_stage_model().ollama_host, _stage_model().provider, stage="macro_news")
     return _macro_news_classifier_client
 
 

@@ -74,3 +74,21 @@ export type MacroCalendarPayload = { days: number; calendar_through: string | nu
 export function getMacroCalendar(): Promise<MacroCalendarPayload> {
   return fetchJson('/api/macro-calendar?days=7', 'the macro calendar')
 }
+
+export type UsageSums = { calls: number; cost_usd: number; prompt_tokens: number; completion_tokens: number; reasoning_tokens: number }
+export type UsageGroup = UsageSums & { key: string }
+
+export type LlmUsagePayload = {
+  days: number
+  totals: UsageSums
+  last_7_days_cost_usd: number
+  /** "unknown" holds calls recorded before each call carried its stage. */
+  by_stage: UsageGroup[]
+  by_model: UsageGroup[]
+  by_provider: UsageGroup[]
+  by_day: UsageGroup[]
+}
+
+export function getLlmUsage(): Promise<LlmUsagePayload> {
+  return fetchJson('/api/llm-usage?days=30', 'LLM usage')
+}

@@ -64,6 +64,11 @@ def _ensure_account_position_exposure(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE account_positions ADD COLUMN {column} REAL")
 
 
+def _ensure_llm_usage_stage(conn: sqlite3.Connection) -> None:
+    if "stage" not in table_columns(conn, "llm_call_usage"):
+        conn.execute("ALTER TABLE llm_call_usage ADD COLUMN stage TEXT")
+
+
 def _move_manager_decision_payloads(conn: sqlite3.Connection) -> None:
     """Move the manager JSON that older code kept on manager_decision_history into its own table."""
     lock_for_migration(conn)
@@ -205,6 +210,7 @@ def _setup_steps() -> tuple:
         migrate_compact_storage,
         move_payload_copies_out_of_ledger,
         lambda conn: backfill_decision_autopsy_ledger(conn=conn),
+        _ensure_llm_usage_stage,
     )
 
 

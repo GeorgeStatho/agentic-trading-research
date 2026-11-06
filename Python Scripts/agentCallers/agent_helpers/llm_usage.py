@@ -150,7 +150,7 @@ def _record_usage(
     response_diagnostic.update({key: value for key, value in counts.items() if isinstance(value, int)})
 
 
-def store_call_usage(model: str, response: Any, usage: Any) -> None:
+def store_call_usage(model: str, response: Any, usage: Any, stage: str | None = None) -> None:
     """Record which upstream provider answered a hosted call and what it cost; never fails the call."""
     record = {
         "model": model,
@@ -162,6 +162,7 @@ def store_call_usage(model: str, response: Any, usage: Any) -> None:
         "reasoning_tokens": getattr(getattr(usage, "completion_tokens_details", None), "reasoning_tokens", None),
         "cached_tokens": getattr(getattr(usage, "prompt_tokens_details", None), "cached_tokens", None),
         "cost_usd": getattr(usage, "cost", None),
+        "stage": stage,
     }
     LOGGER.info("%s answered %s: %s in, %s out (%s reasoning), cost $%s", record["upstream_provider"], model,
                 record["prompt_tokens"], record["completion_tokens"], record["reasoning_tokens"], record["cost_usd"])

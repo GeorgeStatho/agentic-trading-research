@@ -82,7 +82,7 @@ def _build_manager_evidence_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def get_default_client() -> Client:
     global _strategist_client
     if _strategist_client is None:
-        _strategist_client = get_model_client(_stage_model().ollama_host, _stage_model().provider)
+        _strategist_client = get_model_client(_stage_model().ollama_host, _stage_model().provider, stage="strategist")
     return _strategist_client
 
 

@@ -77,7 +77,7 @@ _manager_client: Client | None = None
 def get_default_client() -> Client:
     global _manager_client
     if _manager_client is None:
-        _manager_client = get_model_client(_stage_model().ollama_host, _stage_model().provider)
+        _manager_client = get_model_client(_stage_model().ollama_host, _stage_model().provider, stage="manager")
     return _manager_client
 
 

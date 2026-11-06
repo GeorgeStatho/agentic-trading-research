@@ -51,3 +51,12 @@ def register_report_routes(app) -> None:
             return jsonify(macro_calendar_payload(days=safe_int(request.args.get("days"), 7, maximum=31))), 200
         except Exception as exc:
             return internal_error("Failed to load the macro calendar.", exc)
+
+    @app.get("/api/llm-usage")
+    def llm_usage():
+        from api_support.reports import llm_usage_payload
+
+        try:
+            return jsonify(llm_usage_payload(days=safe_int(request.args.get("days"), 30, maximum=365))), 200
+        except Exception as exc:
+            return internal_error("Failed to load LLM usage.", exc)
