@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Callable, Iterator
@@ -68,6 +69,27 @@ def _extract_article_result_from_api_payload(payload: dict[str, Any], fallback_u
     )
 
 
+API_FETCH_WORKERS = 4
+
+
+def _fetch_via_api(url: str) -> tuple[ArticleExtractionResult | None, bool]:
+    """The API extractor's result for one URL, and whether the crawler should try it instead."""
+    fetcher = _get_article_content_fetcher(url)
+    if fetcher is None:
+        return None, True
+    try:
+        result = _extract_article_result_from_api_payload(fetcher(url), url)
+    except ArticleContentUnavailable:
+        LOGGER.info("No API content yet for %s; leaving it for the next run", url)
+        return None, False
+    except Exception as exc:
+        LOGGER.warning("API article extractor failed for %s: %s", url, exc)
+        return None, True
+    if result.success:
+        LOGGER.info("Fetched article via API extractor for %s", url)
+    return result, False
+
+
 class LiveFetcher:
     def source_pages(self, urls: list[str]) -> list[dict]:
         if not urls:
@@ -82,21 +104,13 @@ class LiveFetcher:
         fetched_articles: dict[str, ArticleExtractionResult] = {}
         fallback_urls: list[str] = []
 
-        for url in urls:
-            fetcher = _get_article_content_fetcher(url)
-            if fetcher is None:
-                fallback_urls.append(url)
-                continue
-
-            try:
-                payload = fetcher(url)
-                fetched_articles[url] = _extract_article_result_from_api_payload(payload, url)
-                if fetched_articles[url].success:
-                    LOGGER.info("Fetched article via API extractor for %s", url)
-            except ArticleContentUnavailable:
-                LOGGER.info("No API content yet for %s; leaving it for the next run", url)
-            except Exception as exc:
-                LOGGER.warning("API article extractor failed for %s: %s", url, exc)
+        # The API extractors are network-bound and independent; the crawler fallback already runs 4 workers.
+        with ThreadPoolExecutor(max_workers=API_FETCH_WORKERS) as pool:
+            outcomes = list(pool.map(_fetch_via_api, urls))
+        for url, (result, fall_back) in zip(urls, outcomes):
+            if result is not None:
+                fetched_articles[url] = result
+            if fall_back:
                 fallback_urls.append(url)
 
         if fallback_urls:
