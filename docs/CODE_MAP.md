@@ -322,6 +322,10 @@ This side of the repo looks older than the agent pipeline and is more prototype-
   - Dashboard payloads in `api_support/`: `dashboard.py` (KPIs, risk controls, rankings),
     `open_positions.py`, `company_decisions.py` (with the market regime), `decision_expectancy.py`
     and `bot_status.py` (loop health, also read by `/api/health/components`).
+  - `api_routes/reports.py` serves reports the CLI tools already compute: execution quality, exit and
+    decision attribution, the macro calendar and LLM spend. Their payloads are in `api_support/reports.py`.
+  - `?format=csv` on `/api/executed-trades`, `/api/decision-autopsies` and `/api/decision-expectancy` returns
+    the table as CSV through `request_utils.csv_response`.
 
 Dashboard control flow:
 
