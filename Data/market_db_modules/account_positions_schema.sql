@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS account_positions (
     source_account TEXT NOT NULL, source_order_id TEXT NOT NULL, source_option_symbol TEXT,
     underlying TEXT, decision TEXT, legs_json TEXT NOT NULL DEFAULT '[]',
     qty INTEGER, multiplier INTEGER, unit_cost REAL, budget REAL,
+    -- Exposure at entry: spot, this plan's delta per unit, and production's delta per contract.
+    entry_spot REAL, entry_delta REAL, source_delta REAL,
     status TEXT NOT NULL CHECK(status IN ('skipped','pending_entry','open','closing','closed','failed')),
     skip_reason TEXT, error TEXT,
     entry_order_id TEXT, entry_fill_price REAL, entry_at TEXT,

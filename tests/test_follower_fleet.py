@@ -108,6 +108,14 @@ class MirrorEntryTests(FleetTestCase):
         self.assertEqual(rows['spreads']['source_option_symbol'], PRODUCTION_SYMBOL)
         self.assertNotIn('production', rows)
 
+    def test_records_the_spot_and_each_side_delta_at_entry(self):
+        self.fleet.mirror_entry(candidate(), execution())
+        rows = self.rows()
+        self.assertEqual({row['entry_spot'] for row in rows.values()}, {100.0})
+        self.assertEqual({row['source_delta'] for row in rows.values()}, {0.30})
+        self.assertAlmostEqual(rows['spreads']['entry_delta'], 0.30 - 0.14)
+        self.assertEqual(rows['shares']['entry_delta'], 1.0)
+
     def test_ignores_entries_production_did_not_submit(self):
         self.fleet.mirror_entry(candidate(), execution(submitted=False))
         self.chain_fetcher.assert_not_called()

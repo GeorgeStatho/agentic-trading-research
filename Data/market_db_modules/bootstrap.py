@@ -46,6 +46,13 @@ def _ensure_thesis_validation_attempts(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE thesis_validation_runs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 1")
 
 
+def _ensure_account_position_exposure(conn: sqlite3.Connection) -> None:
+    columns = table_columns(conn, "account_positions")
+    for column in ("entry_spot", "entry_delta", "source_delta"):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE account_positions ADD COLUMN {column} REAL")
+
+
 def _move_manager_decision_payloads(conn: sqlite3.Connection) -> None:
     """Move the manager JSON that older code kept on manager_decision_history into its own table."""
     lock_for_migration(conn)
@@ -176,6 +183,7 @@ def _set_up(db_path: Path | str, schema_path: Path | str, fingerprint: str) -> N
         conn.executescript(Path(__file__).with_name('thesis_event_reviews_schema.sql').read_text(encoding='utf-8'))
         conn.executescript(Path(__file__).with_name('forward_evaluation_schema.sql').read_text(encoding='utf-8'))
         conn.executescript(Path(__file__).with_name('account_positions_schema.sql').read_text(encoding='utf-8'))
+        _ensure_account_position_exposure(conn)
         from .compact_storage import migrate_compact_storage
         migrate_compact_storage(conn)
         move_payload_copies_out_of_ledger(conn)

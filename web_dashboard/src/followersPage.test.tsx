@@ -22,9 +22,9 @@ function payload() {
     as_of: '2026-11-04T20:08:35+00:00',
     days: 0,
     accounts: {
-      production: { strategy: 'single_leg', role: 'primary', closed: 2, active: 1, wins: 0, avg_pnl_pct: -24.2376, pnl: -620, capital: 1935 },
+      production: { strategy: 'single_leg', role: 'primary', closed: 2, active: 1, wins: 0, avg_pnl_pct: -24.2376, pnl: -620, capital: 1935, avg_pnl_per_exposure_pct: -2.46 },
       itm: { strategy: 'itm_single', role: 'follower', closed: 1, active: 0, failed: 0, skipped: { no_itm_strike: 1 }, wins: 0, pnl: -45, capital: 1320, avg_pnl_pct: -3.4091, production_avg_pnl_pct: -4.2373, production_pnl_on_capital_pct: -4.2373 },
-      longer: { strategy: 'longer_dte', role: 'follower', closed: 2, active: 0, failed: 0, skipped: {}, wins: 0, pnl: -675, capital: 2260, avg_pnl_pct: -22.429, production_avg_pnl_pct: -24.2376, production_pnl_on_capital_pct: -32.0413 },
+      longer: { strategy: 'longer_dte', role: 'follower', closed: 2, active: 0, failed: 0, skipped: {}, wins: 0, pnl: -675, capital: 2260, avg_pnl_pct: -22.429, production_avg_pnl_pct: -24.2376, production_pnl_on_capital_pct: -32.0413, avg_pnl_per_exposure_pct: -1.93, production_avg_pnl_per_exposure_pct: -2.46 },
       shares: { strategy: 'shares', role: 'follower', closed: 1, active: 0, failed: 1, skipped: {}, wins: 0, pnl: -46.58, capital: 1218.48, avg_pnl_pct: -3.8228, production_avg_pnl_pct: -44.2379, production_pnl_on_capital_pct: -44.2379 },
       spreads: { strategy: 'debit_spread', role: 'follower', closed: 1, active: 0, failed: 0, skipped: { no_short_strike: 1 }, wins: 0, pnl: -31, capital: 378, avg_pnl_pct: -8.2011, production_avg_pnl_pct: -4.2373, production_pnl_on_capital_pct: -4.2373 },
     },
@@ -112,6 +112,20 @@ describe('Followers page', () => {
     expect(cell('production', 'Win rate')).toBe('0%')
     expect(cell('production', 'Active')).toBe('1')
     expect(cell('production', 'Failed')).toBe('—')
+  })
+
+  it('shows each account\'s return per dollar of stock exposure, blank where delta was not recorded', async () => {
+    render(<FollowerAccountsPage />)
+    const accounts = await loaded()
+
+    const headers = within(accounts).getAllByRole('columnheader').map((cell) => cell.textContent)
+    const cell = (account: string) => {
+      const row = within(accounts).getAllByRole('row').find((candidate) => candidate.textContent?.startsWith(account))!
+      return within(row).getAllByRole('cell')[headers.indexOf('Avg per $ exposure')].textContent
+    }
+    expect(cell('longer')).toBe('-1.9%')
+    expect(cell('production')).toBe('-2.5%')
+    expect(cell('shares')).toBe('—')
   })
 
   it('mutes accounts under the sample guardrail and lists recent follower trades', async () => {

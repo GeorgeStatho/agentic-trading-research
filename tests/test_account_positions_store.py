@@ -72,14 +72,14 @@ class AccountPositionsStoreTests(unittest.TestCase):
         self.assertEqual(store.active_positions(), [])
 
     def test_skips_and_failures_are_not_active(self):
-        record(LONGER, Skip('longer_dte', 'no_longer_bucket'))
+        record(LONGER, Skip('longer_dte', 'no_longer_expiry'))
         store.mark_failed(record(SHARES, SHORT_SHARES), error='insufficient buying power')
         self.assertEqual(store.active_positions(), [])
 
     def test_summary_is_keyed_by_account_and_compares_production_on_the_same_entries(self):
         close(record(SPREADS, SPREAD), entry=1.0, exit_=1.5)  # +$200 on $400 = +50%
         close(record(SHARES, SHORT_SHARES), entry=100.0, exit_=105.0)  # short: -$20 on $400 = -5%
-        record(LONGER, Skip('longer_dte', 'no_longer_bucket'))
+        record(LONGER, Skip('longer_dte', 'no_longer_expiry'))
         record(SPREADS, SPREAD, source_order_id='prod-open')  # production has no result for this entry yet
         with closing(get_connection()) as conn, conn:
             conn.executemany('''INSERT INTO manager_decision_history (decision_run_at, trade_execution_order_id, realized_pnl_pct)
@@ -96,7 +96,7 @@ class AccountPositionsStoreTests(unittest.TestCase):
         self.assertAlmostEqual(summary['shares']['pnl'], -20.0)
         self.assertAlmostEqual(summary['shares']['avg_pnl_pct'], -5.0)
         self.assertEqual(summary['shares']['wins'], 0)
-        self.assertEqual(summary['longer_dte']['skipped'], {'no_longer_bucket': 1})
+        self.assertEqual(summary['longer_dte']['skipped'], {'no_longer_expiry': 1})
         self.assertEqual(summary['longer_dte']['closed'], 0)
         # Production is summarised only over entries the followers mirrored.
         production = summary['production']

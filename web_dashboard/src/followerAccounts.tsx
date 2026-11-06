@@ -41,6 +41,8 @@ type AccountSummary = {
   avg_pnl_pct: number | null
   production_avg_pnl_pct?: number | null
   production_pnl_on_capital_pct?: number | null
+  avg_pnl_per_exposure_pct?: number | null
+  production_avg_pnl_per_exposure_pct?: number | null
 }
 
 type Trade = {
@@ -57,6 +59,7 @@ type Trade = {
   capital: number
   pnl_pct: number
   production_pnl_pct: number | null
+  pnl_per_exposure_pct?: number | null
 }
 
 type Payload = {
@@ -227,6 +230,7 @@ const ACCOUNT_COLUMNS: Column<Account>[] = [
   { key: 'avg', header: 'Avg trade', align: 'right', render: ([, entry]) => <span className={pnlClass(entry.avg_pnl_pct)}>{formatReturn(entry.avg_pnl_pct)}</span> },
   { key: 'production', header: 'Production avg', align: 'right', render: followerOnly((entry) => formatReturn(entry.production_avg_pnl_pct)) },
   { key: 'difference', header: 'Avg diff', align: 'right', render: ([, entry]) => pointsCell(differenceFromProduction(entry)) },
+  { key: 'exposure', header: 'Avg per $ exposure', align: 'right', render: ([, entry]) => <span className={pnlClass(entry.avg_pnl_per_exposure_pct)}>{formatReturn(entry.avg_pnl_per_exposure_pct)}</span> },
 ]
 
 const TRADE_COLUMNS: Column<Trade>[] = [
@@ -293,6 +297,7 @@ function FollowerView({ payload }: { payload: Payload }) {
       <DataTable label="Recent closed follower trades" columns={TRADE_COLUMNS} rows={recent} rowKey={(trade) => `${trade.account}-${trade.source_order_id}`} emptyMessage="No follower trade has closed in this window yet." />
     </Panel>
     <p className="text-[11px] text-dim">Both differences compare a follower with production on the same entries, in percentage points: Capital diff uses total P/L over total capital, so bigger positions count more; Avg diff averages trade returns, so every trade counts once.</p>
+    <p className="text-[11px] text-dim">Avg per $ exposure divides each trade's P/L by its stock exposure at entry (|delta| × units × spot), so a vehicle is not rewarded or punished just for being more or less leveraged. Blank for trades recorded before delta was stored.</p>
     <p className="text-[11px] text-dim">Partial production exits are not mirrored: a follower closes in full when production fully closes. Production's dollars are its realized return on the premium it spent, the same budget each follower received.</p>
   </>
 }

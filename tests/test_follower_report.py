@@ -103,5 +103,56 @@ class FollowerReportTests(unittest.TestCase):
         self.assertEqual((later['days'], later['accounts'], later['trades']), (10, {}, []))
 
 
+
+class ExposureTests(unittest.TestCase):
+    """P&L per dollar of underlying exposure at entry: |delta| x units x multiplier x spot.
+
+    Return on capital mostly measures leverage on short holds; this puts every vehicle on the same footing.
+    """
+
+    def setUp(self):
+        temporary_database(self)
+
+    def seed(self):
+        spread = OrderPlan(SPREAD.strategy, SPREAD.legs, qty=4, unit_cost=100.0, multiplier=100, delta=0.16)
+        shares = OrderPlan(SHORT_SHARES.strategy, SHORT_SHARES.legs, qty=4, unit_cost=100.0, multiplier=1, delta=-1.0)
+        for account, plan, entry, exit_ in ((SPREADS, spread, 1.0, 1.5), (SHARES, shares, 100.0, 105.0)):
+            row_id = store.record_plan(account, source_account='production', source_order_id='prod-1',
+                                       source_option_symbol='XYZ261113C00105000', underlying='XYZ', decision='call',
+                                       budget=400.0, plan=plan, spot=100.0, source_delta=0.30)
+            close(row_id, entry=entry, exit_=exit_, opened_at='2026-10-16T15:00:00+00:00',
+                  closed_at='2026-10-20T15:00:00+00:00')
+        production_decision('prod-1', pnl_pct=30.0, closed_at='2026-10-22T15:00:00+00:00')
+        with closing(get_connection()) as conn, conn:
+            conn.execute('''INSERT INTO option_trade_executions (order_id, option_symbol, paper, recorded_at, fill_price, filled_qty)
+                VALUES ('prod-1', 'XYZ261113C00105000', 1, '2026-10-16T15:00:00+00:00', 2.0, 1)''')
+
+    def test_each_trade_reports_pnl_per_dollar_of_exposure(self):
+        self.seed()
+        trades = {trade['account']: trade for trade in store.follower_report()['trades']}
+        # Spread: $200 on 0.16 x 4 x 100 x $100 = $6,400 of exposure.
+        self.assertAlmostEqual(trades['spreads']['pnl_per_exposure_pct'], 200 / 6400 * 100)
+        # Short shares: -$20 on 4 x $100.
+        self.assertAlmostEqual(trades['shares']['pnl_per_exposure_pct'], -5.0)
+        # Production: +30% on a $2.00 premium is $0.60 a share against 0.30 x $100 = $30 of exposure.
+        self.assertAlmostEqual(trades['production']['pnl_per_exposure_pct'], 2.0)
+
+    def test_summary_averages_it_and_compares_production_on_the_same_entries(self):
+        self.seed()
+        summary = store.account_summary()
+        self.assertAlmostEqual(summary['spreads']['avg_pnl_per_exposure_pct'], 3.125)
+        self.assertAlmostEqual(summary['spreads']['production_avg_pnl_per_exposure_pct'], 2.0)
+        self.assertAlmostEqual(summary['production']['avg_pnl_per_exposure_pct'], 2.0)
+
+    def test_rows_recorded_without_delta_report_none(self):
+        FollowerReportTests.seed(self)
+        trades = store.follower_report()['trades']
+        self.assertEqual({trade['pnl_per_exposure_pct'] for trade in trades}, {None})
+        summary = store.account_summary()
+        self.assertIsNone(summary['spreads']['avg_pnl_per_exposure_pct'])
+        self.assertIsNone(summary['spreads']['production_avg_pnl_per_exposure_pct'])
+        self.assertIsNone(summary['production']['avg_pnl_per_exposure_pct'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -2,6 +2,7 @@
 
 Fixture: underlying XYZ at spot 100 with hand-set quotes in tests/fixtures/follower_chain.json.
 Production bought the 2026-11-13 105 call (ask 1.55) or the 2026-11-13 95 put (ask 1.30).
+Fixture "today" is 2026-10-28, so 2026-11-13 is 16 DTE.
 """
 from __future__ import annotations
 
@@ -14,7 +15,8 @@ from services.trading.account_strategies import OrderLeg, OrderPlan, Skip, build
 from services.trading.trading_accounts import FollowerSettings
 
 CHAIN = json.loads((Path(__file__).parent / 'fixtures' / 'follower_chain.json').read_text())
-SETTINGS = FollowerSettings(spread_width_pct=0.05, itm_min_delta=0.70, force_exit_dte=1, max_hold_days=30)
+SETTINGS = FollowerSettings(spread_width_pct=0.05, itm_min_delta=0.70, force_exit_dte=1, max_hold_days=30,
+                            longer_dte_extra_days=14)
 
 
 def contract(symbol, chains=CHAIN):
@@ -105,34 +107,67 @@ class ItmSingleTests(unittest.TestCase):
 
 
 class LongerDteTests(unittest.TestCase):
-    """One DTE bucket further out, the same distance OTM as production's contract.
+    """The earliest expiry at least `longer_dte_extra_days` after production's, at production's strike.
 
-    Production's OTM distance is its strike against spot (105 call at spot 100 = 5% OTM), so the
-    target strike is spot x (1 + 5%); the nearest listed strike wins, ties going further OTM.
+    The nearest listed strike to production's wins, ties going further OTM. Production's own expiry
+    is never chosen: on Nov 4, 2026 the old bucket hop bought production's exact contract.
     """
 
-    def test_call_moves_one_bucket_out_at_the_same_otm_distance(self):
-        # Production is in 12_20, so use 20_30: earliest expiry 2026-11-20; 5% OTM of spot 100 = 105.
+    def test_call_moves_at_least_two_weeks_out_at_production_strike(self):
+        # Production expires 2026-11-13; the earliest expiry on or after 11-27 is 11-27 itself.
         plan = build('longer_dte', 'call', budget=1000.0)
-        self.assertEqual(plan.legs, (OrderLeg('XYZ261120C00105000', 'buy', 'option', 1, '2026-11-20'),))
-        self.assertAlmostEqual(plan.unit_cost, 225.0)
-        self.assertEqual(plan.qty, 4)
+        self.assertEqual(plan.legs, (OrderLeg('XYZ261127C00105000', 'buy', 'option', 1, '2026-11-27'),))
+        self.assertAlmostEqual(plan.unit_cost, 275.0)
+        self.assertEqual(plan.qty, 3)
 
-    def test_put_keeps_its_otm_distance_below_spot(self):
-        # The 95 put is 5% OTM, so the target is the 95 put in 20_30.
+    def test_put_moves_out_the_same_way(self):
         plan = build('longer_dte', 'put')
-        self.assertEqual(plan.legs[0].symbol, 'XYZ261120P00095000')
-        self.assertEqual(plan.qty, 2)  # floor(400 / 195)
+        self.assertEqual(plan.legs[0].symbol, 'XYZ261127P00095000')
+        self.assertEqual(plan.qty, 1)  # floor(400 / 235)
 
-    def test_contract_missing_from_chain_uses_its_dte_and_breaks_strike_ties_further_otm(self):
-        # 15 DTE puts it in 12_20. 102.5 is 2.5% OTM; the 20_30 strikes 100 and 105 are equally far
-        # from that target, so take the further-OTM 105.
-        production = {**PRODUCTION_CALL, 'symbol': 'XYZ261113C00102500', 'strike_price': 102.5, 'days_to_expiration': 15}
-        self.assertEqual(build('longer_dte', production=production).legs[0].symbol, 'XYZ261120C00105000')
+    def test_the_knob_sets_the_extension_and_strike_ties_go_further_otm(self):
+        # One week out is 11-20, where 100 and 105 are equally far from 102.5: take the further-OTM 105.
+        production = {**PRODUCTION_CALL, 'symbol': 'XYZ261113C00102500', 'strike_price': 102.5}
+        week = FollowerSettings(longer_dte_extra_days=7)
+        self.assertEqual(build('longer_dte', production=production, settings=week).legs[0].symbol,
+                         'XYZ261120C00105000')
 
-    def test_skips_when_production_is_already_in_the_last_bucket(self):
+    def test_never_buys_production_expiry_even_with_no_extension(self):
+        production = contract('XYZ261120C00105000')
+        same_day = FollowerSettings(longer_dte_extra_days=0)
+        self.assertEqual(build('longer_dte', production=production, settings=same_day).legs[0].symbol,
+                         'XYZ261127C00105000')
+
+    def test_skips_when_nothing_expires_far_enough_out(self):
         production = contract('XYZ270115C00105000')
-        self.assertEqual(build('longer_dte', production=production), Skip('longer_dte', 'no_longer_bucket'))
+        self.assertEqual(build('longer_dte', production=production), Skip('longer_dte', 'no_longer_expiry'))
+
+    def test_skips_without_production_expiry(self):
+        production = {**PRODUCTION_CALL, 'expiration_date': None}
+        self.assertEqual(build('longer_dte', production=production), Skip('longer_dte', 'no_production_expiry'))
+
+
+class DeltaTests(unittest.TestCase):
+    """Each plan's delta per unit (per contract, spread or share), so returns can be compared per unit of exposure."""
+
+    def test_single_option_carries_its_contract_delta(self):
+        self.assertAlmostEqual(build('itm_single', 'call').delta, 0.74)
+        self.assertAlmostEqual(build('longer_dte', 'put').delta, -0.33)
+
+    def test_spread_is_long_delta_minus_short_delta(self):
+        self.assertAlmostEqual(build('debit_spread', 'call').delta, 0.30 - 0.14)
+        self.assertAlmostEqual(build('debit_spread', 'put').delta, -0.27 - -0.10)
+
+    def test_shares_are_one_per_share_with_the_sign_of_the_side(self):
+        self.assertEqual(build('shares', 'call').delta, 1.0)
+        self.assertEqual(build('shares', 'put').delta, -1.0)
+
+    def test_missing_greek_leaves_delta_unknown(self):
+        chains = copy.deepcopy(CHAIN)
+        for item in chains['buckets']['12_20']:
+            if item['symbol'] == 'XYZ261113C00110000':
+                item['greeks']['delta'] = None
+        self.assertIsNone(build('debit_spread', chains=chains).delta)
 
 
 class SharesTests(unittest.TestCase):

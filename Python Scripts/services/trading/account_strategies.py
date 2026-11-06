@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, timedelta
 import math
 
 from services.core.numbers import safe_float
-from services.options.option_dte_buckets import OPTION_DTE_BUCKETS
 
 OPTION_MULTIPLIER = 100
 
@@ -26,6 +26,7 @@ class OrderPlan:
     qty: int
     unit_cost: float  # dollars per spread, contract or share at the quoted entry
     multiplier: int  # 100 for options, 1 for shares
+    delta: float | None = None  # per unit, signed; None when a leg's greek is missing
 
     @property
     def capital(self) -> float:
@@ -46,6 +47,17 @@ def _strike(contract):
     return safe_float(contract.get('strike_price'))
 
 
+def _delta(contract):
+    return safe_float((contract.get('greeks') or {}).get('delta'))
+
+
+def _expiry(contract):
+    try:
+        return date.fromisoformat(str(contract.get('expiration_date') or ''))
+    except ValueError:
+        return None
+
+
 def _units(budget, unit_cost):
     # Every follower takes at least one unit so expensive vehicles are still observed;
     # the report compares return on capital, not dollars.
@@ -59,7 +71,7 @@ def _option_leg(contract, side):
 def _buy_one_contract(strategy, contract, budget):
     unit_cost = _quote(contract, 'ask_price') * OPTION_MULTIPLIER
     return OrderPlan(strategy, (_option_leg(contract, 'buy'),), _units(budget, unit_cost), unit_cost,
-                     OPTION_MULTIPLIER)
+                     OPTION_MULTIPLIER, _delta(contract))
 
 
 def _debit_spread(decision, production, contracts, spot, budget, settings):
@@ -84,8 +96,10 @@ def _debit_spread(decision, production, contracts, spot, budget, settings):
     unit_cost = (long_ask - short_bid) * OPTION_MULTIPLIER
     if unit_cost <= 0:
         return Skip('debit_spread', 'invalid_net_debit')
+    long_delta, short_delta = _delta(long), _delta(short)
+    delta = long_delta - short_delta if long_delta is not None and short_delta is not None else None
     return OrderPlan('debit_spread', (_option_leg(long, 'buy'), _option_leg(short, 'sell')),
-                     _units(budget, unit_cost), unit_cost, OPTION_MULTIPLIER)
+                     _units(budget, unit_cost), unit_cost, OPTION_MULTIPLIER, delta)
 
 
 def _itm_single(decision, production, contracts, spot, budget, settings):
@@ -102,42 +116,29 @@ def _itm_single(decision, production, contracts, spot, budget, settings):
     return _buy_one_contract('itm_single', min(in_the_money, key=lambda c: abs(_strike(c) - spot)), budget)
 
 
-def _production_bucket(production, chains):
-    for key, members in chains['buckets'].items():
-        if any(c.get('symbol') == production.get('symbol') for c in members):
-            return key
-    days = safe_float(production.get('days_to_expiration'))
-    for bucket in OPTION_DTE_BUCKETS:
-        if days is not None and bucket.min_days <= days <= bucket.max_days:
-            return bucket.key
-    return None
-
-
-def _longer_dte(decision, production, chains, budget):
-    keys = [bucket.key for bucket in OPTION_DTE_BUCKETS]
-    current = _production_bucket(production, chains)
-    if current not in keys:
-        return Skip('longer_dte', 'unknown_bucket')
-    if keys.index(current) + 1 >= len(keys):
-        return Skip('longer_dte', 'no_longer_bucket')
-    members = [c for c in chains['buckets'].get(keys[keys.index(current) + 1]) or ()
-               if c.get('contract_type') == decision and _strike(c) is not None
-               and (_quote(c, 'ask_price') or 0) > 0]
+def _longer_dte(decision, production, contracts, budget, settings):
+    production_expiry = _expiry(production)
+    if production_expiry is None:
+        return Skip('longer_dte', 'no_production_expiry')
+    # Strictly later even with no extension: production's own expiry would repeat its contract.
+    earliest = production_expiry + timedelta(days=max(1, settings.longer_dte_extra_days))
+    members = [c for c in contracts.values() if c.get('contract_type') == decision and _strike(c) is not None
+               and (_quote(c, 'ask_price') or 0) > 0 and (_expiry(c) or date.min) >= earliest]
     if not members:
-        return Skip('longer_dte', 'no_contract_in_bucket')
-    expiry = min(c['expiration_date'] for c in members)
-    # Keep production's distance out of the money. Both are measured against the same spot,
-    # so spot x (strike / spot) is production's strike itself (computing it adds float error).
+        return Skip('longer_dte', 'no_longer_expiry')
+    expiry = min(_expiry(c) for c in members)
+    # Production's strike, the nearest listed one winning and ties going further out of the money.
     target = _strike(production)
     further_otm = 1 if decision == 'call' else -1
-    chosen = min((c for c in members if c['expiration_date'] == expiry),
+    chosen = min((c for c in members if _expiry(c) == expiry),
                  key=lambda c: (abs(_strike(c) - target), -further_otm * _strike(c)))
     return _buy_one_contract('longer_dte', chosen, budget)
 
 
 def _shares(decision, underlying, spot, budget):
     side = 'buy' if decision == 'call' else 'sell'
-    return OrderPlan('shares', (OrderLeg(underlying, side, 'stock'),), _units(budget, spot), spot, 1)
+    return OrderPlan('shares', (OrderLeg(underlying, side, 'stock'),), _units(budget, spot), spot, 1,
+                     1.0 if side == 'buy' else -1.0)
 
 
 OPTION_STRATEGIES = ('debit_spread', 'itm_single', 'longer_dte')
@@ -157,9 +158,9 @@ def build_order(strategy, *, decision, underlying, production_contract, chains, 
         return _shares(decision, underlying, spot, budget)
     if not chains or not chains.get('available'):
         return Skip(strategy, 'chain_unavailable')
-    if strategy == 'longer_dte':
-        return _longer_dte(decision, production_contract, chains, budget)
     contracts = {c['symbol']: c for members in chains['buckets'].values() for c in members}
+    if strategy == 'longer_dte':
+        return _longer_dte(decision, production_contract, contracts, budget, settings)
     if strategy == 'debit_spread':
         return _debit_spread(decision, production_contract, contracts, spot, budget, settings)
     return _itm_single(decision, production_contract, contracts, spot, budget, settings)
