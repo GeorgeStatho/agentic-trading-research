@@ -129,6 +129,16 @@ def _macro_calendar_payload(test: unittest.TestCase) -> dict:
     return macro_calendar_payload(days=7, now=now)
 
 
+def _llm_usage_payload(test: unittest.TestCase) -> dict:
+    from api_support.reports import llm_usage_payload
+    from market_db_modules.llm_usage_store import record_llm_call_usage
+
+    temporary_database(test)
+    record_llm_call_usage({"model": "deepseek", "upstream_provider": "Wafer", "prompt_tokens": 10,
+                           "completion_tokens": 2, "reasoning_tokens": 1, "cost_usd": 0.01, "stage": "manager"})
+    return llm_usage_payload(days=30)
+
+
 class ApiContractTests(unittest.TestCase):
     def assert_contract(self, name: str, payload: dict) -> None:
         paths = sorted(key_paths(payload))
@@ -153,6 +163,9 @@ class ApiContractTests(unittest.TestCase):
 
     def test_macro_calendar(self):
         self.assert_contract("macro-calendar", _macro_calendar_payload(self))
+
+    def test_llm_usage(self):
+        self.assert_contract("llm-usage", _llm_usage_payload(self))
 
     def test_execution_quality(self):
         self.assert_contract("execution-quality", _execution_quality_payload(self))

@@ -118,5 +118,34 @@ class MacroCalendarTests(ReportRouteTestCase):
         self.assertEqual((payload["days"], payload["events"], payload["calendar_through"]), (7, [], None))
 
 
+class LlmUsageTests(ReportRouteTestCase):
+    def test_spend_is_totalled_and_split_by_day_model_provider_and_stage(self):
+        from api_support.reports import llm_usage_payload
+
+        now = datetime(2026, 11, 6, 18, tzinfo=timezone.utc)
+        self.execute(
+            """INSERT INTO llm_call_usage (called_at, model, upstream_provider, prompt_tokens, completion_tokens,
+               reasoning_tokens, cost_usd, stage) VALUES (?,?,?,?,?,?,?,?)""",
+            ("2026-11-06T10:00:00+00:00", "deepseek", "Wafer", 100, 10, 5, 0.25, "manager"),
+            ("2026-11-06T11:00:00+00:00", "deepseek", "Morph", 100, 10, 5, 0.50, "strategist"),
+            ("2026-11-05T11:00:00+00:00", "deepseek", "Wafer", 100, 10, 5, 0.25, None),
+            ("2026-09-01T11:00:00+00:00", "deepseek", "Wafer", 100, 10, 5, 9.00, "manager"),
+        )
+        payload = llm_usage_payload(days=30, now=now)
+        self.assertEqual(payload["totals"], {"calls": 3, "cost_usd": 1.0, "prompt_tokens": 300,
+                                             "completion_tokens": 30, "reasoning_tokens": 15})
+        self.assertEqual(payload["last_7_days_cost_usd"], 1.0)
+        self.assertEqual([(row["key"], row["calls"], row["cost_usd"]) for row in payload["by_stage"]],
+                         [("strategist", 1, 0.5), ("manager", 1, 0.25), ("unknown", 1, 0.25)])
+        self.assertEqual([(row["key"], row["cost_usd"]) for row in payload["by_day"]],
+                         [("2026-11-06", 0.75), ("2026-11-05", 0.25)])
+        self.assertEqual([row["key"] for row in payload["by_provider"]], ["Wafer", "Morph"])
+        self.assertEqual([row["key"] for row in payload["by_model"]], ["deepseek"])
+
+    def test_route_answers_an_empty_table(self):
+        payload = self.client.get("/api/llm-usage?days=30").get_json()
+        self.assertEqual((payload["days"], payload["totals"]["calls"], payload["by_stage"]), (30, 0, []))
+
+
 if __name__ == "__main__":
     unittest.main()

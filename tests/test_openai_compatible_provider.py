@@ -1,5 +1,6 @@
 """Hosted OpenAI-compatible provider: request settings, usage records and error handling, with no network."""
 from contextlib import closing
+from dataclasses import replace
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -9,6 +10,7 @@ from agent_helpers.llm_client import Client, ask_llm_model
 from db_common import get_connection
 from market_db_modules.llm_usage_store import record_llm_call_usage
 from services.core.settings import OpenAICompatibleSettings, use_settings
+from tests import ROOT_DIR
 from tests.db_fixtures import temporary_database
 
 SCHEMA = {"type": "object", "properties": {"decision": {"type": "string"}}}
@@ -106,7 +108,14 @@ class UsageRecordTests(unittest.TestCase):
         self.assertEqual(record.call_args.args[0], {
             "model": "deepseek/deepseek-v4.1-flash-1017", "served_model": "deepseek/deepseek-v4.1-flash-1017",
             "upstream_provider": "Wafer", "generation_id": "gen-1", "prompt_tokens": 70000,
-            "completion_tokens": 9000, "reasoning_tokens": 6000, "cached_tokens": 1200, "cost_usd": 0.0136})
+            "completion_tokens": 9000, "reasoning_tokens": 6000, "cached_tokens": 1200, "cost_usd": 0.0136,
+            "stage": None})
+
+    def test_records_the_stage_that_asked(self):
+        client = replace(client_for("openai_compatible", openrouter_completion()), stage="manager")
+        with patch.object(llm_usage, "record_llm_call_usage") as record:
+            ask_llm_model(client, "model", "system", "user", response_schema=SCHEMA)
+        self.assertEqual(record.call_args.args[0]["stage"], "manager")
 
     def test_a_failed_record_does_not_fail_the_call(self):
         client = client_for("openai_compatible", openrouter_completion())
@@ -116,11 +125,44 @@ class UsageRecordTests(unittest.TestCase):
 
     def test_usage_is_stored(self):
         db = temporary_database(self)
-        record_llm_call_usage({"model": "m", "upstream_provider": "Wafer", "prompt_tokens": 10, "cost_usd": 0.5},
-                              db_path=db)
+        record_llm_call_usage({"model": "m", "upstream_provider": "Wafer", "prompt_tokens": 10, "cost_usd": 0.5,
+                               "stage": "strategist"}, db_path=db)
         with closing(get_connection(db)) as conn:
-            row = conn.execute("SELECT model, upstream_provider, prompt_tokens, cost_usd FROM llm_call_usage").fetchone()
-        self.assertEqual(tuple(row), ("m", "Wafer", 10, 0.5))
+            row = conn.execute("SELECT model, upstream_provider, prompt_tokens, cost_usd, stage FROM llm_call_usage").fetchone()
+        self.assertEqual(tuple(row), ("m", "Wafer", 10, 0.5, "strategist"))
+
+    def test_every_model_client_is_built_with_its_stage(self):
+        # A client without a stage records its spend as "unknown" on System › Health.
+        import ast
+
+        missing = []
+        for path in (ROOT_DIR / "Python Scripts").rglob("*.py"):
+            if path.name == "llm_client.py":
+                continue
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "get_model_client"
+                        and not any(keyword.arg == "stage" for keyword in node.keywords)):
+                    missing.append(f"{path.relative_to(ROOT_DIR)}:{node.lineno}")
+        self.assertEqual(missing, [])
+
+    def test_an_older_usage_table_gains_the_stage_column_and_keeps_its_rows(self):
+        import sqlite3
+        import tempfile
+        from pathlib import Path
+        from market_db_modules.bootstrap import initialize_database
+
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder) / "old.db"
+            with closing(sqlite3.connect(db)) as conn, conn:
+                conn.execute("""CREATE TABLE llm_call_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, called_at TEXT NOT NULL,
+                    model TEXT NOT NULL, served_model TEXT, upstream_provider TEXT, generation_id TEXT,
+                    prompt_tokens INTEGER, completion_tokens INTEGER, reasoning_tokens INTEGER,
+                    cached_tokens INTEGER, cost_usd REAL)""")
+                conn.execute("INSERT INTO llm_call_usage (called_at, model, cost_usd) VALUES ('2026-11-01', 'm', 0.25)")
+            initialize_database(db_path=db)
+            with closing(get_connection(db)) as conn:
+                row = conn.execute("SELECT model, cost_usd, stage FROM llm_call_usage").fetchone()
+        self.assertEqual(tuple(row), ("m", 0.25, None))
 
 
 if __name__ == "__main__":
