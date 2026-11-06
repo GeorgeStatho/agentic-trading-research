@@ -20,3 +20,25 @@ def register_report_routes(app) -> None:
             return jsonify({"days": days, "rows": execution_telemetry_report(start=start)}), 200
         except Exception as exc:
             return internal_error("Failed to load execution quality.", exc)
+
+    @app.get("/api/exit-attribution")
+    def exit_attribution():
+        from market_db_modules.position_outcomes import exit_attribution_report
+
+        try:
+            return jsonify({"rows": exit_attribution_report()}), 200
+        except Exception as exc:
+            return internal_error("Failed to load exit attribution.", exc)
+
+    @app.get("/api/decision-attribution")
+    def decision_attribution():
+        from api_support.reports import ATTRIBUTION_HORIZONS, decision_attribution_payload
+
+        days = safe_int(request.args.get("days"), 90, minimum=1, maximum=730)
+        horizon = safe_int(request.args.get("horizon"), 5)
+        if horizon not in ATTRIBUTION_HORIZONS:
+            return jsonify({"error": f"horizon must be one of {ATTRIBUTION_HORIZONS}."}), 400
+        try:
+            return jsonify(decision_attribution_payload(days=days, horizon=horizon)), 200
+        except Exception as exc:
+            return internal_error("Failed to load decision attribution.", exc)

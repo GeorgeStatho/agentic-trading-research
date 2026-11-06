@@ -5,6 +5,7 @@ import DashboardHome from './dashboardHome.tsx'
 // and the other pages' code stay out of the initial bundle.
 /* eslint-disable react-refresh/only-export-components -- hot reload of this table is not needed */
 const AnalyzedCompanyNewsPage = lazy(() => import('./analyzedCompanyNews.tsx'))
+const AttributionPage = lazy(() => import('./attribution.tsx'))
 const BacktestPage = lazy(() => import('./backtest.tsx'))
 const DecisionExpectancyPage = lazy(() => import('./decisionExpectancy.tsx'))
 const DecisionsPage = lazy(() => import('./decisionsPage.tsx'))
@@ -68,6 +69,7 @@ export const ROUTES: readonly Route[] = [
     label: 'Research',
     tabs: [
       { slug: 'expectancy', label: 'Expectancy', render: () => <DecisionExpectancyPage /> },
+      { slug: 'attribution', label: 'Attribution', render: () => <AttributionPage /> },
       { slug: 'news-lag', label: 'News lag', render: () => <NewsLagPage /> },
       { slug: 'backtests', label: 'Backtests', render: () => <BacktestPage /> },
       { slug: 'followers', label: 'Followers', render: () => <FollowerAccountsPage /> },

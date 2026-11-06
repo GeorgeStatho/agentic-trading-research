@@ -21,7 +21,7 @@ afterEach(() => {
 })
 
 function rowFor(table: HTMLElement, text: string): string {
-  return within(table).getAllByRole('row').find((row) => row.textContent?.includes(text))?.textContent ?? ''
+  return within(table).getAllByRole('row').find((row) => row.textContent?.toLowerCase().includes(text))?.textContent ?? ''
 }
 
 describe('Research › Attribution', () => {
