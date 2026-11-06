@@ -2,11 +2,12 @@
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from services.research.research_contract import number, utc
+from services.research.research_contract import utc
+from services.core.numbers import finite_float
 
 
 def valid_quote(quote):
-    bid, ask = number(quote.get('bid_price')), number(quote.get('ask_price'))
+    bid, ask = finite_float(quote.get('bid_price')), finite_float(quote.get('ask_price'))
     return bid is not None and ask is not None and 0 < ask and 0 <= bid <= ask
 
 
@@ -38,7 +39,7 @@ def simulate_option(contract, quotes, *, cutoff, as_of, policy, market_sessions=
         return {**base, 'status': 'missing_entry_quote'}
     entry = entries[-1]
     quotes = [q for q in quotes if q['provider'] == entry['provider']]
-    price = number(entry['ask_price'])
+    price = finite_float(entry['ask_price'])
     capital = price * 100 + policy.fee_per_contract_side
     base.update(hypothetical_entry={'at': cutoff, 'quote_at': entry['quote_at'], 'price': price,
                                   'quote_id': entry.get('id'), 'provider': entry['provider']}, capital=capital)
@@ -57,7 +58,7 @@ def simulate_option(contract, quotes, *, cutoff, as_of, policy, market_sessions=
             daily[at.astimezone(NEW_YORK).date()] = quote
     peak, previous, previous_date = price, start, start.astimezone(NEW_YORK).date()
     for local_date, quote in daily.items():
-        at, bid = utc(quote['quote_at']), number(quote['bid_price'])
+        at, bid = utc(quote['quote_at']), finite_float(quote['bid_price'])
         # A day's last known quote is only that day's mark once the session can no longer
         # move it. Mid-session, acting on it would freeze an outcome the rest of the day
         # could still erase, so wait rather than finalize. Later days are open too.

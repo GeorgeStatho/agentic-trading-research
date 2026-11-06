@@ -14,6 +14,7 @@ from market_db_modules.bootstrap import initialize_database as initialize_market
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from services.core.gemini_models import default_vertex_model
 from services.trading.order_values import normalize_order_side, normalize_order_status
+from services.core.time_utils import parse_timestamp
 
 
 PROMPT_VERSION = "exposure-map-v1"
@@ -130,17 +131,6 @@ def _parse_expiration(value: Any) -> date | None:
             return datetime.strptime(text[:10], "%Y-%m-%d").date()
         except ValueError:
             return None
-
-
-def _parse_timestamp(value: Any) -> datetime | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
 
 
 def _number(value: Any, fallback: float = 0.0) -> float:
@@ -474,7 +464,7 @@ def _load_historical_live_executions(conn) -> list[dict[str, Any]]:
         underlying_symbol = str(item.get("underlying_symbol") or "").strip().upper()
         if not option_symbol or not underlying_symbol:
             continue
-        execution_time = _parse_timestamp(item.get("submitted_at")) or _parse_timestamp(item.get("recorded_at"))
+        execution_time = parse_timestamp(item.get("submitted_at")) or parse_timestamp(item.get("recorded_at"))
         expiration = _parse_expiration(item.get("expiration_date"))
         dte_at_execution = max(0, (expiration - execution_time.date()).days) if expiration and execution_time else None
         snapshot = _safe_json_loads(item.get("autopsy_snapshot_json"))

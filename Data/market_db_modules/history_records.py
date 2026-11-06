@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from db_common import clean_text, coerce_float, get_connection, json_text
+from db_common import clean_text, get_connection, json_text
 from .autopsy import SNAPSHOT_VERSION
 from .bootstrap import initialize_database
 from .shared import coerce_int, find_company_row_by_symbol, normalize_bool_to_int, normalize_timestamp
@@ -14,6 +14,7 @@ from .backtesting import ensure_decision_evidence_snapshot
 from .position_outcomes import close_position_outcome
 from .shadow_gates import record_decision_gate_verdicts
 from catalyst_schema import stamp_candidate_catalyst
+from services.core.numbers import safe_float
 
 
 def record_manager_decision_history(
@@ -59,12 +60,12 @@ def record_manager_decision_history(
         clean_text(history.get("selected_option_id")),
         clean_text(history.get("selected_option_symbol")),
         clean_text(history.get("selected_expiration_date")),
-        coerce_float(history.get("selected_strike_price")),
+        safe_float(history.get("selected_strike_price")),
         clean_text(history.get("selected_option_source")),
         normalize_bool_to_int(history.get("trade_executed")),
         clean_text(history.get("trade_execution_order_id")),
         coerce_int(history.get("trade_execution_record_id")),
-        coerce_float(history.get("latest_trade_pnl_pct")),
+        safe_float(history.get("latest_trade_pnl_pct")),
         (
             normalize_timestamp(history.get("latest_trade_pnl_updated_at"))
             if history.get("latest_trade_pnl_updated_at") not in (None, "")
@@ -77,7 +78,7 @@ def record_manager_decision_history(
         ),
         clean_text(history.get("resolved_outcome_label")),
         clean_text(history.get("outcome_status")),
-        coerce_float(history.get("realized_pnl_pct")),
+        safe_float(history.get("realized_pnl_pct")),
         (
             normalize_timestamp(history.get("closed_at"))
             if history.get("closed_at") not in (None, "")
@@ -152,10 +153,10 @@ def record_manager_decision_history(
         "selected_option_id": clean_text(history.get("selected_option_id")),
         "selected_option_symbol": clean_text(history.get("selected_option_symbol")),
         "selected_expiration_date": clean_text(history.get("selected_expiration_date")),
-        "selected_strike_price": coerce_float(history.get("selected_strike_price")),
+        "selected_strike_price": safe_float(history.get("selected_strike_price")),
         "selected_option_source": clean_text(history.get("selected_option_source")),
         "outcome_status": clean_text(history.get("outcome_status")),
-        "realized_pnl_pct": coerce_float(history.get("realized_pnl_pct")),
+        "realized_pnl_pct": safe_float(history.get("realized_pnl_pct")),
         "closed_at": clean_text(history.get("closed_at")),
     }
     conn.execute(
@@ -223,7 +224,7 @@ def update_manager_decision_latest_pnl(
         WHERE id = ? AND COALESCE(outcome_status, '') != 'closed'
         """,
         (
-            coerce_float(latest_trade_pnl_pct),
+            safe_float(latest_trade_pnl_pct),
             updated_at,
             normalize_timestamp(pnl_expires_at) if pnl_expires_at not in (None, "") else None,
             clean_text(resolved_outcome_label),
@@ -249,7 +250,7 @@ def record_manager_decision_closed_outcome(
 ) -> bool:
     """Persist a closed outcome only after the broker confirms the final exit."""
     normalized_id = coerce_int(decision_history_id)
-    normalized_pnl = coerce_float(realized_pnl_pct)
+    normalized_pnl = safe_float(realized_pnl_pct)
     if normalized_id is None or normalized_pnl is None or not broker_confirmed:
         return False
     try:

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from catalyst_models import timestamp
 from db_common import get_connection
 from services.gates.contract_policy import ContractPolicy
-from services.runtime.execution_telemetry import number
+from services.core.numbers import finite_float
 
 EXIT_PRIORITY = ('stop_loss', 'thesis_invalidated', 'CATALYST_EXPIRED', 'PRE_EARNINGS', 'near_expiration',
                  'VOLATILITY_REGIME_CHANGE', 'trailing_profit_stop', 'momentum_history_failed',
@@ -33,11 +33,11 @@ def evaluate_position_rungs(inputs, *, as_of=None, policy=None):
     now = as_of or datetime.now(timezone.utc)
     opened = timestamp(inputs.get('opened_at'))
     age = (now - opened).total_seconds() / 86400 if opened and opened <= now else None
-    horizon = number(inputs.get('expected_horizon_days'))
-    sessions, resolution = number(inputs.get('sessions_held')), number(inputs.get('p75_resolution_sessions'))
+    horizon = finite_float(inputs.get('expected_horizon_days'))
+    sessions, resolution = finite_float(inputs.get('sessions_held')), finite_float(inputs.get('p75_resolution_sessions'))
     use_sessions = resolution is not None and resolution > 0 and sessions is not None
     expired = sessions > resolution if use_sessions else age > horizon if age is not None and horizon and horizon > 0 else None
-    entry_iv, current_iv, entry_stock, current_stock = [number(inputs.get(key)) for key in
+    entry_iv, current_iv, entry_stock, current_stock = [finite_float(inputs.get(key)) for key in
         ('entry_iv', 'current_iv', 'entry_underlying_price', 'current_underlying_price')]
     iv_at, stock_at = timestamp(inputs.get('iv_at')), timestamp(inputs.get('underlying_at'))
     fresh = all(at and 0 <= (now - at).total_seconds() <= 60 for at in (iv_at, stock_at))

@@ -5,6 +5,7 @@ import statistics
 from typing import Any
 
 from agent_contracts import HistoricalPricePoint, HistoricalPriceSnapshot, TrendQualityPayload
+from services.core.numbers import safe_int
 
 try:
     import yfinance as yf
@@ -42,15 +43,6 @@ def _safe_float(value: Any) -> float | None:
     if math.isnan(parsed):
         return None
     return parsed
-
-
-def _safe_int(value: Any) -> int | None:
-    try:
-        if value in (None, ""):
-            return None
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _serialize_timestamp(value: Any) -> str:
@@ -133,7 +125,7 @@ def _summarize_history_frame(
                 "high": _safe_float(row.get("High")),
                 "low": _safe_float(row.get("Low")),
                 "close": _safe_float(row.get("Close")),
-                "volume": _safe_int(row.get("Volume")),
+                "volume": safe_int(row.get("Volume")),
             }
         )
 
@@ -149,7 +141,7 @@ def _summarize_history_frame(
     total_volume = None
     if "Volume" in frame:
         raw_volume = frame["Volume"].fillna(0).sum()
-        total_volume = _safe_int(raw_volume)
+        total_volume = safe_int(raw_volume)
 
     return {
         "available": True,

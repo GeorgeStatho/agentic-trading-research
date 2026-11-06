@@ -117,6 +117,24 @@ Use these instead of parsing `os.getenv` by hand so every reader agrees on what 
 
 - `safe_float(value)`
   Best-effort float conversion (`None` for blanks and unparseable values), used throughout trading and market-data code.
+- `finite_float(value)`
+  Like `safe_float`, but NaN and infinity are `None` too.
+- `safe_int(value)`
+  `int()` conversion, `None` for blanks and unparseable values (`"1.5"` is `None`).
+
+### `core/time_utils.py`
+
+- `utc_now()` / `utc_now_iso()`
+  The current time as an aware UTC datetime, or as ISO text ending in `+00:00`.
+- `parse_timestamp(value)`
+  ISO text (a trailing `Z` allowed) to an aware datetime that keeps its offset; naive text is UTC,
+  anything unparseable is `None`.
+- `parse_utc_timestamp(value)`
+  The same, converted to UTC.
+
+Import these rather than writing a local copy; `tests/test_core_helpers.py` fails if a removed copy
+comes back. `catalyst_models.timestamp` is the one other parser, for callers that must not strip
+padding.
 
 ### `options/option_symbols.py`
 

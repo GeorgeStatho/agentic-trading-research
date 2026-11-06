@@ -192,15 +192,6 @@ def json_text(value: Any) -> str | None:
     return json.dumps(value, sort_keys=True)
 
 
-def coerce_float(value: Any) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def clean_text(value: Any) -> str | None:
     if value is None:
         return None

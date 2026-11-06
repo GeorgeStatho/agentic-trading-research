@@ -3,7 +3,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
-import math
+from services.core.numbers import finite_float
 
 
 def canonical(value):
@@ -35,14 +35,6 @@ def assert_information_cutoff(timestamps, information_cutoff_time):
     return cutoff.isoformat()
 
 
-def number(value):
-    try:
-        result = float(value)
-        return result if math.isfinite(result) else None
-    except (TypeError, ValueError):
-        return None
-
-
 @dataclass(frozen=True)
 class ResearchPolicy:
     version: str = 'counterfactual-daily-v1'
@@ -60,7 +52,7 @@ class ResearchPolicy:
     def __post_init__(self):
         values = asdict(self)
         for key, value in values.items():
-            if key != 'version' and (number(value) is None or value < 0):
+            if key != 'version' and (finite_float(value) is None or value < 0):
                 raise ValueError('Research policy values must be finite and nonnegative')
         if (self.holding_days <= 0 or self.entry_quote_age_seconds <= 0
                 or self.maximum_mark_gap_days <= 0 or not 100 <= self.minimum_promotion_samples <= 200
@@ -83,7 +75,7 @@ def strategy_decisions(features, policy):
     sentiment = direction(features.get('sentiment'))
     strategist = direction(features.get('strategist_direction'))
     manager = direction(features.get('manager_direction'))
-    volume, expectancy = number(features.get('relative_volume')), number(features.get('historical_expectancy'))
+    volume, expectancy = finite_float(features.get('relative_volume')), finite_float(features.get('historical_expectancy'))
     trend = direction(features.get('trend'))
     taxonomy = direction(features.get('catalyst_direction'))
     production_allowed = features.get('production_allowed')

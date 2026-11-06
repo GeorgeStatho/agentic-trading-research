@@ -1,7 +1,6 @@
 """Resolve linked decisions from complete broker round trips, never position marks."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 from market_db_modules.history_records import (
@@ -9,17 +8,10 @@ from market_db_modules.history_records import (
     record_manager_decision_closed_outcome,
 )
 from services.trading.order_values import normalize_order_summary
+from catalyst_models import timestamp as parse_timestamp
 
 
 TERMINAL_STATUSES = {"filled", "canceled", "expired", "replaced", "rejected"}
-
-
-def parse_timestamp(value):
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc).astimezone(timezone.utc)
-    except (ValueError, TypeError):
-        return None
 
 
 def closed_round_trip(orders: list[dict], entry_order_id: str) -> dict | None:

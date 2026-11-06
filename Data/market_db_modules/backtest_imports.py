@@ -7,9 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from db_common import clean_text, coerce_float, get_connection, json_text
+from db_common import clean_text, get_connection, json_text
 
 from .bootstrap import initialize_database
+from services.core.numbers import safe_float
 
 
 _HEADER_ALIASES = {
@@ -76,8 +77,8 @@ def _field_map(fieldnames: Iterable[str] | None) -> dict[str, str]:
 def _quote_from_row(row: dict[str, str], field_map: dict[str, str]) -> tuple[dict[str, Any] | None, str | None]:
     option_symbol = _normalized_option_symbol(row.get(field_map["option_symbol"]))
     quote_at = _normalized_timestamp(row.get(field_map["quote_at"]))
-    bid_price = coerce_float(row.get(field_map["bid_price"]))
-    ask_price = coerce_float(row.get(field_map["ask_price"]))
+    bid_price = safe_float(row.get(field_map["bid_price"]))
+    ask_price = safe_float(row.get(field_map["ask_price"]))
     if option_symbol is None:
         return None, "missing_option_symbol"
     if quote_at is None:
@@ -95,7 +96,7 @@ def _quote_from_row(row: dict[str, str], field_map: dict[str, str]) -> tuple[dic
     for field_name in ("last_price", "volume", "open_interest", "implied_volatility", "delta", "gamma", "theta", "vega"):
         source_name = field_map.get(field_name)
         if source_name is not None:
-            quote[field_name] = coerce_float(row.get(source_name))
+            quote[field_name] = safe_float(row.get(source_name))
     return quote, None
 
 

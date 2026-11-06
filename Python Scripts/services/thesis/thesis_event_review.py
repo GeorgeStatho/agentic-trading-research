@@ -35,6 +35,7 @@ from services.discovery.discovery_policy import DiscoveryPolicy
 from services.thesis.thesis_event_review_policy import EventThesisReviewPolicy
 from services.thesis.thesis_validator_arbiter import ARBITER_POLICY_VERSION, decide_thesis_arbiter_action
 from services.thesis.thesis_validator_service import ThesisValidatorSettings, rules_exit_active
+from services.core.time_utils import utc_now
 
 
 LOGGER = logging.getLogger(__name__)
@@ -50,10 +51,6 @@ LIMITED = 'daily_limit_reached'
 
 class ReviewUnavailable(RuntimeError):
     """No usable verdict this attempt, e.g. every model sample failed; the item is retried."""
-
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def market_day(at: str) -> str:

@@ -15,11 +15,12 @@ from services.discovery.company_evidence_packages import build_company_package
 from services.discovery.company_evidence_policy import CompanyEvidencePolicy, issuer_configuration
 from Webscraping.company_evidence.issuer import IssuerReleaseAdapter
 from Webscraping.company_evidence.sec import SECAdapter
-from Webscraping.company_evidence.transport import EvidenceHTTP, utc_now
+from Webscraping.company_evidence.transport import EvidenceHTTP
 from Webscraping.company_evidence.yahoo_consensus import YahooConsensusAdapter
 from market_db_modules.evidence_refresh import due_refresh_companies, due_refresh_requests, finish_refresh_requests
 from services.discovery.company_evidence_demand import enqueue_company_interest
 from services.research.research_lock import ResearchSessionBusy, research_session_lock
+from services.core.time_utils import utc_now
 
 
 def collect_company(company, adapters, policy, *, db_path=None, clock=utc_now):

@@ -8,11 +8,12 @@ from typing import Any
 
 from agent_helpers.opportunist_payload import DEFAULT_MAX_ARTICLE_AGE_DAYS
 
-from api_support.request_utils import parse_datetime, trim_text
+from api_support.request_utils import trim_text
 from api_support.context import ANALYZED_COMPANY_NEWS_DEFAULT_PAGE_SIZE
 from db_common import database_path, get_connection
 from services.core.numbers import safe_float
 from scripts.news_quality_report import extraction_success_by_source
+from services.core.time_utils import parse_timestamp
 
 VALID_ANALYZED_COMPANY_NEWS_VIEWS = {"company", "sector", "industry", "macro"}
 ANALYZED_COMPANY_NEWS_MAX_ARTICLE_AGE_DAYS = DEFAULT_MAX_ARTICLE_AGE_DAYS * 2
@@ -61,7 +62,7 @@ def _is_within_analyzed_company_news_age_window(
     *,
     now: datetime | None = None,
 ) -> bool:
-    parsed_published_at = parse_datetime(str(published_at or ""))
+    parsed_published_at = parse_timestamp(str(published_at or ""))
     if parsed_published_at is None:
         return False
     reference_time = now or datetime.now(timezone.utc)
@@ -405,7 +406,7 @@ def _max_timestamp_value(*values: str) -> str:
     latest_value = ""
     latest_dt = None
     for value in values:
-        parsed = parse_datetime(value)
+        parsed = parse_timestamp(value)
         if parsed is None:
             continue
         normalized = parsed.astimezone(timezone.utc)

@@ -9,6 +9,7 @@ from research_foundation_contracts import timestamp
 from .models import CollectionResult, SourceDocument
 from .releases import guidance_facts, release_text
 from .sec_facts import normalize_company_facts
+from services.core.numbers import safe_int
 
 
 TICKERS_URL = 'https://www.sec.gov/files/company_tickers.json'
@@ -28,15 +29,8 @@ def _cell_text(cell):
     return unescape(re.sub(r'<[^>]+>', '', cell)).strip()
 
 
-def _int(value):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _size(filing):
-    return _int(filing.get('size'))
+    return safe_int(filing.get('size'))
 # Attachment types that are images or archives; _read_filing never reads them.
 BINARY_TYPES = {'GRAPHIC', 'ZIP', 'PDF', 'EXCEL', 'XLSX'}
 _IN_DOCUMENT = r'(?:(?!</DOCUMENT>).)*?'
@@ -194,7 +188,7 @@ class SECAdapter:
                 continue
             path = unescape(href[1]).removeprefix('/ix?doc=')
             directory, _, name = path.rpartition('/')
-            size = _int(_cell_text(cells[4]))
+            size = safe_int(_cell_text(cells[4]))
             if (directory == folder_path and name != primary and _ARCHIVE_NAME.fullmatch(name)
                     and name.lower().endswith(('.htm', '.html', '.txt'))
                     and not (size and size > self.policy.max_response_bytes) and name not in names):

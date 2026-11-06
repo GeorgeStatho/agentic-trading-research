@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -64,21 +63,6 @@ def read_json_payload(path: Path):
             return json.load(handle)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
-
-
-def parse_datetime(value: str | None):
-    if not value:
-        return None
-
-    normalized = str(value).strip().replace("Z", "+00:00")
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed
 
 
 def read_json_file(path: Path) -> tuple[dict, int]:

@@ -1,5 +1,5 @@
 """Bounded HTTP, immutable responses and durable accounting shared by adapters."""
-from datetime import datetime, timezone
+from datetime import datetime
 from email.utils import parsedate_to_datetime
 import time
 from urllib.parse import urlparse
@@ -10,10 +10,7 @@ from market_db_modules.company_collection import (
     cache_response, cached_response, collection_state, decode_response, reserve_provider_request,
     save_collection_state,
 )
-
-
-def utc_now():
-    return datetime.now(timezone.utc)
+from services.core.time_utils import utc_now
 
 
 class ProviderUnavailable(RuntimeError):

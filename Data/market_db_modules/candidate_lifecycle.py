@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from contextlib import closing
 from hashlib import sha256
 import json
@@ -14,13 +13,10 @@ from .research_observations import bind_candidate_observation
 from .research_observations import read_observation
 from catalyst_schema import stamp_candidate_catalyst
 from news_db_modules.catalysts import attach_candidate_catalysts
+from services.core.time_utils import utc_now_iso as now_iso
 
 
 SNAPSHOT_VERSION = 'candidate-snapshot-v1'
-
-
-def now_iso():
-    return datetime.now(timezone.utc).isoformat()
 
 
 def record_candidate(symbol, version, *, evidence=None, observation_id=None, catalyst_id=None, db_path=None):

@@ -6,10 +6,11 @@ from statistics import mean
 from catalyst_models import timestamp
 from services.gates.contract_policy import ContractPolicy
 from services.evaluation.evaluation_clock import evaluation_now
-from services.runtime.execution_telemetry import number, quote_values
+from services.runtime.execution_telemetry import quote_values
 from services.options.option_pricing import DAYS_PER_YEAR, CalibratedOption, days_until_expiration, option_side
 from services.gates.pricing_policy import HORIZON_DAYS, PricingPolicy
 from market_db_modules.pricing_research import catalyst_return_distribution, quantile
+from services.core.numbers import finite_float
 
 CONTRACT_MULTIPLIER = 100
 LOGGER = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ def score_contract(contract, *, spot, moves, horizon_days, as_of, policy=None):
     """
     policy = policy or ContractPolicy.from_env()
     bid, ask, mid, spread = quote_values(contract.get('latest_quote'))
-    spot, horizon_days, strike = number(spot), number(horizon_days), number(contract.get('strike_price'))
+    spot, horizon_days, strike = finite_float(spot), finite_float(horizon_days), finite_float(contract.get('strike_price'))
     days = days_until_expiration(contract.get('expiration_date'), as_of=as_of)
     side = option_side(contract.get('contract_type'))
     missing = {'status': 'missing_scenario_inputs', 'option_symbol': contract.get('symbol')}

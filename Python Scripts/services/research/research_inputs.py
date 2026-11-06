@@ -3,13 +3,14 @@ import json
 from statistics import mean
 
 from market_db_modules.foundation_store import verified_envelope
-from services.research.research_contract import assert_information_cutoff, direction, number, utc
+from services.research.research_contract import assert_information_cutoff, direction, utc
 from services.gates.entry_gates import ENTRY_GATES
 from agent_helpers.deterministic_option_selector import _pick_matching_contract
 from agent_helpers.deterministic_option_selector import config
 from agent_helpers.deterministic_option_selector.market import selection_date
 from services.gates.contract_policy import ContractPolicy
 from services.core.pipeline_version import serializable
+from services.core.numbers import finite_float
 
 
 FEATURE_TIME_KEYS = {'timestamp', 'published_at', 'available_at', 'as_of', 'quote_at',
@@ -157,9 +158,9 @@ def baseline_contract(inputs, decision, policy):
         if direction(contract.get('contract_type')) != decision:
             continue
         expiry = contract.get('expiration_date')
-        delta = number((contract.get('greeks') or {}).get('delta'))
+        delta = finite_float((contract.get('greeks') or {}).get('delta'))
         quote = contract.get('latest_quote') or {}
-        bid, ask = number(quote.get('bid_price')), number(quote.get('ask_price'))
+        bid, ask = finite_float(quote.get('bid_price')), finite_float(quote.get('ask_price'))
         if not expiry or delta is None or bid is None or ask is None or not 0 <= bid <= ask or ask <= 0:
             continue
         if (utc(expiry) - utc(inputs['information_cutoff_time'])).total_seconds() < policy.holding_days * 86400:

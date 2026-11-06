@@ -13,6 +13,7 @@ from agent_helpers.market_context.underlying_indicators import (
 )
 from agent_helpers.volatility import compute_realized_volatility
 from services.gates.regime_history import refresh_regime_history
+from services.core.time_utils import parse_utc_timestamp
 
 
 LOGGER = logging.getLogger("market_regime")
@@ -61,19 +62,6 @@ class MarketRegimeSnapshotPolicy:
         )
 
 
-def _parse_datetime(value: Any) -> datetime | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
-
-
 def _round(value: float | None, digits: int = 4) -> float | None:
     return round(value, digits) if value is not None else None
 
@@ -110,7 +98,7 @@ def _macro_event_window(
     active_event: tuple[datetime, dict[str, Any]] | None = None
 
     for event in relevant_events:
-        scheduled_at = _parse_datetime(event.get("scheduled_at_utc"))
+        scheduled_at = parse_utc_timestamp(event.get("scheduled_at_utc"))
         if scheduled_at is None:
             if str(event.get("event_date") or "") == as_of.date().isoformat():
                 unknown_time_today = True
@@ -173,8 +161,8 @@ def classify_market_regime(
     now = (as_of or datetime.now(timezone.utc)).astimezone(timezone.utc)
     valid_closes = [float(close) for close in spy_closes if close is not None and float(close) > 0]
     vix_values = [float(close) for close in (vix_closes or []) if close is not None and float(close) > 0]
-    latest_market_at = _parse_datetime(spy_last_timestamp)
-    latest_macro_at = _parse_datetime(macro_refreshed_at)
+    latest_market_at = parse_utc_timestamp(spy_last_timestamp)
+    latest_macro_at = parse_utc_timestamp(macro_refreshed_at)
     market_age_seconds = round((now - latest_market_at).total_seconds(), 1) if latest_market_at else None
     macro_age_minutes = round((now - latest_macro_at).total_seconds() / 60.0, 1) if latest_macro_at else None
     macro_window, macro_reason_codes = _macro_event_window(
@@ -305,7 +293,7 @@ def _macro_calendar_is_fresh(
     as_of: datetime,
     policy: MarketRegimeSnapshotPolicy,
 ) -> bool:
-    refreshed = _parse_datetime(refreshed_at)
+    refreshed = parse_utc_timestamp(refreshed_at)
     if refreshed is None:
         return False
     age_minutes = (as_of - refreshed).total_seconds() / 60.0
@@ -372,7 +360,7 @@ def build_market_regime_snapshot(
         }
     spy_closes, spy_timestamp = _fetch_closes("SPY")
     vix_closes, vix_timestamp = _fetch_closes("VIX")
-    vix_at = _parse_datetime(vix_timestamp)
+    vix_at = parse_utc_timestamp(vix_timestamp)
     vix_fresh = vix_at is not None and 0 <= (now - vix_at).total_seconds() <= active_policy.max_market_data_age_seconds
     if not vix_fresh:
         vix_closes = []

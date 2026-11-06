@@ -6,10 +6,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from db_common import clean_text, coerce_float, get_connection, json_text
+from db_common import clean_text, get_connection, json_text
 from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
 from catalyst_schema import stamp_candidate_catalyst
+from services.core.numbers import safe_float
 
 
 def _parse_json_column(value: Any, default: Any) -> Any:
@@ -103,7 +104,7 @@ def record_position_thesis(
             clean_text(thesis.get("catalyst_summary")),
             json_text(thesis.get("source_article_ids") or []) or "[]",
             # SQLite retains fractional days despite the legacy INTEGER affinity.
-            coerce_float(thesis.get("expected_horizon_days")),
+            safe_float(thesis.get("expected_horizon_days")),
             json_text(thesis.get("invalidation_conditions") or []) or "[]",
             json_text(thesis.get("raw_json")) if thesis.get("raw_json") is not None else None,
         ),
@@ -274,12 +275,12 @@ def record_thesis_validation_run(
                 clean_text(run.get("would_open_today")),
                 json_text(run.get("evidence_ids") or []) or "[]",
                 clean_text(run.get("rationale")),
-                coerce_float(run.get("confidence")),
+                safe_float(run.get("confidence")),
                 clean_text(run.get("rules_verdict")),
                 clean_text(run.get("arbiter_action")) or "none",
                 clean_text(run.get("arbiter_reason")),
                 1 if run.get("executed") else 0,
-                coerce_float(run.get("mark_mid_price")),
+                safe_float(run.get("mark_mid_price")),
                 clean_text(run.get("error_text")),
             ),
         )

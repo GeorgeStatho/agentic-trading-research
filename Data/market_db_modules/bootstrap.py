@@ -5,13 +5,24 @@ from functools import cache
 import sqlite3
 from pathlib import Path
 
-from db_common import (DATA_DIR, applied_setup_fingerprint, coerce_float, database_path,
-                       get_connection, lock_for_migration, mark_setup_current, record_setup_fingerprint,
-                       setup_fingerprint, setup_is_current, table_columns, table_exists)
+from db_common import (
+    DATA_DIR,
+    applied_setup_fingerprint,
+    database_path,
+    get_connection,
+    lock_for_migration,
+    mark_setup_current,
+    record_setup_fingerprint,
+    setup_fingerprint,
+    setup_is_current,
+    table_columns,
+    table_exists,
+)
 from .autopsy import backfill_decision_autopsy_ledger, move_payload_copies_out_of_ledger
 from .contract_research import CLUSTER_PATH
 from .entities import add_company, add_industry, add_sector
 from .shared import LEGACY_SECTOR_KEY, LEGACY_SECTOR_NAME, SCHEMA_PATH, is_legacy_schema
+from services.core.numbers import safe_float
 
 
 SETUP_NAME = "market"
@@ -119,7 +130,7 @@ def _migrate_legacy_schema(conn: sqlite3.Connection) -> None:
             industry_id_map[legacy_industry_id],
             symbol=company.get("ticker") or company["name"],
             name=company["name"],
-            market_weight=coerce_float(company.get("market_cap")),
+            market_weight=safe_float(company.get("market_cap")),
             raw_json=raw_json,
             conn=conn,
         )

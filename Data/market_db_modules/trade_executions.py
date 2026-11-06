@@ -5,11 +5,12 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from db_common import clean_text, coerce_float, get_connection, json_text
+from db_common import clean_text, get_connection, json_text
 from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
 from .execution_telemetry import store_execution_telemetry
 from catalyst_schema import stamp_candidate_catalyst
+from services.core.numbers import safe_float
 
 
 def record_option_trade_execution(
@@ -62,12 +63,12 @@ def record_option_trade_execution(
         clean_text(execution.get("selected_option_id")),
         clean_text(execution.get("selected_option_source")),
         clean_text(execution.get("selected_expiration_date")),
-        coerce_float(execution.get("selected_strike_price")),
+        safe_float(execution.get("selected_strike_price")),
         coerce_int(execution.get("order_qty") or order.get("qty")),
-        coerce_float(execution.get("estimated_order_cost")),
-        coerce_float(execution.get("available_buying_power")),
-        coerce_float(execution.get("max_deployable_buying_power")),
-        coerce_float(execution.get("remaining_deployable_buying_power")),
+        safe_float(execution.get("estimated_order_cost")),
+        safe_float(execution.get("available_buying_power")),
+        safe_float(execution.get("max_deployable_buying_power")),
+        safe_float(execution.get("remaining_deployable_buying_power")),
         1 if paper else 0,
         clean_text(order.get("status")),
         clean_text(order.get("side")),

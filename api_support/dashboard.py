@@ -24,12 +24,7 @@ from performance_metrics import (
 from portfolio_history_service import fetch_portfolio_history
 
 from api_support.alpaca import alpaca_data_get_json, alpaca_get_json
-from api_support.request_utils import (
-    load_dte_exit_rule_configs,
-    parse_datetime,
-    read_json_payload,
-    safe_json_loads,
-)
+from api_support.request_utils import load_dte_exit_rule_configs, read_json_payload, safe_json_loads
 from services.core.numbers import safe_float
 from api_support.context import (
     BOT_DOWN_THRESHOLD_SECONDS,
@@ -58,6 +53,7 @@ from api_support.context import (
 from api_support.thesis_validator import load_latest_thesis_verdicts
 from api_support.context import logger
 import os
+from services.core.time_utils import parse_timestamp
 
 
 def _build_empty_company_decisions_payload() -> dict:
@@ -959,7 +955,7 @@ def compute_days_to_expiration(expiration_date_text: str | None) -> float | None
     if not expiration_date_text:
         return None
 
-    parsed_expiration = parse_datetime(str(expiration_date_text))
+    parsed_expiration = parse_timestamp(str(expiration_date_text))
     if parsed_expiration is None:
         return None
 
@@ -974,7 +970,7 @@ def compute_win_rate_from_fills(fills) -> dict:
 
     ordered_fills = sorted(
         fills,
-        key=lambda fill: parse_datetime(str(fill.get("transaction_time") or "")) or datetime.min.replace(tzinfo=timezone.utc),
+        key=lambda fill: parse_timestamp(str(fill.get("transaction_time") or "")) or datetime.min.replace(tzinfo=timezone.utc),
     )
 
     inventory: dict[str, dict[str, float]] = {}
@@ -1034,7 +1030,7 @@ def summarize_market_status(clock_payload: dict) -> dict:
 
 
 def _age_seconds(value) -> float | None:
-    parsed = parse_datetime(str(value or ""))
+    parsed = parse_timestamp(str(value or ""))
     if parsed is None:
         return None
     return (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds()

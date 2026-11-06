@@ -5,7 +5,6 @@ strategy produced, plus every DTE bucket's chain fetched once after the incumben
 Production's own candidate and orders are unchanged; this only records.
 """
 import copy
-from datetime import datetime, timezone
 import logging
 
 from market_db_modules.candidate_lifecycle import stage_payloads
@@ -17,6 +16,7 @@ from research_foundation_contracts import DECISION_OBSERVATION_PROTOCOL, Researc
 from services.evaluation.forward_cohorts import ensure_comparison_cohort
 from services.research.research_contract import utc
 from services.research.research_promotion import research_only_candidate
+from services.core.time_utils import utc_now_iso
 
 LOGGER = logging.getLogger(__name__)
 DECISION_INPUT_STAGES = ('pre_strategist', 'pre_manager')
@@ -24,10 +24,6 @@ DECISION_INPUT_STAGES = ('pre_strategist', 'pre_manager')
 STRATEGY_OUTPUT_KEYS = ('candidate_id', 'strategist_recommendation')
 # The manager receives these from the strategist's frozen evidence; the observation stores them once.
 SHARED_EVIDENCE_KEYS = ('filters', 'opportunist_rollup', 'views', 'supporting_articles', 'grounding', 'company_evidence')
-
-
-def utc_now():
-    return datetime.now(timezone.utc).isoformat()
 
 
 def decision_inputs(strategist_payload, manager_snapshot):
@@ -56,7 +52,7 @@ def observation_cutoff(captured_at, chains):
 
 
 def freeze_decision_observation(candidate_context, *, policy, acceptance=None, fetch_chains=None,
-                                per_type_limit=None, clock=utc_now, db_path=None):
+                                per_type_limit=None, clock=utc_now_iso, db_path=None):
     """Record the shared observation for one production decision; never raises into the cycle."""
     candidate_id = (candidate_context or {}).get('candidate_id')
     if policy is None or not policy.enabled or not candidate_id or research_only_candidate(candidate_id):

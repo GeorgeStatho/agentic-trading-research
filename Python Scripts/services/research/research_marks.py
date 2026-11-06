@@ -15,7 +15,8 @@ from db_common import get_connection
 from market_db_modules.forward_evaluation import claim_mark_session, finish_mark_session
 from market_db_modules.research_runs import DECISION_QUOTE_PROVIDER, collect_active_runs
 from services.evaluation.forward_evaluation_policy import ForwardEvaluationPolicy
-from services.research.research_contract import canonical, number, utc
+from services.research.research_contract import canonical, utc
+from services.core.numbers import finite_float
 
 LOGGER = logging.getLogger(__name__)
 NEW_YORK = ZoneInfo('America/New_York')
@@ -36,13 +37,13 @@ def store_marks(quotes, *, at, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         for symbol, quote in quotes.items():
             quoted = quote.get('timestamp')
-            if not quoted or number(quote.get('bid_price')) is None or number(quote.get('ask_price')) is None:
+            if not quoted or finite_float(quote.get('bid_price')) is None or finite_float(quote.get('ask_price')) is None:
                 continue
             raw = {**quote, 'available_at': utc(at).isoformat(), 'source': 'closing_mark_poll'}
             stored += conn.execute('''INSERT INTO historical_option_quotes
                 (option_symbol, quote_at, bid_price, ask_price, provider, raw_json) VALUES (?,?,?,?,?,?)
                 ON CONFLICT(option_symbol, quote_at, provider) DO NOTHING''',
-                (symbol.upper(), utc(quoted).isoformat(), number(quote['bid_price']), number(quote['ask_price']),
+                (symbol.upper(), utc(quoted).isoformat(), finite_float(quote['bid_price']), finite_float(quote['ask_price']),
                  DECISION_QUOTE_PROVIDER, canonical(raw))).rowcount
     return stored
 

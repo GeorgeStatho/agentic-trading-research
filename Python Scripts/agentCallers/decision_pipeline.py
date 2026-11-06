@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable
 
 from services.core.runtime_paths import DATA_DIR
@@ -41,6 +41,7 @@ from services.gates.pricing_gates import apply_option_hurdle_to_manager_result, 
 from services.options.scenario_selector import prepare_scenario_inputs
 from services.gates.trade_economics import apply_trade_economics
 from services.gates.trade_economics_policy import TradeEconomicsPolicy
+from services.core.time_utils import utc_now_iso as _utc_now
 
 
 LOGGER = logging.getLogger("agent_runner")
@@ -668,10 +669,6 @@ def _run_strategist_and_manager(
         checkpoint(candidate_context, 'candidate_complete', {'status': 'evaluated'})
 
     return strategist_results, manager_results, failures
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _discovery_routes(ranked_symbols: list[str]) -> list[dict[str, Any]]:

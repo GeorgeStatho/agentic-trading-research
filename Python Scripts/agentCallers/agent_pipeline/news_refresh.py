@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
@@ -28,6 +27,7 @@ from agent_stages.sector_opportunist import classify_sector_articles
 from services.discovery.company_evidence_demand import request_pipeline_evidence
 from services.discovery.discovery_policy import DiscoveryPolicy
 from services.discovery.discovery_routing import news_refresh_companies, record_news_refresh
+from services.core.time_utils import utc_now_iso
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -141,10 +141,6 @@ def _scrape_company_news(symbol: str) -> int:
     return saved
 
 
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def refresh_discovery_company_news(
     *,
     ranked_symbols: set[str],
@@ -152,7 +148,7 @@ def refresh_discovery_company_news(
     refreshed_industries: set[str],
 ) -> dict[str, Any]:
     """Give companies with an admitted discovery entry the sector, industry and company news ranked ones get."""
-    companies = news_refresh_companies(policy=DiscoveryPolicy.from_env(), at=_utc_now(),
+    companies = news_refresh_companies(policy=DiscoveryPolicy.from_env(), at=utc_now_iso(),
                                        exclude_symbols=ranked_symbols)
     refreshed: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
@@ -174,7 +170,7 @@ def refresh_discovery_company_news(
             LOGGER.exception("Discovery news refresh failed for %s", symbol)
             failed.append({"symbol": symbol, "error": f"{type(error).__name__}: {error}"})
             continue
-        record_news_refresh(company["company_id"], _utc_now())
+        record_news_refresh(company["company_id"], utc_now_iso())
         refreshed.append({**company, "company_articles_saved": company_articles_saved})
     return {"companies": refreshed, "failed": failed}
 

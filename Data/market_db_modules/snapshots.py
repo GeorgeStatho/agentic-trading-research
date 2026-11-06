@@ -5,8 +5,9 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from db_common import clean_text, coerce_float, get_connection, json_text
+from db_common import clean_text, get_connection, json_text
 from .shared import extract_snapshot_price, extract_snapshot_volume, normalize_timestamp
+from services.core.numbers import safe_float
 
 
 def add_company_price_snapshot(
@@ -61,7 +62,7 @@ def add_company_price_snapshot(
         """,
         (company_id,),
     ).fetchone()
-    previous_price = coerce_float(previous_row["price"]) if previous_row is not None else None
+    previous_price = safe_float(previous_row["price"]) if previous_row is not None else None
 
     price_change = None
     price_change_pct = None

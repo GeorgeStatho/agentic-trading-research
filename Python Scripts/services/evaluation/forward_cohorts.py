@@ -5,19 +5,15 @@ Manifests are derived from the one the worker recorded with its candidates. Anot
 could never name the worker's configuration.
 """
 import copy
-from datetime import datetime, timezone
 
 from market_db_modules.foundation_store import digest
 from market_db_modules.forward_evaluation import ensure_cohort
 from research_foundation_contracts import DECISION_OBSERVATION_PROTOCOL
 from services.evaluation.forward_evaluation_policy import AcceptancePolicy, ForwardEvaluationPolicy
 from services.research.research_promotion import champion_identity
+from services.core.time_utils import utc_now_iso
 
 SELECTION_BASIS = 'observation_bucket_chain'
-
-
-def utc_now():
-    return datetime.now(timezone.utc).isoformat()
 
 
 def paired_manifest(base, *, role, challenger=None):
@@ -53,7 +49,7 @@ def ensure_production_cohort(manifest, *, policy=None, acceptance=None, at=None,
     identity = 'identity:' + digest(champion_identity(manifest))
     return ensure_cohort({'production': manifest}, base_pipeline_version=identity,
                          challenger_id=None, acceptance=acceptance or AcceptancePolicy.from_env(),
-                         at=at or utc_now(), db_path=db_path)
+                         at=at or utc_now_iso(), db_path=db_path)
 
 
 def ensure_comparison_cohort(base, challenger, *, acceptance=None, at=None, db_path=None):
@@ -61,5 +57,5 @@ def ensure_comparison_cohort(base, challenger, *, acceptance=None, at=None, db_p
     return ensure_cohort({'incumbent': paired_manifest(base, role='incumbent'),
                           'challenger': paired_manifest(base, role='challenger', challenger=challenger)},
                          base_pipeline_version=base['pipeline_version'], challenger_id=challenger.challenger_id,
-                         acceptance=acceptance or AcceptancePolicy.from_env(), at=at or utc_now(),
+                         acceptance=acceptance or AcceptancePolicy.from_env(), at=at or utc_now_iso(),
                          observation_protocol=DECISION_OBSERVATION_PROTOCOL, db_path=db_path)
