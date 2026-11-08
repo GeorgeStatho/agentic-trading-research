@@ -101,11 +101,26 @@ def _backfill_article_index(conn: sqlite3.Connection) -> None:
     )
 
 
-def _run_bootstrap_migrations(conn: sqlite3.Connection) -> None:
-    _migrate_company_opportunist_article_processing(conn)
-    _ensure_missing_columns(conn, "macro_events", MACRO_EVENT_COLUMN_TYPES)
-    _ensure_missing_columns(conn, "news_articles", NEWS_ARTICLE_COLUMN_TYPES)
-    _ensure_missing_columns(conn, "strategist_runs", {"candidate_id": "TEXT"})
+# Changes for databases made by older code, in order. Every step must be idempotent: any edit under
+# Data/ changes the setup fingerprint and re-runs them all. They run before news_schema.sql, whose
+# indexes need the columns they add, and again after it. Append a schema change as a new step.
+_MIGRATION_STEPS = (
+    _migrate_company_opportunist_article_processing,
+    lambda conn: _ensure_missing_columns(conn, "macro_events", MACRO_EVENT_COLUMN_TYPES),
+    lambda conn: _ensure_missing_columns(conn, "news_articles", NEWS_ARTICLE_COLUMN_TYPES),
+    lambda conn: _ensure_missing_columns(conn, "strategist_runs", {"candidate_id": "TEXT"}),
+)
+# Data moves and backfills that need the full schema; also idempotent.
+_AFTER_SCHEMA_STEPS = (
+    _move_article_content,
+    _backfill_article_index,
+    migrate_catalysts,
+)
+
+
+def _run_steps(conn: sqlite3.Connection, steps) -> None:
+    for step in steps:
+        step(conn)
 
 
 @cache
@@ -138,13 +153,10 @@ def _set_up(db_path: Path | str, schema_path: Path | str, fingerprint: str) -> N
             return
 
     with closing(get_connection(db_path)) as conn, conn:
-        _run_bootstrap_migrations(conn)
+        _run_steps(conn, _MIGRATION_STEPS)
 
     initialize_schema(db_path, schema_path)
 
     with closing(get_connection(db_path)) as conn, conn:
-        _run_bootstrap_migrations(conn)
-        _move_article_content(conn)
-        _backfill_article_index(conn)
-        migrate_catalysts(conn)
+        _run_steps(conn, _MIGRATION_STEPS + _AFTER_SCHEMA_STEPS)
         record_setup_fingerprint(conn, SETUP_NAME, fingerprint)

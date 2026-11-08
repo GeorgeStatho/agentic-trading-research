@@ -4,7 +4,6 @@ from typing import Any
 
 from db_common import DATA_DIR
 
-from processing.news_normalization import build_content_hash, normalize_title, normalize_url
 
 SCHEMA_PATH = DATA_DIR / "news_schema.sql"
 
@@ -53,19 +52,3 @@ def score_from_raw_json(raw_json: Any | None, key: str) -> Any | None:
     return scores.get(key)
 
 
-def coerce_float(value: Any | None) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def coerce_int(value: Any | None) -> int | None:
-    if value is None or value == "":
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None

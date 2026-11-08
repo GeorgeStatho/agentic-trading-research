@@ -6,6 +6,9 @@ from alpaca.trading.client import TradingClient
 
 from .clients import ALPACA_PAPER, get_default_trading_client
 from services.core.numbers import safe_float
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 def GetAccountDiagnostics(
@@ -37,6 +40,6 @@ def GetAccountDiagnostics(
 
     if echo:
         for key, value in diagnostics.items():
-            print(f"{key}: {value}")
+            LOGGER.info("%s: %s", key, value)
 
     return diagnostics

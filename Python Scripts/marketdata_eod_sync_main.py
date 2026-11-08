@@ -9,6 +9,7 @@ from pathlib import Path
 from threading import Event
 import signal
 
+from services.core.logging_utils import configure_logging
 from services.core.settings import load_process_settings
 
 if __name__ == "__main__":
@@ -27,7 +28,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="Check the daily schedule once, then exit.")
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    configure_logging()
     settings = EodSyncSettings.from_env()
     status_path = os.getenv("MARKETDATA_EOD_SYNC_STATUS_PATH", str(DATA_DIR / "marketdata_eod_sync_status.json"))
     status = StatusReporter(Path(status_path))

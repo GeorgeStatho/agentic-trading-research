@@ -539,7 +539,8 @@ flowchart LR
 ## 10. LLM provider layer
 
 All model calls go through `agent_helpers/llm_client.py`
-(`get_model_client`, `ask_llm_model`), which picks Vertex AI, the Gemini API (AI Studio key),
+(`get_model_client`, `ask_llm_model`; the providers live in `llm_vertex.py` and `llm_openai.py`,
+errors in `llm_errors.py`, usage records in `llm_usage.py`), which picks Vertex AI, the Gemini API (AI Studio key),
 OpenAI, llama.cpp or Ollama from each stage's `<STAGE>_PROVIDER`, falling back to `LLM_PROVIDER`,
 and the per-stage model settings in `services.core.settings.get_settings()`. The news classifiers call
 `ask_classifier_model()`, which moves a quota-refused call down the `CLASSIFIER_FALLBACKS` models in order and returns

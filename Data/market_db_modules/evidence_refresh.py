@@ -33,7 +33,8 @@ def request_company_evidence(company_id, source, source_key, *, at, parent_sessi
 
 def due_refresh_companies(*, at, limit, db_path=None):
     with closing(get_connection(db_path)) as conn:
-        return [dict(row) for row in conn.execute('''SELECT c.id,c.symbol,c.name FROM companies c
+        rows = [dict(row) for row in conn.execute('''SELECT c.id,c.symbol,c.name,MIN(r.requested_at) AS oldest_request
+            FROM companies c
             JOIN company_evidence_requests r ON r.company_id=c.id
             WHERE r.status='pending' AND julianday(r.next_attempt_at)<=julianday(?) AND EXISTS (
                 SELECT 1 FROM company_interest i WHERE i.company_id=c.id
@@ -43,8 +44,15 @@ def due_refresh_companies(*, at, limit, db_path=None):
                     AND julianday(i.selected_at)<=julianday(?) AND julianday(i.expires_at)>julianday(?)) DESC,
                 EXISTS (SELECT 1 FROM company_interest i WHERE i.company_id=c.id AND i.source=?
                     AND julianday(i.selected_at)<=julianday(?) AND julianday(i.expires_at)>julianday(?)) DESC,
-                MIN(r.requested_at),c.id LIMIT ?''',
-                (at, at, at, PIPELINE_SELECTION, MANAGER_SCOPE, at, at, PIPELINE_SELECTION, at, at, limit))]
+                MIN(r.requested_at),c.id''',
+                (at, at, at, PIPELINE_SELECTION, MANAGER_SCOPE, at, at, PIPELINE_SELECTION, at, at))]
+    # Manager churn alone can fill every slot, starving older demand until it expires; reserve a third for the oldest.
+    head = rows[:limit - limit // 3]
+    tail = sorted(rows[len(head):], key=lambda row: (row['oldest_request'], row['id']))[:limit - len(head)]
+    chosen = head + tail
+    for row in chosen:
+        del row['oldest_request']
+    return chosen
 
 
 def due_refresh_requests(company_id, *, at, db_path=None):

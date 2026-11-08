@@ -32,8 +32,9 @@ class CatalystGatePolicy:
 
 
 def _result(stage, reason, passed, mode, metrics, policy):
+    """`passed` is None when an input is missing: no verdict, yet still no entry under enforcement."""
     return {'stage': stage, 'reason_codes': [reason], 'would_allow': passed,
-            'allowed': passed or mode != 'enforce', 'enforcement_mode': mode,
+            'allowed': bool(passed) or mode != 'enforce', 'enforcement_mode': mode,
             'metrics': metrics, 'thresholds': asdict(policy), 'policy_version': policy.version}
 
 
@@ -58,7 +59,7 @@ def evaluate_catalyst_gates(state, *, as_of=None, policy=None):
     half_life = state.get('expected_half_life_minutes')
     remaining = recency_score(effective_age/1440, half_life_days=half_life/1440) if effective_age is not None and half_life and half_life > 0 else None
     reason = 'missing_or_future_event_time' if age is None else 'unavailable_half_life_prior' if remaining is None else 'fresh' if remaining >= policy.minimum_remaining_value else 'decayed_catalyst'
-    freshness = _result('FRESHNESS', reason, remaining is not None and remaining >= policy.minimum_remaining_value,
+    freshness = _result('FRESHNESS', reason, None if remaining is None else remaining >= policy.minimum_remaining_value,
                         policy.freshness_mode, {'catalyst_id': state['catalyst_id'], 'catalyst_family': state['catalyst_family'],
                         'catalyst_age_minutes': age, 'effective_age_minutes': effective_age,
                         'remaining_information_value': remaining, 'half_life_minutes': half_life,
@@ -74,7 +75,7 @@ def record_catalyst_gates(context):
     for stage, gate in gates.items():
         checkpoint(context, stage, gate)
         observe(record_catalyst_gate_observation, context, gate)
-        if not gate['would_allow'] and gate['enforcement_mode'] != 'disabled':
+        if gate['would_allow'] is False and gate['enforcement_mode'] != 'disabled':
             reject(context, stage, gate['reason_codes'][0], metrics=gate['metrics'], thresholds=gate['thresholds'],
                    shadow=gate['enforcement_mode'] == 'shadow')
     return gates

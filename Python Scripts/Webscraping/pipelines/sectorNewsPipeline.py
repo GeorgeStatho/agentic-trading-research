@@ -84,8 +84,8 @@ def _run_sector_jobs(sector: dict, jobs: list[SectorSourceJob]) -> int:
         saved,
         get_log_file_path(),
     )
-    print(f"Saved {saved} articles for sector {sector['name']} ({sector['sector_key']})")
-    print(f"Scrape log written to {get_log_file_path()}")
+    LOGGER.info("Saved %s articles for sector %s (%s)", saved, sector['name'], sector['sector_key'])
+    LOGGER.info("Scrape log written to %s", get_log_file_path())
     return saved
 
 
@@ -131,10 +131,10 @@ def get_all_sector_news(max_age_days: int = DEFAULT_RSS_MAX_AGE_DAYS) -> None:
 
     for sector in sectors:
         saved = saved_counts.get(sector["id"], 0)
-        print(f"Saved {saved} articles for sector {sector['name']} ({sector['sector_key']})")
+        LOGGER.info("Saved %s articles for sector %s (%s)", saved, sector['name'], sector['sector_key'])
 
     LOGGER.info("Finished all-sector scrape. Log file: %s", get_log_file_path())
-    print(f"Scrape log written to {get_log_file_path()}")
+    LOGGER.info("Scrape log written to %s", get_log_file_path())
 
 
 def get_sector_news_from_rss(sector_identifier: str, max_age_days: int = DEFAULT_RSS_MAX_AGE_DAYS) -> int:

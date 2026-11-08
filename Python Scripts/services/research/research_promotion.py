@@ -20,23 +20,58 @@ GATE_BLOCKS = {'PROVENANCE': 'catalyst', 'FRESHNESS': 'catalyst', 'CONTINUATION'
                'TRADE_ECONOMICS_SUBMISSION': 'economics'}
 
 
+_CATALYST_FILES = ('Python Scripts/services/gates/catalyst_gates.py', 'Data/catalyst_models.py',
+                   'Python Scripts/Webscraping/processing/scoring.py', 'Data/news_db_modules/catalysts.py',
+                   'Data/news_db_modules/provenance.py', 'config/source.json')
+_CONTRACT_POLICY = 'Python Scripts/services/gates/contract_policy.py'
+# The files whose content decides a stage's verdict: its rule and the producers of what it reads.
+# A proof survives deploys that leave them unchanged; an unlisted stage binds to the whole trading path.
+GATE_FILES = {
+    'PROVENANCE': _CATALYST_FILES,
+    'FRESHNESS': _CATALYST_FILES,
+    'REGIME': ('Python Scripts/services/gates/market_regime_gate.py', 'Data/catalyst_models.py'),
+    'CONTINUATION': ('Python Scripts/services/gates/evidence_continuation_gate.py',
+                     'Python Scripts/services/gates/evidence_continuation_policy.py', 'Data/catalyst_models.py'),
+    'LIQUIDITY': ('Python Scripts/services/gates/liquidity_gate.py', _CONTRACT_POLICY,
+                  'Python Scripts/services/runtime/execution_telemetry.py'),
+    'RISK_CLUSTER': ('Python Scripts/services/gates/risk_clusters.py', _CONTRACT_POLICY,
+                     'Data/market_db_modules/contract_research.py', 'config/risk_clusters.csv'),
+    'EVIDENCE_THESIS': ('Python Scripts/services/thesis/evidence_thesis.py',
+                        'Python Scripts/services/thesis/evidence_thesis_checks.py',
+                        'Python Scripts/services/thesis/evidence_thesis_policy.py',
+                        'Python Scripts/agentCallers/agent_stages/evidence_thesis_contract.py'),
+}
+
+
 def source_hash():
     return fingerprint(trading_path_hashes())
 
 
+def gate_code_hash(stage, source_hashes):
+    """The identity of one stage's code, from a trading-path {file: sha256} map."""
+    files = GATE_FILES.get(stage)
+    return fingerprint({name: source_hashes.get(name) for name in files}) if files else fingerprint(source_hashes)
+
+
+def gate_code_hashes(source_hashes):
+    return {stage: gate_code_hash(stage, source_hashes) for stage in GATE_BLOCKS}
+
+
 def policy_hash(stage, policy, code_hash):
+    """`code_hash` is the stage's gate_code_hash."""
     values = asdict(policy) if is_dataclass(policy) else dict(policy)
     values = {key: sorted(value) if isinstance(value, (set, frozenset)) else value
               for key, value in values.items() if key not in MODE_KEYS}
     return fingerprint({'stage': stage, 'policy': values, 'code_hash': code_hash})
 
 
-def approved(stage, policy, *, db_path=None, code_hash=None):
-    """`code_hash` lets a caller checking several stages hash the sources once."""
+def approved(stage, policy, *, db_path=None, source_hashes=None):
+    """`source_hashes` lets a caller checking several stages hash the sources once."""
     try:
+        code = gate_code_hash(stage, source_hashes or trading_path_hashes())
         with closing(sqlite3.connect(f'file:{Path(database_path(db_path)).resolve()}?mode=ro', uri=True)) as conn:
             row = conn.execute('SELECT 1 FROM research_gate_promotions WHERE stage=? AND policy_hash=? AND gate_value>0 AND sample_size>=100',
-                               (stage, policy_hash(stage, policy, code_hash or source_hash()))).fetchone()
+                               (stage, policy_hash(stage, policy, code))).fetchone()
             return row is not None
     except sqlite3.Error:
         return False
@@ -47,10 +82,10 @@ def guard_policy(policy, stages, *, db_path=None):
                  for field, required in stages.items() if getattr(policy, field) == 'enforce'}
     if not enforcing:
         return policy
-    code_hash = source_hash()
+    hashes = trading_path_hashes()
     changes = {}
     for field, required in enforcing.items():
-        if not all(approved(stage, policy, db_path=db_path, code_hash=code_hash) for stage in required):
+        if not all(approved(stage, policy, db_path=db_path, source_hashes=hashes) for stage in required):
             logging.getLogger(__name__).warning('%s stays shadow: no matching counterfactual promotion proof', ', '.join(required))
             changes[field] = 'shadow'
     return replace(policy, **changes) if changes else policy

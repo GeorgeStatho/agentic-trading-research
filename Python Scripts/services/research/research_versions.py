@@ -1,4 +1,5 @@
 """Evaluator identity is independent of the strategy that produced a decision."""
+from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
 
@@ -29,7 +30,9 @@ EVALUATOR_FILES = (
 )
 
 
+@lru_cache(maxsize=1)
 def evaluator_source_hash():
+    """Once per process: a running process's code cannot change."""
     return fingerprint({name: sha256((ROOT / name).read_bytes()).hexdigest() for name in EVALUATOR_FILES})
 
 

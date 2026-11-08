@@ -9,7 +9,7 @@ import { StatStrip } from './ui/StatStrip';
 import { Tag } from './ui/Tag';
 import { usePolledResource } from './useRemoteResource';
 import { NEAR_TOTAL_BLOCK_RATE, getV2Status, prerequisiteCount, safeguardNotices, wouldBlockRows } from './v2StatusApi';
-import type { Feature, GateReadiness, Run, ShadowOnlyFeature, V2StatusPayload, WouldBlockRow } from './v2StatusApi';
+import type { Feature, GateReadiness, RejectionReason, Run, ShadowOnlyFeature, V2StatusPayload, WouldBlockRow } from './v2StatusApi';
 
 /**
  * What the V2 architecture is actually doing right now.
@@ -147,6 +147,13 @@ function ResearchRun({ run }: { run: Run }) {
 
 // ---- Page -------------------------------------------------------------------
 
+const REJECTION_COLUMNS: readonly Column<RejectionReason>[] = [
+  { key: 'reason', header: 'Reason', render: (row) => formatToken(row.reason_code) },
+  { key: 'stage', header: 'Stage', render: (row) => formatToken(row.stage) },
+  { key: 'mode', header: 'Mode', render: (row) => (row.shadow ? 'Shadow' : 'Enforced') },
+  { key: 'candidates', header: 'Candidates', align: 'right', render: (row) => count(row.candidates) },
+];
+
 function RolloutView({ payload }: { payload: V2StatusPayload }) {
   const modes = payload.mode_summary;
   const requestedEnforce = payload.features.filter((feature) => feature.requested_mode === 'enforce').length;
@@ -195,6 +202,11 @@ function RolloutView({ payload }: { payload: V2StatusPayload }) {
     <Panel title="Controls" meta="requested vs. effective mode" flush>
       <DataTable label="Controls" columns={CONTROL_COLUMNS} rows={payload.features} rowKey={(feature) => feature.key} rowClassName={(feature) => (feature.downgraded ? 'bg-accent-bg/40' : '')} />
     </Panel>
+
+    {payload.rejection_reasons ? <Panel title="Why candidates were stopped" meta={`last ${payload.window_days} days, distinct candidates`} flush>
+      <DataTable label="Why candidates were stopped" columns={REJECTION_COLUMNS} rows={payload.rejection_reasons}
+        rowKey={(row) => `${row.stage}-${row.reason_code}-${row.shadow}`} emptyMessage="No candidate was stopped in this window." />
+    </Panel> : null}
 
     {payload.shadow_only_features.length ? <Panel title="Observation only" meta="components with no enforcement path" flush>
       <DataTable label="Observation only" columns={SHADOW_ONLY_COLUMNS} rows={payload.shadow_only_features} rowKey={(feature) => feature.key} />

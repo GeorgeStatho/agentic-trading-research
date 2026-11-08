@@ -14,7 +14,7 @@ from market_db_modules.company_evidence import (
 from market_db_modules.discovery_queue import enqueue_discovery_event
 from market_db_modules.discovery_sources import (
     company_event_articles, get_catalyst, latest_discovery_event, mark_discovery_scanned,
-    review_company_ids, sector_support_articles, watchlist_snapshot,
+    sector_support_articles, watchlist_snapshot,
 )
 from market_db_modules.foundation_store import digest
 from research_foundation_contracts import DiscoveryQueueItem, EvidencePackage, timestamp
@@ -28,10 +28,7 @@ from services.discovery.company_evidence_policy import CompanyEvidencePolicy
 from services.discovery.company_interest import reconcile_company_interest
 from services.core.trading_config import AgentPipelineSettings
 from services.research.research_lock import research_session_lock, ResearchSessionBusy
-
-
-def utc_now():
-    return datetime.now(timezone.utc).isoformat()
+from services.core.time_utils import utc_now_iso
 
 
 def _normalized_text(value):
@@ -212,7 +209,7 @@ def _sector_event(company, *, at, policy, db_path):
 
 
 def discover_company_events(*, sector_symbols=None, policy=None, at=None, db_path=None):
-    policy, at = policy or DiscoveryPolicy.from_env(), timestamp(at or utc_now())
+    policy, at = policy or DiscoveryPolicy.from_env(), timestamp(at or utc_now_iso())
     if policy.mode == 'disabled':
         return {'status': 'disabled', 'queue_ids': []}
     initialize_database(db_path=db_path)

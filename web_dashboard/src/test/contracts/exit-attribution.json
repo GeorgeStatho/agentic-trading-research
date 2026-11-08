@@ -1,0 +1,7 @@
+[
+ "rows",
+ "rows[].closed_positions",
+ "rows[].exit_reason",
+ "rows[].median_mfe_minus_realized_pct",
+ "rows[].observed_path_count"
+]

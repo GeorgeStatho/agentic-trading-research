@@ -9,9 +9,10 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from db_common import get_connection
-from .shared import normalize_url
+from processing.news_normalization import normalize_url
 from processing.scoring import confirmation_score, compute_evidence_score
 from sources.source_config import get_source_metadata
+from catalyst_models import timestamp
 
 
 SOURCE_TYPES = {
@@ -30,14 +31,6 @@ TITLE_SIMILARITY = 0.8
 
 def _identifier(prefix, value):
     return prefix + hashlib.sha256(value.encode()).hexdigest()[:24]
-
-
-def _timestamp(value):
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc).astimezone(timezone.utc)
-    except (ValueError, TypeError):
-        return None
 
 
 def _tokens(title):
@@ -108,8 +101,8 @@ def update_article_provenance(article_id: int, *, conn) -> None:
         raw = {}
     supplied = raw.get('provenance', {}) if isinstance(raw, dict) else {}
     supplied = supplied if isinstance(supplied, dict) else {}
-    published = _timestamp(article['published_at'])
-    event = _timestamp(supplied.get('event_time'))
+    published = timestamp(article['published_at'])
+    event = timestamp(supplied.get('event_time'))
     when = event if event and published and event <= published else published
     source_type, origin, primary_url = _origin(article)
     catalyst = article.get("catalyst_id")
@@ -140,7 +133,7 @@ def update_article_provenance(article_id: int, *, conn) -> None:
                 FROM news_articles a LEFT JOIN catalysts c ON c.catalyst_id=a.catalyst_id
                 WHERE a.catalyst_id = ? ORDER BY a.id LIMIT 1""",
                                   (candidate["catalyst_id"],)).fetchone()
-            anchor_time = _timestamp(anchor["event_time"])
+            anchor_time = timestamp(anchor["event_time"])
             other = _tokens(anchor["title"])
             shared = title_tokens & other
             similarity = len(shared) / max(len(title_tokens | other), 1)

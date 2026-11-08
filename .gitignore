@@ -26,12 +26,43 @@ __pycache__/
 .testmondata*
 .testmon-inputs.json
 
+# Coverage data, written by `pytest --cov`.
+.coverage
+.coverage.*
+
 # Local scraping/debug artifacts
 html_pages/
 Data/logs/
 
 # Process locks for bounded shadow research sessions.
 .research-locks/
+docs/archive/AGENT_HANDOFF.md
+docs/archive/DECISION_EXPECTANCY_IMPLEMENTATION_PLAN.md
+docs/archive/LLMThesisValidator.md
+docs/archive/MANAGER_DECISION_HISTORY_IMPLEMENTATION_CHECKLIST.md
+docs/archive/ORDER_LIFECYCLE_AUDIT.md
+docs/archive/scratch/backtest.md
+docs/archive/scratch/design.md
+docs/archive/scratch/Error.md
+docs/guides/deterministic_option_selector_report.md
+docs/v2/TRADINGBOT_V2_DEFECT_FIXES.md
+docs/v2/TRADINGBOT_V2_IMPLEMENTATION.md
+docs/v2/TRADINGBOT_V2_PART1_CHANGES.md
+docs/v2/TRADINGBOT_V2_PART2_CHANGES.md
+docs/v2/TRADINGBOT_V2_PART3_CHANGES.md
+docs/v2/TRADINGBOT_V2_PART4_CHANGES.md
+docs/v2/TRADINGBOT_V2_PART5_CHANGES.md
+docs/v2/TRADINGBOT_V2_PART6_CHANGES.md
+docs/v2/TRADINGBOT_V2.md
+docker-compose.local.yml
+stock-backup-2026-10-10.tgz
+Data/stock_experiment.db-shm
+Data/stock_experiment.db-wal
+stock-backup-2026-10-10/stock-backup-2026-10-10.tar
+.env.before-local
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
 
 # Trading/private artifacts
 trade_logs/

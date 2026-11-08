@@ -9,7 +9,7 @@ from market_db_modules.company_evidence import (
 )
 from market_db_modules.foundation_store import digest
 from research_foundation_contracts import CompanyFact, EvidencePackage
-from services.discovery.company_evidence_extraction import comparison_key, guidance_midpoint
+from services.discovery.company_evidence_extraction import comparison_key, guidance_midpoint, report_date
 
 
 MAX_DOCUMENTS = 24
@@ -17,23 +17,50 @@ MAX_FACTS = 240
 REQUIRED_METRICS = {'revenue', 'eps_diluted', 'operating_cash_flow', 'cash'}
 
 
+def _retained_consensus(consensus_documents, facts, at):
+    """The newest estimate, plus the last one captured for the most recent report already due by `at`.
+
+    Yahoo rolls on to the next earnings date once a company reports, so without the second document
+    the estimate the reported quarter is judged against would be gone. `consensus_documents` is in
+    publication order; older captures of either report are dropped.
+    """
+    if not consensus_documents:
+        return set()
+    reports = {}
+    for fact in facts:
+        reported = report_date(fact)
+        if reported is not None:
+            reports.setdefault(fact['document_id'], reported)
+    kept = {consensus_documents[-1]['document_id']}
+    cutoff = datetime.fromisoformat(at).date()
+    due = [doc for doc in consensus_documents if reports.get(doc['document_id']) and reports[doc['document_id']] <= cutoff]
+    if due:
+        last_report = max(reports[doc['document_id']] for doc in due)
+        kept.add([doc for doc in due if reports[doc['document_id']] == last_report][-1]['document_id'])
+    return kept
+
+
 def build_company_package(company, document_ids, at, policy, *, db_path, gaps=()):
     documents = {doc['document_id']: doc for doc in list_company_documents(company['id'], as_of=at, db_path=db_path)}
     documents.update({identity: get_evidence_document(identity, db_path=db_path) for identity in document_ids})
     ordered = sorted(documents.values(), key=lambda doc: (doc['published_at'], doc['ingested_at'], doc['document_id']))
     gaps = list(gaps)
-    # Consensus is re-fetched every refresh with published_at=now; keep only the latest so it neither
-    # crowds primary documents out of the window nor stands in for them as the newest disclosure.
+    # Consensus is re-fetched every refresh with published_at=now; keep at most two (see
+    # _retained_consensus) so it neither crowds primary documents out of the window nor stands in for
+    # them as the newest disclosure.
     primary = [doc for doc in ordered if doc['document_type'] != 'consensus']
     if len(primary) > MAX_DOCUMENTS:
         gaps.append('document_history_truncated')
     kept = {doc['document_id'] for doc in primary[-MAX_DOCUMENTS:]}
-    latest_consensus = [doc for doc in ordered if doc['document_type'] == 'consensus'][-1:]
-    kept.update(doc['document_id'] for doc in latest_consensus)
+    company_facts = list_company_facts(company['id'], as_of=at, db_path=db_path)
+    consensus = [doc for doc in ordered if doc['document_type'] == 'consensus']
+    retained_consensus = _retained_consensus(consensus, company_facts, at)
+    kept.update(retained_consensus)
+    # The pre-report estimate is kept only as a baseline; its earnings date is no longer upcoming.
+    baseline_only = retained_consensus - {consensus[-1]['document_id']} if consensus else set()
     ordered = [doc for doc in ordered if doc['document_id'] in kept]
     documents = {doc['document_id']: doc for doc in ordered}
-    facts = [f for f in list_company_facts(company['id'], as_of=at, db_path=db_path)
-             if f['document_id'] in documents and f['kind'] != 'derived']
+    facts = [f for f in company_facts if f['document_id'] in documents and f['kind'] != 'derived']
     # Preserve the newest economic periods first; comparative history has lower priority.
     facts.sort(key=lambda fact: (fact['fiscal_period'], fact['available_at'], fact['fact_id']))
     if len(facts) > MAX_FACTS:
@@ -53,6 +80,7 @@ def build_company_package(company, document_ids, at, policy, *, db_path, gaps=()
     superseded_documents = {doc.get('supersedes_document_id') for doc in ordered}
     scheduled = tuple({**event, 'document_id': doc['document_id'],
                        'superseded': doc['document_id'] in superseded_documents} for doc in ordered
+                      if doc['document_id'] not in baseline_only
                       for event in doc.get('metadata', {}).get('scheduled_events', []))
     if not scheduled:
         gaps.append('scheduled_earnings_event_unavailable')

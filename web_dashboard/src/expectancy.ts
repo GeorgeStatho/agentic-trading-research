@@ -1,7 +1,7 @@
 /** `/api/decision-expectancy`: P/L of executed decisions, grouped into cohorts. */
 
 export type Basis = 'marked' | 'closed'
-export type GroupBy = 'confidence' | 'dte_bucket' | 'selector_mode' | 'sector' | 'time_of_day' | 'confidence_x_dte_bucket' | 'confidence_x_selector_mode' | 'entry_gate' | 'market_regime' | 'evidence_count_bucket' | 'trend_state' | 'relative_strength_state' | 'volume_state'
+export type GroupBy = 'confidence' | 'dte_bucket' | 'selector_mode' | 'sector' | 'time_of_day' | 'confidence_x_dte_bucket' | 'confidence_x_selector_mode' | 'entry_gate' | 'market_regime' | 'evidence_count_bucket' | 'trend_state' | 'relative_strength_state' | 'volume_state' | 'ticker' | 'industry' | 'exit_reason' | 'catalyst_family' | 'holding_period'
 export type SortKey = 'label' | 'trade_count' | 'pnl_sample_count' | 'win_rate_pct' | 'expectancy_pct'
 
 export type Cohort = {
@@ -36,7 +36,8 @@ export type ExpectancyPayload = {
 
 export type ExpectancyFilters = { basis: Basis; groupBy: GroupBy; withinDays: number; minSamples: number; decision: string; confidence: string; sector: string }
 
-export async function getExpectancy(filters: ExpectancyFilters): Promise<ExpectancyPayload> {
+/** The query for these filters; the page's CSV link reuses it so a download matches the screen. */
+export function expectancyPath(filters: ExpectancyFilters): string {
   const params = new URLSearchParams({
     basis: filters.basis,
     group_by: filters.groupBy,
@@ -46,7 +47,11 @@ export async function getExpectancy(filters: ExpectancyFilters): Promise<Expecta
     confidence: filters.confidence,
   })
   if (filters.sector.trim()) params.set('sector', filters.sector.trim().toLowerCase())
-  const response = await fetch(`/api/decision-expectancy?${params.toString()}`)
+  return `/api/decision-expectancy?${params.toString()}`
+}
+
+export async function getExpectancy(filters: ExpectancyFilters): Promise<ExpectancyPayload> {
+  const response = await fetch(expectancyPath(filters))
   const body = await response.json().catch(() => null) as ExpectancyPayload | { error?: string } | null
   if (!response.ok) throw new Error((body as { error?: string } | null)?.error ?? `Failed to load expectancy: ${response.status}`)
   return body as ExpectancyPayload

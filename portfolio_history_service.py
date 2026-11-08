@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -12,6 +13,10 @@ from services.core.trading_config import AlpacaSettings
 
 ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_PATH = ROOT_DIR / "web_dashboard" / "public" / "portfolio_history.json"
+TIMEOUT_SECONDS = 15
+# Daily history barely moves within a minute; the health route and the KPIs both poll it.
+HISTORY_TTL_SECONDS = 60
+_HISTORY_CACHE: dict = {}
 
 
 def build_portfolio_history_url() -> str:
@@ -28,6 +33,10 @@ def build_portfolio_history_url() -> str:
 
 
 def fetch_portfolio_history() -> dict:
+    cached = _HISTORY_CACHE.get("history")
+    now = time.monotonic()
+    if cached and now - cached[0] < HISTORY_TTL_SECONDS:
+        return cached[1]
     alpaca = AlpacaSettings.from_env()
     api_key = alpaca.api_key
     api_secret = alpaca.api_secret
@@ -45,13 +54,15 @@ def fetch_portfolio_history() -> dict:
     )
 
     try:
-        with urlopen(request) as response:
-            return json.load(response)
+        with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            payload = json.load(response)
     except HTTPError as exc:
         details = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"Alpaca request failed with status {exc.code}: {details}") from exc
     except URLError as exc:
         raise RuntimeError(f"Failed to reach Alpaca API: {exc.reason}") from exc
+    _HISTORY_CACHE["history"] = (now, payload)
+    return payload
 
 
 def write_output(data: dict, output_path: Path = DEFAULT_OUTPUT_PATH) -> None:

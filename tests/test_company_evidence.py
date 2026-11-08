@@ -8,11 +8,9 @@ import unittest
 from unittest.mock import Mock, patch
 
 from tests.research_foundation_fixtures import database, START, ENTRY, END
-from market_db_modules.company_collection import cached_response, collection_state
+from market_db_modules.company_collection import collection_state
 from market_db_modules.company_evidence import (
-    get_company_fact,
     get_evidence_package,
-    latest_evidence_package,
 )
 from services.discovery.company_evidence_extraction import ingest_source, validate_extracted_fact
 from services.discovery.company_evidence_packages import build_company_package

@@ -34,6 +34,8 @@ class FollowerSettings:
     itm_min_delta: float = 0.70
     force_exit_dte: int = 1
     max_hold_days: float = 30.0
+    # Production holds about two days, so a one-week-longer expiry barely differs; two weeks does.
+    longer_dte_extra_days: int = 14
 
     @classmethod
     def from_env(cls, env=None) -> 'FollowerSettings':
@@ -42,7 +44,9 @@ class FollowerSettings:
         return cls(spread_width_pct=float(env.get('FOLLOWER_SPREAD_WIDTH_PCT', defaults.spread_width_pct)),
                    itm_min_delta=float(env.get('FOLLOWER_ITM_MIN_DELTA', defaults.itm_min_delta)),
                    force_exit_dte=int(env.get('FOLLOWER_FORCE_EXIT_DTE', defaults.force_exit_dte)),
-                   max_hold_days=float(env.get('FOLLOWER_MAX_HOLD_DAYS', defaults.max_hold_days)))
+                   max_hold_days=float(env.get('FOLLOWER_MAX_HOLD_DAYS', defaults.max_hold_days)),
+                   longer_dte_extra_days=int(env.get('FOLLOWER_LONGER_DTE_EXTRA_DAYS',
+                                                     defaults.longer_dte_extra_days)))
 
 
 def _follower(name, env, primary):

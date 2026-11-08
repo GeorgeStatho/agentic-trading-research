@@ -69,12 +69,12 @@ class FollowerAccountTests(unittest.TestCase):
 
 class FollowerSettingsTests(unittest.TestCase):
     def test_defaults(self):
-        self.assertEqual(FollowerSettings.from_env({}), FollowerSettings(0.05, 0.70, 1, 30.0))
+        self.assertEqual(FollowerSettings.from_env({}), FollowerSettings(0.05, 0.70, 1, 30.0, 14))
 
     def test_reads_env_knobs(self):
         env = {'FOLLOWER_SPREAD_WIDTH_PCT': '0.08', 'FOLLOWER_ITM_MIN_DELTA': '0.8',
-               'FOLLOWER_FORCE_EXIT_DTE': '2', 'FOLLOWER_MAX_HOLD_DAYS': '10'}
-        self.assertEqual(FollowerSettings.from_env(env), FollowerSettings(0.08, 0.8, 2, 10.0))
+               'FOLLOWER_FORCE_EXIT_DTE': '2', 'FOLLOWER_MAX_HOLD_DAYS': '10', 'FOLLOWER_LONGER_DTE_EXTRA_DAYS': '21'}
+        self.assertEqual(FollowerSettings.from_env(env), FollowerSettings(0.08, 0.8, 2, 10.0, 21))
 
 
 if __name__ == '__main__':

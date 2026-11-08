@@ -6,7 +6,7 @@ from services.research.research_promotion import guard_policy
 
 
 # v2: quotes may come from view-only articles' title and summary, which the model also sees.
-POLICY_VERSION = "evidence-thesis-v2"
+POLICY_VERSION = "evidence-thesis-v3"
 MODES = {"off", "shadow", "enforce"}
 
 

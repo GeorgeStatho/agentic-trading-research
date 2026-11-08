@@ -377,7 +377,7 @@ class AlpacaTradingGateway:
         """Read all order pages, overlapping boundaries so tied timestamps survive."""
         from datetime import timedelta
         from alpaca.trading.requests import GetOrdersRequest
-        from services.trading.outcome_reconciliation import parse_timestamp
+        from catalyst_models import timestamp as parse_timestamp
 
         orders = {}
         after = None

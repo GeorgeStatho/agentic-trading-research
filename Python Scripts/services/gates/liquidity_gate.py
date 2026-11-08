@@ -1,8 +1,9 @@
 """Quote depth, age and spread checks independent of open-interest ranking."""
 from catalyst_models import timestamp
 from services.evaluation.evaluation_clock import evaluation_now
-from services.runtime.execution_telemetry import number, quote_values
+from services.runtime.execution_telemetry import quote_values
 from services.gates.contract_policy import ContractPolicy
+from services.core.numbers import finite_float
 
 
 def evaluate_liquidity(contract, *, as_of=None, quantity=1, policy=None):
@@ -12,7 +13,7 @@ def evaluate_liquidity(contract, *, as_of=None, quantity=1, policy=None):
     bid, ask, mid, spread = quote_values(quote)
     quoted = timestamp(quote.get('timestamp'))
     age = (now - quoted).total_seconds() if quoted else None
-    bid_size, ask_size = number(quote.get('bid_size')), number(quote.get('ask_size'))
+    bid_size, ask_size = finite_float(quote.get('bid_size')), finite_float(quote.get('ask_size'))
     minimum_size = max(policy.minimum_quote_size, quantity)
     reasons = []
     if mid is None:

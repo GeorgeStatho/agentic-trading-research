@@ -5,7 +5,7 @@ from contextlib import closing
 import logging
 
 from agent_helpers.catalyst_classifier import catalyst_inputs
-from agent_helpers.llm_client import ModelQuotaExhausted, ModelUnavailable
+from agent_helpers.llm_errors import ModelQuotaExhausted, ModelUnavailable
 from agent_helpers.text_utils import build_token_limited_batches
 from agent_stages import catalyst_classifier
 from catalyst_models import LABEL_VERSION

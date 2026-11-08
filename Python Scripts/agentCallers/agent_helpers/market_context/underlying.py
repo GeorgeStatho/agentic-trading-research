@@ -3,9 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from services.core.settings import get_settings
-from .alpaca_base import (
-    compute_realized_volatility,
-)
+from agent_helpers.volatility import compute_realized_volatility
 from .underlying_bars import (
     _extract_bar_close as _extract_bar_close_impl,
     _extract_bar_high as _extract_bar_high_impl,
@@ -15,7 +13,6 @@ from .underlying_bars import (
     _extract_bar_volume as _extract_bar_volume_impl,
     _extract_bar_vwap as _extract_bar_vwap_impl,
     _fetch_daily_stock_bars as _fetch_daily_stock_bars_impl,
-    _normalize_stock_bars_response,
 )
 from .underlying_indicators import _build_technical_indicators_snapshot, _empty_technical_indicators_snapshot
 from .underlying_technical_summary import build_technical_summary

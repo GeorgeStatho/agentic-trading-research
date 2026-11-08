@@ -12,7 +12,8 @@ from agent_helpers.manager_inputs import (
     build_market_context,
 )
 from agent_contracts import ManagerResult
-from agent_helpers.llm_client import Client, build_model_response_diagnostic
+from agent_helpers.llm_client import Client
+from agent_helpers.llm_usage import build_model_response_diagnostic
 from agent_helpers.text_utils import extract_json_value
 from services.gates.evidence_continuation_gate import evaluate_evidence_continuation_gate
 from .manager_payload_context import (
@@ -34,9 +35,8 @@ from .manager_model import (
     ask_model,
     get_default_client,
     normalize_decision,
-    normalize_target_dte_bucket,
-    target_dte_bucket_to_expiration_filters,
 )
+from services.options.option_dte_buckets import normalize_target_dte_bucket, target_dte_bucket_to_expiration_filters
 
 
 def _apply_manager_evidence_payload(

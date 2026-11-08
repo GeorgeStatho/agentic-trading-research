@@ -3,6 +3,7 @@ import Graph from './Graph.tsx'
 import LiveDecisions from './liveDecisions.tsx'
 import LivePipeline from './livePipeline.tsx'
 import LiveSafeguards from './liveSafeguards.tsx'
+import { MacroCalendarStrip } from './macroCalendar.tsx'
 import LiveNewsLag from './liveNewsLag.tsx'
 import LiveNewsfeed from './liveNewsfeed.tsx'
 import OpenPositionsTable from './openPositionsTable.tsx'
@@ -16,6 +17,7 @@ function DashboardHome() {
     <main className="flex flex-col gap-3">
       <PageHeader title="Operations" description="What the bot holds and is doing right now. Paper trading through Alpaca." />
       <DashboardKpis />
+      <MacroCalendarStrip />
       <WhyBotTradedPanel />
       <Graph />
       <div className="flex flex-wrap gap-3">

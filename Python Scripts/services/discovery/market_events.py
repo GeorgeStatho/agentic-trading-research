@@ -17,7 +17,8 @@ from services.discovery.company_evidence_policy import CompanyEvidencePolicy
 from services.discovery.discovery_policy import DiscoveryPolicy
 from Webscraping.company_evidence.sec import SECAdapter
 from Webscraping.company_evidence.sec_current import SECCurrentFilings
-from Webscraping.company_evidence.transport import EvidenceHTTP, utc_now
+from Webscraping.company_evidence.transport import EvidenceHTTP
+from services.core.time_utils import utc_now
 
 SOURCE = 'market_event'
 FEED_STATE = ('sec_current', 'market')

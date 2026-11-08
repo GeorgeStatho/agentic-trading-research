@@ -6,7 +6,6 @@ model is unchanged reuses the incumbent's output; a changed stage is called agai
 """
 from collections import Counter
 from contextlib import closing
-from datetime import datetime, timezone
 import json
 import logging
 import time
@@ -22,14 +21,11 @@ from market_db_modules.research_observations import get_research_observation
 from services.evaluation.decision_observations import manager_input_payload
 from services.evaluation.forward_evaluation_policy import ChallengerPolicy
 from services.evaluation.paired_decisions import DIRECTIONAL, finalize_paired_decision
+from services.core.time_utils import utc_now_iso
 
 LOGGER = logging.getLogger(__name__)
 MAX_ATTEMPTS = 2
 INCUMBENT_STAGES = ('post_strategist', 'pre_manager', 'pre_gates')
-
-
-def utc_now():
-    return datetime.now(timezone.utc).isoformat()
 
 
 class EvaluationUnavailable(Exception):
@@ -236,7 +232,7 @@ class DailyCallLimit(Exception):
 
 
 def run_challenger_evaluations(*, policy=None, strategist=None, manager=None, persist_check=None, identity=None,
-                               clock=utc_now, db_path=None):
+                               clock=utc_now_iso, db_path=None):
     policy = policy or ChallengerPolicy.from_env()
     if not policy.enabled:
         return {'status': 'disabled'}

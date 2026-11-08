@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { getDashboardKpis } from './dashboardKpisApi.ts'
 import {
   ROUTES,
@@ -101,7 +101,7 @@ function App() {
       ) : null}
 
       <div className="mx-auto w-full max-w-[1400px] min-w-0 px-5 py-5">
-        {tab.render(demoMode)}
+        <Suspense fallback={<p className="text-dim">Loading…</p>}>{tab.render(demoMode)}</Suspense>
       </div>
     </div>
   )

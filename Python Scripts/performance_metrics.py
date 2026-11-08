@@ -13,25 +13,11 @@ from portfolio_history_service import fetch_portfolio_history
 from services.core.settings import load_process_settings
 from services.core.env_parsing import env_positive_int
 from services.core.numbers import safe_float
+from services.core.time_utils import parse_utc_timestamp
 
 
 DEFAULT_ANNUAL_RISK_FREE_RATE = 0.045
 DEFAULT_TRADING_DAYS_PER_YEAR = 252
-
-
-def _parse_datetime(value: Any) -> datetime | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-
-    normalized = text.replace("Z", "+00:00")
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
 
 
 def _round_metric(value: float | None, digits: int = 4) -> float | None:
@@ -62,7 +48,7 @@ def normalize_equity_curve(portfolio_history: dict[str, Any]) -> list[dict[str, 
         if timestamp_seconds is not None:
             iso_timestamp = datetime.fromtimestamp(timestamp_seconds, tz=timezone.utc).isoformat()
         else:
-            parsed = _parse_datetime(raw_timestamp)
+            parsed = parse_utc_timestamp(raw_timestamp)
             if parsed is not None:
                 iso_timestamp = parsed.isoformat()
 
@@ -190,7 +176,7 @@ def compute_trade_metrics(fills: list[dict[str, Any]]) -> dict[str, float | int 
 
     ordered_fills = sorted(
         fills,
-        key=lambda fill: _parse_datetime(fill.get("transaction_time")) or datetime.min.replace(tzinfo=timezone.utc),
+        key=lambda fill: parse_utc_timestamp(fill.get("transaction_time")) or datetime.min.replace(tzinfo=timezone.utc),
     )
 
     inventory: dict[str, dict[str, float]] = {}

@@ -7,7 +7,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from api_support.dashboard import status_snapshot, summarize_bot_status
+from api_support.bot_status import status_snapshot, summarize_bot_status
 from services.core.status_files import StatusReporter
 
 

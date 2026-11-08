@@ -1,6 +1,6 @@
 """Collector-owned ingestion; decision payloads only read its persisted packages."""
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import os
 from urllib.parse import urlparse
 
@@ -9,17 +9,18 @@ from market_db_modules.bootstrap import initialize_database
 from market_db_modules.company_collection import (
     collection_state, get_issuer_mapping, save_collection_state, update_issuer_mapping,
 )
+from market_db_modules.company_evidence import latest_evidence_package
 from services.discovery.company_evidence_extraction import ingest_source
 from services.discovery.company_evidence_packages import build_company_package
 from services.discovery.company_evidence_policy import CompanyEvidencePolicy, issuer_configuration
 from Webscraping.company_evidence.issuer import IssuerReleaseAdapter
 from Webscraping.company_evidence.sec import SECAdapter
-from Webscraping.company_evidence.transport import EvidenceHTTP, utc_now
+from Webscraping.company_evidence.transport import EvidenceHTTP
 from Webscraping.company_evidence.yahoo_consensus import YahooConsensusAdapter
 from market_db_modules.evidence_refresh import due_refresh_companies, due_refresh_requests, finish_refresh_requests
-from market_db_modules.evidence_refresh import finish_refresh_requests
 from services.discovery.company_evidence_demand import enqueue_company_interest
 from services.research.research_lock import ResearchSessionBusy, research_session_lock
+from services.core.time_utils import utc_now
 
 
 def collect_company(company, adapters, policy, *, db_path=None, clock=utc_now):
@@ -73,10 +74,87 @@ def collect_company_evidence(*, db_path=None, policy=None, clock=utc_now, consen
         return {'status': 'busy', 'companies': []}
 
 
-def _collect_requested_evidence(db_path, policy, clock, consensus_adapter):
+def collect_companies_now(symbols, *, db_path=None, policy=None, clock=utc_now, consensus_adapter=None):
+    """Collect, before the strategist reads them, the given companies that lack a fresh package.
+
+    Runs under the collector lock and returns 'busy' rather than waiting for the news collector.
+    Queued requests for the collected companies are completed as the collector would.
+    """
+    policy = policy or CompanyEvidencePolicy.from_env()
+    if not (policy.enabled and policy.before_strategist):
+        return {'status': 'disabled', 'companies': []}
+    if consensus_adapter is None and policy.consensus == 'yahoo':
+        consensus_adapter = YahooConsensusAdapter()
+    try:
+        with research_session_lock(db_path, 'company-evidence-collector'):
+            return _collect_now(symbols, db_path, policy, clock, consensus_adapter)
+    except ResearchSessionBusy:
+        return {'status': 'busy', 'companies': []}
+
+
+def _collect_now(symbols, db_path, policy, clock, consensus_adapter):
+    user_agent = _sec_user_agent()
+    if user_agent is None:
+        return _CONFIGURATION_REQUIRED
+    initialize_database(db_path=db_path)
+    at = clock().isoformat()
+    companies = _companies_needing_evidence(symbols, at, policy, db_path)
+    if not companies:
+        return {'status': 'fresh', 'companies': []}
+    sec = _sec_adapter(policy, db_path, user_agent, clock)
+    mapping = _issuer_map(sec)
+    if isinstance(mapping, Exception):
+        return {'status': 'provider_unavailable', 'reason': f'sec_issuer_map:{type(mapping).__name__}', 'companies': []}
+    outcomes = _collect_companies(companies, issuer_configuration(), mapping, sec, policy, user_agent,
+                                  clock, consensus_adapter, db_path)
+    return {'status': 'completed', 'companies': outcomes, 'consensus': 'configured' if consensus_adapter else 'unavailable'}
+
+
+def _companies_needing_evidence(symbols, at, policy, db_path):
+    wanted = list(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()))
+    if not wanted:
+        return []
+    with closing(get_connection(db_path)) as conn:
+        rows = conn.execute(f"SELECT id,symbol,name FROM companies WHERE UPPER(symbol) IN ({','.join('?' * len(wanted))})",
+                            wanted).fetchall()
+    by_symbol = {row['symbol'].upper(): dict(row) for row in rows}
+    now = datetime.fromisoformat(at)
+    stale = []
+    for symbol in wanted:
+        company = by_symbol.get(symbol)
+        if company is None:
+            continue
+        package = latest_evidence_package(company['id'], as_of=at, db_path=db_path)
+        if package and (now - datetime.fromisoformat(package['information_cutoff_time'])).total_seconds() < policy.refresh_seconds:
+            continue
+        stale.append(company)
+    return stale[:policy.before_strategist_max_companies]
+
+
+_CONFIGURATION_REQUIRED = {'status': 'configuration_required',
+                           'reason': 'SEC_USER_AGENT must identify the operator and contact email'}
+
+
+def _sec_user_agent():
     user_agent = os.getenv('SEC_USER_AGENT', '').strip()
-    if '@' not in user_agent:
-        return {'status': 'configuration_required', 'reason': 'SEC_USER_AGENT must identify the operator and contact email'}
+    return user_agent if '@' in user_agent else None
+
+
+def _sec_adapter(policy, db_path, user_agent, clock):
+    return SECAdapter(EvidenceHTTP('sec', ('www.sec.gov', 'data.sec.gov'), policy, db_path, user_agent, clock=clock), policy)
+
+
+def _issuer_map(sec):
+    try:
+        return sec.issuer_map()
+    except Exception as exc:
+        return exc
+
+
+def _collect_requested_evidence(db_path, policy, clock, consensus_adapter):
+    user_agent = _sec_user_agent()
+    if user_agent is None:
+        return _CONFIGURATION_REQUIRED
     initialize_database(db_path=db_path)
     config = issuer_configuration()
     at = clock().isoformat()
@@ -84,11 +162,15 @@ def _collect_requested_evidence(db_path, policy, clock, consensus_adapter):
     companies = due_refresh_companies(at=at, limit=policy.companies_per_cycle, db_path=db_path)
     if not companies:
         return {'status': 'idle', 'companies': []}
-    sec = SECAdapter(EvidenceHTTP('sec', ('www.sec.gov', 'data.sec.gov'), policy, db_path, user_agent, clock=clock), policy)
-    try:
-        mapping = sec.issuer_map()
-    except Exception as exc:
-        return {'status': 'provider_unavailable', 'reason': f'sec_issuer_map:{type(exc).__name__}', 'companies': []}
+    sec = _sec_adapter(policy, db_path, user_agent, clock)
+    mapping = _issuer_map(sec)
+    if isinstance(mapping, Exception):
+        return {'status': 'provider_unavailable', 'reason': f'sec_issuer_map:{type(mapping).__name__}', 'companies': []}
+    outcomes = _collect_companies(companies, config, mapping, sec, policy, user_agent, clock, consensus_adapter, db_path)
+    return {'status': 'completed', 'companies': outcomes, 'consensus': 'configured' if consensus_adapter else 'unavailable'}
+
+
+def _collect_companies(companies, config, mapping, sec, policy, user_agent, clock, consensus_adapter, db_path):
     outcomes = []
     for company in companies:
         requests = due_refresh_requests(company['id'], at=clock().isoformat(), db_path=db_path)
@@ -101,7 +183,7 @@ def _collect_requested_evidence(db_path, policy, clock, consensus_adapter):
             reason = 'collection_failed:' + type(exc).__name__
             outcomes.append({'symbol': company['symbol'], 'status': reason})
             finish_refresh_requests(requests, at=clock().isoformat(), reason=reason, db_path=db_path)
-    return {'status': 'completed', 'companies': outcomes, 'consensus': 'configured' if consensus_adapter else 'unavailable'}
+    return outcomes
 
 
 def _collect_resolved_company(company, config, mapping, sec, policy, user_agent, clock, consensus_adapter, db_path):

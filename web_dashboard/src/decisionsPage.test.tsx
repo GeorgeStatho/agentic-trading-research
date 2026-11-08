@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { DecisionsPayload } from './decisions.ts'
 import { DecisionsView } from './decisionsPage.tsx'
@@ -172,6 +172,55 @@ describe('Decisions page', () => {
     expect(outcome.textContent).toContain('+12.50%')
     expect(outcome.textContent).toContain('Take profit')
     expect(outcome.textContent).toContain('ord-1')
+  })
+
+  it("steps back to a past day, asks the server for it, and counts that day", async () => {
+    const onDayChange = vi.fn()
+    const { rerender } = render(<DecisionsView payload={payload()} notices={[]} initialQuery="" onDayChange={onDayChange} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Previous day' }))
+    expect(onDayChange).toHaveBeenLastCalledWith('2026-11-03')
+    expect((screen.getByLabelText('Decision day') as HTMLInputElement).value).toBe('2026-11-03')
+    expect(screen.getByRole('button', { name: 'Today' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByText('Loading this day’s decisions…')).toBeTruthy()
+
+    const day = { market_day: '2026-11-03', evaluated: 40, trade_candidates: 2, call: 1, put: 0, executed: 0 }
+    rerender(<DecisionsView payload={payload({ records: [yesterday], day })} notices={[]} initialQuery="" onDayChange={onDayChange} />)
+    expect(within(list()).getAllByRole('button').map((row) => row.textContent)).toEqual([expect.stringContaining('PBF')])
+    expect(screen.getByRole('group', { name: 'Decision summary' }).textContent).toContain('40 evaluated')
+    expect(screen.getByText(/Listing the newest 1 of this day's 40 decisions/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Download CSV' }).getAttribute('href')).toBe('/api/decision-autopsies?day=2026-11-03&limit=250&format=csv')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Next day' }))
+    expect(onDayChange).toHaveBeenLastCalledWith(null)
+    expect(screen.getByRole('button', { name: 'Today' }).getAttribute('aria-pressed')).toBe('true')
+    expect((screen.getByRole('button', { name: 'Next day' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('filters a past day from what is loaded when it cannot ask the server, as in the demo', async () => {
+    render(<DecisionsView payload={payload()} notices={[]} initialQuery="" />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Previous day' }))
+    expect(within(list()).getAllByRole('button').map((row) => row.textContent)).toEqual([expect.stringContaining('PBF')])
+  })
+
+  it('downloads the loaded decisions as CSV', () => {
+    render(<DecisionsView payload={payload()} notices={[]} initialQuery="" />)
+    expect(screen.getByRole('link', { name: 'Download CSV' }).getAttribute('href')).toBe('/api/decision-autopsies?limit=250&format=csv')
+  })
+
+  it('compares a traded decision with SPY and its sector', () => {
+    const benchmark = { underlying_move: 3.2, spy_return: 1.1, sector_return: 2.0, residual_move: 1.2,
+      iv_at_entry: 0.42, iv_at_exit: 0.35, return_1d_after_exit: -0.5, return_3d_after_exit: 0.8 }
+    const traded = blockedCall({ v2_verdicts: [], benchmark, outcome: { trade_executed: true, order_id: 'ord-1', pnl_pct: 12.5 } })
+    render(<DecisionsView payload={payload({ records: [traded] })} notices={[]} initialQuery="" />)
+
+    const market = within(detail()).getByRole('region', { name: /Outcome/ }).textContent ?? ''
+    expect(market).toContain('vs SPY')
+    expect(market).toContain('+3.20%')
+    expect(market).toContain('+1.10%')
+    expect(market).toContain('+1.20%')
+    expect(market).toContain('42% → 35%')
   })
 
   it('lists each gate with its mode and result, enforced and shadow apart', async () => {

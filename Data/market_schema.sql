@@ -248,7 +248,9 @@ CREATE TABLE IF NOT EXISTS llm_call_usage (
     completion_tokens INTEGER,
     reasoning_tokens INTEGER,
     cached_tokens INTEGER,
-    cost_usd REAL
+    cost_usd REAL,
+    -- The pipeline stage that asked (manager, strategist, ...); NULL for calls recorded before stages were.
+    stage TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_llm_call_usage_called_at ON llm_call_usage(called_at);
 

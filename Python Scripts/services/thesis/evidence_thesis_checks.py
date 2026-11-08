@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import re
 
 from market_db_modules.company_evidence import get_company_fact, get_evidence_document, get_evidence_package
-from services.discovery.company_evidence_extraction import comparison_key
+from services.discovery.company_evidence_extraction import comparison_key, consensus_matches_actual
 from services.thesis.evidence_thesis_numbers import NumberSupport, incompatible_calculation_facts, stated_numbers
 
 
@@ -136,11 +136,13 @@ def _fact_excerpt(fact, sources):
 
 def _surprise_claimed_without_consensus(statement, cited_facts, supporting_texts):
     """An asserted surprise needs a cited consensus fact paired with a cited actual of the same metric
-    and fiscal period, or a cited source asserting it too."""
+    and fiscal period (or the quarter a next_report estimate was for), or a cited source asserting it too."""
     if not _MARKET_SURPRISE.search(statement):
         return False
     actuals = {(fact["metric"], fact["fiscal_period"]) for fact in cited_facts if fact["kind"] == "actual"}
     if any(fact["kind"] == "consensus" and (fact["metric"], fact["fiscal_period"]) in actuals for fact in cited_facts):
+        return False
+    if any(consensus_matches_actual(first, second) for first in cited_facts for second in cited_facts):
         return False
     return not any(_MARKET_SURPRISE.search(text) for text in supporting_texts)
 
@@ -218,7 +220,9 @@ def _baseline_cited(baseline_type, facts):
     if baseline_type == "prior_guidance":
         return pairs(by_kind("prior_guidance", "guidance"), by_kind("guidance"), True)
     if baseline_type == "consensus":
-        return pairs(by_kind("consensus"), by_kind("actual", "guidance"), True)
+        return (pairs(by_kind("consensus"), by_kind("actual", "guidance"), True)
+                or any(consensus_matches_actual(estimate, reported)
+                       for estimate in by_kind("consensus") for reported in by_kind("actual")))
     if baseline_type == "prior_actual":
         return pairs(by_kind("actual"), by_kind("actual"), False)
     return False

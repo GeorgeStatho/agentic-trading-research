@@ -86,6 +86,12 @@ def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
     return conn
 
 
+def analyze_database(db_path: Path | str | None = None) -> None:
+    """Refresh the planner statistics in sqlite_stat1; sampling keeps this near a second on the live file."""
+    with closing(get_connection(db_path)) as conn:
+        conn.executescript("PRAGMA analysis_limit=1000; ANALYZE;")
+
+
 def initialize_schema(db_path: Path | str | None, schema_path: Path | str) -> None:
     schema = Path(schema_path).read_text(encoding="utf-8")
     with closing(get_connection(db_path)) as conn, conn:
@@ -190,15 +196,6 @@ def json_text(value: Any) -> str | None:
     if value is None:
         return None
     return json.dumps(value, sort_keys=True)
-
-
-def coerce_float(value: Any) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def clean_text(value: Any) -> str | None:

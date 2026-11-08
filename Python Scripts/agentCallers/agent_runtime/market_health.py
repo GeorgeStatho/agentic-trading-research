@@ -13,11 +13,12 @@ def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) 
     )
     return response["message"]["content"]
 
-reply = ask_model(
-    researcher,
-    model="llama3.1",
-    system_prompt="You are a stock researcher.",
-    user_prompt="What should I investigate about AAPL before a deeper analysis?",
-)
+if __name__ == "__main__":
+    reply = ask_model(
+        researcher,
+        model="llama3.1",
+        system_prompt="You are a stock researcher.",
+        user_prompt="What should I investigate about AAPL before a deeper analysis?",
+    )
 
-print(reply)
+    print(reply)

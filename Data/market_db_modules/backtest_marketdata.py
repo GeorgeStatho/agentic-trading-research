@@ -15,12 +15,13 @@ try:
 except ImportError:  # pragma: no cover - dependency is installed in runtime images
     requests = None
 
-from db_common import coerce_float, get_connection, json_text
+from db_common import get_connection, json_text
 
 from .backtest_imports import _normalized_option_symbol, _normalized_timestamp
-from .backtesting import _parse_timestamp
 from .bootstrap import initialize_database
 from .marketdata_budget import MarketDataBudget
+from services.core.time_utils import parse_timestamp
+from services.core.numbers import safe_float
 
 
 MARKETDATA_OPTION_QUOTES_URL = "https://api.marketdata.app/v1/options/quotes"
@@ -195,8 +196,8 @@ def _marketdata_quotes(option_symbol: str, payload: dict[str, Any]) -> tuple[lis
     invalid_count = 0
     for index, updated in enumerate(updates):
         quote_at = _marketdata_timestamp(updated)
-        bid_price = coerce_float(_array_value(payload, "bid", index))
-        ask_price = coerce_float(_array_value(payload, "ask", index))
+        bid_price = safe_float(_array_value(payload, "bid", index))
+        ask_price = safe_float(_array_value(payload, "ask", index))
         if quote_at is None or bid_price is None or ask_price is None or bid_price <= 0 or ask_price <= 0 or ask_price < bid_price:
             invalid_count += 1
             continue
@@ -210,14 +211,14 @@ def _marketdata_quotes(option_symbol: str, payload: dict[str, Any]) -> tuple[lis
                 "quote_at": quote_at,
                 "bid_price": bid_price,
                 "ask_price": ask_price,
-                "last_price": coerce_float(_array_value(payload, "last", index)),
-                "volume": coerce_float(_array_value(payload, "volume", index)),
-                "open_interest": coerce_float(_array_value(payload, "openInterest", index)),
-                "implied_volatility": coerce_float(_array_value(payload, "iv", index)),
-                "delta": coerce_float(_array_value(payload, "delta", index)),
-                "gamma": coerce_float(_array_value(payload, "gamma", index)),
-                "theta": coerce_float(_array_value(payload, "theta", index)),
-                "vega": coerce_float(_array_value(payload, "vega", index)),
+                "last_price": safe_float(_array_value(payload, "last", index)),
+                "volume": safe_float(_array_value(payload, "volume", index)),
+                "open_interest": safe_float(_array_value(payload, "openInterest", index)),
+                "implied_volatility": safe_float(_array_value(payload, "iv", index)),
+                "delta": safe_float(_array_value(payload, "delta", index)),
+                "gamma": safe_float(_array_value(payload, "gamma", index)),
+                "theta": safe_float(_array_value(payload, "theta", index)),
+                "vega": safe_float(_array_value(payload, "vega", index)),
                 "pricing_source": MARKETDATA_EOD_PRICING_SOURCE,
                 "raw_marketdata_quote": {
                     key: _array_value(payload, key, index)
@@ -245,8 +246,8 @@ def _request_marketdata_quotes(
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
         # MarketData's `to` is exclusive; include the final required market date.
         params={
-            "from": _parse_timestamp(start_at).astimezone(MARKET_TIMEZONE).date().isoformat(),
-            "to": (_parse_timestamp(end_at).astimezone(MARKET_TIMEZONE).date() + timedelta(days=1)).isoformat(),
+            "from": parse_timestamp(start_at).astimezone(MARKET_TIMEZONE).date().isoformat(),
+            "to": (parse_timestamp(end_at).astimezone(MARKET_TIMEZONE).date() + timedelta(days=1)).isoformat(),
         },
         timeout=timeout_seconds,
     )
@@ -327,7 +328,7 @@ def fetch_marketdata_eod_option_quotes(
         already_cached_count = 0
         pending_count = 0
         for decision in eligible:
-            decision_at = _parse_timestamp(decision.get("decision_run_at"))
+            decision_at = parse_timestamp(decision.get("decision_run_at"))
             option_symbol = _normalized_option_symbol(decision.get("selected_option_symbol"))
             if decision_at and option_symbol:
                 window_end = (decision_at + timedelta(minutes=entry_delay_minutes, hours=max_hold_hours)).isoformat()
@@ -424,7 +425,7 @@ def _new_result(fetch_run_id: int, *, source_decision_count: int) -> dict[str, A
 
 
 def _decision_window(decision: dict[str, Any], *, entry_delay_minutes: int, max_hold_hours: int) -> dict[str, Any]:
-    decision_at = _parse_timestamp(decision.get("decision_run_at"))
+    decision_at = parse_timestamp(decision.get("decision_run_at"))
     return {
         "decision": decision,
         "option_symbol": _normalized_option_symbol(decision.get("selected_option_symbol")) or "",
@@ -547,7 +548,7 @@ def _fetch_window(
         if quote_times:
             result["returned_quote_start_at"] = min(quote_times + ([result["returned_quote_start_at"]] if result["returned_quote_start_at"] else []))
             result["returned_quote_end_at"] = max(quote_times + ([result["returned_quote_end_at"]] if result["returned_quote_end_at"] else []))
-        window_complete = any(_parse_timestamp(at) >= _parse_timestamp(requested_end) for at in quote_times)
+        window_complete = any(parse_timestamp(at) >= parse_timestamp(requested_end) for at in quote_times)
         result["invalid_quote_count"] += invalid_count
         inserted_count = _store_quote_batch(conn, quotes)
         result["inserted_quote_count"] += inserted_count

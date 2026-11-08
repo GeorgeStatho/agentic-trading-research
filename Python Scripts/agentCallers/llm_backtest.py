@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 
+from services.core.logging_utils import configure_logging
 from services.core.settings import get_settings, load_process_settings
 
 if __name__ == "__main__":
@@ -99,7 +99,7 @@ def _score_direction(args: argparse.Namespace) -> None:
 
 def main() -> None:
     args = _parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    configure_logging()
     if args.score_direction:
         _score_direction(args)
         return

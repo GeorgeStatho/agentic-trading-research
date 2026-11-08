@@ -210,10 +210,14 @@ def list_decision_expectancy_rows(
                 history.resolved_outcome_label,
                 COALESCE(company.symbol, history.symbol) AS symbol,
                 industry.industry_key,
-                sector.sector_key
+                sector.sector_key,
+                outcome.primary_exit_reason,
+                outcome.catalyst_family
             FROM manager_decision_history AS history
             LEFT JOIN manager_decision_payloads AS payload
                 ON payload.manager_decision_history_id = history.id
+            LEFT JOIN position_outcomes AS outcome
+                ON outcome.manager_decision_history_id = history.id
             LEFT JOIN companies AS company ON company.id = history.company_id
             LEFT JOIN industries AS industry ON industry.id = company.industry_id
             LEFT JOIN sectors AS sector ON sector.id = industry.sector_id

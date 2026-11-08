@@ -5,7 +5,7 @@ import math
 
 from research_foundation_contracts import timestamp
 from .models import CollectionResult, SourceDocument
-from .transport import utc_now
+from services.core.time_utils import utc_now
 
 
 FACT_VERSION = 'yahoo-calendar-consensus-v1'

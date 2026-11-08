@@ -111,6 +111,7 @@ class FollowerFleet:
         underlying = str(candidate.get('symbol') or '').strip().upper()
         spot = _get_reference_stock_price(candidate.get('market_context') or {})
         chains = self._chains(underlying, spot)
+        production_delta = safe_float(((candidate.get('selected_option') or {}).get('greeks') or {}).get('delta'))
         for account in self._followers.values():
             row_id = None
             try:
@@ -121,7 +122,7 @@ class FollowerFleet:
                     account, source_account=self._primary.name, source_order_id=source_order_id,
                     source_option_symbol=candidate.get('selected_option_symbol'), underlying=underlying,
                     decision=candidate.get('decision'), budget=execution.get('estimated_order_cost'), plan=plan,
-                    db_path=self._db_path)
+                    spot=spot, source_delta=production_delta, db_path=self._db_path)
                 if row_id is None or isinstance(plan, Skip):
                     continue
                 gateway, client = self._connection(account)

@@ -68,6 +68,12 @@ def refresh_universe_history(*, as_of, policy, fetcher, db_path):
         # Traded underlyings too, so the news-lag report prices publish/entry/exit from hourly bars.
         universe.update(row[0] for row in conn.execute(
             'SELECT DISTINCT underlying_symbol FROM option_trade_executions WHERE underlying_symbol IS NOT NULL'))
+        # Every candidate still owed a forward return, so gate verdicts can be scored on the underlying's move.
+        for ticker, sector in conn.execute('''SELECT DISTINCT json_extract(snapshot_json, '$.ticker'),
+                json_extract(snapshot_json, '$.sector_symbol') FROM candidate_price_observations WHERE forward_at IS NULL'''):
+            universe.update(symbol for symbol in (ticker, sector) if symbol)
+            if sector:
+                benchmarks.add(sector)
         if universe:
             universe.add('SPY')
             benchmarks.add('SPY')
@@ -107,7 +113,6 @@ def capture_forward_returns(*, as_of, db_path):
     with closing(get_connection(db_path)) as conn, conn:
         rows = [dict(row) for row in conn.execute('''SELECT * FROM candidate_price_observations
             WHERE forward_at IS NULL AND julianday(observed_at)+5<=julianday(?)
-            AND json_extract(snapshot_json, '$.gate.metrics.status')='complete'
             ORDER BY COALESCE(forward_checked_at, ''), observed_at LIMIT ?''', (as_of.isoformat(), FORWARD_BUDGET))]
     for row in rows:
         with closing(get_connection(db_path)) as conn, conn:
@@ -116,16 +121,18 @@ def capture_forward_returns(*, as_of, db_path):
         payload = json.loads(row['snapshot_json'])
         metrics = payload['gate']['metrics']
         sign = {'positive': 1, 'negative': -1}.get(payload['direction'])
-        if metrics.get('status') != 'complete':
-            continue
+        frozen = metrics.get('status') == 'complete'
         histories = load_histories(payload['ticker'], payload['sector_symbol'], as_of=as_of, db_path=db_path)
+        # Without frozen metrics, betas are fit and the baseline taken from closes before the observation;
+        # the frozen gate status in snapshot_json records which basis a row used.
         response = measure_response(histories, event_at=row['observed_at'], horizon_days=5,
-                                    as_of=as_of, betas=metrics['betas'])
+                                    as_of=as_of, betas=metrics['betas'] if frozen else None)
         if response['status'] != 'complete':
             continue
         # Use the exact prices frozen at the decision, even if newer hourly history
         # would now give a different baseline than the original daily proxy.
-        move = residual(response['endpoint_prices'], metrics['endpoint_prices'], metrics['betas'])['residual_return']
+        move = (residual(response['endpoint_prices'], metrics['endpoint_prices'], metrics['betas'])['residual_return']
+                if frozen else response['residual_return'])
         # Keep both: the raw residual is the stock's own move, the adjusted one folds in
         # the catalyst direction. Consumers that apply direction themselves need the raw field.
         with closing(get_connection(db_path)) as conn, conn:

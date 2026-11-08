@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from db_common import get_connection
 from market_db_modules.loaders import ensure_sector_definitions
 from market_db_modules.refresh_state import get_market_data_refresh_state, record_market_data_refresh_state
+from services.core.time_utils import parse_utc_timestamp
 
 
 try:
@@ -69,19 +70,6 @@ def _find_industry_row(industry_identifier: str) -> dict | None:
     return None
 
 
-def _parse_refresh_timestamp(value: object) -> datetime | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
-
-
 def _industry_top_companies_refresh_is_due(industry_key: str) -> bool:
     refresh_state = get_market_data_refresh_state(
         INDUSTRY_TOP_COMPANIES_REFRESH_RESOURCE,
@@ -90,7 +78,7 @@ def _industry_top_companies_refresh_is_due(industry_key: str) -> bool:
     if refresh_state is None:
         return True
 
-    last_hydrated_at = _parse_refresh_timestamp(refresh_state["last_hydrated_at"])
+    last_hydrated_at = parse_utc_timestamp(refresh_state["last_hydrated_at"])
     if last_hydrated_at is None:
         return True
 

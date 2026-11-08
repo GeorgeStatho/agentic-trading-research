@@ -8,21 +8,20 @@ from pathlib import Path
 from services.core.runtime_paths import LOGS_DIR
 
 
-def _build_log_path(prefix: str = "front_main") -> Path:
-    """Build a timestamped log file path."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return LOGS_DIR / f"{prefix}_{timestamp}.log"
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 
-def _configure_logging(log_path: Path) -> None:
-    """Configure the console and file loggers for the front entrypoint."""
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[
-            logging.FileHandler(log_path, encoding="utf-8"),
-            logging.StreamHandler(sys.stdout),
-        ],
-        force=True,
-    )
+def configure_logging(prefix: str | None = None) -> Path | None:
+    """Send INFO and above to stdout, and also to a new timestamped file when given a prefix.
+
+    Returns the log file's path, or None for console-only logging. Every entrypoint calls this
+    once under ``if __name__ == "__main__":`` so all logs share one format.
+    """
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    log_path = None
+    if prefix:
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        log_path = LOGS_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        handlers.insert(0, logging.FileHandler(log_path, encoding="utf-8"))
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, handlers=handlers, force=True)
+    return log_path

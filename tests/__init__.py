@@ -16,13 +16,22 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 _CONFIGURATION_KEY = re.compile(r"^#?\s*([A-Z][A-Z0-9_]*)=", re.MULTILINE)
 
 
+# Follower accounts are named by the operator (TRADING_ACCOUNTS), so no fixed list covers their keys.
+_FOLLOWER_ACCOUNT_KEY = re.compile(r"^ACCOUNT_[A-Z0-9_]+_(?:PUBLIC_KEY|PRIVATE_KEY|STRATEGY|EXIT_POLICY)$")
+
+
 def _project_configuration_keys():
     return set(_CONFIGURATION_KEY.findall((ROOT_DIR / ".env.example").read_text(encoding="utf-8")))
 
 
+def clear_project_configuration(environ):
+    listed = _project_configuration_keys()
+    for key in [key for key in environ if key in listed or _FOLLOWER_ACCOUNT_KEY.match(key)]:
+        del environ[key]
+
+
 def _isolate_environment():
-    for key in _project_configuration_keys():
-        os.environ.pop(key, None)
+    clear_project_configuration(os.environ)
     workspace = Path(tempfile.mkdtemp(prefix="stock-experiment-tests-"))
     atexit.register(shutil.rmtree, workspace, ignore_errors=True)
     os.environ.update(DB_PATH=str(workspace / "stock_experiment.db"), TELEMETRY_ENABLED="false")

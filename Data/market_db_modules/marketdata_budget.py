@@ -12,13 +12,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from db_common import get_connection
+from services.core.time_utils import utc_now as _now
 
 
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _window(now: datetime) -> tuple[str, str]:

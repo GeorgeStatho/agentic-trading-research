@@ -48,7 +48,6 @@ from .underlying import (
     _empty_underlying_price_history_snapshot,
     _extract_bar_close,
     _extract_bar_timestamp,
-    _normalize_stock_bars_response,
     _summarize_underlying_price_history as _summarize_underlying_price_history_impl,
 )
 

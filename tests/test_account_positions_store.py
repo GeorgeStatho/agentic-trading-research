@@ -72,14 +72,15 @@ class AccountPositionsStoreTests(unittest.TestCase):
         self.assertEqual(store.active_positions(), [])
 
     def test_skips_and_failures_are_not_active(self):
-        record(LONGER, Skip('longer_dte', 'no_longer_bucket'))
+        record(LONGER, Skip('longer_dte', 'no_longer_expiry'))
         store.mark_failed(record(SHARES, SHORT_SHARES), error='insufficient buying power')
         self.assertEqual(store.active_positions(), [])
 
     def test_summary_is_keyed_by_account_and_compares_production_on_the_same_entries(self):
         close(record(SPREADS, SPREAD), entry=1.0, exit_=1.5)  # +$200 on $400 = +50%
         close(record(SHARES, SHORT_SHARES), entry=100.0, exit_=105.0)  # short: -$20 on $400 = -5%
-        record(LONGER, Skip('longer_dte', 'no_longer_bucket'))
+        record(LONGER, Skip('longer_dte', 'no_longer_expiry'))
+        record(SPREADS, SPREAD, source_order_id='prod-open')  # production has no result for this entry yet
         with closing(get_connection()) as conn, conn:
             conn.executemany('''INSERT INTO manager_decision_history (decision_run_at, trade_execution_order_id, realized_pnl_pct)
                 VALUES ('2026-10-28T14:00:00+00:00', ?, ?)''', [('prod-1', 30.0), ('prod-unmirrored', -80.0)])
@@ -95,12 +96,35 @@ class AccountPositionsStoreTests(unittest.TestCase):
         self.assertAlmostEqual(summary['shares']['pnl'], -20.0)
         self.assertAlmostEqual(summary['shares']['avg_pnl_pct'], -5.0)
         self.assertEqual(summary['shares']['wins'], 0)
-        self.assertEqual(summary['longer_dte']['skipped'], {'no_longer_bucket': 1})
+        self.assertEqual(summary['longer_dte']['skipped'], {'no_longer_expiry': 1})
         self.assertEqual(summary['longer_dte']['closed'], 0)
         # Production is summarised only over entries the followers mirrored.
         production = summary['production']
         self.assertEqual((production['role'], production['strategy'], production['closed']), ('primary', 'single_leg', 1))
+        self.assertEqual((production['wins'], production['active']), (1, 1))
         self.assertAlmostEqual(production['avg_pnl_pct'], 30.0)
+
+    def test_production_return_on_capital_weights_entries_by_what_production_paid(self):
+        close(record(SPREADS, SPREAD), entry=1.0, exit_=0.9)  # -$40 on $400
+        close(record(SPREADS, SPREAD, source_order_id='prod-2'), entry=1.0, exit_=1.1)  # +$40 on $400
+        with closing(get_connection()) as conn, conn:
+            conn.executemany('''INSERT INTO manager_decision_history (decision_run_at, trade_execution_order_id, realized_pnl_pct)
+                VALUES ('2026-10-28T14:00:00+00:00', ?, ?)''', [('prod-1', -10.0), ('prod-2', 70.0)])
+            # prod-1 cost production 2 x $5.00 x 100 = $1,000; prod-2 has no execution row, so it falls back to the $400 budget.
+            conn.execute('''INSERT INTO option_trade_executions (order_id, option_symbol, paper, recorded_at, fill_price, filled_qty)
+                VALUES ('prod-1', 'XYZ261113C00105000', 1, '2026-10-28T14:00:00+00:00', 5.0, 2)''')
+
+        summary = store.account_summary()
+        spreads = summary['spreads']
+        self.assertAlmostEqual(spreads['production_avg_pnl_pct'], 30.0)
+        # (-$100 + $280) / ($1,000 + $400)
+        self.assertAlmostEqual(spreads['production_pnl_on_capital_pct'], 180 / 1400 * 100)
+        self.assertAlmostEqual(summary['production']['pnl'], 180.0)
+        self.assertAlmostEqual(summary['production']['capital'], 1400.0)
+
+    def test_production_return_on_capital_is_none_without_a_production_result(self):
+        close(record(SPREADS, SPREAD), entry=1.0, exit_=1.5)
+        self.assertIsNone(store.account_summary()['spreads']['production_pnl_on_capital_pct'])
 
 
 if __name__ == '__main__':

@@ -22,15 +22,15 @@ if __name__ == "__main__":
 from services.runtime.cold_start import ColdStartSanityChecker
 from services.core.trading_config import WorkerPaths, WorkerSettings
 from services.runtime.worker_application import WorkerApplication
-from services.core.status_files import JsonFileWriter, StatusReporter
-from services.core.logging_utils import _build_log_path, _configure_logging
+from services.core.status_files import StatusReporter
+from services.core.logging_utils import configure_logging
 from services.trading.order_candidates import OrderCandidateBuilder
 from services.options.position_manager import OptionPositionManagerService
 from services.thesis.thesis_capture import PositionThesisJournal
 from services.thesis.thesis_validator_service import ThesisValidatorService
 from services.thesis.thesis_event_review import EventThesisReviewService
 from services.trading.trade_journal import OptionTradeJournal
-from services.trading.trade_executor import OptionExposureSnapshot, OptionTradeExecutor, TradeExecutionSession
+from services.trading.trade_executor import OptionTradeExecutor
 from services.trading.trading_gateway import AlpacaTradingGateway
 from services.trading.follower_fleet import build_follower_fleet
 from services.trading.trading_accounts import load_trading_accounts
@@ -140,8 +140,7 @@ def option_manager_loop() -> None:
 
 
 if __name__ == "__main__":
-    log_path = _build_log_path()
-    _configure_logging(log_path)
+    log_path = configure_logging("front_main")
 
     LOGGER.info("Front-facing main log started at %s", log_path)
     main_loop()

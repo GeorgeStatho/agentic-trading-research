@@ -1,0 +1,21 @@
+[
+ "days",
+ "rows",
+ "rows[].any_fill_rate",
+ "rows[].counterfactual_samples",
+ "rows[].decision_premium_dollars",
+ "rows[].fill_price_samples",
+ "rows[].full_fill_rate",
+ "rows[].mean_slippage_vs_arrival",
+ "rows[].mean_slippage_vs_mid",
+ "rows[].mean_spread_paid_pct",
+ "rows[].measured_slippage_dollars",
+ "rows[].missed_trade_opportunity_pnl",
+ "rows[].observed_orders",
+ "rows[].order_side",
+ "rows[].orders_with_fills",
+ "rows[].paper",
+ "rows[].slippage_samples",
+ "rows[].submitted_orders",
+ "rows[].unobserved_orders"
+]

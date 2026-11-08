@@ -4,7 +4,7 @@ from contextlib import closing
 from dataclasses import replace
 
 from tests.test_event_discovery import DiscoveryFixture, later
-from tests.test_evidence_refresh import CollectorMixin
+from tests.integration.test_evidence_refresh import CollectorMixin
 from tests.test_research_orchestrator import ResearchFixture, FakePlanner
 from tests.test_company_evidence import guidance
 from tests.research_foundation_fixtures import START, ENTRY

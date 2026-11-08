@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-import logging
 
+from services.core.logging_utils import configure_logging
 from services.core.runtime_paths import DATA_DIR
 from services.core.settings import load_process_settings
 
@@ -32,14 +32,8 @@ __all__ = [
 ]
 
 
-def _configure_console_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(levelname)s:%(name)s:%(message)s",
-        force=True,
-    )
 if __name__ == "__main__":
-    _configure_console_logging()
+    configure_logging()
     clear_current_pipeline_targets()
     result = run_news_collection_pipeline()
     print(json.dumps(result, ensure_ascii=True, indent=2))

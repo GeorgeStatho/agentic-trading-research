@@ -123,6 +123,17 @@ class TelemetryDatabaseTests(unittest.TestCase):
         self.assertEqual(self.row('option_trade_executions')['filled_qty'], 1)
         self.assertEqual(reconcile_execution_telemetry(gateway=gateway, trading_client=object(), db_path=self.db)['updated'], 0)
 
+    def test_order_the_broker_no_longer_has_stops_being_polled(self):
+        self.entry()
+        store_execution_telemetry('entry', {'order_status': 'new'}, db_path=self.db)
+        gateway = Mock()
+        gateway.get_order_status_summary.side_effect = RuntimeError(
+            '{"code":40410000,"message":"order not found for entry"}')
+        self.assertEqual(len(reconcile_execution_telemetry(gateway=gateway, trading_client=object(),
+                                                           db_path=self.db)['errors']), 1)
+        self.assertEqual(self.row('option_trade_executions')['order_status'], 'not_found')
+        self.assertEqual(reconcile_execution_telemetry(gateway=gateway, trading_client=object(), db_path=self.db)['errors'], [])
+
     def test_entry_and_reentry_do_not_share_paths(self):
         position_id, decision_id = self.position()
         with closing(get_connection(self.db)) as conn, conn:

@@ -1,8 +1,6 @@
-import asyncio
 import json
 import math
 from pathlib import Path
-from typing import Any
 
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "Data"
@@ -52,7 +50,7 @@ def store_stock(stockData: dict):
     snapshot_id = add_company_price_snapshot(str(stock_id), stockData)
     if snapshot_id is None:
         LOGGER.warning("Skipped DB stock snapshot for unknown company symbol %s", stock_id)
-    print(json.dumps(stocks_data[stock_id], indent=2, sort_keys=True))
+    LOGGER.info("%s", json.dumps(stocks_data[stock_id], indent=2, sort_keys=True))
 
 
 def _clean_value(value):

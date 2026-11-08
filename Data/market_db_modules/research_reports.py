@@ -7,8 +7,13 @@ from statistics import mean
 
 from db_common import get_connection
 from services.research.research_contract import STRATEGIES, canonical, direction, fingerprint, utc
-from services.research.research_promotion import GATE_BLOCKS, policy_hash, source_hash
-from services.research.shadow_portfolio import evaluate_gate, expectancy
+from services.research.research_promotion import GATE_BLOCKS, gate_code_hash, policy_hash, source_hash
+from services.research.research_versions import require_current_evaluator
+from services.research.shadow_portfolio import MOVE_BASIS, evaluate_gate, evaluate_gate_on_moves, expectancy
+
+# Gates that judge whether a catalyst deserves an entry are scored on the underlying's move;
+# contract and economics gates judge execution, which only a priced option trade can show.
+MOVE_SCORED_BLOCKS = {'catalyst', 'continuation', 'regime', 'thesis'}
 from .research_runs import read_run
 from .research_observations import paired_champion_results, validate_strategy_evaluation
 
@@ -94,7 +99,8 @@ def monthly_report(run_id, month, *, as_of=None, db_path=None):
             rows.append({'candidate_id': saved['candidate_id'], 'features': inputs['features'],
                          'gates': inputs['features'].get('gates', {}), 'positions': positions,
                          'result': positions.get('counterfactual', {'status': 'uncollected'}),
-                         'residual_return': move, 'selection_source': inputs['selection_source']})
+                         'residual_return': move, 'selection_source': inputs['selection_source'],
+                         'gate_code': inputs.get('gate_code') or {}})
             evaluation = validate_strategy_evaluation(conn, run, saved, inputs)
             if evaluation:
                 position = positions.get('full_v2', {})
@@ -105,14 +111,22 @@ def monthly_report(run_id, month, *, as_of=None, db_path=None):
                     'hypothetical_pnl': position.get('hypothetical_pnl'),
                 })
         gates = []
+        run_sources = run['manifest'].get('source_hashes') or {}
         for stage in sorted({stage for row in rows for stage in row['gates']}):
-            evaluation = evaluate_gate(rows, stage)
-            relevant = [row for row in rows if stage in row['gates']]
+            code = gate_code_hash(stage, run_sources)
+            # Rows enrolled before per-row gate hashes were recorded matched the run's manifest exactly.
+            same_code = [row for row in rows if row['gate_code'].get(stage, code) == code]
+            evaluation = evaluate_gate(same_code, stage)
+            if GATE_BLOCKS.get(stage) in MOVE_SCORED_BLOCKS:
+                evaluation = {**evaluate_gate_on_moves(same_code, stage),
+                              **{'option_' + key: value for key, value in evaluation.items() if key != 'stage'}}
+            evaluation['n_gate_code_changed'] = len(rows) - len(same_code)
+            relevant = [row for row in same_code if stage in row['gates']]
             evaluation['regimes'] = sorted({row['features'].get('regime') for row in relevant} - {None, 'unknown'})
             evaluation['production_selection_complete'] = all(row['selection_source'] in {'recorded_production', 'replayed_production_picker'} for row in relevant)
             evaluation['daily_coverage_complete'] = bool(relevant) and all(row['result'].get('verified_daily_marks') for row in relevant)
             block = run['manifest'].get('gate_config', {}).get(GATE_BLOCKS.get(stage))
-            evaluation['policy_hash'] = policy_hash(stage, block, run['code_hash']) if block is not None else None
+            evaluation['policy_hash'] = policy_hash(stage, block, code) if block is not None else None
             gates.append(evaluation)
         strategies, paired = strategy_table(rows)
         actual = [dict(row) for row in conn.execute('''SELECT p.* FROM position_outcomes p JOIN research_candidates c
@@ -143,7 +157,8 @@ def monthly_report(run_id, month, *, as_of=None, db_path=None):
     return report
 
 
-def _promotion_report(conn, report_id):
+def _promotion_report(conn, report_id, *, require_source=True):
+    """`require_source=False` checks only the evaluator: a gate proof binds its own code via policy_hash."""
     row = conn.execute('SELECT * FROM research_reports WHERE report_id=?', (report_id,)).fetchone()
     if row is None:
         raise ValueError('A persisted research report is required')
@@ -151,8 +166,9 @@ def _promotion_report(conn, report_id):
     if fingerprint({key: value for key, value in report.items() if key != 'report_id'}) != report_id:
         raise ValueError('Research report hash mismatch')
     run = read_run(conn, row['run_id'])
-    if run['code_hash'] != source_hash():
+    if require_source and run['code_hash'] != source_hash():
         raise ValueError('Promotion proof implementation is stale')
+    require_current_evaluator(run, source_hash())
     if run['kind'] != 'frozen_forward' or run['status'] != 'sealed':
         raise ValueError('Promotion requires a completed frozen-forward enrollment')
     cohort_size = conn.execute('SELECT COUNT(*) FROM research_candidates WHERE run_id=?', (run['run_id'],)).fetchone()[0]
@@ -164,10 +180,11 @@ def _promotion_report(conn, report_id):
 def promote_gate(report_id, stage, *, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('BEGIN IMMEDIATE')
-        report, run = _promotion_report(conn, report_id)
+        report, run = _promotion_report(conn, report_id, require_source=False)
         gate = next((item for item in report['gates'] if item['stage'] == stage), None)
+        option_basis = bool(gate) and gate.get('basis') != MOVE_BASIS
         if (not gate or not gate['policy_hash'] or not gate['coverage_complete']
-                or not gate['production_selection_complete'] or not gate['daily_coverage_complete']
+                or (option_basis and not (gate['production_selection_complete'] and gate['daily_coverage_complete']))
                 or gate['n_evaluable'] < run['policy'].minimum_promotion_samples
                 or gate['n_passed'] == 0 or gate['n_rejected'] == 0 or len(gate['regimes']) < 2 or gate['gate_value'] <= 0):
             raise ValueError('Gate lacks complete counterfactual coverage, positive value, sample size or regime diversity')

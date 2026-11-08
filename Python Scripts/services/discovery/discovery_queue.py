@@ -1,6 +1,5 @@
 """Bounded shadow consumer. It produces frozen research inputs, never manager results."""
 from dataclasses import replace
-from datetime import datetime, timezone
 from uuid import uuid4
 
 from market_db_modules.discovery_candidates import persist_discovery_candidate
@@ -13,17 +12,14 @@ from services.discovery.event_discovery import discover_company_events
 from services.core.pipeline_version import build_pipeline_version
 from services.research.research_orchestrator import process_research_queue
 from services.research.research_thesis import process_research_theses
-
-
-def utc_now():
-    return datetime.now(timezone.utc).isoformat()
+from services.core.time_utils import utc_now_iso
 
 
 def discovery_targets(*, policy=None, at=None, db_path=None):
     policy = policy or DiscoveryPolicy.from_env()
     if policy.mode == 'disabled':
         return []
-    items = preview_discovery_queue(at=at or utc_now(), limit=policy.batch_size,
+    items = preview_discovery_queue(at=at or utc_now_iso(), limit=policy.batch_size,
                                     aging_per_hour=policy.aging_per_hour, db_path=db_path)
     return [{**item['event']['company'], 'company_id': item['company_id'], 'queue_id': item['queue_id'],
              'purpose': item['purpose'], 'priority_components': item['priority_components'],
@@ -45,7 +41,7 @@ def build_discovery_research_input(item, *, db_path=None):
             'research_predecessor_revision': event.get('predecessor_revision')}
 
 
-def process_discovery_queue(*, policy=None, owner=None, clock=utc_now, version=None, db_path=None):
+def process_discovery_queue(*, policy=None, owner=None, clock=utc_now_iso, version=None, db_path=None):
     policy = policy or DiscoveryPolicy.from_env()
     if policy.mode == 'disabled':
         return {'status': 'disabled', 'candidates': []}
@@ -87,7 +83,7 @@ def _claim_in_chunks(owner, *, policy, clock, db_path):
         yield from items
 
 
-def run_discovery_shadow_cycle(*, sector_symbols=(), policy=None, clock=utc_now, db_path=None):
+def run_discovery_shadow_cycle(*, sector_symbols=(), policy=None, clock=utc_now_iso, db_path=None):
     """Trading-cycle step: scan and admit events. Model-backed research runs in the collector."""
     policy = policy or DiscoveryPolicy.from_env()
     if policy.mode == 'disabled':
@@ -96,7 +92,7 @@ def run_discovery_shadow_cycle(*, sector_symbols=(), policy=None, clock=utc_now,
     return {**process_discovery_queue(policy=policy, clock=clock, db_path=db_path), 'discovery': discovery}
 
 
-def run_discovery_research_cycle(*, policy=None, clock=utc_now, db_path=None):
+def run_discovery_research_cycle(*, policy=None, clock=utc_now_iso, db_path=None):
     """Collector step: research sessions and theses, which call models and may wait on retries."""
     policy = policy or DiscoveryPolicy.from_env()
     if policy.mode == 'disabled':

@@ -274,6 +274,24 @@ class PricingDatabaseTests(unittest.TestCase):
         self.assertIsNone(signed)
         self.assertIsNotNone(raw)
 
+    def test_forward_return_is_measured_for_a_candidate_whose_gate_metrics_were_incomplete(self):
+        import json
+        from services.discovery.catalyst_response_collector import capture_forward_returns
+        self.store_fixture_history(histories())
+        context = self.candidate()
+        payload = {'ticker': 'NVDA', 'sector_symbol': 'XLK', 'direction': 'positive',
+                   'gate': {'metrics': {'status': 'missing_event_time'}}}
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute('INSERT INTO candidate_price_observations (candidate_id, catalyst_id, observed_at, bucket, snapshot_json) VALUES (?,?,?,?,?)',
+                         (context['candidate_id'], context.get('catalyst_id'), (NOW - timedelta(days=60)).isoformat(),
+                          'unknown', json.dumps(payload)))
+        capture_forward_returns(as_of=NOW, db_path=self.db)
+        with closing(get_connection(self.db)) as conn, conn:
+            signed, raw, at = conn.execute('SELECT forward_residual_return, forward_raw_residual_return, forward_at '
+                                           'FROM candidate_price_observations').fetchone()
+        self.assertIsNotNone(at)
+        self.assertAlmostEqual(signed, raw)
+
     def test_migration_is_repeatable_and_preserves_existing_articles(self):
         initialize_database(db_path=self.db)
         initialize_database(db_path=self.db)

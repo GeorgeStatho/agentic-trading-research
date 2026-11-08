@@ -325,6 +325,26 @@
      "ask_price": 4.1,
      "midpoint_price": 4.0
     }
+   },
+   {
+    "symbol": "XYZ261127P00095000",
+    "underlying_symbol": "XYZ",
+    "contract_type": "put",
+    "expiration_date": "2026-11-27",
+    "days_to_expiration": 30,
+    "strike_price": 95.0,
+    "greeks": {
+     "delta": -0.33,
+     "gamma": null,
+     "theta": null,
+     "vega": null,
+     "rho": null
+    },
+    "latest_quote": {
+     "bid_price": 2.2,
+     "ask_price": 2.35,
+     "midpoint_price": 2.275
+    }
    }
   ],
   "30_45": [

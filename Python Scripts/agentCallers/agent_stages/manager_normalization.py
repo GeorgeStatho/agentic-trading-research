@@ -5,8 +5,9 @@ from typing import Any
 
 from agent_contracts import ManagerRecommendation
 
+from services.options.option_dte_buckets import DEFAULT_MANAGER_TARGET_DTE_BUCKET, normalize_target_dte_bucket
+
 from .manager_model import (
-    DEFAULT_MANAGER_TARGET_DTE_BUCKET,
     MANAGER_REASON_MAX_CHARS,
     TARGET_DTE_BUCKET_REGEX,
     TIME_HORIZON_TO_DTE_BUCKET,
@@ -14,7 +15,6 @@ from .manager_model import (
     VALID_DECISIONS,
     normalize_confidence,
     normalize_decision,
-    normalize_target_dte_bucket,
     normalize_time_horizon,
 )
 
