@@ -53,6 +53,11 @@ describe('orderTypeLabel', () => {
 })
 
 describe('Orders panel', () => {
+  it('downloads every recorded order as CSV', () => {
+    render(<OrdersView trades={[]} />)
+    expect(screen.getByRole('link', { name: 'Download CSV' }).getAttribute('href')).toBe('/api/executed-trades?limit=500&format=csv')
+  })
+
   const trades = [
     trade({ id: 3, order_side: 'sell', decision: 'trailing_profit_stop', order_status: 'canceled', submitted_at: '2026-11-03T14:31:00+00:00' }),
     trade({ id: 2, order_side: 'sell', decision: 'trailing_profit_stop', submitted_at: '2026-11-03T14:41:00+00:00' }),

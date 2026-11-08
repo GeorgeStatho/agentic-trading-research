@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import Any
 
 from agent_builders.strategist_payload_rollup_common import (
     _build_empty_count_map,
@@ -9,7 +10,6 @@ from agent_builders.strategist_payload_rollup_common import (
     _get_signal_weight,
     _pick_dominant_bucket,
     _round_rollup_metric,
-    _safe_int,
     EFFECT_TYPE_WEIGHTS,
     ROLLUP_DIRECTIONS,
     ROLLUP_EFFECT_TYPES,
@@ -17,6 +17,7 @@ from agent_builders.strategist_payload_rollup_common import (
     ROLLUP_MATERIALITY,
     ROLLUP_RELATIVE_POSITIONING,
 )
+from services.core.numbers import safe_int
 
 
 def _build_rollup_section(
@@ -50,7 +51,7 @@ def _build_rollup_section(
         relative_positioning = str(item.get("relative_positioning") or "").strip().lower()
         weight = _get_signal_weight(item)
 
-        article_id = _safe_int(item.get("article_id"))
+        article_id = safe_int(item.get("article_id"))
         if article_id is not None:
             unique_article_ids.add(article_id)
 

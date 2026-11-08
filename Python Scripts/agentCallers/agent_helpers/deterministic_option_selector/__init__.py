@@ -14,9 +14,9 @@ SELECTOR_VERSION = "deterministic-selector-v8-monthly-reach"
 LOGGER = logging.getLogger(__name__)
 
 
+from services.options.option_dte_buckets import DTE_BUCKET_TO_TARGET_OTM_PCT  # noqa: E402
 from .config import (  # noqa: E402
     ALLOW_RISKY_SIMPLE_FALLBACK,
-    DTE_BUCKET_TO_TARGET_OTM_PCT,
     HYBRID_MAX_DTE,
     HYBRID_MAX_SPREAD_PCT,
     HYBRID_MAX_THETA_TO_PRICE,

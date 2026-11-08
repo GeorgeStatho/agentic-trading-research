@@ -20,7 +20,6 @@ from market_db_modules.company_evidence import (
 )
 from market_db_modules.research_foundation import (
     enqueue_discovery,
-    get_discovery_item,
     record_research_session,
     migrate_research_foundation,
 )

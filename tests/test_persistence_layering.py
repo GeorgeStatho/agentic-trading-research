@@ -20,7 +20,7 @@ from market_db_modules import entities
 from news_db_modules import article_store
 from news_db_modules import bootstrap as news_bootstrap
 from services.research.research_lock import research_session_lock
-from services.research.research_promotion import approved, champion_check, policy_hash
+from services.research.research_promotion import approved, champion_check, gate_code_hash, policy_hash
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -108,10 +108,11 @@ class PersistenceLayeringTests(unittest.TestCase):
         with use_database(db_path):
             market_bootstrap.initialize_database()
             policy = {"min_value": 1}
+            hashes = {"Python Scripts/services/gates/liquidity_gate.py": "code"}
             with closing(sqlite3.connect(db_path)) as conn, conn:
                 conn.execute("INSERT INTO research_gate_promotions VALUES (?,?,?,?,?,?)",
-                             ("LIQUIDITY", policy_hash("LIQUIDITY", policy, "code"), "r", "2026-01-01", 120, 1.0))
-            self.assertTrue(approved("LIQUIDITY", policy, code_hash="code"))
+                             ("LIQUIDITY", policy_hash("LIQUIDITY", policy, gate_code_hash("LIQUIDITY", hashes)), "r", "2026-01-01", 120, 1.0))
+            self.assertTrue(approved("LIQUIDITY", policy, source_hashes=hashes))
             self.assertEqual(champion_check({}), (True, "no_champion", []))
 
     def test_research_session_lock_defaults_to_the_current_database(self) -> None:

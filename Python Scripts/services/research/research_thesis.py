@@ -3,7 +3,6 @@
 One thesis per research session, over the session's final package and frozen articles. A
 reserved call without a recorded check is never retried: its outcome is unknown.
 """
-from datetime import datetime, timezone
 
 from market_db_modules.company_evidence import get_evidence_package
 from market_db_modules.evidence_thesis import (
@@ -17,16 +16,13 @@ from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
 from services.research.research_lock import ResearchSessionBusy, research_session_lock
 from services.research.research_model_policy import billed
 from agent_stages.research_thesis_writer import ResearchThesisWriter
+from services.core.time_utils import utc_now_iso
 
 
 ROUTE = "research_shadow"
 THESIS_RESEARCH_STATUSES = {"ready", "conflicting_evidence"}
 MAX_ARTICLES = 10
 MAX_ARTICLE_CHARACTERS = 3000
-
-
-def utc_now():
-    return datetime.now(timezone.utc).isoformat()
 
 
 def thesis_payload(session, progress, *, db_path):
@@ -121,7 +117,7 @@ class ResearchThesisRun:
                 "cost_status": "estimated_from_usage" if estimated is not None else "unknown"}
 
 
-def process_research_theses(*, policy=None, research_policy=None, writer=None, clock=utc_now, limit=6, db_path=None):
+def process_research_theses(*, policy=None, research_policy=None, writer=None, clock=utc_now_iso, limit=6, db_path=None):
     policy = policy or EvidenceThesisPolicy.from_env()
     research_policy = research_policy or EvidenceResearchPolicy.from_env()
     if policy.mode == "off" or research_policy.mode == "disabled":

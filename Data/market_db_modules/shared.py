@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import sqlite3
-from pathlib import Path
 from typing import Any
 
-from db_common import DATA_DIR, clean_text, coerce_float, table_columns, table_exists
+from db_common import DATA_DIR, clean_text, table_columns, table_exists
+from services.core.numbers import safe_float
 
 SCHEMA_PATH = DATA_DIR / "market_schema.sql"
 SECTOR_DEFINITIONS_PATH = DATA_DIR / "sector_etfs.json"
@@ -34,7 +34,7 @@ def normalize_timestamp(value: Any) -> str:
 
 def extract_snapshot_price(snapshot: dict[str, Any]) -> float | None:
     for key in ("price", "last_price", "lastPrice", "regularMarketPrice", "ask_price", "bid_price"):
-        value = coerce_float(snapshot.get(key))
+        value = safe_float(snapshot.get(key))
         if value is not None:
             return value
     return None
@@ -42,7 +42,7 @@ def extract_snapshot_price(snapshot: dict[str, Any]) -> float | None:
 
 def extract_snapshot_volume(snapshot: dict[str, Any]) -> float | None:
     for key in ("volume", "day_volume", "dayVolume", "regularMarketVolume"):
-        value = coerce_float(snapshot.get(key))
+        value = safe_float(snapshot.get(key))
         if value is not None:
             return value
     return None

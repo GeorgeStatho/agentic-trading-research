@@ -10,7 +10,8 @@ from db_common import get_connection
 from services.research.research_contract import (ResearchPolicy, STRATEGIES, canonical, fingerprint,
                                         strategy_decisions, utc)
 from services.research.research_inputs import baseline_contract, load_inputs, replay_missing_selection
-from services.research.research_promotion import PAIRED_PREFIX, research_only_candidate, source_hash
+from services.research.research_promotion import (PAIRED_PREFIX, champion_identity, gate_code_hashes,
+                                                  research_only_candidate, source_hash)
 from services.research.research_versions import evaluation_version, require_current_evaluator
 from research_foundation_contracts import OBSERVATION_PROTOCOL
 from .research_observations import (
@@ -94,6 +95,17 @@ def enrolls_candidate(role, candidate_id):
     return paired if role in {'incumbent', 'challenger'} else not research_only_candidate(candidate_id)
 
 
+def same_strategy(candidate_manifest, run_manifest, role, run_identity):
+    """A production cohort spans deploys that leave prompts, models and thresholds alone.
+
+    Each enrolled row records its own gate-code hashes, so a report scores a gate only on rows
+    produced by the code its proof binds. Paired evaluations keep exact manifest identity.
+    """
+    if role != 'production':
+        return candidate_manifest == run_manifest
+    return champion_identity(candidate_manifest) == run_identity
+
+
 def read_run(conn, run_id):
     row = conn.execute('SELECT * FROM research_runs WHERE run_id=?', (run_id,)).fetchone()
     if row is None:
@@ -147,10 +159,19 @@ def decision_quote(contract, cutoff):
             'available_at': cutoff, 'source': 'decision_snapshot'}
 
 
-def option_quotes(conn, contract, cutoff, as_of):
+def _read_once(conn, reads, sql, params):
+    """One read per statement and parameters in a collection. The collection's transaction writes
+    only research tables, so the price rows it reads cannot change while it holds the lock."""
+    key = (sql, params)
+    if key not in reads:
+        reads[key] = conn.execute(sql, params).fetchall()
+    return reads[key]
+
+
+def option_quotes(conn, contract, cutoff, as_of, reads):
     symbol = contract.get('symbol') or contract.get('option_symbol')
-    rows = [_available_quote(row) for row in conn.execute(
-        'SELECT * FROM historical_option_quotes WHERE option_symbol=? ORDER BY julianday(quote_at),provider', (symbol,))]
+    rows = [_available_quote(row) for row in _read_once(
+        conn, reads, 'SELECT * FROM historical_option_quotes WHERE option_symbol=? ORDER BY julianday(quote_at),provider', (symbol,))]
     # Label data may follow the feature cutoff, but must exist by the report cutoff.
     return [row for row in rows if utc(row['available_at']) <= utc(as_of)
             and (utc(row['quote_at']) > utc(cutoff) or utc(row['available_at']) <= utc(cutoff))]
@@ -169,7 +190,7 @@ def observed_sessions(conn, as_of):
     return sessions
 
 
-def _position(conn, inputs, decision, strategy, run, as_of, sessions):
+def _position(conn, inputs, decision, strategy, run, as_of, sessions, reads):
     base = {'information_cutoff_time': inputs['information_cutoff_time'], 'outcome_cutoff_time': as_of,
             'hypothetical_entry': None, 'hypothetical_exit': None, 'hypothetical_pnl': None,
             'deployed_dollar_days': None, 'rejected_by': inputs['rejected_by']}
@@ -178,7 +199,7 @@ def _position(conn, inputs, decision, strategy, run, as_of, sessions):
     if decision == 'skip':
         return {**base, 'status': 'cash', 'hypothetical_pnl': 0, 'deployed_dollar_days': 0}
     contract = inputs['selected_contract'] if strategy in {'counterfactual', 'full_v2'} else baseline_contract(inputs, decision, run['policy'])
-    quotes = option_quotes(conn, contract, inputs['information_cutoff_time'], as_of) if contract else []
+    quotes = option_quotes(conn, contract, inputs['information_cutoff_time'], as_of, reads) if contract else []
     entry = decision_quote(contract, inputs['information_cutoff_time'])
     if entry and not any(q['provider'] == entry['provider'] and utc(q['quote_at']) == utc(entry['quote_at']) for q in quotes):
         quotes = [entry, *quotes]
@@ -186,7 +207,7 @@ def _position(conn, inputs, decision, strategy, run, as_of, sessions):
             'selection_source': 'recorded_production' if strategy in {'counterfactual', 'full_v2'} else 'baseline_delta_selector'}
 
 
-def benchmark_position(conn, symbol, reference, inputs, run, as_of):
+def benchmark_position(conn, symbol, reference, inputs, run, as_of, reads):
     """Buy and hold fractional shares for the same capital and holding window."""
     base = {'information_cutoff_time': inputs['information_cutoff_time'], 'outcome_cutoff_time': as_of,
             'status': 'missing_benchmark_prices', 'hypothetical_pnl': None, 'deployed_dollar_days': None,
@@ -198,7 +219,7 @@ def benchmark_position(conn, symbol, reference, inputs, run, as_of):
     entry_at = utc(reference['hypothetical_entry']['at'])
     exit_at = utc(reference['hypothetical_exit']['at'])
     prices = []
-    for row in conn.execute("SELECT * FROM historical_underlying_bars WHERE symbol=? AND timeframe='1d'", (symbol,)):
+    for row in _read_once(conn, reads, "SELECT * FROM historical_underlying_bars WHERE symbol=? AND timeframe='1d'", (symbol,)):
         row = dict(row)
         raw = json.loads(row.get('raw_json') or '{}')
         row['available_at'] = raw.get('available_at')
@@ -262,6 +283,7 @@ def collect_run(run_id, *, as_of=None, db_path=None):
             'SELECT observation_id FROM strategy_evaluations WHERE run_id=?', (run_id,))}
         registration = run_registration(conn, run_id)
         role = registration['role'] if registration else 'production'
+        run_identity = champion_identity(run['manifest'])
         window_end = utc(registration['window_end']) if registration else None
         if run['status'] == 'open':
             candidates = conn.execute('''SELECT * FROM candidates WHERE candidate_id NOT IN
@@ -274,10 +296,11 @@ def collect_run(run_id, *, as_of=None, db_path=None):
                 # Avoid freezing a candidate while its ordinary pipeline is still running.
                 if utc(candidate['created_at']) > utc(at) - timedelta(minutes=5):
                     continue
+                candidate_manifest = json.loads(candidate['pipeline_version_json'])
                 if run['kind'] == 'frozen_forward':
                     if utc(candidate['created_at']) < utc(run['started_at']):
                         continue
-                    if json.loads(candidate['pipeline_version_json']) != run['manifest']:
+                    if not same_strategy(candidate_manifest, run['manifest'], role, run_identity):
                         skipped_versions += 1
                         continue
                 observation = candidate_observation(conn, candidate['candidate_id'])
@@ -303,8 +326,9 @@ def collect_run(run_id, *, as_of=None, db_path=None):
                 # Never run today's selector as if it were an older strategy's code.
                 # Recorded selections remain evaluable under an unchanged evaluator.
                 # A paired evaluation already ran the picker on its frozen chain; no contract is its outcome.
-                if inputs and role == 'production' and run['kind'] == 'frozen_forward' and run['code_hash'] == current_source:
-                    inputs = replay_missing_selection(inputs, run['manifest'])
+                if (inputs and role == 'production' and run['kind'] == 'frozen_forward'
+                        and fingerprint(candidate_manifest.get('source_hashes') or {}) == current_source):
+                    inputs = replay_missing_selection(inputs, candidate_manifest)
                 if inputs is None:
                     rejected_by = [row['stage'] for row in conn.execute('''SELECT DISTINCT stage FROM candidate_rejections
                         WHERE candidate_id=? AND julianday(occurred_at)<=julianday(?) ORDER BY stage''',
@@ -315,6 +339,7 @@ def collect_run(run_id, *, as_of=None, db_path=None):
                               'features': {'gates': {stage: False for stage in rejected_by}}, 'contracts': [],
                               'selected_contract': None, 'rejected_by': rejected_by,
                               'snapshot_hashes': {}, 'selection_source': 'missing_or_unfinished_snapshots'}
+                inputs['gate_code'] = gate_code_hashes(candidate_manifest.get('source_hashes') or {})
                 if observation:
                     if utc(inputs['information_cutoff_time']) != utc(observation['information_cutoff_time']):
                         raise CandidatePausedRun(candidate['candidate_id'], 'Evaluation cutoff differs from the shared observation')
@@ -329,6 +354,7 @@ def collect_run(run_id, *, as_of=None, db_path=None):
                 conn.execute("UPDATE research_runs SET status='sealed' WHERE run_id=?", (run_id,))
         # One session read serves every strategy and candidate in this collection.
         sessions = observed_sessions(conn, at)
+        reads = {}
         for row in conn.execute('SELECT * FROM research_candidates WHERE run_id=?', (run_id,)).fetchall():
             inputs = json.loads(row['input_json'])
             if fingerprint(inputs) != row['input_hash']:
@@ -343,8 +369,8 @@ def collect_run(run_id, *, as_of=None, db_path=None):
                 if existing and (existing['status'] in {'complete', 'cash'} or utc(existing['outcome_cutoff_time']) > utc(at)):
                     results[strategy] = json.loads(existing['result_json'])
                     continue
-                result = (benchmark_position(conn, strategy, results['counterfactual'], inputs, run, at)
-                          if strategy in {'SMH', 'QQQ'} else _position(conn, inputs, decisions[strategy], strategy, run, at, sessions))
+                result = (benchmark_position(conn, strategy, results['counterfactual'], inputs, run, at, reads)
+                          if strategy in {'SMH', 'QQQ'} else _position(conn, inputs, decisions[strategy], strategy, run, at, sessions, reads))
                 results[strategy] = result
                 conn.execute('''INSERT INTO research_shadow_positions VALUES (?,?,?,?,?,?,?)
                     ON CONFLICT(run_id,candidate_id,strategy) DO UPDATE SET

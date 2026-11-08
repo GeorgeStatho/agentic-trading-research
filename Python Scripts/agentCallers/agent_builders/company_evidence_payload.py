@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from market_db_modules.company_evidence import (
     get_company_fact, get_evidence_document, get_evidence_package, latest_evidence_package,
 )
+from services.discovery.company_evidence_extraction import consensus_matches_actual
 from services.discovery.company_evidence_policy import CompanyEvidencePolicy
 
 
@@ -30,9 +31,14 @@ def build_company_evidence_payload(company_id, *, as_of=None, package_id=None, d
     for fact in selected:
         document = documents[fact['document_id']]
         excerpt = document['text'][fact['source_start']:fact['source_end']]
-        visible.append({**fact, 'superseded': fact['fact_id'] in superseded,
-                        'source_excerpt': excerpt[:MAX_EXCERPT_CHARACTERS],
-                        'excerpt_truncated': len(excerpt) > MAX_EXCERPT_CHARACTERS})
+        entry = {**fact, 'superseded': fact['fact_id'] in superseded,
+                 'source_excerpt': excerpt[:MAX_EXCERPT_CHARACTERS],
+                 'excerpt_truncated': len(excerpt) > MAX_EXCERPT_CHARACTERS}
+        if fact['kind'] == 'consensus':
+            # The visible actuals this estimate can be compared with (the quarter it estimated).
+            entry['matches_actual_fact_ids'] = [other['fact_id'] for other in selected
+                                                if consensus_matches_actual(fact, other)]
+        visible.append(entry)
     included = {fact['fact_id'] for fact in selected}
     def visible_claims(items):
         return [item for item in items if set(item.get('fact_ids', [])) <= included]

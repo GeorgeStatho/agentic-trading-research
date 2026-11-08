@@ -10,8 +10,8 @@ from .alpaca_base import (
     IV_PERCENTILE_DTE_BUCKETS,
     LOGGER,
     _serialize_scalar,
-    compute_percentile_rank,
 )
+from agent_helpers.volatility import compute_percentile_rank
 from services.core.numbers import safe_float
 
 

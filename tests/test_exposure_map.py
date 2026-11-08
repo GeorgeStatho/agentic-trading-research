@@ -47,10 +47,10 @@ class ExposureMapTests(unittest.TestCase):
                 "INSERT INTO industries (sector_id, industry_key, name) VALUES (?, 'semiconductors', 'Semiconductors')",
                 (sector_id,),
             ).lastrowid
-            company_id = conn.execute(
+            conn.execute(
                 "INSERT INTO companies (industry_id, symbol, name) VALUES (?, 'NVDA', 'NVIDIA')",
                 (industry_id,),
-            ).lastrowid
+            )
             article_id = conn.execute(
                 """
                 INSERT INTO news_articles (source, article_key, title, source_url, evidence_score, published_at)

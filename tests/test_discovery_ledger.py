@@ -7,7 +7,7 @@ from db_common import get_connection
 
 from market_db_modules.discovery_evaluation import discovery_route_ledger, promotion_check
 from tests.research_foundation_fixtures import ENTRY
-from tests.test_discovery_production import EnforceFixture
+from tests.integration.test_discovery_production import EnforceFixture
 
 UNTIL = '2026-10-31T00:00:00+00:00'
 FIFTEEN_DAYS_EARLIER = '2026-10-16T00:00:00+00:00'

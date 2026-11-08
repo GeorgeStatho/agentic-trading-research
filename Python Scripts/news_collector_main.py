@@ -5,11 +5,11 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-import sys
 import time
 from typing import Any
 
-from services.core.runtime_paths import DATA_DIR, LOGS_DIR
+from services.core.runtime_paths import DATA_DIR
+from services.core.logging_utils import configure_logging
 from services.core.settings import load_process_settings
 
 # Entrypoint only: importing this module (tests) must not load .env.
@@ -118,22 +118,8 @@ def _run_startup_readiness_check() -> dict[str, Any]:
     return readiness_result
 
 
-def _build_log_path(prefix: str = "news_collector") -> Path:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return LOGS_DIR / f"{prefix}_{timestamp}.log"
 
 
-def _configure_logging(log_path: Path) -> None:
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[
-            logging.FileHandler(log_path, encoding="utf-8"),
-            logging.StreamHandler(sys.stdout),
-        ],
-        force=True,
-    )
 
 
 SETTINGS = NewsCollectorSettings.from_env()
@@ -220,8 +206,7 @@ def main_loop() -> None:
 
 
 if __name__ == "__main__":
-    log_path = _build_log_path()
-    _configure_logging(log_path)
+    log_path = configure_logging("news_collector")
 
     LOGGER.info("News collector log started at %s", log_path)
     send_startup_ping_async("news_collector", logger=LOGGER)

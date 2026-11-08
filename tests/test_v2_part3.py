@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
-from dataclasses import replace
 import json
 from pathlib import Path
 import tempfile
@@ -14,7 +13,7 @@ from market_db_modules.bootstrap import initialize_database
 from news_db_modules.bootstrap import initialize_database as initialize_news
 from news_db_modules.entity_articles import add_company_news_article
 from news_db_modules.impacts import add_company_opportunist_impact
-from news_db_modules.catalysts import build_catalyst_state, backfill_catalysts, enrich_impact
+from news_db_modules.catalysts import backfill_catalysts, enrich_impact
 from market_db_modules.candidate_lifecycle import record_candidate
 from services.gates.catalyst_gates import evaluate_catalyst_gates, CatalystGatePolicy
 
@@ -122,6 +121,13 @@ class GateTests(unittest.TestCase):
         return {'catalyst_id': 'catalyst:fixture', 'catalyst_family': 'analyst', 'independent_root_count': 1,
                 'primary_source_present': False, 'evidence_score': .9, 'first_public_time': (NOW-timedelta(days=4)).isoformat(),
                 'latest_root_event_time': None, 'expected_half_life_minutes': 1440, **extra}
+
+    def test_missing_freshness_inputs_give_no_verdict_but_still_block_under_enforcement(self):
+        for state in (self.state(expected_half_life_minutes=None), self.state(first_public_time=None)):
+            for mode, allowed in (('shadow', True), ('enforce', False)):
+                gate = evaluate_catalyst_gates(state, as_of=NOW, policy=CatalystGatePolicy(freshness_mode=mode))['FRESHNESS']
+                self.assertIsNone(gate['would_allow'])
+                self.assertIs(gate['allowed'], allowed)
 
     def test_decay_threshold_and_shadow_default(self):
         gate = evaluate_catalyst_gates(self.state(), as_of=NOW)['FRESHNESS']

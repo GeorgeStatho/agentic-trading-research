@@ -6,10 +6,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from db_common import clean_text, coerce_float, get_connection
+from db_common import clean_text, get_connection
 from .bootstrap import initialize_database
 from .entities import add_company, add_industry, add_sector, replace_industry_company_rankings
 from .shared import SECTOR_DEFINITIONS_PATH
+from services.core.numbers import safe_float
 
 
 def load_sector_definitions(
@@ -96,7 +97,7 @@ def _load_companies_for_industry(
             symbol=normalized_symbol,
             name=normalized_name,
             rating=clean_text(company_payload.get("rating")),
-            market_weight=coerce_float(company_payload.get("market weight") or company_payload.get("market_weight")),
+            market_weight=safe_float(company_payload.get("market weight") or company_payload.get("market_weight")),
             raw_json=company_payload,
             conn=conn,
         )
@@ -134,7 +135,7 @@ def _load_industry_rankings(
                         symbol=normalized_symbol,
                         name=normalized_name,
                         rating=clean_text(company_payload.get("rating")),
-                        market_weight=coerce_float(
+                        market_weight=safe_float(
                             company_payload.get("market weight") or company_payload.get("market_weight")
                         ),
                         raw_json=company_payload,
@@ -183,7 +184,7 @@ def load_sector_tree(
                     industry_key=industry_key,
                     name=industry_payload.get("name", industry_key.replace("-", " ").title()),
                     symbol=industry_payload.get("symbol"),
-                    market_weight=coerce_float(
+                    market_weight=safe_float(
                         industry_payload.get("market weight") or industry_payload.get("market_weight")
                     ),
                     raw_json=industry_payload,

@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 
 from services.core.env_parsing import env_flag
-from services.options.option_dte_buckets import DTE_BUCKET_TO_TARGET_OTM_PCT
 
 
 def _env_str(name: str, default: str) -> str:

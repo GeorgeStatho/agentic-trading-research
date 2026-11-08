@@ -1,3 +1,4 @@
+import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -51,6 +52,38 @@ class LiveArticlesTests(unittest.TestCase):
                 patch.object(page_fetch, "crawl_article_pages", side_effect=RuntimeError("boom")):
             result = LiveFetcher().articles([FOOL_URL, OTHER_URL])
         self.assertEqual(set(result), {FOOL_URL})
+
+    def test_api_fetchers_run_at_the_same_time(self):
+        # One at a time, the first fetch would wait alone at the barrier until it times out.
+        barrier = threading.Barrier(3, timeout=2)
+        urls = [f"https://investor.example.com/{n}" for n in range(3)]
+
+        def waiting(url):
+            barrier.wait()
+            return {"data": {**GOOD_PAYLOAD["data"], "url": url}}
+
+        with patch.object(page_fetch, "ARTICLE_CONTENT_FETCHERS", _fetchers(waiting)), \
+                patch.object(page_fetch, "crawl_article_pages") as crawl:
+            result = LiveFetcher().articles(urls)
+        self.assertEqual(list(result), urls)
+        self.assertTrue(all(item.success for item in result.values()))
+        crawl.assert_not_called()
+
+    def test_parallel_fetch_still_sends_a_failed_api_url_to_the_crawler(self):
+        failing = "https://investor.example.com/broken"
+
+        def fetcher(url):
+            if url == failing:
+                raise ValueError("x")
+            return GOOD_PAYLOAD
+
+        crawled = ArticleExtractionResult(url=failing, success=True)
+        with patch.object(page_fetch, "ARTICLE_CONTENT_FETCHERS", _fetchers(fetcher)), \
+                patch.object(page_fetch, "crawl_article_pages", return_value={failing: crawled}) as crawl:
+            result = LiveFetcher().articles([FOOL_URL, failing, OTHER_URL])
+        crawl.assert_called_once_with([failing, OTHER_URL])
+        self.assertIs(result[failing], crawled)
+        self.assertTrue(result[FOOL_URL].success)
 
     def test_crawler_keyboard_interrupt_propagates(self):
         with patch.object(page_fetch, "crawl_article_pages", side_effect=KeyboardInterrupt):

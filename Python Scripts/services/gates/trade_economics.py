@@ -18,11 +18,12 @@ from market_db_modules.foundation_store import digest
 from market_db_modules.pricing_research import catalyst_return_scenarios
 from market_db_modules.trade_economics import get_candidate_economics_report, record_candidate_economics_report
 from services.evaluation.evaluation_clock import evaluation_now
-from services.runtime.execution_telemetry import number, quote_values
+from services.runtime.execution_telemetry import quote_values
 from services.options.option_dte_buckets import get_dte_bucket, resolve_dte_bucket_for_days
 from services.options.option_pricing import DAYS_PER_YEAR, CalibratedOption, days_until_expiration, option_side
 from services.gates.pricing_policy import RESPONSE_HORIZONS
 from services.gates.trade_economics_policy import TradeEconomicsPolicy
+from services.core.numbers import finite_float
 
 
 LOGGER = logging.getLogger(__name__)
@@ -104,7 +105,7 @@ def scenario_set(rows, horizon_days):
     """Each independent cluster gets equal weight, shared across its catalysts."""
     usable = []
     for row in rows:
-        total, residual, event_time = number(row.get('stock_return')), number(row.get('residual_return')), timestamp(row.get('event_at'))
+        total, residual, event_time = finite_float(row.get('stock_return')), finite_float(row.get('residual_return')), timestamp(row.get('event_at'))
         if event_time and total is not None and residual is not None and min(total, residual) > -1:
             usable.append({**row, 'event_time': event_time, 'stock_return': total, 'residual_return': residual})
     clusters = independence_clusters(usable, horizon_days)
@@ -147,13 +148,13 @@ def frozen_contract(contract):
     return {'symbol': contract.get('symbol'), 'option_id': contract.get('option_id'),
             'contract_type': str(contract.get('contract_type') or ''),
             'expiration_date': str(contract.get('expiration_date') or ''),
-            'strike_price': number(contract.get('strike_price')),
-            'implied_volatility': number(contract.get('implied_volatility'))}
+            'strike_price': finite_float(contract.get('strike_price')),
+            'implied_volatility': finite_float(contract.get('implied_volatility'))}
 
 
 def frozen_spot(snapshot):
     snapshot = snapshot if isinstance(snapshot, dict) else {}
-    return {**{key: number(snapshot.get(key)) for key in SPOT_NUMBERS},
+    return {**{key: finite_float(snapshot.get(key)) for key in SPOT_NUMBERS},
             **{key: str(snapshot.get(key) or '') for key in SPOT_TEXT}}
 
 
@@ -210,7 +211,7 @@ def priced_inputs(contract, *, side, spot, as_of, target_dte_bucket, policy, max
            'contract': frozen_contract(contract)}
     entry = entry_quote(contract, as_of=as_of, maximum_age_seconds=maximum_quote_age_seconds)
     row['entry'] = entry
-    strike = number(contract.get('strike_price'))
+    strike = finite_float(contract.get('strike_price'))
     days = days_until_expiration(contract.get('expiration_date'), as_of=as_of)
     if entry['status'] != 'complete':
         return {**row, 'status': entry['status']}
@@ -225,7 +226,7 @@ def priced_inputs(contract, *, side, spot, as_of, target_dte_bucket, policy, max
         return {**row, 'status': 'unsupported_exercise_assumption'}
     option = CalibratedOption.from_mid(side, entry['mid'], spot=spot, strike=strike, years=days / DAYS_PER_YEAR,
                                        rate=policy.risk_free_rate)
-    row['quoted_iv'] = number(contract.get('implied_volatility'))
+    row['quoted_iv'] = finite_float(contract.get('implied_volatility'))
     if option is None:
         return {**row, 'calibrated_iv': None, 'status': 'iv_calibration_failed'}
     row['calibrated_iv'] = option.volatility
@@ -379,7 +380,7 @@ def build_trade_economics_report(manager_result, *, policy, as_of, db_path=None)
     chosen = next((row for row in rows if row['selected']), None)
     outcome, reasons = report_verdict(chosen, policy)
     absorption = (context.get('price_absorption_gate') or {}).get('metrics') or {}
-    underlying = {'price': spot, 'atr_fraction': number(absorption.get('atr_fraction')),
+    underlying = {'price': spot, 'atr_fraction': finite_float(absorption.get('atr_fraction')),
                   'snapshot': frozen_spot(market.get('current_stock_price'))}
     return {
         'schema_version': REPORT_VERSION, 'forecast_version': FORECAST_VERSION,
@@ -476,7 +477,7 @@ def apply_trade_economics(manager_result, *, policy, as_of=None, db_path=None):
 
 def underlying_reasons(report, arrival_underlying, *, now, policy):
     # The arrival snapshot's `price` is the stock ask; the midpoint matches the decision spot better.
-    price = number(arrival_underlying.get('mid_price')) or number(arrival_underlying.get('price'))
+    price = finite_float(arrival_underlying.get('mid_price')) or finite_float(arrival_underlying.get('price'))
     quoted_at = timestamp(arrival_underlying.get('timestamp'))
     age = (now - quoted_at).total_seconds() if quoted_at else None
     metrics = {'arrival_spot': price, 'arrival_spot_age_seconds': age, 'report_spot': report['underlying']['price']}

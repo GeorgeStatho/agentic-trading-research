@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from html import unescape
 from pathlib import Path
+from typing import Any
 
 import requests
 
@@ -14,6 +15,9 @@ PROJECT_DIR = Path(__file__).resolve().parents[3]
 DATA_DIR = PROJECT_DIR / "Data"
 
 from news_db_modules.macro import load_macro_events
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 
 DEFAULT_HEADERS = {
@@ -380,12 +384,12 @@ def fetch_forex_factory_macro_calendar() -> list[dict]:
     try:
         events = _parse_forex_factory_calendar(_fetch_json(FOREX_FACTORY_CALENDAR_URL))
     except requests.RequestException as exc:
-        print(f"Failed to fetch Forex Factory calendar: {exc}")
+        LOGGER.info("Failed to fetch Forex Factory calendar: %s", exc)
         return []
     if events:
-        print(f"Parsed {len(events)} calendar events from Forex Factory.")
+        LOGGER.info("Parsed %s calendar events from Forex Factory.", len(events))
     else:
-        print("No calendar events were parsed from Forex Factory.")
+        LOGGER.info("No calendar events were parsed from Forex Factory.")
     return events
 
 
@@ -395,11 +399,11 @@ def fetch_investing_macro_calendar() -> list[dict]:
         try:
             html = _fetch_text(url)
         except requests.RequestException as exc:
-            print(f"Failed to fetch calendar.example.com calendar from {url}: {exc}")
+            LOGGER.info("Failed to fetch calendar.example.com calendar from %s: %s", url, exc)
             continue
 
-        print(f"Fetched calendar.example.com HTML preview from {url}:")
-        print(html[:HTML_DEBUG_PREVIEW_CHARS])
+        LOGGER.info("Fetched calendar.example.com HTML preview from %s:", url)
+        LOGGER.info("%s", html[:HTML_DEBUG_PREVIEW_CHARS])
 
         events: list[dict] = []
         for row_html in _extract_calendar_rows(html):
@@ -412,10 +416,10 @@ def fetch_investing_macro_calendar() -> list[dict]:
             events = _parse_generic_table_calendar(html, url)
 
         if events:
-            print(f"Parsed {len(events)} calendar events from {url}.")
+            LOGGER.info("Parsed %s calendar events from %s.", len(events), url)
             return events
 
-        print(f"No calendar events were parsed from {url}.")
+        LOGGER.info("No calendar events were parsed from %s.", url)
 
     return []
 

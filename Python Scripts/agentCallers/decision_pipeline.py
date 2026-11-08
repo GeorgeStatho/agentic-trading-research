@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
-from pathlib import Path
-import sys
+from datetime import datetime
 from typing import Any, Callable
 
-from services.core.runtime_paths import DATA_DIR, LOGS_DIR, ROOT_DIR
+from services.core.runtime_paths import DATA_DIR
+from services.core.logging_utils import configure_logging
 from services.core.settings import load_process_settings
 
 
@@ -34,6 +33,7 @@ from services.evaluation.forward_evaluation_policy import ChallengerPolicy
 from services.runtime.candidate_lifecycle import observe
 from services.gates.catalyst_gates import catalyst_admission_allowed
 from services.discovery.company_evidence_demand import request_pipeline_evidence
+from services.discovery.company_evidence_service import collect_companies_now
 from services.gates.contract_observations import record_scenario_selection
 from services.evaluation.decision_observations import freeze_decision_observation
 from services.core.pipeline_version import build_pipeline_version
@@ -41,6 +41,7 @@ from services.gates.pricing_gates import apply_option_hurdle_to_manager_result, 
 from services.options.scenario_selector import prepare_scenario_inputs
 from services.gates.trade_economics import apply_trade_economics
 from services.gates.trade_economics_policy import TradeEconomicsPolicy
+from services.core.time_utils import utc_now_iso as _utc_now
 
 
 LOGGER = logging.getLogger("agent_runner")
@@ -50,22 +51,8 @@ MAX_CONSECUTIVE_COMPANY_FAILURES = 3
 COMPANY_FAILURE_MESSAGE_CHARS = 300
 
 
-def _build_log_path() -> Path:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return LOGS_DIR / f"agent_runner_{timestamp}.log"
 
 
-def _configure_logging(log_path: Path) -> None:
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[
-            logging.FileHandler(log_path, encoding="utf-8"),
-            logging.StreamHandler(sys.stdout),
-        ],
-        force=True,
-    )
 
 
 def _dedupe_company_symbols(pipeline_result: dict[str, Any]) -> list[str]:
@@ -554,6 +541,12 @@ def _run_strategist_and_manager(
 
     from services.runtime.candidate_lifecycle import begin_candidate, checkpoint, observe
     request_pipeline_evidence(company_symbols, scope='manager')
+    # The queue above is worked by the news collector hours later; collect now so the strategist
+    # reads a package. A failure only means the strategist sees whatever evidence already exists.
+    evidence_collection = observe(collect_companies_now, company_symbols)
+    if evidence_collection:
+        LOGGER.info("Evidence before strategist: %s (%s companies)", evidence_collection.get("status"),
+                    len(evidence_collection.get("companies") or []))
     cycle_version = observe(build_pipeline_version)
     # One policy per cycle: the strategist request and the entry gate must agree on the mode.
     thesis_policy = EvidenceThesisPolicy.from_env()
@@ -676,10 +669,6 @@ def _run_strategist_and_manager(
         checkpoint(candidate_context, 'candidate_complete', {'status': 'evaluated'})
 
     return strategist_results, manager_results, failures
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _discovery_routes(ranked_symbols: list[str]) -> list[dict[str, Any]]:
@@ -814,8 +803,7 @@ def run_strategist_manager_only(
 
 
 if __name__ == "__main__":
-    log_path = _build_log_path()
-    _configure_logging(log_path)
+    log_path = configure_logging("agent_runner")
 
     LOGGER.info("Agent runner log started at %s", log_path)
     result = run_full_agent_stack()

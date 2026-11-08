@@ -1,0 +1,1928 @@
+[
+ [
+  "index",
+  "idx_account_positions_status",
+  "account_positions",
+  "CREATE INDEX idx_account_positions_status ON account_positions(status)"
+ ],
+ [
+  "index",
+  "idx_backtest_events_run_as_of",
+  "backtest_events",
+  "CREATE INDEX idx_backtest_events_run_as_of\n    ON backtest_events (run_id, as_of)"
+ ],
+ [
+  "index",
+  "idx_backtest_runs_created_at",
+  "backtest_runs",
+  "CREATE INDEX idx_backtest_runs_created_at\n    ON backtest_runs (created_at DESC)"
+ ],
+ [
+  "index",
+  "idx_benchmark_runs_holdout_once",
+  "benchmark_runs",
+  "CREATE UNIQUE INDEX idx_benchmark_runs_holdout_once\n  ON benchmark_runs(set_id, model) WHERE split = 'holdout'"
+ ],
+ [
+  "index",
+  "idx_candidate_catalysts_catalyst",
+  "candidate_catalysts",
+  "CREATE INDEX idx_candidate_catalysts_catalyst ON candidate_catalysts(catalyst_id)"
+ ],
+ [
+  "index",
+  "idx_candidate_economics_candidate",
+  "candidate_economics_reports",
+  "CREATE INDEX idx_candidate_economics_candidate ON candidate_economics_reports(candidate_id, created_at)"
+ ],
+ [
+  "index",
+  "idx_candidate_economics_created",
+  "candidate_economics_reports",
+  "CREATE INDEX idx_candidate_economics_created ON candidate_economics_reports(created_at)"
+ ],
+ [
+  "index",
+  "idx_candidate_observations_observation",
+  "candidate_observations",
+  "CREATE INDEX idx_candidate_observations_observation\n    ON candidate_observations(observation_id)"
+ ],
+ [
+  "index",
+  "idx_candidates_created",
+  "candidates",
+  "CREATE INDEX idx_candidates_created ON candidates(created_at)"
+ ],
+ [
+  "index",
+  "idx_catalyst_model_labels_time",
+  "catalyst_model_labels",
+  "CREATE INDEX idx_catalyst_model_labels_time ON catalyst_model_labels(catalyst_id, labeled_at)"
+ ],
+ [
+  "index",
+  "idx_catalyst_response_family",
+  "catalyst_response_events",
+  "CREATE INDEX idx_catalyst_response_family ON catalyst_response_events(catalyst_family)"
+ ],
+ [
+  "index",
+  "idx_catalysts_family_time",
+  "catalysts",
+  "CREATE INDEX idx_catalysts_family_time ON catalysts(catalyst_family, first_public_time)"
+ ],
+ [
+  "index",
+  "idx_companies_industry_id",
+  "companies",
+  "CREATE INDEX idx_companies_industry_id\n    ON companies (industry_id)"
+ ],
+ [
+  "index",
+  "idx_companies_symbol",
+  "companies",
+  "CREATE INDEX idx_companies_symbol\n    ON companies (symbol)"
+ ],
+ [
+  "index",
+  "idx_company_facts_lookup",
+  "company_facts",
+  "CREATE INDEX idx_company_facts_lookup\n    ON company_facts(company_id, metric, fiscal_period, available_at)"
+ ],
+ [
+  "index",
+  "idx_company_interest_expiry",
+  "company_interest",
+  "CREATE INDEX idx_company_interest_expiry ON company_interest(expires_at,company_id)"
+ ],
+ [
+  "index",
+  "idx_company_news_articles_article_id",
+  "company_news_articles",
+  "CREATE INDEX idx_company_news_articles_article_id\n    ON company_news_articles (article_id)"
+ ],
+ [
+  "index",
+  "idx_company_news_articles_company_id",
+  "company_news_articles",
+  "CREATE INDEX idx_company_news_articles_company_id\n    ON company_news_articles (company_id)"
+ ],
+ [
+  "index",
+  "idx_company_opportunist_article_processing_article_id",
+  "company_opportunist_article_processing",
+  "CREATE INDEX idx_company_opportunist_article_processing_article_id\n    ON company_opportunist_article_processing (article_id)"
+ ],
+ [
+  "index",
+  "idx_company_opportunist_article_processing_company_id",
+  "company_opportunist_article_processing",
+  "CREATE INDEX idx_company_opportunist_article_processing_company_id\n    ON company_opportunist_article_processing (company_id)"
+ ],
+ [
+  "index",
+  "idx_company_opportunist_impacts_article_id",
+  "company_opportunist_impacts",
+  "CREATE INDEX idx_company_opportunist_impacts_article_id\n    ON company_opportunist_impacts (article_id)"
+ ],
+ [
+  "index",
+  "idx_company_opportunist_impacts_company_article",
+  "company_opportunist_impacts",
+  "CREATE INDEX idx_company_opportunist_impacts_company_article\n    ON company_opportunist_impacts (company_id, article_id)"
+ ],
+ [
+  "index",
+  "idx_company_opportunist_impacts_company_id",
+  "company_opportunist_impacts",
+  "CREATE INDEX idx_company_opportunist_impacts_company_id\n    ON company_opportunist_impacts (company_id)"
+ ],
+ [
+  "index",
+  "idx_company_price_snapshots_captured_at",
+  "company_price_snapshots",
+  "CREATE INDEX idx_company_price_snapshots_captured_at\n    ON company_price_snapshots (captured_at)"
+ ],
+ [
+  "index",
+  "idx_company_price_snapshots_company_id",
+  "company_price_snapshots",
+  "CREATE INDEX idx_company_price_snapshots_company_id\n    ON company_price_snapshots (company_id)"
+ ],
+ [
+  "index",
+  "idx_company_price_snapshots_symbol",
+  "company_price_snapshots",
+  "CREATE INDEX idx_company_price_snapshots_symbol\n    ON company_price_snapshots (symbol)"
+ ],
+ [
+  "index",
+  "idx_company_responses_url",
+  "company_provider_responses",
+  "CREATE INDEX idx_company_responses_url ON company_provider_responses(provider,url,observed_at)"
+ ],
+ [
+  "index",
+  "idx_decision_attributions_failure",
+  "decision_attributions",
+  "CREATE INDEX idx_decision_attributions_failure ON decision_attributions(primary_failure)"
+ ],
+ [
+  "index",
+  "idx_decision_autopsy_ledger_run_at",
+  "decision_autopsy_ledger",
+  "CREATE INDEX idx_decision_autopsy_ledger_run_at\n    ON decision_autopsy_ledger (decision_run_at DESC)"
+ ],
+ [
+  "index",
+  "idx_decision_evidence_snapshots_history",
+  "decision_evidence_snapshots",
+  "CREATE INDEX idx_decision_evidence_snapshots_history\n    ON decision_evidence_snapshots (manager_decision_history_id)"
+ ],
+ [
+  "index",
+  "idx_decision_observations_cohort",
+  "decision_observations",
+  "CREATE INDEX idx_decision_observations_cohort ON decision_observations(cohort_id, recorded_at)"
+ ],
+ [
+  "index",
+  "idx_decision_observations_observation",
+  "decision_observations",
+  "CREATE INDEX idx_decision_observations_observation ON decision_observations(observation_id)"
+ ],
+ [
+  "index",
+  "idx_discovery_checks_due",
+  "discovery_checks",
+  "CREATE INDEX idx_discovery_checks_due ON discovery_checks(next_check_at,status)"
+ ],
+ [
+  "index",
+  "idx_discovery_details_expiry",
+  "discovery_queue_details",
+  "CREATE INDEX idx_discovery_details_expiry ON discovery_queue_details(expires_at)"
+ ],
+ [
+  "index",
+  "idx_discovery_events_observed",
+  "discovery_events",
+  "CREATE INDEX idx_discovery_events_observed ON discovery_events(observed_at)"
+ ],
+ [
+  "index",
+  "idx_discovery_queue_due",
+  "discovery_queue",
+  "CREATE INDEX idx_discovery_queue_due\n    ON discovery_queue(status, next_attempt_at, lease_expires_at)"
+ ],
+ [
+  "index",
+  "idx_evidence_documents_observed",
+  "evidence_documents",
+  "CREATE INDEX idx_evidence_documents_observed\n    ON evidence_documents(provider, first_observed_at)"
+ ],
+ [
+  "index",
+  "idx_evidence_packages_company_cutoff",
+  "evidence_packages",
+  "CREATE INDEX idx_evidence_packages_company_cutoff\n    ON evidence_packages(company_id, information_cutoff_time)"
+ ],
+ [
+  "index",
+  "idx_evidence_requests_due",
+  "company_evidence_requests",
+  "CREATE INDEX idx_evidence_requests_due ON company_evidence_requests(status,next_attempt_at,company_id)"
+ ],
+ [
+  "index",
+  "idx_evidence_thesis_checks_candidate",
+  "evidence_thesis_checks",
+  "CREATE INDEX idx_evidence_thesis_checks_candidate ON evidence_thesis_checks(candidate_id)"
+ ],
+ [
+  "index",
+  "idx_evidence_thesis_checks_company",
+  "evidence_thesis_checks",
+  "CREATE INDEX idx_evidence_thesis_checks_company ON evidence_thesis_checks(company_id, created_at)"
+ ],
+ [
+  "index",
+  "idx_evidence_thesis_checks_session",
+  "evidence_thesis_checks",
+  "CREATE UNIQUE INDEX idx_evidence_thesis_checks_session\n    ON evidence_thesis_checks(research_session_id) WHERE research_session_id IS NOT NULL"
+ ],
+ [
+  "index",
+  "idx_failed_urls_normalized_url",
+  "failed_urls",
+  "CREATE INDEX idx_failed_urls_normalized_url\n    ON failed_urls (normalized_url)"
+ ],
+ [
+  "index",
+  "idx_failed_urls_stage",
+  "failed_urls",
+  "CREATE INDEX idx_failed_urls_stage\n    ON failed_urls (stage)"
+ ],
+ [
+  "index",
+  "idx_forward_comparison_reports_cohort",
+  "forward_comparison_reports",
+  "CREATE INDEX idx_forward_comparison_reports_cohort\n    ON forward_comparison_reports(cohort_id, information_cutoff_time)"
+ ],
+ [
+  "index",
+  "idx_historical_option_quote_coverage_decision",
+  "historical_option_quote_coverage",
+  "CREATE INDEX idx_historical_option_quote_coverage_decision\n    ON historical_option_quote_coverage (manager_decision_history_id)"
+ ],
+ [
+  "index",
+  "idx_historical_option_quote_coverage_run",
+  "historical_option_quote_coverage",
+  "CREATE INDEX idx_historical_option_quote_coverage_run\n    ON historical_option_quote_coverage (fetch_run_id, status)"
+ ],
+ [
+  "index",
+  "idx_historical_option_quotes_symbol_at",
+  "historical_option_quotes",
+  "CREATE INDEX idx_historical_option_quotes_symbol_at\n    ON historical_option_quotes (option_symbol, quote_at)"
+ ],
+ [
+  "index",
+  "idx_historical_underlying_bars_symbol_at",
+  "historical_underlying_bars",
+  "CREATE INDEX idx_historical_underlying_bars_symbol_at\n    ON historical_underlying_bars (symbol, bar_at)"
+ ],
+ [
+  "index",
+  "idx_industries_industry_key",
+  "industries",
+  "CREATE INDEX idx_industries_industry_key\n    ON industries (industry_key)"
+ ],
+ [
+  "index",
+  "idx_industries_sector_id",
+  "industries",
+  "CREATE INDEX idx_industries_sector_id\n    ON industries (sector_id)"
+ ],
+ [
+  "index",
+  "idx_industry_company_rankings_company_id",
+  "industry_company_rankings",
+  "CREATE INDEX idx_industry_company_rankings_company_id\n    ON industry_company_rankings (company_id)"
+ ],
+ [
+  "index",
+  "idx_industry_company_rankings_industry_id",
+  "industry_company_rankings",
+  "CREATE INDEX idx_industry_company_rankings_industry_id\n    ON industry_company_rankings (industry_id)"
+ ],
+ [
+  "index",
+  "idx_industry_company_rankings_type",
+  "industry_company_rankings",
+  "CREATE INDEX idx_industry_company_rankings_type\n    ON industry_company_rankings (ranking_type)"
+ ],
+ [
+  "index",
+  "idx_industry_news_articles_article_id",
+  "industry_news_articles",
+  "CREATE INDEX idx_industry_news_articles_article_id\n    ON industry_news_articles (article_id)"
+ ],
+ [
+  "index",
+  "idx_industry_news_articles_industry_id",
+  "industry_news_articles",
+  "CREATE INDEX idx_industry_news_articles_industry_id\n    ON industry_news_articles (industry_id)"
+ ],
+ [
+  "index",
+  "idx_industry_opportunist_article_processing_article_id",
+  "industry_opportunist_article_processing",
+  "CREATE INDEX idx_industry_opportunist_article_processing_article_id\n    ON industry_opportunist_article_processing (article_id)"
+ ],
+ [
+  "index",
+  "idx_industry_opportunist_impacts_article_id",
+  "industry_opportunist_impacts",
+  "CREATE INDEX idx_industry_opportunist_impacts_article_id\n    ON industry_opportunist_impacts (article_id)"
+ ],
+ [
+  "index",
+  "idx_industry_opportunist_impacts_industry_article",
+  "industry_opportunist_impacts",
+  "CREATE INDEX idx_industry_opportunist_impacts_industry_article\n    ON industry_opportunist_impacts (industry_id, article_id)"
+ ],
+ [
+  "index",
+  "idx_industry_opportunist_impacts_industry_id",
+  "industry_opportunist_impacts",
+  "CREATE INDEX idx_industry_opportunist_impacts_industry_id\n    ON industry_opportunist_impacts (industry_id)"
+ ],
+ [
+  "index",
+  "idx_llm_call_usage_called_at",
+  "llm_call_usage",
+  "CREATE INDEX idx_llm_call_usage_called_at ON llm_call_usage(called_at)"
+ ],
+ [
+  "index",
+  "idx_macro_events_category",
+  "macro_events",
+  "CREATE INDEX idx_macro_events_category\n    ON macro_events (category)"
+ ],
+ [
+  "index",
+  "idx_macro_events_event_date",
+  "macro_events",
+  "CREATE INDEX idx_macro_events_event_date\n    ON macro_events (event_date)"
+ ],
+ [
+  "index",
+  "idx_macro_events_scheduled_at_utc",
+  "macro_events",
+  "CREATE INDEX idx_macro_events_scheduled_at_utc\n    ON macro_events (scheduled_at_utc)"
+ ],
+ [
+  "index",
+  "idx_manager_decision_history_company_id",
+  "manager_decision_history",
+  "CREATE INDEX idx_manager_decision_history_company_id\n    ON manager_decision_history (company_id)"
+ ],
+ [
+  "index",
+  "idx_manager_decision_history_decision_run_at",
+  "manager_decision_history",
+  "CREATE INDEX idx_manager_decision_history_decision_run_at\n    ON manager_decision_history (decision_run_at)"
+ ],
+ [
+  "index",
+  "idx_manager_decision_history_executed_run_at",
+  "manager_decision_history",
+  "CREATE INDEX idx_manager_decision_history_executed_run_at\n    ON manager_decision_history (decision_run_at) WHERE trade_executed = 1"
+ ],
+ [
+  "index",
+  "idx_manager_decision_history_selected_option_symbol",
+  "manager_decision_history",
+  "CREATE INDEX idx_manager_decision_history_selected_option_symbol\n    ON manager_decision_history (selected_option_symbol)"
+ ],
+ [
+  "index",
+  "idx_manager_decision_history_symbol",
+  "manager_decision_history",
+  "CREATE INDEX idx_manager_decision_history_symbol\n    ON manager_decision_history (symbol)"
+ ],
+ [
+  "index",
+  "idx_manager_decision_history_trade_execution_order_id",
+  "manager_decision_history",
+  "CREATE INDEX idx_manager_decision_history_trade_execution_order_id\n    ON manager_decision_history (trade_execution_order_id)"
+ ],
+ [
+  "index",
+  "idx_manager_decision_history_trade_execution_record_id",
+  "manager_decision_history",
+  "CREATE INDEX idx_manager_decision_history_trade_execution_record_id\n    ON manager_decision_history (trade_execution_record_id)"
+ ],
+ [
+  "index",
+  "idx_manager_replay_results_evaluation",
+  "manager_replay_results",
+  "CREATE INDEX idx_manager_replay_results_evaluation\n    ON manager_replay_results (evaluation_id, replay_mode)"
+ ],
+ [
+  "index",
+  "idx_manager_replay_results_history",
+  "manager_replay_results",
+  "CREATE INDEX idx_manager_replay_results_history\n    ON manager_replay_results (manager_decision_history_id)"
+ ],
+ [
+  "index",
+  "idx_market_data_refresh_state_resource",
+  "market_data_refresh_state",
+  "CREATE INDEX idx_market_data_refresh_state_resource\n    ON market_data_refresh_state (resource_type, resource_key)"
+ ],
+ [
+  "index",
+  "idx_market_regime_runs_as_of",
+  "market_regime_runs",
+  "CREATE INDEX idx_market_regime_runs_as_of\n    ON market_regime_runs (as_of DESC)"
+ ],
+ [
+  "index",
+  "idx_news_articles_content_hash",
+  "news_articles",
+  "CREATE INDEX idx_news_articles_content_hash\n    ON news_articles (content_hash)"
+ ],
+ [
+  "index",
+  "idx_news_articles_evidence_score",
+  "news_articles",
+  "CREATE INDEX idx_news_articles_evidence_score\n    ON news_articles (evidence_score)"
+ ],
+ [
+  "index",
+  "idx_news_articles_normalized_title",
+  "news_articles",
+  "CREATE INDEX idx_news_articles_normalized_title\n    ON news_articles (normalized_title)"
+ ],
+ [
+  "index",
+  "idx_news_articles_normalized_url",
+  "news_articles",
+  "CREATE INDEX idx_news_articles_normalized_url\n    ON news_articles (normalized_url)"
+ ],
+ [
+  "index",
+  "idx_news_articles_published_at",
+  "news_articles",
+  "CREATE INDEX idx_news_articles_published_at\n    ON news_articles (published_at)"
+ ],
+ [
+  "index",
+  "idx_news_articles_recency_score",
+  "news_articles",
+  "CREATE INDEX idx_news_articles_recency_score\n    ON news_articles (recency_score)"
+ ],
+ [
+  "index",
+  "idx_news_articles_section",
+  "news_articles",
+  "CREATE INDEX idx_news_articles_section\n    ON news_articles (section)"
+ ],
+ [
+  "index",
+  "idx_news_exposure_edges_run",
+  "news_exposure_edges",
+  "CREATE INDEX idx_news_exposure_edges_run\n    ON news_exposure_edges (run_id)"
+ ],
+ [
+  "index",
+  "idx_news_exposure_position_impacts_run",
+  "news_exposure_position_impacts",
+  "CREATE INDEX idx_news_exposure_position_impacts_run\n    ON news_exposure_position_impacts (run_id)"
+ ],
+ [
+  "index",
+  "idx_news_exposure_runs_article_created",
+  "news_exposure_runs",
+  "CREATE INDEX idx_news_exposure_runs_article_created\n    ON news_exposure_runs (article_id, created_at DESC)"
+ ],
+ [
+  "index",
+  "idx_news_provenance_catalyst",
+  "news_articles",
+  "CREATE INDEX idx_news_provenance_catalyst ON news_articles(catalyst_id)"
+ ],
+ [
+  "index",
+  "idx_news_provenance_ticker_time",
+  "news_articles",
+  "CREATE INDEX idx_news_provenance_ticker_time ON news_articles(primary_ticker, event_time)"
+ ],
+ [
+  "index",
+  "idx_option_trade_executions_company_id",
+  "option_trade_executions",
+  "CREATE INDEX idx_option_trade_executions_company_id\n    ON option_trade_executions (company_id)"
+ ],
+ [
+  "index",
+  "idx_option_trade_executions_option_symbol",
+  "option_trade_executions",
+  "CREATE INDEX idx_option_trade_executions_option_symbol\n    ON option_trade_executions (option_symbol)"
+ ],
+ [
+  "index",
+  "idx_option_trade_executions_submitted_at",
+  "option_trade_executions",
+  "CREATE INDEX idx_option_trade_executions_submitted_at\n    ON option_trade_executions (submitted_at)"
+ ],
+ [
+  "index",
+  "idx_option_trade_executions_underlying_symbol",
+  "option_trade_executions",
+  "CREATE INDEX idx_option_trade_executions_underlying_symbol\n    ON option_trade_executions (underlying_symbol)"
+ ],
+ [
+  "index",
+  "idx_paired_evaluations_cohort",
+  "paired_evaluations",
+  "CREATE INDEX idx_paired_evaluations_cohort ON paired_evaluations(cohort_id, role, status)"
+ ],
+ [
+  "index",
+  "idx_position_theses_option_symbol",
+  "position_theses",
+  "CREATE INDEX idx_position_theses_option_symbol\n    ON position_theses (option_symbol, status)"
+ ],
+ [
+  "index",
+  "idx_position_theses_symbol",
+  "position_theses",
+  "CREATE INDEX idx_position_theses_symbol\n    ON position_theses (symbol)"
+ ],
+ [
+  "index",
+  "idx_research_observations_event",
+  "research_observations",
+  "CREATE INDEX idx_research_observations_event\n    ON research_observations(company_id, catalyst_id, event_revision, information_cutoff_time)"
+ ],
+ [
+  "index",
+  "idx_research_run_acceptance_cohort",
+  "research_run_acceptance",
+  "CREATE INDEX idx_research_run_acceptance_cohort ON research_run_acceptance(cohort_id, role)"
+ ],
+ [
+  "index",
+  "idx_research_run_acceptance_lookup",
+  "research_run_acceptance",
+  "CREATE INDEX idx_research_run_acceptance_lookup\n    ON research_run_acceptance(role, base_pipeline_version, challenger_id, policy_hash)"
+ ],
+ [
+  "index",
+  "idx_research_sessions_queue",
+  "research_sessions",
+  "CREATE INDEX idx_research_sessions_queue ON research_sessions(queue_id, status)"
+ ],
+ [
+  "index",
+  "idx_roots_catalyst",
+  "root_events",
+  "CREATE INDEX idx_roots_catalyst ON root_events(catalyst_id)"
+ ],
+ [
+  "index",
+  "idx_sector_news_articles_article_id",
+  "sector_news_articles",
+  "CREATE INDEX idx_sector_news_articles_article_id\n    ON sector_news_articles (article_id)"
+ ],
+ [
+  "index",
+  "idx_sector_news_articles_sector_id",
+  "sector_news_articles",
+  "CREATE INDEX idx_sector_news_articles_sector_id\n    ON sector_news_articles (sector_id)"
+ ],
+ [
+  "index",
+  "idx_sector_opportunist_article_processing_article_id",
+  "sector_opportunist_article_processing",
+  "CREATE INDEX idx_sector_opportunist_article_processing_article_id\n    ON sector_opportunist_article_processing (article_id)"
+ ],
+ [
+  "index",
+  "idx_sector_opportunist_impacts_article_id",
+  "sector_opportunist_impacts",
+  "CREATE INDEX idx_sector_opportunist_impacts_article_id\n    ON sector_opportunist_impacts (article_id)"
+ ],
+ [
+  "index",
+  "idx_sector_opportunist_impacts_sector_article",
+  "sector_opportunist_impacts",
+  "CREATE INDEX idx_sector_opportunist_impacts_sector_article\n    ON sector_opportunist_impacts (sector_id, article_id)"
+ ],
+ [
+  "index",
+  "idx_sector_opportunist_impacts_sector_id",
+  "sector_opportunist_impacts",
+  "CREATE INDEX idx_sector_opportunist_impacts_sector_id\n    ON sector_opportunist_impacts (sector_id)"
+ ],
+ [
+  "index",
+  "idx_sectors_sector_key",
+  "sectors",
+  "CREATE INDEX idx_sectors_sector_key\n    ON sectors (sector_key)"
+ ],
+ [
+  "index",
+  "idx_strategist_company_summaries_company_id",
+  "strategist_company_summaries",
+  "CREATE INDEX idx_strategist_company_summaries_company_id\n    ON strategist_company_summaries (company_id)"
+ ],
+ [
+  "index",
+  "idx_strategist_runs_company_created",
+  "strategist_runs",
+  "CREATE INDEX idx_strategist_runs_company_created\n    ON strategist_runs (company_id, created_at DESC)"
+ ],
+ [
+  "index",
+  "idx_strategy_evaluations_observation",
+  "strategy_evaluations",
+  "CREATE INDEX idx_strategy_evaluations_observation\n    ON strategy_evaluations(observation_id, strategy)"
+ ],
+ [
+  "index",
+  "idx_telemetry_installations_last_seen_at",
+  "telemetry_installations",
+  "CREATE INDEX idx_telemetry_installations_last_seen_at\n    ON telemetry_installations (last_seen_at)"
+ ],
+ [
+  "index",
+  "idx_telemetry_installations_project",
+  "telemetry_installations",
+  "CREATE INDEX idx_telemetry_installations_project\n    ON telemetry_installations (project)"
+ ],
+ [
+  "index",
+  "idx_thesis_event_reviews_day",
+  "thesis_event_reviews",
+  "CREATE INDEX idx_thesis_event_reviews_day ON thesis_event_reviews(thesis_id, review_day)"
+ ],
+ [
+  "index",
+  "idx_thesis_event_reviews_evidence",
+  "thesis_event_reviews",
+  "CREATE INDEX idx_thesis_event_reviews_evidence ON thesis_event_reviews(thesis_id, evidence_hash)"
+ ],
+ [
+  "index",
+  "idx_thesis_event_reviews_reviewed",
+  "thesis_event_reviews",
+  "CREATE INDEX idx_thesis_event_reviews_reviewed ON thesis_event_reviews(reviewed_at)"
+ ],
+ [
+  "index",
+  "idx_thesis_validation_runs_run_date",
+  "thesis_validation_runs",
+  "CREATE INDEX idx_thesis_validation_runs_run_date\n    ON thesis_validation_runs (run_date)"
+ ],
+ [
+  "index",
+  "idx_thesis_validation_runs_thesis_id",
+  "thesis_validation_runs",
+  "CREATE INDEX idx_thesis_validation_runs_thesis_id\n    ON thesis_validation_runs (thesis_id, run_date)"
+ ],
+ [
+  "index",
+  "idx_us_news_article_processing_article_id",
+  "us_news_article_processing",
+  "CREATE INDEX idx_us_news_article_processing_article_id\n    ON us_news_article_processing (article_id)"
+ ],
+ [
+  "index",
+  "idx_us_news_articles_article_id",
+  "us_news_articles",
+  "CREATE INDEX idx_us_news_articles_article_id\n    ON us_news_articles (article_id)"
+ ],
+ [
+  "index",
+  "idx_us_news_sector_impacts_article_id",
+  "us_news_sector_impacts",
+  "CREATE INDEX idx_us_news_sector_impacts_article_id\n    ON us_news_sector_impacts (article_id)"
+ ],
+ [
+  "index",
+  "idx_us_news_sector_impacts_sector_article",
+  "us_news_sector_impacts",
+  "CREATE INDEX idx_us_news_sector_impacts_sector_article\n    ON us_news_sector_impacts (sector_id, article_id)"
+ ],
+ [
+  "index",
+  "idx_us_news_sector_impacts_sector_id",
+  "us_news_sector_impacts",
+  "CREATE INDEX idx_us_news_sector_impacts_sector_id\n    ON us_news_sector_impacts (sector_id)"
+ ],
+ [
+  "index",
+  "idx_world_news_article_processing_article_id",
+  "world_news_article_processing",
+  "CREATE INDEX idx_world_news_article_processing_article_id\n    ON world_news_article_processing (article_id)"
+ ],
+ [
+  "index",
+  "idx_world_news_articles_article_id",
+  "world_news_articles",
+  "CREATE INDEX idx_world_news_articles_article_id\n    ON world_news_articles (article_id)"
+ ],
+ [
+  "index",
+  "idx_world_news_sector_impacts_article_id",
+  "world_news_sector_impacts",
+  "CREATE INDEX idx_world_news_sector_impacts_article_id\n    ON world_news_sector_impacts (article_id)"
+ ],
+ [
+  "index",
+  "idx_world_news_sector_impacts_sector_article",
+  "world_news_sector_impacts",
+  "CREATE INDEX idx_world_news_sector_impacts_sector_article\n    ON world_news_sector_impacts (sector_id, article_id)"
+ ],
+ [
+  "index",
+  "idx_world_news_sector_impacts_sector_id",
+  "world_news_sector_impacts",
+  "CREATE INDEX idx_world_news_sector_impacts_sector_id\n    ON world_news_sector_impacts (sector_id)"
+ ],
+ [
+  "table",
+  "account_positions",
+  "account_positions",
+  "CREATE TABLE account_positions (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    account TEXT NOT NULL, role TEXT NOT NULL, strategy TEXT NOT NULL, exit_policy TEXT NOT NULL,\n    source_account TEXT NOT NULL, source_order_id TEXT NOT NULL, source_option_symbol TEXT,\n    underlying TEXT, decision TEXT, legs_json TEXT NOT NULL DEFAULT '[]',\n    qty INTEGER, multiplier INTEGER, unit_cost REAL, budget REAL,\n    -- Exposure at entry: spot, this plan's delta per unit, and production's delta per contract.\n    entry_spot REAL, entry_delta REAL, source_delta REAL,\n    status TEXT NOT NULL CHECK(status IN ('skipped','pending_entry','open','closing','closed','failed')),\n    skip_reason TEXT, error TEXT,\n    entry_order_id TEXT, entry_fill_price REAL, entry_at TEXT,\n    source_seen_at TEXT,\n    exit_order_id TEXT, exit_reason TEXT, exit_fill_price REAL, exit_at TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    UNIQUE(account, source_order_id)\n)"
+ ],
+ [
+  "table",
+  "backtest_events",
+  "backtest_events",
+  "CREATE TABLE backtest_events (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    run_id INTEGER NOT NULL,\n    as_of TEXT NOT NULL,\n    manager_decision_history_id INTEGER,\n    evidence_snapshot_id INTEGER,\n    symbol TEXT,\n    decision TEXT,\n    option_symbol TEXT,\n    status TEXT NOT NULL,\n    rationale TEXT,\n    entry_at TEXT,\n    exit_at TEXT,\n    entry_price REAL,\n    exit_price REAL,\n    quantity INTEGER,\n    realized_pnl_pct REAL,\n    realized_pnl_dollars REAL,\n    commission_dollars REAL,\n    slippage_dollars REAL,\n    warnings_json TEXT,\n    event_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (run_id) REFERENCES backtest_runs(id) ON DELETE CASCADE,\n    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE SET NULL,\n    FOREIGN KEY (evidence_snapshot_id) REFERENCES decision_evidence_snapshots(id) ON DELETE SET NULL\n)"
+ ],
+ [
+  "table",
+  "backtest_runs",
+  "backtest_runs",
+  "CREATE TABLE backtest_runs (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    strategy_version TEXT NOT NULL,\n    model TEXT,\n    prompt_version TEXT,\n    config_json TEXT NOT NULL,\n    evidence_snapshot_version TEXT NOT NULL,\n    data_source_versions_json TEXT NOT NULL,\n    code_revision TEXT,\n    started_at TEXT NOT NULL,\n    completed_at TEXT,\n    status TEXT NOT NULL,\n    metrics_json TEXT,\n    error_message TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n)"
+ ],
+ [
+  "table",
+  "benchmark_items",
+  "benchmark_items",
+  "CREATE TABLE benchmark_items (\n  set_id TEXT NOT NULL REFERENCES benchmark_sets(set_id), manager_decision_history_id INTEGER NOT NULL,\n  split TEXT NOT NULL CHECK (split IN ('dev','holdout')), stratum TEXT NOT NULL,\n  PRIMARY KEY (set_id, manager_decision_history_id))"
+ ],
+ [
+  "table",
+  "benchmark_runs",
+  "benchmark_runs",
+  "CREATE TABLE benchmark_runs (\n  run_id INTEGER PRIMARY KEY AUTOINCREMENT, set_id TEXT NOT NULL, split TEXT NOT NULL CHECK (split IN ('dev','holdout')),\n  backtest_run_id INTEGER, model TEXT NOT NULL, prompt_versions_json TEXT NOT NULL, replay_strategist INTEGER NOT NULL,\n  scores_json TEXT NOT NULL, item_scores_json TEXT NOT NULL, created_at TEXT NOT NULL)"
+ ],
+ [
+  "table",
+  "benchmark_sets",
+  "benchmark_sets",
+  "CREATE TABLE benchmark_sets (\n  set_id TEXT PRIMARY KEY, selection_version TEXT NOT NULL, selection_json TEXT NOT NULL,\n  item_count INTEGER NOT NULL, created_at TEXT NOT NULL)"
+ ],
+ [
+  "table",
+  "candidate_catalysts",
+  "candidate_catalysts",
+  "CREATE TABLE candidate_catalysts (\n    candidate_id TEXT NOT NULL, catalyst_id TEXT NOT NULL REFERENCES catalysts(catalyst_id),\n    catalyst_family TEXT NOT NULL, is_primary INTEGER NOT NULL, state_json TEXT NOT NULL,\n    PRIMARY KEY(candidate_id, catalyst_id)\n)"
+ ],
+ [
+  "table",
+  "candidate_economics_reports",
+  "candidate_economics_reports",
+  "CREATE TABLE candidate_economics_reports (\n    report_id TEXT PRIMARY KEY CHECK(report_id LIKE 'economics:%'),\n    candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),\n    package_id TEXT REFERENCES evidence_packages(package_id),\n    catalyst_id TEXT,\n    selected_option_symbol TEXT,\n    outcome TEXT NOT NULL CHECK(outcome IN ('trade', 'no_trade', 'unavailable')),\n    policy_version TEXT NOT NULL,\n    created_at TEXT NOT NULL,\n    valid_until TEXT NOT NULL,\n    record_hash TEXT NOT NULL,\n    record_json TEXT NOT NULL CHECK(json_valid(record_json))\n)"
+ ],
+ [
+  "table",
+  "candidate_observations",
+  "candidate_observations",
+  "CREATE TABLE candidate_observations (\n    candidate_id TEXT PRIMARY KEY REFERENCES candidates(candidate_id),\n    observation_id TEXT NOT NULL REFERENCES research_observations(observation_id)\n)"
+ ],
+ [
+  "table",
+  "candidate_price_observations",
+  "candidate_price_observations",
+  "CREATE TABLE candidate_price_observations (\n    candidate_id TEXT PRIMARY KEY,\n    catalyst_id TEXT NOT NULL,\n    observed_at TEXT NOT NULL,\n    bucket TEXT NOT NULL,\n    snapshot_json TEXT NOT NULL,\n    forward_residual_return REAL,\n    forward_at TEXT,\n    forward_checked_at TEXT,\n    forward_raw_residual_return REAL\n)"
+ ],
+ [
+  "table",
+  "candidate_rejections",
+  "candidate_rejections",
+  "CREATE TABLE candidate_rejections (\n    id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),\n    symbol TEXT, stage TEXT NOT NULL, reason_code TEXT NOT NULL,\n    metrics_json TEXT NOT NULL DEFAULT '{}', thresholds_json TEXT NOT NULL DEFAULT '{}',\n    config_version TEXT, occurred_at TEXT NOT NULL, shadow INTEGER NOT NULL DEFAULT 0, catalyst_id TEXT, catalyst_family TEXT,\n    UNIQUE(candidate_id, stage, reason_code, shadow)\n)"
+ ],
+ [
+  "table",
+  "candidate_snapshots",
+  "candidate_snapshots",
+  "CREATE TABLE candidate_snapshots (\n    id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),\n    stage TEXT NOT NULL, captured_at TEXT NOT NULL, information_cutoff_time TEXT NOT NULL,\n    pipeline_version TEXT NOT NULL, snapshot_version TEXT NOT NULL, snapshot_hash TEXT NOT NULL,\n    snapshot_json TEXT NOT NULL, snapshot_encoding TEXT, UNIQUE(candidate_id, stage)\n)"
+ ],
+ [
+  "table",
+  "candidates",
+  "candidates",
+  "CREATE TABLE candidates (\n    candidate_id TEXT PRIMARY KEY, symbol TEXT NOT NULL, created_at TEXT NOT NULL,\n    catalyst_ids_json TEXT NOT NULL, article_ids_json TEXT NOT NULL, pipeline_version_json TEXT NOT NULL\n, catalyst_id TEXT, catalyst_family TEXT)"
+ ],
+ [
+  "table",
+  "catalyst_gate_observations",
+  "catalyst_gate_observations",
+  "CREATE TABLE catalyst_gate_observations (\n    candidate_id TEXT NOT NULL, catalyst_id TEXT NOT NULL REFERENCES catalysts(catalyst_id),\n    stage TEXT NOT NULL, observed_at TEXT NOT NULL, age_minutes REAL, remaining_value REAL,\n    would_allow INTEGER NOT NULL, allowed INTEGER NOT NULL, shadow INTEGER NOT NULL,\n    policy_version TEXT NOT NULL, metrics_json TEXT NOT NULL, thresholds_json TEXT NOT NULL,\n    PRIMARY KEY(candidate_id, stage)\n)"
+ ],
+ [
+  "table",
+  "catalyst_model_labels",
+  "catalyst_model_labels",
+  "CREATE TABLE catalyst_model_labels (\n    catalyst_id TEXT NOT NULL, label_version TEXT NOT NULL,\n    catalyst_type TEXT NOT NULL, direction TEXT NOT NULL, confidence TEXT NOT NULL,\n    anchor_article_id INTEGER, model TEXT NOT NULL, answered_by_json TEXT NOT NULL,\n    labeled_at TEXT NOT NULL, PRIMARY KEY (catalyst_id, label_version, labeled_at)\n)"
+ ],
+ [
+  "table",
+  "catalyst_response_events",
+  "catalyst_response_events",
+  "CREATE TABLE catalyst_response_events (\n    catalyst_id TEXT PRIMARY KEY REFERENCES catalysts(catalyst_id),\n    ticker TEXT NOT NULL,\n    sector_symbol TEXT,\n    catalyst_family TEXT NOT NULL,\n    direction TEXT NOT NULL,\n    event_at TEXT NOT NULL,\n    registered_at TEXT NOT NULL,\n    state_json TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
+  "catalyst_responses",
+  "catalyst_responses",
+  "CREATE TABLE catalyst_responses (\n    catalyst_id TEXT NOT NULL REFERENCES catalyst_response_events(catalyst_id),\n    horizon_days REAL NOT NULL,\n    status TEXT NOT NULL,\n    outcome_at TEXT,\n    recorded_at TEXT NOT NULL,\n    residual_return REAL,\n    metrics_json TEXT NOT NULL,\n    PRIMARY KEY (catalyst_id, horizon_days)\n)"
+ ],
+ [
+  "table",
+  "catalysts",
+  "catalysts",
+  "CREATE TABLE catalysts (\n    catalyst_id TEXT PRIMARY KEY CHECK(catalyst_id LIKE 'catalyst:%'),\n    ticker TEXT, catalyst_type TEXT NOT NULL, catalyst_subtype TEXT NOT NULL,\n    catalyst_family TEXT NOT NULL, catalyst_scope TEXT NOT NULL, direction TEXT NOT NULL,\n    mechanism TEXT NOT NULL, expected_horizon TEXT NOT NULL,\n    first_public_time TEXT, first_seen_time TEXT, latest_evidence_time TEXT, latest_root_event_time TEXT,\n    article_count INTEGER NOT NULL, source_count INTEGER NOT NULL, independent_root_count INTEGER NOT NULL,\n    primary_source_present INTEGER NOT NULL, evidence_score REAL,\n    expected_half_life_minutes INTEGER, classification_version TEXT NOT NULL,\n    classification_status TEXT NOT NULL, state_json TEXT NOT NULL, updated_at TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
+  "challenger_approvals",
+  "challenger_approvals",
+  "CREATE TABLE challenger_approvals (\n    approval_id TEXT PRIMARY KEY,\n    report_id TEXT NOT NULL UNIQUE REFERENCES forward_comparison_reports(report_id),\n    challenger_id TEXT NOT NULL,\n    approved_at TEXT NOT NULL,\n    record_json TEXT NOT NULL CHECK(json_valid(record_json))\n)"
+ ],
+ [
+  "table",
+  "challenger_call_allowances",
+  "challenger_call_allowances",
+  "CREATE TABLE challenger_call_allowances (\n    day TEXT PRIMARY KEY,\n    calls INTEGER NOT NULL CHECK(calls >= 0)\n)"
+ ],
+ [
+  "table",
+  "companies",
+  "companies",
+  "CREATE TABLE companies (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    industry_id INTEGER NOT NULL,\n    symbol TEXT NOT NULL UNIQUE,\n    name TEXT NOT NULL,\n    rating TEXT,\n    market_weight REAL,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, risk_cluster_id TEXT,\n    FOREIGN KEY (industry_id) REFERENCES industries(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "company_collection_state",
+  "company_collection_state",
+  "CREATE TABLE company_collection_state (\n    provider TEXT NOT NULL, scope TEXT NOT NULL, value_json TEXT NOT NULL,\n    updated_at TEXT NOT NULL, PRIMARY KEY(provider,scope)\n)"
+ ],
+ [
+  "table",
+  "company_evidence_requests",
+  "company_evidence_requests",
+  "CREATE TABLE company_evidence_requests (\n    request_id TEXT PRIMARY KEY,\n    company_id INTEGER NOT NULL REFERENCES companies(id),\n    source TEXT NOT NULL,\n    source_key TEXT NOT NULL,\n    parent_session_id TEXT REFERENCES research_sessions(session_id),\n    requested_at TEXT NOT NULL,\n    next_attempt_at TEXT NOT NULL,\n    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','completed','unavailable')),\n    attempts INTEGER NOT NULL DEFAULT 0,\n    package_id TEXT REFERENCES evidence_packages(package_id),\n    reason TEXT,\n    completed_at TEXT,\n    UNIQUE(company_id,source,source_key)\n)"
+ ],
+ [
+  "table",
+  "company_facts",
+  "company_facts",
+  "CREATE TABLE company_facts (\n    fact_id TEXT PRIMARY KEY,\n    company_id INTEGER NOT NULL REFERENCES companies(id),\n    document_id TEXT NOT NULL REFERENCES evidence_documents(document_id),\n    metric TEXT NOT NULL,\n    fiscal_period TEXT NOT NULL,\n    available_at TEXT NOT NULL,\n    supersedes_fact_id TEXT REFERENCES company_facts(fact_id),\n    record_hash TEXT NOT NULL,\n    record_json TEXT NOT NULL CHECK(json_valid(record_json))\n)"
+ ],
+ [
+  "table",
+  "company_interest",
+  "company_interest",
+  "CREATE TABLE company_interest (\n    company_id INTEGER NOT NULL REFERENCES companies(id),\n    source TEXT NOT NULL, source_key TEXT NOT NULL,\n    selected_at TEXT NOT NULL, expires_at TEXT NOT NULL,\n    PRIMARY KEY(company_id,source,source_key)\n)"
+ ],
+ [
+  "table",
+  "company_issuer_mappings",
+  "company_issuer_mappings",
+  "CREATE TABLE company_issuer_mappings (\n    company_id INTEGER PRIMARY KEY REFERENCES companies(id), symbol TEXT NOT NULL,\n    cik TEXT NOT NULL, source TEXT NOT NULL, updated_at TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
+  "company_news_articles",
+  "company_news_articles",
+  "CREATE TABLE company_news_articles (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    company_id INTEGER NOT NULL,\n    article_id INTEGER NOT NULL,\n    source_page_url TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,\n    UNIQUE (company_id, article_id)\n)"
+ ],
+ [
+  "table",
+  "company_opportunist_article_processing",
+  "company_opportunist_article_processing",
+  "CREATE TABLE company_opportunist_article_processing (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    article_id INTEGER NOT NULL,\n    company_id INTEGER NOT NULL,\n    model TEXT,\n    raw_json TEXT,\n    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,\n    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,\n    UNIQUE (article_id, company_id)\n)"
+ ],
+ [
+  "table",
+  "company_opportunist_impacts",
+  "company_opportunist_impacts",
+  "CREATE TABLE company_opportunist_impacts (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    article_id INTEGER NOT NULL,\n    company_id INTEGER NOT NULL,\n    confidence TEXT,\n    impact_direction TEXT,\n    impact_magnitude TEXT,\n    reason TEXT,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, catalyst_id TEXT, catalyst_family TEXT, catalyst_type TEXT, mechanism TEXT, root_event_ids_json TEXT, expected_horizon TEXT,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,\n    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,\n    UNIQUE (article_id, company_id)\n)"
+ ],
+ [
+  "table",
+  "company_price_snapshots",
+  "company_price_snapshots",
+  "CREATE TABLE company_price_snapshots (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    company_id INTEGER NOT NULL,\n    symbol TEXT NOT NULL,\n    captured_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    price REAL,\n    previous_price REAL,\n    price_change REAL,\n    price_change_pct REAL,\n    volume REAL,\n    source TEXT,\n    raw_json TEXT,\n    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "company_provider_responses",
+  "company_provider_responses",
+  "CREATE TABLE company_provider_responses (\n    response_id TEXT PRIMARY KEY, provider TEXT NOT NULL, url TEXT NOT NULL,\n    observed_at TEXT NOT NULL, body TEXT NOT NULL, content_hash TEXT NOT NULL,\n    body_z BLOB, stored_hash TEXT,\n    UNIQUE(provider,url,content_hash)\n)"
+ ],
+ [
+  "table",
+  "company_provider_usage",
+  "company_provider_usage",
+  "CREATE TABLE company_provider_usage (\n    provider TEXT NOT NULL, day TEXT NOT NULL, requests INTEGER NOT NULL,\n    next_request_at REAL NOT NULL, PRIMARY KEY(provider,day)\n)"
+ ],
+ [
+  "table",
+  "contract_research_observations",
+  "contract_research_observations",
+  "CREATE TABLE contract_research_observations (\n        observation_id TEXT PRIMARY KEY, candidate_id TEXT, stage TEXT NOT NULL,\n        observed_at TEXT NOT NULL, policy_version TEXT NOT NULL, payload_json TEXT NOT NULL)"
+ ],
+ [
+  "table",
+  "decision_attributions",
+  "decision_attributions",
+  "CREATE TABLE decision_attributions (\n  manager_decision_history_id INTEGER PRIMARY KEY REFERENCES manager_decision_history(id),\n  attribution_version TEXT NOT NULL, evidence_quality TEXT NOT NULL, evidence_source TEXT NOT NULL,\n  direction_outcome TEXT NOT NULL, expression_outcome TEXT NOT NULL, primary_failure TEXT NOT NULL,\n  record_json TEXT NOT NULL, computed_at TEXT NOT NULL)"
+ ],
+ [
+  "table",
+  "decision_autopsy_ledger",
+  "decision_autopsy_ledger",
+  "CREATE TABLE decision_autopsy_ledger (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    manager_decision_history_id INTEGER NOT NULL UNIQUE,\n    symbol TEXT,\n    decision_run_at TEXT NOT NULL,\n    snapshot_json TEXT NOT NULL,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "decision_evidence_snapshots",
+  "decision_evidence_snapshots",
+  "CREATE TABLE decision_evidence_snapshots (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    manager_decision_history_id INTEGER NOT NULL UNIQUE,\n    as_of TEXT NOT NULL,\n    snapshot_version TEXT NOT NULL,\n    snapshot_hash TEXT NOT NULL,\n    article_ids_json TEXT NOT NULL,\n    snapshot_json TEXT NOT NULL,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "decision_gate_verdicts",
+  "decision_gate_verdicts",
+  "CREATE TABLE decision_gate_verdicts (\n    manager_decision_history_id INTEGER NOT NULL,\n    gate_name TEXT NOT NULL,\n    would_allow INTEGER NOT NULL CHECK (would_allow IN (0, 1)),\n    mode TEXT NOT NULL,\n    policy_version TEXT,\n    verdict_json TEXT NOT NULL,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    PRIMARY KEY (manager_decision_history_id, gate_name),\n    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "decision_observations",
+  "decision_observations",
+  "CREATE TABLE decision_observations (\n    candidate_id TEXT PRIMARY KEY REFERENCES candidates(candidate_id),\n    observation_id TEXT REFERENCES research_observations(observation_id),\n    cohort_id TEXT,\n    status TEXT NOT NULL CHECK(status IN ('recorded', 'unavailable')),\n    reason TEXT,\n    recorded_at TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
+  "discovery_check_signals",
+  "discovery_check_signals",
+  "CREATE TABLE discovery_check_signals (\n    company_id INTEGER NOT NULL REFERENCES companies(id), source TEXT NOT NULL,\n    version TEXT NOT NULL, observed_at TEXT NOT NULL,\n    PRIMARY KEY(company_id,source)\n)"
+ ],
+ [
+  "table",
+  "discovery_checks",
+  "discovery_checks",
+  "CREATE TABLE discovery_checks (\n    company_id INTEGER PRIMARY KEY REFERENCES companies(id),\n    generation INTEGER NOT NULL DEFAULT 1,\n    status TEXT NOT NULL DEFAULT 'pending',\n    requested_at TEXT NOT NULL, next_check_at TEXT NOT NULL,\n    checked_at TEXT, reason TEXT,\n    dependency_request_id TEXT REFERENCES company_evidence_requests(request_id)\n)"
+ ],
+ [
+  "table",
+  "discovery_events",
+  "discovery_events",
+  "CREATE TABLE discovery_events (\n    company_id INTEGER NOT NULL REFERENCES companies(id),\n    catalyst_id TEXT NOT NULL REFERENCES catalysts(catalyst_id),\n    evidence_revision TEXT NOT NULL, observed_at TEXT NOT NULL,\n    change_kind TEXT NOT NULL CHECK(change_kind IN ('initial','material','correction')),\n    payload_json TEXT NOT NULL CHECK(json_valid(payload_json)), payload_hash TEXT NOT NULL,\n    PRIMARY KEY(company_id,catalyst_id,evidence_revision)\n)"
+ ],
+ [
+  "table",
+  "discovery_news_refreshes",
+  "discovery_news_refreshes",
+  "CREATE TABLE discovery_news_refreshes (\n    company_id INTEGER PRIMARY KEY REFERENCES companies(id), refreshed_at TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
+  "discovery_production_routes",
+  "discovery_production_routes",
+  "CREATE TABLE discovery_production_routes (\n    queue_id TEXT PRIMARY KEY REFERENCES discovery_queue(queue_id),\n    symbol TEXT NOT NULL, candidate_id TEXT NOT NULL, routed_at TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
+  "discovery_queue",
+  "discovery_queue",
+  "CREATE TABLE discovery_queue (\n    queue_id TEXT PRIMARY KEY,\n    company_id INTEGER NOT NULL REFERENCES companies(id),\n    catalyst_id TEXT NOT NULL REFERENCES catalysts(catalyst_id),\n    evidence_revision TEXT NOT NULL,\n    purpose TEXT NOT NULL CHECK(purpose IN ('entry','watchlist','position_review')),\n    status TEXT NOT NULL DEFAULT 'pending'\n        CHECK(status IN ('pending','running','completed','deferred','expired','failed')),\n    attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),\n    next_attempt_at TEXT NOT NULL,\n    lease_owner TEXT,\n    lease_expires_at TEXT,\n    completion_reason TEXT,\n    record_hash TEXT NOT NULL,\n    record_json TEXT NOT NULL CHECK(json_valid(record_json)),\n    UNIQUE(company_id, catalyst_id, evidence_revision, purpose)\n)"
+ ],
+ [
+  "table",
+  "discovery_queue_details",
+  "discovery_queue_details",
+  "CREATE TABLE discovery_queue_details (\n    queue_id TEXT PRIMARY KEY REFERENCES discovery_queue(queue_id),\n    expires_at TEXT NOT NULL, base_priority REAL NOT NULL,\n    priority_json TEXT NOT NULL CHECK(json_valid(priority_json)),\n    lease_token TEXT, shadow INTEGER NOT NULL DEFAULT 1 CHECK(shadow=1)\n)"
+ ],
+ [
+  "table",
+  "discovery_queue_origins",
+  "discovery_queue_origins",
+  "CREATE TABLE discovery_queue_origins (\n    queue_id TEXT NOT NULL REFERENCES discovery_queue(queue_id), origin TEXT NOT NULL,\n    PRIMARY KEY(queue_id,origin)\n)"
+ ],
+ [
+  "table",
+  "discovery_scan_state",
+  "discovery_scan_state",
+  "CREATE TABLE discovery_scan_state (\n    lane TEXT NOT NULL, company_id INTEGER NOT NULL REFERENCES companies(id), scanned_at TEXT NOT NULL,\n    PRIMARY KEY(lane,company_id)\n)"
+ ],
+ [
+  "table",
+  "discovery_shadow_candidates",
+  "discovery_shadow_candidates",
+  "CREATE TABLE discovery_shadow_candidates (\n    queue_id TEXT PRIMARY KEY REFERENCES discovery_queue(queue_id),\n    candidate_id TEXT NOT NULL UNIQUE REFERENCES candidates(candidate_id),\n    observation_id TEXT NOT NULL REFERENCES research_observations(observation_id),\n    admission_status TEXT NOT NULL CHECK(admission_status IN ('ready','deferred')),\n    reason TEXT NOT NULL, payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),\n    payload_hash TEXT NOT NULL, created_at TEXT NOT NULL,\n    shadow INTEGER NOT NULL DEFAULT 1 CHECK(shadow=1)\n)"
+ ],
+ [
+  "table",
+  "evidence_document_fts",
+  "evidence_document_fts",
+  "CREATE VIRTUAL TABLE evidence_document_fts\n    USING fts5(document_id UNINDEXED, company_id UNINDEXED, text, tokenize='porter unicode61')"
+ ],
+ [
+  "table",
+  "evidence_document_fts_config",
+  "evidence_document_fts_config",
+  "CREATE TABLE 'evidence_document_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+ ],
+ [
+  "table",
+  "evidence_document_fts_content",
+  "evidence_document_fts_content",
+  "CREATE TABLE 'evidence_document_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2)"
+ ],
+ [
+  "table",
+  "evidence_document_fts_data",
+  "evidence_document_fts_data",
+  "CREATE TABLE 'evidence_document_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+ ],
+ [
+  "table",
+  "evidence_document_fts_docsize",
+  "evidence_document_fts_docsize",
+  "CREATE TABLE 'evidence_document_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+ ],
+ [
+  "table",
+  "evidence_document_fts_idx",
+  "evidence_document_fts_idx",
+  "CREATE TABLE 'evidence_document_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+ ],
+ [
+  "table",
+  "evidence_documents",
+  "evidence_documents",
+  "CREATE TABLE evidence_documents (\n    document_id TEXT PRIMARY KEY,\n    provider TEXT NOT NULL,\n    first_observed_at TEXT NOT NULL,\n    supersedes_document_id TEXT REFERENCES evidence_documents(document_id),\n    content_hash TEXT NOT NULL,\n    record_hash TEXT NOT NULL,\n    record_json TEXT NOT NULL CHECK(json_valid(record_json))\n)"
+ ],
+ [
+  "table",
+  "evidence_package_documents",
+  "evidence_package_documents",
+  "CREATE TABLE evidence_package_documents (\n    package_id TEXT NOT NULL REFERENCES evidence_packages(package_id),\n    document_id TEXT NOT NULL REFERENCES evidence_documents(document_id),\n    PRIMARY KEY(package_id, document_id)\n)"
+ ],
+ [
+  "table",
+  "evidence_package_facts",
+  "evidence_package_facts",
+  "CREATE TABLE evidence_package_facts (\n    package_id TEXT NOT NULL REFERENCES evidence_packages(package_id),\n    fact_id TEXT NOT NULL REFERENCES company_facts(fact_id),\n    PRIMARY KEY(package_id, fact_id)\n)"
+ ],
+ [
+  "table",
+  "evidence_packages",
+  "evidence_packages",
+  "CREATE TABLE evidence_packages (\n    package_id TEXT PRIMARY KEY,\n    company_id INTEGER NOT NULL REFERENCES companies(id),\n    catalyst_id TEXT NOT NULL REFERENCES catalysts(catalyst_id),\n    event_revision TEXT NOT NULL,\n    information_cutoff_time TEXT NOT NULL,\n    record_hash TEXT NOT NULL,\n    record_json TEXT NOT NULL CHECK(json_valid(record_json))\n)"
+ ],
+ [
+  "table",
+  "evidence_thesis_checks",
+  "evidence_thesis_checks",
+  "CREATE TABLE evidence_thesis_checks (\n    evaluation_id TEXT PRIMARY KEY,\n    route TEXT NOT NULL CHECK(route IN ('legacy_strategist', 'research_shadow')),\n    company_id INTEGER NOT NULL,\n    status TEXT NOT NULL,\n    package_id TEXT REFERENCES evidence_packages(package_id),\n    candidate_id TEXT,\n    research_session_id TEXT REFERENCES research_sessions(session_id),\n    created_at TEXT NOT NULL,\n    record_hash TEXT NOT NULL,\n    record_json TEXT NOT NULL CHECK(json_valid(record_json))\n)"
+ ],
+ [
+  "table",
+  "failed_urls",
+  "failed_urls",
+  "CREATE TABLE failed_urls (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    url TEXT NOT NULL,\n    normalized_url TEXT NOT NULL UNIQUE,\n    stage TEXT,\n    last_error TEXT,\n    failure_count INTEGER NOT NULL DEFAULT 1,\n    is_permanent INTEGER NOT NULL DEFAULT 0,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n)"
+ ],
+ [
+  "table",
+  "forward_comparison_reports",
+  "forward_comparison_reports",
+  "CREATE TABLE forward_comparison_reports (\n    report_id TEXT PRIMARY KEY,\n    cohort_id TEXT NOT NULL,\n    challenger_run_id TEXT NOT NULL REFERENCES research_runs(run_id),\n    incumbent_run_id TEXT NOT NULL REFERENCES research_runs(run_id),\n    information_cutoff_time TEXT NOT NULL,\n    verdict TEXT NOT NULL CHECK(verdict IN ('interim', 'accepted', 'not_accepted')),\n    report_json TEXT NOT NULL CHECK(json_valid(report_json))\n)"
+ ],
+ [
+  "table",
+  "historical_option_contracts",
+  "historical_option_contracts",
+  "CREATE TABLE historical_option_contracts (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    option_symbol TEXT NOT NULL,\n    underlying_symbol TEXT NOT NULL,\n    contract_type TEXT,\n    expiration_date TEXT,\n    strike_price REAL,\n    provider TEXT NOT NULL,\n    metadata_json TEXT,\n    captured_at TEXT NOT NULL,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    UNIQUE (option_symbol, provider, captured_at)\n)"
+ ],
+ [
+  "table",
+  "historical_option_quote_coverage",
+  "historical_option_quote_coverage",
+  "CREATE TABLE historical_option_quote_coverage (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    fetch_run_id INTEGER NOT NULL,\n    manager_decision_history_id INTEGER,\n    option_symbol TEXT NOT NULL,\n    decision_at TEXT,\n    requested_start_at TEXT NOT NULL,\n    requested_end_at TEXT NOT NULL,\n    status TEXT NOT NULL,\n    quote_count INTEGER NOT NULL DEFAULT 0,\n    page_count INTEGER NOT NULL DEFAULT 0,\n    error_text TEXT,\n    response_metadata_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (fetch_run_id) REFERENCES historical_option_quote_fetch_runs(id) ON DELETE CASCADE,\n    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE SET NULL\n)"
+ ],
+ [
+  "table",
+  "historical_option_quote_fetch_runs",
+  "historical_option_quote_fetch_runs",
+  "CREATE TABLE historical_option_quote_fetch_runs (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    provider TEXT NOT NULL,\n    feed TEXT NOT NULL,\n    config_json TEXT NOT NULL,\n    started_at TEXT NOT NULL,\n    completed_at TEXT,\n    status TEXT NOT NULL,\n    summary_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n)"
+ ],
+ [
+  "table",
+  "historical_option_quotes",
+  "historical_option_quotes",
+  "CREATE TABLE historical_option_quotes (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    option_symbol TEXT NOT NULL,\n    quote_at TEXT NOT NULL,\n    bid_price REAL,\n    ask_price REAL,\n    last_price REAL,\n    volume REAL,\n    open_interest REAL,\n    implied_volatility REAL,\n    delta REAL,\n    gamma REAL,\n    theta REAL,\n    vega REAL,\n    provider TEXT NOT NULL,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    UNIQUE (option_symbol, quote_at, provider)\n)"
+ ],
+ [
+  "table",
+  "historical_underlying_bars",
+  "historical_underlying_bars",
+  "CREATE TABLE historical_underlying_bars (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    symbol TEXT NOT NULL,\n    bar_at TEXT NOT NULL,\n    timeframe TEXT NOT NULL DEFAULT '1d',\n    open_price REAL,\n    high_price REAL,\n    low_price REAL,\n    close_price REAL,\n    volume REAL,\n    provider TEXT NOT NULL,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    UNIQUE (symbol, bar_at, timeframe, provider)\n)"
+ ],
+ [
+  "table",
+  "industries",
+  "industries",
+  "CREATE TABLE industries (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    sector_id INTEGER NOT NULL,\n    industry_key TEXT NOT NULL UNIQUE,\n    name TEXT NOT NULL,\n    symbol TEXT,\n    market_weight REAL,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (sector_id) REFERENCES sectors(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "industry_company_rankings",
+  "industry_company_rankings",
+  "CREATE TABLE industry_company_rankings (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    industry_id INTEGER NOT NULL,\n    company_id INTEGER NOT NULL,\n    ranking_type TEXT NOT NULL,\n    rank INTEGER NOT NULL,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (industry_id) REFERENCES industries(id) ON DELETE CASCADE,\n    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,\n    UNIQUE (industry_id, company_id, ranking_type)\n)"
+ ],
+ [
+  "table",
+  "industry_news_articles",
+  "industry_news_articles",
+  "CREATE TABLE industry_news_articles (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    industry_id INTEGER NOT NULL,\n    article_id INTEGER NOT NULL,\n    source_page_url TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (industry_id) REFERENCES industries(id) ON DELETE CASCADE,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,\n    UNIQUE (industry_id, article_id)\n)"
+ ],
+ [
+  "table",
+  "industry_opportunist_article_processing",
+  "industry_opportunist_article_processing",
+  "CREATE TABLE industry_opportunist_article_processing (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    article_id INTEGER NOT NULL UNIQUE,\n    model TEXT,\n    raw_json TEXT,\n    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "industry_opportunist_impacts",
+  "industry_opportunist_impacts",
+  "CREATE TABLE industry_opportunist_impacts (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    article_id INTEGER NOT NULL,\n    industry_id INTEGER NOT NULL,\n    confidence TEXT,\n    impact_direction TEXT,\n    impact_magnitude TEXT,\n    reason TEXT,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, catalyst_id TEXT, catalyst_family TEXT, catalyst_type TEXT, mechanism TEXT, root_event_ids_json TEXT, expected_horizon TEXT,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,\n    FOREIGN KEY (industry_id) REFERENCES industries(id) ON DELETE CASCADE,\n    UNIQUE (article_id, industry_id)\n)"
+ ],
+ [
+  "table",
+  "json_blobs",
+  "json_blobs",
+  "CREATE TABLE json_blobs (hash TEXT PRIMARY KEY, data BLOB NOT NULL)"
+ ],
+ [
+  "table",
+  "llm_call_usage",
+  "llm_call_usage",
+  "CREATE TABLE llm_call_usage (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    called_at TEXT NOT NULL,\n    model TEXT NOT NULL,\n    served_model TEXT,\n    upstream_provider TEXT,\n    generation_id TEXT,\n    prompt_tokens INTEGER,\n    completion_tokens INTEGER,\n    reasoning_tokens INTEGER,\n    cached_tokens INTEGER,\n    cost_usd REAL,\n    -- The pipeline stage that asked (manager, strategist, ...); NULL for calls recorded before stages were.\n    stage TEXT\n)"
+ ],
+ [
+  "table",
+  "llm_replay_cache",
+  "llm_replay_cache",
+  "CREATE TABLE llm_replay_cache (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    stage TEXT NOT NULL,\n    provider TEXT NOT NULL,\n    model TEXT NOT NULL,\n    prompt_version TEXT NOT NULL,\n    input_hash TEXT NOT NULL,\n    output_json TEXT NOT NULL,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    UNIQUE (stage, provider, model, prompt_version, input_hash)\n)"
+ ],
+ [
+  "table",
+  "macro_events",
+  "macro_events",
+  "CREATE TABLE macro_events (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    source TEXT NOT NULL,\n    event_key TEXT NOT NULL UNIQUE,\n    event_name TEXT NOT NULL,\n    event_date TEXT,\n    event_time TEXT,\n    scheduled_at_utc TEXT,\n    calendar_timezone TEXT,\n    calendar_refreshed_at TEXT,\n    country TEXT,\n    currency TEXT,\n    category TEXT,\n    importance TEXT,\n    actual TEXT,\n    forecast TEXT,\n    previous TEXT,\n    source_url TEXT,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n)"
+ ],
+ [
+  "table",
+  "manager_decision_history",
+  "manager_decision_history",
+  "CREATE TABLE manager_decision_history (\n    candidate_id TEXT,\n    pipeline_version_json TEXT,\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    company_id INTEGER,\n    symbol TEXT,\n    company_name TEXT,\n    decision_run_at TEXT NOT NULL,\n    manager_stage_version TEXT,\n    strategist_decision TEXT,\n    manager_decision TEXT,\n    manager_confidence TEXT,\n    manager_reason TEXT,\n    target_dte_bucket TEXT,\n    selected_option_id TEXT,\n    selected_option_symbol TEXT,\n    selected_expiration_date TEXT,\n    selected_strike_price REAL,\n    selected_option_source TEXT,\n    trade_executed INTEGER NOT NULL DEFAULT 0,\n    trade_execution_order_id TEXT,\n    trade_execution_record_id INTEGER,\n    latest_trade_pnl_pct REAL,\n    latest_trade_pnl_updated_at TEXT,\n    pnl_expires_at TEXT,\n    resolved_outcome_label TEXT,\n    outcome_status TEXT,\n    realized_pnl_pct REAL,\n    closed_at TEXT,\n    exit_reason TEXT,\n    closing_order_ids_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, catalyst_id TEXT, catalyst_family TEXT,\n    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL\n)"
+ ],
+ [
+  "table",
+  "manager_decision_payloads",
+  "manager_decision_payloads",
+  "CREATE TABLE manager_decision_payloads (\n    manager_decision_history_id INTEGER PRIMARY KEY,\n    manager_input_json TEXT,\n    manager_output_json TEXT,\n    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "manager_replay_evaluations",
+  "manager_replay_evaluations",
+  "CREATE TABLE manager_replay_evaluations (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    model TEXT NOT NULL,\n    prompt_version TEXT NOT NULL,\n    autopsy_limit INTEGER NOT NULL,\n    autopsy_max_age_days INTEGER NOT NULL,\n    source_decision_count INTEGER NOT NULL DEFAULT 0,\n    replayed_decision_count INTEGER NOT NULL DEFAULT 0,\n    skipped_decision_count INTEGER NOT NULL DEFAULT 0,\n    metrics_json TEXT,\n    started_at TEXT NOT NULL,\n    completed_at TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n)"
+ ],
+ [
+  "table",
+  "manager_replay_results",
+  "manager_replay_results",
+  "CREATE TABLE manager_replay_results (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    evaluation_id INTEGER NOT NULL,\n    manager_decision_history_id INTEGER NOT NULL,\n    replay_mode TEXT NOT NULL,\n    decision_run_at TEXT NOT NULL,\n    autopsy_ids_json TEXT NOT NULL DEFAULT '[]',\n    recommendation_json TEXT,\n    error_text TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (evaluation_id) REFERENCES manager_replay_evaluations(id) ON DELETE CASCADE,\n    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE CASCADE,\n    UNIQUE (evaluation_id, manager_decision_history_id, replay_mode)\n)"
+ ],
+ [
+  "table",
+  "market_data_refresh_state",
+  "market_data_refresh_state",
+  "CREATE TABLE market_data_refresh_state (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    resource_type TEXT NOT NULL,\n    resource_key TEXT NOT NULL,\n    last_hydrated_at TEXT NOT NULL,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    UNIQUE (resource_type, resource_key)\n)"
+ ],
+ [
+  "table",
+  "market_regime_runs",
+  "market_regime_runs",
+  "CREATE TABLE market_regime_runs (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    as_of TEXT NOT NULL,\n    state TEXT NOT NULL,\n    confidence TEXT,\n    policy_version TEXT NOT NULL,\n    snapshot_json TEXT NOT NULL,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n)"
+ ],
+ [
+  "table",
+  "marketdata_eod_sync_runs",
+  "marketdata_eod_sync_runs",
+  "CREATE TABLE marketdata_eod_sync_runs (\n    schedule_date TEXT PRIMARY KEY,\n    started_at TEXT NOT NULL,\n    completed_at TEXT,\n    status TEXT NOT NULL,\n    fetch_run_id INTEGER,\n    summary_json TEXT,\n    error_text TEXT\n)"
+ ],
+ [
+  "table",
+  "marketdata_request_budget",
+  "marketdata_request_budget",
+  "CREATE TABLE marketdata_request_budget (\n    id INTEGER PRIMARY KEY CHECK (id = 1),\n    window_start TEXT NOT NULL,\n    window_end TEXT NOT NULL,\n    credits_used INTEGER NOT NULL DEFAULT 0,\n    blocked_until TEXT,\n    block_reason TEXT\n)"
+ ],
+ [
+  "table",
+  "news_article_content",
+  "news_article_content",
+  "CREATE TABLE news_article_content (\n    article_id INTEGER PRIMARY KEY,\n    body TEXT,\n    raw_json TEXT,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "news_article_fts",
+  "news_article_fts",
+  "CREATE VIRTUAL TABLE news_article_fts USING fts5(title, summary, body, tokenize='porter unicode61')"
+ ],
+ [
+  "table",
+  "news_article_fts_config",
+  "news_article_fts_config",
+  "CREATE TABLE 'news_article_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+ ],
+ [
+  "table",
+  "news_article_fts_content",
+  "news_article_fts_content",
+  "CREATE TABLE 'news_article_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2)"
+ ],
+ [
+  "table",
+  "news_article_fts_data",
+  "news_article_fts_data",
+  "CREATE TABLE 'news_article_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+ ],
+ [
+  "table",
+  "news_article_fts_docsize",
+  "news_article_fts_docsize",
+  "CREATE TABLE 'news_article_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+ ],
+ [
+  "table",
+  "news_article_fts_idx",
+  "news_article_fts_idx",
+  "CREATE TABLE 'news_article_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+ ],
+ [
+  "table",
+  "news_articles",
+  "news_articles",
+  "CREATE TABLE news_articles (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    source TEXT NOT NULL,\n    article_key TEXT NOT NULL UNIQUE,\n    title TEXT NOT NULL,\n    normalized_title TEXT,\n    source_type TEXT,\n    primary_ticker TEXT,\n    catalyst_id TEXT,\n    root_event_id TEXT,\n    root_source_id TEXT,\n    syndication_parent_id INTEGER,\n    primary_source_url TEXT,\n    event_time TEXT,\n    first_seen_time TEXT,\n    content_updated_at TEXT,\n\n    summary TEXT,\n    normalized_url TEXT,\n    content_hash TEXT,\n    published_at TEXT,\n    section TEXT,\n    age_days REAL,\n    recency_score REAL,\n    source_reputation_score REAL,\n    directness_score REAL,\n    confirmation_score REAL,\n    independent_source_count INTEGER,\n    factuality_score REAL,\n    evidence_score REAL,\n    source_url TEXT NOT NULL,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n)"
+ ],
+ [
+  "table",
+  "news_exposure_edges",
+  "news_exposure_edges",
+  "CREATE TABLE news_exposure_edges (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    run_id INTEGER NOT NULL,\n    from_type TEXT NOT NULL,\n    from_id TEXT NOT NULL,\n    to_type TEXT NOT NULL,\n    to_id TEXT NOT NULL,\n    direction TEXT NOT NULL,\n    magnitude TEXT NOT NULL,\n    confidence TEXT NOT NULL,\n    mechanism TEXT NOT NULL,\n    evidence_article_ids_json TEXT NOT NULL,\n    exposure_score REAL NOT NULL DEFAULT 0,\n    score_inputs_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (run_id) REFERENCES news_exposure_runs(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "news_exposure_position_impacts",
+  "news_exposure_position_impacts",
+  "CREATE TABLE news_exposure_position_impacts (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    run_id INTEGER NOT NULL,\n    option_symbol TEXT NOT NULL,\n    risk_level TEXT NOT NULL,\n    reason TEXT NOT NULL,\n    risk_score REAL NOT NULL DEFAULT 0,\n    score_inputs_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (run_id) REFERENCES news_exposure_runs(id) ON DELETE CASCADE,\n    UNIQUE (run_id, option_symbol)\n)"
+ ],
+ [
+  "table",
+  "news_exposure_runs",
+  "news_exposure_runs",
+  "CREATE TABLE news_exposure_runs (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    article_id INTEGER NOT NULL,\n    model TEXT NOT NULL,\n    prompt_version TEXT NOT NULL,\n    input_article_ids_json TEXT NOT NULL,\n    article_summary TEXT,\n    uncertainties_json TEXT,\n    raw_response_json TEXT,\n    status TEXT NOT NULL DEFAULT 'completed',\n    error_message TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "option_trade_executions",
+  "option_trade_executions",
+  "CREATE TABLE option_trade_executions (\n    underlying_at_decision REAL,\n    option_bid_at_decision REAL,\n    option_ask_at_decision REAL,\n    option_mid_at_decision REAL,\n    submitted_price REAL,\n    fill_price REAL,\n    underlying_at_fill REAL,\n    slippage_vs_mid REAL,\n    slippage_vs_arrival REAL,\n    arrival_mid REAL,\n    arrival_spread REAL,\n    spread_paid_pct REAL,\n    seconds_to_fill REAL,\n    underlying_move_while_working REAL,\n    option_mid_move_while_working REAL,\n    filled_qty REAL,\n    fill_timestamp TEXT,\n    repricing_count INTEGER DEFAULT 0,\n    cancel_reason TEXT,\n    would_have_filled_later INTEGER,\n    candidate_id TEXT,\n    pipeline_version_json TEXT,\n    execution_version_json TEXT,\n    telemetry_json TEXT,\n    fill_observed_at TEXT,\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    company_id INTEGER,\n    order_id TEXT NOT NULL UNIQUE,\n    underlying_symbol TEXT,\n    company_name TEXT,\n    option_symbol TEXT NOT NULL,\n    decision TEXT,\n    confidence TEXT,\n    selected_option_id TEXT,\n    selected_option_source TEXT,\n    expiration_date TEXT,\n    strike_price REAL,\n    order_qty INTEGER,\n    estimated_order_cost REAL,\n    available_buying_power REAL,\n    max_deployable_buying_power REAL,\n    remaining_deployable_buying_power REAL,\n    paper INTEGER NOT NULL DEFAULT 1,\n    order_status TEXT,\n    order_side TEXT,\n    order_type TEXT,\n    time_in_force TEXT,\n    submitted_at TEXT,\n    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    raw_json TEXT, catalyst_id TEXT, catalyst_family TEXT,\n    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL\n)"
+ ],
+ [
+  "table",
+  "paired_evaluations",
+  "paired_evaluations",
+  "CREATE TABLE paired_evaluations (\n    observation_id TEXT NOT NULL REFERENCES research_observations(observation_id),\n    role TEXT NOT NULL CHECK(role IN ('incumbent', 'challenger')),\n    cohort_id TEXT NOT NULL,\n    run_id TEXT NOT NULL REFERENCES research_runs(run_id),\n    candidate_id TEXT,\n    status TEXT NOT NULL CHECK(status IN ('pending', 'evaluated', 'abstained', 'unavailable')),\n    reason TEXT,\n    attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),\n    model_calls INTEGER NOT NULL DEFAULT 0 CHECK(model_calls >= 0),\n    latency_seconds REAL,\n    updated_at TEXT NOT NULL,\n    PRIMARY KEY(observation_id, role)\n)"
+ ],
+ [
+  "table",
+  "position_observations",
+  "position_observations",
+  "CREATE TABLE position_observations (\n    id INTEGER PRIMARY KEY AUTOINCREMENT, position_outcome_id INTEGER NOT NULL REFERENCES position_outcomes(id),\n    observed_at TEXT NOT NULL, option_pnl_pct REAL, underlying_pnl_pct REAL,\n    snapshot_json TEXT NOT NULL, UNIQUE(position_outcome_id, observed_at)\n)"
+ ],
+ [
+  "table",
+  "position_outcomes",
+  "position_outcomes",
+  "CREATE TABLE position_outcomes (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    option_symbol TEXT NOT NULL, underlying_symbol TEXT, sector_symbol TEXT,\n    candidate_id TEXT, thesis_id INTEGER, manager_decision_history_id INTEGER UNIQUE,\n    entry_order_id TEXT UNIQUE NOT NULL, opened_at TEXT NOT NULL, closed_at TEXT,\n    entry_option_price REAL, entry_underlying_price REAL, entry_spy_price REAL, entry_sector_price REAL,\n    mfe_option REAL, mae_option REAL, mfe_underlying REAL, mae_underlying REAL,\n    time_to_mfe_minutes REAL, time_to_mae_minutes REAL,\n    primary_exit_reason TEXT, coactive_exit_reasons_json TEXT NOT NULL DEFAULT '[]',\n    return_1d_after_exit REAL, return_3d_after_exit REAL,\n    iv_at_entry REAL, iv_at_exit REAL, underlying_move REAL, residual_move REAL,\n    spy_return REAL, sector_return REAL, underlying_at_exit REAL,\n    realized_pnl_pct REAL, last_observed_at TEXT, observation_count INTEGER NOT NULL DEFAULT 0,\n    pipeline_version_json TEXT, exit_pipeline_version_json TEXT, benchmark_json TEXT\n, catalyst_id TEXT, catalyst_family TEXT)"
+ ],
+ [
+  "table",
+  "position_theses",
+  "position_theses",
+  "CREATE TABLE position_theses (\n    candidate_id TEXT,\n    pipeline_version_json TEXT,\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    manager_decision_history_id INTEGER,\n    trade_execution_order_id TEXT,\n    company_id INTEGER,\n    symbol TEXT NOT NULL,\n    option_symbol TEXT NOT NULL,\n    structure TEXT,\n    opened_at TEXT NOT NULL,\n    catalyst_type TEXT,\n    catalyst_summary TEXT,\n    source_article_ids_json TEXT NOT NULL DEFAULT '[]',\n    expected_horizon_days INTEGER,\n    invalidation_conditions_json TEXT NOT NULL DEFAULT '[]',\n    status TEXT NOT NULL DEFAULT 'open',\n    closed_at TEXT,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, catalyst_id TEXT, catalyst_family TEXT,\n    FOREIGN KEY (manager_decision_history_id) REFERENCES manager_decision_history(id) ON DELETE SET NULL,\n    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL\n)"
+ ],
+ [
+  "table",
+  "post_exit_checks",
+  "post_exit_checks",
+  "CREATE TABLE post_exit_checks (\n    position_outcome_id INTEGER NOT NULL REFERENCES position_outcomes(id),\n    checked_on TEXT NOT NULL, status TEXT NOT NULL, PRIMARY KEY(position_outcome_id, checked_on)\n)"
+ ],
+ [
+  "table",
+  "pricing_history_refreshes",
+  "pricing_history_refreshes",
+  "CREATE TABLE pricing_history_refreshes (\n    symbol TEXT PRIMARY KEY,\n    attempted_at TEXT NOT NULL,\n    status TEXT NOT NULL,\n    details_json TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
+  "research_candidates",
+  "research_candidates",
+  "CREATE TABLE research_candidates (\n    run_id TEXT NOT NULL REFERENCES research_runs(run_id),\n    candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),\n    information_cutoff_time TEXT NOT NULL, input_hash TEXT NOT NULL, input_json TEXT NOT NULL,\n    PRIMARY KEY(run_id, candidate_id)\n)"
+ ],
+ [
+  "table",
+  "research_champion",
+  "research_champion",
+  "CREATE TABLE research_champion (\n    singleton INTEGER PRIMARY KEY CHECK(singleton=1),\n    strategy TEXT NOT NULL, run_id TEXT REFERENCES research_runs(run_id),\n    report_id TEXT REFERENCES research_reports(report_id), information_cutoff_time TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
+  "research_daily_allowances",
+  "research_daily_allowances",
+  "CREATE TABLE research_daily_allowances (\n    day TEXT NOT NULL,\n    kind TEXT NOT NULL CHECK(kind IN ('planner', 'retrieval')),\n    calls INTEGER NOT NULL CHECK(calls >= 0),\n    reserved_cost REAL NOT NULL CHECK(reserved_cost >= 0),\n    PRIMARY KEY(day, kind)\n)"
+ ],
+ [
+  "table",
+  "research_evidence_continuations",
+  "research_evidence_continuations",
+  "CREATE TABLE research_evidence_continuations (\n    request_id TEXT PRIMARY KEY REFERENCES company_evidence_requests(request_id),\n    parent_session_id TEXT NOT NULL UNIQUE REFERENCES research_sessions(session_id),\n    session_id TEXT NOT NULL UNIQUE,\n    payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),\n    payload_hash TEXT NOT NULL,\n    created_at TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
+  "research_gate_promotions",
+  "research_gate_promotions",
+  "CREATE TABLE research_gate_promotions (\n    stage TEXT NOT NULL, policy_hash TEXT NOT NULL,\n    report_id TEXT NOT NULL REFERENCES research_reports(report_id),\n    information_cutoff_time TEXT NOT NULL, sample_size INTEGER NOT NULL, gate_value REAL NOT NULL,\n    PRIMARY KEY(stage, policy_hash)\n)"
+ ],
+ [
+  "table",
+  "research_mark_sessions",
+  "research_mark_sessions",
+  "CREATE TABLE research_mark_sessions (\n    session_date TEXT PRIMARY KEY,\n    claimed_at TEXT NOT NULL,\n    status TEXT NOT NULL,\n    summary_json TEXT\n)"
+ ],
+ [
+  "table",
+  "research_observations",
+  "research_observations",
+  "CREATE TABLE research_observations (\n    observation_id TEXT PRIMARY KEY,\n    company_id INTEGER NOT NULL REFERENCES companies(id),\n    symbol TEXT NOT NULL,\n    catalyst_id TEXT NOT NULL REFERENCES catalysts(catalyst_id),\n    event_revision TEXT NOT NULL,\n    information_cutoff_time TEXT NOT NULL,\n    protocol_version TEXT NOT NULL,\n    source_hash TEXT NOT NULL,\n    record_hash TEXT NOT NULL,\n    record_json TEXT NOT NULL CHECK(json_valid(record_json))\n)"
+ ],
+ [
+  "table",
+  "research_reports",
+  "research_reports",
+  "CREATE TABLE research_reports (\n    report_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES research_runs(run_id),\n    information_cutoff_time TEXT NOT NULL, month TEXT NOT NULL, report_json TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
+  "research_run_acceptance",
+  "research_run_acceptance",
+  "CREATE TABLE research_run_acceptance (\n    run_id TEXT PRIMARY KEY REFERENCES research_runs(run_id),\n    role TEXT NOT NULL CHECK(role IN ('production', 'incumbent', 'challenger')),\n    cohort_id TEXT NOT NULL,\n    base_pipeline_version TEXT NOT NULL,\n    challenger_id TEXT,\n    window_start TEXT NOT NULL,\n    window_end TEXT NOT NULL,\n    policy_hash TEXT NOT NULL,\n    policy_json TEXT NOT NULL CHECK(json_valid(policy_json))\n)"
+ ],
+ [
+  "table",
+  "research_run_pauses",
+  "research_run_pauses",
+  "CREATE TABLE research_run_pauses (\n    run_id TEXT PRIMARY KEY REFERENCES research_runs(run_id),\n    paused_at TEXT NOT NULL, candidate_id TEXT, reason TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
+  "research_run_versions",
+  "research_run_versions",
+  "CREATE TABLE research_run_versions (\n    run_id TEXT PRIMARY KEY REFERENCES research_runs(run_id),\n    version TEXT NOT NULL,\n    evaluator_hash TEXT NOT NULL,\n    protocol_version TEXT NOT NULL,\n    version_hash TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
+  "research_runs",
+  "research_runs",
+  "CREATE TABLE research_runs (\n    run_id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('frozen_forward','leakage_checked_backtest')),\n    started_at TEXT NOT NULL, information_cutoff_time TEXT NOT NULL,\n    target_candidates INTEGER NOT NULL, manifest_json TEXT NOT NULL,\n    policy_json TEXT NOT NULL, config_hash TEXT NOT NULL, code_hash TEXT NOT NULL,\n    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','sealed'))\n)"
+ ],
+ [
+  "table",
+  "research_session_progress",
+  "research_session_progress",
+  "CREATE TABLE research_session_progress (\n    session_id TEXT PRIMARY KEY REFERENCES research_sessions(session_id),\n    record_hash TEXT NOT NULL,\n    record_json TEXT NOT NULL CHECK(json_valid(record_json))\n)"
+ ],
+ [
+  "table",
+  "research_sessions",
+  "research_sessions",
+  "CREATE TABLE research_sessions (\n    session_id TEXT PRIMARY KEY,\n    queue_id TEXT NOT NULL REFERENCES discovery_queue(queue_id),\n    initial_package_id TEXT NOT NULL REFERENCES evidence_packages(package_id),\n    final_package_id TEXT REFERENCES evidence_packages(package_id),\n    status TEXT NOT NULL,\n    record_hash TEXT NOT NULL,\n    record_json TEXT NOT NULL CHECK(json_valid(record_json))\n)"
+ ],
+ [
+  "table",
+  "research_shadow_positions",
+  "research_shadow_positions",
+  "CREATE TABLE research_shadow_positions (\n    run_id TEXT NOT NULL, candidate_id TEXT NOT NULL, strategy TEXT NOT NULL,\n    information_cutoff_time TEXT NOT NULL, outcome_cutoff_time TEXT NOT NULL,\n    status TEXT NOT NULL, result_json TEXT NOT NULL,\n    PRIMARY KEY(run_id, candidate_id, strategy),\n    FOREIGN KEY(run_id, candidate_id) REFERENCES research_candidates(run_id, candidate_id)\n)"
+ ],
+ [
+  "table",
+  "research_steps",
+  "research_steps",
+  "CREATE TABLE research_steps (\n    session_id TEXT NOT NULL REFERENCES research_sessions(session_id),\n    step_number INTEGER NOT NULL CHECK(step_number >= 0),\n    record_hash TEXT NOT NULL,\n    record_json TEXT NOT NULL CHECK(json_valid(record_json)),\n    PRIMARY KEY(session_id, step_number)\n)"
+ ],
+ [
+  "table",
+  "research_thesis_allowances",
+  "research_thesis_allowances",
+  "CREATE TABLE research_thesis_allowances (\n    day TEXT PRIMARY KEY,\n    calls INTEGER NOT NULL CHECK(calls >= 0),\n    reserved_cost REAL NOT NULL CHECK(reserved_cost >= 0)\n)"
+ ],
+ [
+  "table",
+  "research_thesis_outcomes",
+  "research_thesis_outcomes",
+  "CREATE TABLE research_thesis_outcomes (\n    evaluation_id TEXT PRIMARY KEY REFERENCES evidence_thesis_checks(evaluation_id),\n    status TEXT NOT NULL,\n    recorded_at TEXT NOT NULL,\n    record_json TEXT NOT NULL CHECK(json_valid(record_json))\n)"
+ ],
+ [
+  "table",
+  "research_thesis_progress",
+  "research_thesis_progress",
+  "CREATE TABLE research_thesis_progress (\n    session_id TEXT PRIMARY KEY REFERENCES research_sessions(session_id),\n    reserved_at TEXT NOT NULL,\n    reservation_json TEXT NOT NULL CHECK(json_valid(reservation_json))\n)"
+ ],
+ [
+  "table",
+  "research_work_owners",
+  "research_work_owners",
+  "CREATE TABLE research_work_owners (\n    work_key TEXT PRIMARY KEY,\n    session_id TEXT NOT NULL,\n    company_id INTEGER NOT NULL REFERENCES companies(id),\n    catalyst_id TEXT NOT NULL, purpose TEXT NOT NULL,\n    input_hash TEXT NOT NULL, created_at TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
+  "root_events",
+  "root_events",
+  "CREATE TABLE root_events (\n    root_event_id TEXT PRIMARY KEY CHECK(root_event_id LIKE 'root:%'),\n    catalyst_id TEXT NOT NULL REFERENCES catalysts(catalyst_id), root_source_id TEXT NOT NULL,\n    first_public_time TEXT, first_seen_time TEXT, verified INTEGER NOT NULL, primary_source_present INTEGER NOT NULL\n)"
+ ],
+ [
+  "table",
+  "schema_bootstrap",
+  "schema_bootstrap",
+  "CREATE TABLE schema_bootstrap (\n        name TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, applied_at TEXT NOT NULL)"
+ ],
+ [
+  "table",
+  "sector_news_articles",
+  "sector_news_articles",
+  "CREATE TABLE sector_news_articles (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    sector_id INTEGER NOT NULL,\n    article_id INTEGER NOT NULL,\n    source_page_url TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (sector_id) REFERENCES sectors(id) ON DELETE CASCADE,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,\n    UNIQUE (sector_id, article_id)\n)"
+ ],
+ [
+  "table",
+  "sector_opportunist_article_processing",
+  "sector_opportunist_article_processing",
+  "CREATE TABLE sector_opportunist_article_processing (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    article_id INTEGER NOT NULL UNIQUE,\n    model TEXT,\n    raw_json TEXT,\n    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "sector_opportunist_impacts",
+  "sector_opportunist_impacts",
+  "CREATE TABLE sector_opportunist_impacts (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    article_id INTEGER NOT NULL,\n    sector_id INTEGER NOT NULL,\n    confidence TEXT,\n    impact_direction TEXT,\n    impact_magnitude TEXT,\n    reason TEXT,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, catalyst_id TEXT, catalyst_family TEXT, catalyst_type TEXT, mechanism TEXT, root_event_ids_json TEXT, expected_horizon TEXT,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,\n    FOREIGN KEY (sector_id) REFERENCES sectors(id) ON DELETE CASCADE,\n    UNIQUE (article_id, sector_id)\n)"
+ ],
+ [
+  "table",
+  "sectors",
+  "sectors",
+  "CREATE TABLE sectors (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    sector_key TEXT NOT NULL UNIQUE,\n    name TEXT NOT NULL,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n)"
+ ],
+ [
+  "table",
+  "strategist_company_summaries",
+  "strategist_company_summaries",
+  "CREATE TABLE strategist_company_summaries (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    company_id INTEGER NOT NULL UNIQUE,\n    decision TEXT,\n    confidence TEXT,\n    summary TEXT,\n    thesis TEXT,\n    risks TEXT,\n    model TEXT,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "strategist_runs",
+  "strategist_runs",
+  "CREATE TABLE strategist_runs (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    candidate_id TEXT,\n    company_id INTEGER NOT NULL,\n    model TEXT NOT NULL,\n    prompt_version TEXT NOT NULL,\n    input_article_ids_json TEXT NOT NULL,\n    input_payload_json TEXT NOT NULL,\n    output_payload_json TEXT,\n    status TEXT NOT NULL,\n    error_message TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, catalyst_id TEXT, catalyst_family TEXT,\n    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "strategy_evaluations",
+  "strategy_evaluations",
+  "CREATE TABLE strategy_evaluations (\n    evaluation_id TEXT PRIMARY KEY,\n    run_id TEXT NOT NULL REFERENCES research_runs(run_id),\n    observation_id TEXT NOT NULL REFERENCES research_observations(observation_id),\n    candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),\n    strategy TEXT NOT NULL,\n    manifest_hash TEXT NOT NULL,\n    input_hash TEXT NOT NULL,\n    output_hash TEXT NOT NULL,\n    status TEXT NOT NULL CHECK(status IN ('evaluated','abstained','unavailable')),\n    UNIQUE(run_id, observation_id),\n    UNIQUE(run_id, candidate_id),\n    FOREIGN KEY(run_id, candidate_id) REFERENCES research_candidates(run_id, candidate_id)\n)"
+ ],
+ [
+  "table",
+  "telemetry_installations",
+  "telemetry_installations",
+  "CREATE TABLE telemetry_installations (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    install_id TEXT NOT NULL UNIQUE,\n    project TEXT,\n    telemetry_version INTEGER,\n    install_created_at TEXT,\n    first_runtime TEXT,\n    last_runtime TEXT,\n    first_release TEXT,\n    last_release TEXT,\n    first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    last_started_at TEXT,\n    startup_ping_count INTEGER NOT NULL DEFAULT 1,\n    raw_json TEXT\n)"
+ ],
+ [
+  "table",
+  "thesis_event_reviews",
+  "thesis_event_reviews",
+  "CREATE TABLE thesis_event_reviews (\n    review_id TEXT PRIMARY KEY CHECK(review_id LIKE 'event-review:%'),\n    thesis_id INTEGER NOT NULL REFERENCES position_theses(id),\n    queue_id TEXT NOT NULL REFERENCES discovery_queue(queue_id),\n    option_symbol TEXT NOT NULL,\n    status TEXT NOT NULL,\n    evidence_hash TEXT NOT NULL,\n    review_day TEXT NOT NULL,\n    reviewed_at TEXT NOT NULL,\n    thesis_state TEXT,\n    would_be_action TEXT,\n    record_hash TEXT NOT NULL,\n    record_json TEXT NOT NULL CHECK(json_valid(record_json)),\n    UNIQUE(thesis_id, queue_id)\n)"
+ ],
+ [
+  "table",
+  "thesis_validation_runs",
+  "thesis_validation_runs",
+  "CREATE TABLE thesis_validation_runs (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    thesis_id INTEGER NOT NULL,\n    option_symbol TEXT NOT NULL,\n    symbol TEXT,\n    run_at TEXT NOT NULL,\n    run_date TEXT NOT NULL,\n    mode TEXT NOT NULL DEFAULT 'shadow',\n    evidence_pack_json TEXT NOT NULL DEFAULT '{}',\n    raw_samples_json TEXT NOT NULL DEFAULT '[]',\n    sample_count INTEGER NOT NULL DEFAULT 0,\n    consistency TEXT,\n    flip_detected INTEGER NOT NULL DEFAULT 0,\n    grounded INTEGER NOT NULL DEFAULT 0,\n    thesis_state TEXT NOT NULL,\n    would_open_today TEXT,\n    evidence_ids_json TEXT NOT NULL DEFAULT '[]',\n    rationale TEXT,\n    confidence REAL,\n    rules_verdict TEXT,\n    arbiter_action TEXT NOT NULL DEFAULT 'none',\n    arbiter_reason TEXT,\n    executed INTEGER NOT NULL DEFAULT 0,\n    mark_mid_price REAL,\n    error_text TEXT,\n    -- A run without a verdict (consistency 'error') is retried that day; this counts the tries.\n    attempts INTEGER NOT NULL DEFAULT 1,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (thesis_id) REFERENCES position_theses(id) ON DELETE CASCADE,\n    UNIQUE (thesis_id, run_date)\n)"
+ ],
+ [
+  "table",
+  "us_news_article_processing",
+  "us_news_article_processing",
+  "CREATE TABLE us_news_article_processing (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    article_id INTEGER NOT NULL UNIQUE,\n    model TEXT,\n    raw_json TEXT,\n    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "us_news_articles",
+  "us_news_articles",
+  "CREATE TABLE us_news_articles (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    article_id INTEGER NOT NULL UNIQUE,\n    source_page_url TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "us_news_sector_impacts",
+  "us_news_sector_impacts",
+  "CREATE TABLE us_news_sector_impacts (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    article_id INTEGER NOT NULL,\n    sector_id INTEGER NOT NULL,\n    confidence TEXT,\n    reason TEXT,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, catalyst_id TEXT, catalyst_family TEXT, catalyst_type TEXT, mechanism TEXT, root_event_ids_json TEXT, expected_horizon TEXT,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,\n    FOREIGN KEY (sector_id) REFERENCES sectors(id) ON DELETE CASCADE,\n    UNIQUE (article_id, sector_id)\n)"
+ ],
+ [
+  "table",
+  "world_news_article_processing",
+  "world_news_article_processing",
+  "CREATE TABLE world_news_article_processing (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    article_id INTEGER NOT NULL UNIQUE,\n    model TEXT,\n    raw_json TEXT,\n    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "world_news_articles",
+  "world_news_articles",
+  "CREATE TABLE world_news_articles (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    article_id INTEGER NOT NULL UNIQUE,\n    source_page_url TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE\n)"
+ ],
+ [
+  "table",
+  "world_news_sector_impacts",
+  "world_news_sector_impacts",
+  "CREATE TABLE world_news_sector_impacts (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    article_id INTEGER NOT NULL,\n    sector_id INTEGER NOT NULL,\n    confidence TEXT,\n    reason TEXT,\n    raw_json TEXT,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, catalyst_id TEXT, catalyst_family TEXT, catalyst_type TEXT, mechanism TEXT, root_event_ids_json TEXT, expected_horizon TEXT,\n    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE CASCADE,\n    FOREIGN KEY (sector_id) REFERENCES sectors(id) ON DELETE CASCADE,\n    UNIQUE (article_id, sector_id)\n)"
+ ],
+ [
+  "trigger",
+  "benchmark_items_no_delete",
+  "benchmark_items",
+  "CREATE TRIGGER benchmark_items_no_delete BEFORE DELETE ON benchmark_items\nBEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END"
+ ],
+ [
+  "trigger",
+  "benchmark_items_no_update",
+  "benchmark_items",
+  "CREATE TRIGGER benchmark_items_no_update BEFORE UPDATE ON benchmark_items\nBEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END"
+ ],
+ [
+  "trigger",
+  "benchmark_runs_no_delete",
+  "benchmark_runs",
+  "CREATE TRIGGER benchmark_runs_no_delete BEFORE DELETE ON benchmark_runs\nBEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END"
+ ],
+ [
+  "trigger",
+  "benchmark_runs_no_update",
+  "benchmark_runs",
+  "CREATE TRIGGER benchmark_runs_no_update BEFORE UPDATE ON benchmark_runs\nBEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END"
+ ],
+ [
+  "trigger",
+  "benchmark_sets_no_delete",
+  "benchmark_sets",
+  "CREATE TRIGGER benchmark_sets_no_delete BEFORE DELETE ON benchmark_sets\nBEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END"
+ ],
+ [
+  "trigger",
+  "benchmark_sets_no_update",
+  "benchmark_sets",
+  "CREATE TRIGGER benchmark_sets_no_update BEFORE UPDATE ON benchmark_sets\nBEGIN SELECT RAISE(ABORT, 'Immutable benchmark record'); END"
+ ],
+ [
+  "trigger",
+  "catalyst_model_labels_no_delete",
+  "catalyst_model_labels",
+  "CREATE TRIGGER catalyst_model_labels_no_delete BEFORE DELETE ON catalyst_model_labels\nBEGIN SELECT RAISE(ABORT, 'Immutable catalyst label'); END"
+ ],
+ [
+  "trigger",
+  "catalyst_model_labels_no_update",
+  "catalyst_model_labels",
+  "CREATE TRIGGER catalyst_model_labels_no_update BEFORE UPDATE ON catalyst_model_labels\nBEGIN SELECT RAISE(ABORT, 'Immutable catalyst label'); END"
+ ],
+ [
+  "trigger",
+  "company_responses_no_delete",
+  "company_provider_responses",
+  "CREATE TRIGGER company_responses_no_delete BEFORE DELETE ON company_provider_responses\nBEGIN SELECT RAISE(ABORT, 'Immutable provider response'); END"
+ ],
+ [
+  "trigger",
+  "company_responses_no_update",
+  "company_provider_responses",
+  "CREATE TRIGGER company_responses_no_update BEFORE UPDATE ON company_provider_responses\nBEGIN SELECT RAISE(ABORT, 'Immutable provider response'); END"
+ ],
+ [
+  "trigger",
+  "discovery_events_no_delete",
+  "discovery_events",
+  "CREATE TRIGGER discovery_events_no_delete BEFORE DELETE ON discovery_events\nBEGIN SELECT RAISE(ABORT, 'Immutable discovery event'); END"
+ ],
+ [
+  "trigger",
+  "discovery_events_no_update",
+  "discovery_events",
+  "CREATE TRIGGER discovery_events_no_update BEFORE UPDATE ON discovery_events\nBEGIN SELECT RAISE(ABORT, 'Immutable discovery event'); END"
+ ],
+ [
+  "trigger",
+  "discovery_shadow_no_delete",
+  "discovery_shadow_candidates",
+  "CREATE TRIGGER discovery_shadow_no_delete BEFORE DELETE ON discovery_shadow_candidates\nBEGIN SELECT RAISE(ABORT, 'Immutable discovery candidate'); END"
+ ],
+ [
+  "trigger",
+  "discovery_shadow_no_update",
+  "discovery_shadow_candidates",
+  "CREATE TRIGGER discovery_shadow_no_update BEFORE UPDATE ON discovery_shadow_candidates\nBEGIN SELECT RAISE(ABORT, 'Immutable discovery candidate'); END"
+ ],
+ [
+  "trigger",
+  "evidence_documents_fts_insert",
+  "evidence_documents",
+  "CREATE TRIGGER evidence_documents_fts_insert AFTER INSERT ON evidence_documents\nBEGIN\n    INSERT INTO evidence_document_fts (document_id, company_id, text)\n    VALUES (NEW.document_id, json_extract(NEW.record_json, '$.metadata.company_id'),\n            json_extract(NEW.record_json, '$.text'));\nEND"
+ ],
+ [
+  "trigger",
+  "immutable_candidate_economics_reports_delete",
+  "candidate_economics_reports",
+  "CREATE TRIGGER immutable_candidate_economics_reports_delete BEFORE DELETE ON candidate_economics_reports\nBEGIN SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_candidate_economics_reports_update",
+  "candidate_economics_reports",
+  "CREATE TRIGGER immutable_candidate_economics_reports_update BEFORE UPDATE ON candidate_economics_reports\nBEGIN SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_candidate_observations_delete",
+  "candidate_observations",
+  "CREATE TRIGGER immutable_candidate_observations_delete\n                BEFORE DELETE ON candidate_observations BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_candidate_observations_update",
+  "candidate_observations",
+  "CREATE TRIGGER immutable_candidate_observations_update\n                BEFORE UPDATE ON candidate_observations BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_challenger_approvals_delete",
+  "challenger_approvals",
+  "CREATE TRIGGER immutable_challenger_approvals_delete BEFORE DELETE ON challenger_approvals\nBEGIN SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_challenger_approvals_update",
+  "challenger_approvals",
+  "CREATE TRIGGER immutable_challenger_approvals_update BEFORE UPDATE ON challenger_approvals\nBEGIN SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_company_facts_delete",
+  "company_facts",
+  "CREATE TRIGGER immutable_company_facts_delete\n                BEFORE DELETE ON company_facts BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_company_facts_update",
+  "company_facts",
+  "CREATE TRIGGER immutable_company_facts_update\n                BEFORE UPDATE ON company_facts BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_evidence_documents_delete",
+  "evidence_documents",
+  "CREATE TRIGGER immutable_evidence_documents_delete\n                BEFORE DELETE ON evidence_documents BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_evidence_documents_update",
+  "evidence_documents",
+  "CREATE TRIGGER immutable_evidence_documents_update\n                BEFORE UPDATE ON evidence_documents BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_evidence_packages_delete",
+  "evidence_packages",
+  "CREATE TRIGGER immutable_evidence_packages_delete\n                BEFORE DELETE ON evidence_packages BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_evidence_packages_update",
+  "evidence_packages",
+  "CREATE TRIGGER immutable_evidence_packages_update\n                BEFORE UPDATE ON evidence_packages BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_evidence_thesis_checks_delete",
+  "evidence_thesis_checks",
+  "CREATE TRIGGER immutable_evidence_thesis_checks_delete BEFORE DELETE ON evidence_thesis_checks\nBEGIN SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_evidence_thesis_checks_update",
+  "evidence_thesis_checks",
+  "CREATE TRIGGER immutable_evidence_thesis_checks_update BEFORE UPDATE ON evidence_thesis_checks\nBEGIN SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_forward_comparison_reports_delete",
+  "forward_comparison_reports",
+  "CREATE TRIGGER immutable_forward_comparison_reports_delete BEFORE DELETE ON forward_comparison_reports\nBEGIN SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_forward_comparison_reports_update",
+  "forward_comparison_reports",
+  "CREATE TRIGGER immutable_forward_comparison_reports_update BEFORE UPDATE ON forward_comparison_reports\nBEGIN SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_research_observations_delete",
+  "research_observations",
+  "CREATE TRIGGER immutable_research_observations_delete\n                BEFORE DELETE ON research_observations BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_research_observations_update",
+  "research_observations",
+  "CREATE TRIGGER immutable_research_observations_update\n                BEFORE UPDATE ON research_observations BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_research_run_acceptance_delete",
+  "research_run_acceptance",
+  "CREATE TRIGGER immutable_research_run_acceptance_delete BEFORE DELETE ON research_run_acceptance\nBEGIN SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_research_run_acceptance_update",
+  "research_run_acceptance",
+  "CREATE TRIGGER immutable_research_run_acceptance_update BEFORE UPDATE ON research_run_acceptance\nBEGIN SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_research_run_versions_delete",
+  "research_run_versions",
+  "CREATE TRIGGER immutable_research_run_versions_delete\n                BEFORE DELETE ON research_run_versions BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_research_run_versions_update",
+  "research_run_versions",
+  "CREATE TRIGGER immutable_research_run_versions_update\n                BEFORE UPDATE ON research_run_versions BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_research_steps_delete",
+  "research_steps",
+  "CREATE TRIGGER immutable_research_steps_delete\n                BEFORE DELETE ON research_steps BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_research_steps_update",
+  "research_steps",
+  "CREATE TRIGGER immutable_research_steps_update\n                BEFORE UPDATE ON research_steps BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_strategy_evaluations_delete",
+  "strategy_evaluations",
+  "CREATE TRIGGER immutable_strategy_evaluations_delete\n                BEFORE DELETE ON strategy_evaluations BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_strategy_evaluations_update",
+  "strategy_evaluations",
+  "CREATE TRIGGER immutable_strategy_evaluations_update\n                BEFORE UPDATE ON strategy_evaluations BEGIN\n                SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_thesis_event_reviews_delete",
+  "thesis_event_reviews",
+  "CREATE TRIGGER immutable_thesis_event_reviews_delete BEFORE DELETE ON thesis_event_reviews\nBEGIN SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "immutable_thesis_event_reviews_update",
+  "thesis_event_reviews",
+  "CREATE TRIGGER immutable_thesis_event_reviews_update BEFORE UPDATE ON thesis_event_reviews\nBEGIN SELECT RAISE(ABORT, 'Immutable research record'); END"
+ ],
+ [
+  "trigger",
+  "json_blobs_no_delete",
+  "json_blobs",
+  "CREATE TRIGGER json_blobs_no_delete BEFORE DELETE ON json_blobs\nBEGIN SELECT RAISE(ABORT, 'Immutable json blob'); END"
+ ],
+ [
+  "trigger",
+  "json_blobs_no_update",
+  "json_blobs",
+  "CREATE TRIGGER json_blobs_no_update BEFORE UPDATE ON json_blobs\nBEGIN SELECT RAISE(ABORT, 'Immutable json blob'); END"
+ ],
+ [
+  "trigger",
+  "news_article_content_fts_insert",
+  "news_article_content",
+  "CREATE TRIGGER news_article_content_fts_insert AFTER INSERT ON news_article_content\nBEGIN\n    DELETE FROM news_article_fts WHERE rowid = NEW.article_id;\n    INSERT INTO news_article_fts (rowid, title, summary, body)\n    SELECT id, title, summary, NEW.body FROM news_articles WHERE id = NEW.article_id;\nEND"
+ ],
+ [
+  "trigger",
+  "news_article_content_fts_update",
+  "news_article_content",
+  "CREATE TRIGGER news_article_content_fts_update AFTER UPDATE OF body ON news_article_content\nWHEN NEW.body IS NOT OLD.body\nBEGIN\n    DELETE FROM news_article_fts WHERE rowid = NEW.article_id;\n    INSERT INTO news_article_fts (rowid, title, summary, body)\n    SELECT id, title, summary, NEW.body FROM news_articles WHERE id = NEW.article_id;\nEND"
+ ],
+ [
+  "trigger",
+  "news_article_content_updated",
+  "news_article_content",
+  "CREATE TRIGGER news_article_content_updated AFTER UPDATE OF body ON news_article_content\nWHEN NEW.body IS NOT OLD.body\nBEGIN\n    UPDATE news_articles SET content_updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') || '+00:00' WHERE id = NEW.article_id;\nEND"
+ ],
+ [
+  "trigger",
+  "news_articles_content_updated",
+  "news_articles",
+  "CREATE TRIGGER news_articles_content_updated AFTER UPDATE OF title, summary ON news_articles\nWHEN NEW.title IS NOT OLD.title OR NEW.summary IS NOT OLD.summary\nBEGIN\n    UPDATE news_articles SET content_updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') || '+00:00' WHERE id = NEW.id;\nEND"
+ ],
+ [
+  "trigger",
+  "news_articles_fts_delete",
+  "news_articles",
+  "CREATE TRIGGER news_articles_fts_delete AFTER DELETE ON news_articles\nBEGIN\n    DELETE FROM news_article_fts WHERE rowid = OLD.id;\nEND"
+ ],
+ [
+  "trigger",
+  "news_articles_fts_insert",
+  "news_articles",
+  "CREATE TRIGGER news_articles_fts_insert AFTER INSERT ON news_articles\nBEGIN\n    DELETE FROM news_article_fts WHERE rowid = NEW.id;\n    INSERT INTO news_article_fts (rowid, title, summary, body)\n    VALUES (NEW.id, NEW.title, NEW.summary, (SELECT body FROM news_article_content WHERE article_id = NEW.id));\nEND"
+ ],
+ [
+  "trigger",
+  "news_articles_fts_update",
+  "news_articles",
+  "CREATE TRIGGER news_articles_fts_update AFTER UPDATE OF title, summary ON news_articles\nWHEN NEW.title IS NOT OLD.title OR NEW.summary IS NOT OLD.summary\nBEGIN\n    DELETE FROM news_article_fts WHERE rowid = NEW.id;\n    INSERT INTO news_article_fts (rowid, title, summary, body)\n    VALUES (NEW.id, NEW.title, NEW.summary, (SELECT body FROM news_article_content WHERE article_id = NEW.id));\nEND"
+ ],
+ [
+  "trigger",
+  "research_continuations_no_delete",
+  "research_evidence_continuations",
+  "CREATE TRIGGER research_continuations_no_delete BEFORE DELETE ON research_evidence_continuations\nBEGIN SELECT RAISE(ABORT, 'Immutable research continuation'); END"
+ ],
+ [
+  "trigger",
+  "research_continuations_no_update",
+  "research_evidence_continuations",
+  "CREATE TRIGGER research_continuations_no_update BEFORE UPDATE ON research_evidence_continuations\nBEGIN SELECT RAISE(ABORT, 'Immutable research continuation'); END"
+ ],
+ [
+  "trigger",
+  "research_work_owners_no_delete",
+  "research_work_owners",
+  "CREATE TRIGGER research_work_owners_no_delete BEFORE DELETE ON research_work_owners\nBEGIN SELECT RAISE(ABORT, 'Immutable research work owner'); END"
+ ],
+ [
+  "trigger",
+  "research_work_owners_no_update",
+  "research_work_owners",
+  "CREATE TRIGGER research_work_owners_no_update BEFORE UPDATE ON research_work_owners\nBEGIN SELECT RAISE(ABORT, 'Immutable research work owner'); END"
+ ]
+]

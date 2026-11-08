@@ -18,8 +18,8 @@ from .alpaca_base import (
     _get_alpaca_clients,
     _get_field,
     _serialize_scalar,
-    summarize_option_iv,
 )
+from agent_helpers.volatility import summarize_option_iv
 from .iv_history import (
     _calculate_days_to_expiration,
     _enrich_with_alpaca_iv_percentiles,
@@ -219,7 +219,7 @@ def _select_contract_subset_near_reference(
         ]
         candidates = preferred_contracts or all_contracts
         sort_key = (
-            (lambda contract: _contract_preference_key(contract, target))
+            (lambda contract, target=target: _contract_preference_key(contract, target))
             if preferred_contracts
             else lambda contract: (
                 abs((safe_float(contract.get("strike_price")) or 0.0) - reference_stock_price),

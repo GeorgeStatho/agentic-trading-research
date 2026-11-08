@@ -22,6 +22,10 @@ export function v2Payload(): V2StatusPayload {
     source_hash: 'abc',
     mode_summary: { enforcing: 0, shadow: 8, disabled: 0, downgraded: 3, misconfigured: 0 },
     activity_available: true,
+    rejection_reasons: [
+      { stage: 'SUPPORT', reason_code: 'insufficient_independent_roots', shadow: false, candidates: 412 },
+      { stage: 'LIQUIDITY', reason_code: 'liquidity_wide_spread', shadow: true, candidates: 96 },
+    ],
     features: [
       feature('provenance', 'Provenance', 'enforce', [['PROVENANCE', 2577, 2577]]),
       feature('freshness', 'Freshness', 'enforce', [['FRESHNESS', 2238, 2577]]),

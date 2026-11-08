@@ -1156,7 +1156,7 @@ class OptionPositionTests(VerboseTestCase):
                 "status": "new",
                 "side": "sell",
                 "qty": str(getattr(position, "qty", "")),
-                "requested_qty": _safe_int(getattr(position, "qty", 0)),
+                "requested_qty": int(float(getattr(position, "qty", 0))),
                 "submitted_at": datetime.now().isoformat(),
             }
 
@@ -1288,6 +1288,9 @@ class OptionPositionTests(VerboseTestCase):
             self.assertEqual(summary["exit_reason"], "stop_loss")
             self.assertEqual(summary["exit_limit_price"], 1.20)
             self.assertEqual(full_orders, [(symbol, 1.20)])
+            self.assertEqual(summary["close_error"], "")
+            self.assertTrue(summary["close_submitted"])
+            self.assertEqual(summary["close_requested_qty"], 4)
             self.log_pass("an urgent stop-loss bypassed the liquidity guard and crossed to the bid as a marketable limit")
 
     def test_manager_reprices_previously_cancelled_exit_to_the_bid(self) -> None:

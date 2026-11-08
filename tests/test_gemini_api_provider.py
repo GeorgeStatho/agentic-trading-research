@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import agent_stages.sector_opportunist as sector_opportunist
-from agent_helpers import llm_client
+from agent_helpers import llm_vertex
 from agent_helpers.llm_client import Client, ask_llm_model
 from services.core.settings import Settings, StageModel, VertexSettings, get_settings, use_settings
 
@@ -31,7 +31,7 @@ def gemini_client(*responses):
 
 
 def ask(client, model="gemini-3.1-flash-lite"):
-    with use_settings(vertex=FAST_RETRIES), patch.object(llm_client.time, "sleep"):
+    with use_settings(vertex=FAST_RETRIES), patch.object(llm_vertex.time, "sleep"):
         return ask_llm_model(client, model, "system", "user")
 
 
@@ -41,7 +41,7 @@ class GeminiClientTests(unittest.TestCase):
         with use_settings(models=models), patch.object(sector_opportunist, "_sector_opportunist_client", None), \
                 patch.object(sector_opportunist, "get_model_client") as factory:
             sector_opportunist._get_default_client()
-        factory.assert_called_once_with("host", "gemini")
+        factory.assert_called_once_with("host", "gemini", stage="sector_opportunist")
 
 
 class GeminiRequestTests(unittest.TestCase):

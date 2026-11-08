@@ -10,7 +10,6 @@ from tests.test_company_evidence import COMPANY, actuals, guidance
 from tests.research_foundation_fixtures import ENTRY
 from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database
-from market_db_modules.company_evidence import get_evidence_package
 from market_db_modules.evidence_refresh import (
     due_refresh_requests,
     finish_refresh_requests,

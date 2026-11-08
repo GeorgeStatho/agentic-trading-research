@@ -30,6 +30,17 @@ async function loaded() {
 }
 
 describe('V2 rollout page', () => {
+  it('lists why candidates were stopped, by reason code', async () => {
+    render(<V2StatusPage />)
+    const table = await screen.findByRole('table', { name: 'Why candidates were stopped' })
+    const rows = within(table).getAllByRole('row').slice(1).map((row) => row.textContent ?? '')
+
+    expect(rows[0]).toContain('412')
+    expect(rows[0]).toContain('Enforced')
+    expect(rows[1]).toContain('liquidity wide spread')
+    expect(rows[1]).toContain('Shadow')
+  })
+
   it('leads with the mode counts as a stat strip', async () => {
     render(<V2StatusPage />)
     await loaded()

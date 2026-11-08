@@ -13,11 +13,13 @@ from statistics import median
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
-from db_common import clean_text, coerce_float, get_connection, json_text, table_exists
+from db_common import clean_text, get_connection, json_text, table_exists
 from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
 from services.options.option_pricing import (CalibratedOption, black_scholes_price, expiration_close, implied_volatility,
                                      option_side)
+from services.core.time_utils import parse_timestamp
+from services.core.numbers import safe_float
 
 
 SNAPSHOT_VERSION = "decision-evidence-snapshot-v1"
@@ -65,19 +67,8 @@ def _json_object(value: Any) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _parse_timestamp(value: Any) -> datetime | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
-
-
 def _number(value: Any, fallback: float = 0.0) -> float:
-    parsed = coerce_float(value)
+    parsed = safe_float(value)
     return parsed if parsed is not None else fallback
 
 
@@ -124,8 +115,8 @@ def _available_articles(conn: sqlite3.Connection, references: list[dict[str, Any
         article_id = _positive_int(reference.get("article_id") or reference.get("id"))
         persisted_article = persisted.get(article_id)
         if persisted_article is not None:
-            published_at = _parse_timestamp(persisted_article.get("published_at"))
-            ingested_at = _parse_timestamp(persisted_article.get("created_at"))
+            published_at = parse_timestamp(persisted_article.get("published_at"))
+            ingested_at = parse_timestamp(persisted_article.get("created_at"))
             if (published_at is not None and published_at > as_of) or (ingested_at is not None and ingested_at > as_of):
                 continue
             output.append(
@@ -134,7 +125,7 @@ def _available_articles(conn: sqlite3.Connection, references: list[dict[str, Any
                     "published_at": str(persisted_article.get("published_at") or ""),
                     "ingested_at": str(persisted_article.get("created_at") or ""),
                     "content_hash": str(persisted_article.get("content_hash") or ""),
-                    "evidence_score": coerce_float(persisted_article.get("evidence_score")),
+                    "evidence_score": safe_float(persisted_article.get("evidence_score")),
                     "title": str(persisted_article.get("title") or ""),
                     "summary": str(persisted_article.get("summary") or reference.get("summary") or ""),
                     "entity_links": [str(reference.get("article_scope") or "").strip()],
@@ -148,7 +139,7 @@ def _available_articles(conn: sqlite3.Connection, references: list[dict[str, Any
                 "published_at": str(reference.get("published_at") or ""),
                 "ingested_at": str(reference.get("ingested_at") or ""),
                 "content_hash": str(reference.get("content_hash") or ""),
-                "evidence_score": coerce_float(reference.get("evidence_score")),
+                "evidence_score": safe_float(reference.get("evidence_score")),
                 "title": str(reference.get("title") or ""),
                 "summary": str(reference.get("summary") or ""),
                 "entity_links": [str(reference.get("article_scope") or "").strip()],
@@ -172,7 +163,7 @@ def ensure_decision_evidence_snapshot(
     ).fetchone()
     if existing is not None:
         return dict(existing)
-    as_of = _parse_timestamp(decision.get("decision_run_at"))
+    as_of = parse_timestamp(decision.get("decision_run_at"))
     if as_of is None:
         raise ValueError("Backtest decision is missing a valid decision timestamp.")
     manager_input = _json_object(decision.get("manager_input_json"))
@@ -238,11 +229,11 @@ def record_historical_option_quote(
             RETURNING id
             """,
             (
-                option_symbol.upper(), normalize_timestamp(quote_at), coerce_float(quote.get("bid_price") or quote.get("bid")),
-                coerce_float(quote.get("ask_price") or quote.get("ask")), coerce_float(quote.get("last_price") or quote.get("last")),
-                coerce_float(quote.get("volume")), coerce_float(quote.get("open_interest")),
-                coerce_float(quote.get("implied_volatility") or quote.get("iv")), coerce_float(quote.get("delta")),
-                coerce_float(quote.get("gamma")), coerce_float(quote.get("theta")), coerce_float(quote.get("vega")),
+                option_symbol.upper(), normalize_timestamp(quote_at), safe_float(quote.get("bid_price") or quote.get("bid")),
+                safe_float(quote.get("ask_price") or quote.get("ask")), safe_float(quote.get("last_price") or quote.get("last")),
+                safe_float(quote.get("volume")), safe_float(quote.get("open_interest")),
+                safe_float(quote.get("implied_volatility") or quote.get("iv")), safe_float(quote.get("delta")),
+                safe_float(quote.get("gamma")), safe_float(quote.get("theta")), safe_float(quote.get("vega")),
                 normalized_provider, json_text(quote),
             ),
         )
@@ -280,9 +271,9 @@ def record_historical_underlying_bar(
             """,
             (
                 symbol.upper(), normalize_timestamp(bar_at), str(timeframe or "1d"),
-                coerce_float(bar.get("open_price") or bar.get("open")), coerce_float(bar.get("high_price") or bar.get("high")),
-                coerce_float(bar.get("low_price") or bar.get("low")), coerce_float(bar.get("close_price") or bar.get("close")),
-                coerce_float(bar.get("volume")), normalized_provider, json_text(bar),
+                safe_float(bar.get("open_price") or bar.get("open")), safe_float(bar.get("high_price") or bar.get("high")),
+                safe_float(bar.get("low_price") or bar.get("low")), safe_float(bar.get("close_price") or bar.get("close")),
+                safe_float(bar.get("volume")), normalized_provider, json_text(bar),
             ),
         )
         row = cursor.fetchone()
@@ -319,7 +310,7 @@ def record_historical_option_contract(
             """,
             (
                 option_symbol.upper(), underlying_symbol.upper(), clean_text(contract.get("contract_type") or contract.get("type")),
-                clean_text(contract.get("expiration_date") or contract.get("expiration")), coerce_float(contract.get("strike_price") or contract.get("strike")),
+                clean_text(contract.get("expiration_date") or contract.get("expiration")), safe_float(contract.get("strike_price") or contract.get("strike")),
                 normalized_provider, json_text(contract), normalize_timestamp(captured_at),
             ),
         )
@@ -381,7 +372,7 @@ def _pricing_source(quote: dict[str, Any]) -> str:
 
 
 def _base_event(decision: dict[str, Any], snapshot: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
-    as_of = _parse_timestamp(decision.get("decision_run_at"))
+    as_of = parse_timestamp(decision.get("decision_run_at"))
     return {
         "as_of": as_of.isoformat() if as_of is not None else "",
         "manager_decision_history_id": int(decision["id"]),
@@ -477,7 +468,7 @@ def _priced_event(
 
 
 def _simulate_event(decision: dict[str, Any], snapshot: dict[str, Any], conn: sqlite3.Connection, config: dict[str, Any]) -> dict[str, Any]:
-    as_of = _parse_timestamp(decision.get("decision_run_at"))
+    as_of = parse_timestamp(decision.get("decision_run_at"))
     base_event = _base_event(decision, snapshot, config)
     option_symbol = base_event["option_symbol"]
     if as_of is None or not option_symbol:
@@ -486,13 +477,13 @@ def _simulate_event(decision: dict[str, Any], snapshot: dict[str, Any], conn: sq
     if not quotes:
         return {**base_event, "status": "no_fill", "warnings": ["no_valid_historical_entry_quote"]}
     entry_quote = quotes[0]
-    entry_at = _parse_timestamp(entry_quote.get("quote_at"))
+    entry_at = parse_timestamp(entry_quote.get("quote_at"))
     if entry_at is None or (entry_at - as_of).total_seconds() > config["max_entry_delay_minutes"] * 60:
         return {**base_event, "status": "no_fill", "warnings": ["next_quote_exceeds_entry_delay"]}
     cutoff = entry_at + timedelta(hours=config["max_hold_hours"])
     marks: list[tuple[datetime, float]] = []
     for quote in quotes[1:]:
-        quote_at = _parse_timestamp(quote.get("quote_at"))
+        quote_at = parse_timestamp(quote.get("quote_at"))
         if quote_at is None or quote_at > cutoff:
             break
         marks.append((quote_at, _number(quote.get("bid_price"))))
@@ -530,7 +521,7 @@ def _daily_closes(conn: sqlite3.Connection, symbol: str, after: datetime, until:
     ).fetchall()
     closes: dict[datetime, float] = {}
     for row in rows:
-        bar_at = _parse_timestamp(row["bar_at"])
+        bar_at = parse_timestamp(row["bar_at"])
         if bar_at is None:
             continue
         close_at = datetime.combine(bar_at.astimezone(MARKET_TIMEZONE).date(), MARKET_CLOSE, MARKET_TIMEZONE)
@@ -603,7 +594,7 @@ def _simulate_modelled_event(
     the entry mid's) carries forward. Exits give up the entry quote's half-spread on the model mid.
     """
     base_event = _base_event(decision, snapshot, config)
-    as_of = _parse_timestamp(decision.get("decision_run_at"))
+    as_of = parse_timestamp(decision.get("decision_run_at"))
     contract = decision.get("selected_contract") or {}
     quote = contract.get("latest_quote") or {}
     side = option_side(contract.get("contract_type"))
@@ -672,15 +663,15 @@ def _apply_portfolio_limits(events: list[dict[str, Any]], config: dict[str, Any]
     candidates = [
         event for event in events
         if event.get("status") in {"simulated_closed", "no_exit_quote"}
-        and _parse_timestamp(event.get("entry_at")) is not None
+        and parse_timestamp(event.get("entry_at")) is not None
     ]
     for event in sorted(candidates, key=lambda item: (str(item.get("entry_at") or ""), int(item.get("manager_decision_history_id") or 0))):
-        entry_at = _parse_timestamp(event.get("entry_at"))
+        entry_at = parse_timestamp(event.get("entry_at"))
         if entry_at is None:
             continue
         remaining_positions: list[dict[str, Any]] = []
         for position in active_positions:
-            release_at = _parse_timestamp(position.get("risk_release_at"))
+            release_at = parse_timestamp(position.get("risk_release_at"))
             if release_at is None or release_at > entry_at:
                 remaining_positions.append(position)
                 continue

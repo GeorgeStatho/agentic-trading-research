@@ -9,6 +9,7 @@ from pathlib import Path
 import signal
 from threading import Event
 
+from services.core.logging_utils import configure_logging
 from services.core.settings import load_process_settings
 
 if __name__ == "__main__":
@@ -27,7 +28,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="Back up now, whatever the schedule, then exit.")
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    configure_logging()
     settings = DbBackupSettings.from_env()
     status_path = os.getenv("DB_BACKUP_STATUS_PATH", str(DATA_DIR / "db_backup_status.json"))
     status = StatusReporter(Path(status_path))

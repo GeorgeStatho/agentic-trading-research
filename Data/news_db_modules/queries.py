@@ -5,7 +5,7 @@ from pathlib import Path
 
 from db_common import get_connection
 from .bootstrap import initialize_database
-from .shared import normalize_url
+from processing.news_normalization import normalize_url
 
 
 def list_industry_news_articles(industry_id: int, db_path: Path | str | None = None) -> list[dict]:

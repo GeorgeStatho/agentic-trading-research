@@ -3,7 +3,9 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from agent_helpers.llm_client import Client, _strict_compatible, ask_llm_model, provider_status_code
+from agent_helpers.llm_client import Client, ask_llm_model
+from agent_helpers.llm_errors import provider_status_code
+from agent_helpers.llm_openai import _strict_compatible
 from services.core.settings import VertexSettings, use_settings
 
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["decision"],

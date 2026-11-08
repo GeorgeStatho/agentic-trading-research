@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from services.core.settings import get_settings
-from services.core.settings import StageModel, get_settings
+from services.core.settings import StageModel
 from agent_helpers.company_opportunist import (
     build_company_opportunist_articles,
     build_company_valid_reference_sets,
@@ -72,7 +72,7 @@ __all__ = [
 def _get_default_client() -> Client:
     global _company_opportunist_client
     if _company_opportunist_client is None:
-        _company_opportunist_client = get_model_client(_stage_model().ollama_host, _stage_model().provider)
+        _company_opportunist_client = get_model_client(_stage_model().ollama_host, _stage_model().provider, stage="company_opportunist")
     return _company_opportunist_client
 
 

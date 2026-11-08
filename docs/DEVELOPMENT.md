@@ -6,10 +6,11 @@ The project is an application run from its checkout. Install it editable into yo
 Python 3.11+ environment:
 
 ```bash
-pip install -e .
+pip install -e . -c constraints.txt
 ```
 
-This installs the dependencies in `requirements.txt` and registers the import roots
+This installs the dependencies in `requirements.txt`, at the exact versions in
+`constraints.txt` (the worker image's environment), and registers the import roots
 declared in `pyproject.toml` (`.`, `Data`, `Python Scripts`, `Python Scripts/agentCallers`
 and `Python Scripts/Webscraping`). Those roots are the only import configuration. Modules
 must not edit `sys.path`, and new code imports through them, for example
@@ -35,7 +36,7 @@ python3 scripts/project.py test
 python3 scripts/project.py test tests.test_thesis_evidence_contract   # selected modules
 ```
 
-With the dev extras installed (`pip install -e ".[dev]"`), the whole suite runs in
+With the dev extras installed (`pip install -e ".[dev]" -c constraints.txt`), the whole suite runs in
 parallel through `pytest -n auto`; without them it runs one test at a time through
 `unittest`. Selected modules always run through `unittest`. Tests are written as
 `unittest` test cases either way.
@@ -53,6 +54,32 @@ or dependency files (`*.sql`, `config/`, `Data/*.json`, `.env.example`, `pyproje
 `requirements.txt`), runs every test and re-records, because those files are read rather than
 executed and cannot be traced to individual tests. The map lives in `.testmondata` and is
 ignored by git. Run the whole suite before committing; the image build always does.
+
+To see which lines the suite exercises (dev extras):
+
+```bash
+python3 -m pytest -n auto --cov --cov-report=term-missing
+```
+
+Coverage settings live under `[tool.coverage.*]` in `pyproject.toml`.
+
+## Lint and CI
+
+`ruff check .` runs the bug-finding rules configured under `[tool.ruff]` in `pyproject.toml`
+(no formatter), and `tests/test_static_checks.py` fails when it finds anything. To run it on
+each commit, `pip install pre-commit && pre-commit install`.
+
+`.github/workflows/ci.yml` runs on every push and pull request: the Python job installs with
+`-c constraints.txt` on the worker image's Python version, then runs ruff and the test suite;
+the dashboard job runs `npm ci`, lint, vitest and the production build.
+
+## API contracts
+
+The dashboard's TypeScript types are written by hand, so `tests/test_api_contracts.py` pins the key
+paths of the payloads it reads (`web_dashboard/src/test/contracts/*.json`), and the dashboard's
+`contracts.test.ts` fails when a typed test fixture uses a path the API no longer sends. After an
+intended payload change, regenerate with `UPDATE_API_CONTRACTS=1 python3 -m pytest
+tests/test_api_contracts.py`, then update the TypeScript type and fixture until vitest passes.
 
 Keep the checkout on the Linux filesystem when you work in WSL (for example under
 `~/code`, not `/mnt/c` or `/mnt/e`). Every file access on a Windows drive goes through a
@@ -77,6 +104,16 @@ A test that simulates a database left by older code must also clear `schema_boot
 Otherwise the market setup sees its own version stamp and skips the migrations (see
 [ARCHITECTURE.md](ARCHITECTURE.md)).
 
+## Query performance
+
+Measured on 2026-11-06 against a snapshot of the live database (7.4 GB) on ext4, with Alpaca faked:
+- Every GET route answers in under 0.7 s once warm. The slowest are `/api/dashboard-kpis`, `/api/forward-evaluation` and `/api/decision-autopsies`.
+- No `julianday(col)` filter needs an expression index yet. The slowest, `discovery_evaluation._production_route`, takes about 100 ms but keeps about 40% of `candidates`, so an index would not narrow it. The `v2_status` shadow-activity scans take 30–45 ms.
+- `PRAGMA mmap_size` made no measurable difference, so connections leave it unset.
+- `analyze_database()` (`Data/db_common.py`) writes `sqlite_stat1` in about 1 s cold. It runs at API startup and after the nightly backup.
+
+Before adding an index, time the query and read its `EXPLAIN QUERY PLAN` on a snapshot (see the `verify` skill). An expression index is used only when the query repeats its expression exactly, for example `julianday(captured_at)`.
+
 ## Configuration
 
 Settings are read once per process into one typed object, `services.core.settings.Settings`
@@ -96,6 +133,8 @@ opportunist limits and the continuation policy).
 
 Add a new setting to the relevant section in `services/core/settings.py` and to `.env.example`;
 the test bootstrap uses `.env.example` to isolate tests from local configuration.
+`tests/test_env_example_coverage.py` fails when the code reads a setting `.env.example` does not
+list; list optional ones commented out with their default (`# NAME=default`).
 
 Not yet on `Settings`: the option exit settings (`services.core.trading_config.OptionPositionSettings`,
 read at call time), the process composition roots in

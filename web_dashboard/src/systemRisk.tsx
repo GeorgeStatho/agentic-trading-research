@@ -1,5 +1,6 @@
 import { getDashboardKpis } from './dashboardKpisApi';
 import type { DashboardKpiPayload } from './dashboardKpisApi';
+import { ExecutionQualityPanel } from './executionQuality';
 import { formatSignedPercent } from './format';
 import PageHeader from './pageHeader';
 import RiskControlsPanel from './riskControls';
@@ -33,9 +34,10 @@ function SystemRiskPage() {
 
   return (
     <main className="flex flex-col gap-3">
-      <PageHeader title="Risk" description="The exit rules every open option follows, and the risk settings the bot reads. Read-only." />
+      <PageHeader title="Risk" description="The exit rules every open option follows, how orders actually filled, and the risk settings the bot reads. Read-only." />
       {error ? <p className="text-error">{error}</p> : null}
       {payload ? <ExitLadders rules={payload.option_exit_rules} /> : null}
+      <ExecutionQualityPanel />
       <RiskControlsPanel />
     </main>
   );

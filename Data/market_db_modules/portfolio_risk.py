@@ -4,9 +4,10 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-from db_common import clean_text, coerce_float, get_connection
+from db_common import clean_text, get_connection
 from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
+from services.core.numbers import safe_float
 
 
 def _recorded_at_boundary(value: datetime | str) -> str | None:
@@ -78,8 +79,8 @@ def get_realized_option_loss_since(
         ).fetchall()
     total_loss = 0.0
     for row in rows:
-        entry_notional = coerce_float(row["estimated_order_cost"])
-        pnl_pct = coerce_float(row["realized_pnl_pct"])
+        entry_notional = safe_float(row["estimated_order_cost"])
+        pnl_pct = safe_float(row["realized_pnl_pct"])
         if entry_notional is None or entry_notional <= 0 or pnl_pct is None:
             continue
         total_loss += abs(entry_notional * pnl_pct / 100.0)

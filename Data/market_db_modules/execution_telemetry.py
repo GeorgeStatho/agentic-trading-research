@@ -33,7 +33,7 @@ def pending_execution_telemetry(*, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         return [dict(row) for row in conn.execute('''SELECT * FROM option_trade_executions
             WHERE fill_observed_at IS NULL OR LOWER(order_status) NOT IN
-            ('filled', 'canceled', 'expired', 'rejected', 'replaced') ORDER BY id''')]
+            ('filled', 'canceled', 'expired', 'rejected', 'replaced', 'not_found') ORDER BY id''')]
 
 
 def execution_telemetry_report(*, start=None, end=None, db_path=None):

@@ -1,0 +1,12 @@
+[
+ "calendar_through",
+ "days",
+ "events",
+ "events[].country",
+ "events[].currency",
+ "events[].event_name",
+ "events[].forecast",
+ "events[].importance",
+ "events[].previous",
+ "events[].scheduled_at_utc"
+]

@@ -40,6 +40,9 @@ type AccountSummary = {
   capital?: number
   avg_pnl_pct: number | null
   production_avg_pnl_pct?: number | null
+  production_pnl_on_capital_pct?: number | null
+  avg_pnl_per_exposure_pct?: number | null
+  production_avg_pnl_per_exposure_pct?: number | null
 }
 
 type Trade = {
@@ -56,6 +59,7 @@ type Trade = {
   capital: number
   pnl_pct: number
   production_pnl_pct: number | null
+  pnl_per_exposure_pct?: number | null
 }
 
 type Payload = {
@@ -109,6 +113,21 @@ function formatPoints(value: number): string {
 function differenceFromProduction(entry: AccountSummary): number | null {
   const production = entry.production_avg_pnl_pct ?? null
   return entry.avg_pnl_pct === null || production === null ? null : entry.avg_pnl_pct - production
+}
+
+function returnOnCapital(entry: AccountSummary): number | null {
+  return entry.capital ? (100 * (entry.pnl ?? 0)) / entry.capital : null
+}
+
+/** Total P/L over total capital minus production's on the same entries, in percentage points. */
+function capitalDifferenceFromProduction(entry: AccountSummary): number | null {
+  const own = returnOnCapital(entry)
+  const production = entry.production_pnl_on_capital_pct ?? null
+  return own === null || production === null ? null : own - production
+}
+
+function pointsCell(value: number | null): ReactNode {
+  return <span className={pnlClass(value)}>{value === null ? EMPTY : formatPoints(value)}</span>
 }
 
 function returnTone(entry: AccountSummary | undefined): Stat['tone'] {
@@ -200,18 +219,18 @@ function followerOnly(render: (entry: AccountSummary) => ReactNode) {
 const ACCOUNT_COLUMNS: Column<Account>[] = [
   { key: 'account', header: 'Account', render: ([name, entry]) => <><span className="font-medium">{name}</span><span className="block text-[11px] text-dim">{formatToken(entry.strategy)} · {entry.role === 'primary' ? 'primary' : 'follower'}</span></> },
   { key: 'closed', header: 'Closed', align: 'right', render: ([, entry]) => entry.closed },
-  { key: 'active', header: 'Active', align: 'right', render: followerOnly((entry) => entry.active) },
+  { key: 'active', header: 'Active', align: 'right', render: ([, entry]) => entry.active ?? EMPTY },
   { key: 'failed', header: 'Failed', align: 'right', render: followerOnly((entry) => entry.failed) },
   { key: 'skipped', header: 'Skipped', render: followerOnly((entry) => skippedText(entry.skipped)) },
-  { key: 'win', header: 'Win rate', align: 'right', render: followerOnly((entry) => (entry.closed ? `${Math.round((100 * (entry.wins ?? 0)) / entry.closed)}%` : EMPTY)) },
-  { key: 'pnl', header: 'P/L', align: 'right', render: followerOnly((entry) => <span className={pnlClass(entry.pnl)}>{formatMoney(entry.pnl)}</span>) },
-  { key: 'pnl-capital', header: 'P/L / capital', align: 'right', render: followerOnly((entry) => (entry.capital ? <span className={pnlClass(entry.pnl)}>{formatReturn((100 * (entry.pnl ?? 0)) / entry.capital)}</span> : EMPTY)) },
+  { key: 'win', header: 'Win rate', align: 'right', render: ([, entry]) => (entry.closed && entry.wins !== undefined ? `${Math.round((100 * entry.wins) / entry.closed)}%` : EMPTY) },
+  { key: 'pnl', header: 'P/L', align: 'right', render: ([, entry]) => <span className={pnlClass(entry.pnl)}>{formatMoney(entry.pnl)}</span> },
+  { key: 'pnl-capital', header: 'P/L / capital', align: 'right', render: ([, entry]) => <span className={pnlClass(entry.pnl)}>{formatReturn(returnOnCapital(entry))}</span> },
+  { key: 'production-capital', header: 'Production P/L / capital', align: 'right', render: followerOnly((entry) => formatReturn(entry.production_pnl_on_capital_pct)) },
+  { key: 'capital-difference', header: 'Capital diff', align: 'right', render: ([, entry]) => pointsCell(capitalDifferenceFromProduction(entry)) },
   { key: 'avg', header: 'Avg trade', align: 'right', render: ([, entry]) => <span className={pnlClass(entry.avg_pnl_pct)}>{formatReturn(entry.avg_pnl_pct)}</span> },
   { key: 'production', header: 'Production avg', align: 'right', render: followerOnly((entry) => formatReturn(entry.production_avg_pnl_pct)) },
-  { key: 'difference', header: 'Difference', align: 'right', render: ([, entry]) => {
-    const difference = differenceFromProduction(entry)
-    return <span className={pnlClass(difference)}>{difference === null ? EMPTY : formatPoints(difference)}</span>
-  } },
+  { key: 'difference', header: 'Avg diff', align: 'right', render: ([, entry]) => pointsCell(differenceFromProduction(entry)) },
+  { key: 'exposure', header: 'Avg per $ exposure', align: 'right', render: ([, entry]) => <span className={pnlClass(entry.avg_pnl_per_exposure_pct)}>{formatReturn(entry.avg_pnl_per_exposure_pct)}</span> },
 ]
 
 const TRADE_COLUMNS: Column<Trade>[] = [
@@ -277,6 +296,8 @@ function FollowerView({ payload }: { payload: Payload }) {
     <Panel title="Recent closed follower trades" meta={`latest ${RECENT_TRADES}`} flush>
       <DataTable label="Recent closed follower trades" columns={TRADE_COLUMNS} rows={recent} rowKey={(trade) => `${trade.account}-${trade.source_order_id}`} emptyMessage="No follower trade has closed in this window yet." />
     </Panel>
+    <p className="text-[11px] text-dim">Both differences compare a follower with production on the same entries, in percentage points: Capital diff uses total P/L over total capital, so bigger positions count more; Avg diff averages trade returns, so every trade counts once.</p>
+    <p className="text-[11px] text-dim">Avg per $ exposure divides each trade's P/L by its stock exposure at entry (|delta| × units × spot), so a vehicle is not rewarded or punished just for being more or less leveraged. Blank for trades recorded before delta was stored.</p>
     <p className="text-[11px] text-dim">Partial production exits are not mirrored: a follower closes in full when production fully closes. Production's dollars are its realized return on the premium it spent, the same budget each follower received.</p>
   </>
 }

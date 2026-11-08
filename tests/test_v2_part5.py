@@ -17,7 +17,6 @@ from market_db_modules.bootstrap import initialize_database
 from market_db_modules.contract_research import (
     get_risk_cluster,
     record_observation,
-    contract_report,
 )
 from services.gates.contract_policy import ContractPolicy
 from services.gates.liquidity_gate import evaluate_liquidity, filter_liquid_contracts

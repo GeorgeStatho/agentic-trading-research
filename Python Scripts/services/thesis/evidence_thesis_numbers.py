@@ -11,7 +11,7 @@ from itertools import permutations
 import math
 import re
 
-from services.discovery.company_evidence_extraction import COMPARISON_FIELDS, guidance_midpoint
+from services.discovery.company_evidence_extraction import COMPARISON_FIELDS, consensus_matches_actual, guidance_midpoint
 
 
 _NUMBER = re.compile(
@@ -62,6 +62,9 @@ def _fact_values(fact):
 
 
 def _compatible_for_calculation(first, second):
+    # An estimate and the actual of the quarter it estimated: "revenue beat consensus by X%".
+    if consensus_matches_actual(first, second) or consensus_matches_actual(second, first):
+        return True
     if any(first.get(field) != second.get(field) for field in _CALCULATION_FIELDS):
         return False
     # Guidance and actuals are only comparable for the identical fiscal period.

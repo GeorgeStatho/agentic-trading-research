@@ -5,21 +5,17 @@ import logging
 import time
 from typing import Any
 
+from services.core.logging_utils import configure_logging
 from services.core.settings import get_settings
-from services.core.settings import StageModel, get_settings
+from services.core.settings import StageModel
 from agent_helpers.macro_news import (
     get_recent_macro_news_articles,
     get_scope_config,
     get_sector_reference,
     save_batch_results,
 )
-from agent_helpers.llm_client import (
-    GOOGLE_GENAI_PROVIDERS,
-    Client,
-    ModelAnswer,
-    ask_classifier_model,
-    get_model_client,
-)
+from agent_helpers.llm_client import Client, ModelAnswer, ask_classifier_model, get_model_client
+from agent_helpers.llm_vertex import GOOGLE_GENAI_PROVIDERS
 from agent_helpers.text_utils import build_token_limited_batches, extract_json_object
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 
@@ -64,16 +60,8 @@ MACRO_SECTOR_PAIRS_SCHEMA: dict[str, Any] = {
 def _get_default_client() -> Client:
     global _macro_news_classifier_client
     if _macro_news_classifier_client is None:
-        _macro_news_classifier_client = get_model_client(_stage_model().ollama_host, _stage_model().provider)
+        _macro_news_classifier_client = get_model_client(_stage_model().ollama_host, _stage_model().provider, stage="macro_news")
     return _macro_news_classifier_client
-
-
-def _configure_console_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(levelname)s:%(name)s:%(message)s",
-        force=True,
-    )
 
 
 def ask_model(client: Client, model: str, system_prompt: str, user_prompt: str) -> ModelAnswer:
@@ -418,6 +406,6 @@ def classify_us_news_to_sectors(**kwargs: Any) -> list[dict[str, Any]]:
 
 
 if __name__ == "__main__":
-    _configure_console_logging()
+    configure_logging()
     pairs = classify_macro_news_to_sectors(news_scope="us")
     print(json.dumps(pairs, indent=2))

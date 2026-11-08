@@ -46,7 +46,8 @@ existing links and bookmarks keep working.
 - [src/whyBotTraded.tsx](src/whyBotTraded.tsx): the latest-decision panel (company, strategist, contract, fill and exit plan)
 - [src/liveNewsfeed.tsx](src/liveNewsfeed.tsx), [src/liveDecisions.tsx](src/liveDecisions.tsx), [src/liveNewsLag.tsx](src/liveNewsLag.tsx), [src/openPositionsTable.tsx](src/openPositionsTable.tsx), [src/livePipeline.tsx](src/livePipeline.tsx): the other Live panels
 - [src/liveStats.ts](src/liveStats.ts): the Live page's runtime-stats strip
-- [src/systemHealth.tsx](src/systemHealth.tsx) / [src/systemRisk.tsx](src/systemRisk.tsx) / [src/newsExtraction.tsx](src/newsExtraction.tsx): System › Health, Risk and Extraction
+- [src/systemHealth.tsx](src/systemHealth.tsx) / [src/systemRisk.tsx](src/systemRisk.tsx) / [src/newsExtraction.tsx](src/newsExtraction.tsx): System › Health, Risk and Extraction; Health holds [src/llmSpend.tsx](src/llmSpend.tsx) and Risk holds [src/executionQuality.tsx](src/executionQuality.tsx)
+- [src/reportsApi.ts](src/reportsApi.ts): types and fetchers for the report routes (execution quality, attribution, macro calendar, LLM spend); [src/macroCalendar.tsx](src/macroCalendar.tsx) is Live's "Coming up" strip
 - [src/Graph.tsx](src/Graph.tsx): the Live equity row — equity with trade markers, drawdown, daily P/L
 - [src/equitySeries.ts](src/equitySeries.ts): portfolio-history fetch and the series the charts plot
 - [src/orderCard.tsx](src/orderCard.tsx): the Live orders table ([src/occ.ts](src/occ.ts) formats option symbols)
@@ -54,7 +55,7 @@ existing links and bookmarks keep working.
 - [src/decisionsPage.tsx](src/decisionsPage.tsx) and [src/decisions.ts](src/decisions.ts): every decision with its frozen evidence, decision path and gates (the old Ledger and Autopsy, merged)
 - [src/v2Status.tsx](src/v2Status.tsx): the V2 Rollout view — mode counts, would-block rate per control, promotion evidence; Live shows a compact version ([src/liveSafeguards.tsx](src/liveSafeguards.tsx))
 - [src/v2StatusApi.ts](src/v2StatusApi.ts): `/api/v2-status` types, fetch and the would-block rows, shared by both
-- [src/decisionExpectancy.tsx](src/decisionExpectancy.tsx) / [src/expectancy.ts](src/expectancy.ts), [src/newsLag.tsx](src/newsLag.tsx), [src/backtest.tsx](src/backtest.tsx) / [src/backtests.ts](src/backtests.ts), [src/followerAccounts.tsx](src/followerAccounts.tsx): the other Research views
+- [src/decisionExpectancy.tsx](src/decisionExpectancy.tsx) / [src/expectancy.ts](src/expectancy.ts), [src/newsLag.tsx](src/newsLag.tsx), [src/backtest.tsx](src/backtest.tsx) / [src/backtests.ts](src/backtests.ts), [src/followerAccounts.tsx](src/followerAccounts.tsx); [src/attribution.tsx](src/attribution.tsx) (exit give-back and hit rates): the other Research views
 - [nginx.conf](nginx.conf): nginx config used in the Docker image
 - [Dockerfile](Dockerfile): frontend build + nginx image
 

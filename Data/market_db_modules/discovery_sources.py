@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 import json
 
 from db_common import get_connection
-from .company_evidence import latest_evidence_package
 from .company_interest import active_company_ids
 
 

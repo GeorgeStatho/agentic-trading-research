@@ -1,6 +1,7 @@
 """Maintained cluster caps, with the same session reservation as sector exposure."""
 from services.gates.contract_policy import ContractPolicy
-from market_db_modules.contract_research import get_risk_cluster
+# trade_executor looks get_risk_cluster up here at call time, so tests patch it on this module.
+from market_db_modules.contract_research import get_risk_cluster  # noqa: F401
 
 
 def evaluate_cluster(*, cluster, option_symbol, estimated_cost, session, policy=None):

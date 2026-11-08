@@ -1,16 +1,22 @@
-import type { ReactNode } from 'react'
-import AnalyzedCompanyNewsPage from './analyzedCompanyNews.tsx'
-import BacktestPage from './backtest.tsx'
+import { lazy, type ReactNode } from 'react'
 import DashboardHome from './dashboardHome.tsx'
-import DecisionExpectancyPage from './decisionExpectancy.tsx'
-import DecisionsPage from './decisionsPage.tsx'
-import ExposureMapPage from './exposureMap.tsx'
-import FollowerAccountsPage from './followerAccounts.tsx'
-import NewsExtractionPage from './newsExtraction.tsx'
-import NewsLagPage from './newsLag.tsx'
-import SystemHealthPage from './systemHealth.tsx'
-import SystemRiskPage from './systemRisk.tsx'
-import V2StatusPage from './v2Status.tsx'
+
+// Every view but the landing page loads on first visit, so the exposure map's graph library
+// and the other pages' code stay out of the initial bundle.
+/* eslint-disable react-refresh/only-export-components -- hot reload of this table is not needed */
+const AnalyzedCompanyNewsPage = lazy(() => import('./analyzedCompanyNews.tsx'))
+const AttributionPage = lazy(() => import('./attribution.tsx'))
+const BacktestPage = lazy(() => import('./backtest.tsx'))
+const DecisionExpectancyPage = lazy(() => import('./decisionExpectancy.tsx'))
+const DecisionsPage = lazy(() => import('./decisionsPage.tsx'))
+const ExposureMapPage = lazy(() => import('./exposureMap.tsx'))
+const FollowerAccountsPage = lazy(() => import('./followerAccounts.tsx'))
+const NewsExtractionPage = lazy(() => import('./newsExtraction.tsx'))
+const NewsLagPage = lazy(() => import('./newsLag.tsx'))
+const SystemHealthPage = lazy(() => import('./systemHealth.tsx'))
+const SystemRiskPage = lazy(() => import('./systemRisk.tsx'))
+const V2StatusPage = lazy(() => import('./v2Status.tsx'))
+/* eslint-enable react-refresh/only-export-components */
 
 /**
  * The dashboard's pages, and the views inside each one.
@@ -63,6 +69,7 @@ export const ROUTES: readonly Route[] = [
     label: 'Research',
     tabs: [
       { slug: 'expectancy', label: 'Expectancy', render: () => <DecisionExpectancyPage /> },
+      { slug: 'attribution', label: 'Attribution', render: () => <AttributionPage /> },
       { slug: 'news-lag', label: 'News lag', render: () => <NewsLagPage /> },
       { slug: 'backtests', label: 'Backtests', render: () => <BacktestPage /> },
       { slug: 'followers', label: 'Followers', render: () => <FollowerAccountsPage /> },

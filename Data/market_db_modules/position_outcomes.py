@@ -4,21 +4,13 @@ from __future__ import annotations
 from contextlib import closing
 from datetime import datetime, timezone
 import json
-import math
 from statistics import median
 
 from db_common import get_connection, json_text
 from .bootstrap import initialize_database
 from catalyst_schema import stamp_candidate_catalyst
 from zoneinfo import ZoneInfo
-
-
-def _number(value):
-    try:
-        number = float(value)
-        return number if math.isfinite(number) else None
-    except (ValueError, TypeError):
-        return None
+from services.core.numbers import finite_float
 
 
 def _time(value):
@@ -55,7 +47,7 @@ def ensure_position_outcome(order_id, *, db_path=None):
                 entry_underlying_price=COALESCE(excluded.entry_underlying_price, entry_underlying_price)
             ''', (row['option_symbol'], row['underlying_symbol'], row['candidate_id'], row['thesis_id'], row['decision_id'],
                   order_id, row['fill_timestamp'], row['fill_price'], row['underlying_at_fill'],
-                  _number(option.get('implied_volatility') or (option.get('greeks') or {}).get('implied_volatility')),
+                  finite_float(option.get('implied_volatility') or (option.get('greeks') or {}).get('implied_volatility')),
                   row['pipeline_version_json'], market.get('sector_etf_symbol') or (market.get('sector_etf') or {}).get('ticker')))
         if row['decision_closed_at']:
             close_position_outcome(row['decision_id'], realized_pnl_pct=row['decision_realized_pnl_pct'],
@@ -79,10 +71,10 @@ def record_position_observation(snapshot, *, observed_at=None, version=None, db_
         opened = _time(row['opened_at'])
         if not now or not opened or now < opened or (_time(row['last_observed_at']) and now <= _time(row['last_observed_at'])):
             return False
-        pnl = _number(snapshot.get('broker_unrealized_pl_pct'))
+        pnl = finite_float(snapshot.get('broker_unrealized_pl_pct'))
         if pnl is None:
-            pnl = _number(snapshot.get('unrealized_pl_pct'))
-        spot = _number(snapshot.get('underlying_stock_price'))
+            pnl = finite_float(snapshot.get('unrealized_pl_pct'))
+        spot = finite_float(snapshot.get('underlying_stock_price'))
         entry = row['entry_underlying_price']
         underlying = (spot / entry - 1) * 100 if spot is not None and entry and entry > 0 else None
         direction = -1 if snapshot.get('contract_type') == 'put' else 1
@@ -104,7 +96,7 @@ def record_position_observation(snapshot, *, observed_at=None, version=None, db_
             values['exit_pipeline_version_json'] = json_text(version)
         if spot is not None:
             values['underlying_move'] = underlying
-        iv = _number(snapshot.get('implied_volatility'))
+        iv = finite_float(snapshot.get('implied_volatility'))
         if iv is not None and snapshot.get('close_submitted'):
             values['iv_at_exit'] = iv
         conn.execute('UPDATE position_outcomes SET '+', '.join(f'{k}=?' for k in values)+' WHERE id=?',
@@ -126,8 +118,8 @@ def close_position_outcome(decision_id, *, realized_pnl_pct, closed_at, exit_rea
         position = envelope.get('position') or {}
         conn.execute('''UPDATE position_outcomes SET coactive_exit_reasons_json=?, iv_at_exit=?,
             underlying_at_exit=?, exit_pipeline_version_json=? WHERE manager_decision_history_id=? AND closed_at IS NULL''',
-            (json_text(position.get('coactive_exit_reasons') or []), _number(position.get('implied_volatility')),
-             _number(position.get('underlying_stock_price')), json_text(envelope.get('pipeline_version')), decision_id))
+            (json_text(position.get('coactive_exit_reasons') or []), finite_float(position.get('implied_volatility')),
+             finite_float(position.get('underlying_stock_price')), json_text(envelope.get('pipeline_version')), decision_id))
     conn.execute('''UPDATE position_outcomes SET closed_at=?, realized_pnl_pct=?, primary_exit_reason=?
         WHERE manager_decision_history_id=? AND closed_at IS NULL''',
         (closed_at, realized_pnl_pct, exit_reason, decision_id))
@@ -154,7 +146,7 @@ def resolve_post_exit_returns(position_id, bars, *, checked_on, sessions=None, d
             return False
         exit_date = _time(row['closed_at']).astimezone(ZoneInfo('America/New_York')).date().isoformat()
         closes = {str(bar['session']): float(bar['close']) for bar in bars
-                  if _number(bar.get('close')) is not None and float(bar['close']) > 0 and str(bar['session']) < checked_on}
+                  if finite_float(bar.get('close')) is not None and float(bar['close']) > 0 and str(bar['session']) < checked_on}
         exit_close = closes.get(exit_date)
         after = sorted({day for day in (sessions if sessions is not None else closes)
                         if exit_date < day < checked_on})
@@ -209,7 +201,7 @@ def resolve_position_benchmarks(position_id, histories, *, checked_on, db_path=N
             history = histories[symbol]
             bars = {bar['session']: bar for bar in history['bars']}
             pair = [bars.get(day) for day in dates]
-            if not all(bar and _number(bar.get('close')) is not None and float(bar['close']) > 0 for bar in pair):
+            if not all(bar and finite_float(bar.get('close')) is not None and float(bar['close']) > 0 for bar in pair):
                 continue
             returns[name] = (float(pair[1]['close']) / float(pair[0]['close']) - 1) * 100
             references[name] = {'symbol': symbol, 'provider': history['provider'], 'entry': pair[0], 'exit': pair[1]}

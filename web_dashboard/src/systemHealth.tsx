@@ -1,6 +1,7 @@
 import { getDashboardKpis } from './dashboardKpisApi';
 import type { DashboardKpiPayload } from './dashboardKpisApi';
 import { formatDecimal, formatNumber, formatRate, formatToken } from './format';
+import { LlmSpendPanel } from './llmSpend';
 import PageHeader from './pageHeader';
 import { Panel } from './ui/Panel';
 import { usePolledResource } from './useRemoteResource';
@@ -71,10 +72,11 @@ function SystemHealthPage() {
 
   return (
     <main>
-      <PageHeader title="Health" description="Who is running the bot, how the thesis validator is doing, and what the research ranking currently favours." />
+      <PageHeader title="Health" description="Who is running the bot, how the thesis validator is doing, what the research ranking currently favours, and what the models cost." />
       {error ? <p className="text-error">{error}</p> : null}
       {payload ? <SystemHealthView payload={payload} /> : null}
       {!payload && !error ? <p className="text-dim">Loading…</p> : null}
+      <div className="mt-3"><LlmSpendPanel /></div>
     </main>
   );
 }

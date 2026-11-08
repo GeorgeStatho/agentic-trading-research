@@ -15,7 +15,6 @@ from market_db_modules.history_records import record_manager_decision_history
 from market_db_modules.autopsy import list_decision_autopsy_ledger
 from news_db_modules.bootstrap import initialize_database as initialize_news
 from news_db_modules.entity_articles import add_company_news_article
-from news_db_modules.article_store import add_news_article
 from services.trading.outcome_reconciliation import closed_round_trip, reconcile_closed_outcomes
 from services.gates.evidence_continuation_gate import EvidenceContinuationPolicy, _evidence_snapshot
 
@@ -41,8 +40,8 @@ class ClosedRoundTripTests(unittest.TestCase):
         self.assertEqual(closed_round_trip(fills, "b2")["realized_pnl_pct"], -50)
 
     def test_overlapping_entries_are_not_arbitrarily_attributed(self):
-        self.assertIsNone(closed_round_trip([order("b", "buy", 1, 2, 1), order("b2", "buy", 1, 4, 2),
-                                             order("s", "sell", 2, 3, 3)], "b"))
+        self.assertEqual(closed_round_trip([order("b", "buy", 1, 2, 1), order("b2", "buy", 1, 4, 2),
+                                            order("s", "sell", 2, 3, 3)], "b"), {"ambiguous": "overlapping_buys"})
 
 
 class OrderHistoryTests(unittest.TestCase):
@@ -104,6 +103,17 @@ class DatabaseTests(unittest.TestCase):
         resolved = list_decision_autopsy_ledger(db_path=self.db, resolved_only=True)
         self.assertEqual((resolved[0]["realized_pnl_pct"], resolved[0]["outcome_status"]), (50, "closed"))
         self.assertEqual(reconcile_closed_outcomes(gateway=gateway, trading_client=object(), db_path=self.db)["examined"], 0)
+
+    def test_overlapping_entries_are_retired_not_rechecked(self):
+        self.decision()
+        gateway = Mock()
+        gateway.get_open_option_positions.return_value = []
+        gateway.get_option_order_history.return_value = [order("b", "buy", 1, 2, 1), order("b2", "buy", 1, 4, 2),
+                                                         order("s", "sell", 2, 3, 3)]
+        report = reconcile_closed_outcomes(gateway=gateway, trading_client=object(), db_path=self.db)
+        self.assertEqual(report["unresolved"][0]["reason"], "overlapping_buys")
+        self.assertEqual(reconcile_closed_outcomes(gateway=gateway, trading_client=object(), db_path=self.db)["examined"], 0)
+        self.assertEqual(list_decision_autopsy_ledger(db_path=self.db, resolved_only=True), [])
 
     def test_broker_failure_never_means_an_empty_book(self):
         self.decision()

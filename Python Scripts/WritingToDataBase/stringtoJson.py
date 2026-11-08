@@ -1,5 +1,8 @@
 import json
 from pathlib import Path
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 def generalWrite(data: dict, key: str, path: Path):
     data_id = data.get(key)
@@ -19,6 +22,6 @@ def generalWrite(data: dict, key: str, path: Path):
     dict_data[data_id] = data
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(dict_data, indent=2, sort_keys=True), encoding="utf-8")
-    print(json.dumps(dict_data[data_id], indent=2, sort_keys=True))
+    LOGGER.info("%s", json.dumps(dict_data[data_id], indent=2, sort_keys=True))
 
 

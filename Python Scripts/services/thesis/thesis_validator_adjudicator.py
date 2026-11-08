@@ -95,7 +95,7 @@ def get_default_client() -> Any:
     if _adjudicator_client is None:
         from agent_helpers.llm_client import get_model_client
 
-        _adjudicator_client = get_model_client(_stage_model().ollama_host, _stage_model().provider)
+        _adjudicator_client = get_model_client(_stage_model().ollama_host, _stage_model().provider, stage="thesis_validator")
     return _adjudicator_client
 
 

@@ -20,10 +20,14 @@ class CompanyEvidencePolicy:
     interval_seconds: float = 1.0
     max_response_bytes: int = 20000000
     consensus: str = 'none'  # 'yahoo' or 'none'; from_env defaults to yahoo
+    # The trading cycle collects its candidates synchronously before the strategist reads them.
+    before_strategist: bool = True
+    before_strategist_max_companies: int = 8
 
     def __post_init__(self):
         if min(self.companies_per_cycle, self.filings_per_company, self.refresh_seconds,
-               self.stale_seconds, self.timeout_seconds, self.daily_requests, self.max_response_bytes) < 1:
+               self.stale_seconds, self.timeout_seconds, self.daily_requests, self.max_response_bytes,
+               self.before_strategist_max_companies) < 1:
             raise ValueError('Company evidence limits must be positive')
         if not 0 <= self.retries <= 5 or not 0.1 <= self.interval_seconds <= 60:
             raise ValueError('Invalid company evidence retry/rate limit')
@@ -40,7 +44,10 @@ class CompanyEvidencePolicy:
                    timeout_seconds=int(os.getenv('COMPANY_EVIDENCE_TIMEOUT_SECONDS', '20')),
                    retries=int(os.getenv('COMPANY_EVIDENCE_RETRIES', '2')),
                    daily_requests=int(os.getenv('COMPANY_EVIDENCE_DAILY_REQUESTS', '500')),
-                   consensus=_consensus_setting(os.getenv('COMPANY_EVIDENCE_CONSENSUS', 'yahoo')))
+                   consensus=_consensus_setting(os.getenv('COMPANY_EVIDENCE_CONSENSUS', 'yahoo')),
+                   before_strategist=os.getenv('COMPANY_EVIDENCE_BEFORE_STRATEGIST', 'true').lower() == 'true',
+                   before_strategist_max_companies=int(
+                       os.getenv('COMPANY_EVIDENCE_BEFORE_STRATEGIST_MAX_COMPANIES', '8')))
 
 
 CONSENSUS_OFF_WORDS = {'', 'none', 'off', 'false', '0', 'no', 'disabled'}

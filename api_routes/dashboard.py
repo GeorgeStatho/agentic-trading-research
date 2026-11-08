@@ -5,16 +5,17 @@ import sqlite3
 
 from flask import jsonify, request
 
-from api_support.request_utils import internal_error, read_json_file
+from api_support.request_utils import csv_response, internal_error, read_json_file
 from api_support.context import SCRIPT_STATUS_PATH
-from api_support.dashboard import (
-    build_company_decisions_payload,
-    build_decision_expectancy_payload,
-    build_dashboard_kpis,
-    build_open_positions_payload,
-    build_risk_controls_payload,
-    build_market_regime_payload,
-)
+from api_support.company_decisions import build_company_decisions_payload, build_market_regime_payload
+from api_support.dashboard import build_dashboard_kpis, build_risk_controls_payload
+from api_support.decision_expectancy import build_decision_expectancy_payload
+from api_support.open_positions import build_open_positions_payload
+
+
+EXPECTANCY_CSV_COLUMNS = ("key", "label", "trade_count", "pnl_sample_count", "unresolved_count", "win_count",
+                          "loss_count", "flat_count", "win_rate_pct", "avg_pnl_pct", "median_pnl_pct", "avg_win_pct",
+                          "avg_loss_pct", "expectancy_pct", "profit_factor_like", "insufficient_sample")
 
 
 def register_dashboard_routes(app) -> None:
@@ -74,6 +75,8 @@ def register_dashboard_routes(app) -> None:
                 confidence=str(request.args.get("confidence", "all")).strip().lower(),
                 sector=sector or None,
             )
+            if request.args.get("format") == "csv":
+                return csv_response(payload["cohorts"], EXPECTANCY_CSV_COLUMNS, "decision-expectancy.csv")
             return jsonify(payload), 200
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400

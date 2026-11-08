@@ -122,6 +122,7 @@ def list_decision_autopsy_ledger(
     resolved_only: bool = False,
     within_days: int | None = None,
     as_of: datetime | str | None = None,
+    since: str | None = None,
     limit: int = 100,
     db_path: Path | str | None = None,
 ) -> list[sqlite3.Row]:
@@ -158,6 +159,9 @@ def list_decision_autopsy_ledger(
     if as_of_timestamp is not None:
         where_clauses.append("ledger.decision_run_at < ?")
         parameters.append(as_of_timestamp)
+    if since is not None:
+        where_clauses.append("ledger.decision_run_at >= ?")
+        parameters.append(since)
 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
     with closing(get_connection(db_path)) as conn, conn:

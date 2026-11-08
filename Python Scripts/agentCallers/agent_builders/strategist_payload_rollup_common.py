@@ -28,15 +28,6 @@ def _normalize_reason_key(reason: Any) -> str:
     return " ".join(str(reason or "").strip().lower().split())
 
 
-def _safe_int(value: Any) -> int | None:
-    try:
-        if value in (None, ""):
-            return None
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _get_signal_weight(item: dict[str, Any]) -> float:
     materiality_weight = MATERIALITY_WEIGHTS.get(str(item.get("materiality") or "").strip().lower(), 0.0)
     magnitude_weight = MAGNITUDE_WEIGHTS.get(str(item.get("impact_magnitude") or "").strip().lower(), 0.0)

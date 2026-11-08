@@ -6,14 +6,10 @@ from typing import Any
 
 from db_common import get_connection, json_text
 from .provenance import update_article_provenance
-from .shared import (
-    build_content_hash,
-    coerce_float,
-    coerce_int,
-    normalize_title,
-    normalize_url,
-    score_from_raw_json,
-)
+from processing.news_normalization import build_content_hash, normalize_title, normalize_url
+from .shared import score_from_raw_json
+from services.core.numbers import safe_float
+from services.core.numbers import safe_int
 
 
 def add_news_article(
@@ -40,38 +36,38 @@ def add_news_article(
     normalized_url = normalize_url(source_url)
     normalized_title = normalize_title(title)
     content_hash = build_content_hash(body or "")
-    age_days = coerce_float(
+    age_days = safe_float(
         age_days if age_days is not None else score_from_raw_json(raw_json, "age_days")
     )
-    recency_score = coerce_float(
+    recency_score = safe_float(
         recency_score if recency_score is not None else score_from_raw_json(raw_json, "recency_score")
     )
-    source_reputation_score = coerce_float(
+    source_reputation_score = safe_float(
         source_reputation_score
         if source_reputation_score is not None
         else score_from_raw_json(raw_json, "source_reputation_score")
     )
-    directness_score = coerce_float(
+    directness_score = safe_float(
         directness_score
         if directness_score is not None
         else score_from_raw_json(raw_json, "directness_score")
     )
-    confirmation_score = coerce_float(
+    confirmation_score = safe_float(
         confirmation_score
         if confirmation_score is not None
         else score_from_raw_json(raw_json, "confirmation_score")
     )
-    independent_source_count = coerce_int(
+    independent_source_count = safe_int(
         independent_source_count
         if independent_source_count is not None
         else score_from_raw_json(raw_json, "independent_source_count")
     )
-    factuality_score = coerce_float(
+    factuality_score = safe_float(
         factuality_score
         if factuality_score is not None
         else score_from_raw_json(raw_json, "factuality_score")
     )
-    evidence_score = coerce_float(
+    evidence_score = safe_float(
         evidence_score
         if evidence_score is not None
         else score_from_raw_json(raw_json, "evidence_score")

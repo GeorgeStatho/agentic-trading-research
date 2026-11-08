@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from services.options.option_dte_buckets import DTE_BUCKET_TO_TARGET_OTM_PCT
+
 from .config import (
-    DTE_BUCKET_TO_TARGET_OTM_PCT,
     SIMPLE_PREFERRED_OTM_DISTANCE,
     SIMPLE_REQUIRE_ONE_DOLLAR_OTM,
     SIMPLE_TARGET_ABS_DELTA,

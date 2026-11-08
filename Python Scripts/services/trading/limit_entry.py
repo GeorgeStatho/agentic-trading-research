@@ -7,14 +7,15 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_FLOOR
 
 from services.gates.contract_policy import ContractPolicy
-from services.runtime.execution_telemetry import number, quote_values
+from services.runtime.execution_telemetry import quote_values
 from services.gates.liquidity_gate import evaluate_liquidity
 from catalyst_models import timestamp
+from services.core.numbers import finite_float
 
 
 def buy_limit_price(target, ceiling, *, small_tick=.05, large_tick=.10, threshold=3.0):
     """Floor to the conservative non-penny tick without exceeding the risk cap."""
-    target, ceiling = number(target), number(ceiling)
+    target, ceiling = finite_float(target), finite_float(ceiling)
     if target is None or ceiling is None or min(target, ceiling) <= 0:
         return None
     value = Decimal(str(min(target, ceiling)))
@@ -33,7 +34,7 @@ def entry_invalidation(*, quote, underlying_now, underlying_at_decision, atr_dol
         reasons.append('execution_underlying_quote_stale')
     if catalyst_changed:
         reasons.append('execution_catalyst_changed')
-    values = [number(value) for value in (underlying_now, underlying_at_decision, atr_dollars, expected_option_value, limit_price)]
+    values = [finite_float(value) for value in (underlying_now, underlying_at_decision, atr_dollars, expected_option_value, limit_price)]
     if any(value is None or value <= 0 for value in values):
         reasons.append('execution_invalidation_inputs_missing')
     else:
@@ -90,13 +91,13 @@ def observe_entry_plan(candidate, arrival, *, quantity, paper, as_of=None, db_pa
     now = as_of or datetime.now(timezone.utc)
     market = candidate.get('market_context') or {}
     state = (candidate.get('candidate_context') or {}).get('price_absorption_gate') or {}
-    decision = number((market.get('current_stock_price') or {}).get('price') or
+    decision = finite_float((market.get('current_stock_price') or {}).get('price') or
                       (market.get('current_stock_price') or {}).get('latest_trade_price'))
     distribution = market.get('_v2_scenario_distribution') or {}
     selected = candidate.get('selected_option') or {}
     arrival = arrival if isinstance(arrival, dict) else {}
     quote = arrival.get('option') or {}
-    current = number((arrival.get('underlying') or {}).get('price'))
+    current = finite_float((arrival.get('underlying') or {}).get('price'))
     score = {}
     if len(distribution.get('returns') or []) >= PricingPolicy.from_env().minimum_samples:
         score = score_contract({**selected, 'latest_quote': quote}, spot=current, moves=distribution['returns'],
@@ -104,7 +105,7 @@ def observe_entry_plan(candidate, arrival, *, quantity, paper, as_of=None, db_pa
     bid, ask, mid, _ = quote_values(quote)
     expected_value = ask + score['expected_pnl'] / 100 if score.get('status') == 'complete' and ask else None
     ceiling = min(ask, expected_value) if ask and expected_value and expected_value > 0 else None
-    atr_fraction = number((state.get('metrics') or {}).get('atr_fraction'))
+    atr_fraction = finite_float((state.get('metrics') or {}).get('atr_fraction'))
     validity_inputs = dict(quote=quote, underlying_now=current, underlying_at_decision=decision,
         atr_dollars=decision * atr_fraction if decision and atr_fraction else None,
         expected_option_value=expected_value, as_of=now,

@@ -1,5 +1,6 @@
 """Validate structured extraction before facts cross the persistence boundary."""
 from dataclasses import replace
+from datetime import date
 import math
 import re
 
@@ -11,10 +12,55 @@ from research_foundation_contracts import CompanyFact, EvidenceDocument
 
 
 COMPARISON_FIELDS = ('metric', 'fiscal_period', 'period_type', 'accounting_basis', 'unit', 'currency', 'scale')
+NEXT_REPORT_PREFIX = 'next_report:'
+# Reports land 2-8 weeks after quarter end; the previous quarter ends about 120 days before.
+REPORTED_QUARTER_MAX_DAYS = 95
+# Analyst revenue and reported revenue measure the same thing; analyst EPS is usually adjusted.
+BASIS_INDEPENDENT_METRICS = frozenset({'revenue'})
 
 
 def comparison_key(fact):
     return tuple(fact.get(key) for key in COMPARISON_FIELDS)
+
+
+def report_date(fact):
+    """The earnings date a `next_report:<D>` estimate is for, or None."""
+    period = str(fact.get('fiscal_period') or '')
+    if not period.startswith(NEXT_REPORT_PREFIX):
+        return None
+    try:
+        return date.fromisoformat(period[len(NEXT_REPORT_PREFIX):])
+    except ValueError:
+        return None
+
+
+def _period_end(period):
+    parts = str(period or '').split('/')
+    try:
+        return date.fromisoformat(parts[1]) if len(parts) == 2 else None
+    except ValueError:
+        return None
+
+
+def consensus_matches_actual(consensus, actual):
+    """True when `consensus` estimated the quarter `actual` reports.
+
+    The estimate for the report on D is for the latest quarter that ended before D, so the actual must
+    be quarterly and end within REPORTED_QUARTER_MAX_DAYS before D. That excludes the previous quarter
+    and the prior-year comparative columns a 10-Q also carries.
+    """
+    if (consensus.get('kind') != 'consensus' or actual.get('kind') != 'actual'
+            or consensus.get('period_type') != 'quarter' or actual.get('period_type') != 'quarter'):
+        return False
+    reported, ended = report_date(consensus), _period_end(actual.get('fiscal_period'))
+    if reported is None or ended is None:
+        return False
+    if any(consensus.get(key) != actual.get(key) for key in ('metric', 'unit', 'currency', 'scale')):
+        return False
+    if (consensus.get('metric') not in BASIS_INDEPENDENT_METRICS
+            and consensus.get('accounting_basis') != actual.get('accounting_basis')):
+        return False
+    return 0 < (reported - ended).days <= REPORTED_QUARTER_MAX_DAYS
 
 
 def guidance_midpoint(fact):
