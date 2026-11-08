@@ -82,6 +82,13 @@ class DueRefreshPriorityTests(unittest.TestCase):
         self.company('manager', MANAGER, request_age=1)
         self.assertEqual(self.due(), ['manager', 'industry', 'old_watch', 'old_opportunist'])
 
+    def test_a_third_of_the_slots_go_to_the_oldest_waiting_request(self):
+        self.company('old_watch', WATCH, request_age=10)
+        self.company('m1', MANAGER, request_age=3)
+        self.company('m2', MANAGER, request_age=2)
+        self.company('m3', MANAGER, request_age=1)
+        self.assertEqual(self.due(limit=3), ['m1', 'm2', 'old_watch'])
+
     def test_existing_filters_still_exclude(self):
         self.company('ok', MANAGER, request_age=1)
         self.company('done', MANAGER, request_age=9, status='completed')

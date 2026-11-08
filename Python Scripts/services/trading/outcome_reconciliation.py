@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 
 from market_db_modules.history_records import (
     list_unresolved_manager_decisions,
+    mark_manager_decision_ambiguous,
     record_manager_decision_closed_outcome,
 )
 from services.trading.order_values import normalize_order_summary
@@ -15,7 +16,7 @@ TERMINAL_STATUSES = {"filled", "canceled", "expired", "replaced", "rejected"}
 
 
 def closed_round_trip(orders: list[dict], entry_order_id: str) -> dict | None:
-    """Match one entry to its exits; overlapping buys are deliberately unresolved.
+    """Match one entry to its exits; overlapping buys are reported ambiguous, never attributed.
 
     Terminal canceled/replaced orders can contain real partial fills. Require a
     broker fill timestamp for those too; updated_at is not an execution time.
@@ -62,7 +63,7 @@ def closed_round_trip(orders: list[dict], entry_order_id: str) -> dict | None:
             if balance == 0:
                 if entry_order_id in buys:
                     if buys != [entry_order_id]:
-                        return None
+                        return {"ambiguous": "overlapping_buys"}
                     return {
                         "realized_pnl_pct": float((proceeds / cost - 1) * 100),
                         "closed_at": timestamp.isoformat(),
@@ -101,6 +102,11 @@ def reconcile_closed_outcomes(*, gateway, trading_client, db_path=None, apply=Tr
             )
             if outcome is None:
                 report["unresolved"].append({"id": decision["id"], "reason": "incomplete_or_ambiguous_fills"})
+                continue
+            if "ambiguous" in outcome:
+                report["unresolved"].append({"id": decision["id"], "reason": outcome["ambiguous"]})
+                if apply:
+                    mark_manager_decision_ambiguous(decision["id"], outcome["ambiguous"], db_path=db_path)
                 continue
             report["ready"].append({"id": decision["id"], **outcome})
             pnl = outcome["realized_pnl_pct"]

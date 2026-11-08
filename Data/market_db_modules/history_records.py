@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import closing
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -216,7 +216,7 @@ def update_manager_decision_latest_pnl(
             pnl_expires_at = ?,
             resolved_outcome_label = ?,
             outcome_status = CASE
-                WHEN outcome_status = 'closed' THEN outcome_status
+                WHEN outcome_status IN ('closed', 'ambiguous') THEN outcome_status
                 WHEN ? LIKE 'managed_exit_submitted_%' THEN 'exit_pending'
                 ELSE 'open'
             END,
@@ -341,6 +341,16 @@ def expire_manager_decision_pnl(
     return int((row["count"] if row is not None else 0) or 0)
 
 
+def mark_manager_decision_ambiguous(decision_history_id: int, reason: str, *, db_path=None) -> bool:
+    """Retire a decision whose broker history can never be attributed, so reconciliation stops re-checking it."""
+    initialize_database(db_path=db_path)
+    with closing(get_connection(db_path)) as conn, conn:
+        return conn.execute("""
+            UPDATE manager_decision_history SET outcome_status = 'ambiguous', exit_reason = ?, updated_at = ?
+            WHERE id = ? AND trade_executed = 1 AND COALESCE(outcome_status, '') NOT IN ('closed', 'ambiguous')
+        """, (reason, datetime.now(timezone.utc).isoformat(), decision_history_id)).rowcount > 0
+
+
 def list_unresolved_manager_decisions(*, db_path=None) -> list[dict]:
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
@@ -348,7 +358,7 @@ def list_unresolved_manager_decisions(*, db_path=None) -> list[dict]:
             SELECT id, selected_option_symbol, trade_execution_order_id, decision_run_at
             FROM manager_decision_history
             WHERE trade_executed = 1
-              AND COALESCE(outcome_status, '') != 'closed'
+              AND COALESCE(outcome_status, '') NOT IN ('closed', 'ambiguous')
               AND COALESCE(trade_execution_order_id, '') != ''
               AND COALESCE(selected_option_symbol, '') != ''
             ORDER BY decision_run_at, id

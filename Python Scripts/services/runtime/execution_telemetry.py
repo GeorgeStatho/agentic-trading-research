@@ -84,4 +84,7 @@ def reconcile_execution_telemetry(*, gateway, trading_client, db_path=None):
             report['updated'] += 1
         except Exception as exc:
             report['errors'].append({'order_id': row['order_id'], 'error': str(exc)})
+            if '40410000' in str(exc):  # Alpaca "order not found": it will never fill, so stop polling it
+                missing = {'order_status': 'not_found', 'fill_observed_at': datetime.now(timezone.utc).isoformat()}
+                store_execution_telemetry(row['order_id'], missing, **kwargs)
     return report
