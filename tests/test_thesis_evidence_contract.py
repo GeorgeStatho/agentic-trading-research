@@ -115,6 +115,20 @@ class ClaimCheckTests(ThesisFixture):
         check = self.check(self.thesis(payload, supporting=[invented]), payload)
         self.assertIn("unsupported_number:$150 million", self.claim_result(check, "S1")["failures"])
 
+    def test_calendar_year_is_not_an_unsupported_number(self):
+        payload = self.payload()
+        dated = claim("S1", "In 2026, demand for its accelerators remained strong", claim_type="observed_fact",
+                      central=True, articles=[42], quotes=[("article:42", "demand for its accelerators remained strong")])
+        check = self.check(self.thesis(payload, supporting=[dated]), payload)
+        self.assertNotIn("unsupported_number:2026", self.claim_result(check, "S1")["failures"])
+
+    def test_an_amount_that_looks_like_a_year_is_still_checked(self):
+        payload = self.payload()
+        amount = claim("S1", "Fixture expects quarterly revenue of $2026 million", claim_type="observed_fact",
+                       central=True, articles=[42], quotes=[("article:42", "demand for its accelerators remained strong")])
+        check = self.check(self.thesis(payload, supporting=[amount]), payload)
+        self.assertIn("unsupported_number:$2026 million", self.claim_result(check, "S1")["failures"])
+
     def test_failed_central_claim_defers(self):
         payload = self.payload()
         invented = self.guidance_claim(payload, "Guidance midpoint rose by $35 million")

@@ -140,7 +140,7 @@ SHADOW_ONLY_FEATURES = (
     },
 )
 
-EMPTY_ACTIVITY = {"observed_candidates": 0, "shadow_blocks": 0, "enforced_blocks": 0}
+EMPTY_ACTIVITY = {"observed_candidates": 0, "shadow_blocks": 0, "enforced_blocks": 0, "no_verdict": 0}
 
 
 @dataclass(frozen=True)
@@ -336,6 +336,15 @@ def _shadow_activity(conn, since: str) -> dict | None:
     ):
         counter = "shadow_blocks" if row["shadow"] else "enforced_blocks"
         activity.setdefault(row["stage"], dict(EMPTY_ACTIVITY))[counter] = row["blocked"]
+    if _table_exists(conn, "catalyst_gate_observations"):
+        # No verdict is not a rejection (promotion research reads rejections), yet enforcement would still refuse entry.
+        row = conn.execute(
+            f"""SELECT COUNT(DISTINCT candidate_id) AS missing FROM catalyst_gate_observations
+               WHERE stage='FRESHNESS' AND remaining_value IS NULL AND julianday(observed_at) >= julianday(?)
+               AND {PRODUCTION_CANDIDATE}""",
+            (since,),
+        ).fetchone()
+        activity.setdefault("FRESHNESS", dict(EMPTY_ACTIVITY))["no_verdict"] = row["missing"]
     return activity
 
 

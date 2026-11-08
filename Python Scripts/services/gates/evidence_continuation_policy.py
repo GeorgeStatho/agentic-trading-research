@@ -8,7 +8,7 @@ from typing import Mapping
 from services.research.research_promotion import guard_policy
 
 
-POLICY_VERSION = "evidence-continuation-v2-provenance"
+POLICY_VERSION = "evidence-continuation-v3-no-verdict"
 OVEREXTENSION_LEVELS = {"low", "medium", "high"}
 MODES = {"enforce", "shadow"}
 

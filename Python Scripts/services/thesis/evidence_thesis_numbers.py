@@ -45,6 +45,9 @@ def stated_numbers(statement: str) -> list[StatedNumber]:
     numbers = []
     for match in _NUMBER.finditer(statement):
         suffix = (match["suffix"] or "").lower()
+        # A bare calendar year dates a claim; it is not a figure the source must contain.
+        if match[0].strip().isdigit() and len(match[0].strip()) == 4 and 1900 <= int(match[0]) <= 2100:
+            continue
         core = match["digits"].replace(",", "") + ("." + match["decimals"] if match["decimals"] else "")
         kind = ("percent" if suffix in _PERCENT_SUFFIXES else "basis_points" if suffix in _BASIS_POINT_SUFFIXES
                 else "amount")

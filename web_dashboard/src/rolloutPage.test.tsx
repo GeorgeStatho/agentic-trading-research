@@ -96,6 +96,14 @@ describe('V2 rollout page', () => {
     expect(rows.find((row) => row.textContent?.includes('Scenario selection'))!.textContent).toContain('2 different contract')
   })
 
+  it('shows candidates that got no verdict apart from the would-block count', async () => {
+    render(<V2StatusPage />)
+    await loaded()
+
+    const rows = within(screen.getByRole('table', { name: 'Controls' })).getAllByRole('row').slice(1)
+    expect(rows.find((row) => row.textContent?.includes('Freshness'))!.textContent).toContain('31 no verdict')
+  })
+
   it('shows forward cohorts with enrollment meters and the discovery ledger as stacked bars', async () => {
     render(<V2StatusPage />)
     await screen.findByRole('table', { name: 'Forward cohorts' })

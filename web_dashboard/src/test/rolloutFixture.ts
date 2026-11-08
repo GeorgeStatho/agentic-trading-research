@@ -28,7 +28,10 @@ export function v2Payload(): V2StatusPayload {
     ],
     features: [
       feature('provenance', 'Provenance', 'enforce', [['PROVENANCE', 2577, 2577]]),
-      feature('freshness', 'Freshness', 'enforce', [['FRESHNESS', 2238, 2577]]),
+      feature('freshness', 'Freshness', 'enforce', [['FRESHNESS', 2238, 2577]], {
+        stages: [{ stage: 'FRESHNESS', enforcement_allowed: false, proof: null, superseded_proofs: 0,
+                   activity: { observed_candidates: 2577, shadow_blocks: 2238, enforced_blocks: 0, no_verdict: 31 } }],
+      }),
       feature('continuation', 'Continuation', 'shadow', [['CONTINUATION', 0, 551]]),
       feature('regime', 'Regime', 'enforce', [['REGIME', 551, 551]]),
       feature('liquidity', 'Liquidity', 'shadow', [['LIQUIDITY', 524, 551], ['EXECUTION_LIQUIDITY', 0, 2]]),
