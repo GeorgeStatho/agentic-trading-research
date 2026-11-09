@@ -132,6 +132,12 @@ class ProductionRulesTests(unittest.TestCase):
         rules = ProductionRules.for_manifest(self.MANIFEST, local=local)
         self.assertFalse(rules.settings.execute_medium_confidence_trades)
 
+    def test_the_bucket_otm_targets_stay_in_the_recorded_selector_config(self) -> None:
+        # Every recorded manifest carries it; dropping it makes every replay a selector_config_mismatch.
+        from services.core.pipeline_version import selector_constants
+        from services.options.option_dte_buckets import DTE_BUCKET_TO_TARGET_OTM_PCT
+        self.assertEqual(selector_constants()["DTE_BUCKET_TO_TARGET_OTM_PCT"], DTE_BUCKET_TO_TARGET_OTM_PCT)
+
 
 class ReplayFunnelTests(DatabaseFixture):
     def run_with(self, decide, finalized=TRADEABLE) -> dict:
@@ -232,6 +238,80 @@ class StrategistReplayTests(DatabaseFixture):
     def test_reuse_needs_strategist_replay(self) -> None:
         with self.assertRaises(ValueError):
             run_llm_backtest(model="local", strategist_reuse_max_age_minutes=120, db_path=self.db_path)
+
+
+class ThesisRecheckTests(DatabaseFixture):
+    """`recheck_thesis` re-runs this checkout's thesis checker on the stored thesis; only the manager is asked."""
+    OLD_CHECK = {"evaluation_id": "e1", "status": "deferred", "package_id": "pkg", "research_status": "legacy",
+                 "failures": ["central_claim_failed"], "failed_claims": [{"claim_id": "c1", "central": True,
+                                                                          "failures": ["unsupported_number:2026"]}]}
+    NEW_CHECK = {"schema_version": "s", "policy_version": "p", "status": "passed", "package_id": "pkg",
+                 "research_status": "legacy", "failures": [], "claims": [], "thesis": {"direction": "up"},
+                 "semantic_review": {"status": "not_run"}}
+
+    def setUp(self) -> None:
+        super().setUp()
+        strategist = {"decision": "trade_candidate", "evidence_thesis": {"direction": "up"},
+                      "evidence_thesis_check": self.OLD_CHECK, "evidence_thesis_handoff": "same_package"}
+        manager_input = {"replay_input": {"company": {"symbol": "MSFT"}, "company_evidence": {"package_id": "pkg"},
+                                          "strategist_recommendation": strategist}}
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("UPDATE manager_decision_payloads SET manager_input_json = ? WHERE manager_decision_history_id = ?",
+                         (json.dumps(manager_input), self.decision_id))
+
+    def run_replay(self, **options) -> tuple[dict, Mock, Mock]:
+        manager = Mock(return_value={"recommendation": {"decision": "neither"}})
+        with patch.object(llm_backtest, "finalize", return_value=TRADEABLE), \
+                patch.object(llm_backtest, "check_evidence_thesis", return_value=self.NEW_CHECK) as check:
+            result = run_llm_backtest(model="local", decide=manager, db_path=self.db_path, **options)
+        return result, manager, check
+
+    def test_the_manager_sees_the_rechecked_thesis(self) -> None:
+        result, manager, check = self.run_replay(recheck_thesis=True)
+        seen = manager.call_args.args[0]["strategist_recommendation"]["evidence_thesis_check"]
+        self.assertEqual((seen["status"], seen["failures"], seen["failed_claims"]), ("passed", [], []))
+        self.assertEqual(seen["evaluation_id"], "e1")
+        self.assertEqual(check.call_args.args[0], {"direction": "up"})
+        self.assertEqual(result["run"]["metrics"]["replay"]["thesis_recheck"], {"rechecked": 1, "changed": 1})
+
+    def test_without_the_flag_the_stored_check_is_kept(self) -> None:
+        result, manager, check = self.run_replay()
+        check.assert_not_called()
+        self.assertEqual(manager.call_args.args[0]["strategist_recommendation"]["evidence_thesis_check"], self.OLD_CHECK)
+        self.assertIsNone(result["run"]["metrics"]["replay"]["thesis_recheck"])
+
+    def test_recheck_is_refused_with_a_replayed_strategist(self) -> None:
+        with self.assertRaises(ValueError):
+            run_llm_backtest(model="local", recheck_thesis=True, replay_strategist=True, db_path=self.db_path)
+
+
+class SampleTests(DatabaseFixture):
+    """`sample` asks the model again for an input it already answered; sample 0 is the existing cache entry."""
+
+    def run_sample(self, manager: Mock, **options) -> dict:
+        with patch.object(llm_backtest, "finalize", return_value=TRADEABLE):
+            return run_llm_backtest(model="local", decide=manager, db_path=self.db_path, **options)
+
+    def test_sample_zero_reads_the_existing_cache(self) -> None:
+        manager = Mock(return_value={"recommendation": {"decision": "neither"}})
+        self.run_sample(manager)
+        result = self.run_sample(manager, sample=0)
+        self.assertEqual(manager.call_count, 1)
+        self.assertEqual(result["run"]["metrics"]["replay"]["sample"], 0)
+
+    def test_another_sample_asks_the_model_again_and_is_cached_itself(self) -> None:
+        manager = Mock(return_value={"recommendation": {"decision": "neither"}})
+        self.run_sample(manager)
+        result = self.run_sample(manager, sample=1)
+        self.assertEqual(manager.call_count, 2)
+        self.assertEqual(result["run"]["metrics"]["replay"]["sample"], 1)
+        self.run_sample(manager, sample=1)
+        self.assertEqual(manager.call_count, 2)
+
+    def test_samples_need_a_model_to_ask(self) -> None:
+        for bad in ({"model": "stored", "sample": 1}, {"model": "local", "sample": -1}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                run_llm_backtest(db_path=self.db_path, **bad)
 
 
 class RecommendationEligibilityTests(unittest.TestCase):
@@ -390,6 +470,14 @@ class CommandLineFlagTests(unittest.TestCase):
 
     def test_the_override_flag_reaches_the_runner(self) -> None:
         self.assertTrue(self.run_cli("--allow-unknown-cutoff")["allow_unknown_cutoff"])
+
+    def test_the_recheck_flag_reaches_the_runner(self) -> None:
+        self.assertFalse(self.run_cli()["recheck_thesis"])
+        self.assertTrue(self.run_cli("--recheck-thesis")["recheck_thesis"])
+
+    def test_the_sample_flag_reaches_the_runner(self) -> None:
+        self.assertEqual(self.run_cli()["sample"], 0)
+        self.assertEqual(self.run_cli("--sample", "3")["sample"], 3)
 
     def test_direction_scoring_gets_the_same_options(self) -> None:
         kwargs = self.run_cli("--score-direction", "--decision-ids-file", self.ids_file("5\n6\n"),

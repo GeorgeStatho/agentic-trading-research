@@ -50,6 +50,13 @@ def _parse_args() -> argparse.Namespace:
                              "under production's reuse rule (unchanged evidence and regime, price move under "
                              "STRATEGIST_REUSE_MAX_PRICE_MOVE_PCT) while it is younger than this many minutes. "
                              "Match production's STRATEGIST_REUSE_MAX_AGE_MINUTES (default 0: always ask).")
+    parser.add_argument("--recheck-thesis", action="store_true",
+                        help="Re-run this checkout's evidence-thesis checker on production's stored strategist thesis "
+                             "and give the manager that check instead. Isolates a checker change; not valid with "
+                             "--replay-strategist (which re-checks its own thesis).")
+    parser.add_argument("--sample", type=int, default=0,
+                        help="Ask the manager again for inputs it already answered, caching this sample separately "
+                             "(default 0: reuse the cached answer). Run 1, 2, ... to measure answer noise.")
     parser.add_argument("--score-direction", action="store_true",
                         help="Instead of trading options, score each answer's direction by the stock's return over the "
                              f"next {' and '.join(map(str, HORIZONS))} trading-day closes. Works on decisions before "
@@ -64,6 +71,12 @@ def _parse_args() -> argparse.Namespace:
     trading_only = [name for name in ("execute_medium_confidence", "fetch_option_quotes", "take_profit_pct", "stop_loss_pct",
                                       "max_hold_hours", "entry_slippage_bps", "exit_slippage_bps")
                     if getattr(args, name) not in (None, False)]
+    if args.recheck_thesis and args.replay_strategist:
+        parser.error("--recheck-thesis re-checks production's strategist; --replay-strategist re-checks its own")
+    if args.recheck_thesis and args.score_direction:
+        parser.error("--recheck-thesis applies to option backtests, not --score-direction")
+    if args.sample and args.score_direction:
+        parser.error("--sample applies to option backtests, not --score-direction")
     if args.strategist_reuse_minutes and not args.replay_strategist:
         parser.error("--strategist-reuse-minutes needs --replay-strategist")
     if args.score_direction and trading_only:
@@ -116,7 +129,8 @@ def main() -> None:
                               fetch_missing_bars=args.fetch_missing_bars, fetch_option_quotes=args.fetch_option_quotes,
                               execute_medium_confidence=args.execute_medium_confidence,
                               min_hours_between=args.min_hours_between, replay_strategist=args.replay_strategist,
-                              strategist_reuse_max_age_minutes=args.strategist_reuse_minutes, keep_answers=False)
+                              strategist_reuse_max_age_minutes=args.strategist_reuse_minutes,
+                              recheck_thesis=args.recheck_thesis, sample=args.sample, keep_answers=False)
     print(json.dumps(_summary(result), indent=2, default=str))
 
 

@@ -54,13 +54,14 @@ from agent_helpers.deterministic_option_selector.market import _get_reference_st
 from agent_helpers.llm_client import _normalize_provider
 from agent_stages.manager_runner import MANAGER_PROMPT_VERSION, replay_manager_decision_from_payload
 from agent_stages.manager_strategist_context import _build_manager_visible_strategist_context
-from agent_stages.strategist_runner import (attach_thesis_check, replay_strategist_decision_from_payload,
+from agent_stages.strategist_runner import (THESIS_ROUTE, attach_thesis_check, replay_strategist_decision_from_payload,
                                             strategist_answer_reusable, strategist_prompt_version)
 from services.core.trading_config import AgentPipelineSettings, WorkerSettings
 from services.gates.entry_gates import carry_gate_verdicts
 from services.evaluation.evaluation_clock import evaluated_at
 from services.gates.evidence_continuation_gate import evaluate_evidence_continuation_gate
-from services.thesis.evidence_thesis import evaluate_evidence_thesis_gate
+from services.thesis.evidence_thesis import (LEGACY_RESEARCH_STATUS, check_evidence_thesis, compact_thesis_check,
+                                             evaluate_evidence_thesis_gate)
 from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
 from services.evaluation.model_cutoffs import CONTAMINATION_MARGIN_DAYS, cutoff_record, eligibility
 from services.gates.market_regime_gate import apply_market_regime_gate_to_manager_result
@@ -125,10 +126,13 @@ class CachedManagerReplay:
     provider: str
     decide: Decider
     db_path: Any = None
+    sample: int = 0
 
     def recommendation(self, payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        # Sample 0 keeps the original key, so earlier runs count as the first sample.
+        suffix = f":sample{self.sample}" if self.sample else ""
         key = {"stage": STAGE, "provider": self.provider, "model": self.model,
-               "prompt_version": MANAGER_PROMPT_VERSION, "input_hash": input_hash(payload)}
+               "prompt_version": MANAGER_PROMPT_VERSION, "input_hash": input_hash(payload) + suffix}
         return cached_answer(key, lambda: self.decide(payload)["recommendation"], db_path=self.db_path)
 
 
@@ -301,6 +305,8 @@ class ReplayTally:
     strategist_changed_decision: int = 0
     strategist_cached_answers: int = 0
     strategist_reused_answers: int = 0
+    thesis_rechecked: int = 0
+    thesis_recheck_changed: int = 0
     recorded_settings: int = 0
     selector_differences: set[str] = field(default_factory=set)
 
@@ -348,6 +354,26 @@ def store_daily_history(symbols: set[str], *, db_path: Any = None,
         except Exception as exc:  # A provider gap leaves that symbol's exits unpriced, as before.
             failed[symbol] = str(exc)
     return {"fetched": fetched, "failed": failed}
+
+
+def rechecked_thesis_payload(payload: dict[str, Any], strategist_input: dict[str, Any] | None, *,
+                             policy: EvidenceThesisPolicy, db_path: Any = None) -> tuple[dict[str, Any], bool | None]:
+    """The frozen manager input with its stored thesis re-checked by this checkout's checker.
+
+    Returns the payload and whether the check's verdict changed (None when there was no thesis to check).
+    The check reads the frozen evidence package by id, so it sees only what production saw.
+    """
+    strategist = payload.get("strategist_recommendation") or {}
+    old = strategist.get("evidence_thesis_check")
+    if not isinstance(old, dict) or not isinstance(strategist.get("evidence_thesis"), dict):
+        return payload, None
+    check = check_evidence_thesis(strategist["evidence_thesis"], strategist_input or payload, route=THESIS_ROUTE,
+                                  research_status=old.get("research_status") or LEGACY_RESEARCH_STATUS,
+                                  policy=policy, db_path=db_path)
+    new = compact_thesis_check(check, old.get("evaluation_id"))
+    verdict = ("status", "failures", "failed_claims")
+    changed = any(old.get(key) != new[key] for key in verdict)
+    return {**payload, "strategist_recommendation": {**strategist, "evidence_thesis_check": new}}, changed
 
 
 def manager_decider(model: str) -> Decider:
@@ -470,14 +496,19 @@ class ReplayRun:
     db_path: Any = None
     excluded_pre_knowledge_cutoff: int = 0
     contamination: dict[str, Any] | None = None
+    recheck_thesis: bool = False
 
     @classmethod
     def build(cls, *, model: str, start_at: str | None = None, end_at: str | None = None, limit: int | None = None,
               decision_ids: Sequence[int] | None = None, allow_unknown_cutoff: bool = False,
               min_hours_between: float = 0, replay_strategist: bool = False, decide: Decider | None = None,
               decide_strategist: Decider | None = None, strategist_reuse_max_age_minutes: int = 0,
-              db_path: Any = None) -> "ReplayRun":
+              recheck_thesis: bool = False, sample: int = 0, db_path: Any = None) -> "ReplayRun":
         stored = model == STORED_MODEL
+        if sample < 0 or (sample and stored):
+            raise ValueError(f"sample must be 0 or more and needs a model to ask; '{STORED_MODEL}' has one answer")
+        if recheck_thesis and replay_strategist:
+            raise ValueError("recheck_thesis re-checks production's strategist thesis; a replayed strategist is checked already")
         if stored and replay_strategist:
             raise ValueError(f"replay_strategist needs a model to replay; '{STORED_MODEL}' reuses production's answers")
         if strategist_reuse_max_age_minutes > 0 and not replay_strategist:
@@ -486,7 +517,7 @@ class ReplayRun:
         thesis_policy = EvidenceThesisPolicy.from_env()
         replay = None if stored else CachedManagerReplay(
             model=model, provider=_normalize_provider(models.manager.provider),
-            decide=decide or manager_decider(model), db_path=db_path)
+            decide=decide or manager_decider(model), db_path=db_path, sample=sample)
         strategist = StrategistReplay(
             model=model, provider=_normalize_provider(models.strategist.provider), thesis_policy=thesis_policy,
             decide=decide_strategist or strategist_decider(model, thesis_policy), db_path=db_path,
@@ -502,7 +533,7 @@ class ReplayRun:
         replayable = [decision for decision in window if frozen_manager_input(decision) is not None]
         decisions = space_decisions_per_symbol(replayable, min_hours=min_hours_between) if min_hours_between > 0 else replayable
         return cls(model, window, replayable, decisions, min_hours_between, thesis_policy, replay, strategist, db_path,
-                   excluded, contamination)
+                   excluded, contamination, recheck_thesis)
 
     @property
     def stored(self) -> bool:
@@ -559,6 +590,11 @@ class ReplayRun:
             production_strategist = (payload.get("strategist_recommendation") or {}).get("decision")
             tally.strategist_changed_decision += strategist_answer.get("decision") != production_strategist
             payload = self.strategist.manager_payload(payload, strategist_answer)
+        if self.recheck_thesis:
+            payload, changed = rechecked_thesis_payload(payload, strategist_input, policy=self.thesis_policy,
+                                                        db_path=self.db_path)
+            tally.thesis_rechecked += changed is not None
+            tally.thesis_recheck_changed += bool(changed)
         if self.stored:
             tally.cached_answers += 1
             return payload, stored_recommendation(decision), True, strategist_answer
@@ -587,6 +623,9 @@ class ReplayRun:
                 "reused_answer_count": tally.strategist_reused_answers,
             } if self.strategist is not None else None,
             "provider": STORED_MODEL if self.stored else self.replay.provider,
+            "sample": 0 if self.stored else self.replay.sample,
+            "thesis_recheck": {"rechecked": tally.thesis_rechecked, "changed": tally.thesis_recheck_changed}
+            if self.recheck_thesis else None,
         }
 
 
@@ -613,6 +652,8 @@ def run_llm_backtest(
     decide_strategist: Decider | None = None,
     strategist_reuse_max_age_minutes: int = 0,
     keep_answers: bool = True,
+    recheck_thesis: bool = False,
+    sample: int = 0,
     db_path: Any = None,
 ) -> dict[str, Any]:
     """Replay `model` (or `stored`) over the window and record the trades as a backtest run.
@@ -627,11 +668,16 @@ def run_llm_backtest(
     dropped, and a model with no known cutoff is refused unless `allow_unknown_cutoff`. The result also
     carries every replayed `answers` entry, in replay order, for callers that score them. Answers pin their frozen
     inputs (about 250 KB each), so long ad hoc runs should pass `keep_answers=False`, which leaves the key out.
+    `recheck_thesis` re-runs this checkout's thesis checker on production's stored strategist thesis, so the
+    manager answers the corrected check (see `rechecked_thesis_payload`); not valid with `replay_strategist`.
+    `sample` N > 0 asks the manager again for inputs it has answered and caches that answer separately, to
+    measure how often the same input gets a different answer; sample 0 is the usual cache entry.
     """
     run = ReplayRun.build(model=model, start_at=start_at, end_at=end_at, limit=limit, decision_ids=decision_ids,
                           allow_unknown_cutoff=allow_unknown_cutoff, min_hours_between=min_hours_between, replay_strategist=replay_strategist,
                           decide=decide, decide_strategist=decide_strategist,
-                          strategist_reuse_max_age_minutes=strategist_reuse_max_age_minutes, db_path=db_path)
+                          strategist_reuse_max_age_minutes=strategist_reuse_max_age_minutes,
+                          recheck_thesis=recheck_thesis, sample=sample, db_path=db_path)
     local_settings = WorkerSettings.from_env()
     latest_rules = ProductionRules(local_settings)
     tally = ReplayTally()
