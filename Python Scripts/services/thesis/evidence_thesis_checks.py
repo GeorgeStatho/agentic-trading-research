@@ -92,8 +92,15 @@ def build_thesis_sources(payload, *, db_path):
     return sources
 
 
+_QUOTE_MARKS = "\"'“”‘’"
+
+
 def _quote_pattern(text):
-    return re.compile(r"\s+".join(re.escape(token) for token in text.split()))
+    # Models re-quote (" to ') and re-space text when copying it into JSON, so match on every other character.
+    characters = [ch for ch in text.rstrip(".,;:" + _QUOTE_MARKS) if ch not in _QUOTE_MARKS and not ch.isspace()]
+    if not characters:
+        return re.compile(r"(?!)")
+    return re.compile(f"[\\s{_QUOTE_MARKS}]*".join(map(re.escape, characters)))
 
 
 def _locate_quote(quote, claim, sources):

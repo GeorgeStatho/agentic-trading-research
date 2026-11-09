@@ -166,6 +166,33 @@ class ClaimCheckTests(ThesisFixture):
         self.assertIn("market_surprise_without_consensus", self.claim_result(check, "S1")["failures"])
 
 
+class QuoteMatchTests(unittest.TestCase):
+    # Real 2026-11-09 copies that failed only on re-quoting, re-spacing or trailing punctuation.
+    BODY = ('CrowdStrike (NASDAQ: CRWD ) has agreed to acquire two startups. Revenue of $5.1 billion, '
+            '(+/-$100 million), with margins. Share rose to 13.7%, underscoring strength. The Ark CEO said there '
+            'was a "wall of worry" gripping markets. Impact to RBC\'s common equity Tier 1 ("CET1") ratio2.')
+
+    def locate(self, text, article_id=7):
+        from services.thesis.evidence_thesis_checks import ThesisSources, _locate_quote
+        sources = ThesisSources(company_id=1, articles={7: {"body": self.BODY}})
+        return _locate_quote({"source_id": f"article:{article_id}", "text": text}, {"article_ids": [7]}, sources)
+
+    def test_near_verbatim_copies_match_and_span_the_source(self):
+        for text in ("CrowdStrike (NASDAQ: CRWD) has agreed", "Revenue of $5.1 billion, (+/- $100 million)",
+                     "Share rose to 13.7%.", "said there was a 'wall of worry' gripping markets.",
+                     "Tier 1 (CET1) ratio2"):
+            with self.subTest(text=text):
+                span, failure = self.locate(text)
+                self.assertIsNone(failure)
+                self.assertEqual(self.BODY[span["start"]:span["end"]].replace('"', "").replace(" ", "")[:6],
+                                 text.replace("'", "").replace(" ", "")[:6])
+
+    def test_paraphrase_wrong_article_and_marks_only_still_fail(self):
+        self.assertEqual(self.locate("CrowdStrike agreed to buy two startups")[1], "quote_not_in_source")
+        self.assertEqual(self.locate("Share rose to 13.7%", article_id=8)[1], "quote_source_not_cited")
+        self.assertEqual(self.locate('""""""""""')[1], "quote_not_in_source")
+
+
 class SurpriseLicenseTests(unittest.TestCase):
     """A beat/miss claim is licensed by a consensus fact only when the same period's actual is cited too."""
     BEAT = "Q3 revenue beat analyst estimates"
