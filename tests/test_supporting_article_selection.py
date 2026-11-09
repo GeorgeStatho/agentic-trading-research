@@ -216,3 +216,28 @@ class ManifestTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SummaryTextTests(unittest.TestCase):
+    # Yahoo and Benzinga search links store no summary and Fool stores the headline; the model then saw only titles.
+    def summary(self, **fields):
+        row = {**item(COMPANY, primary_ticker=SYMBOL), **fields}
+        return build(evidence(company=[row]))["article_summaries"][0]["summary"]
+
+    def test_empty_summary_becomes_the_body_lead(self):
+        body = "Sandisk fell 9% as investors questioned  its margins.\n" + "More detail follows here. " * 30
+        for summary in ("", None, "   "):
+            with self.subTest(summary=summary):
+                lead = self.summary(summary=summary, body=body)
+                self.assertTrue(lead.startswith("Sandisk fell 9% as investors questioned its margins. More"))
+                self.assertLessEqual(len(lead), 300)
+                self.assertIn(lead.rsplit(" ", 1)[0], " ".join(body.split()))  # a prefix of the body, cut between words
+                self.assertFalse(lead.endswith(" "))
+
+    def test_real_summary_and_short_or_missing_bodies(self):
+        self.assertEqual(self.summary(summary="Publisher summary", body="Long body " * 50), "Publisher summary")
+        # Fool repeats the headline as its summary; its body opens with navigation, so the headline stays.
+        self.assertEqual(self.summary(summary=f"title {COMPANY}", body="Our Services All Services " * 30),
+                         f"title {COMPANY}")
+        self.assertEqual(self.summary(summary="", body="Short body."), "Short body.")
+        self.assertEqual(self.summary(summary="", body=""), "")

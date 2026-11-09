@@ -65,7 +65,8 @@ def consensus_matches_actual(consensus, actual):
 
 def guidance_midpoint(fact):
     """Midpoint of a single value or a range: the one formula every guidance comparison uses."""
-    high = fact.get('range_high')
+    # A consensus value is already the mean estimate; its range_high is the highest analyst's estimate.
+    high = None if fact.get('kind') == 'consensus' else fact.get('range_high')
     return (fact['value'] + (high if high is not None else fact['value'])) / 2
 
 

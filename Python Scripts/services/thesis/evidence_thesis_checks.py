@@ -92,7 +92,8 @@ def build_thesis_sources(payload, *, db_path):
     return sources
 
 
-_QUOTE_MARKS = "\"'“”‘’"
+# Quote marks plus the invisible zero-width and soft-hyphen characters some wire articles carry.
+_QUOTE_MARKS = "\"'“”‘’​‌‍⁠﻿­"
 
 
 def _quote_pattern(text):

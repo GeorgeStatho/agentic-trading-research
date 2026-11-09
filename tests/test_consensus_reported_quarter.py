@@ -224,3 +224,52 @@ class PayloadHintTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ConsensusNumberTests(unittest.TestCase):
+    # 2026-11-09: a consensus range_high (top analyst estimate) was averaged into the mean, so every beat/miss failed.
+    def test_beat_and_miss_figures_use_the_mean_estimate_not_the_high(self):
+        from services.thesis.evidence_thesis_numbers import NumberSupport, stated_numbers
+        estimate = {**consensus(value=8192019370.0), 'range_high': 9459000000.0}
+        support = NumberSupport([estimate, actual(value=8549000000.0)], [], [])
+        statement = 'Revenue beat consensus by $356,980,630, or 4.36%; the top estimate was $9.459 billion.'
+        self.assertEqual([(n.text, support.supports(n)) for n in stated_numbers(statement)],
+                         [('$356,980,630', True), ('4.36%', True), ('$9.459 billion', True)])
+
+
+class StatedNumberTests(unittest.TestCase):
+    def test_days_and_year_to_date_labels_are_not_figures(self):
+        from services.thesis.evidence_thesis_numbers import stated_numbers
+        texts = lambda s: [n.text for n in stated_numbers(s)]
+        self.assertEqual(texts('Oil fell below $90 on Nov. 4 and Dec 9, 2026; OXY reports 2026-11-09.'), ['$90'])
+        self.assertEqual(texts('9M 2026 revenue was $91.788B.'), ['$91.788B'])
+        # Still checked: a $-amount in millions, and a bare number that only looks like a day.
+        self.assertEqual(texts('Costs were $9M in 2026 and 4 plants closed.'), ['$9M', '4'])
+        # Words that merely start like a month must not hide the figure after them.
+        self.assertEqual(texts('Operating margin 48.76%; revenue declined 12%, decreased 3 and market 7.'),
+                         ['48.76%', '12%', '3', '7'])
+        self.assertEqual(texts('Nov 45 units and May 5% growth.'), ['45', '5%'])
+
+
+class CrossMetricTests(unittest.TestCase):
+    # 2026-11-09 answers: a margin and net debt from two metrics of the same statement.
+    def test_margin_and_net_debt_from_one_statement_are_supported(self):
+        from services.thesis.evidence_thesis_numbers import NumberSupport, stated_numbers
+        income = fact('i', 'actual', REPORTED_QUARTER, metric='operating_income', value=2064000000.0)
+        revenue = fact('r', 'actual', REPORTED_QUARTER, value=4233000000.0)
+        debt = fact('d', 'actual', '2026-09-26', metric='debt_noncurrent', period_type='instant', value=46317000000.0)
+        cash = fact('c', 'actual', '2026-09-26', metric='cash', period_type='instant', value=21846000000.0)
+        for facts, statement in (([income, revenue], 'Operating margin was 48.76%.'),
+                                 ([debt, cash], 'Net debt was about $24.471B.')):
+            with self.subTest(statement=statement):
+                self.assertEqual(incompatible_calculation_facts(facts), [])
+                support = NumberSupport(facts, [], [])
+                self.assertTrue(all(support.supports(n) for n in stated_numbers(statement)))
+
+    def test_other_quarter_or_basis_is_still_incompatible(self):
+        revenue = fact('r', 'actual', REPORTED_QUARTER)
+        for other in (fact('i', 'actual', '2026-04-01/2026-06-30', metric='operating_income'),
+                      fact('i', 'actual', REPORTED_QUARTER, metric='operating_income', basis='non-GAAP'),
+                      fact('i', 'guidance', REPORTED_QUARTER, metric='operating_income')):
+            with self.subTest(other=other):
+                self.assertNotEqual(incompatible_calculation_facts([revenue, other]), [])

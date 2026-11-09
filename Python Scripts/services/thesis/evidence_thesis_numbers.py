@@ -20,6 +20,11 @@ _NUMBER = re.compile(
     r"(?![\w-])",
     re.IGNORECASE,
 )
+_DAY_AFTER_MONTH = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?"
+    r"|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+$", re.IGNORECASE)
+_ISO_DAY = re.compile(r"\b\d{4}-\d{2}-$")
+_YEAR_AFTER = re.compile(r"\s+(?:FY)?(?:19|20)\d{2}\b")
 _MULTIPLIERS = {"billion": 1e9, "bn": 1e9, "b": 1e9, "million": 1e6, "mn": 1e6, "mm": 1e6, "m": 1e6,
                 "thousand": 1e3, "k": 1e3}
 _PERCENT_SUFFIXES = {"%", "percent"}
@@ -48,6 +53,13 @@ def stated_numbers(statement: str) -> list[StatedNumber]:
         # A bare calendar year dates a claim; it is not a figure the source must contain.
         if match[0].strip().isdigit() and len(match[0].strip()) == 4 and 1900 <= int(match[0]) <= 2100:
             continue
+        # So does a day ("Nov. 4", "2026-11-09") or a year-to-date label ("9M 2026"), which is not 9 million.
+        is_day = match[0].isdigit() and 1 <= int(match[0]) <= 31
+        if ((is_day and (_DAY_AFTER_MONTH.search(statement, 0, match.start())
+                         or _ISO_DAY.search(statement, 0, match.start())))
+                or (match[0].lower().endswith("m") and "$" not in match[0]
+                    and _YEAR_AFTER.match(statement, match.end()))):
+            continue
         core = match["digits"].replace(",", "") + ("." + match["decimals"] if match["decimals"] else "")
         kind = ("percent" if suffix in _PERCENT_SUFFIXES else "basis_points" if suffix in _BASIS_POINT_SUFFIXES
                 else "amount")
@@ -64,9 +76,18 @@ def _fact_values(fact):
     return values
 
 
+def _cross_metric(first, second):
+    """Two metrics of one statement (operating income and revenue, debt and cash): margins, net debt, shares."""
+    return (first["metric"] != second["metric"] and first["kind"] == second["kind"]
+            and first["fiscal_period"] == second["fiscal_period"]
+            and all(first.get(field) == second.get(field) for field in _CALCULATION_FIELDS if field != "metric"))
+
+
 def _compatible_for_calculation(first, second):
     # An estimate and the actual of the quarter it estimated: "revenue beat consensus by X%".
     if consensus_matches_actual(first, second) or consensus_matches_actual(second, first):
+        return True
+    if _cross_metric(first, second):
         return True
     if any(first.get(field) != second.get(field) for field in _CALCULATION_FIELDS):
         return False
@@ -98,7 +119,9 @@ class NumberSupport:
             bucket = self.percents if first.get("unit") == "percent" else self.amounts
             bucket.append((change, first.get("scale") or 1))
             if guidance_midpoint(second):
-                self.percent_changes.append(change / abs(guidance_midpoint(second)) * 100)
+                # Across metrics only the ratio means something (a margin); within one, the percent change.
+                numerator = guidance_midpoint(first) if _cross_metric(first, second) else change
+                self.percent_changes.append(numerator / abs(guidance_midpoint(second)) * 100)
         cited = {fact["fact_id"] for fact in facts}
         for claim in package_claims:
             if isinstance(claim.get("value"), (int, float)) and set(claim.get("fact_ids", [])) <= cited:

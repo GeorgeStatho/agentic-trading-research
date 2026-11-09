@@ -18,6 +18,23 @@ SUPPORTING_ARTICLE_SELECTION_VERSION = "company-first-quotas-v1"
 ARTICLE_BUCKET_ORDER = ("company", "industry", "sector", "macro", "unsignalled")
 SUMMARY_ARTICLE_QUOTAS = {"company": 10, "industry": 5, "sector": 3, "macro": 2}
 SUMMARY_QUOTA_BASE_LIMIT = 20  # the limit the quotas above are written for
+LEAD_EXCERPT_CHARACTERS = 300
+
+
+def _summary_text(article: dict[str, Any]) -> str:
+    """The stored summary, or the body's opening text when it is empty.
+
+    Scrapers store link anchor text as the summary, which is empty for Yahoo and Benzinga search results. The
+    opening text is real source text the thesis checks can verify quotes against. Fool's summary repeats the
+    headline but is kept: its bodies open with the site's navigation menu.
+    """
+    if str(article.get("summary") or "").strip():
+        return article["summary"]
+    body = " ".join(str(article.get("body") or "").split())
+    if len(body) <= LEAD_EXCERPT_CHARACTERS:
+        return body
+    # Cut at a word boundary so the excerpt never ends mid-word.
+    return body[:LEAD_EXCERPT_CHARACTERS].rsplit(" ", 1)[0]
 
 
 def _serialize_signal(item: dict[str, Any], *, layer: str) -> AgentSignalPayload:
@@ -178,7 +195,7 @@ def _build_supporting_articles(
         {
             "article_id": article["article_id"],
             "title": article["title"],
-            "summary": article["summary"],
+            "summary": _summary_text(article),
             "source": article["source"],
             "source_url": article["source_url"],
             "published_at": article["published_at"],

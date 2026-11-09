@@ -170,7 +170,8 @@ class QuoteMatchTests(unittest.TestCase):
     # Real 2026-11-09 copies that failed only on re-quoting, re-spacing or trailing punctuation.
     BODY = ('CrowdStrike (NASDAQ: CRWD ) has agreed to acquire two startups. Revenue of $5.1 billion, '
             '(+/-$100 million), with margins. Share rose to 13.7%, underscoring strength. The Ark CEO said there '
-            'was a "wall of worry" gripping markets. Impact to RBC\'s common equity Tier 1 ("CET1") ratio2.')
+            'was a "wall of worry" gripping markets. Impact to RBC\'s common equity Tier 1 ("CET1") ratio2. '
+            'Nvidia, the second most valuable company ​in the world, fell.')
 
     def locate(self, text, article_id=7):
         from services.thesis.evidence_thesis_checks import ThesisSources, _locate_quote
@@ -180,7 +181,7 @@ class QuoteMatchTests(unittest.TestCase):
     def test_near_verbatim_copies_match_and_span_the_source(self):
         for text in ("CrowdStrike (NASDAQ: CRWD) has agreed", "Revenue of $5.1 billion, (+/- $100 million)",
                      "Share rose to 13.7%.", "said there was a 'wall of worry' gripping markets.",
-                     "Tier 1 (CET1) ratio2"):
+                     "Tier 1 (CET1) ratio2", "the second most valuable company in the world"):
             with self.subTest(text=text):
                 span, failure = self.locate(text)
                 self.assertIsNone(failure)
