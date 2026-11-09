@@ -493,6 +493,12 @@
  ],
  [
   "index",
+  "idx_news_articles_story_id",
+  "news_articles",
+  "CREATE INDEX idx_news_articles_story_id ON news_articles(story_id)"
+ ],
+ [
+  "index",
   "idx_news_exposure_edges_run",
   "news_exposure_edges",
   "CREATE INDEX idx_news_exposure_edges_run\n    ON news_exposure_edges (run_id)"
@@ -1299,7 +1305,7 @@
   "table",
   "news_articles",
   "news_articles",
-  "CREATE TABLE news_articles (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    source TEXT NOT NULL,\n    article_key TEXT NOT NULL UNIQUE,\n    title TEXT NOT NULL,\n    normalized_title TEXT,\n    source_type TEXT,\n    primary_ticker TEXT,\n    catalyst_id TEXT,\n    root_event_id TEXT,\n    root_source_id TEXT,\n    syndication_parent_id INTEGER,\n    primary_source_url TEXT,\n    event_time TEXT,\n    first_seen_time TEXT,\n    content_updated_at TEXT,\n\n    summary TEXT,\n    normalized_url TEXT,\n    content_hash TEXT,\n    published_at TEXT,\n    section TEXT,\n    age_days REAL,\n    recency_score REAL,\n    source_reputation_score REAL,\n    directness_score REAL,\n    confirmation_score REAL,\n    independent_source_count INTEGER,\n    factuality_score REAL,\n    evidence_score REAL,\n    source_url TEXT NOT NULL,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n)"
+  "CREATE TABLE news_articles (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    source TEXT NOT NULL,\n    article_key TEXT NOT NULL UNIQUE,\n    title TEXT NOT NULL,\n    normalized_title TEXT,\n    source_type TEXT,\n    primary_ticker TEXT,\n    catalyst_id TEXT,\n    root_event_id TEXT,\n    root_source_id TEXT,\n    syndication_parent_id INTEGER,\n    primary_source_url TEXT,\n    event_time TEXT,\n    first_seen_time TEXT,\n    content_updated_at TEXT,\n    story_id INTEGER,\n\n    summary TEXT,\n    normalized_url TEXT,\n    content_hash TEXT,\n    published_at TEXT,\n    section TEXT,\n    age_days REAL,\n    recency_score REAL,\n    source_reputation_score REAL,\n    directness_score REAL,\n    confirmation_score REAL,\n    independent_source_count INTEGER,\n    factuality_score REAL,\n    evidence_score REAL,\n    source_url TEXT NOT NULL,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n)"
  ],
  [
   "table",

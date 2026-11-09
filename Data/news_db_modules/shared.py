@@ -28,6 +28,7 @@ NEWS_ARTICLE_COLUMN_TYPES = {
     "event_time": "TEXT",
     "first_seen_time": "TEXT",
     "content_updated_at": "TEXT",
+    "story_id": "INTEGER",
 
     "normalized_title": "TEXT",
     "normalized_url": "TEXT",
