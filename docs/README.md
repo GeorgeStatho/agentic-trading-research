@@ -13,6 +13,7 @@ history and are not updated when the code changes.
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Where new code belongs; runtime and safety boundaries |
 | [FEATURE_PLAYBOOK.md](FEATURE_PLAYBOOK.md) | Checklists for persisted, LLM-assisted, dashboard and demo features |
 | [CODE_MAP.md](CODE_MAP.md) | Map of the repository and how the subsystems connect |
+| [STATE_MACHINES.md](STATE_MACHINES.md) | Every state machine: states, transitions, owner, driver and reader files, and how they feed each other |
 | [INTERFACE_GUIDE.md](INTERFACE_GUIDE.md) | Preferred import surface versus compatibility wrappers |
 | [CleanCode.md](CleanCode.md) | Code style rules used in reviews |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Installing the project, running tests and entrypoints |
