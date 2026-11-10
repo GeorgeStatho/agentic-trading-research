@@ -8,7 +8,9 @@ evidence-thesis gates); and the live order-eligibility rule decides whether it t
 Production selects a directional contract from a chain it re-fetches for the manager's DTE
 bucket, never from the pre-decision chain in the frozen input. That bucket chain was saved
 (candidate snapshots) only for the bucket production chose, and only since snapshots began, so
-a replayed answer naming another bucket, or an older decision, is `bucket_chain_unavailable`.
+a replayed answer naming another bucket, or an older decision, selects from the pre-decision chain
+instead: an approximation of production's contract, counted as `pre_decision_chain_trade_count`.
+Without contracts in that chain either, the answer is `bucket_chain_unavailable`.
 Trades go through the backtest engine: stored option quotes when they exist, otherwise
 Black-Scholes marks from the frozen chain and daily underlying closes.
 
@@ -240,20 +242,22 @@ def frozen_buying_power(payload: dict[str, Any]) -> float:
 
 
 def selection_market_context(payload: dict[str, Any], recommendation: dict[str, Any],
-                             frozen: FrozenDecision) -> dict[str, Any] | None:
-    """The market context production would have selected from; None when that chain was never saved.
+                             frozen: FrozenDecision) -> tuple[dict[str, Any] | None, bool]:
+    """The market context to select from, and whether the pre-decision chain stands in for an unsaved bucket chain.
 
-    Like production, a non-directional answer or a bucket of `none` keeps the pre-decision chain.
+    Like production, a non-directional answer or a bucket of `none` keeps the pre-decision chain. A bucket
+    production never fetched falls back to that chain too (the selector still enforces the bucket's DTE range);
+    None when it has no contracts either.
     """
     market = copy.deepcopy(payload.get("market_context") or {})
     bucket = normalize_target_dte_bucket(recommendation.get("target_dte_bucket")) or "none"
     if recommendation.get("decision") not in DIRECTIONAL or bucket == "none":
-        return market
+        return market, False
     option_market = frozen.bucket_chain(bucket)
     if option_market is None:
-        return None
+        return (market, True) if (market.get("option_market") or {}).get("contracts") else (None, False)
     market["option_market"] = copy.deepcopy(option_market)
-    return market
+    return market, False
 
 
 def finalize(payload: dict[str, Any], recommendation: dict[str, Any], market: dict[str, Any], *, as_of: str,
@@ -308,6 +312,7 @@ class ReplayTally:
     thesis_rechecked: int = 0
     thesis_recheck_changed: int = 0
     recorded_settings: int = 0
+    pre_decision_chain_trades: int = 0
     selector_differences: set[str] = field(default_factory=set)
 
     def count(self, outcome: str) -> None:
@@ -319,7 +324,7 @@ def evaluate_answer(frozen: FrozenDecision, payload: dict[str, Any], recommendat
                     thesis_policy: EvidenceThesisPolicy) -> tuple[str, dict[str, Any] | None]:
     """One answer through production's selection and eligibility; returns the outcome and any trade."""
     decision = frozen.decision
-    market = selection_market_context(payload, recommendation, frozen)
+    market, pre_decision_chain = selection_market_context(payload, recommendation, frozen)
     if market is None:
         return "bucket_chain_unavailable", None
     differences = rules.selector_differences(selector_constants())
@@ -331,6 +336,7 @@ def evaluate_answer(frozen: FrozenDecision, payload: dict[str, Any], recommendat
     outcome = trade_outcome(result, builder)
     if outcome != "traded":
         return outcome, None
+    tally.pre_decision_chain_trades += pre_decision_chain
     cap = rules.settings.resolve_max_premium_per_trade(frozen_buying_power(payload))
     return outcome, backtest_decision(decision, result, max_premium_dollars=cap)
 
@@ -722,6 +728,7 @@ def run_llm_backtest(
     replay_summary = {
         **run.summary(tally),
         "selector_version": SELECTOR_VERSION,
+        "pre_decision_chain_trade_count": tally.pre_decision_chain_trades,
         "production_settings": {
             "recorded_decision_count": tally.recorded_settings,
             "local_fallback_decision_count": len(run.decisions) - tally.recorded_settings,

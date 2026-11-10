@@ -211,7 +211,7 @@ class ManifestTests(unittest.TestCase):
         from services.core.pipeline_version import build_pipeline_version
 
         manifest = build_pipeline_version()
-        self.assertEqual(manifest["supporting_article_selection_version"], "company-first-quotas-v1")
+        self.assertEqual(manifest["supporting_article_selection_version"], "company-first-quotas-v2")
 
 
 if __name__ == "__main__":
@@ -241,3 +241,31 @@ class SummaryTextTests(unittest.TestCase):
                          f"title {COMPANY}")
         self.assertEqual(self.summary(summary="", body="Short body."), "Short body.")
         self.assertEqual(self.summary(summary="", body=""), "")
+
+
+class FullArticleRankingTests(unittest.TestCase):
+    # 2026-11-09, ANET: every article had one high-confidence signal, so recency alone picked full text, and
+    # an indirect, minimal-impact Nokia piece beat "Arista Networks Posts Fastest Growth Since IPO".
+    def test_direct_high_materiality_beats_a_newer_indirect_article(self):
+        direct = {**item(COMPANY, body="Arista posts fastest growth.", minutes=1),
+                  "effect_type": "direct", "materiality": "high"}
+        indirect = {**item(COMPANY + 1, body="Nokia stock rises.", minutes=50),
+                    "effect_type": "indirect", "materiality": "medium"}
+        result = build(evidence(company=[indirect, direct]), full_limit=1)
+        self.assertEqual([a["article_id"] for a in result["full_articles"]], [COMPANY])
+
+
+class BoilerplateTests(unittest.TestCase):
+    DISCLAIMER = ("The above button links to Coinbase. Yahoo Finance is not a broker-dealer or investment adviser and "
+                  "does not offer securities or cryptocurrencies for sale or facilitate trading. Coinbase pays us for "
+                  "certain activity generated through this link. Prices displayed are informational.\n")
+
+    def test_the_coinbase_disclaimer_is_not_part_of_the_article(self):
+        row = {**item(COMPANY, body=self.DISCLAIMER + "(Updates with index moves) Stocks rose."), "summary": ""}
+        result = build(evidence(company=[row]))
+        self.assertEqual(result["full_articles"][0]["body"], "(Updates with index moves) Stocks rose.")
+        self.assertEqual(result["article_summaries"][0]["summary"], "(Updates with index moves) Stocks rose.")
+
+    def test_other_bodies_are_unchanged(self):
+        body = "  Coinbase shares rose. The above button links to Coinbase.  "
+        self.assertEqual(build(evidence(company=[item(COMPANY, body=body)]))["full_articles"][0]["body"], body)

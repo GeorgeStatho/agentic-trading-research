@@ -238,5 +238,40 @@ class AgentEvidenceIntegrationTests(unittest.TestCase):
         self.assertEqual(manager['company_evidence']['package_id'], package)
 
 
+class VisibleFactTests(unittest.TestCase):
+    """2026-11-09: 43 of 50 prompts showed no prior-year quarter. The 48-fact cap sorted by period string,
+    and superseded duplicates took slots, so every 2025 comparative was cut."""
+
+    @staticmethod
+    def fact(fact_id, period, *, metric='revenue', kind='actual', period_type='quarter', supersedes=None):
+        return {'fact_id': fact_id, 'metric': metric, 'kind': kind, 'fiscal_period': period, 'period_type': period_type,
+                'available_at': '2026-11-04T00:00:00+00:00', 'value': 1.0, 'supersedes_fact_id': supersedes}
+
+    def facts(self):
+        # 52/53-week fiscal year: the year-ago quarter ends 2025-09-27, not on the same calendar date.
+        latest, year_ago = '2026-06-28/2026-09-26', '2025-06-29/2025-09-27'
+        rows = [self.fact('rev-latest', latest), self.fact('rev-year-ago', year_ago),
+                self.fact('ni-latest', latest, metric='net_income'), self.fact('ni-year-ago', year_ago, metric='net_income'),
+                self.fact('est', 'next_report:2027-01-28', kind='consensus')]
+        # Newer-period filler (year-to-date and instants) that sorts ahead of every 2025 period.
+        rows += [self.fact(f'ytd-{i}', f'2026-01-01/2026-09-{i:02d}', metric=f'm{i}', period_type='duration')
+                 for i in range(1, 29)]
+        # Superseded duplicates of current facts: old versions that the newer fact replaced.
+        rows += [self.fact(f'old-{i}', '2026-03-29/2026-06-27', metric=f'q{i}') for i in range(20)]
+        rows += [self.fact(f'new-{i}', '2026-03-29/2026-06-27', metric=f'q{i}', supersedes=f'old-{i}') for i in range(20)]
+        return rows
+
+    def test_superseded_facts_are_hidden_and_the_year_ago_quarter_kept(self):
+        from agent_builders.company_evidence_payload import MAX_PAYLOAD_FACTS, _visible_facts
+        shown = {f['fact_id'] for f in _visible_facts(self.facts(), referenced=set())}
+        self.assertLessEqual(len(shown), MAX_PAYLOAD_FACTS)
+        self.assertFalse({f'old-{i}' for i in range(20)} & shown)
+        self.assertLessEqual({'rev-latest', 'rev-year-ago', 'ni-latest', 'ni-year-ago', 'est'}, shown)
+
+    def test_a_superseded_fact_a_claim_cites_stays_visible(self):
+        from agent_builders.company_evidence_payload import _visible_facts
+        self.assertIn('old-3', {f['fact_id'] for f in _visible_facts(self.facts(), referenced={'old-3'})})
+
+
 if __name__ == '__main__':
     unittest.main()

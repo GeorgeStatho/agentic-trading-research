@@ -81,6 +81,17 @@ class MatchTests(unittest.TestCase):
     def test_metric_must_agree(self):
         self.assertFalse(consensus_matches_actual(consensus(), actual(metric='net_income')))
 
+    # 2026-11-09, ANET: Yahoo kept the passed earnings date while its estimates moved to the next quarter, so
+    # snapshots taken after the report carried next quarter's estimate under the reported quarter's label.
+    def test_estimate_captured_after_its_report_date_does_not_match(self):
+        stale = {**consensus(), 'available_at': at('2026-10-29', 4)}
+        self.assertFalse(consensus_matches_actual(stale, actual()))
+
+    def test_estimate_captured_on_or_before_its_report_date_still_matches(self):
+        for captured in (at('2026-10-27'), at('2026-10-28', 17)):
+            with self.subTest(captured=captured):
+                self.assertTrue(consensus_matches_actual({**consensus(), 'available_at': captured}, actual()))
+
     def test_requires_a_consensus_and_an_actual(self):
         self.assertFalse(consensus_matches_actual(actual(), actual()))
         self.assertFalse(consensus_matches_actual(consensus(), fact('g', 'guidance', REPORTED_QUARTER)))
@@ -203,6 +214,20 @@ class PackageRetentionTests(unittest.TestCase):
         self.assertIn(last_report, package['document_ids'])
         self.assertEqual([event['scheduled_at'] for event in package['scheduled_events']], ['2026-11-25'])
 
+    def test_snapshots_still_labelled_with_a_passed_report_are_not_kept(self):
+        # ANET shape: after the 2026-08-26 report Yahoo still shows that date, but its estimate is next quarter's.
+        primary = self.ingest(guidance(at=START))
+        pre_report = self.ingest(two_metric_consensus_doc(at('2026-08-26', 17), '2026-08-26', revenue=3.33))
+        stale_early = self.ingest(two_metric_consensus_doc(at('2026-08-28'), '2026-08-26', revenue=3.60))
+        stale_latest = self.ingest(two_metric_consensus_doc(at('2026-09-01'), '2026-08-26', revenue=3.98))
+        identity = build_company_package(COMPANY, [primary, pre_report, stale_early, stale_latest], ENTRY,
+                                         self.policy, db_path=self.db)
+        package = get_evidence_package(identity, db_path=self.db)
+        self.assertIn(pre_report, package['document_ids'])
+        self.assertNotIn(stale_early, package['document_ids'])
+        self.assertNotIn(stale_latest, package['document_ids'])
+        self.assertEqual(package['scheduled_events'], [])
+
 
 class PayloadHintTests(unittest.TestCase):
     """The strategist sees which actual each consensus fact can be compared with."""
@@ -220,6 +245,15 @@ class PayloadHintTests(unittest.TestCase):
         self.assertEqual(by_kind[('consensus', 'revenue')]['matches_actual_fact_ids'], [revenue_actual['fact_id']])
         self.assertEqual(by_kind[('consensus', 'eps_diluted')]['matches_actual_fact_ids'], [])
         self.assertNotIn('matches_actual_fact_ids', revenue_actual)
+
+    def test_a_snapshot_taken_after_the_report_is_not_offered_as_its_estimate(self):
+        db = database(self)
+        ids = [ingest_source(COMPANY, actuals(at=START), START, db_path=db)[0],
+               ingest_source(COMPANY, two_metric_consensus_doc(at('2026-08-05'), '2026-07-29'), at('2026-08-05'),
+                             db_path=db)[0]]
+        identity = build_company_package(COMPANY, ids, ENTRY, CompanyEvidencePolicy(), db_path=db)
+        payload = build_company_evidence_payload(COMPANY['id'], package_id=identity, as_of=ENTRY, db_path=db)
+        self.assertEqual([f for f in payload['facts'] if f.get('matches_actual_fact_ids')], [])
 
 
 if __name__ == '__main__':

@@ -289,6 +289,7 @@ class StrategistInputPayload(TypedDict):
     supporting_articles: SupportingArticlesPayload
     grounding: dict[str, Any]
     company_evidence: NotRequired[dict[str, Any]]
+    as_of: NotRequired[str]
 
 
 class ManagerInputPayload(StrategistInputPayload):

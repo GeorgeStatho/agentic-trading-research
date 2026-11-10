@@ -34,6 +34,21 @@ def report_date(fact):
         return None
 
 
+def estimated_report(fact):
+    """report_date(fact), unless the estimate was captured after that date (then None).
+
+    Yahoo keeps showing a passed earnings date for days while its estimates have moved on to the next
+    quarter, so a capture after D is next quarter's estimate under D's label. A fact without a capture
+    time is taken at its label.
+    shortcut: a capture on D itself after the release still passes; compare release times if that shows up.
+    """
+    reported = report_date(fact)
+    captured = str(fact.get('available_at') or '')[:10]
+    if reported is not None and captured and date.fromisoformat(captured) > reported:
+        return None
+    return reported
+
+
 def _period_end(period):
     parts = str(period or '').split('/')
     try:
@@ -52,7 +67,7 @@ def consensus_matches_actual(consensus, actual):
     if (consensus.get('kind') != 'consensus' or actual.get('kind') != 'actual'
             or consensus.get('period_type') != 'quarter' or actual.get('period_type') != 'quarter'):
         return False
-    reported, ended = report_date(consensus), _period_end(actual.get('fiscal_period'))
+    reported, ended = estimated_report(consensus), _period_end(actual.get('fiscal_period'))
     if reported is None or ended is None:
         return False
     if any(consensus.get(key) != actual.get(key) for key in ('metric', 'unit', 'currency', 'scale')):

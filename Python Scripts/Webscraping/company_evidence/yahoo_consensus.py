@@ -50,11 +50,19 @@ class YahooConsensusAdapter:
             if factory is None:
                 import yfinance
                 factory = yfinance.Ticker
-            calendar = factory(symbol.replace('.', '-')).calendar
+            ticker = factory(symbol.replace('.', '-'))
+            calendar = ticker.calendar
             if not isinstance(calendar, dict):
                 calendar = {}
         except Exception:
-            calendar = {}
+            ticker, calendar = None, {}
+        # The calendar carries no currency; a non-USD reporter's estimates (SK hynix: won) are not comparable.
+        try:
+            currency = (ticker.info or {}).get('financialCurrency') if ticker is not None else None
+        except Exception:
+            currency = None
+        if currency and currency != 'USD':
+            return CollectionResult((), cursor, ('consensus_currency_not_usd',))
         document = self._document(company, calendar)
         if document is None:
             return CollectionResult((), cursor, ('consensus_provider_unavailable',))

@@ -12,13 +12,22 @@ from agent_contracts import (
 from agent_helpers.text_utils import parse_published_at
 from agent_helpers.strategist_evidence import HIGH_CONFIDENCE
 import json
+import re
 
-SUPPORTING_ARTICLE_SELECTION_VERSION = "company-first-quotas-v1"
+SUPPORTING_ARTICLE_SELECTION_VERSION = "company-first-quotas-v2"
 # Most specific evidence wins; `unsignalled` (sector_rss only) has no quota and is backfill only.
 ARTICLE_BUCKET_ORDER = ("company", "industry", "sector", "macro", "unsignalled")
 SUMMARY_ARTICLE_QUOTAS = {"company": 10, "industry": 5, "sector": 3, "macro": 2}
 SUMMARY_QUOTA_BASE_LIMIT = 20  # the limit the quotas above are written for
 LEAD_EXCERPT_CHARACTERS = 300
+# Yahoo prepends this to articles that carry a crypto price widget; it is not the article.
+COINBASE_DISCLAIMER = re.compile(r"\s*The above button links to Coinbase\..{0,400}?Prices displayed are informational\.\s*",
+                                 re.DOTALL)
+
+
+def _strip_boilerplate(body: str) -> str:
+    match = COINBASE_DISCLAIMER.match(body)
+    return body[match.end():] if match else body
 
 
 def _summary_text(article: dict[str, Any]) -> str:
@@ -106,7 +115,7 @@ def _upsert_supporting_article(
             "article_id": article_id,
             "title": item.get("title") or "",
             "summary": item.get("summary") or "",
-            "body": item.get("body") or "",
+            "body": _strip_boilerplate(item.get("body") or ""),
             "source": item.get("source") or "",
             "source_url": item.get("source_url") or "",
             "published_at": item.get("published_at") or "",
@@ -133,7 +142,7 @@ def _upsert_supporting_article(
     if not entry.get("summary") and item.get("summary"):
         entry["summary"] = item["summary"]
     if not entry.get("body") and item.get("body"):
-        entry["body"] = item["body"]
+        entry["body"] = _strip_boilerplate(item["body"])
     if not entry.get("title") and item.get("title"):
         entry["title"] = item["title"]
 
@@ -157,7 +166,7 @@ def _build_supporting_articles(
     for item in evidence["sector_rss_articles"]:
         _upsert_supporting_article(articles_by_id, item, layer="sector_rss_evidence", include_agent_signal=False)
 
-    def article_priority(article: dict[str, Any]) -> tuple[int, datetime, int]:
+    def article_priority(article: dict[str, Any]) -> tuple[int, int, datetime, int]:
         high_confidence_signals = sum(
             1 for signal in article["agent_signals"] if str(signal.get("confidence") or "").lower() == HIGH_CONFIDENCE
         )
@@ -165,7 +174,10 @@ def _build_supporting_articles(
         layer_count = len(article["evidence_layers"])
         published_at = parse_published_at(article.get("published_at")) or datetime.min.replace(tzinfo=timezone.utc)
         score = (high_confidence_signals * 100) + (signal_count * 10) + layer_count
-        return score, published_at, int(article["article_id"])
+        # Ties are common (one high-confidence signal each); directness and materiality decide before recency.
+        direct_high = sum(1 for signal in article["agent_signals"]
+                          if signal.get("effect_type") == "direct" and signal.get("materiality") == "high")
+        return score, direct_high, published_at, int(article["article_id"])
 
     symbol = str((evidence.get("company") or {}).get("symbol") or "").upper()
 

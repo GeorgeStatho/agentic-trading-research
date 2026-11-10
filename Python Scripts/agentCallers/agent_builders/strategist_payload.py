@@ -125,6 +125,8 @@ def build_strategist_input(
         as_of=end_time.astimezone(timezone.utc).isoformat() if end_time else None,
     )
     payload["grounding"] = build_strategist_grounding(payload)
+    # The decision time, so the model can judge article and filing age; a replay's end_time keeps it deterministic.
+    payload["as_of"] = (end_time or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
     return payload
 
 

@@ -33,8 +33,8 @@ EVENT = {'name': 'Earnings release', 'scheduled_at': '2026-10-28', 'precision': 
 
 class FakeTicker:
     """Stands in for yfinance.Ticker; counts `calendar` reads so the per-collection rate is checkable."""
-    def __init__(self, calendar=None, error=None):
-        self._calendar, self.error, self.reads = calendar, error, 0
+    def __init__(self, calendar=None, error=None, info=None):
+        self._calendar, self.error, self.reads, self._info = calendar, error, 0, info
 
     @property
     def calendar(self):
@@ -43,9 +43,15 @@ class FakeTicker:
             raise self.error
         return self._calendar
 
+    @property
+    def info(self):
+        if isinstance(self._info, Exception):
+            raise self._info
+        return self._info or {}
 
-def adapter(calendar=None, error=None, clock=lambda: NOW):
-    ticker = FakeTicker(MSFT if calendar is None else calendar, error)
+
+def adapter(calendar=None, error=None, clock=lambda: NOW, info=None):
+    ticker = FakeTicker(MSFT if calendar is None else calendar, error, info)
     return YahooConsensusAdapter(ticker_factory=lambda symbol: ticker, clock=clock), ticker
 
 
@@ -117,6 +123,19 @@ class AdapterTests(unittest.TestCase):
                 result = yahoo.collect(MSFT_COMPANY, {})
                 self.assertEqual(result.documents, ())
                 self.assertIn('consensus_provider_unavailable', result.gaps)
+
+    def test_non_usd_reporter_yields_no_consensus(self):
+        # 2026-11-09: SK hynix's revenue consensus (1.3e14, in won) was stored as USD.
+        yahoo, _ = adapter(info={'financialCurrency': 'KRW'})
+        result = yahoo.collect(MSFT_COMPANY, {})
+        self.assertEqual((result.documents, result.gaps), ((), ('consensus_currency_not_usd',)))
+
+    def test_usd_or_unknown_currency_collects_as_before(self):
+        for info in ({'financialCurrency': 'USD'}, {}, RuntimeError('info unavailable')):
+            with self.subTest(info=info):
+                yahoo, _ = adapter(info=info)
+                (doc,) = yahoo.collect(MSFT_COMPANY, {}).documents
+                self.assertEqual({fact['currency'] for fact in doc.facts}, {'USD'})
 
     def test_ticker_construction_failure_is_also_a_gap(self):
         def broken(symbol):

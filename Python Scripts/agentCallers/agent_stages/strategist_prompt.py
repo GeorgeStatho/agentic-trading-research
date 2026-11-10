@@ -75,29 +75,91 @@ def _compact_supporting_articles(supporting: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+# Classifier bookkeeping no instruction uses: hash IDs, a second horizon taxonomy, names implied by the layer.
+CONCLUSION_PIPELINE_FIELDS = ("source_url", "catalyst_id", "root_event_ids", "catalyst_family", "expected_horizon",
+                              "company_name", "industry_name", "sector_name")
+PLACEHOLDER_MECHANISM = "Unclassified transmission mechanism; review required"
+# Scalars the rollup repeats inside its *_counts dicts.
+ROLLUP_DUPLICATE_COUNTS = ("positive_count", "negative_count", "mixed_count", "neutral_count",
+                           "high_materiality_count", "medium_materiality_count", "low_materiality_count",
+                           "immediate_count", "short_term_count", "medium_term_count", "unclear_count",
+                           "direct_count", "indirect_count")
+EVIDENCE_PIPELINE_FIELDS = ("package_id", "catalyst_id", "event_revision", "schema_version", "fact_ids", "document_ids")
+DOCUMENT_METADATA_FIELDS = ("form", "filing_date", "report_date")
+
+
+def _compact_conclusion(conclusion: Any) -> Any:
+    if not isinstance(conclusion, dict):
+        return conclusion
+    compact = {k: v for k, v in conclusion.items() if k not in CONCLUSION_PIPELINE_FIELDS
+               and not (k == "summary" and not v) and not (k == "mechanism" and v == PLACEHOLDER_MECHANISM)}
+    if isinstance(compact.get("evidence_score"), float):
+        compact["evidence_score"] = round(compact["evidence_score"], 2)
+    return compact
+
+
 def _compact_views(views: dict[str, Any]) -> dict[str, Any]:
-    # Copy without source_url on each agent conclusion.
     if not isinstance(views, dict):
         return views
     return {
-        name: {**view, "agent_conclusions": [_drop(c, ("source_url",)) for c in view["agent_conclusions"]]}
+        name: {**view, "agent_conclusions": [_compact_conclusion(c) for c in view["agent_conclusions"]]}
         if isinstance(view, dict) and isinstance(view.get("agent_conclusions"), list) else view
         for name, view in views.items()
     }
 
 
+def _compact_rollup(rollup: Any) -> Any:
+    if not isinstance(rollup, dict):
+        return rollup
+    return {level: _drop(summary, ROLLUP_DUPLICATE_COUNTS) for level, summary in rollup.items()}
+
+
+def _compact_company(company: dict[str, Any]) -> dict[str, Any]:
+    # The summary statistics of each price period stay; the raw recent bars and per-period bookkeeping go.
+    compact = dict(company)
+    if isinstance(company.get("market_data"), dict):
+        compact["market_data"] = _drop(company["market_data"], ("market weight", "regular_market_previous_close"))
+    history = company.get("historical_price_data")
+    if isinstance(history, dict):
+        compact["historical_price_data"] = {
+            period: {k: v for k, v in stats.items() if k not in ("recent_points", "symbol")
+                     and not (k == "available" and v is True) and not (k == "error" and not v)}
+            if isinstance(stats, dict) else stats
+            for period, stats in history.items()
+        }
+    return compact
+
+
+def _is_json_text(text: Any) -> bool:
+    return isinstance(text, str) and text.lstrip()[:1] in ("{", "[")
+
+
+def _compact_document(document: Any) -> Any:
+    if not isinstance(document, dict):
+        return document
+    compact = _drop(document, ("first_observed_at", "ingested_at", "metadata"))
+    metadata = {k: v for k, v in (document.get("metadata") or {}).items() if k in DOCUMENT_METADATA_FIELDS}
+    return {**compact, "metadata": metadata} if metadata else compact
+
+
 def _compact_company_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
     # Copy with pipeline-only and empty (None, {}, [], "") fact fields removed; False and 0 are kept.
+    # Raw SEC JSON excerpts go too: facts verify by fact_id, and the model must never quote JSON.
     if not isinstance(evidence, dict) or not isinstance(evidence.get("facts"), list):
         return evidence
     pipeline = ("company_id", "schema_version", "extraction_version", "source_start", "source_end")
     facts = [
         {k: v for k, v in fact.items()
-         if k not in pipeline and not (v is None or (isinstance(v, (dict, list, str)) and not v))}
+         if k not in pipeline and not (v is None or (isinstance(v, (dict, list, str)) and not v))
+         and not (k in ("source_excerpt", "excerpt_truncated") and _is_json_text(fact.get("source_excerpt")))}
         if isinstance(fact, dict) else fact
         for fact in evidence["facts"]
     ]
-    return {**evidence, "facts": facts}
+    documents = evidence.get("documents")
+    compact = {**_drop(evidence, EVIDENCE_PIPELINE_FIELDS), "facts": facts}
+    if isinstance(documents, list):
+        compact["documents"] = [_compact_document(document) for document in documents]
+    return compact
 
 
 def _serialize_user_payload(user_payload: dict[str, Any]) -> str:
@@ -130,10 +192,6 @@ def build_strategist_prompt(
         "When trend_quality is present, treat 5d_sharpe, 1m_sharpe, and 3m_sharpe as supporting context about how smooth or choppy recent returns were, not as standalone trade triggers. "
         "Positive Sharpe can support a bullish trend-quality read, negative Sharpe can support a bearish or unstable context read, and mixed Sharpe can indicate choppy or conflicting momentum. "
         "Do not let trend_quality by itself override stronger signals such as fresh company news, evidence materiality, contradiction level, or clear catalyst timing. "
-        "When technical indicators are present in market context, use them only as confirmation, timing, and risk-adjustment context after the primary thesis has already been formed from news, fundamentals, market context, catalyst strength, and expected stock direction. "
-        "Do not create a trade thesis from VWAP, relative volume, moving averages, RSI, MACD, ATR, or relative strength alone. "
-        "Do not say buy because RSI is bullish or because MACD crossed. Instead, explain whether the technical context confirms, weakens, or complicates the evidence-driven thesis. "
-        "Never let technical indicators override obviously poor option pricing or risk context, even when the stock setup looks directionally favorable. "
         "Your job is not to choose stock shares and not to select a specific option contract. "
         "Your job is to decide whether the company should be passed forward as: trade_candidate, watchlist, or do_not_trade. "
         "A trade_candidate means the directional thesis is real, evidence-backed, and strong enough to pass forward to the manager for tradability assessment. "
@@ -167,7 +225,6 @@ def build_strategist_prompt(
         "Use impact_direction to set the directional prior, impact_magnitude as evidence strength rather than trade permission, materiality to judge whether the article really matters for this entity, effect_type to weight direct above indirect, and company relative_positioning to strengthen or weaken company-specific conviction versus peers.\n"
         "Use company trend_quality as supporting context for return smoothness, not as a trade trigger. Read 5d_sharpe as short-term momentum quality, 1m_sharpe as recent trend quality, and 3m_sharpe as medium-term trend quality. Compare Sharpe with the matching return fields to distinguish a smooth sustained move from a chaotic one-day spike.\n"
         "A low or negative Sharpe does not automatically mean avoid. It can reflect a reversal, a news-driven regime change, or volatile conditions where the thesis is still real. Use trend_quality to refine timing and confidence, but do not let it overrule stronger evidence from news, catalysts, or direct company impacts.\n"
-        "If technical indicators are present, use them only to refine confirmation, timing quality, and risk posture after you have already judged whether the thesis is real. Treat them as secondary context, not as the primary reason for trade_candidate, watchlist, or do_not_trade.\n"
         "Build time_horizon from the dominant weighted opportunist horizons rather than copying a single article. Use the configured strategist horizon labels, align them with the live DTE bucket mapping, and use unclear when timing conflicts or the evidence is mostly indirect.\n"
         "Set contradictions_present to true when meaningful bullish and bearish signals materially conflict, especially if direct high-materiality company evidence disagrees with itself or with the industry and sector rollups.\n"
         "Use top reasons and the most material direct evidence to write why_now, summary, thesis, catalyst, risks, and watchlist_reason. Prefer watchlist or do_not_trade when evidence is low-materiality, indirect-only, contradictory, weakly timed, or lacks peer differentiation.\n"
@@ -195,10 +252,9 @@ def build_strategist_prompt(
 
     user_payload = {
         "task": str(task_override or task_prompt),
-        "company": payload["company"],
-        "peer_groups": payload.get("peer_groups", {}),
-        "filters": payload.get("filters", {}),
-        "opportunist_rollup": payload.get("opportunist_rollup", {}),
+        **({"as_of": payload["as_of"]} if payload.get("as_of") else {}),
+        "company": _compact_company(payload["company"]),
+        "opportunist_rollup": _compact_rollup(payload.get("opportunist_rollup", {})),
         "views": _compact_views(payload.get("views", {})),
         "supporting_articles": _compact_supporting_articles(payload.get("supporting_articles", {})),
         "market_context": payload.get("market_context", {}),

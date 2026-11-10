@@ -180,6 +180,51 @@ class ReplayFunnelTests(DatabaseFixture):
         self.assertEqual(result["run"]["metrics"]["replay"]["outcomes"], {"snapshot_hash_mismatch": 1, "traded": 1})
 
 
+class PreDecisionChainTests(DatabaseFixture):
+    """A replayed answer naming a bucket production never fetched is selected from the frozen pre-decision chain."""
+    PRE_DECISION_CHAIN = {"available": True, "contracts": [CONTRACT]}
+    SAVED_CHAIN = {"available": True, "contracts": [{**CONTRACT, "symbol": "MSFT260515C00400000"}]}
+    ANSWER = {"recommendation": {"decision": "call", "confidence": "high", "target_dte_bucket": "30_45"}}
+
+    def set_pre_decision_chain(self, option_market: dict) -> None:
+        manager_input = {"replay_input": {"company": {"symbol": "MSFT"},
+                                          "market_context": {"option_market": option_market}}}
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("UPDATE manager_decision_payloads SET manager_input_json = ? WHERE manager_decision_history_id = ?",
+                         (json.dumps(manager_input), self.decision_id))
+
+    def replay(self) -> tuple[dict, Mock]:
+        finalize = Mock(return_value=TRADEABLE)
+        # The fixture manifest records no selector settings; that mismatch check is not under test here.
+        with patch.object(llm_backtest, "finalize", finalize), \
+                patch.object(llm_backtest.ProductionRules, "selector_differences", return_value=[]):
+            result = run_llm_backtest(model="local", decide=Mock(return_value=self.ANSWER), db_path=self.db_path)
+        return result["run"]["metrics"]["replay"], finalize
+
+    def test_an_unsaved_bucket_is_selected_from_the_pre_decision_chain_and_counted(self) -> None:
+        self.set_pre_decision_chain(self.PRE_DECISION_CHAIN)
+        replay, finalize = self.replay()
+        self.assertEqual(finalize.call_args.args[2]["option_market"], self.PRE_DECISION_CHAIN)
+        self.assertEqual(replay["outcomes"], {"traded": 1})
+        self.assertEqual(replay["pre_decision_chain_trade_count"], 1)
+
+    def test_the_saved_bucket_chain_is_still_preferred(self) -> None:
+        self.set_pre_decision_chain(self.PRE_DECISION_CHAIN)
+        self.add_candidate("candidate-1", self.decision_id, pre_contract_selection={
+            "recommendation": {"decision": "call", "target_dte_bucket": "30_45"},
+            "market_context": {"option_market": self.SAVED_CHAIN}})
+        replay, finalize = self.replay()
+        self.assertEqual(replay["outcomes"], {"traded": 1})
+        self.assertEqual(finalize.call_args.args[2]["option_market"], self.SAVED_CHAIN)
+        self.assertEqual(replay["pre_decision_chain_trade_count"], 0)
+
+    def test_without_contracts_in_either_chain_it_stays_unavailable(self) -> None:
+        self.set_pre_decision_chain({"available": False, "contracts": []})
+        replay, finalize = self.replay()
+        finalize.assert_not_called()
+        self.assertEqual(replay["outcomes"], {"bucket_chain_unavailable": 1})
+
+
 def decision(symbol: str, at: str) -> dict:
     return {"symbol": symbol, "decision_run_at": at}
 
