@@ -4,8 +4,12 @@ A field added to a schema but not to its prompt example or its TypedDict, or a g
 to the registry but not carried to orders, fails here instead of drifting silently.
 """
 import copy
+from datetime import datetime, timedelta, timezone
 import json
 import unittest
+from unittest.mock import patch
+
+from agent_builders import company_evidence_payload, strategist_payload
 
 from agent_stages.manager_normalization import normalize_recommendation as normalize_manager
 from agent_stages.manager_prompt import build_manager_prompt
@@ -211,6 +215,30 @@ class GateRegistryTests(unittest.TestCase):
         required = next(gate for gate in ENTRY_GATES if gate.verdict_required)
         result = {key: value for key, value in self.RESULT.items() if key != required.result_key}
         self.assertFalse(entry_allowed(result))
+
+
+class StrategistInputAsOfTests(unittest.TestCase):
+    """The decision time the prompt shows comes from the payload builder, not from the prompt."""
+
+    def build(self, end_time):
+        evidence = {"company": {}, "peer_groups": [], "macro_impacts": [], "sector_impacts": [],
+                    "industry_impacts": [], "company_impacts": []}
+        with patch.multiple(strategist_payload, initialize_news_database=lambda: None,
+                            build_strategist_evidence_sections=lambda *a, **k: evidence,
+                            _build_opportunist_rollup=lambda e: {}, _build_view=lambda **k: {},
+                            _serialize_company_scope=lambda c: {"company_id": 1},
+                            _build_supporting_articles=lambda *a, **k: {},
+                            build_strategist_grounding=lambda p: {}), \
+                patch.object(company_evidence_payload, "build_company_evidence_payload", lambda *a, **k: {}):
+            return strategist_payload.build_strategist_input("NVDA", end_time=end_time)
+
+    def test_a_replay_carries_its_end_time(self):
+        end = datetime(2026, 11, 9, 15, tzinfo=timezone(timedelta(hours=-5)))
+        self.assertEqual(self.build(end)["as_of"], "2026-11-09T20:00:00+00:00")
+
+    def test_a_live_decision_carries_the_current_time(self):
+        as_of = datetime.fromisoformat(self.build(None)["as_of"])
+        self.assertLess(abs(datetime.now(timezone.utc) - as_of), timedelta(minutes=1))
 
 
 if __name__ == "__main__":

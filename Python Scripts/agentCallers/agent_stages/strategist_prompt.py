@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from agent_stages.evidence_thesis_contract import REQUIRED_OUTPUT_EXAMPLE, THESIS_INSTRUCTIONS
+from catalyst_models import UNCLASSIFIED_MECHANISM
 from services.options.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET, get_dte_bucket
 
 
@@ -78,7 +79,6 @@ def _compact_supporting_articles(supporting: dict[str, Any]) -> dict[str, Any]:
 # Classifier bookkeeping no instruction uses: hash IDs, a second horizon taxonomy, names implied by the layer.
 CONCLUSION_PIPELINE_FIELDS = ("source_url", "catalyst_id", "root_event_ids", "catalyst_family", "expected_horizon",
                               "company_name", "industry_name", "sector_name")
-PLACEHOLDER_MECHANISM = "Unclassified transmission mechanism; review required"
 # Scalars the rollup repeats inside its *_counts dicts.
 ROLLUP_DUPLICATE_COUNTS = ("positive_count", "negative_count", "mixed_count", "neutral_count",
                            "high_materiality_count", "medium_materiality_count", "low_materiality_count",
@@ -92,7 +92,7 @@ def _compact_conclusion(conclusion: Any) -> Any:
     if not isinstance(conclusion, dict):
         return conclusion
     compact = {k: v for k, v in conclusion.items() if k not in CONCLUSION_PIPELINE_FIELDS
-               and not (k == "summary" and not v) and not (k == "mechanism" and v == PLACEHOLDER_MECHANISM)}
+               and not (k == "summary" and not v) and not (k == "mechanism" and v == UNCLASSIFIED_MECHANISM)}
     if isinstance(compact.get("evidence_score"), float):
         compact["evidence_score"] = round(compact["evidence_score"], 2)
     return compact

@@ -13,6 +13,7 @@ import json
 from typing import Any, Callable
 
 from db_common import get_connection
+from news_db_modules.provenance import load_story_ids
 from services.core.settings import get_settings
 
 
@@ -429,8 +430,6 @@ def drop_story_duplicates(
     article_id_key: str = "article_id",
 ) -> list[dict[str, Any]]:
     """Skip syndicated copies of a story: mark copies of an analyzed story done, keep one new copy per story."""
-    from news_db_modules.provenance import load_story_ids
-
     with closing(get_connection()) as conn:
         stories = load_story_ids([article[article_id_key] for article in articles], conn=conn)
         if not stories:

@@ -6,6 +6,7 @@ fuzzy titles merge templated headlines, so neither may group different news.
 from __future__ import annotations
 
 from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
@@ -15,7 +16,10 @@ from db_common import get_connection, use_database
 from market_db_modules.bootstrap import initialize_database
 from news_db_modules.article_store import add_news_article
 from news_db_modules.bootstrap import initialize_database as initialize_news
-from news_db_modules.processing import mark_company_opportunist_article_processed
+from news_db_modules.processing import (
+    mark_company_opportunist_article_processed, mark_industry_opportunist_article_processed,
+    mark_sector_opportunist_article_processed, mark_us_news_article_processed,
+)
 from news_db_modules.provenance import backfill_news_provenance
 import agent_helpers.strategist_evidence as evidence
 from agent_helpers import opportunist_support
@@ -172,6 +176,61 @@ class OpportunistSkipTests(StoryDatabase):
         with closing(get_connection(self.db)) as conn:
             model = conn.execute(f"SELECT model FROM {PROCESSING} WHERE article_id = ?", (repost,)).fetchone()[0]
         self.assertEqual(model, "story-duplicate")
+
+
+class SharedBuilderDedupTests(StoryDatabase):
+    """Sector, industry and macro batches each mark the copy in their own processing table."""
+
+    MARKERS = {"sector_opportunist_article_processing": mark_sector_opportunist_article_processed,
+               "industry_opportunist_article_processing": mark_industry_opportunist_article_processed,
+               "us_news_article_processing": mark_us_news_article_processed}
+
+    def analyzed_story_with_repost(self, table, published_at="2026-11-05T10:00:00+00:00"):
+        first = self.add("Fed Holds Rates Steady", published_at)
+        repost = self.add("Fed Holds Rates Steady", published_at.replace("T10", "T11"))
+        other = self.add("Oil jumps on supply cut", published_at)
+        self.MARKERS[table](article_id=first, model="m", db_path=self.db,
+                            raw_json={"schema_version": CURRENT_OPPORTUNIST_SCHEMA_VERSION, "impacts": []})
+        return first, repost, other
+
+    def model_for(self, table, article_id):
+        with closing(get_connection(self.db)) as conn:
+            row = conn.execute(f"SELECT model FROM {table} WHERE article_id = ?", (article_id,)).fetchone()
+        return row and row[0]
+
+    def opportunist_batch(self, module, build, table, **extra):
+        first, repost, other = self.analyzed_story_with_repost(table)
+        articles = [{"article_id": article_id} for article_id in (first, repost, other)]
+        with use_database(self.db), patch.multiple(
+                module, _load_opportunist_payload=lambda *a, **k: {"sector": {}},
+                _seed_articles_from_sector_rss=lambda payload: articles,
+                _merge_macro_articles=lambda items, payload: items, _sort_articles=lambda items: items,
+                _filter_unprocessed_articles=lambda items: [a for a in items if a["article_id"] != first], **extra):
+            kept = build("tech")[-1]
+        self.assertEqual(([article["article_id"] for article in kept], self.model_for(table, repost)),
+                         ([other], "story-duplicate"))
+
+    def test_sector_batch_marks_copies_of_analyzed_stories(self):
+        import agent_helpers.sector_opportunist as sector
+        self.opportunist_batch(sector, sector.build_sector_opportunist_articles, "sector_opportunist_article_processing")
+
+    def test_industry_batch_marks_copies_of_analyzed_stories(self):
+        import agent_helpers.industry_opportunist as industry
+        self.opportunist_batch(industry, industry.build_industry_opportunist_articles,
+                               "industry_opportunist_article_processing",
+                               get_sector_industry_reference=lambda identifier: ({}, []))
+
+    def test_macro_batch_marks_copies_of_analyzed_stories(self):
+        import agent_helpers.macro_news as macro
+        now = datetime.now(timezone.utc).replace(hour=10, minute=0, second=0, microsecond=0)
+        table = "us_news_article_processing"
+        first, repost, other = self.analyzed_story_with_repost(table, now.isoformat())
+        rows = [{"article_id": article_id, "title": "", "body": "", "summary": "", "source": "", "source_url": "",
+                 "published_at": now.isoformat()} for article_id in (repost, other)]
+        with use_database(self.db), patch.object(macro, "_load_unprocessed_macro_news_rows", return_value=rows):
+            kept = macro.get_recent_macro_news_articles("us", max_age_days=2)
+        self.assertEqual(([article["article_id"] for article in kept], self.model_for(table, repost)),
+                         ([other], "story-duplicate"))
 
 
 class StrategistEvidenceDedupTests(StoryDatabase):

@@ -53,7 +53,7 @@ def _stage_model() -> StageModel:
 
 _strategist_client: Client | None = None
 STRATEGIST_PROMPT_VERSION = "grounded-strategist-v10-release-excerpt"
-LEGACY_STRATEGIST_PROMPT_VERSION = "grounded-strategist-v3-company-evidence-compact"
+LEGACY_STRATEGIST_PROMPT_VERSION = "grounded-strategist-v4-compact-evidence"
 THESIS_ROUTE = "legacy_strategist"
 
 

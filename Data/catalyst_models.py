@@ -25,6 +25,8 @@ HALF_LIFE_MINUTES = {'analyst_action': 1440, 'earnings': 4320, 'guidance': 7200,
                      'legal': 8640, 'regulatory': 12960, 'product': 7200,
                      'customer_contract': 7200, 'macro': 1440, 'industry_readthrough': 2880}
 DECAY_BASIS = 'elapsed_calendar_minutes'
+# The 'other' mechanism is a placeholder; the strategist prompt drops it as carrying no information.
+UNCLASSIFIED_MECHANISM = 'Unclassified transmission mechanism; review required'
 
 
 def timestamp(value):
@@ -144,7 +146,7 @@ def derive_classification(kind, direction, text):
         'geopolitical': 'Changes to trade access, demand or risk expectations',
         'industry_readthrough': 'Related-company evidence may change sector expectations',
         'rumor': 'Unconfirmed event; transmission mechanism needs review',
-        'other': 'Unclassified transmission mechanism; review required',
+        'other': UNCLASSIFIED_MECHANISM,
     }
     return dict(catalyst_type=kind, catalyst_subtype=subtype, catalyst_family=family, catalyst_scope=scope,
                 direction=direction, mechanism=mechanisms[kind],

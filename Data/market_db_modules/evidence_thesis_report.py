@@ -38,11 +38,15 @@ def _load_checks(conn, since, route):
         values.append(route)
     checks = []
     for row in conn.execute(query + " ORDER BY created_at", values):
-        record = json.loads(row["record_json"])
-        if digest(record) != row["record_hash"]:
-            raise ValueError("Corrupt evidence_thesis_checks record hash")
-        checks.append(record)
+        checks.append(_verified_record(row))
     return checks
+
+
+def _verified_record(row):
+    record = json.loads(row["record_json"])
+    if digest(record) != row["record_hash"]:
+        raise ValueError("Corrupt evidence_thesis_checks record hash")
+    return record
 
 
 def _basis_field(record, name):
@@ -91,16 +95,16 @@ def _mean_outcome(rows):
 
 
 def _evidence_bases(conn, evaluation_ids):
-    """Each check's evidence basis, read from its hash-checked record."""
+    """Each check's evidence basis, read from its hash-checked record. A thesis that did not pass has none: a
+    failed central fact claim would otherwise make it look article-only."""
     ids = sorted(evaluation_ids)
     rows = conn.execute("SELECT evaluation_id,record_json,record_hash FROM evidence_thesis_checks"
                         f" WHERE evaluation_id IN ({','.join('?' * len(ids))})", ids).fetchall() if ids else []
     bases = {}
     for row in rows:
-        record = json.loads(row["record_json"])
-        if digest(record) != row["record_hash"]:
-            raise ValueError("Corrupt evidence_thesis_checks record hash")
-        bases[row["evaluation_id"]] = _basis_field(record, "basis")
+        record = _verified_record(row)
+        bases[row["evaluation_id"]] = (_basis_field(record, "basis") if record["status"] in PASSING_STATUSES
+                                       else "thesis_not_passed")
     return bases
 
 

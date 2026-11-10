@@ -158,6 +158,14 @@ class AdapterTests(unittest.TestCase):
         result = YahooConsensusAdapter(ticker_factory=broken, clock=lambda: NOW).collect(MSFT_COMPANY, {})
         self.assertEqual((result.documents, result.gaps), ((), ('consensus_provider_unavailable',)))
 
+    def test_a_failed_lookup_still_reports_a_known_non_usd_reporter(self):
+        # A provider_unavailable gap here let the package keep SK hynix's earlier won-as-USD captures.
+        def broken(symbol):
+            raise ConnectionError('no network')
+        result = YahooConsensusAdapter(ticker_factory=broken, clock=lambda: NOW).collect(
+            MSFT_COMPANY, {'financial_currency': 'KRW'})
+        self.assertEqual((result.documents, result.gaps), ((), ('consensus_currency_not_usd',)))
+
     def test_missing_revenue_keys_leave_only_eps(self):
         calendar = {k: v for k, v in MSFT.items() if not k.startswith('Revenue')}
         (doc,) = adapter(calendar)[0].collect(MSFT_COMPANY, {}).documents

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from market_db_modules.company_evidence import (
     get_company_fact, get_evidence_document, get_evidence_package, latest_evidence_package,
 )
-from services.discovery.company_evidence_extraction import _period_end, consensus_matches_actual
+from services.discovery.company_evidence_extraction import consensus_matches_actual, period_end
 from services.discovery.company_evidence_policy import CompanyEvidencePolicy
 
 
@@ -22,7 +22,7 @@ def _visible_facts(facts, referenced):
     current = [fact for fact in facts if fact['fact_id'] not in superseded or fact['fact_id'] in referenced]
     quarter_ends = {}
     for fact in current:
-        ended = _period_end(fact['fiscal_period'])
+        ended = period_end(fact['fiscal_period'])
         if fact['kind'] == 'actual' and fact.get('period_type') == 'quarter' and ended:
             quarter_ends.setdefault(fact['metric'], []).append((fact['fact_id'], ended))
     pinned = set()

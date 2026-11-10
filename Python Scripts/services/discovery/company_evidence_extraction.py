@@ -1,8 +1,9 @@
 """Validate structured extraction before facts cross the persistence boundary."""
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 import math
 import re
+from zoneinfo import ZoneInfo
 
 from market_db_modules.company_evidence import (
     get_company_fact, get_evidence_document, list_company_facts, record_company_fact, record_evidence_document,
@@ -13,6 +14,7 @@ from research_foundation_contracts import CompanyFact, EvidenceDocument
 
 COMPARISON_FIELDS = ('metric', 'fiscal_period', 'period_type', 'accounting_basis', 'unit', 'currency', 'scale')
 NEXT_REPORT_PREFIX = 'next_report:'
+NEW_YORK = ZoneInfo('America/New_York')
 # Reports land 2-8 weeks after quarter end; the previous quarter ends about 120 days before.
 REPORTED_QUARTER_MAX_DAYS = 95
 # Analyst revenue and reported revenue measure the same thing; analyst EPS is usually adjusted.
@@ -43,13 +45,19 @@ def estimated_report(fact):
     without a capture time is taken at its label.
     """
     reported = report_date(fact)
-    captured = str(fact.get('available_at') or '')[:10]
-    if reported is not None and captured and date.fromisoformat(captured) >= reported:
+    captured = str(fact.get('available_at') or '')
+    if reported is not None and captured and _new_york_date(captured) >= reported:
         return None
     return reported
 
 
-def _period_end(period):
+def _new_york_date(timestamp):
+    # Report dates are exchange dates: a capture at 21:00 ET is still the evening before, whatever UTC says.
+    moment = datetime.fromisoformat(timestamp)
+    return moment.astimezone(NEW_YORK).date() if moment.tzinfo else moment.date()
+
+
+def period_end(period):
     parts = str(period or '').split('/')
     try:
         return date.fromisoformat(parts[1]) if len(parts) == 2 else None
@@ -67,7 +75,7 @@ def consensus_matches_actual(consensus, actual):
     if (consensus.get('kind') != 'consensus' or actual.get('kind') != 'actual'
             or consensus.get('period_type') != 'quarter' or actual.get('period_type') != 'quarter'):
         return False
-    reported, ended = estimated_report(consensus), _period_end(actual.get('fiscal_period'))
+    reported, ended = estimated_report(consensus), period_end(actual.get('fiscal_period'))
     if reported is None or ended is None:
         return False
     if any(consensus.get(key) != actual.get(key) for key in ('metric', 'unit', 'currency', 'scale')):

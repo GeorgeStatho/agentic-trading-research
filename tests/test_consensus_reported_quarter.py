@@ -96,6 +96,10 @@ class MatchTests(unittest.TestCase):
     def test_estimate_captured_before_its_report_date_still_matches(self):
         self.assertTrue(consensus_matches_actual({**consensus(), 'available_at': at('2026-10-27', 23)}, actual()))
 
+    def test_the_report_date_is_a_new_york_date(self):
+        # 01:00 UTC on the 28th is 21:00 ET on the 27th, the evening before the report.
+        self.assertTrue(consensus_matches_actual({**consensus(), 'available_at': at('2026-10-28', 1)}, actual()))
+
     def test_requires_a_consensus_and_an_actual(self):
         self.assertFalse(consensus_matches_actual(actual(), actual()))
         self.assertFalse(consensus_matches_actual(consensus(), fact('g', 'guidance', REPORTED_QUARTER)))
@@ -281,10 +285,6 @@ class PayloadHintTests(unittest.TestCase):
         self.assertEqual([f for f in payload['facts'] if f.get('matches_actual_fact_ids')], [])
 
 
-if __name__ == '__main__':
-    unittest.main()
-
-
 class ConsensusNumberTests(unittest.TestCase):
     # 2026-11-09: a consensus range_high (top analyst estimate) was averaged into the mean, so every beat/miss failed.
     def test_beat_and_miss_figures_use_the_mean_estimate_not_the_high(self):
@@ -356,3 +356,7 @@ class CrossMetricTests(unittest.TestCase):
                       fact('i', 'guidance', REPORTED_QUARTER, metric='operating_income')):
             with self.subTest(other=other):
                 self.assertNotEqual(incompatible_calculation_facts([revenue, other]), [])
+
+
+if __name__ == '__main__':
+    unittest.main()

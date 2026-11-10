@@ -214,10 +214,6 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(manifest["supporting_article_selection_version"], "company-first-quotas-v2")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SummaryTextTests(unittest.TestCase):
     # Yahoo and Benzinga search links store no summary and Fool stores the headline; the model then saw only titles.
     def summary(self, **fields):
@@ -269,3 +265,7 @@ class BoilerplateTests(unittest.TestCase):
     def test_other_bodies_are_unchanged(self):
         body = "  Coinbase shares rose. The above button links to Coinbase.  "
         self.assertEqual(build(evidence(company=[item(COMPANY, body=body)]))["full_articles"][0]["body"], body)
+
+
+if __name__ == "__main__":
+    unittest.main()

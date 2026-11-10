@@ -65,9 +65,11 @@ class YahooConsensusAdapter:
             except Exception:
                 pass
             cursor = {**cursor, 'financial_currency': currency} if currency else cursor
-            if currency != 'USD':
-                return CollectionResult((), cursor, ('consensus_currency_not_usd' if currency
-                                                     else 'consensus_currency_unknown',))
+        # A known non-USD reporter is named even when Yahoo is down, so its earlier captures are dropped.
+        if currency and currency != 'USD':
+            return CollectionResult((), cursor, ('consensus_currency_not_usd',))
+        if ticker is not None and not currency:
+            return CollectionResult((), cursor, ('consensus_currency_unknown',))
         document = self._document(company, calendar)
         if document is None:
             return CollectionResult((), cursor, ('consensus_provider_unavailable',))

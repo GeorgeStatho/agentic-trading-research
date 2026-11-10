@@ -432,7 +432,7 @@ class ReportTests(ThesisFixture):
         payload = self.payload()
         invented = self.guidance_claim(payload, "Guidance midpoint rose by $35 million")
         broken = {key: value for key, value in self.thesis(payload).items() if key != "horizon"}
-        self.fact_backed_id, _, _ = (persist_thesis_check(self.check(thesis, payload), company_id=1, db_path=self.db)
+        self.fact_backed_id, self.deferred_id, _ = (persist_thesis_check(self.check(thesis, payload), company_id=1, db_path=self.db)
                                      for thesis in (self.thesis(payload), self.thesis(payload, supporting=[invented]), broken))
         persist_thesis_check(not_requested_check(payload, "no_evidence", route="legacy_strategist", policy=self.policy),
                              company_id=1, db_path=self.db)
@@ -496,6 +496,13 @@ class ReportTests(ThesisFixture):
         self.assertEqual(self.report()["entry_gate"]["outcomes_by_evidence_basis"], {
             "facts": {"closed_trades": 1, "mean_realized_pnl_pct": 12.0},
             "articles_only": {"closed_trades": 2, "mean_realized_pnl_pct": -20.0}})
+
+    def test_executed_trades_whose_thesis_did_not_pass_are_kept_out_of_the_basis_buckets(self):
+        # A deferred thesis is stored articles_only because its central fact claim failed, not because it rested
+        # on articles; counting it there would blame article-only theses for trades the checker never passed.
+        self.decision(would_allow=False, executed=True, pnl=-25.0, evaluation_id=self.deferred_id)
+        self.assertEqual(self.report()["entry_gate"]["outcomes_by_evidence_basis"],
+                         {"thesis_not_passed": {"closed_trades": 1, "mean_realized_pnl_pct": -25.0}})
 
     def test_thesis_status_is_counted_per_strategist_decision(self):
         # The pass rate that matters is on trade candidates, not watchlist theses.
