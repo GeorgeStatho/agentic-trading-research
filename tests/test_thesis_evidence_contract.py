@@ -194,6 +194,26 @@ class QuoteMatchTests(unittest.TestCase):
         self.assertEqual(self.locate('""""""""""')[1], "quote_not_in_source")
 
 
+class FiscalPeriodInstructionTests(unittest.TestCase):
+    """2026-11-02 replay: 40 of 54 claim failures in deferred theses were article-only claims labelled with a quarter."""
+
+    def test_the_prompt_says_a_claim_without_facts_leaves_fiscal_period_empty(self):
+        from agent_stages.evidence_thesis_contract import REQUIRED_OUTPUT_EXAMPLE, THESIS_INSTRUCTIONS
+        self.assertIn("a claim with no fact_ids leaves fiscal_period empty", THESIS_INSTRUCTIONS)
+        for example in REQUIRED_OUTPUT_EXAMPLE["supporting_claims"]:
+            self.assertEqual(bool(example["fiscal_period"]), bool(example["fact_ids"]))
+
+    def test_the_checker_verifies_a_period_only_against_cited_facts(self):
+        from services.thesis.evidence_thesis_checks import ThesisSources, check_claim
+        sources = ThesisSources(company_id=1, articles={42: {"summary": ARTICLE["summary"]}})
+        quoted = (("article:42", "demand for its accelerators remained strong"),)
+        labelled, unlabelled = (check_claim(claim("S1", "Demand stayed strong.", claim_type="observed_fact",
+                                                  articles=[42], quotes=quoted, fiscal_period=period),
+                                            "supporting_claims", sources)["failures"] for period in ("Q3 2026", ""))
+        self.assertEqual(labelled, ["fiscal_period_unverifiable"])
+        self.assertEqual(unlabelled, [])
+
+
 class SurpriseLicenseTests(unittest.TestCase):
     """A beat/miss claim is licensed by a consensus fact only when the same period's actual is cited too."""
     BEAT = "Q3 revenue beat analyst estimates"
