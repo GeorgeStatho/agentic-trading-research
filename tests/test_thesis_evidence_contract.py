@@ -18,8 +18,6 @@ from tests.test_yahoo_consensus import consensus_doc
 from Webscraping.company_evidence.models import SourceDocument
 from agent_builders.company_evidence_payload import build_company_evidence_payload
 from agent_stages.evidence_thesis_contract import THESIS_INSTRUCTIONS
-from agent_stages.research_thesis_writer import PROMPT_VERSION as RESEARCH_THESIS_PROMPT_VERSION
-from agent_stages.strategist_runner import LEGACY_STRATEGIST_PROMPT_VERSION, STRATEGIST_PROMPT_VERSION
 from agent_stages.manager_strategist_context import _build_manager_visible_strategist_context
 from db_common import get_connection
 from market_db_modules.evidence_thesis import get_evidence_thesis
@@ -319,9 +317,6 @@ class FiscalPeriodInstructionTests(unittest.TestCase):
     def test_the_prompt_says_how_to_quote_a_release_excerpt(self):
         self.assertIn("release_excerpt", THESIS_INSTRUCTIONS)
         self.assertIn("in document_ids. Copy quotes", THESIS_INSTRUCTIONS)
-        self.assertEqual((STRATEGIST_PROMPT_VERSION, LEGACY_STRATEGIST_PROMPT_VERSION, RESEARCH_THESIS_PROMPT_VERSION),
-                         ("grounded-strategist-v10-release-excerpt", "grounded-strategist-v4-compact-evidence",
-                          "research-thesis-v3"))
 
     def test_the_checker_verifies_a_period_only_against_cited_facts(self):
         from services.thesis.evidence_thesis_checks import ThesisSources, check_claim

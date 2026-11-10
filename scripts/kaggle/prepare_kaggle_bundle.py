@@ -277,7 +277,7 @@ def main() -> None:
     print("Slim DB gives identical stored, fake-model and direction-score results.")
 
     from agent_stages.manager_runner import MANAGER_PROMPT_VERSION
-    from agent_stages.strategist_runner import strategist_prompt_version
+    from agent_stages.strategist_prompt import strategist_prompt_version
     from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
     from services.core.settings import load_process_settings
     load_process_settings()

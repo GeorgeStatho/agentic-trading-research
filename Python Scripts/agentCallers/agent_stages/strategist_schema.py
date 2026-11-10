@@ -50,7 +50,8 @@ STRATEGIST_RECOMMENDATION_SCHEMA: dict[str, Any] = {
                 },
                 "time_horizon": {
                     "type": "string",
-                    "enum": list(VALID_TIME_HORIZONS),
+                    # A list in a fixed order: the set's order changed with every process, and with it the schema.
+                    "enum": [*TIME_HORIZON_TO_DTE_BUCKET, "unclear"],
                 },
                 "why_now": {"type": "string"},
                 "summary": {"type": "string"},

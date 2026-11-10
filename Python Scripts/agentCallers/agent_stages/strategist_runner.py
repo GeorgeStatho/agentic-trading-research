@@ -31,6 +31,7 @@ from agent_stages.strategist_prompt import (
     build_no_evidence_result,
     build_strategist_prompt,
     payload_has_evidence,
+    strategist_prompt_version,
 )
 from agent_contracts import StrategistResult
 from agent_stages.strategist_schema import strategist_recommendation_schema
@@ -52,13 +53,7 @@ def _stage_model() -> StageModel:
 
 
 _strategist_client: Client | None = None
-STRATEGIST_PROMPT_VERSION = "grounded-strategist-v10-release-excerpt"
-LEGACY_STRATEGIST_PROMPT_VERSION = "grounded-strategist-v4-compact-evidence"
 THESIS_ROUTE = "legacy_strategist"
-
-
-def strategist_prompt_version(policy: EvidenceThesisPolicy) -> str:
-    return STRATEGIST_PROMPT_VERSION if policy.requests_thesis else LEGACY_STRATEGIST_PROMPT_VERSION
 
 
 def _build_manager_evidence_payload(payload: dict[str, Any]) -> dict[str, Any]:

@@ -5,6 +5,7 @@ to the registry but not carried to orders, fails here instead of drifting silent
 """
 import copy
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import unittest
 from unittest.mock import patch
@@ -14,7 +15,10 @@ from agent_builders import company_evidence_payload, strategist_payload
 from agent_stages.manager_normalization import normalize_recommendation as normalize_manager
 from agent_stages.manager_prompt import build_manager_prompt
 from agent_stages.manager_model import MANAGER_RECOMMENDATION_SCHEMA
-from agent_stages.strategist_prompt import build_strategist_prompt
+from agent_stages import research_thesis_writer
+from agent_stages.strategist_prompt import (
+    LEGACY_STRATEGIST_PROMPT_VERSION, STRATEGIST_PROMPT_VERSION, build_strategist_prompt,
+)
 from agent_stages.strategist_schema import strategist_recommendation_schema
 from agentCallers.decision_pipeline import _build_selected_option_output
 from services.gates.entry_gates import ENTRY_GATES, entry_allowed
@@ -215,6 +219,39 @@ class GateRegistryTests(unittest.TestCase):
         required = next(gate for gate in ENTRY_GATES if gate.verdict_required)
         result = {key: value for key, value in self.RESULT.items() if key != required.result_key}
         self.assertFalse(entry_allowed(result))
+
+
+def fingerprint(*parts) -> str:
+    return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()
+
+
+class PromptVersionTests(unittest.TestCase):
+    """Replay caches reuse an answer for its prompt label, so a label must name exactly one rendered prompt.
+
+    PRUNE_PAYLOAD reaches every compaction rule, so a change to the text, the compaction or the response
+    schema changes a fingerprint here. Bump the label and pin the new fingerprint together.
+    """
+    FINGERPRINTS = {
+        "grounded-strategist-v10-release-excerpt": "f16da6d57c73458abc4eb6a7b9d21fd08b0eaa0ecfae155b38bce5ea8326dd17",
+        "grounded-strategist-v4-compact-evidence": "dc5c91bb07573fee603f13e0aa2796f325dacfcf0d4c49276421c277142feb15",
+        "research-thesis-v3": "c074e6e94a4fe5a2c01657a9ec7bb6ab41bbb3935ff483e4b14e67e197c70f0e",
+    }
+
+    def rendered(self) -> dict[str, str]:
+        return {
+            STRATEGIST_PROMPT_VERSION: fingerprint(*build_strategist_prompt(PRUNE_PAYLOAD, include_thesis=True),
+                                                   strategist_recommendation_schema(include_thesis=True)),
+            LEGACY_STRATEGIST_PROMPT_VERSION: fingerprint(*build_strategist_prompt(PRUNE_PAYLOAD, include_thesis=False),
+                                                          strategist_recommendation_schema(include_thesis=False)),
+            research_thesis_writer.PROMPT_VERSION: fingerprint(research_thesis_writer.SYSTEM_PROMPT,
+                                                               research_thesis_writer.RESPONSE_SCHEMA),
+        }
+
+    def test_each_prompt_label_names_one_rendered_prompt(self):
+        for label, rendered in self.rendered().items():
+            with self.subTest(label):
+                self.assertEqual(self.FINGERPRINTS.get(label), rendered,
+                                 f"prompt changed: bump {label} and pin its fingerprint {rendered}")
 
 
 class StrategistInputAsOfTests(unittest.TestCase):

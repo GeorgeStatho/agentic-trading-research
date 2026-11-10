@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent_stages.evidence_thesis_contract import REQUIRED_OUTPUT_EXAMPLE, THESIS_INSTRUCTIONS
 from catalyst_models import UNCLASSIFIED_MECHANISM
 from services.options.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET, get_dte_bucket
+
+if TYPE_CHECKING:
+    from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
+
+# Replay caches key strategist answers on these labels, so each names exactly one rendered prompt.
+# tests/test_pipeline_contracts.py pins a fingerprint per label and fails when the prompt changes without a new one.
+STRATEGIST_PROMPT_VERSION = "grounded-strategist-v10-release-excerpt"
+LEGACY_STRATEGIST_PROMPT_VERSION = "grounded-strategist-v4-compact-evidence"
+
+
+def strategist_prompt_version(policy: EvidenceThesisPolicy) -> str:
+    return STRATEGIST_PROMPT_VERSION if policy.requests_thesis else LEGACY_STRATEGIST_PROMPT_VERSION
 
 
 def _build_time_horizon_bucket_guidance_text() -> str:

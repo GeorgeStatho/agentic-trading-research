@@ -77,7 +77,7 @@ def build_pipeline_version(*, settings=None):
     from services.core.trading_config import WorkerSettings, OptionPositionSettings, AgentPipelineSettings
     from services.core.settings import get_settings
     from services.options.option_dte_buckets import OPTION_DTE_BUCKETS
-    from agent_stages.strategist_runner import strategist_prompt_version
+    from agent_stages.strategist_prompt import strategist_prompt_version
     from agent_builders.strategist_payload_articles import SUPPORTING_ARTICLE_SELECTION_VERSION
     from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
     from agent_stages.manager_runner import MANAGER_PROMPT_VERSION

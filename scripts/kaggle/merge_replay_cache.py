@@ -85,7 +85,7 @@ def local_versions() -> dict[str, str]:
         from services.core.settings import load_process_settings
         load_process_settings()
         from agent_stages.manager_runner import MANAGER_PROMPT_VERSION
-        from agent_stages.strategist_runner import strategist_prompt_version
+        from agent_stages.strategist_prompt import strategist_prompt_version
         from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
         versions["manager_prompt_version"] = MANAGER_PROMPT_VERSION
         versions["strategist_prompt_version"] = strategist_prompt_version(EvidenceThesisPolicy.from_env())

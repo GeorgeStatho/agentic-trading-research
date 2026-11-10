@@ -56,8 +56,9 @@ from agent_helpers.deterministic_option_selector.market import _get_reference_st
 from agent_helpers.llm_client import _normalize_provider
 from agent_stages.manager_runner import MANAGER_PROMPT_VERSION, replay_manager_decision_from_payload
 from agent_stages.manager_strategist_context import _build_manager_visible_strategist_context
+from agent_stages.strategist_prompt import strategist_prompt_version
 from agent_stages.strategist_runner import (THESIS_ROUTE, attach_thesis_check, replay_strategist_decision_from_payload,
-                                            strategist_answer_reusable, strategist_prompt_version)
+                                            strategist_answer_reusable)
 from services.core.trading_config import AgentPipelineSettings, WorkerSettings
 from services.gates.entry_gates import carry_gate_verdicts
 from services.evaluation.evaluation_clock import evaluated_at
