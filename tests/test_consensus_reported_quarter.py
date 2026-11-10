@@ -244,6 +244,15 @@ class PackageRetentionTests(unittest.TestCase):
         self.assertIn(day_before, kept)
         self.assertNotIn(on_the_day, kept)
 
+    def test_an_evening_refresh_the_day_before_a_report_keeps_the_last_reports_baseline(self):
+        # 2026-11-10 review: 01:30 UTC on the 25th is 20:30 ET on the 24th, so the 11-25 report is still upcoming.
+        # A UTC cutoff counted it as due too, and its estimate pushed out the 08-26 report's baseline.
+        primary = self.ingest(guidance(at=START))
+        last_report = self.ingest(consensus_doc(at('2026-08-25'), period='2026-08-26', value=4.65))
+        upcoming = self.ingest(consensus_doc(at('2026-11-20'), period='2026-11-25', value=5.10))
+        kept = self.build([primary, last_report, upcoming], cutoff='2026-11-25T01:30:00+00:00')
+        self.assertEqual({last_report, upcoming} & kept, {last_report, upcoming})
+
     def consensus_kept(self, gap):
         primary = self.ingest(guidance(at=START))
         earlier = self.ingest(two_metric_consensus_doc(at('2026-09-01'), '2026-11-25'))

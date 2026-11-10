@@ -10,7 +10,7 @@ from market_db_modules.company_evidence import (
 from market_db_modules.foundation_store import digest
 from research_foundation_contracts import CompanyFact, EvidencePackage
 from services.discovery.company_evidence_extraction import (
-    comparison_key, estimated_report, guidance_midpoint, report_date,
+    comparison_key, estimated_report, guidance_midpoint, market_date, report_date,
 )
 
 
@@ -36,7 +36,8 @@ def _retained_consensus(consensus_documents, facts, at):
         elif report_date(fact) is not None:
             stale.add(fact['document_id'])
     current = [doc for doc in consensus_documents if doc['document_id'] not in stale]
-    cutoff = datetime.fromisoformat(at).date()
+    # Report dates are New York dates, so the package time is compared as one too.
+    cutoff = market_date(at)
     # The newest estimate is for a report not yet past; one only for a passed report is a baseline.
     upcoming = [doc['document_id'] for doc in current
                 if reports.get(doc['document_id']) is None or reports[doc['document_id']] >= cutoff]

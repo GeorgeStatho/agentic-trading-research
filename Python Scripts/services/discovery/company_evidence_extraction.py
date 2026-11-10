@@ -46,12 +46,12 @@ def estimated_report(fact):
     """
     reported = report_date(fact)
     captured = str(fact.get('available_at') or '')
-    if reported is not None and captured and _new_york_date(captured) >= reported:
+    if reported is not None and captured and market_date(captured) >= reported:
         return None
     return reported
 
 
-def _new_york_date(timestamp):
+def market_date(timestamp):
     # Report dates are exchange dates: a capture at 21:00 ET is still the evening before, whatever UTC says.
     moment = datetime.fromisoformat(timestamp)
     return moment.astimezone(NEW_YORK).date() if moment.tzinfo else moment.date()
