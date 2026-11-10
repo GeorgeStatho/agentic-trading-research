@@ -4,9 +4,17 @@ from datetime import date
 from market_db_modules.foundation_store import canonical
 
 
+EXTRACTION_VERSION = 'sec-standard-facts-v2'
+# One revenue figure per filing and period, the first of these the filing reports: total revenue before a
+# contract-revenue line, which for banks, insurers and energy companies leaves out part of the top line.
+REVENUE_TAGS = ('Revenues', 'RevenuesNetOfInterestExpense', 'SalesRevenueNet',
+                'RevenueFromContractWithCustomerExcludingAssessedTax',
+                'RevenueFromContractWithCustomerIncludingAssessedTax')
+CONTRACT_REVENUE_TAGS = REVENUE_TAGS[3:]
+# Read only to recognise a bank's fee income; never stored as a fact.
+NET_INTEREST_INCOME_TAG = 'InterestIncomeExpenseNet'
 TAGS = {
-    'RevenueFromContractWithCustomerExcludingAssessedTax': 'revenue',
-    'Revenues': 'revenue', 'SalesRevenueNet': 'revenue',
+    **{tag: 'revenue' for tag in REVENUE_TAGS},
     'NetIncomeLoss': 'net_income', 'EarningsPerShareDiluted': 'eps_diluted',
     'GrossProfit': 'gross_profit', 'OperatingIncomeLoss': 'operating_income',
     'NetCashProvidedByUsedInOperatingActivities': 'operating_cash_flow',
@@ -31,18 +39,30 @@ def fiscal_period(item):
 def company_fact_rows(payload, cik, accessions):
     if str(payload.get('cik', '')).zfill(10) != str(cik).zfill(10):
         raise ValueError('SEC companyfacts returned a different issuer')
-    rows = []
-    for tag, metric in TAGS.items():
+    def items(tag, metric):
         units = payload.get('facts', {}).get('us-gaap', {}).get(tag, {}).get('units', {})
         for unit, values in units.items():
             if unit != ('USD/shares' if metric == 'eps_diluted' else 'USD'):
                 continue
             for item in values:
-                if item.get('accn') not in accessions:
+                if item.get('accn') in accessions:
+                    period, period_type = fiscal_period(item)
+                    yield {'tag': tag, 'metric': metric, 'unit': unit, 'fiscal_period': period,
+                           'period_type': period_type, 'item': item}
+
+    net_interest = {(row['item']['accn'], row['fiscal_period']): row['item']['val']
+                    for row in items(NET_INTEREST_INCOME_TAG, 'net_interest_income')}
+    rows, revenue_seen = [], set()
+    for tag, metric in TAGS.items():
+        for row in items(tag, metric):
+            key = (row['item']['accn'], row['fiscal_period'])
+            if metric == 'revenue':
+                # A contract-revenue line below net interest income is a bank's fee income, not its revenue.
+                if key in revenue_seen or (tag in CONTRACT_REVENUE_TAGS and key in net_interest
+                                           and row['item']['val'] < net_interest[key]):
                     continue
-                period, period_type = fiscal_period(item)
-                rows.append({'tag': tag, 'metric': metric, 'unit': unit, 'fiscal_period': period,
-                             'period_type': period_type, 'item': item})
+                revenue_seen.add(key)
+            rows.append(row)
     return sorted(rows, key=canonical)
 
 
@@ -55,7 +75,7 @@ def normalize_company_facts(payload, cik, accessions):
                       'unit': row['unit'], 'currency': 'USD', 'scale': 1,
                       'fiscal_period': row['fiscal_period'], 'period_type': row['period_type'],
                       'accounting_basis': 'US-GAAP', 'source_start': offset, 'source_end': offset + len(line),
-                      'extraction_version': 'sec-standard-facts-v1'})
+                      'extraction_version': EXTRACTION_VERSION})
         lines.append(line)
         offset += len(line) + 1
     return '\n'.join(lines), tuple(facts)

@@ -221,6 +221,31 @@ class EvidenceBasisTests(ThesisFixture):
                 self.assertEqual(self.basis(self.article_only(payload, supporting=[extra]), payload)[1]["basis"],
                                  "articles_only")
 
+    RELEASE = "Fixture reported record data center demand in the quarter."
+
+    def release_payload(self):
+        from tests.test_company_evidence import release_8k
+        payload = self.payload(guidance(80, 90, kind="prior"), guidance(100, 110), actuals(1234000000),
+                               release_8k("0001045810-26-000202", START, self.RELEASE))
+        release = next(d["document_id"] for d in payload["company_evidence"]["documents"]
+                       if d["document_type"] == "regulatory_filing")
+        quoted = claim("S9", "Fixture reported record data center demand", claim_type="observed_fact", central=True,
+                       documents=[release], quotes=[(release, self.RELEASE)])
+        return payload, quoted
+
+    def test_a_quoted_earnings_release_is_primary_document_backing(self):
+        # Before the 10-Q, a bank's quarter exists only in its 8-K release.
+        payload, quoted = self.release_payload()
+        thesis = self.thesis(payload, supporting=[quoted], opposing=[claim("O1", "Demand could soften", articles=[42])],
+                             change_vs_prior_expectations=self.NO_BASELINE)
+        self.assertEqual(self.basis(thesis, payload), (
+            "validated", {"basis": "primary_document", "filing_facts_available": True, "fact_requirement": "met"}))
+
+    def test_a_fact_backed_thesis_quoting_a_release_is_still_fact_backed(self):
+        payload, quoted = self.release_payload()
+        supporting = [self.guidance_claim(payload), quoted]
+        self.assertEqual(self.basis(self.thesis(payload, supporting=supporting), payload)[1]["basis"], "facts")
+
     def test_the_manager_and_the_gate_see_nothing_of_it(self):
         payload = self.payload()
         checks = [self.check(thesis, payload) for thesis in (self.thesis(payload), self.article_only(payload))]
@@ -274,6 +299,14 @@ class FiscalPeriodInstructionTests(unittest.TestCase):
         self.assertIn("a claim with no fact_ids leaves fiscal_period empty", THESIS_INSTRUCTIONS)
         for example in REQUIRED_OUTPUT_EXAMPLE["supporting_claims"]:
             self.assertEqual(bool(example["fiscal_period"]), bool(example["fact_ids"]))
+
+    def test_the_prompt_says_how_to_quote_a_release_excerpt(self):
+        from agent_stages.evidence_thesis_contract import THESIS_INSTRUCTIONS
+        from agent_stages.research_thesis_writer import PROMPT_VERSION
+        from agent_stages.strategist_runner import STRATEGIST_PROMPT_VERSION
+        self.assertIn("release_excerpt", THESIS_INSTRUCTIONS)
+        self.assertEqual((STRATEGIST_PROMPT_VERSION, PROMPT_VERSION),
+                         ("grounded-strategist-v10-release-excerpt", "research-thesis-v3"))
 
     def test_the_checker_verifies_a_period_only_against_cited_facts(self):
         from services.thesis.evidence_thesis_checks import ThesisSources, check_claim
@@ -449,6 +482,11 @@ class ReportTests(ThesisFixture):
         self.assertEqual(self.report()["checks"]["evidence_basis"], {
             "basis": {"facts": 1, "articles_only": 1, "unknown": 1},
             "fact_requirement": {"met": 1, "not_met": 1, "unknown": 1}})
+
+    def test_every_requested_check_is_counted_by_whether_filing_facts_existed(self):
+        # Coverage, not pass rate: how often the strategist had filing facts to cite at all.
+        # setUp stored a validated and a deferred check over filing facts, and one invalid output.
+        self.assertEqual(self.report()["checks"]["filing_facts_available"], {"true": 2, "unknown": 1})
 
     def test_executed_trades_are_split_by_evidence_basis(self):
         article_only_id = persist_thesis_check(self.article_only_check(), company_id=1, db_path=self.db)

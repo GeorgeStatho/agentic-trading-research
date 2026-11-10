@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from tests.research_foundation_fixtures import database, START, ENTRY, END
+from db_common import get_connection
 from market_db_modules.company_collection import collection_state
 from market_db_modules.company_evidence import (
     get_evidence_package,
@@ -236,6 +237,105 @@ class AgentEvidenceIntegrationTests(unittest.TestCase):
         _apply_manager_evidence_payload(manager, frozen)
         strategist['company_evidence']['package_id'] = 'mutated-after-handoff'
         self.assertEqual(manager['company_evidence']['package_id'], package)
+
+
+QUARTER = {'start': '2026-07-01', 'end': '2026-09-30'}
+
+
+def companyfacts(tags, accession=ACCESSION):
+    return {'cik': 1045810, 'facts': {'us-gaap': {
+        tag: {'units': {'USD': [{**QUARTER, 'val': value, 'accn': accession, 'filed': '2026-11-03'}]}}
+        for tag, value in tags.items()}}}
+
+
+class RevenueTagTests(unittest.TestCase):
+    """2026-11-10 review of cached SEC companyfacts: banks and some retailers had no revenue fact, others two."""
+
+    def revenue(self, tags):
+        _, facts = normalize_company_facts(companyfacts(tags), COMPANY['cik'], {ACCESSION})
+        return [fact['value'] for fact in facts if fact['metric'] == 'revenue']
+
+    def test_bank_revenue_net_of_interest_expense_is_revenue(self):
+        self.assertEqual(self.revenue({'RevenuesNetOfInterestExpense': 50_170_000_000}), [50_170_000_000])  # JPM
+
+    def test_contract_revenue_including_assessed_tax_is_revenue(self):
+        self.assertEqual(self.revenue({'RevenueFromContractWithCustomerIncludingAssessedTax': 46_100_000_000}),
+                         [46_100_000_000])  # VLO
+
+    def test_one_revenue_fact_per_quarter_and_the_total_wins(self):
+        # GM: total revenue 50.02B and contract revenue 45.71B were both stored as revenue.
+        self.assertEqual(self.revenue({'Revenues': 50_020_000_000,
+                                       'RevenueFromContractWithCustomerExcludingAssessedTax': 45_710_000_000}),
+                         [50_020_000_000])
+
+    def test_fee_income_below_net_interest_income_is_not_revenue(self):
+        # HBAN: contract revenue 0.48B against net interest income 2.07B.
+        self.assertEqual(self.revenue({'RevenueFromContractWithCustomerExcludingAssessedTax': 480_000_000,
+                                       'InterestIncomeExpenseNet': 2_070_000_000}), [])
+
+    def test_net_interest_income_never_becomes_a_fact(self):
+        _, facts = normalize_company_facts(companyfacts({'InterestIncomeExpenseNet': 2_070_000_000}),
+                                           COMPANY['cik'], {ACCESSION})
+        self.assertEqual(facts, ())
+
+    def test_the_extraction_version_records_the_new_rules(self):
+        _, facts = normalize_company_facts(companyfacts({'Revenues': 1}), COMPANY['cik'], {ACCESSION})
+        self.assertEqual({fact['extraction_version'] for fact in facts}, {'sec-standard-facts-v2'})
+
+
+def facts_document(tags, at=START):
+    text, facts = normalize_company_facts(companyfacts(tags), COMPANY['cik'], {ACCESSION})
+    return SourceDocument('sec', 'https://data.sec.gov/api/xbrl/companyfacts/CIK0001045810.json', 'Fixture',
+                          'xbrl_facts', text, at, at, ACCESSION, {'cik': COMPANY['cik']}, facts)
+
+
+class DocumentIdentityTests(unittest.TestCase):
+    """JPM, 2026-11-10: one 10-Q stored six times, identical but for when it was fetched."""
+
+    def setUp(self):
+        self.db = database(self)
+
+    def stored_documents(self):
+        with closing(get_connection(self.db)) as conn:
+            return conn.execute('SELECT COUNT(*) FROM evidence_documents').fetchone()[0]
+
+    def test_the_same_text_fetched_later_is_the_same_document(self):
+        first, _ = ingest_source(COMPANY, actuals(), ENTRY, db_path=self.db)
+        again, _ = ingest_source(COMPANY, replace(actuals(), observed_at=END), END, db_path=self.db)
+        self.assertEqual((again, self.stored_documents()), (first, 1))
+
+    def test_a_package_holds_only_the_newest_version_of_a_document(self):
+        old, old_facts = ingest_source(COMPANY, facts_document({'Revenues': 100}), ENTRY, db_path=self.db)
+        new, new_facts = ingest_source(COMPANY, facts_document({'Revenues': 100, 'NetIncomeLoss': 20}), END,
+                                       db_path=self.db)
+        identity = build_company_package(COMPANY, [old, new], END, CompanyEvidencePolicy(), db_path=self.db)
+        package = get_evidence_package(identity, db_path=self.db)
+        self.assertEqual(package['document_ids'], [new])
+        self.assertFalse(set(old_facts) & set(package['fact_ids']))
+
+
+def release_8k(accession, at, release):
+    cover = 'Item 2.02 Results of Operations and Financial Condition. See Exhibit 99.1.'
+    return SourceDocument('sec', f'https://www.sec.gov/Archives/edgar/data/1045810/{accession}.txt', 'Fixture',
+                          'regulatory_filing', cover + '\n' + release, at, at, accession,
+                          {'cik': COMPANY['cik'], 'form': '8-K', 'release_start': len(cover) + 1}, ())
+
+
+class ReleaseExcerptTests(unittest.TestCase):
+    """Between a release and the 10-Q the quarter's numbers exist only in the 8-K; the strategist saw none of it."""
+
+    def test_the_newest_release_carries_an_excerpt_of_its_release_text(self):
+        db = database(self)
+        older = release_8k('0001045810-26-000201', START, 'Fixture reports second quarter results.')
+        newer = release_8k('0001045810-26-000202', ENTRY, 'Fixture reports record third quarter revenue. ' * 120)
+        ids = [ingest_source(COMPANY, source, ENTRY, db_path=db)[0] for source in (older, newer, actuals())]
+        identity = build_company_package(COMPANY, ids, ENTRY, CompanyEvidencePolicy(), db_path=db)
+        documents = {d['document_id']: d for d in
+                     build_company_evidence_payload(1, package_id=identity, as_of=ENTRY, db_path=db)['documents']}
+        start = newer.metadata['release_start']
+        self.assertEqual(documents[ids[1]]['release_excerpt'], newer.text[start:start + 4000])
+        self.assertNotIn('release_excerpt', documents[ids[0]])
+        self.assertNotIn('release_excerpt', documents[ids[2]])
 
 
 class VisibleFactTests(unittest.TestCase):

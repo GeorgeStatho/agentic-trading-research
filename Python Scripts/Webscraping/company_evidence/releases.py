@@ -23,7 +23,8 @@ class ReleaseHTML(HTMLParser):
         self.feed(html)
 
     def handle_starttag(self, tag, attrs):
-        if tag in ('script', 'style'):
+        # ix:header is inline XBRL's hidden block of tagged values (megabytes in a large filer's exhibit).
+        if tag in ('script', 'style', 'ix:header') and self.hidden is None:
             self.hidden = tag
             self.event_script = tag == 'script' and dict(attrs).get('type') == 'application/ld+json'
 

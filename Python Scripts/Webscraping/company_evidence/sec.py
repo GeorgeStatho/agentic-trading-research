@@ -16,6 +16,7 @@ TICKERS_URL = 'https://www.sec.gov/files/company_tickers.json'
 FORMS = {'10-K', '10-K/A', '10-Q', '10-Q/A', '8-K', '8-K/A', '20-F', '20-F/A', '6-K', '6-K/A'}
 # Current reports whose substance (the earnings release) is furnished as an EX-99 exhibit.
 EXHIBIT_FORMS = {'8-K', '8-K/A', '6-K', '6-K/A'}
+PERIODIC_FORMS = FORMS - EXHIBIT_FORMS
 MAX_EXHIBITS = 3
 _ARCHIVE_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*')
 # Filenames are the issuer's choice and often never say "ex99"; the filing index's Type column does.
@@ -31,6 +32,28 @@ def _cell_text(cell):
 
 def _size(filing):
     return safe_int(filing.get('size'))
+
+
+def _release_start(parts):
+    """Offset of the first EX-99 text in '\\n'.join of the parts' texts, or None."""
+    offset = 0
+    for kind, text in parts:
+        if kind.upper().startswith('EX-99'):
+            return offset
+        offset += len(text) + 1
+    return None
+
+
+def _is_release(filing):
+    # An 8-K whose items are listed is an earnings release only under item 2.02 (results of operations).
+    # 6-Ks list no items, and filings recorded without them keep the exhibit.
+    items = filing.get('items')
+    return filing['form'] in EXHIBIT_FORMS and (not items or '2.02' in str(items).split(','))
+
+
+def _with_release_start(metadata, filing, parts):
+    start = _release_start(parts) if _is_release(filing) else None
+    return {**metadata, 'release_start': start} if start is not None else metadata
 # Attachment types that are images or archives; _read_filing never reads them.
 BINARY_TYPES = {'GRAPHIC', 'ZIP', 'PDF', 'EXCEL', 'XLSX'}
 _IN_DOCUMENT = r'(?:(?!</DOCUMENT>).)*?'
@@ -114,7 +137,12 @@ class SECAdapter:
             if not re.fullmatch(r'\d{10}-\d{2}-\d{6}', accession):
                 raise ValueError('Invalid filing accession')
             rows.append(row)
-        return rows[:self.policy.filings_per_company]
+        window = rows[:self.policy.filings_per_company]
+        # A run of 8-Ks must not push the latest quarterly or annual report, and its actuals, out of the window.
+        periodic = next((row for row in rows if row['form'] in PERIODIC_FORMS), None)
+        if periodic is not None and periodic not in window:
+            window.append(periodic)
+        return window
 
     @staticmethod
     def _folder(company, filing):
@@ -142,12 +170,14 @@ class SECAdapter:
         accession = filing['accessionNumber']
         url = f'{self._folder(company, filing)}/{accession}.txt'
         response = self.http.get(url, ttl_seconds=self.policy.refresh_seconds, compact=self.compact_filing)
-        text = self._read_filing(response['body'])
+        parts = self._read_parts(response['body'])
+        text = '\n'.join(part for _, part in parts) if parts else release_text(response['body'])
         # Complete submissions can contain other registrants. The SEC header must agree.
         header_cik = re.search(r'CENTRAL INDEX KEY:\s*(\d+)', response['body'])
         if header_cik and header_cik[1].zfill(10) != company['cik']:
             raise ValueError('Filing header issuer mismatch')
-        metadata = {**self._metadata(company, filing), 'raw_response_id': response['response_id']}
+        metadata = _with_release_start({**self._metadata(company, filing), 'raw_response_id': response['response_id']},
+                                       filing, parts)
         return self._text_document(company, filing, url, text, response['observed_at'], metadata)
 
     def _primary_document(self, company, filing, primary):
@@ -156,18 +186,20 @@ class SECAdapter:
         folder = self._folder(company, filing)
         url = f'{folder}/{primary}'
         response = self.http.get(url, ttl_seconds=self.policy.refresh_seconds)
-        texts, exhibit_ids = [release_text(response['body'])], []
+        parts, exhibit_ids = [(filing['form'], release_text(response['body']))], []
         if filing['form'] in EXHIBIT_FORMS:
             for name in self._exhibit_names(folder, filing, primary):
                 try:
                     exhibit = self.http.get(f'{folder}/{name}', ttl_seconds=self.policy.refresh_seconds)
                 except Exception:
                     continue
-                texts.append(release_text(exhibit['body']))
+                parts.append(('EX-99', release_text(exhibit['body'])))
                 exhibit_ids.append(exhibit['response_id'])
-        metadata = {**self._metadata(company, filing), 'raw_response_id': response['response_id'],
-                    'source_scope': 'primary_document', 'exhibit_response_ids': exhibit_ids}
-        text = '\n'.join(part for part in texts if part)
+        parts = [(kind, part) for kind, part in parts if part]
+        metadata = _with_release_start({**self._metadata(company, filing), 'raw_response_id': response['response_id'],
+                                        'source_scope': 'primary_document', 'exhibit_response_ids': exhibit_ids},
+                                       filing, parts)
+        text = '\n'.join(part for _, part in parts)
         return self._text_document(company, filing, url, text, response['observed_at'], metadata)
 
     def _exhibit_names(self, folder, filing, primary):
@@ -220,14 +252,18 @@ class SECAdapter:
             return raw
         return stripped
 
-    def _read_filing(self, raw):
-        blocks = re.findall(r'<DOCUMENT>(.*?)</DOCUMENT>', raw, flags=re.S | re.I)
-        texts = []
-        for block in blocks:
+    def _read_parts(self, raw):
+        """(type, text) of the submission's form and EX-99 documents, in order."""
+        parts = []
+        for block in re.findall(r'<DOCUMENT>(.*?)</DOCUMENT>', raw, flags=re.S | re.I):
             kind = re.search(r'<TYPE>([^\r\n<]+)', block, re.I)
             if not kind or (kind[1].strip() not in FORMS and not kind[1].strip().startswith('EX-99')):
                 continue
             content = re.search(r'<TEXT>(.*?)</TEXT>', block, re.S | re.I)
             if content:
-                texts.append(release_text(content[1]))
-        return '\n'.join(texts) if texts else release_text(raw)
+                parts.append((kind[1].strip(), release_text(content[1])))
+        return parts
+
+    def _read_filing(self, raw):
+        parts = self._read_parts(raw)
+        return '\n'.join(text for _, text in parts) if parts else release_text(raw)

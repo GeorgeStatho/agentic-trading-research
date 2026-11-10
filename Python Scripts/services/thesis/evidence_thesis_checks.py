@@ -261,13 +261,27 @@ def _expectation_failures(thesis, claims_by_id, results_by_id, sources):
 
 def evidence_basis(thesis, results_by_id, sources):
     """Recorded with the check, never shown to the manager or the gate: does a verified central claim rest on a
-    package fact, and were filing facts (anything beyond Yahoo consensus) there to cite."""
-    fact_backed = any(claim["central"] and claim["claim_type"] in _CONTENT_CHECKED_TYPES and claim["fact_ids"]
-                      and results_by_id[claim["claim_id"]]["status"] == "verified"
-                      for claim in thesis["supporting_claims"])
+    package fact, or on a quote from a primary document such as an earnings release, and were filing facts
+    (anything beyond Yahoo consensus) there to cite."""
+    central = [claim for claim in thesis["supporting_claims"] if claim["central"]
+               and claim["claim_type"] in _CONTENT_CHECKED_TYPES and results_by_id[claim["claim_id"]]["status"] == "verified"]
+    fact_backed = any(claim["fact_ids"] for claim in central)
+    document_backed = any(span["source_id"] in claim["document_ids"]
+                          for claim in central for span in results_by_id[claim["claim_id"]]["spans"])
+    if fact_backed:
+        basis = "facts"
+    elif document_backed:
+        basis = "primary_document"
+    else:
+        basis = "articles_only"
     available = any(fact["kind"] != "consensus" for fact in sources.facts.values())
-    return {"basis": "facts" if fact_backed else "articles_only", "filing_facts_available": available,
-            "fact_requirement": "met" if fact_backed else "not_met" if available else "not_applicable"}
+    if basis != "articles_only":
+        requirement = "met"
+    elif available:
+        requirement = "not_met"
+    else:
+        requirement = "not_applicable"
+    return {"basis": basis, "filing_facts_available": available, "fact_requirement": requirement}
 
 
 def check_thesis(thesis, sources, *, max_horizon_days):

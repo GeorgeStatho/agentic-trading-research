@@ -11,6 +11,7 @@ from services.discovery.company_evidence_policy import CompanyEvidencePolicy
 MAX_PAYLOAD_FACTS = 48
 YEAR_AGO_MIN_DAYS, YEAR_AGO_MAX_DAYS = 350, 380
 MAX_EXCERPT_CHARACTERS = 600
+MAX_RELEASE_EXCERPT_CHARACTERS = 4000
 
 
 def _visible_facts(facts, referenced):
@@ -69,10 +70,19 @@ def build_company_evidence_payload(company_id, *, as_of=None, package_id=None, d
     newest = max((doc['published_at'] for doc in documents.values() if doc['document_type'] != 'consensus'),
                  default=None)
     age = (datetime.fromisoformat(cutoff) - datetime.fromisoformat(newest)).total_seconds() if newest else 0
+    # Until the 10-Q, the quarter's numbers exist only in the earnings release: show the newest one's opening.
+    releases = [doc for doc in documents.values() if isinstance(doc.get('metadata', {}).get('release_start'), int)]
+    release = max(releases, key=lambda doc: (doc['published_at'], doc['document_id']), default=None)
+
+    def shown(doc):
+        entry = {key: doc[key] for key in ('document_id', 'source_url', 'publisher', 'document_type',
+                                           'published_at', 'first_observed_at', 'ingested_at', 'metadata') if key in doc}
+        if doc is release:
+            start = doc['metadata']['release_start']
+            entry['release_excerpt'] = doc['text'][start:start + MAX_RELEASE_EXCERPT_CHARACTERS]
+        return entry
     return {**package, 'facts': visible,
-            'documents': [{key: doc[key] for key in ('document_id', 'source_url', 'publisher', 'document_type',
-                                                    'published_at', 'first_observed_at', 'ingested_at', 'metadata') if key in doc}
-                          for doc in documents.values()],
+            'documents': [shown(doc) for doc in documents.values()],
             'supporting_claims': visible_claims(package['supporting_claims']),
             'opposing_claims': visible_claims(package['opposing_claims']),
             'payload_truncated': len(selected) < len(facts),

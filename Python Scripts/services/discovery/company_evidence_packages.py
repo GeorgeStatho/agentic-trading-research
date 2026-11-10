@@ -53,6 +53,10 @@ def build_company_package(company, document_ids, at, policy, *, db_path, gaps=()
     documents = {doc['document_id']: doc for doc in list_company_documents(company['id'], as_of=at, db_path=db_path)}
     documents.update({identity: get_evidence_document(identity, db_path=db_path) for identity in document_ids})
     ordered = sorted(documents.values(), key=lambda doc: (doc['published_at'], doc['ingested_at'], doc['document_id']))
+    # An SEC document's event key is its accession, so one superseding it is the same filing read again: keep the
+    # newest read only. Issuer releases and consensus captures keep their history (guidance changes, baselines).
+    reread = {doc.get('supersedes_document_id') for doc in ordered if doc['provider'] == 'sec'}
+    ordered = [doc for doc in ordered if doc['document_id'] not in reread]
     gaps = list(gaps)
     # Consensus is re-fetched every refresh with published_at=now; keep at most two (see
     # _retained_consensus) so it neither crowds primary documents out of the window nor stands in for

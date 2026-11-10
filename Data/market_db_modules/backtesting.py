@@ -7,7 +7,7 @@ import math
 import os
 import re
 import sqlite3
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from statistics import median
 from typing import Any, Callable
@@ -28,6 +28,7 @@ MODELLED_PRICING_SOURCE = "model_black_scholes_constant_iv"
 MODELLED_EOD_IV_PRICING_SOURCE = "model_black_scholes_eod_iv"
 OCC_SYMBOL = re.compile(r"^([A-Z.]+?)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$")
 MODELLED_QUOTE_PROVIDER = "frozen_decision_chain"
+CONSTANT_IV_ACROSS_EARNINGS = "constant_iv_across_earnings"
 MISSING_QUOTE_WARNINGS = {"no_valid_historical_entry_quote", "next_quote_exceeds_entry_delay"}
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
 MARKET_CLOSE = time(16)
@@ -581,6 +582,41 @@ def _day_implied_volatility(
     return nearest[1] if nearest else None
 
 
+def _earnings_dates(conn: sqlite3.Connection, symbol: str) -> set[date]:
+    """Report dates from the symbol's stored Yahoo consensus labels (`next_report:<date>`)."""
+    if not (table_exists(conn, "company_facts") and table_exists(conn, "companies")):
+        return set()
+    rows = conn.execute(
+        """
+        SELECT DISTINCT substr(json_extract(f.record_json, '$.fiscal_period'), 13)
+        FROM company_facts AS f JOIN companies AS c ON c.id = json_extract(f.record_json, '$.company_id')
+        WHERE UPPER(c.symbol) = ? AND json_extract(f.record_json, '$.kind') = 'consensus'
+          AND json_extract(f.record_json, '$.fiscal_period') LIKE 'next_report:%'
+        """,
+        (symbol,),
+    ).fetchall()
+    dates = set()
+    for (day,) in rows:
+        try:
+            dates.add(date.fromisoformat(day))
+        except (TypeError, ValueError):
+            continue
+    return dates
+
+
+def _constant_iv_across_earnings(conn: sqlite3.Connection, symbol: str, as_of: datetime,
+                                 marks: list[tuple[datetime, float]], observed_at: set[date]) -> bool:
+    """True when a mark on or after an earnings date in the hold used no volatility observed from that date on.
+
+    Pre-report volatility kept past the report overstates the option's value (about 8 points on 33 stored pairs).
+    """
+    if not marks:
+        return False
+    first, last = as_of.astimezone(MARKET_TIMEZONE).date(), marks[-1][0].date()
+    return any(not any(day >= report for day in observed_at)
+               for report in _earnings_dates(conn, symbol) if first <= report <= last)
+
+
 def _simulate_modelled_event(
     decision: dict[str, Any],
     snapshot: dict[str, Any],
@@ -614,12 +650,14 @@ def _simulate_modelled_event(
     cutoff = min(as_of + timedelta(hours=config["max_hold_hours"]), expiration)
     volatility = option.volatility
     observed_days = 0
+    observed_on: set[date] = set()
     marks: list[tuple[datetime, float]] = []
     for close_at, close in _daily_closes(conn, base_event["symbol"], as_of, cutoff):
         observed = _day_implied_volatility(conn, base_event["symbol"], close_at, spot=close, strike=strike,
                                            expiration=expiration, config=config)
         if observed is not None:
             volatility, observed_days = observed, observed_days + 1
+            observed_on.add(close_at.date())
         years_left = max(0.0, (expiration - close_at).total_seconds() / SECONDS_PER_DAY / DAYS_PER_YEAR)
         value = black_scholes_price(side, spot=close, strike=strike, years=years_left, volatility=volatility,
                                     rate=config["risk_free_rate"])
@@ -635,6 +673,11 @@ def _simulate_modelled_event(
         missing_exit_warning="no_underlying_close_after_entry",
         config=config,
     )
+    exit_at = parse_timestamp(event.get("exit_at")) if event.get("status") == "simulated_closed" else None
+    held = [mark for mark in marks if exit_at is not None and mark[0] <= exit_at]
+    if _constant_iv_across_earnings(conn, base_event["symbol"], as_of, held, observed_on):
+        # Flag only: the price is not corrected.
+        event = {**event, "warnings": [*(event.get("warnings") or []), CONSTANT_IV_ACROSS_EARNINGS]}
     return {**event, "entry_implied_volatility": round(option.volatility, 6), "observed_iv_day_count": observed_days}
 
 
@@ -758,6 +801,8 @@ def _metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
         "total_slippage_dollars": round(sum(_number(event.get("slippage_dollars")) for event in filled), 4),
         "max_drawdown_dollars": round(max_drawdown, 4),
         "pricing_source_counts": _pricing_source_counts(filled),
+        "constant_iv_across_earnings_count": sum(CONSTANT_IV_ACROSS_EARNINGS in (event.get("warnings") or [])
+                                                 for event in filled),
         # Model-priced trades approximate a contract production never chose; judge them apart from quoted ones.
         "by_pricing_source": {source: _candidate_metrics([e for e in filled if (e.get("pricing_source") or "unknown") == source])
                               for source in _pricing_source_counts(filled)},

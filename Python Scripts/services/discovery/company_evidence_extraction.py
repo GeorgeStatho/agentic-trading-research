@@ -132,8 +132,9 @@ def ingest_source(company, source, at, *, db_path):
         # so it adds no rows and leaves the package revision (and discovery) alone.
         parts = [company['id'], source.provider, source.url, source.text, source.event_key, source.scheduled_events]
     else:
+        # Content, not fetch time: the same filing fetched again is the same document (JPM's 10-Q was stored six times).
         parts = [company['id'], source.provider, source.url, source.text,
-                 source.event_key, source.published_at, source.scheduled_events, source.observed_at]
+                 source.event_key, source.published_at, source.scheduled_events]
     identity = 'document:' + digest(parts)
     try:
         document = get_evidence_document(identity, db_path=db_path)

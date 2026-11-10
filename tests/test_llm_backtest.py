@@ -95,6 +95,43 @@ class ModelPricingTests(DatabaseFixture):
                                            provider="fixture", db_path=self.db_path)
         self.assertEqual(self.backtest()["pricing_source"], "observed_quote")
 
+    def label_earnings(self, day: str) -> None:
+        """A stored Yahoo consensus labelled with an earnings date, as production collects it."""
+        from services.discovery.company_evidence_extraction import ingest_source
+        from tests.test_yahoo_consensus import consensus_doc
+        company_id = add_company(add_industry(add_sector("technology", "Technology", db_path=self.db_path), "software",
+                                              "Software", db_path=self.db_path), "MSFT", "Microsoft", db_path=self.db_path)
+        ingest_source({"id": company_id, "symbol": "MSFT", "cik": "0000789019"},
+                      consensus_doc("2026-02-20T12:00:00+00:00", period=day), "2026-02-20T12:00:00+00:00",
+                      db_path=self.db_path)
+
+    def test_constant_volatility_across_earnings_is_flagged_and_counted(self) -> None:
+        # 2026-11-10: with no quote after the report the model keeps pre-report volatility, about 8 points too kind.
+        self.add_closes(("2026-03-03", 440.0))
+        unflagged = self.backtest()
+        self.label_earnings("2026-03-03")
+        run = self.backtest_run()
+        event = run["events"][0]
+        self.assertIn("constant_iv_across_earnings", event["warnings"])
+        self.assertEqual(run["run"]["metrics"]["constant_iv_across_earnings_count"], 1)
+        self.assertEqual((event["exit_price"], event["realized_pnl_pct"]),
+                         (unflagged["exit_price"], unflagged["realized_pnl_pct"]))
+
+    def test_volatility_observed_after_earnings_is_not_flagged(self) -> None:
+        self.add_closes(("2026-03-03", 440.0))
+        self.label_earnings("2026-03-03")
+        # Another strike's quote that day gives the model a post-report volatility.
+        record_historical_option_quote({"option_symbol": "MSFT260417C00420000", "quote_at": "2026-03-03T20:00:00+00:00",
+                                        "bid": 25.0, "ask": 25.6}, provider="fixture", db_path=self.db_path)
+        self.assertNotIn("constant_iv_across_earnings", self.backtest()["warnings"])
+
+    def test_no_earnings_inside_the_hold_is_not_flagged(self) -> None:
+        self.add_closes(("2026-03-03", 440.0))
+        self.label_earnings("2026-04-28")
+        run = self.backtest_run()
+        self.assertNotIn("constant_iv_across_earnings", run["events"][0]["warnings"])
+        self.assertEqual(run["run"]["metrics"]["constant_iv_across_earnings_count"], 0)
+
     def test_crossed_frozen_quote_does_not_fill(self) -> None:
         crossed = {**CONTRACT, "latest_quote": {"bid_price": 11.0, "ask_price": 10.0}}
         self.assertEqual(self.backtest(crossed)["warnings"], ["no_valid_frozen_entry_quote"])

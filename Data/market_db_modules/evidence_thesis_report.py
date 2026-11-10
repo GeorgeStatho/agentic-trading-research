@@ -79,6 +79,9 @@ def _check_summary(checks):
         # Recorded only; whether article-only theses should trade where filing facts exist is decided from these.
         "evidence_basis": {name: _counts(Counter(_basis_field(check, name) for check in passing))
                            for name in ("basis", "fact_requirement")},
+        # Coverage over every requested check, passing or not: how often there were filing facts to cite at all.
+        "filing_facts_available": _counts(Counter(str(_basis_field(check, "filing_facts_available")).lower()
+                                                  for check in requested)),
     }
 
 
