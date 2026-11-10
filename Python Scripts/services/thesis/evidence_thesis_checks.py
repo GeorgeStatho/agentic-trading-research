@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 import re
 
 from market_db_modules.company_evidence import get_company_fact, get_evidence_document, get_evidence_package
-from services.discovery.company_evidence_extraction import comparison_key, consensus_matches_actual
+from services.discovery.analyst_consensus import consensus_matches_actual
+from services.discovery.company_evidence_extraction import comparison_key
 from services.thesis.evidence_thesis_numbers import NumberSupport, incompatible_calculation_facts, stated_numbers
 
 

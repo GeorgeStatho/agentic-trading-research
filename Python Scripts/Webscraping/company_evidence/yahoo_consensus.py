@@ -6,6 +6,7 @@ import math
 from research_foundation_contracts import timestamp
 from .models import CollectionResult, SourceDocument
 from services.core.time_utils import utc_now
+from services.discovery.analyst_consensus import CURRENCY_NOT_USD, CURRENCY_UNKNOWN, report_label
 
 
 FACT_VERSION = 'yahoo-calendar-consensus-v1'
@@ -67,9 +68,9 @@ class YahooConsensusAdapter:
             cursor = {**cursor, 'financial_currency': currency} if currency else cursor
         # A known non-USD reporter is named even when Yahoo is down, so its earlier captures are dropped.
         if currency and currency != 'USD':
-            return CollectionResult((), cursor, ('consensus_currency_not_usd',))
+            return CollectionResult((), cursor, (CURRENCY_NOT_USD,))
         if ticker is not None and not currency:
-            return CollectionResult((), cursor, ('consensus_currency_unknown',))
+            return CollectionResult((), cursor, (CURRENCY_UNKNOWN,))
         document = self._document(company, calendar)
         if document is None:
             return CollectionResult((), cursor, ('consensus_provider_unavailable',))
@@ -78,7 +79,7 @@ class YahooConsensusAdapter:
     def _document(self, company, calendar):
         earnings = _earnings_date(calendar.get('Earnings Date'))
         earnings_label = earnings.isoformat() if earnings else 'unknown'
-        period = f'next_report:{earnings_label}'
+        period = report_label(earnings)
         # Each metric is its own sub-object so a fact's source slice carries its period and currency.
         sections = {}
         for metric, label, _ in METRICS:

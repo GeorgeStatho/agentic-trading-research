@@ -9,45 +9,13 @@ from market_db_modules.company_evidence import (
 )
 from market_db_modules.foundation_store import digest
 from research_foundation_contracts import CompanyFact, EvidencePackage
-from services.discovery.company_evidence_extraction import (
-    comparison_key, estimated_report, guidance_midpoint, market_date, report_date,
-)
+from services.discovery.analyst_consensus import CURRENCY_NOT_USD, retained_consensus
+from services.discovery.company_evidence_extraction import comparison_key, guidance_midpoint
 
 
 MAX_DOCUMENTS = 24
 MAX_FACTS = 240
 REQUIRED_METRICS = {'revenue', 'eps_diluted', 'operating_cash_flow', 'cash'}
-
-
-def _retained_consensus(consensus_documents, facts, at):
-    """(kept ids, newest id): the newest estimate for a report not yet past, plus the last one captured
-    for the most recent report already due by `at`. The newest id is None when there is none.
-
-    Yahoo rolls on to the next earnings date once a company reports, so without the second document
-    the estimate the reported quarter is judged against would be gone. A capture still labelled with a
-    report date it was taken after is next quarter's estimate under the wrong label, so it is neither
-    (see estimated_report). `consensus_documents` is in publication order; older captures are dropped.
-    """
-    reports, stale = {}, set()
-    for fact in facts:
-        estimated = estimated_report(fact)
-        if estimated is not None:
-            reports.setdefault(fact['document_id'], estimated)
-        elif report_date(fact) is not None:
-            stale.add(fact['document_id'])
-    current = [doc for doc in consensus_documents if doc['document_id'] not in stale]
-    # Report dates are New York dates, so the package time is compared as one too.
-    cutoff = market_date(at)
-    # The newest estimate is for a report not yet past; one only for a passed report is a baseline.
-    upcoming = [doc['document_id'] for doc in current
-                if reports.get(doc['document_id']) is None or reports[doc['document_id']] >= cutoff]
-    newest = upcoming[-1] if upcoming else None
-    kept = {newest} if newest else set()
-    due = [doc for doc in current if reports.get(doc['document_id']) and reports[doc['document_id']] <= cutoff]
-    if due:
-        last_report = max(reports[doc['document_id']] for doc in due)
-        kept.add([doc for doc in due if reports[doc['document_id']] == last_report][-1]['document_id'])
-    return kept, newest
 
 
 def build_company_package(company, document_ids, at, policy, *, db_path, gaps=()):
@@ -60,7 +28,7 @@ def build_company_package(company, document_ids, at, policy, *, db_path, gaps=()
     ordered = [doc for doc in ordered if doc['document_id'] not in reread]
     gaps = list(gaps)
     # Consensus is re-fetched every refresh with published_at=now; keep at most two (see
-    # _retained_consensus) so it neither crowds primary documents out of the window nor stands in for
+    # retained_consensus) so it neither crowds primary documents out of the window nor stands in for
     # them as the newest disclosure.
     primary = [doc for doc in ordered if doc['document_type'] != 'consensus']
     if len(primary) > MAX_DOCUMENTS:
@@ -68,12 +36,12 @@ def build_company_package(company, document_ids, at, policy, *, db_path, gaps=()
     kept = {doc['document_id'] for doc in primary[-MAX_DOCUMENTS:]}
     company_facts = list_company_facts(company['id'], as_of=at, db_path=db_path)
     # A reporter known to use another currency keeps none of its earlier captures, which were labelled USD.
-    consensus = ([] if 'consensus_currency_not_usd' in gaps
+    consensus = ([] if CURRENCY_NOT_USD in gaps
                  else [doc for doc in ordered if doc['document_type'] == 'consensus'])
-    retained_consensus, newest_consensus = _retained_consensus(consensus, company_facts, at)
-    kept.update(retained_consensus)
+    kept_consensus, newest_consensus = retained_consensus(consensus, company_facts, at)
+    kept.update(kept_consensus)
     # The pre-report estimate is kept only as a baseline; its earnings date is no longer upcoming.
-    baseline_only = retained_consensus - {newest_consensus}
+    baseline_only = kept_consensus - {newest_consensus}
     ordered = [doc for doc in ordered if doc['document_id'] in kept]
     documents = {doc['document_id']: doc for doc in ordered}
     facts = [f for f in company_facts if f['document_id'] in documents and f['kind'] != 'derived']

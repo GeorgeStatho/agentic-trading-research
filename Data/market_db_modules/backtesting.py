@@ -20,7 +20,7 @@ from services.options.option_pricing import (CalibratedOption, black_scholes_pri
                                      option_side)
 from services.core.time_utils import parse_timestamp
 from services.core.numbers import safe_float
-from services.discovery.company_evidence_extraction import report_date
+from services.discovery.analyst_consensus import report_date
 
 
 SNAPSHOT_VERSION = "decision-evidence-snapshot-v1"

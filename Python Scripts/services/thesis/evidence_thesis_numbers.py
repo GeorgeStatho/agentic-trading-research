@@ -11,7 +11,8 @@ from itertools import permutations
 import math
 import re
 
-from services.discovery.company_evidence_extraction import COMPARISON_FIELDS, consensus_matches_actual, guidance_midpoint
+from services.discovery.analyst_consensus import consensus_matches_actual
+from services.discovery.company_evidence_extraction import COMPARISON_FIELDS, guidance_midpoint
 
 
 _NUMBER = re.compile(

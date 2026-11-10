@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from market_db_modules.company_evidence import (
     get_company_fact, get_evidence_document, get_evidence_package, latest_evidence_package,
 )
-from services.discovery.company_evidence_extraction import consensus_matches_actual, period_end
+from services.discovery.analyst_consensus import consensus_matches_actual
+from services.discovery.company_evidence_extraction import period_end
 from services.discovery.company_evidence_policy import CompanyEvidencePolicy
 
 

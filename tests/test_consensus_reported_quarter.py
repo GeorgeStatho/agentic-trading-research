@@ -8,7 +8,7 @@ revenue across bases, other metrics only on an identical basis (analyst EPS is u
 GAAP EPS is not). The package must also keep the estimate captured before the report, which is
 lost today once Yahoo rolls on to the next earnings date.
 """
-from datetime import datetime
+from datetime import date, datetime
 from types import SimpleNamespace
 import unittest
 
@@ -17,7 +17,10 @@ from tests.test_company_evidence import COMPANY, actuals, guidance
 from tests.test_yahoo_consensus import EVENT, consensus_doc
 from agent_builders.company_evidence_payload import build_company_evidence_payload
 from market_db_modules.company_evidence import get_evidence_package
-from services.discovery.company_evidence_extraction import consensus_matches_actual, ingest_source
+from services.discovery.analyst_consensus import (
+    CURRENCY_NOT_USD, CURRENCY_UNKNOWN, consensus_matches_actual, report_date, report_label,
+)
+from services.discovery.company_evidence_extraction import ingest_source
 from services.discovery.company_evidence_packages import build_company_package
 from services.discovery.company_evidence_policy import CompanyEvidencePolicy
 from services.thesis.evidence_thesis_checks import _expectation_failures, _surprise_claimed_without_consensus
@@ -99,6 +102,10 @@ class MatchTests(unittest.TestCase):
     def test_the_report_date_is_a_new_york_date(self):
         # 01:00 UTC on the 28th is 21:00 ET on the 27th, the evening before the report.
         self.assertTrue(consensus_matches_actual({**consensus(), 'available_at': at('2026-10-28', 1)}, actual()))
+
+    def test_a_report_label_reads_back_as_its_report_date(self):
+        self.assertEqual(report_date({'fiscal_period': report_label(date(2026, 10, 28))}), date(2026, 10, 28))
+        self.assertIsNone(report_date({'fiscal_period': report_label(None)}))
 
     def test_requires_a_consensus_and_an_actual(self):
         self.assertFalse(consensus_matches_actual(actual(), actual()))
@@ -261,10 +268,10 @@ class PackageRetentionTests(unittest.TestCase):
 
     def test_a_reporter_in_another_currency_keeps_no_earlier_consensus(self):
         # SK hynix: won estimates stored as USD six times before the currency check existed.
-        self.assertFalse(self.consensus_kept('consensus_currency_not_usd'))
+        self.assertFalse(self.consensus_kept(CURRENCY_NOT_USD))
 
     def test_one_failed_currency_lookup_keeps_the_earlier_consensus(self):
-        self.assertTrue(self.consensus_kept('consensus_currency_unknown'))
+        self.assertTrue(self.consensus_kept(CURRENCY_UNKNOWN))
 
 
 class PayloadHintTests(unittest.TestCase):
