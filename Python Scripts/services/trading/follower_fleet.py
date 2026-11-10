@@ -16,10 +16,10 @@ from market_db_modules import account_positions as store
 from services.trading.account_strategies import OPTION_STRATEGIES, Skip, build_order
 from services.core.numbers import safe_float
 from services.research.research_contract import utc
+from services.trading.order_values import FILLED, REPLACED, WORKING, order_phase
 from services.trading.trading_accounts import FollowerSettings
 
 NEW_YORK = ZoneInfo('America/New_York')
-FAILED_ORDER_STATUSES = frozenset({'canceled', 'expired', 'rejected'})
 # The manager's chain keeps only near-the-money OTM strikes within $25. Followers need ITM strikes and
 # spread short legs, so they take every strike within a quarter of spot either side.
 FOLLOWER_CHAIN_LIMIT_PER_TYPE = 30
@@ -166,16 +166,28 @@ class FollowerFleet:
         gateway, client = self._connection(account)
         return gateway.get_order_status_summary(client, order_id=order_id)
 
+    def _replacement(self, row, summary):
+        """A replaced order is followed through its replacement; without one the row waits as it is."""
+        if str(summary.get('replaced_by') or '').strip():
+            return True
+        self._logger.error('Follower position %s: broker reported a replaced order without its replacement', row['id'])
+        return False
+
     def _manage_position(self, account, row, held, closed, now):
         if row['status'] == 'pending_entry':
             if not row['entry_order_id']:
                 return
             summary = self._order_summary(account, row['entry_order_id'])
             status, filled = summary.get('status'), _filled_qty(summary)
-            if status != 'filled' and status not in FAILED_ORDER_STATUSES:
-                return  # still working
+            phase = order_phase(status)
+            if phase == WORKING:
+                return
+            if phase == REPLACED:
+                if self._replacement(row, summary):
+                    store.mark_entry_order(row['id'], order_id=summary['replaced_by'], db_path=self._db_path)
+                return
             # An order that ended after a partial fill still left a position to manage.
-            if status != 'filled' and filled <= 0:
+            if phase != FILLED and filled <= 0:
                 store.mark_failed(row['id'], error=f'entry order {status}', db_path=self._db_path)
                 return
             qty = filled if 0 < filled < row['qty'] else None
@@ -185,10 +197,16 @@ class FollowerFleet:
         elif row['status'] == 'closing':
             summary = self._order_summary(account, row['exit_order_id'])
             status = summary.get('status')
-            if status != 'filled' and status not in FAILED_ORDER_STATUSES:
-                return  # still working
+            phase = order_phase(status)
+            if phase == WORKING:
+                return
+            if phase == REPLACED:
+                if self._replacement(row, summary):
+                    store.mark_closing(row['id'], order_id=summary['replaced_by'], reason=row['exit_reason'],
+                                       db_path=self._db_path)
+                return
             # Re-close only what is still held. A partially closed slice drops out of the P&L.
-            remaining = 0 if status == 'filled' else row['qty'] - _filled_qty(summary)
+            remaining = 0 if phase == FILLED else row['qty'] - _filled_qty(summary)
             if remaining <= 0:
                 store.mark_closed(row['id'], fill_price=_fill_price(summary), closed_at=_fill_time(summary, now),
                                   db_path=self._db_path)

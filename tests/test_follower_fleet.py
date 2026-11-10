@@ -247,6 +247,53 @@ class ManageTests(FleetTestCase):
         self.assertEqual(self.rows()['shares']['status'], 'open')
         self.assertAlmostEqual(store.account_summary()['spreads']['pnl'], 200.0)
 
+    def test_replaced_entry_follows_its_replacement(self):
+        rows = self.rows()
+        old = rows['shares']['entry_order_id']
+        self.order_status[old] = {'status': 'replaced', 'replaced_by': 'shares-new-entry'}
+        self.order_status[rows['spreads']['entry_order_id']] = {'status': 'accepted'}
+        self.fleet.manage()
+        self.assertEqual((self.rows()['shares']['status'], self.rows()['shares']['entry_order_id']),
+                         ('pending_entry', 'shares-new-entry'))
+        self.order_status['shares-new-entry'] = {'status': 'filled', 'filled_avg_price': '100',
+                                                 'filled_at': '2026-10-28 15:00:30+00:00'}
+        self.fleet.manage()
+        self.assertEqual(self.rows()['shares']['status'], 'open')
+
+    def test_replaced_exit_follows_its_replacement_and_then_closes(self):
+        self.fill_all({'spreads': 1.0, 'shares': 100.0})
+        self.fleet.manage()
+        self.production_holdings = []
+        self.fleet.manage()
+        rows = self.rows()
+        self.order_status[rows['spreads']['exit_order_id']] = {'status': 'accepted'}
+        self.order_status[rows['shares']['exit_order_id']] = {'status': 'replaced', 'replaced_by': 'shares-new-exit'}
+        self.fleet.manage()
+        shares = self.rows()['shares']
+        self.assertEqual((shares['status'], shares['exit_order_id'], shares['exit_reason']),
+                         ('closing', 'shares-new-exit', 'production_exit'))
+        self.order_status['shares-new-exit'] = {'status': 'filled', 'filled_avg_price': '101',
+                                                'filled_at': '2026-11-02 15:00:00+00:00'}
+        self.fleet.manage()
+        self.assertNotIn('shares', self.rows())
+
+    def test_replaced_order_without_its_replacement_keeps_waiting(self):
+        rows = self.rows()
+        old = rows['shares']['entry_order_id']
+        self.order_status[old] = {'status': 'replaced', 'replaced_by': ''}
+        self.order_status[rows['spreads']['entry_order_id']] = {'status': 'accepted'}
+        with self.assertLogs('test_follower_fleet', level='ERROR'):
+            self.fleet.manage()
+        self.assertEqual((self.rows()['shares']['status'], self.rows()['shares']['entry_order_id']),
+                         ('pending_entry', old))
+
+    def test_entry_done_for_day_without_a_fill_is_failed(self):
+        rows = self.rows()
+        self.order_status[rows['shares']['entry_order_id']] = {'status': 'done_for_day', 'filled_qty': '0'}
+        self.order_status[rows['spreads']['entry_order_id']] = {'status': 'accepted'}
+        self.fleet.manage()
+        self.assertEqual(list(self.rows()), ['spreads'])
+
     def test_unknown_production_state_closes_nothing(self):
         self.fill_all({'spreads': 1.0, 'shares': 100.0})
         self.fleet.manage()
