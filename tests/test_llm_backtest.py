@@ -342,6 +342,23 @@ class StrategistReplayTests(DatabaseFixture):
         self.assertEqual(reused, [False] * 4)
         self.assertEqual(decide.call_count, 4)
 
+    def test_a_cached_strategist_answer_is_checked_by_the_current_checker(self) -> None:
+        # 2026-11-10 review: the cache kept the verdict of whichever checker first answered, so checker
+        # changes never reached cached replays.
+        thesis = {"direction": "up", "claims": "as the model wrote them"}
+        answer = {"decision": "trade_candidate", "evidence_thesis": thesis,
+                  "evidence_thesis_check": {"status": "validated", "research_status": "legacy_strategist"}}
+        self.run_replay(answer)
+        stricter = {"schema_version": "evidence-thesis-v1", "policy_version": "evidence-thesis-v4", "status": "deferred",
+                    "package_id": None, "research_status": "legacy_strategist", "failures": ["central_claim_failed"],
+                    "claims": [], "semantic_review": {"status": "not_run"}}
+        with patch.object(llm_backtest, "check_evidence_thesis", return_value=stricter) as checker:
+            _, manager, strategist = self.run_replay(answer)
+        self.assertEqual(strategist.call_count, 0)
+        self.assertEqual(checker.call_args.args[0], thesis)
+        self.assertEqual(manager.call_args.args[0]["strategist_recommendation"]["evidence_thesis_check"]["status"],
+                         "deferred")
+
     def test_reuse_needs_strategist_replay(self) -> None:
         with self.assertRaises(ValueError):
             run_llm_backtest(model="local", strategist_reuse_max_age_minutes=120, db_path=self.db_path)

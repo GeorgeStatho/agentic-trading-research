@@ -174,7 +174,12 @@ class StrategistReplay:
         suffix = f":sample{self.sample}" if self.sample else ""
         key = {"stage": STRATEGIST_STAGE, "provider": self.provider, "model": self.model,
                "prompt_version": self.prompt_version, "input_hash": input_hash(strategist_input) + suffix}
-        return cached_answer(key, lambda: self.checked_recommendation(strategist_input), db_path=self.db_path)
+        answer, cached = cached_answer(key, lambda: self.checked_recommendation(strategist_input), db_path=self.db_path)
+        if cached:
+            # The cache keeps the model's answer; the verdict always comes from this checkout's checker.
+            answer, _ = rechecked_recommendation(answer, strategist_input, policy=self.thesis_policy,
+                                                 db_path=self.db_path)
+        return answer, cached
 
     def checked_recommendation(self, strategist_input: dict[str, Any]) -> dict[str, Any]:
         # The thesis check is attached as production attaches it, but never persisted.
@@ -375,22 +380,30 @@ def store_daily_history(symbols: set[str], *, db_path: Any = None,
 
 def rechecked_thesis_payload(payload: dict[str, Any], strategist_input: dict[str, Any] | None, *,
                              policy: EvidenceThesisPolicy, db_path: Any = None) -> tuple[dict[str, Any], bool | None]:
-    """The frozen manager input with its stored thesis re-checked by this checkout's checker.
+    """The frozen manager input with its stored thesis re-checked by this checkout's checker (see
+    `rechecked_recommendation`)."""
+    strategist, changed = rechecked_recommendation(payload.get("strategist_recommendation") or {},
+                                                   strategist_input or payload, policy=policy, db_path=db_path)
+    return ({**payload, "strategist_recommendation": strategist} if changed is not None else payload), changed
 
-    Returns the payload and whether the check's verdict changed (None when there was no thesis to check).
-    The check reads the frozen evidence package by id, so it sees only what production saw.
+
+def rechecked_recommendation(strategist: dict[str, Any], strategist_input: dict[str, Any], *,
+                             policy: EvidenceThesisPolicy, db_path: Any = None) -> tuple[dict[str, Any], bool | None]:
+    """The strategist recommendation with its thesis checked again against the frozen strategist input.
+
+    Returns it and whether the verdict changed (None when there was no thesis to check). The check reads the
+    frozen evidence package by id, so it sees only what production saw.
     """
-    strategist = payload.get("strategist_recommendation") or {}
     old = strategist.get("evidence_thesis_check")
     if not isinstance(old, dict) or not isinstance(strategist.get("evidence_thesis"), dict):
-        return payload, None
-    check = check_evidence_thesis(strategist["evidence_thesis"], strategist_input or payload, route=THESIS_ROUTE,
+        return strategist, None
+    check = check_evidence_thesis(strategist["evidence_thesis"], strategist_input, route=THESIS_ROUTE,
                                   research_status=old.get("research_status") or LEGACY_RESEARCH_STATUS,
                                   policy=policy, db_path=db_path)
     new = compact_thesis_check(check, old.get("evaluation_id"))
     verdict = ("status", "failures", "failed_claims")
     changed = any(old.get(key) != new[key] for key in verdict)
-    return {**payload, "strategist_recommendation": {**strategist, "evidence_thesis_check": new}}, changed
+    return {**strategist, "evidence_thesis_check": new}, changed
 
 
 def manager_decider(model: str) -> Decider:
@@ -525,7 +538,7 @@ class ReplayRun:
         if sample < 0 or (sample and stored):
             raise ValueError(f"sample must be 0 or more and needs a model to ask; '{STORED_MODEL}' has one answer")
         if recheck_thesis and replay_strategist:
-            raise ValueError("recheck_thesis re-checks production's strategist thesis; a replayed strategist is checked already")
+            raise ValueError("recheck_thesis re-checks production's strategist thesis; a replayed strategist is checked on every read")
         if stored and replay_strategist:
             raise ValueError(f"replay_strategist needs a model to replay; '{STORED_MODEL}' reuses production's answers")
         if strategist_reuse_max_age_minutes > 0 and not replay_strategist:
