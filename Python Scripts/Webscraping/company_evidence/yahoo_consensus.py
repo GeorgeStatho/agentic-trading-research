@@ -56,13 +56,18 @@ class YahooConsensusAdapter:
                 calendar = {}
         except Exception:
             ticker, calendar = None, {}
-        # The calendar carries no currency; a non-USD reporter's estimates (SK hynix: won) are not comparable.
-        try:
-            currency = (ticker.info or {}).get('financialCurrency') if ticker is not None else None
-        except Exception:
-            currency = None
-        if currency and currency != 'USD':
-            return CollectionResult((), cursor, ('consensus_currency_not_usd',))
+        # The calendar carries no currency, so estimates are labelled USD only when Yahoo says so (SK hynix's
+        # won were once stored as USD). A failed lookup falls back to the currency seen on an earlier refresh.
+        currency = cursor.get('financial_currency')
+        if ticker is not None:
+            try:
+                currency = (ticker.info or {}).get('financialCurrency') or currency
+            except Exception:
+                pass
+            cursor = {**cursor, 'financial_currency': currency} if currency else cursor
+            if currency != 'USD':
+                return CollectionResult((), cursor, ('consensus_currency_not_usd' if currency
+                                                     else 'consensus_currency_unknown',))
         document = self._document(company, calendar)
         if document is None:
             return CollectionResult((), cursor, ('consensus_provider_unavailable',))

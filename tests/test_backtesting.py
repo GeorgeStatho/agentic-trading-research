@@ -180,5 +180,19 @@ class PortfolioGuardrailTests(unittest.TestCase):
         self.assertEqual(_metrics(events)["portfolio_rejected_count"], 1)
 
 
+class PricingSourceMetricsTests(unittest.TestCase):
+    def test_expectancy_is_reported_per_pricing_source(self) -> None:
+        # Model-priced replay trades approximate a contract production never chose; keep them apart from quoted ones.
+        events = [{"status": "simulated_closed", "symbol": symbol, "realized_pnl_pct": pnl, "realized_pnl_dollars": pnl,
+                   "pricing_source": source}
+                  for symbol, pnl, source in (("MSFT", 10.0, "observed_quote"), ("AAPL", -20.0, "observed_quote"),
+                                              ("EQT", 50.0, "black_scholes_daily_close"))]
+        metrics = _metrics(events)
+        self.assertEqual(metrics["expectancy_pct"], 13.3333)
+        self.assertEqual({source: (m["priced_entry_count"], m["expectancy_pct"])
+                          for source, m in metrics["by_pricing_source"].items()},
+                         {"observed_quote": (2, -5.0), "black_scholes_daily_close": (1, 50.0)})
+
+
 if __name__ == "__main__":
     unittest.main()

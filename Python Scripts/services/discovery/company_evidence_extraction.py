@@ -35,16 +35,16 @@ def report_date(fact):
 
 
 def estimated_report(fact):
-    """report_date(fact), unless the estimate was captured after that date (then None).
+    """report_date(fact), unless the estimate was captured on or after that date (then None).
 
     Yahoo keeps showing a passed earnings date for days while its estimates have moved on to the next
-    quarter, so a capture after D is next quarter's estimate under D's label. A fact without a capture
-    time is taken at its label.
-    shortcut: a capture on D itself after the release still passes; compare release times if that shows up.
+    quarter, so a capture from D on is next quarter's estimate under D's label. Captures on D itself had
+    often rolled already, even before the release, so the last one from before D is the baseline. A fact
+    without a capture time is taken at its label.
     """
     reported = report_date(fact)
     captured = str(fact.get('available_at') or '')[:10]
-    if reported is not None and captured and date.fromisoformat(captured) > reported:
+    if reported is not None and captured and date.fromisoformat(captured) >= reported:
         return None
     return reported
 

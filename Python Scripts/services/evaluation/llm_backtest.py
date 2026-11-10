@@ -148,6 +148,7 @@ class StrategistReplay:
     db_path: Any = None
     reuse_max_age_minutes: int = 0
     reuse_max_price_move_pct: float = 2.0
+    sample: int = 0
     # Each symbol's last answer that came from the model (or its cache): (decided_at, input, answer).
     answered: dict[str, tuple[datetime, dict[str, Any], dict[str, Any]]] = field(default_factory=dict, repr=False)
 
@@ -169,8 +170,10 @@ class StrategistReplay:
         return answer, cached, False
 
     def recommendation(self, strategist_input: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        # Same suffix as the manager's: sample 0 is the existing entry, sample N a fresh answer to measure noise.
+        suffix = f":sample{self.sample}" if self.sample else ""
         key = {"stage": STRATEGIST_STAGE, "provider": self.provider, "model": self.model,
-               "prompt_version": self.prompt_version, "input_hash": input_hash(strategist_input)}
+               "prompt_version": self.prompt_version, "input_hash": input_hash(strategist_input) + suffix}
         return cached_answer(key, lambda: self.checked_recommendation(strategist_input), db_path=self.db_path)
 
     def checked_recommendation(self, strategist_input: dict[str, Any]) -> dict[str, Any]:
@@ -314,9 +317,17 @@ class ReplayTally:
     recorded_settings: int = 0
     pre_decision_chain_trades: int = 0
     selector_differences: set[str] = field(default_factory=set)
+    # side ("production" or "replay") -> strategist decision -> thesis check status -> count
+    strategist_thesis_statuses: dict[str, dict[str, dict[str, int]]] = field(
+        default_factory=lambda: {"production": {}, "replay": {}})
 
     def count(self, outcome: str) -> None:
         self.outcomes[outcome] = self.outcomes.get(outcome, 0) + 1
+
+    def count_thesis(self, side: str, recommendation: dict[str, Any]) -> None:
+        status = (recommendation.get("evidence_thesis_check") or {}).get("status") or "missing"
+        by_status = self.strategist_thesis_statuses[side].setdefault(str(recommendation.get("decision")), {})
+        by_status[status] = by_status.get(status, 0) + 1
 
 
 def evaluate_answer(frozen: FrozenDecision, payload: dict[str, Any], recommendation: dict[str, Any],
@@ -529,6 +540,7 @@ class ReplayRun:
             decide=decide_strategist or strategist_decider(model, thesis_policy), db_path=db_path,
             reuse_max_age_minutes=strategist_reuse_max_age_minutes,
             reuse_max_price_move_pct=AgentPipelineSettings.from_env().strategist_reuse_max_price_move_pct,
+            sample=sample,
         ) if replay_strategist else None
         window = list_frozen_manager_decisions(start_at=start_at, end_at=end_at, limit=limit, ids=decision_ids,
                                                db_path=db_path)
@@ -593,8 +605,10 @@ class ReplayRun:
             tally.strategist_cached_answers += strategist_cached
             tally.strategist_reused_answers += reused
             strategist_cached = strategist_cached or reused
-            production_strategist = (payload.get("strategist_recommendation") or {}).get("decision")
-            tally.strategist_changed_decision += strategist_answer.get("decision") != production_strategist
+            production_strategist = payload.get("strategist_recommendation") or {}
+            tally.strategist_changed_decision += strategist_answer.get("decision") != production_strategist.get("decision")
+            tally.count_thesis("production", production_strategist)
+            tally.count_thesis("replay", strategist_answer)
             payload = self.strategist.manager_payload(payload, strategist_answer)
         if self.recheck_thesis:
             payload, changed = rechecked_thesis_payload(payload, strategist_input, policy=self.thesis_policy,
@@ -627,6 +641,7 @@ class ReplayRun:
                 "cached_answer_count": tally.strategist_cached_answers,
                 "reuse_max_age_minutes": self.strategist.reuse_max_age_minutes,
                 "reused_answer_count": tally.strategist_reused_answers,
+                "thesis_status_by_decision": tally.strategist_thesis_statuses,
             } if self.strategist is not None else None,
             "provider": STORED_MODEL if self.stored else self.replay.provider,
             "sample": 0 if self.stored else self.replay.sample,

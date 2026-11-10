@@ -87,10 +87,14 @@ class MatchTests(unittest.TestCase):
         stale = {**consensus(), 'available_at': at('2026-10-29', 4)}
         self.assertFalse(consensus_matches_actual(stale, actual()))
 
-    def test_estimate_captured_on_or_before_its_report_date_still_matches(self):
-        for captured in (at('2026-10-27'), at('2026-10-28', 17)):
+    # 2026-11-09 review: on a report date Yahoo had often rolled already (one EPS estimate went 1.58 -> 3.51 that day).
+    def test_estimate_captured_on_its_report_date_does_not_match(self):
+        for captured in (at('2026-10-28', 7), at('2026-10-28', 17)):
             with self.subTest(captured=captured):
-                self.assertTrue(consensus_matches_actual({**consensus(), 'available_at': captured}, actual()))
+                self.assertFalse(consensus_matches_actual({**consensus(), 'available_at': captured}, actual()))
+
+    def test_estimate_captured_before_its_report_date_still_matches(self):
+        self.assertTrue(consensus_matches_actual({**consensus(), 'available_at': at('2026-10-27', 23)}, actual()))
 
     def test_requires_a_consensus_and_an_actual(self):
         self.assertFalse(consensus_matches_actual(actual(), actual()))
@@ -217,7 +221,7 @@ class PackageRetentionTests(unittest.TestCase):
     def test_snapshots_still_labelled_with_a_passed_report_are_not_kept(self):
         # ANET shape: after the 2026-08-26 report Yahoo still shows that date, but its estimate is next quarter's.
         primary = self.ingest(guidance(at=START))
-        pre_report = self.ingest(two_metric_consensus_doc(at('2026-08-26', 17), '2026-08-26', revenue=3.33))
+        pre_report = self.ingest(two_metric_consensus_doc(at('2026-08-25', 17), '2026-08-26', revenue=3.33))
         stale_early = self.ingest(two_metric_consensus_doc(at('2026-08-28'), '2026-08-26', revenue=3.60))
         stale_latest = self.ingest(two_metric_consensus_doc(at('2026-09-01'), '2026-08-26', revenue=3.98))
         identity = build_company_package(COMPANY, [primary, pre_report, stale_early, stale_latest], ENTRY,
@@ -227,6 +231,27 @@ class PackageRetentionTests(unittest.TestCase):
         self.assertNotIn(stale_early, package['document_ids'])
         self.assertNotIn(stale_latest, package['document_ids'])
         self.assertEqual(package['scheduled_events'], [])
+
+    def test_a_capture_on_the_report_date_gives_way_to_the_day_before(self):
+        primary = self.ingest(guidance(at=START))
+        day_before = self.ingest(two_metric_consensus_doc(at('2026-08-25', 20), '2026-08-26', revenue=3.33))
+        on_the_day = self.ingest(two_metric_consensus_doc(at('2026-08-26', 8), '2026-08-26', revenue=3.60))
+        kept = self.build([primary, day_before, on_the_day])
+        self.assertIn(day_before, kept)
+        self.assertNotIn(on_the_day, kept)
+
+    def consensus_kept(self, gap):
+        primary = self.ingest(guidance(at=START))
+        earlier = self.ingest(two_metric_consensus_doc(at('2026-09-01'), '2026-11-25'))
+        identity = build_company_package(COMPANY, [primary, earlier], ENTRY, self.policy, db_path=self.db, gaps=(gap,))
+        return earlier in get_evidence_package(identity, db_path=self.db)['document_ids']
+
+    def test_a_reporter_in_another_currency_keeps_no_earlier_consensus(self):
+        # SK hynix: won estimates stored as USD six times before the currency check existed.
+        self.assertFalse(self.consensus_kept('consensus_currency_not_usd'))
+
+    def test_one_failed_currency_lookup_keeps_the_earlier_consensus(self):
+        self.assertTrue(self.consensus_kept('consensus_currency_unknown'))
 
 
 class PayloadHintTests(unittest.TestCase):
@@ -299,6 +324,30 @@ class CrossMetricTests(unittest.TestCase):
                 self.assertEqual(incompatible_calculation_facts(facts), [])
                 support = NumberSupport(facts, [], [])
                 self.assertTrue(all(support.supports(n) for n in stated_numbers(statement)))
+
+    # NVDA, 2026-11-02: gross margin 74.98% from gross profit $72.142B over revenue $96.221B.
+    GROSS_PROFIT = fact('g', 'actual', REPORTED_QUARTER, metric='gross_profit', value=72142000000.0)
+    REVENUE = fact('r', 'actual', REPORTED_QUARTER, value=96221000000.0)
+    OPERATING_INCOME = fact('o', 'actual', REPORTED_QUARTER, metric='operating_income', value=63734000000.0)
+
+    def margin_supported(self, facts):
+        from services.thesis.evidence_thesis_numbers import NumberSupport, stated_numbers
+        (margin,) = stated_numbers('Gross margin was 74.98%.')
+        return NumberSupport(facts, [], []).supports(margin)
+
+    def test_a_ratio_of_exactly_its_two_cited_facts_is_supported(self):
+        self.assertEqual(incompatible_calculation_facts([self.GROSS_PROFIT, self.REVENUE]), [])
+        self.assertTrue(self.margin_supported([self.GROSS_PROFIT, self.REVENUE]))
+
+    def test_a_third_cited_metric_rules_out_cross_metric_ratios(self):
+        # Every extra fact multiplies the ratios a made-up percentage could match.
+        facts = [self.GROSS_PROFIT, self.REVENUE, self.OPERATING_INCOME]
+        self.assertNotEqual(incompatible_calculation_facts(facts), [])
+        self.assertFalse(self.margin_supported(facts))
+
+    def test_the_checker_policy_version_records_the_stricter_rule(self):
+        from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
+        self.assertEqual(EvidenceThesisPolicy().policy_version, 'evidence-thesis-v4')
 
     def test_other_quarter_or_basis_is_still_incompatible(self):
         revenue = fact('r', 'actual', REPORTED_QUARTER)

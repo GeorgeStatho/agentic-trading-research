@@ -243,9 +243,9 @@ class StrategistReplayTests(DatabaseFixture):
         self.add_candidate("candidate-1", self.decision_id,
                            pre_strategist={"company": {"symbol": "MSFT", "company_id": company_id}})
 
-    def run_replay(self, **options) -> tuple[dict, Mock, Mock]:
+    def run_replay(self, answer: dict | None = None, **options) -> tuple[dict, Mock, Mock]:
         manager = Mock(return_value={"recommendation": {"decision": "neither"}})
-        strategist = Mock(return_value={"recommendation": {"decision": "do_not_trade", "confidence": "low"}})
+        strategist = Mock(return_value={"recommendation": answer or {"decision": "do_not_trade", "confidence": "low"}})
         with patch.object(llm_backtest, "finalize", return_value=TRADEABLE):
             result = run_llm_backtest(model="local", decide=manager, decide_strategist=strategist,
                                       replay_strategist=True, db_path=self.db_path, **options)
@@ -254,6 +254,21 @@ class StrategistReplayTests(DatabaseFixture):
     def test_the_manager_answers_the_replayed_strategist(self) -> None:
         _, manager, _ = self.run_replay()
         self.assertEqual(manager.call_args.args[0]["strategist_recommendation"]["decision"], "do_not_trade")
+
+    def test_another_sample_asks_the_strategist_again_and_is_cached_itself(self) -> None:
+        # Measures how often the same strategist input gets a different thesis, not just a different manager answer.
+        calls = [self.run_replay(sample=sample)[2].call_count for sample in (0, 0, 1, 1)]
+        self.assertEqual(calls, [1, 0, 1, 0])
+
+    def test_thesis_status_is_counted_per_strategist_decision_for_production_and_replay(self) -> None:
+        production = {"decision": "trade_candidate", "evidence_thesis_check": {"status": "deferred"}}
+        manager_input = {"replay_input": {"company": {"symbol": "MSFT"}, "strategist_recommendation": production}}
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("UPDATE manager_decision_payloads SET manager_input_json = ? WHERE manager_decision_history_id = ?",
+                         (json.dumps(manager_input), self.decision_id))
+        result, _, _ = self.run_replay({"decision": "watchlist", "evidence_thesis_check": {"status": "validated"}})
+        self.assertEqual(result["run"]["metrics"]["replay"]["strategist_replay"]["thesis_status_by_decision"], {
+            "production": {"trade_candidate": {"deferred": 1}}, "replay": {"watchlist": {"validated": 1}}})
 
     def test_replayed_answers_are_reused_under_the_production_rule(self) -> None:
         def strategist_input(price: float, reason: str = "Guidance raised") -> dict:

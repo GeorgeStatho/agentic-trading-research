@@ -50,7 +50,10 @@ class FakeTicker:
         return self._info or {}
 
 
-def adapter(calendar=None, error=None, clock=lambda: NOW, info=None):
+USD = {'financialCurrency': 'USD'}
+
+
+def adapter(calendar=None, error=None, clock=lambda: NOW, info=USD):
     ticker = FakeTicker(MSFT if calendar is None else calendar, error, info)
     return YahooConsensusAdapter(ticker_factory=lambda symbol: ticker, clock=clock), ticker
 
@@ -130,12 +133,24 @@ class AdapterTests(unittest.TestCase):
         result = yahoo.collect(MSFT_COMPANY, {})
         self.assertEqual((result.documents, result.gaps), ((), ('consensus_currency_not_usd',)))
 
-    def test_usd_or_unknown_currency_collects_as_before(self):
-        for info in ({'financialCurrency': 'USD'}, {}, RuntimeError('info unavailable')):
+    def test_usd_reporter_collects(self):
+        (doc,) = adapter(info=USD)[0].collect(MSFT_COMPANY, {}).documents
+        self.assertEqual({fact['currency'] for fact in doc.facts}, {'USD'})
+
+    def test_unknown_currency_yields_no_consensus(self):
+        # Labelling estimates USD without knowing is how SK hynix's won were stored as dollars.
+        for info in ({}, {'financialCurrency': None}, RuntimeError('info unavailable')):
             with self.subTest(info=info):
-                yahoo, _ = adapter(info=info)
-                (doc,) = yahoo.collect(MSFT_COMPANY, {}).documents
-                self.assertEqual({fact['currency'] for fact in doc.facts}, {'USD'})
+                result = adapter(info=info)[0].collect(MSFT_COMPANY, {})
+                self.assertEqual((result.documents, result.gaps), ((), ('consensus_currency_unknown',)))
+
+    def test_a_failed_lookup_falls_back_to_the_currency_seen_before(self):
+        for seen, documents, gaps in (({'financialCurrency': 'KRW'}, 0, ('consensus_currency_not_usd',)),
+                                      (USD, 1, ())):
+            with self.subTest(seen=seen):
+                cursor = adapter(info=seen)[0].collect(MSFT_COMPANY, {}).cursor
+                result = adapter(info=RuntimeError('info unavailable'))[0].collect(MSFT_COMPANY, cursor)
+                self.assertEqual((len(result.documents), result.gaps), (documents, gaps))
 
     def test_ticker_construction_failure_is_also_a_gap(self):
         def broken(symbol):

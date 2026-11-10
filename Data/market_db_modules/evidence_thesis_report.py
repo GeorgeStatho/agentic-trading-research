@@ -15,6 +15,7 @@ from .foundation_store import digest
 
 TOP_SHAPE_ERRORS = 5
 DIRECTIONAL_DECISIONS = {"call", "put"}
+PASSING_STATUSES = {"validated", "validated_with_warnings"}
 
 
 def _share(count, total):
@@ -44,10 +45,16 @@ def _load_checks(conn, since, route):
     return checks
 
 
+def _basis_field(record, name):
+    # Records stored before evidence-thesis-v4 carry no evidence basis.
+    return (record.get("evidence_basis") or {}).get(name, "unknown")
+
+
 def _check_summary(checks):
     statuses = Counter(check["status"] for check in checks)
     requested = [check for check in checks if check["status"] != "not_requested"]
     claims = [claim for check in checks for claim in check.get("claims", [])]
+    passing = [check for check in checks if check["status"] in PASSING_STATUSES]
     return {
         "total": len(checks),
         "by_route": _counts(Counter(check["route"] for check in checks)),
@@ -69,6 +76,9 @@ def _check_summary(checks):
                                 if check["status"] == "invalid_output").most_common(TOP_SHAPE_ERRORS),
         "directions": _counts(Counter(check["thesis"]["direction"] for check in checks if check.get("thesis"))),
         "semantic_review": _counts(Counter(check["semantic_review"]["status"] for check in checks)),
+        # Recorded only; whether article-only theses should trade where filing facts exist is decided from these.
+        "evidence_basis": {name: _counts(Counter(_basis_field(check, name) for check in passing))
+                           for name in ("basis", "fact_requirement")},
     }
 
 
@@ -77,9 +87,24 @@ def _mean_outcome(rows):
     return {"closed_trades": len(values), "mean_realized_pnl_pct": sum(values) / len(values) if values else None}
 
 
+def _evidence_bases(conn, evaluation_ids):
+    """Each check's evidence basis, read from its hash-checked record."""
+    ids = sorted(evaluation_ids)
+    rows = conn.execute("SELECT evaluation_id,record_json,record_hash FROM evidence_thesis_checks"
+                        f" WHERE evaluation_id IN ({','.join('?' * len(ids))})", ids).fetchall() if ids else []
+    bases = {}
+    for row in rows:
+        record = json.loads(row["record_json"])
+        if digest(record) != row["record_hash"]:
+            raise ValueError("Corrupt evidence_thesis_checks record hash")
+        bases[row["evaluation_id"]] = _basis_field(record, "basis")
+    return bases
+
+
 def _gate_summary(conn, since):
     # decision_run_at is written by the runner; the window is approximate for naive timestamps.
-    query = ("SELECT history.trade_executed, history.realized_pnl_pct, payload.manager_output_json"
+    query = ("SELECT history.trade_executed, history.realized_pnl_pct, history.strategist_decision,"
+             " payload.manager_output_json"
              " FROM manager_decision_history AS history"
              " LEFT JOIN manager_decision_payloads AS payload ON payload.manager_decision_history_id = history.id")
     rows = conn.execute(query + (" WHERE julianday(decision_run_at)>=julianday(?)" if since else ""),
@@ -100,6 +125,15 @@ def _gate_summary(conn, since):
     executed = [row for row, _, _ in directional if row["trade_executed"]]
     executed_blocked = [row for row, gate, _ in directional if row["trade_executed"] and gate.get("would_allow") is False]
     executed_allowed = [row for row, gate, _ in directional if row["trade_executed"] and gate.get("would_allow") is True]
+    status_by_decision = {}
+    for row, gate, _ in verdicts:
+        counts = status_by_decision.setdefault(row["strategist_decision"] or "unknown", Counter())
+        counts[gate.get("thesis_status") or "unknown"] += 1
+    executed_gates = [(row, gate) for row, gate, _ in directional if row["trade_executed"]]
+    bases = _evidence_bases(conn, {gate["evaluation_id"] for _, gate in executed_gates if gate.get("evaluation_id")})
+    by_basis = {}
+    for row, gate in executed_gates:
+        by_basis.setdefault(bases.get(gate.get("evaluation_id"), "unknown"), []).append(row)
     return {
         "evaluated": len(verdicts),
         "enforcement_modes": _counts(Counter(gate.get("enforcement_mode") for _, gate, _ in verdicts)),
@@ -114,6 +148,10 @@ def _gate_summary(conn, since):
         "executed_while_would_block": len(executed_blocked),
         "descriptive_outcomes": {"would_block": _mean_outcome(executed_blocked),
                                  "would_allow": _mean_outcome(executed_allowed)},
+        "outcomes_by_evidence_basis": {basis: _mean_outcome(rows) for basis, rows in by_basis.items()},
+        # Every verdict, directional or not: the pass rate that matters is the trade candidates'.
+        "thesis_status_by_strategist_decision": {decision: _counts(counts)
+                                                 for decision, counts in status_by_decision.items()},
     }
 
 

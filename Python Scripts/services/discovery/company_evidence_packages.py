@@ -62,7 +62,9 @@ def build_company_package(company, document_ids, at, policy, *, db_path, gaps=()
         gaps.append('document_history_truncated')
     kept = {doc['document_id'] for doc in primary[-MAX_DOCUMENTS:]}
     company_facts = list_company_facts(company['id'], as_of=at, db_path=db_path)
-    consensus = [doc for doc in ordered if doc['document_type'] == 'consensus']
+    # A reporter known to use another currency keeps none of its earlier captures, which were labelled USD.
+    consensus = ([] if 'consensus_currency_not_usd' in gaps
+                 else [doc for doc in ordered if doc['document_type'] == 'consensus'])
     retained_consensus, newest_consensus = _retained_consensus(consensus, company_facts, at)
     kept.update(retained_consensus)
     # The pre-report estimate is kept only as a baseline; its earnings date is no longer upcoming.

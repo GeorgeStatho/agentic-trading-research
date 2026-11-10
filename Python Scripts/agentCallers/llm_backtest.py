@@ -55,8 +55,9 @@ def _parse_args() -> argparse.Namespace:
                              "and give the manager that check instead. Isolates a checker change; not valid with "
                              "--replay-strategist (which re-checks its own thesis).")
     parser.add_argument("--sample", type=int, default=0,
-                        help="Ask the manager again for inputs it already answered, caching this sample separately "
-                             "(default 0: reuse the cached answer). Run 1, 2, ... to measure answer noise.")
+                        help="Ask the manager, and with --replay-strategist the strategist too, again for inputs "
+                             "already answered, caching this sample separately (default 0: reuse the cached answer). "
+                             "Run 1, 2, ... to measure answer noise.")
     parser.add_argument("--score-direction", action="store_true",
                         help="Instead of trading options, score each answer's direction by the stock's return over the "
                              f"next {' and '.join(map(str, HORIZONS))} trading-day closes. Works on decisions before "

@@ -758,6 +758,9 @@ def _metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
         "total_slippage_dollars": round(sum(_number(event.get("slippage_dollars")) for event in filled), 4),
         "max_drawdown_dollars": round(max_drawdown, 4),
         "pricing_source_counts": _pricing_source_counts(filled),
+        # Model-priced trades approximate a contract production never chose; judge them apart from quoted ones.
+        "by_pricing_source": {source: _candidate_metrics([e for e in filled if (e.get("pricing_source") or "unknown") == source])
+                              for source in _pricing_source_counts(filled)},
         "equity_curve": equity_curve,
     }
 

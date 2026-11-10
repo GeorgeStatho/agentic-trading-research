@@ -83,12 +83,12 @@ def _cross_metric(first, second):
             and all(first.get(field) == second.get(field) for field in _CALCULATION_FIELDS if field != "metric"))
 
 
-def _compatible_for_calculation(first, second):
+def _compatible_for_calculation(first, second, *, cross_metric):
     # An estimate and the actual of the quarter it estimated: "revenue beat consensus by X%".
     if consensus_matches_actual(first, second) or consensus_matches_actual(second, first):
         return True
     if _cross_metric(first, second):
-        return True
+        return cross_metric
     if any(first.get(field) != second.get(field) for field in _CALCULATION_FIELDS):
         return False
     # Guidance and actuals are only comparable for the identical fiscal period.
@@ -96,10 +96,20 @@ def _compatible_for_calculation(first, second):
     return len(families) == 1 or first["fiscal_period"] == second["fiscal_period"]
 
 
+def _calculation_inputs(facts):
+    return [fact for fact in facts if fact.get("value") is not None and fact["kind"] != "derived"]
+
+
+def _cross_metric_allowed(inputs):
+    # Only a claim citing exactly the two facts of its ratio: each extra fact multiplies the ratios a guess could hit.
+    return len(inputs) == 2
+
+
 def incompatible_calculation_facts(facts):
-    usable = [fact for fact in facts if fact.get("value") is not None and fact["kind"] != "derived"]
+    usable = _calculation_inputs(facts)
+    cross = _cross_metric_allowed(usable)
     return [(a["fact_id"], b["fact_id"]) for a, b in permutations(usable, 2)
-            if a["fact_id"] < b["fact_id"] and not _compatible_for_calculation(a, b)]
+            if a["fact_id"] < b["fact_id"] and not _compatible_for_calculation(a, b, cross_metric=cross)]
 
 
 class NumberSupport:
@@ -112,8 +122,10 @@ class NumberSupport:
             bucket = self.percents if fact.get("unit") == "percent" else self.amounts
             for value in _fact_values(fact):
                 bucket.append((value, fact.get("scale") or 1))
-        for first, second in permutations([f for f in known if f["kind"] != "derived"], 2):
-            if not _compatible_for_calculation(first, second):
+        inputs = _calculation_inputs(facts)
+        cross = _cross_metric_allowed(inputs)
+        for first, second in permutations(inputs, 2):
+            if not _compatible_for_calculation(first, second, cross_metric=cross):
                 continue
             change = guidance_midpoint(first) - guidance_midpoint(second)
             bucket = self.percents if first.get("unit") == "percent" else self.amounts
