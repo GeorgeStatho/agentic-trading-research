@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from contextlib import closing
 import logging
 import tempfile
 import unittest
@@ -15,6 +16,9 @@ PYTHON_SCRIPTS_DIR = ROOT_DIR / "Python Scripts"
 from services.core.trading_config import OptionPositionSettings  # noqa: E402
 from services.options.option_dte_buckets import OPTION_DTE_BUCKETS  # noqa: E402
 from services.options.position_manager import OptionPositionManagerService  # noqa: E402
+from services.thesis.thesis_capture import PositionThesisJournal  # noqa: E402
+from db_common import get_connection  # noqa: E402
+from tests.db_fixtures import temporary_database  # noqa: E402
 
 
 FRONT_MAIN_SPEC = importlib.util.spec_from_file_location(
@@ -228,6 +232,79 @@ class OptionPositionManagerServiceTests(VerboseTestCase):
         self.assertEqual(update_kwargs["latest_trade_pnl_pct"], -4.25)
         self.assertEqual(update_kwargs["resolved_outcome_label"], "managed_exit_submitted_loss")
         self.log_pass("service stores a terminal managed-exit snapshot before the closed position falls out of later refresh cycles")
+
+
+class PositionThesisLifecycleTests(VerboseTestCase):
+    """A thesis is retired when the broker no longer holds its contract, not when an exit is submitted."""
+
+    HELD = "MSFT260619C00450000"
+
+    def setUp(self):
+        temporary_database(self)
+        for patcher in (patch("services.options.position_manager.update_manager_decision_latest_pnl"),
+                        patch("services.options.position_manager.get_latest_linked_manager_decision_for_option_symbol",
+                              return_value=None),
+                        patch("services.options.position_manager.expire_manager_decision_pnl", return_value=0),
+                        patch("services.options.position_manager.JsonFileWriter.write")):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.paths = SimpleNamespace(
+            option_position_management_output_path=Path(temp_dir.name) / "out.json",
+            option_position_state_path=Path(temp_dir.name) / "state.json",
+        )
+
+    def _add_thesis(self, option_symbol, *, status="open"):
+        with closing(get_connection()) as conn, conn:
+            conn.execute("""INSERT INTO position_theses (symbol, option_symbol, opened_at, status, closed_at)
+                VALUES ('MSFT', ?, '2026-05-01T14:00:00+00:00', ?, ?)""",
+                         (option_symbol, status, "2026-05-20T15:00:00+00:00" if status == "closed" else None))
+
+    def _status(self, option_symbol):
+        with closing(get_connection()) as conn:
+            return [row[0] for row in conn.execute(
+                "SELECT status FROM position_theses WHERE option_symbol=? ORDER BY id", (option_symbol,))]
+
+    def _run(self, positions, flattened=()):
+        result = {"positions": positions, "flattened_symbols": list(flattened), "position_count": len(positions)}
+        service = OptionPositionManagerService(
+            settings=_build_position_manager_settings(_build_bucket_giveback_fixture()),
+            paths=self.paths, trading_gateway=MagicMock(), trade_journal=MagicMock(),
+            thesis_journal=PositionThesisJournal(), logger=MagicMock(spec=logging.Logger))
+        with patch("trading_support.option_positions.ManageCurrentOptionPositions", MagicMock(return_value=result)):
+            service.run_cycle(trading_client=object())
+
+    def test_a_partial_scale_out_keeps_the_thesis_open(self):
+        self._add_thesis(self.HELD)
+        self._run([{"symbol": self.HELD, "close_submitted": True, "exit_action": "sell_partial"}])
+        self.assertEqual(["open"], self._status(self.HELD))
+
+    def test_a_submitted_full_exit_that_has_not_flattened_keeps_the_thesis_open(self):
+        self._add_thesis(self.HELD)
+        self._run([{"symbol": self.HELD, "close_submitted": True, "exit_action": "sell_full"}])
+        self.assertEqual(["open"], self._status(self.HELD))
+
+    def test_a_contract_no_longer_held_closes_its_thesis(self):
+        self._add_thesis(self.HELD)
+        self._run([], flattened=[self.HELD])
+        self.assertEqual(["closed"], self._status(self.HELD))
+
+    def test_a_contract_never_seen_held_keeps_its_thesis_open(self):
+        self._add_thesis(self.HELD)
+        self._run([])
+        self.assertEqual(["open"], self._status(self.HELD))
+
+    def test_a_held_contract_whose_thesis_was_retired_early_is_reopened(self):
+        self._add_thesis(self.HELD, status="closed")
+        self._run([{"symbol": self.HELD, "close_submitted": False}])
+        self.assertEqual(["open"], self._status(self.HELD))
+
+    def test_a_held_contract_with_an_open_thesis_reopens_nothing_else(self):
+        self._add_thesis(self.HELD, status="closed")
+        self._add_thesis(self.HELD)
+        self._run([{"symbol": self.HELD, "close_submitted": False}])
+        self.assertEqual(["closed", "open"], self._status(self.HELD))
 
 
 if __name__ == "__main__":

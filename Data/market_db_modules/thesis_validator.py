@@ -189,6 +189,35 @@ def close_position_thesis(
     return int(cursor.rowcount or 0) > 0
 
 
+def reopen_position_thesis(
+    option_symbol: str,
+    *,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> bool:
+    """Reopen the latest thesis of a contract still held, unless one is already open."""
+    normalized_symbol = clean_text(option_symbol)
+    if normalized_symbol is None:
+        return False
+
+    if conn is None:
+        initialize_database(db_path=db_path)
+        with closing(get_connection(db_path)) as local_conn, local_conn:
+            return reopen_position_thesis(normalized_symbol, conn=local_conn)
+
+    cursor = conn.execute(
+        """
+        UPDATE position_theses
+        SET status = 'open', closed_at = NULL
+        WHERE id = (SELECT MAX(id) FROM position_theses WHERE option_symbol = ?)
+        AND status = 'closed'
+        AND NOT EXISTS (SELECT 1 FROM position_theses WHERE option_symbol = ? AND status = 'open')
+        """,
+        (normalized_symbol.upper(), normalized_symbol.upper()),
+    )
+    return int(cursor.rowcount or 0) > 0
+
+
 def record_thesis_validation_run(
     run: dict[str, Any],
     *,
