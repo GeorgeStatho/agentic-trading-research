@@ -34,8 +34,20 @@ def _size(filing):
     return safe_int(filing.get('size'))
 
 
+# Attachment types that are images or archives; _read_filing never reads them.
+BINARY_TYPES = {'GRAPHIC', 'ZIP', 'PDF', 'EXCEL', 'XLSX'}
+_IN_DOCUMENT = r'(?:(?!</DOCUMENT>).)*?'
+_DOCUMENT = re.compile(rf'(<DOCUMENT>{_IN_DOCUMENT}<TYPE>([^\r\n<]+){_IN_DOCUMENT}<TEXT>)({_IN_DOCUMENT})(</TEXT>)',
+                       re.S | re.I)
+
+
+def _joined_text(parts):
+    # _release_start's offsets count on exactly this join.
+    return '\n'.join(text for _, text in parts)
+
+
 def _release_start(parts):
-    """Offset of the first EX-99 text in '\\n'.join of the parts' texts, or None."""
+    """Offset of the first EX-99 text in _joined_text(parts), or None."""
     offset = 0
     for kind, text in parts:
         if kind.upper().startswith('EX-99'):
@@ -54,11 +66,6 @@ def _is_release(filing):
 def _with_release_start(metadata, filing, parts):
     start = _release_start(parts) if _is_release(filing) else None
     return {**metadata, 'release_start': start} if start is not None else metadata
-# Attachment types that are images or archives; _read_filing never reads them.
-BINARY_TYPES = {'GRAPHIC', 'ZIP', 'PDF', 'EXCEL', 'XLSX'}
-_IN_DOCUMENT = r'(?:(?!</DOCUMENT>).)*?'
-_DOCUMENT = re.compile(rf'(<DOCUMENT>{_IN_DOCUMENT}<TYPE>([^\r\n<]+){_IN_DOCUMENT}<TEXT>)({_IN_DOCUMENT})(</TEXT>)',
-                       re.S | re.I)
 
 
 def strip_binary_attachments(raw):
@@ -139,7 +146,8 @@ class SECAdapter:
             rows.append(row)
         window = rows[:self.policy.filings_per_company]
         # A run of 8-Ks must not push the latest quarterly or annual report, and its actuals, out of the window.
-        periodic = next((row for row in rows if row['form'] in PERIODIC_FORMS), None)
+        # An amendment (a Part III 10-K/A) usually carries no quarter's actuals, so it never takes that place.
+        periodic = next((row for row in rows if row['form'] in PERIODIC_FORMS and not row['form'].endswith('/A')), None)
         if periodic is not None and periodic not in window:
             window.append(periodic)
         return window
@@ -171,7 +179,7 @@ class SECAdapter:
         url = f'{self._folder(company, filing)}/{accession}.txt'
         response = self.http.get(url, ttl_seconds=self.policy.refresh_seconds, compact=self.compact_filing)
         parts = self._read_parts(response['body'])
-        text = '\n'.join(part for _, part in parts) if parts else release_text(response['body'])
+        text = _joined_text(parts) if parts else release_text(response['body'])
         # Complete submissions can contain other registrants. The SEC header must agree.
         header_cik = re.search(r'CENTRAL INDEX KEY:\s*(\d+)', response['body'])
         if header_cik and header_cik[1].zfill(10) != company['cik']:
@@ -199,7 +207,7 @@ class SECAdapter:
         metadata = _with_release_start({**self._metadata(company, filing), 'raw_response_id': response['response_id'],
                                         'source_scope': 'primary_document', 'exhibit_response_ids': exhibit_ids},
                                        filing, parts)
-        text = '\n'.join(part for _, part in parts)
+        text = _joined_text(parts)
         return self._text_document(company, filing, url, text, response['observed_at'], metadata)
 
     def _exhibit_names(self, folder, filing, primary):
@@ -238,8 +246,10 @@ class SECAdapter:
         normalized, facts = normalize_company_facts(json.loads(facts_response['body']), company['cik'], {accession})
         if not facts:
             return None
-        metadata = {**(text_document.metadata if text_document else self._metadata(company, filing)),
-                    'raw_response_id': facts_response['response_id']}
+        # The facts document's text is companyfacts JSON, so the release offset into the filing text does not apply.
+        source = text_document.metadata if text_document else self._metadata(company, filing)
+        metadata = {key: value for key, value in source.items() if key != 'release_start'}
+        metadata['raw_response_id'] = facts_response['response_id']
         publication = (text_document.published_at if text_document
                        else self._publication(filing, facts_response['observed_at']))
         return SourceDocument(self.name, facts_response['url'], company['name'], 'xbrl_facts', normalized,
@@ -266,4 +276,4 @@ class SECAdapter:
 
     def _read_filing(self, raw):
         parts = self._read_parts(raw)
-        return '\n'.join(text for _, text in parts) if parts else release_text(raw)
+        return _joined_text(parts) if parts else release_text(raw)

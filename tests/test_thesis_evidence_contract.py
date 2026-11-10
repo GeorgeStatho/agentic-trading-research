@@ -13,10 +13,13 @@ import unittest
 from unittest.mock import patch
 
 from tests.research_foundation_fixtures import database, ENTRY, START
-from tests.test_company_evidence import COMPANY, actuals, guidance
+from tests.test_company_evidence import COMPANY, actuals, guidance, release_8k
 from tests.test_yahoo_consensus import consensus_doc
 from Webscraping.company_evidence.models import SourceDocument
 from agent_builders.company_evidence_payload import build_company_evidence_payload
+from agent_stages.evidence_thesis_contract import THESIS_INSTRUCTIONS
+from agent_stages.research_thesis_writer import PROMPT_VERSION as RESEARCH_THESIS_PROMPT_VERSION
+from agent_stages.strategist_runner import LEGACY_STRATEGIST_PROMPT_VERSION, STRATEGIST_PROMPT_VERSION
 from agent_stages.manager_strategist_context import _build_manager_visible_strategist_context
 from db_common import get_connection
 from market_db_modules.evidence_thesis import get_evidence_thesis
@@ -28,7 +31,9 @@ from services.thesis.evidence_thesis import (
     check_evidence_thesis, compact_thesis_check, evaluate_evidence_thesis_gate, not_requested_check,
     persist_thesis_check,
 )
-from services.thesis.evidence_thesis_checks import _expectation_failures, _surprise_claimed_without_consensus
+from services.thesis.evidence_thesis_checks import (
+    ThesisSources, _expectation_failures, _surprise_claimed_without_consensus, evidence_basis,
+)
 from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
 from services.trading.order_candidates import OrderCandidateBuilder
 
@@ -224,7 +229,6 @@ class EvidenceBasisTests(ThesisFixture):
     RELEASE = "Fixture reported record data center demand in the quarter."
 
     def release_payload(self):
-        from tests.test_company_evidence import release_8k
         payload = self.payload(guidance(80, 90, kind="prior"), guidance(100, 110), actuals(1234000000),
                                release_8k("0001045810-26-000202", START, self.RELEASE))
         release = next(d["document_id"] for d in payload["company_evidence"]["documents"]
@@ -240,6 +244,18 @@ class EvidenceBasisTests(ThesisFixture):
                              change_vs_prior_expectations=self.NO_BASELINE)
         self.assertEqual(self.basis(thesis, payload), (
             "validated", {"basis": "primary_document", "filing_facts_available": True, "fact_requirement": "met"}))
+
+    def test_only_a_filing_or_issuer_release_quote_is_primary_document_backing(self):
+        # 2026-11-10 review: Yahoo's consensus capture and the companyfacts JSON are package documents, not primary ones.
+        for document_type, expected in (("regulatory_filing", "primary_document"), ("issuer_release", "primary_document"),
+                                        ("consensus", "articles_only"), ("xbrl_facts", "articles_only")):
+            with self.subTest(document_type):
+                quoted = {"claim_id": "S1", "central": True, "claim_type": "observed_fact", "fact_ids": [],
+                          "document_ids": ["document:x"]}
+                result = {"status": "verified", "spans": [{"source_id": "document:x"}]}
+                sources = ThesisSources(company_id=1, documents={"document:x": {"document_type": document_type}})
+                self.assertEqual(evidence_basis({"supporting_claims": [quoted]}, {"S1": result}, sources)["basis"],
+                                 expected)
 
     def test_a_fact_backed_thesis_quoting_a_release_is_still_fact_backed(self):
         payload, quoted = self.release_payload()
@@ -301,12 +317,11 @@ class FiscalPeriodInstructionTests(unittest.TestCase):
             self.assertEqual(bool(example["fiscal_period"]), bool(example["fact_ids"]))
 
     def test_the_prompt_says_how_to_quote_a_release_excerpt(self):
-        from agent_stages.evidence_thesis_contract import THESIS_INSTRUCTIONS
-        from agent_stages.research_thesis_writer import PROMPT_VERSION
-        from agent_stages.strategist_runner import STRATEGIST_PROMPT_VERSION
         self.assertIn("release_excerpt", THESIS_INSTRUCTIONS)
-        self.assertEqual((STRATEGIST_PROMPT_VERSION, PROMPT_VERSION),
-                         ("grounded-strategist-v10-release-excerpt", "research-thesis-v3"))
+        self.assertIn("in document_ids. Copy quotes", THESIS_INSTRUCTIONS)
+        self.assertEqual((STRATEGIST_PROMPT_VERSION, LEGACY_STRATEGIST_PROMPT_VERSION, RESEARCH_THESIS_PROMPT_VERSION),
+                         ("grounded-strategist-v10-release-excerpt", "grounded-strategist-v4-compact-evidence",
+                          "research-thesis-v3"))
 
     def test_the_checker_verifies_a_period_only_against_cited_facts(self):
         from services.thesis.evidence_thesis_checks import ThesisSources, check_claim

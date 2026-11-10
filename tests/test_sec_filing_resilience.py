@@ -13,6 +13,7 @@ from tests.research_foundation_fixtures import database, START, ENTRY
 from tests.test_company_evidence import ACCESSION, COMPANY, guidance
 from services.discovery.company_evidence_policy import CompanyEvidencePolicy
 from services.discovery.company_evidence_service import collect_company
+from Webscraping.company_evidence.releases import release_text
 from Webscraping.company_evidence.sec import SECAdapter
 from Webscraping.company_evidence.transport import ProviderUnavailable
 
@@ -103,7 +104,9 @@ def index_page(accession, documents, data_files=()):
             '</div></div></body></html>')
 
 
-class OversizeFilingTests(unittest.TestCase):
+class SECCollection:
+    """Collect from a FakeSEC with the default policy; shared by the tests that read 8-K exhibits."""
+
     def setUp(self):
         self.policy = CompanyEvidencePolicy()
         self.cap = self.policy.max_response_bytes
@@ -120,6 +123,9 @@ class OversizeFilingTests(unittest.TestCase):
 
     def filings_of(self, result, document_type):
         return [document for document in result.documents if document.document_type == document_type]
+
+
+class OversizeFilingTests(SECCollection, unittest.TestCase):
 
     def test_oversize_8k_reads_primary_document_and_ex99_instead_of_full_submission(self):
         release = guidance().text
@@ -238,16 +244,21 @@ class FilingWindowTests(unittest.TestCase):
         read = self.accessions_read(filings)
         self.assertEqual(len([a for kind, a in read if kind == 'regulatory_filing']), 3)
 
+    def test_a_newer_amendment_does_not_take_the_periodic_reports_place(self):
+        # 2026-11-10 review: a Part III 10-K/A carries no quarter's actuals, so it must not stand in for the 10-Q.
+        amendment = '0001045810-26-000200'
+        filings = ([filing(eight_k_accession(n), '8-K') for n in range(4)] + [filing(amendment, '10-K/A')]
+                   + [filing(ACCESSION, '10-Q')])
+        self.assertIn(('regulatory_filing', ACCESSION), self.accessions_read(filings))
 
-class ReleaseStartTests(unittest.TestCase):
+
+class ReleaseStartTests(SECCollection, unittest.TestCase):
     """An 8-K's own cover text comes first; the strategist is shown the earnings release that follows it."""
 
     def test_a_primary_document_8k_records_where_its_exhibit_starts(self):
-        tests = OversizeFilingTests()
-        tests.setUp()
-        _, result = tests.collect_8k([('nvda-8k.htm', '8-K', 4000), ('a3q26earningspr.htm', 'EX-99.1', 9000)],
-                                     {f'{folder(ACCESSION)}/a3q26earningspr.htm': '<p>Third quarter release.</p>'})
-        [document] = tests.filings_of(result, 'regulatory_filing')
+        _, result = self.collect_8k([('nvda-8k.htm', '8-K', 4000), ('a3q26earningspr.htm', 'EX-99.1', 9000)],
+                                    {f'{folder(ACCESSION)}/a3q26earningspr.htm': '<p>Third quarter release.</p>'})
+        [document] = self.filings_of(result, 'regulatory_filing')
         self.assertTrue(document.text[document.metadata['release_start']:].startswith('Third quarter release.'))
 
     def test_a_full_submission_8k_records_where_its_first_ex99_starts(self):
@@ -259,9 +270,28 @@ class ReleaseStartTests(unittest.TestCase):
         [document] = [d for d in result.documents if d.document_type == 'regulatory_filing']
         self.assertTrue(document.text[document.metadata['release_start']:].startswith('Fixture reports record revenue.'))
 
+    def test_a_6k_records_where_its_first_ex99_starts(self):
+        # Foreign issuers furnish results on 6-K, which lists no items.
+        body = ('CENTRAL INDEX KEY: 0001045810\n<DOCUMENT><TYPE>6-K\n<TEXT><p>Report of foreign issuer.</p></TEXT>'
+                '</DOCUMENT>\n<DOCUMENT><TYPE>EX-99.1\n<TEXT><p>Fixture reports record revenue.</p></TEXT></DOCUMENT>')
+        _, result = self.collect([filing(ACCESSION, '6-K')], {full_submission(ACCESSION): body})
+        [document] = self.filings_of(result, 'regulatory_filing')
+        self.assertTrue(document.text[document.metadata['release_start']:].startswith('Fixture reports record revenue.'))
+
+    def test_the_xbrl_facts_document_of_a_release_has_no_release_start(self):
+        # Its text is companyfacts JSON, so an offset into the release text would cut the excerpt from the JSON.
+        body = ('CENTRAL INDEX KEY: 0001045810\n<DOCUMENT><TYPE>8-K\n<TEXT><p>Item 2.02.</p></TEXT></DOCUMENT>\n'
+                '<DOCUMENT><TYPE>EX-99.1\n<TEXT><p>Fixture reports record revenue.</p></TEXT></DOCUMENT>')
+        _, result = self.collect([filing(ACCESSION, '8-K')], {full_submission(ACCESSION): body})
+        [facts] = self.filings_of(result, 'xbrl_facts')
+        self.assertNotIn('release_start', facts.metadata)
+
+    def test_a_tag_hidden_inside_another_keeps_the_outer_one_hidden(self):
+        html = '<ix:header><script>var x;</script>P2Y</ix:header><p>Revenue increased 26%.</p>'
+        self.assertEqual(release_text(html), 'Revenue increased 26%.')
+
     def test_the_hidden_inline_xbrl_header_is_not_release_text(self):
         # MSFT's 10-28 EX-99.1: 6 MB of hidden ix:header values (P2Y, fasb.org URIs) opened the excerpt.
-        from Webscraping.company_evidence.releases import release_text
         html = ('<div style="display:none"><ix:header><ix:hidden><ix:nonNumeric name="us-gaap:UsefulLife">P2Y'
                 '</ix:nonNumeric></ix:hidden><ix:resources>http://fasb.org/us-gaap/2025#DerivativeAssets'
                 '</ix:resources></ix:header></div><p>Microsoft Cloud revenue increased 26%.</p>')

@@ -22,7 +22,8 @@ from news_db_modules.processing import (
 )
 from news_db_modules.provenance import backfill_news_provenance
 import agent_helpers.strategist_evidence as evidence
-from agent_helpers import opportunist_support
+from agent_helpers import industry_opportunist as industry, macro_news as macro, opportunist_support
+from agent_helpers import sector_opportunist as sector
 from agent_helpers.opportunist_support import CURRENT_OPPORTUNIST_SCHEMA_VERSION, filter_unprocessed_articles
 
 PROCESSING = "company_opportunist_article_processing"
@@ -211,17 +212,14 @@ class SharedBuilderDedupTests(StoryDatabase):
                          ([other], "story-duplicate"))
 
     def test_sector_batch_marks_copies_of_analyzed_stories(self):
-        import agent_helpers.sector_opportunist as sector
         self.opportunist_batch(sector, sector.build_sector_opportunist_articles, "sector_opportunist_article_processing")
 
     def test_industry_batch_marks_copies_of_analyzed_stories(self):
-        import agent_helpers.industry_opportunist as industry
         self.opportunist_batch(industry, industry.build_industry_opportunist_articles,
                                "industry_opportunist_article_processing",
                                get_sector_industry_reference=lambda identifier: ({}, []))
 
     def test_macro_batch_marks_copies_of_analyzed_stories(self):
-        import agent_helpers.macro_news as macro
         now = datetime.now(timezone.utc).replace(hour=10, minute=0, second=0, microsecond=0)
         table = "us_news_article_processing"
         first, repost, other = self.analyzed_story_with_repost(table, now.isoformat())

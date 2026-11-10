@@ -20,6 +20,7 @@ from services.options.option_pricing import (CalibratedOption, black_scholes_pri
                                      option_side)
 from services.core.time_utils import parse_timestamp
 from services.core.numbers import safe_float
+from services.discovery.company_evidence_extraction import report_date
 
 
 SNAPSHOT_VERSION = "decision-evidence-snapshot-v1"
@@ -588,19 +589,14 @@ def _earnings_dates(conn: sqlite3.Connection, symbol: str) -> set[date]:
         return set()
     rows = conn.execute(
         """
-        SELECT DISTINCT substr(json_extract(f.record_json, '$.fiscal_period'), 13)
+        SELECT DISTINCT json_extract(f.record_json, '$.fiscal_period')
         FROM company_facts AS f JOIN companies AS c ON c.id = json_extract(f.record_json, '$.company_id')
         WHERE UPPER(c.symbol) = ? AND json_extract(f.record_json, '$.kind') = 'consensus'
-          AND json_extract(f.record_json, '$.fiscal_period') LIKE 'next_report:%'
         """,
         (symbol,),
     ).fetchall()
-    dates = set()
-    for (day,) in rows:
-        try:
-            dates.add(date.fromisoformat(day))
-        except (TypeError, ValueError):
-            continue
+    dates = {report_date({"fiscal_period": period}) for (period,) in rows}
+    dates.discard(None)
     return dates
 
 
@@ -613,7 +609,8 @@ def _constant_iv_across_earnings(conn: sqlite3.Connection, symbol: str, as_of: d
     if not marks:
         return False
     first, last = as_of.astimezone(MARKET_TIMEZONE).date(), marks[-1][0].date()
-    return any(not any(day >= report for day in observed_at)
+    latest_observed = max(observed_at, default=None)
+    return any(latest_observed is None or latest_observed < report
                for report in _earnings_dates(conn, symbol) if first <= report <= last)
 
 
@@ -675,7 +672,9 @@ def _simulate_modelled_event(
     )
     exit_at = parse_timestamp(event.get("exit_at")) if event.get("status") == "simulated_closed" else None
     held = [mark for mark in marks if exit_at is not None and mark[0] <= exit_at]
-    if _constant_iv_across_earnings(conn, base_event["symbol"], as_of, held, observed_on):
+    # Volatility read after the exit priced no held mark.
+    observed_while_held = {day for day in observed_on if exit_at is not None and day <= exit_at.date()}
+    if _constant_iv_across_earnings(conn, base_event["symbol"], as_of, held, observed_while_held):
         # Flag only: the price is not corrected.
         event = {**event, "warnings": [*(event.get("warnings") or []), CONSTANT_IV_ACROSS_EARNINGS]}
     return {**event, "entry_implied_volatility": round(option.volatility, 6), "observed_iv_day_count": observed_days}

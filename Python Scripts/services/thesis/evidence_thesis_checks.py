@@ -24,6 +24,8 @@ _MARKET_SURPRISE = re.compile(
     r"\b(?:estimates?|consensus|expectations|forecasts?)\b"
     r"|\b(?:positive|negative|upside|downside|earnings|revenue) surprises?\b", re.IGNORECASE)
 _CONTENT_CHECKED_TYPES = {"observed_fact", "calculation"}
+# Filings and issuers' own releases. Yahoo consensus and the companyfacts JSON are package documents too, but not primary.
+PRIMARY_DOCUMENT_TYPES = frozenset({"regulatory_filing", "issuer_release"})
 
 
 @dataclass
@@ -267,6 +269,7 @@ def evidence_basis(thesis, results_by_id, sources):
                and claim["claim_type"] in _CONTENT_CHECKED_TYPES and results_by_id[claim["claim_id"]]["status"] == "verified"]
     fact_backed = any(claim["fact_ids"] for claim in central)
     document_backed = any(span["source_id"] in claim["document_ids"]
+                          and (sources.documents.get(span["source_id"]) or {}).get("document_type") in PRIMARY_DOCUMENT_TYPES
                           for claim in central for span in results_by_id[claim["claim_id"]]["spans"])
     if fact_backed:
         basis = "facts"

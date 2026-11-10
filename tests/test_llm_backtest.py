@@ -22,9 +22,11 @@ from market_db_modules.backtesting import run_decision_backtest
 from market_db_modules.candidate_lifecycle import record_candidate_snapshot
 from services.evaluation import llm_backtest
 from services.core.trading_config import WorkerSettings
+from services.discovery.company_evidence_extraction import ingest_source
 from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
 from services.evaluation.llm_backtest import ModelUnavailable, ProductionRules, run_llm_backtest
 from services.trading.order_candidates import OrderCandidateBuilder
+from tests.test_yahoo_consensus import consensus_doc
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "Data"
 DECISION_AT = "2026-03-02T15:00:00+00:00"
@@ -97,8 +99,6 @@ class ModelPricingTests(DatabaseFixture):
 
     def label_earnings(self, day: str) -> None:
         """A stored Yahoo consensus labelled with an earnings date, as production collects it."""
-        from services.discovery.company_evidence_extraction import ingest_source
-        from tests.test_yahoo_consensus import consensus_doc
         company_id = add_company(add_industry(add_sector("technology", "Technology", db_path=self.db_path), "software",
                                               "Software", db_path=self.db_path), "MSFT", "Microsoft", db_path=self.db_path)
         ingest_source({"id": company_id, "symbol": "MSFT", "cik": "0000789019"},
@@ -124,6 +124,16 @@ class ModelPricingTests(DatabaseFixture):
         record_historical_option_quote({"option_symbol": "MSFT260417C00420000", "quote_at": "2026-03-03T20:00:00+00:00",
                                         "bid": 25.0, "ask": 25.6}, provider="fixture", db_path=self.db_path)
         self.assertNotIn("constant_iv_across_earnings", self.backtest()["warnings"])
+
+    def test_volatility_observed_only_after_the_exit_is_still_flagged(self) -> None:
+        # 2026-11-10 review: the held marks ended at the report-day exit; a quote the next day priced none of them.
+        self.add_closes(("2026-03-03", 440.0), ("2026-03-04", 445.0))
+        self.label_earnings("2026-03-03")
+        record_historical_option_quote({"option_symbol": "MSFT260417C00420000", "quote_at": "2026-03-04T20:00:00+00:00",
+                                        "bid": 29.0, "ask": 29.6}, provider="fixture", db_path=self.db_path)
+        event = self.backtest()
+        self.assertTrue(event["exit_at"].startswith("2026-03-03"), event["exit_at"])
+        self.assertIn("constant_iv_across_earnings", event["warnings"])
 
     def test_no_earnings_inside_the_hold_is_not_flagged(self) -> None:
         self.add_closes(("2026-03-03", 440.0))

@@ -10,7 +10,8 @@ EXTRACTION_VERSION = 'sec-standard-facts-v2'
 REVENUE_TAGS = ('Revenues', 'RevenuesNetOfInterestExpense', 'SalesRevenueNet',
                 'RevenueFromContractWithCustomerExcludingAssessedTax',
                 'RevenueFromContractWithCustomerIncludingAssessedTax')
-CONTRACT_REVENUE_TAGS = REVENUE_TAGS[3:]
+CONTRACT_REVENUE_TAGS = ('RevenueFromContractWithCustomerExcludingAssessedTax',
+                         'RevenueFromContractWithCustomerIncludingAssessedTax')
 # Read only to recognise a bank's fee income; never stored as a fact.
 NET_INTEREST_INCOME_TAG = 'InterestIncomeExpenseNet'
 TAGS = {
