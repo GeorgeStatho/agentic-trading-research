@@ -23,12 +23,15 @@ if __name__ == "__main__":
     load_process_settings()
 
 from db_common import database_path  # noqa: E402
-from market_db_modules.backtesting import simulate_backtest_metrics  # noqa: E402
+from market_db_modules.backtesting import EXIT_POLICIES, simulate_backtest_metrics  # noqa: E402
 
 
 SWEEPABLE_SETTINGS = (
     "take_profit_pct",
     "stop_loss_pct",
+    "trailing_trigger_pct",
+    "trailing_floor_pct",
+    "trailing_giveback_pct",
     "max_hold_hours",
     "max_entry_delay_minutes",
     "max_spread_pct",
@@ -41,12 +44,14 @@ SWEEPABLE_SETTINGS = (
     "exit_slippage_bps",
     "commission_per_contract",
 )
+# Under production exits a fixed take-profit is unused while trailing is on, so the default grid tunes the trailing stop.
 DEFAULT_GRID: dict[str, list[float]] = {
-    "take_profit_pct": [25.0, 50.0, 75.0, 100.0],
-    "stop_loss_pct": [-25.0, -40.0, -50.0, -70.0],
-    # Whole days, because the stored option quotes are end-of-day closes.
-    "max_hold_hours": [48.0, 120.0, 168.0, 336.0],
+    "stop_loss_pct": [-25.0, -35.0, -45.0],
+    "trailing_trigger_pct": [20.0, 30.0, 50.0],
+    "trailing_giveback_pct": [15.0, 30.0, 45.0],
+    "max_hold_hours": [120.0, 168.0, 336.0],
 }
+DECISION_SETS = {"proposed": None, "executed": True, "blocked": False}
 RANK_METRICS = ("total_pnl_dollars", "expectancy_pct", "median_pnl_pct", "profit_factor_like", "win_rate_pct")
 REPORTED_METRICS = (
     "filled_count",
@@ -212,6 +217,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--min-fills", type=int, default=30, help="Leave out configurations with fewer tuning fills.")
     parser.add_argument("--top", type=int, default=10, help="How many of the best configurations to validate and print.")
     parser.add_argument("--csv", type=Path, help="Write every configuration's metrics to this CSV file.")
+    parser.add_argument("--exit-policy", choices=EXIT_POLICIES, default="production",
+                        help="production: the option manager's exit rules; static: fixed take-profit / stop-loss only.")
+    parser.add_argument("--decisions", choices=tuple(DECISION_SETS), default="proposed",
+                        help="Every call or put the manager proposed, only those traded, or only those blocked.")
     return parser.parse_args()
 
 
@@ -224,9 +233,8 @@ def main() -> int:
     grid = dict(args.setting) if args.setting else DEFAULT_GRID
 
     def evaluate(config: dict[str, float], start_at: str | None, end_at: str | None) -> dict[str, Any]:
-        # The grid tunes fixed take-profit / stop-loss levels, which production's trailing exits ignore.
-        return simulate_backtest_metrics(config={**config, "exit_policy": "static"}, start_at=start_at, end_at=end_at,
-                                         db_path=args.db)
+        return simulate_backtest_metrics(config={**config, "exit_policy": args.exit_policy}, start_at=start_at,
+                                         end_at=end_at, trade_executed=DECISION_SETS[args.decisions], db_path=args.db)
 
     def report_progress(done: int, total: int) -> None:
         print(f"\rsimulated {done}/{total} configurations", end="" if done < total else "\n", file=sys.stderr)

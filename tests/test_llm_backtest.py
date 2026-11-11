@@ -149,6 +149,15 @@ class ModelPricingTests(DatabaseFixture):
         self.assertIn("trailing_profit_stop_exit", event["warnings"])
         self.assertGreater(event["realized_pnl_pct"], 15)
 
+    def test_a_configured_trailing_giveback_replaces_the_rule(self) -> None:
+        # Peak about +141% at 420; the rule's 30-point giveback holds at 419, a 5-point one does not.
+        self.add_hourly(("2026-03-03T14:30:00+00:00", 410.0), ("2026-03-03T15:30:00+00:00", 420.0),
+                        ("2026-03-03T16:30:00+00:00", 419.0), ("2026-03-03T17:30:00+00:00", 411.0))
+        exits = [datetime.fromisoformat(self.backtest(config=config)["exit_at"])
+                 for config in (None, {"trailing_giveback_pct": 5.0})]
+        self.assertEqual(exits, [datetime.fromisoformat("2026-03-03T18:30:00+00:00"),
+                                 datetime.fromisoformat("2026-03-03T17:30:00+00:00")])
+
     def test_static_policy_keeps_the_fixed_take_profit(self) -> None:
         self.add_closes(("2026-03-03", 440.0))
         self.assertIn("take_profit_exit", self.backtest(config={"exit_policy": "static"})["warnings"])

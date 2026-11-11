@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable
 import unittest
 
-from backtest_sweep import SweepWindows, run_sweep
+from backtest_sweep import SweepWindows, parse_setting, run_sweep
 
 
 def _fake_evaluate(calls: list[tuple]) -> Callable[..., dict[str, Any]]:
@@ -18,6 +18,12 @@ class SweepWindowsTests(unittest.TestCase):
     def test_tuning_ends_before_the_validation_window_starts(self) -> None:
         windows = SweepWindows(split_at="2026-09-01T00:00:00+00:00")
         self.assertEqual(windows.tuning(), (None, "2026-08-31T23:59:59.999999+00:00"))
+
+
+class ParseSettingTests(unittest.TestCase):
+    def test_production_trailing_settings_can_be_swept(self) -> None:
+        for name in ("trailing_trigger_pct", "trailing_floor_pct", "trailing_giveback_pct"):
+            self.assertEqual(parse_setting(f"{name}=20,30"), (name, [20.0, 30.0]))
 
 
 class RunSweepTests(unittest.TestCase):

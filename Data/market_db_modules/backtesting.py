@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+from dataclasses import replace
 import hashlib
 import json
 import math
@@ -22,6 +23,8 @@ from services.core.time_utils import parse_timestamp
 from services.core.numbers import safe_float
 from services.discovery.analyst_consensus import report_date
 from services.core.trading_config import OptionPositionSettings
+from agent_helpers.deterministic_option_selector.market import _get_reference_stock_price
+from services.options.option_dte_buckets import OPTION_DTE_BUCKETS
 from trading_support.backtest_exits import daily_atr_pct, production_exit, rule_thresholds
 
 
@@ -33,6 +36,7 @@ OCC_SYMBOL = re.compile(r"^([A-Z.]+?)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$")
 MODELLED_QUOTE_PROVIDER = "frozen_decision_chain"
 CONSTANT_IV_ACROSS_EARNINGS = "constant_iv_across_earnings"
 EXIT_POLICIES = ("production", "static")
+TRAILING_OVERRIDES = {"trailing_trigger_pct": "protection_trigger_pct", "trailing_floor_pct": "initial_floor_pct"}
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
 MARKET_CLOSE = time(16)
 SECONDS_PER_DAY = 86400
@@ -53,6 +57,11 @@ DEFAULT_BACKTEST_CONFIG: dict[str, Any] = {
     # None: production's rule for the contract's DTE at entry; a number replaces it, under either exit policy.
     "take_profit_pct": None,
     "stop_loss_pct": None,
+    # None: production's trailing settings from .env. Percent of the entry price, like the levels above:
+    # the gain that turns profit protection on, the floor it starts at, and the giveback from the peak (every DTE).
+    "trailing_trigger_pct": None,
+    "trailing_floor_pct": None,
+    "trailing_giveback_pct": None,
     # production: the option manager's own exit rules; static: exit at the take-profit / stop-loss only.
     "exit_policy": "production",
     "max_concurrent_positions": 5,
@@ -338,7 +347,7 @@ def _merged_config(config: dict[str, Any] | None) -> dict[str, Any]:
                 merged[key] = config[key]
     for key in ("entry_slippage_bps", "exit_slippage_bps", "commission_per_contract", "max_spread_pct", "min_volume", "max_total_entry_notional", "max_sector_notional_pct", "daily_loss_limit_dollars", "risk_free_rate"):
         merged[key] = _number(merged[key])
-    for key in ("take_profit_pct", "stop_loss_pct"):
+    for key in ("take_profit_pct", "stop_loss_pct", "trailing_trigger_pct", "trailing_floor_pct", "trailing_giveback_pct"):
         merged[key] = safe_float(merged[key])
     for key in ("option_multiplier", "default_order_qty", "max_entry_delay_minutes", "max_hold_hours", "max_concurrent_positions"):
         merged[key] = max(1, int(_number(merged[key], 1)))
@@ -423,8 +432,18 @@ def _first_exit(
     return exit_mark, []
 
 
+def _exit_settings(config: dict[str, Any]) -> OptionPositionSettings:
+    """Production's exit settings with any trailing setting the config gives in its place."""
+    settings = OptionPositionSettings.from_env()
+    trailing = {field: config[key] / 100 for key, field in TRAILING_OVERRIDES.items() if config[key] is not None}
+    if config["trailing_giveback_pct"] is not None:
+        trailing["giveback_pct_by_bucket_key"] = {bucket.key: config["trailing_giveback_pct"] / 100
+                                                  for bucket in OPTION_DTE_BUCKETS}
+    return replace(settings, trailing=replace(settings.trailing, **trailing)) if trailing else settings
+
+
 def _position_terms(conn: sqlite3.Connection, option_symbol: str, as_of: datetime,
-                    entry_spot: float | None) -> dict[str, Any] | None:
+                    entry_spot: float | None, config: dict[str, Any]) -> dict[str, Any] | None:
     """What production's exit rules read off a position: side, expiry, DTE at entry, entry spot and ATR."""
     match = OCC_SYMBOL.match(option_symbol)
     if match is None:
@@ -433,7 +452,7 @@ def _position_terms(conn: sqlite3.Connection, option_symbol: str, as_of: datetim
     expiration = expiration_close(f"20{year}-{month}-{day}")
     if expiration is None:
         return None
-    settings = OptionPositionSettings.from_env()
+    settings = _exit_settings(config)
     rows = conn.execute(
         """
         SELECT high_price AS high, low_price AS low, close_price AS close FROM historical_underlying_bars
@@ -461,8 +480,10 @@ def _exit_fills(
         return [], []
     levels = {"take_profit_pct": config["take_profit_pct"], "stop_loss_pct": config["stop_loss_pct"]}
     if config["exit_policy"] == "static" or position is None:
-        rule = rule_thresholds(position["entry_dte"] if position else None,
-                               position["settings"] if position else OptionPositionSettings.from_env(), **levels)
+        if position is None:
+            rule = rule_thresholds(None, OptionPositionSettings.from_env(), **levels)
+        else:
+            rule = rule_thresholds(position["entry_dte"], position["settings"], **levels)
         exit_mark, warnings = _first_exit([(at, bid) for at, _, bid, _ in marks], entry_price=entry_price,
                                           quantity=quantity, take_profit_pct=rule.take_profit_pct,
                                           stop_loss_pct=rule.stop_loss_pct, config=config)
@@ -560,7 +581,7 @@ def _simulate_event(decision: dict[str, Any], snapshot: dict[str, Any], conn: sq
         entry_at=entry_at,
         entry_ask=_number(entry_quote.get("ask_price")),
         marks=marks,
-        position=_position_terms(conn, option_symbol, entry_at, safe_float(decision.get("reference_spot"))),
+        position=_position_terms(conn, option_symbol, entry_at, safe_float(decision.get("reference_spot")), config),
         risk_release_at=cutoff,
         quote_provider=entry_quote.get("provider"),
         pricing_source=_pricing_source(entry_quote),
@@ -612,7 +633,7 @@ def _hourly_prices(conn: sqlite3.Connection, symbol: str, after: datetime, until
         """,
         (symbol, (after - timedelta(hours=1)).astimezone(timezone.utc).isoformat(), until.astimezone(timezone.utc).isoformat()),
     ).fetchall()
-    closes: dict[datetime, float] = {}
+    prices: dict[datetime, float] = {}
     for row in rows:
         bar_at = parse_timestamp(row["bar_at"])
         if bar_at is None:
@@ -621,8 +642,8 @@ def _hourly_prices(conn: sqlite3.Connection, symbol: str, after: datetime, until
         for mark_at, price in ((bar_at.astimezone(MARKET_TIMEZONE), row["open_price"]),
                                (min(ends_at, datetime.combine(ends_at.date(), MARKET_CLOSE, MARKET_TIMEZONE)), row["close_price"])):
             if price and price > 0 and after < mark_at <= until:
-                closes.setdefault(mark_at, float(price))
-    return sorted(closes.items())
+                prices.setdefault(mark_at, float(price))
+    return sorted(prices.items())
 
 
 def _same_day_quotes(conn: sqlite3.Connection, symbol: str, close_at: datetime) -> list[dict[str, Any]]:
@@ -760,7 +781,7 @@ def _simulate_modelled_event(
         entry_at=as_of,
         entry_ask=ask,
         marks=marks,
-        position=_position_terms(conn, base_event["option_symbol"], as_of, spot),
+        position=_position_terms(conn, base_event["option_symbol"], as_of, spot, config),
         risk_release_at=cutoff,
         quote_provider=MODELLED_QUOTE_PROVIDER,
         pricing_source=MODELLED_EOD_IV_PRICING_SOURCE if observed_days else MODELLED_PRICING_SOURCE,
@@ -948,6 +969,16 @@ def _store_event(conn: sqlite3.Connection, run_id: int, event: dict[str, Any]) -
     )
 
 
+def _with_saved_contract(decision: dict[str, Any]) -> dict[str, Any]:
+    """The contract and stock price saved with a stored decision, so it is priced from its decision-time ask."""
+    contract = _json_object(decision.get("manager_output_json")).get("selected_option")
+    if not isinstance(contract, dict) or not contract.get("symbol"):
+        return decision
+    market = _json_object(decision.get("manager_input_json")).get("market_context")
+    return {**decision, "selected_contract": contract,
+            "reference_spot": _get_reference_stock_price(market) if isinstance(market, dict) else None}
+
+
 def _simulate_decisions(
     conn: sqlite3.Connection,
     config: dict[str, Any],
@@ -955,7 +986,9 @@ def _simulate_decisions(
     start_at: str | None,
     end_at: str | None,
     limit: int | None,
+    trade_executed: bool | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Every stored call or put in the window; `trade_executed` keeps only those traded (True) or not (False)."""
     query = """
         SELECT history.id, history.symbol, history.decision_run_at, history.manager_decision, history.manager_reason,
                history.selected_option_symbol, history.selected_option_id, payload.manager_input_json,
@@ -974,6 +1007,9 @@ def _simulate_decisions(
     if end_at:
         query += " AND history.decision_run_at <= ?"
         parameters.append(normalize_timestamp(end_at))
+    if trade_executed is not None:
+        query += " AND COALESCE(history.trade_executed, 0) = ?"
+        parameters.append(int(trade_executed))
     available_decision_count = conn.execute(
         f"SELECT COUNT(*) FROM ({query})", tuple(parameters)
     ).fetchone()[0]
@@ -984,7 +1020,7 @@ def _simulate_decisions(
         # Limit the recent window first, then simulate it in chronological order.
         query += " ORDER BY history.decision_run_at DESC, history.id DESC LIMIT ?"
         parameters.append(decision_limit)
-    decisions = [dict(row) for row in conn.execute(query, tuple(parameters)).fetchall()]
+    decisions = [_with_saved_contract(dict(row)) for row in conn.execute(query, tuple(parameters)).fetchall()]
     if decision_limit is not None:
         decisions.reverse()
     events, metrics = _simulate_supplied_decisions(conn, decisions, config)
@@ -1019,12 +1055,14 @@ def simulate_backtest_metrics(
     config: dict[str, Any] | None = None,
     start_at: str | None = None,
     end_at: str | None = None,
+    trade_executed: bool | None = None,
     db_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Simulate every decision in the window like run_backtest, without recording a backtest run."""
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
-        _, metrics = _simulate_decisions(conn, _merged_config(config), start_at=start_at, end_at=end_at, limit=None)
+        _, metrics = _simulate_decisions(conn, _merged_config(config), start_at=start_at, end_at=end_at, limit=None,
+                                         trade_executed=trade_executed)
     return metrics
 
 

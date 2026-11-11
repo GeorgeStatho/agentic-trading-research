@@ -15,7 +15,9 @@ from news_db_modules.bootstrap import initialize_database as initialize_news_dat
 from market_db_modules.backtesting import (  # noqa: E402
     get_backtest_run,
     record_historical_option_quote,
+    record_historical_underlying_bar,
     run_backtest,
+    simulate_backtest_metrics,
 )
 from market_db_modules.bootstrap import initialize_database  # noqa: E402
 from market_db_modules.backtesting import _apply_portfolio_limits, _merged_config, _metrics  # noqa: E402
@@ -101,6 +103,37 @@ class BacktestingTests(unittest.TestCase):
         self.assertEqual(stored_quote["ask_price"], 1.1)
         self.assertEqual(json.loads(snapshot["snapshot_json"])["articles"], [])
         self.assertEqual(execution_count, 0)
+
+    def add_frozen_decision(self, *, executed: bool) -> int:
+        """A NVDA call whose contract and stock price were saved with the decision, as production saves them."""
+        contract = {"symbol": "NVDA260320C00200000", "contract_type": "call", "strike_price": 200.0,
+                    "expiration_date": "2026-03-20", "latest_quote": {"bid_price": 9.8, "ask_price": 10.2}}
+        with closing(get_connection(self.db_path)) as conn, conn:
+            decision_id = conn.execute(
+                "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision, selected_option_symbol, "
+                "trade_executed) VALUES ('NVDA', '2026-02-02T15:00:00+00:00', 'call', ?, ?)",
+                (contract["symbol"], int(executed)),
+            ).lastrowid
+            conn.execute(
+                "INSERT INTO manager_decision_payloads (manager_decision_history_id, manager_input_json, manager_output_json) "
+                "VALUES (?, ?, ?)",
+                (decision_id, json.dumps({"market_context": {"current_stock_price": {"latest_trade_price": 200.0}}}),
+                 json.dumps({"recommendation": {"decision": "call"}, "selected_option": contract})),
+            )
+        record_historical_underlying_bar({"symbol": "NVDA", "bar_at": "2026-02-03T05:00:00+00:00", "close": 205.0},
+                                         provider="fixture", db_path=self.db_path)
+        return decision_id
+
+    def test_a_stored_decision_with_its_saved_contract_enters_at_the_decision_time_ask(self) -> None:
+        self.add_frozen_decision(executed=False)
+        event = next(event for event in run_backtest(db_path=self.db_path)["events"] if event["symbol"] == "NVDA")
+        self.assertEqual(event["entry_at"], "2026-02-02T15:00:00+00:00")
+        self.assertTrue(event["pricing_source"].startswith("model_black_scholes"), event["pricing_source"])
+
+    def test_metrics_can_cover_only_the_decisions_that_were_traded(self) -> None:
+        self.add_frozen_decision(executed=True)
+        self.assertEqual(simulate_backtest_metrics(db_path=self.db_path)["decision_count"], 3)
+        self.assertEqual(simulate_backtest_metrics(trade_executed=True, db_path=self.db_path)["decision_count"], 1)
 
     def test_backtest_rejects_an_entry_quote_that_is_too_delayed(self) -> None:
         record_historical_option_quote(
