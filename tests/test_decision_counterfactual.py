@@ -9,12 +9,12 @@ from datetime import datetime
 from pathlib import Path
 
 from db_common import get_connection
-from market_db_modules.backtesting import record_historical_option_quote
+from market_db_modules.backtesting import record_historical_option_quote, record_historical_underlying_bar
 from market_db_modules.bootstrap import initialize_database
 
 try:
     from api_support.context import OPTION_POSITION_SETTINGS
-    from api_support.decision_autopsy import counterfactual_for_row, counterfactual_trade
+    from api_support.decision_autopsy import EXIT_REASONS, counterfactual_for_row, counterfactual_trade
     from trading_support._option_positions_defaults import build_option_exit_rules
     from trading_support._option_positions_market import _resolve_option_exit_thresholds
     FLASK_AVAILABLE = True
@@ -49,13 +49,18 @@ class CounterfactualTradeTests(unittest.TestCase):
         ):
             record_historical_option_quote({"option_symbol": CONTRACT, "quote_at": quote_at, "bid_price": bid, "ask_price": ask},
                                            provider="marketdata_eod", db_path=self.db_path)
+        # A flat stock: a contract frozen with its decision is priced by the model on these closes.
+        for day in ("2026-10-02", "2026-10-03", "2026-10-06"):
+            record_historical_underlying_bar({"symbol": "ORCL", "bar_at": f"{day}T04:00:00+00:00", "close": 140.0},
+                                             provider="fixture", db_path=self.db_path)
 
     def tearDown(self):
         self.temp_dir.cleanup()
 
     def simulate(self, **rules):
         with closing(get_connection(self.db_path)) as conn:
-            return counterfactual_trade(conn, DECISION, **{"take_profit_pct": 50.0, "stop_loss_pct": -50.0, "max_hold_hours": 24 * 30, **rules})
+            return counterfactual_trade(conn, DECISION, **{"take_profit_pct": 50.0, "stop_loss_pct": -50.0, "max_hold_hours": 24 * 30,
+                                                           "exit_policy": "static", **rules})
 
     def test_buys_at_the_first_ask_and_sells_where_the_take_profit_is_crossed(self):
         trade = self.simulate()
@@ -128,18 +133,21 @@ class AutopsyCounterfactualTests(CounterfactualTradeTests.__base__):
         self.assertEqual(trade["option_symbol"], CONTRACT)
         self.assertEqual((trade["take_profit_pct"], trade["stop_loss_pct"], trade["dte_bucket"]),
                          (rule.take_profit_pct, rule.stop_loss_pct, rule.dte_rule_label))
-        self.assertTrue(trade["entry_at"].startswith("2026-10-01"))
         self.assertIsInstance(trade["realized_pnl_pct"], float)
-        self.assertIn(trade["exit_reason"], {"take_profit", "stop_loss", "last_mark"})
+        self.assertEqual(trade["entry_at"], DECISION["decision_run_at"])
+        # Which rule closes it follows the .env exit settings; the stored quotes rally it on 10-03.
+        self.assertIn(trade["exit_reason"], {*EXIT_REASONS.values(), "last_mark"})
 
     def test_says_when_the_holding_window_has_not_ended(self):
         flat = "ORCL261204P00120000"
-        for quote_at, bid, ask in (("2026-10-01T20:00:00+00:00", 4.9, 5.0), ("2026-10-02T20:00:00+00:00", 5.0, 5.1)):
+        # Flat every day, or the model would read volatility off the rallying 123 put beside it.
+        for quote_at, bid, ask in (("2026-10-01T20:00:00+00:00", 4.9, 5.0), ("2026-10-02T20:00:00+00:00", 5.0, 5.1),
+                                   ("2026-10-03T20:00:00+00:00", 4.9, 5.0), ("2026-10-06T20:00:00+00:00", 4.8, 4.9)):
             record_historical_option_quote({"option_symbol": flat, "quote_at": quote_at, "bid_price": bid, "ask_price": ask},
                                            provider="marketdata_eod", db_path=self.db_path)
         row = ledger_row()
         output = json.loads(row["manager_output_json"])
-        output["selected_option"]["symbol"] = flat
+        output["selected_option"].update(symbol=flat, strike_price=120.0)
         row["manager_output_json"] = json.dumps(output)
 
         running = self.counterfactual(row, now="2026-10-03T20:00:00+00:00")

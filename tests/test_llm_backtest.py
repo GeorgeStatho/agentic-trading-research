@@ -21,7 +21,7 @@ from market_db_modules.backtesting import (
 from market_db_modules.backtesting import run_decision_backtest
 from market_db_modules.candidate_lifecycle import record_candidate_snapshot
 from services.evaluation import llm_backtest
-from services.core.trading_config import WorkerSettings
+from services.core.trading_config import OptionExitRuleConfig, OptionPositionSettings, WorkerSettings
 from services.discovery.company_evidence_extraction import ingest_source
 from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
 from services.evaluation.llm_backtest import ModelUnavailable, ProductionRules, run_llm_backtest
@@ -36,6 +36,17 @@ TRADEABLE = {"recommendation": {"decision": "call", "confidence": "high", "reaso
              "strategist_recommendation": {"decision": "trade_candidate"},
              "entry_gate": {"allowed": True}, "market_regime_gate": {"allowed": True},
              "selected_option": CONTRACT, "market_context": {"current_stock_price": {"price": 400.0}}}
+# Production's exit rules as the live .env sets them: 46 DTE lands in the 45-60 bucket.
+PRODUCTION_EXITS = replace(
+    OptionPositionSettings.from_env(), enable_trailing_profit=True, stop_loss_confirm_checks=3,
+    stop_loss_underlying_move_pct=0.015, volatility_scaled_thresholds=False,
+    dte_rules=(OptionExitRuleConfig(key="45_60", label="45-60 DTE", take_profit_pct=85.0, stop_loss_pct=-40.0,
+                                    force_exit_days_to_expiration=27),),
+)
+PRODUCTION_EXITS = replace(PRODUCTION_EXITS, trailing=replace(
+    PRODUCTION_EXITS.trailing, protection_trigger_pct=0.3, initial_floor_pct=0.15, dynamic_giveback_start_pct=0.5,
+    first_scale_out_trigger_pct=0.5, first_scale_out_fraction=0.5, giveback_pct_by_bucket_key={"45_60": 0.3},
+    floor_100_pct=0.75, floor_150_pct=1.3, floor_200_pct=1.7))
 
 
 class DatabaseFixture(unittest.TestCase):
@@ -44,6 +55,9 @@ class DatabaseFixture(unittest.TestCase):
         self.db_path = Path(self.temp_dir.name) / "llm_backtest.db"
         initialize_database(db_path=self.db_path, schema_path=DATA_DIR / "market_schema.sql")
         initialize_news_database(db_path=self.db_path, schema_path=DATA_DIR / "news_schema.sql")
+        settings = patch.object(OptionPositionSettings, "from_env", return_value=PRODUCTION_EXITS)
+        settings.start()
+        self.addCleanup(settings.stop)
         with closing(get_connection(self.db_path)) as conn, conn:
             self.decision_id = conn.execute(
                 "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES ('MSFT', ?, 'neither')",
@@ -76,26 +90,80 @@ class DatabaseFixture(unittest.TestCase):
             record_historical_underlying_bar({"symbol": "MSFT", "bar_at": f"{day}T05:00:00+00:00", "close": close},
                                              provider="fixture", db_path=self.db_path)
 
-    def backtest(self, contract=CONTRACT, **decision_fields) -> dict:
-        return self.backtest_run(contract, **decision_fields)["events"][0]
+    def add_hourly(self, *bars: tuple) -> None:
+        """Hourly (bar_at, close[, open]) bars stamped at their start, as yfinance stores them."""
+        for bar_at, close, *opened in bars:
+            record_historical_underlying_bar({"symbol": "MSFT", "bar_at": bar_at, "close": close, "open": opened[0] if opened else None},
+                                             provider="fixture", timeframe="1h", db_path=self.db_path)
 
-    def backtest_run(self, contract=CONTRACT, **decision_fields) -> dict:
+    def backtest(self, contract=CONTRACT, config=None, **decision_fields) -> dict:
+        return self.backtest_run(contract, config, **decision_fields)["events"][0]
+
+    def backtest_run(self, contract=CONTRACT, config=None, **decision_fields) -> dict:
         decision = {"id": self.decision_id, "symbol": "MSFT", "decision_run_at": DECISION_AT, "manager_decision": "call",
                     "selected_option_symbol": contract["symbol"], "selected_contract": contract, "reference_spot": 400.0,
                     **decision_fields}
-        return run_decision_backtest([decision], db_path=self.db_path)
+        return run_decision_backtest([decision], config=config, db_path=self.db_path)
 
 
 class ModelPricingTests(DatabaseFixture):
     def test_rally_prices_a_call_profit_from_daily_closes(self) -> None:
+        # No hourly bars: the day's close at 16:00 New York is the mark.
         self.add_closes(("2026-03-03", 440.0))
-        self.assertGreater(self.backtest()["realized_pnl_pct"], 0)
+        event = self.backtest()
+        self.assertGreater(event["realized_pnl_pct"], 0)
+        self.assertEqual(datetime.fromisoformat(event["exit_at"]), datetime.fromisoformat("2026-03-03T21:00:00+00:00"))
 
-    def test_stored_quotes_take_precedence(self) -> None:
-        for quote_at, bid, ask in (("2026-03-02T20:00:00+00:00", 9.8, 10.2), ("2026-03-03T20:00:00+00:00", 12.0, 12.4)):
+    def test_frozen_contract_enters_at_the_decision_time_ask(self) -> None:
+        # 2026-11-11: a later stored quote filled real trades 10-19% cheaper than the broker did.
+        for quote_at, bid, ask in (("2026-03-02T20:00:00+00:00", 7.8, 8.2), ("2026-03-03T20:00:00+00:00", 12.0, 12.4)):
             record_historical_option_quote({"option_symbol": CONTRACT["symbol"], "quote_at": quote_at, "bid": bid, "ask": ask},
                                            provider="fixture", db_path=self.db_path)
-        self.assertEqual(self.backtest()["pricing_source"], "observed_quote")
+        self.add_closes(("2026-03-03", 405.0))
+        event = self.backtest()
+        self.assertEqual(datetime.fromisoformat(event["entry_at"]), datetime.fromisoformat(DECISION_AT))
+        self.assertAlmostEqual(event["entry_price"], 10.2 * 1.0025, places=4)
+        self.assertEqual(event["pricing_source"], "model_black_scholes_eod_iv")
+
+    def test_intraday_dip_stops_out_at_the_hourly_mark(self) -> None:
+        self.add_hourly(("2026-03-03T14:30:00+00:00", 401.0), ("2026-03-03T15:30:00+00:00", 360.0),
+                        ("2026-03-03T16:30:00+00:00", 400.0))
+        self.add_closes(("2026-03-03", 400.0))
+        event = self.backtest()
+        self.assertEqual(datetime.fromisoformat(event["exit_at"]), datetime.fromisoformat("2026-03-03T16:30:00+00:00"))
+        self.assertIn("stop_loss_exit", event["warnings"])
+        self.assertLess(event["realized_pnl_pct"], -40)
+
+    def test_a_gap_down_at_the_open_stops_out_at_the_bar_start(self) -> None:
+        # 2026-11-11: both real stops fired at 9:31-9:32, on the open, before the first hourly bar closed.
+        self.add_hourly(("2026-03-03T14:30:00+00:00", 400.0, 360.0))
+        event = self.backtest()
+        self.assertEqual(datetime.fromisoformat(event["exit_at"]), datetime.fromisoformat("2026-03-03T14:30:00+00:00"))
+        self.assertIn("stop_loss_exit", event["warnings"])
+
+    def test_rally_then_giveback_exits_on_the_trailing_floor(self) -> None:
+        self.add_hourly(("2026-03-03T14:30:00+00:00", 410.0), ("2026-03-03T15:30:00+00:00", 420.0),
+                        ("2026-03-03T16:30:00+00:00", 411.0), ("2026-03-03T17:30:00+00:00", 430.0))
+        event = self.backtest()
+        self.assertEqual(datetime.fromisoformat(event["exit_at"]), datetime.fromisoformat("2026-03-03T17:30:00+00:00"))
+        self.assertIn("trailing_profit_stop_exit", event["warnings"])
+        self.assertGreater(event["realized_pnl_pct"], 15)
+
+    def test_static_policy_keeps_the_fixed_take_profit(self) -> None:
+        self.add_closes(("2026-03-03", 440.0))
+        self.assertIn("take_profit_exit", self.backtest(config={"exit_policy": "static"})["warnings"])
+
+    def test_static_levels_default_to_the_dte_rule(self) -> None:
+        # Up about 66%: past a configured 50% take-profit, short of the 45-60 DTE rule's 85%.
+        self.add_closes(("2026-03-03", 410.0))
+        self.assertNotIn("take_profit_exit", self.backtest(config={"exit_policy": "static"})["warnings"])
+        self.assertIn("take_profit_exit",
+                      self.backtest(config={"exit_policy": "static", "take_profit_pct": 50.0})["warnings"])
+
+    def test_a_configured_stop_loss_overrides_the_dte_rule_under_production_exits(self) -> None:
+        self.add_hourly(("2026-03-03T14:30:00+00:00", 401.0), ("2026-03-03T15:30:00+00:00", 360.0))
+        self.assertIn("stop_loss_exit", self.backtest()["warnings"])
+        self.assertNotIn("stop_loss_exit", self.backtest(config={"stop_loss_pct": -99.9})["warnings"])
 
     def label_earnings(self, day: str) -> None:
         """A stored Yahoo consensus labelled with an earnings date, as production collects it."""
@@ -131,7 +199,7 @@ class ModelPricingTests(DatabaseFixture):
         self.label_earnings("2026-03-03")
         record_historical_option_quote({"option_symbol": "MSFT260417C00420000", "quote_at": "2026-03-04T20:00:00+00:00",
                                         "bid": 29.0, "ask": 29.6}, provider="fixture", db_path=self.db_path)
-        event = self.backtest()
+        event = self.backtest(config={"exit_policy": "static"})
         self.assertTrue(event["exit_at"].startswith("2026-03-03"), event["exit_at"])
         self.assertIn("constant_iv_across_earnings", event["warnings"])
 

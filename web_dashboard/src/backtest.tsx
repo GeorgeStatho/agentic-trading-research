@@ -50,11 +50,12 @@ function modelName(run: Run): string {
 // ---- Settings ---------------------------------------------------------------
 
 type ConfigKey = 'entry_slippage_bps' | 'exit_slippage_bps' | 'commission_per_contract' | 'take_profit_pct' | 'stop_loss_pct' | 'max_hold_hours' | 'max_concurrent_positions' | 'max_total_entry_notional' | 'max_sector_notional_pct' | 'daily_loss_limit_dollars' | 'max_spread_pct' | 'min_volume' | 'max_entry_delay_minutes' | 'default_order_qty'
-type Field = { key: ConfigKey; label: string; min?: number; max?: number; step?: number }
+type Field = { key: ConfigKey; label: string; min?: number; max?: number; step?: number; blank?: string }
 
-const DEFAULT_CONFIG: Record<ConfigKey, number> = {
+// null leaves the setting to the API: take-profit and stop-loss then follow production's rule for each contract's DTE.
+const DEFAULT_CONFIG: Record<ConfigKey, number | null> = {
   entry_slippage_bps: 25, exit_slippage_bps: 25, commission_per_contract: 0.65,
-  take_profit_pct: 50, stop_loss_pct: -50, max_hold_hours: 168, max_concurrent_positions: 5,
+  take_profit_pct: null, stop_loss_pct: null, max_hold_hours: 168, max_concurrent_positions: 5,
   max_total_entry_notional: 50000, max_sector_notional_pct: 50, daily_loss_limit_dollars: 2000,
   max_spread_pct: 0.25, min_volume: 0, max_entry_delay_minutes: 1440, default_order_qty: 1,
 }
@@ -66,8 +67,8 @@ const FIELD_GROUPS: { legend: string; fields: Field[] }[] = [
     { key: 'commission_per_contract', label: 'Commission / contract ($)', min: 0, step: 0.05 },
   ] },
   { legend: 'Risk limits', fields: [
-    { key: 'take_profit_pct', label: 'Take profit (%)', min: 0 },
-    { key: 'stop_loss_pct', label: 'Stop loss (%)', max: 0 },
+    { key: 'take_profit_pct', label: 'Take profit (%)', min: 0, blank: 'DTE rule' },
+    { key: 'stop_loss_pct', label: 'Stop loss (%)', max: 0, blank: 'DTE rule' },
     { key: 'max_hold_hours', label: 'Max hold (hours)', min: 1 },
     { key: 'max_concurrent_positions', label: 'Max positions', min: 1 },
     { key: 'max_total_entry_notional', label: 'Portfolio notional ($)', min: 1, step: 1000 },
@@ -104,10 +105,12 @@ function dayEnd(day: string): string | null {
   return day ? new Date(`${day}T23:59:59.999`).toISOString() : null
 }
 
-function NumberField({ label, value, onChange, min, max, step = 1 }: { label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) {
+/** `blank` names what an empty field means; without it the field always holds a number. */
+function NumberField({ label, value, onChange, min, max, step = 1, blank }: { label: string; value: number | null; onChange: (value: number | null) => void; min?: number; max?: number; step?: number; blank?: string }) {
   return <label className="flex flex-col gap-1">
     <span className="text-[11px] text-dim">{label}</span>
-    <input type="number" className="input input-xs w-24 font-mono" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+    <input type="number" className="input input-xs w-24 font-mono" min={min} max={max} step={step} value={value ?? ''} placeholder={blank}
+      onChange={(event) => onChange(blank !== undefined && event.target.value === '' ? null : Number(event.target.value))} />
   </label>
 }
 
@@ -414,15 +417,15 @@ function BacktestPage() {
             <option value="range">Date range</option>
           </select>
         </label>
-        {windowMode === 'latest' ? <NumberField label="Latest decisions" min={1} max={1000} value={decisionLimit} onChange={setDecisionLimit} /> : null}
+        {windowMode === 'latest' ? <NumberField label="Latest decisions" min={1} max={1000} value={decisionLimit} onChange={(value) => setDecisionLimit(value ?? decisionLimit)} /> : null}
         {windowMode === 'range' ? <>
           <label className="flex flex-col gap-1"><span className="text-[11px] text-dim">From</span><input type="date" className="input input-xs font-mono" max={rangeEnd || undefined} value={rangeStart} onChange={(event) => setRangeStart(event.target.value)} /></label>
           <label className="flex flex-col gap-1"><span className="text-[11px] text-dim">To</span><input type="date" className="input input-xs font-mono" min={rangeStart || undefined} value={rangeEnd} onChange={(event) => setRangeEnd(event.target.value)} /></label>
         </> : null}
-        <NumberField label="EOD batch size" min={1} max={100} value={fetchLimit} onChange={setFetchLimit} />
+        <NumberField label="EOD batch size" min={1} max={100} value={fetchLimit} onChange={(value) => setFetchLimit(value ?? fetchLimit)} />
       </Fieldset>
       {FIELD_GROUPS.map((group) => <Fieldset key={group.legend} legend={group.legend}>
-        {group.fields.map((field) => <NumberField key={field.key} label={field.label} min={field.min} max={field.max} step={field.step} value={config[field.key]} onChange={(value) => setConfig((current) => ({ ...current, [field.key]: value }))} />)}
+        {group.fields.map((field) => <NumberField key={field.key} label={field.label} min={field.min} max={field.max} step={field.step} blank={field.blank} value={config[field.key]} onChange={(value) => setConfig((current) => ({ ...current, [field.key]: value }))} />)}
       </Fieldset>)}
     </div>
     <details className="text-xs text-ink-2">

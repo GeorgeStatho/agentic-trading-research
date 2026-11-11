@@ -751,8 +751,8 @@ def run_llm_backtest(
         "model": model,
         "prompt_version": STORED_PROMPT_VERSION if run.stored else MANAGER_PROMPT_VERSION,
         "risk_free_rate": TradeEconomicsPolicy.from_env().risk_free_rate,
-        "data_source_versions": {"option_quotes": "historical_option_quotes",
-                                 "fallback": "black_scholes_frozen_chain_daily_closes"},
+        "data_source_versions": {"option_quotes": "historical_option_quotes (volatility calibration)",
+                                 "marks": "black_scholes_frozen_chain_hourly_closes"},
     }
     replay_summary = {
         **run.summary(tally),

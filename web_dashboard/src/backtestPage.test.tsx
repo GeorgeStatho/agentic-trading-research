@@ -262,5 +262,7 @@ describe('Backtests page', () => {
     await waitFor(() => expect(calls.some((call) => call.method === 'POST')).toBe(true))
     const { config } = JSON.parse(calls.find((call) => call.method === 'POST')!.body!)
     expect(config).toMatchObject({ max_spread_pct: 0.4, default_order_qty: 2, min_volume: 0, max_entry_delay_minutes: 1440 })
+    // Left blank, the take-profit and stop-loss follow production's rule for each contract's DTE.
+    expect(config).toMatchObject({ take_profit_pct: null, stop_loss_pct: null })
   })
 })

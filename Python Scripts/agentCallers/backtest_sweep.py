@@ -224,7 +224,9 @@ def main() -> int:
     grid = dict(args.setting) if args.setting else DEFAULT_GRID
 
     def evaluate(config: dict[str, float], start_at: str | None, end_at: str | None) -> dict[str, Any]:
-        return simulate_backtest_metrics(config=config, start_at=start_at, end_at=end_at, db_path=args.db)
+        # The grid tunes fixed take-profit / stop-loss levels, which production's trailing exits ignore.
+        return simulate_backtest_metrics(config={**config, "exit_policy": "static"}, start_at=start_at, end_at=end_at,
+                                         db_path=args.db)
 
     def report_progress(done: int, total: int) -> None:
         print(f"\rsimulated {done}/{total} configurations", end="" if done < total else "\n", file=sys.stderr)
