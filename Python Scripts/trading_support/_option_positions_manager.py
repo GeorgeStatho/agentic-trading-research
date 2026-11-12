@@ -187,6 +187,8 @@ def ManageCurrentOptionPositions(
                 except Exception as exc:
                     summary["close_error"] = str(exc)
         position_summaries.append(summary)
+    # A contract in the state file was held on an earlier cycle; gone now, the position is flat.
+    stale_symbols: set[str] = set()
     if not company:
         try:
             stale_symbols = set(load_state(state_path).get("positions", {}).keys()).difference(open_option_symbols)
@@ -216,6 +218,7 @@ def ManageCurrentOptionPositions(
         "full_sell_count": sum(1 for summary in position_summaries if summary.get("exit_action") == "sell_full"),
         "partial_sell_count": sum(1 for summary in position_summaries if summary.get("exit_action") == "sell_partial"),
         "close_submitted_count": sum(1 for summary in position_summaries if summary.get("close_submitted")),
+        "flattened_symbols": sorted(stale_symbols),
         "momentum_history_config_notes": momentum_history_config_notes,
         "positions": position_summaries,
     }

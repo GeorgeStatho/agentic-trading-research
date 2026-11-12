@@ -3,8 +3,35 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from services.trading.order_values import normalize_order_summary
+from services.trading import order_values
+from services.trading.order_values import ENDED, FILLED, REPLACED, WORKING, normalize_order_summary, order_phase
 from services.trading.trading_gateway import AlpacaTradingGateway
+
+
+class OrderPhaseTests(unittest.TestCase):
+    def test_every_broker_status_has_one_phase(self) -> None:
+        phases = {
+            WORKING: ("accepted", "accepted_for_bidding", "calculated", "held", "new", "partially_filled",
+                      "pending_cancel", "pending_new", "pending_replace", "pending_review", "stopped", "suspended"),
+            FILLED: ("filled",),
+            ENDED: ("canceled", "cancelled", "expired", "rejected", "done_for_day"),
+            REPLACED: ("replaced",),
+        }
+        for phase, statuses in phases.items():
+            for status in statuses:
+                with self.subTest(status=status):
+                    self.assertEqual(order_phase(status), phase)
+
+    def test_sdk_enum_forms_are_normalized(self) -> None:
+        self.assertEqual(order_phase("OrderStatus.REPLACED"), REPLACED)
+        self.assertEqual(order_phase(SimpleNamespace(value="done_for_day")), ENDED)
+
+    def test_unknown_status_keeps_the_order_working_and_warns_once(self) -> None:
+        order_values._warned_statuses.discard("mystery")
+        with self.assertLogs("services.trading.order_values", level="WARNING") as logs:
+            self.assertEqual(order_phase("mystery"), WORKING)
+            self.assertEqual(order_phase("MYSTERY"), WORKING)
+        self.assertEqual(len(logs.records), 1)
 
 
 class OrderValueTests(unittest.TestCase):

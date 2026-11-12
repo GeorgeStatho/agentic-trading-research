@@ -13,7 +13,7 @@ from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
 from services.core.gemini_models import default_vertex_model
-from services.trading.order_values import normalize_order_side, normalize_order_status
+from services.trading.order_values import ENDED, normalize_order_side, order_phase
 from services.core.time_utils import parse_timestamp
 
 
@@ -375,11 +375,10 @@ def _load_paper_positions(conn) -> list[dict[str, Any]]:
         """
     ).fetchall()
     positions: dict[str, dict[str, Any]] = {}
-    excluded_statuses = {"canceled", "cancelled", "rejected", "failed", "expired"}
     for row in rows:
         item = dict(row)
         symbol = str(item.get("option_symbol") or "").strip().upper()
-        if not symbol or normalize_order_status(item.get("order_status")) in excluded_statuses:
+        if not symbol or order_phase(item.get("order_status")) == ENDED:
             continue
         quantity = abs(_number(item.get("order_qty"), 0.0))
         if quantity <= 0:

@@ -86,6 +86,28 @@ class EvidenceContinuationGateTests(unittest.TestCase):
         self.assertFalse(result["would_allow"])
         self.assertEqual(result["enforcement_mode"], "shadow")
 
+    def test_a_decision_with_no_entry_has_no_verdict_and_no_permission(self) -> None:
+        payload = _payload()
+        for mode in ("shadow", "enforce"):
+            result = evaluate_evidence_continuation_gate(
+                recommendation={"decision": "neither", "confidence": "high"},
+                payload=payload,
+                market_context=payload["market_context"],
+                policy=EvidenceContinuationPolicy(enforcement_mode=mode),
+            )
+            # Not a block to count as evidence: there is no entry to judge.
+            self.assertIsNone(result["would_allow"])
+            self.assertFalse(result["allowed"])
+            self.assertEqual(result["eligible_decision"], "neither")
+
+    def test_a_no_verdict_is_not_recorded_as_a_rejection(self) -> None:
+        from unittest.mock import patch
+        from services.runtime import candidate_lifecycle
+        with patch.object(candidate_lifecycle, "reject") as reject, patch.object(candidate_lifecycle, "checkpoint"):
+            candidate_lifecycle.record_gate({"candidate_id": "c"}, "CONTINUATION",
+                                            {"allowed": False, "would_allow": None, "reason_codes": ["manager_not_directional"]})
+        reject.assert_not_called()
+
     def test_allows_symmetric_bearish_put_continuation(self) -> None:
         payload = _payload(sector_state="underperforming")
         payload["market_context"]["underlying_price_history"]["technical_summary"].update(

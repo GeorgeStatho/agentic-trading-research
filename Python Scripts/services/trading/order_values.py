@@ -1,6 +1,19 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+LOGGER = logging.getLogger(__name__)
+
+# The lifecycle phase of a broker order: every module that waits on an order branches on these.
+WORKING, FILLED, ENDED, REPLACED = "working", "filled", "ended", "replaced"
+WORKING_STATUSES = frozenset({
+    "accepted", "accepted_for_bidding", "calculated", "held", "new", "partially_filled",
+    "pending_cancel", "pending_new", "pending_replace", "pending_review", "stopped", "suspended",
+})
+# An ended order can still carry a partial fill; callers read filled_qty for that.
+ENDED_STATUSES = frozenset({"canceled", "cancelled", "expired", "rejected", "done_for_day"})
+_warned_statuses: set[str] = set()
 
 
 def _normalize_enum_value(value: Any, *prefixes: str) -> str:
@@ -15,6 +28,21 @@ def _normalize_enum_value(value: Any, *prefixes: str) -> str:
 
 def normalize_order_status(value: Any) -> str:
     return _normalize_enum_value(value, "orderstatus.", "order_status.")
+
+
+def order_phase(status: Any) -> str:
+    """The lifecycle phase of a broker order status; an unknown status keeps the order working."""
+    normalized = normalize_order_status(status)
+    if normalized == FILLED:
+        return FILLED
+    if normalized == REPLACED:
+        return REPLACED
+    if normalized in ENDED_STATUSES:
+        return ENDED
+    if normalized not in WORKING_STATUSES and normalized not in _warned_statuses:
+        _warned_statuses.add(normalized)
+        LOGGER.warning("Unknown broker order status %r; treating the order as still working.", normalized)
+    return WORKING
 
 
 def normalize_order_side(value: Any) -> str:

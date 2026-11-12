@@ -10,6 +10,8 @@ from services.research.research_contract import utc
 from services.trading.trading_accounts import PRIMARY_NAME, PRIMARY_STRATEGY
 
 ACTIVE = ('pending_entry', 'open', 'closing')
+COPY = 'copy'
+PREMIUM_CAP_BLOCKED = 'premium_cap_blocked'
 
 
 def _update(row_id, db_path, sql, *values):
@@ -18,12 +20,12 @@ def _update(row_id, db_path, sql, *values):
 
 
 def record_plan(account, *, source_account, source_order_id, source_option_symbol, underlying, decision,
-                budget, plan, spot=None, source_delta=None, db_path=None):
+                budget, plan, spot=None, source_delta=None, entry_kind=COPY, db_path=None):
     """Record one account's response to a source entry; None when it was already recorded."""
     skipped = isinstance(plan, Skip)
     values = {
         'account': account.name, 'role': account.role, 'strategy': account.strategy,
-        'exit_policy': account.exit_policy, 'source_account': source_account,
+        'exit_policy': account.exit_policy, 'entry_kind': entry_kind, 'source_account': source_account,
         'source_order_id': source_order_id, 'source_option_symbol': source_option_symbol,
         'underlying': underlying, 'decision': decision, 'budget': budget,
         'status': 'skipped' if skipped else 'pending_entry',
@@ -52,6 +54,15 @@ def mark_entry_fill(row_id, *, fill_price, filled_at, qty=None, db_path=None):
     """Open the position; `qty` records a partial fill that differs from the plan."""
     _update(row_id, db_path, "status='open', entry_fill_price=?, entry_at=?, qty=COALESCE(?, qty)",
             fill_price, filled_at, qty)
+
+
+def mark_partial_order(row_id, *, order_id, db_path=None):
+    _update(row_id, db_path, 'partial_order_id=?', order_id)
+
+
+def mark_partial_fill(row_id, *, qty, fill_price, db_path=None):
+    """The slice a partial exit sold leaves the position: its quantity is what the position still holds."""
+    _update(row_id, db_path, 'partial_qty=?, partial_fill_price=?, qty=qty-?', qty, fill_price, qty)
 
 
 def mark_source_seen(row_id, *, at, db_path=None):
@@ -101,9 +112,10 @@ def _trade_pnl(position):
     """Dollar P&L and capital of a closed position; a sold stock leg is a short."""
     legs = position['legs']
     sign = -1 if len(legs) == 1 and legs[0]['asset'] == 'stock' and legs[0]['side'] == 'sell' else 1
-    scale = position['qty'] * position['multiplier']
-    capital = position['entry_fill_price'] * scale
-    return sign * (position['exit_fill_price'] - position['entry_fill_price']) * scale, capital
+    entry, multiplier, trimmed = position['entry_fill_price'], position['multiplier'], position['partial_qty'] or 0
+    pnl = (position['exit_fill_price'] - entry) * position['qty'] * multiplier
+    pnl += ((position['partial_fill_price'] or 0) - entry) * trimmed * multiplier
+    return sign * pnl, entry * (position['qty'] + trimmed) * multiplier
 
 
 def _mean(values):
@@ -142,19 +154,20 @@ def _production_per_exposure_pct(row):
                              row['entry_spot'])
 
 
-def account_summary(*, since=None, db_path=None):
+def account_summary(*, since=None, entry_kind=COPY, db_path=None):
     """Per-account results, plus the primary's own result on the entries the followers mirrored.
 
     Production is compared two ways on each follower's closed entries: the plain average of its
     trade returns, and its total P&L over total capital (dollar-weighted, see _production_dollars).
+    `entry_kind` keeps copied entries (default) apart from the picks production skipped for the premium cap.
     """
     with closing(get_connection(db_path)) as conn:
         rows = conn.execute('''SELECT p.*, (SELECT AVG(h.realized_pnl_pct) FROM manager_decision_history h
                 WHERE h.trade_execution_order_id=p.source_order_id) AS source_pnl_pct,
                 e.fill_price * e.filled_qty * 100 AS source_cost, e.fill_price AS source_fill_price
             FROM account_positions p LEFT JOIN option_trade_executions e ON e.order_id=p.source_order_id
-            WHERE ? IS NULL OR datetime(p.created_at) >= datetime(?) ORDER BY p.id''',
-                            (since, since)).fetchall()
+            WHERE (? IS NULL OR datetime(p.created_at) >= datetime(?)) AND p.entry_kind=? ORDER BY p.id''',
+                            (since, since, entry_kind)).fetchall()
     summary, source_pnl, source_dollars, source_exposure, source_open = {}, {}, {}, {}, set()
     for row in map(_decoded, rows):
         if row['source_pnl_pct'] is None:
@@ -216,13 +229,14 @@ def _iso(value):
     return utc(value).isoformat() if value else None
 
 
-def follower_report(days=0, *, now=None, db_path=None):
+def follower_report(days=0, *, now=None, entry_kind=COPY, db_path=None):
     """Closed trades per account for the dashboard, with production's result on the same entries.
 
     Production appears only on entries at least one follower closed, so its line covers the same
     trades. Its dollars are its realized return on what it actually paid (fill price x filled
     quantity), falling back to the estimated premium every follower was given as its budget.
     `days` keeps entries mirrored within the window; 0 is all.
+    `entry_kind` is as in account_summary.
     """
     now = now or datetime.now(timezone.utc)
     since = (now - timedelta(days=days)).isoformat() if days else None
@@ -234,7 +248,8 @@ def follower_report(days=0, *, now=None, db_path=None):
                 FROM manager_decision_history WHERE closed_at IS NOT NULL AND realized_pnl_pct IS NOT NULL
                 GROUP BY trade_execution_order_id) h ON h.trade_execution_order_id=p.source_order_id
             LEFT JOIN option_trade_executions e ON e.order_id=p.source_order_id
-            WHERE ? IS NULL OR datetime(p.created_at) >= datetime(?) ORDER BY p.id''', (since, since)).fetchall()
+            WHERE (? IS NULL OR datetime(p.created_at) >= datetime(?)) AND p.entry_kind=? ORDER BY p.id''',
+            (since, since, entry_kind)).fetchall()
     trades, production = [], {}
     for row in map(_decoded, rows):
         if row['status'] != 'closed' or row['exit_fill_price'] is None or not row['entry_fill_price']:
@@ -255,4 +270,4 @@ def follower_report(days=0, *, now=None, db_path=None):
                 'pnl_per_exposure_pct': _production_per_exposure_pct(row)}
     trades = sorted([*trades, *production.values()], key=lambda trade: trade['closed_at'])
     return {'as_of': now.isoformat(), 'days': days,
-            'accounts': account_summary(since=since, db_path=db_path), 'trades': trades}
+            'accounts': account_summary(since=since, entry_kind=entry_kind, db_path=db_path), 'trades': trades}

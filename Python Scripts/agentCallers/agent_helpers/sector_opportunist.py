@@ -15,6 +15,8 @@ from agent_helpers.llm_client import ModelAnswer
 from agent_helpers.opportunist_support import (
     CURRENT_OPPORTUNIST_SCHEMA_VERSION,
     SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
+    STORY_DUPLICATE_MODEL,
+    drop_story_duplicates,
     build_base_article_record,
     extract_impacts_from_payload,
     filter_unprocessed_articles,
@@ -109,6 +111,11 @@ def build_sector_opportunist_articles(
     deduped_articles = _merge_macro_articles(deduped_articles, payload)
     articles = _sort_articles(deduped_articles)
     articles = _filter_unprocessed_articles(articles)
+    articles = drop_story_duplicates(
+        articles, table_name="sector_opportunist_article_processing",
+        mark=lambda article_id, record: mark_sector_opportunist_article_processed(
+            article_id=article_id, model=STORY_DUPLICATE_MODEL, raw_json=record),
+    )
 
     return sector, articles
 

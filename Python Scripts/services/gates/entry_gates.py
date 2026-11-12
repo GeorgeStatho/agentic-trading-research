@@ -20,6 +20,8 @@ class EntryGate:
     # Legacy gates always produce a verdict, so a missing one blocks. Optional gates exist
     # only while their feature is enabled; their absence leaves eligibility unchanged.
     verdict_required: bool
+    # Its boolean verdict also gets a decision_gate_verdicts row, which outcome joins and the ledger read.
+    records_verdict_row: bool = False
 
     def verdict(self, result: Mapping[str, Any]) -> GateVerdict | None:
         verdict = result.get(self.result_key)
@@ -33,11 +35,17 @@ class EntryGate:
 
 
 ENTRY_GATES = (
-    EntryGate("CONTINUATION", "entry_gate", verdict_required=True),
-    EntryGate("REGIME", "market_regime_gate", verdict_required=True),
+    EntryGate("CONTINUATION", "entry_gate", verdict_required=True, records_verdict_row=True),
+    EntryGate("REGIME", "market_regime_gate", verdict_required=True, records_verdict_row=True),
     EntryGate("EVIDENCE_THESIS", "evidence_thesis_gate", verdict_required=False),
     # Attached to every directional result while trade economics are on; see services/gates/trade_economics.py.
     EntryGate("TRADE_ECONOMICS", "trade_economics_gate", verdict_required=False),
+    EntryGate("ENTRY_EXTENSION", "entry_extension_gate", verdict_required=False, records_verdict_row=True),
+    # Judged before the strategist from its own chain fetch; see services/gates/tradability_gate.py.
+    EntryGate("TRADABILITY", "tradability_gate", verdict_required=False, records_verdict_row=True),
+    # Shadow-only alternative to REGIME; its verdict is always allowed. See services/gates/market_regime_variants.py.
+    EntryGate("REGIME_SPY_TREND", "market_regime_spy_trend_gate", verdict_required=False,
+              records_verdict_row=True),
 )
 
 

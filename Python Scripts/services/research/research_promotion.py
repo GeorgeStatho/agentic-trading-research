@@ -2,6 +2,7 @@
 from dataclasses import asdict, is_dataclass, replace
 from contextlib import closing
 import logging
+import os
 from pathlib import Path
 import sqlite3
 
@@ -17,7 +18,8 @@ GATE_BLOCKS = {'PROVENANCE': 'catalyst', 'FRESHNESS': 'catalyst', 'CONTINUATION'
                'EXECUTION_LIQUIDITY': 'contracts',
                'SCENARIO_SELECTION': 'contracts', 'POSITION_EXIT_V2': 'contracts',
                'EVIDENCE_THESIS': 'thesis', 'TRADE_ECONOMICS': 'economics',
-               'TRADE_ECONOMICS_SUBMISSION': 'economics'}
+               'TRADE_ECONOMICS_SUBMISSION': 'economics', 'ENTRY_EXTENSION': 'entry_extension',
+               'REGIME_SPY_TREND': 'regime_spy_trend', 'TRADABILITY': 'tradability'}
 
 
 _CATALYST_FILES = ('Python Scripts/services/gates/catalyst_gates.py', 'Data/catalyst_models.py',
@@ -27,9 +29,25 @@ _CONTRACT_POLICY = 'Python Scripts/services/gates/contract_policy.py'
 # The files whose content decides a stage's verdict: its rule and the producers of what it reads.
 # A proof survives deploys that leave them unchanged; an unlisted stage binds to the whole trading path.
 GATE_FILES = {
-    'PROVENANCE': _CATALYST_FILES,
+    # with_primary_filing reads the issuer's filings through company_evidence.
+    'PROVENANCE': (*_CATALYST_FILES, 'Data/market_db_modules/company_evidence.py'),
     'FRESHNESS': _CATALYST_FILES,
     'REGIME': ('Python Scripts/services/gates/market_regime_gate.py', 'Data/catalyst_models.py'),
+    'REGIME_SPY_TREND': ('Python Scripts/services/gates/market_regime_variants.py',
+                         'Python Scripts/services/gates/market_regime.py', 'Python Scripts/services/core/trade_sides.py'),
+    # Its move input comes from the strategist payload's yfinance five-day return.
+    'ENTRY_EXTENSION': ('Python Scripts/services/gates/entry_extension_gate.py',
+                        'Python Scripts/agentCallers/agent_builders/strategist_payload_price.py',
+                        'Python Scripts/services/core/trade_sides.py'),
+    # The stock quote and the selector pick the contract; its reference price and the cap resolution decide the fit.
+    'TRADABILITY': ('Python Scripts/services/gates/tradability_gate.py', 'Python Scripts/services/options/reference_price.py',
+                    'Python Scripts/agentCallers/agent_helpers/market_context/equities.py',
+                    'Python Scripts/services/core/trading_config.py',
+                    'Python Scripts/agentCallers/agent_helpers/deterministic_option_selector/__init__.py',
+                    'Python Scripts/agentCallers/agent_helpers/deterministic_option_selector/hybrid.py',
+                    'Python Scripts/agentCallers/agent_helpers/deterministic_option_selector/filters.py',
+                    'Python Scripts/agentCallers/agent_helpers/deterministic_option_selector/config.py',
+                    'Python Scripts/agentCallers/agent_helpers/market_context/option_chain.py'),
     'CONTINUATION': ('Python Scripts/services/gates/evidence_continuation_gate.py',
                      'Python Scripts/services/gates/evidence_continuation_policy.py', 'Data/catalyst_models.py'),
     'LIQUIDITY': ('Python Scripts/services/gates/liquidity_gate.py', _CONTRACT_POLICY,
@@ -89,6 +107,12 @@ def guard_policy(policy, stages, *, db_path=None):
             logging.getLogger(__name__).warning('%s stays shadow: no matching counterfactual promotion proof', ', '.join(required))
             changes[field] = 'shadow'
     return replace(policy, **changes) if changes else policy
+
+
+def rollout_mode(env_var, modes=('shadow', 'enforce')):
+    """A gate's rollout mode from the environment; an unrecognised value stays in shadow."""
+    value = str(os.getenv(env_var, 'shadow')).strip().lower()
+    return value if value in modes else 'shadow'
 
 
 # Discovery intake and paired forward evaluations are research records with no capital path.

@@ -84,6 +84,7 @@ function wouldBlockText(feature: Feature) {
     return <span key={stage.stage} className="block whitespace-nowrap">
       {count(activity.shadow_blocks)} / {count(activity.observed_candidates)}
       {activity.enforced_blocks ? <span className="text-dim"> · {activity.enforced_blocks} blocked</span> : null}
+      {activity.no_verdict ? <span className="text-dim"> · {count(activity.no_verdict)} no verdict</span> : null}
     </span>;
   })}</>;
 }

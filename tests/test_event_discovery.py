@@ -20,7 +20,7 @@ from market_db_modules.discovery_queue import (
 from market_db_modules.discovery_sources import select_discovery_companies
 from research_foundation_contracts import DiscoveryQueueItem
 from services.discovery.discovery_policy import DiscoveryPolicy
-from services.discovery.event_discovery import discover_company_events
+from services.discovery.event_discovery import _primary_root, discover_company_events
 from services.discovery.discovery_queue import process_discovery_queue, build_discovery_research_input
 from services.discovery.company_evidence_extraction import ingest_source
 from services.discovery.company_evidence_packages import build_company_package
@@ -140,6 +140,25 @@ class DiscoveryAcceptanceTests(DiscoveryFixture):
         self.package(90, at=later(60))
         payload = build_discovery_research_input(item, db_path=self.db)
         self.assertEqual([f['value'] for f in payload['company_evidence']['facts'] if f['kind'] == 'guidance'], [100])
+
+
+class PrimaryRootTests(DiscoveryFixture):
+    def doc(self, kind, at, url):
+        return {'document_type': kind, 'published_at': at, 'ingested_at': at, 'first_observed_at': at,
+                'source_url': url, 'metadata': {'event_key': url}}
+
+    def roots(self, *documents):
+        return _primary_root(1, CATALYST, list(documents), [], self.db)
+
+    def test_consensus_alone_is_not_a_primary_root(self):
+        self.assertEqual(self.roots(self.doc('consensus', ENTRY, 'https://finance.yahoo.com/quote/NVDA/analysis')), [])
+
+    def test_newer_consensus_does_not_replace_the_filing_as_the_root(self):
+        self.roots(self.doc('regulatory_filing', START, 'https://sec.test/filing'),
+                   self.doc('consensus', ENTRY, 'https://finance.yahoo.com/quote/NVDA/analysis'))
+        with closing(get_connection(self.db)) as conn:
+            sources = [row[0] for row in conn.execute('SELECT root_source_id FROM root_events')]
+        self.assertEqual(sources, ['url:https://sec.test/filing'])
 
 
 class QueueLeaseTests(DiscoveryFixture):

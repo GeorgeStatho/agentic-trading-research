@@ -11,7 +11,8 @@ from itertools import permutations
 import math
 import re
 
-from services.discovery.company_evidence_extraction import COMPARISON_FIELDS, consensus_matches_actual, guidance_midpoint
+from services.discovery.analyst_consensus import consensus_matches_actual
+from services.discovery.company_evidence_extraction import COMPARISON_FIELDS, guidance_midpoint
 
 
 _NUMBER = re.compile(
@@ -20,6 +21,11 @@ _NUMBER = re.compile(
     r"(?![\w-])",
     re.IGNORECASE,
 )
+_DAY_AFTER_MONTH = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?"
+    r"|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+$", re.IGNORECASE)
+_ISO_DAY = re.compile(r"\b\d{4}-\d{2}-$")
+_YEAR_AFTER = re.compile(r"\s+(?:FY)?(?:19|20)\d{2}\b")
 _MULTIPLIERS = {"billion": 1e9, "bn": 1e9, "b": 1e9, "million": 1e6, "mn": 1e6, "mm": 1e6, "m": 1e6,
                 "thousand": 1e3, "k": 1e3}
 _PERCENT_SUFFIXES = {"%", "percent"}
@@ -45,6 +51,16 @@ def stated_numbers(statement: str) -> list[StatedNumber]:
     numbers = []
     for match in _NUMBER.finditer(statement):
         suffix = (match["suffix"] or "").lower()
+        # A bare calendar year dates a claim; it is not a figure the source must contain.
+        if match[0].strip().isdigit() and len(match[0].strip()) == 4 and 1900 <= int(match[0]) <= 2100:
+            continue
+        # So does a day ("Nov. 4", "2026-11-09") or a year-to-date label ("9M 2026"), which is not 9 million.
+        is_day = match[0].isdigit() and 1 <= int(match[0]) <= 31
+        if ((is_day and (_DAY_AFTER_MONTH.search(statement, 0, match.start())
+                         or _ISO_DAY.search(statement, 0, match.start())))
+                or (match[0].lower().endswith("m") and "$" not in match[0]
+                    and _YEAR_AFTER.match(statement, match.end()))):
+            continue
         core = match["digits"].replace(",", "") + ("." + match["decimals"] if match["decimals"] else "")
         kind = ("percent" if suffix in _PERCENT_SUFFIXES else "basis_points" if suffix in _BASIS_POINT_SUFFIXES
                 else "amount")
@@ -61,10 +77,19 @@ def _fact_values(fact):
     return values
 
 
-def _compatible_for_calculation(first, second):
+def _cross_metric(first, second):
+    """Two metrics of one statement (operating income and revenue, debt and cash): margins, net debt, shares."""
+    return (first["metric"] != second["metric"] and first["kind"] == second["kind"]
+            and first["fiscal_period"] == second["fiscal_period"]
+            and all(first.get(field) == second.get(field) for field in _CALCULATION_FIELDS if field != "metric"))
+
+
+def _compatible_for_calculation(first, second, *, cross_metric):
     # An estimate and the actual of the quarter it estimated: "revenue beat consensus by X%".
     if consensus_matches_actual(first, second) or consensus_matches_actual(second, first):
         return True
+    if _cross_metric(first, second):
+        return cross_metric
     if any(first.get(field) != second.get(field) for field in _CALCULATION_FIELDS):
         return False
     # Guidance and actuals are only comparable for the identical fiscal period.
@@ -72,10 +97,20 @@ def _compatible_for_calculation(first, second):
     return len(families) == 1 or first["fiscal_period"] == second["fiscal_period"]
 
 
+def _calculation_inputs(facts):
+    return [fact for fact in facts if fact.get("value") is not None and fact["kind"] != "derived"]
+
+
+def _cross_metric_allowed(inputs):
+    # Only a claim citing exactly the two facts of its ratio: each extra fact multiplies the ratios a guess could hit.
+    return len(inputs) == 2
+
+
 def incompatible_calculation_facts(facts):
-    usable = [fact for fact in facts if fact.get("value") is not None and fact["kind"] != "derived"]
+    usable = _calculation_inputs(facts)
+    cross = _cross_metric_allowed(usable)
     return [(a["fact_id"], b["fact_id"]) for a, b in permutations(usable, 2)
-            if a["fact_id"] < b["fact_id"] and not _compatible_for_calculation(a, b)]
+            if a["fact_id"] < b["fact_id"] and not _compatible_for_calculation(a, b, cross_metric=cross)]
 
 
 class NumberSupport:
@@ -88,14 +123,18 @@ class NumberSupport:
             bucket = self.percents if fact.get("unit") == "percent" else self.amounts
             for value in _fact_values(fact):
                 bucket.append((value, fact.get("scale") or 1))
-        for first, second in permutations([f for f in known if f["kind"] != "derived"], 2):
-            if not _compatible_for_calculation(first, second):
+        inputs = _calculation_inputs(facts)
+        cross = _cross_metric_allowed(inputs)
+        for first, second in permutations(inputs, 2):
+            if not _compatible_for_calculation(first, second, cross_metric=cross):
                 continue
             change = guidance_midpoint(first) - guidance_midpoint(second)
             bucket = self.percents if first.get("unit") == "percent" else self.amounts
             bucket.append((change, first.get("scale") or 1))
             if guidance_midpoint(second):
-                self.percent_changes.append(change / abs(guidance_midpoint(second)) * 100)
+                # Across metrics only the ratio means something (a margin); within one, the percent change.
+                numerator = guidance_midpoint(first) if _cross_metric(first, second) else change
+                self.percent_changes.append(numerator / abs(guidance_midpoint(second)) * 100)
         cited = {fact["fact_id"] for fact in facts}
         for claim in package_claims:
             if isinstance(claim.get("value"), (int, float)) and set(claim.get("fact_ids", [])) <= cited:

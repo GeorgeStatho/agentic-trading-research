@@ -12,29 +12,13 @@ from research_foundation_contracts import CompanyFact, EvidenceDocument
 
 
 COMPARISON_FIELDS = ('metric', 'fiscal_period', 'period_type', 'accounting_basis', 'unit', 'currency', 'scale')
-NEXT_REPORT_PREFIX = 'next_report:'
-# Reports land 2-8 weeks after quarter end; the previous quarter ends about 120 days before.
-REPORTED_QUARTER_MAX_DAYS = 95
-# Analyst revenue and reported revenue measure the same thing; analyst EPS is usually adjusted.
-BASIS_INDEPENDENT_METRICS = frozenset({'revenue'})
 
 
 def comparison_key(fact):
     return tuple(fact.get(key) for key in COMPARISON_FIELDS)
 
 
-def report_date(fact):
-    """The earnings date a `next_report:<D>` estimate is for, or None."""
-    period = str(fact.get('fiscal_period') or '')
-    if not period.startswith(NEXT_REPORT_PREFIX):
-        return None
-    try:
-        return date.fromisoformat(period[len(NEXT_REPORT_PREFIX):])
-    except ValueError:
-        return None
-
-
-def _period_end(period):
+def period_end(period):
     parts = str(period or '').split('/')
     try:
         return date.fromisoformat(parts[1]) if len(parts) == 2 else None
@@ -42,30 +26,10 @@ def _period_end(period):
         return None
 
 
-def consensus_matches_actual(consensus, actual):
-    """True when `consensus` estimated the quarter `actual` reports.
-
-    The estimate for the report on D is for the latest quarter that ended before D, so the actual must
-    be quarterly and end within REPORTED_QUARTER_MAX_DAYS before D. That excludes the previous quarter
-    and the prior-year comparative columns a 10-Q also carries.
-    """
-    if (consensus.get('kind') != 'consensus' or actual.get('kind') != 'actual'
-            or consensus.get('period_type') != 'quarter' or actual.get('period_type') != 'quarter'):
-        return False
-    reported, ended = report_date(consensus), _period_end(actual.get('fiscal_period'))
-    if reported is None or ended is None:
-        return False
-    if any(consensus.get(key) != actual.get(key) for key in ('metric', 'unit', 'currency', 'scale')):
-        return False
-    if (consensus.get('metric') not in BASIS_INDEPENDENT_METRICS
-            and consensus.get('accounting_basis') != actual.get('accounting_basis')):
-        return False
-    return 0 < (reported - ended).days <= REPORTED_QUARTER_MAX_DAYS
-
-
 def guidance_midpoint(fact):
     """Midpoint of a single value or a range: the one formula every guidance comparison uses."""
-    high = fact.get('range_high')
+    # A consensus value is already the mean estimate; its range_high is the highest analyst's estimate.
+    high = None if fact.get('kind') == 'consensus' else fact.get('range_high')
     return (fact['value'] + (high if high is not None else fact['value'])) / 2
 
 
@@ -116,8 +80,9 @@ def ingest_source(company, source, at, *, db_path):
         # so it adds no rows and leaves the package revision (and discovery) alone.
         parts = [company['id'], source.provider, source.url, source.text, source.event_key, source.scheduled_events]
     else:
+        # Content, not fetch time: the same filing fetched again is the same document (JPM's 10-Q was stored six times).
         parts = [company['id'], source.provider, source.url, source.text,
-                 source.event_key, source.published_at, source.scheduled_events, source.observed_at]
+                 source.event_key, source.published_at, source.scheduled_events]
     identity = 'document:' + digest(parts)
     try:
         document = get_evidence_document(identity, db_path=db_path)

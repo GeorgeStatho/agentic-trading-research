@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS news_articles (
     event_time TEXT,
     first_seen_time TEXT,
     content_updated_at TEXT,
+    story_id INTEGER,
 
     summary TEXT,
     normalized_url TEXT,
@@ -462,6 +463,7 @@ CREATE INDEX IF NOT EXISTS idx_failed_urls_stage
 
 CREATE INDEX IF NOT EXISTS idx_news_provenance_ticker_time ON news_articles(primary_ticker, event_time);
 CREATE INDEX IF NOT EXISTS idx_news_provenance_catalyst ON news_articles(catalyst_id);
+CREATE INDEX IF NOT EXISTS idx_news_articles_story_id ON news_articles(story_id);
 
 -- Time the title, summary or body last really changed. NULL for rows that predate this column.
 CREATE TRIGGER IF NOT EXISTS news_articles_content_updated AFTER UPDATE OF title, summary ON news_articles

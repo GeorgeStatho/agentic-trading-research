@@ -6,7 +6,8 @@ from services.research.research_promotion import guard_policy
 
 
 # v2: quotes may come from view-only articles' title and summary, which the model also sees.
-POLICY_VERSION = "evidence-thesis-v3"
+# v4: consensus captured on its report date is stale; cross-metric ratios need exactly two cited facts.
+POLICY_VERSION = "evidence-thesis-v4"
 MODES = {"off", "shadow", "enforce"}
 
 

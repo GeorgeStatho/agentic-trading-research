@@ -25,6 +25,8 @@ Data/logs/
 
 # Local database backups and snapshots (gigabytes). Runtime data lives in the db_data volume.
 stock-backup-*
+# The verify skill's snapshot of the live DB (about 8 GB).
+.verify/
 *.tgz
 *.db.gz
 # Outputs of local runs. An image that ships one serves it until the container writes its own.

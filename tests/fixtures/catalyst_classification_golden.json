@@ -425,12 +425,12 @@
     "expected": {
       "catalyst_type": "management",
       "catalyst_subtype": "unspecified",
-      "catalyst_family": "other",
+      "catalyst_family": "corporate_action",
       "catalyst_scope": "idiosyncratic",
       "direction": "unknown",
       "mechanism": "Changes to leadership and execution expectations",
       "expected_horizon": "4_10_days",
-      "classification_status": "needs_review"
+      "classification_status": "classified"
     }
   },
   {
@@ -439,12 +439,12 @@
     "expected": {
       "catalyst_type": "capital_return",
       "catalyst_subtype": "unspecified",
-      "catalyst_family": "other",
+      "catalyst_family": "corporate_action",
       "catalyst_scope": "idiosyncratic",
       "direction": "unknown",
       "mechanism": "Changes to shareholder distributions or share count",
       "expected_horizon": "4_10_days",
-      "classification_status": "needs_review"
+      "classification_status": "classified"
     }
   },
   {
@@ -453,12 +453,12 @@
     "expected": {
       "catalyst_type": "financing",
       "catalyst_subtype": "unspecified",
-      "catalyst_family": "other",
+      "catalyst_family": "corporate_action",
       "catalyst_scope": "idiosyncratic",
       "direction": "unknown",
       "mechanism": "Changes to liquidity, leverage or dilution",
       "expected_horizon": "4_10_days",
-      "classification_status": "needs_review"
+      "classification_status": "classified"
     }
   },
   {
@@ -625,6 +625,20 @@
       "catalyst_scope": "idiosyncratic",
       "direction": "mixed",
       "mechanism": "Changes to permitted operations or market access",
+      "expected_horizon": "4_10_days",
+      "classification_status": "needs_review"
+    }
+  },
+  {
+    "title": "Is Oracle Stock a Buy Now?",
+    "summary": "",
+    "expected": {
+      "catalyst_type": "other",
+      "catalyst_subtype": "unspecified",
+      "catalyst_family": "commentary",
+      "catalyst_scope": "unknown",
+      "direction": "unknown",
+      "mechanism": "Unclassified transmission mechanism; review required",
       "expected_horizon": "4_10_days",
       "classification_status": "needs_review"
     }

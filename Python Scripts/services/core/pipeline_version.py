@@ -53,13 +53,18 @@ def gate_config():
     from services.gates.contract_policy import ContractPolicy
     from catalyst_models import HALF_LIFE_MINUTES
     from services.gates.trade_economics_policy import TradeEconomicsPolicy
+    from services.gates.entry_extension_gate import EntryExtensionPolicy
+    from services.gates.market_regime_variants import RegimeSpyTrendPolicy
+    from services.gates.tradability_gate import TradabilityPolicy
     return serializable({'thesis': EvidenceThesisPolicy.from_env(), 'economics': TradeEconomicsPolicy.from_env(),
                          'contracts': ContractPolicy.from_env(), 'pricing': PricingPolicy.from_env(),
                          'pricing_horizons': HORIZON_DAYS, 'response_horizons': RESPONSE_HORIZONS,
                          'catalyst_decay_priors': HALF_LIFE_MINUTES, 'catalyst': CatalystGatePolicy.from_env(),
                          'continuation': get_settings().evidence_continuation,
                          'regime': MarketRegimePolicy.from_env(),
-                         'regime_snapshot': MarketRegimeSnapshotPolicy.from_env()})
+                         'regime_snapshot': MarketRegimeSnapshotPolicy.from_env(),
+                         'entry_extension': EntryExtensionPolicy.from_env(), 'regime_spy_trend': RegimeSpyTrendPolicy(),
+                         'tradability': TradabilityPolicy.from_env()})
 
 
 def selector_constants():
@@ -77,7 +82,7 @@ def build_pipeline_version(*, settings=None):
     from services.core.trading_config import WorkerSettings, OptionPositionSettings, AgentPipelineSettings
     from services.core.settings import get_settings
     from services.options.option_dte_buckets import OPTION_DTE_BUCKETS
-    from agent_stages.strategist_runner import strategist_prompt_version
+    from agent_stages.strategist_prompt import strategist_prompt_version
     from agent_builders.strategist_payload_articles import SUPPORTING_ARTICLE_SELECTION_VERSION
     from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
     from agent_stages.manager_runner import MANAGER_PROMPT_VERSION

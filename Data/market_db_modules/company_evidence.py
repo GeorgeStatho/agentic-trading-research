@@ -11,6 +11,14 @@ from .bootstrap import initialize_database
 from .foundation_store import insert_record, load_record, read_record, record_data
 
 
+# Only the issuer's own disclosures count as a primary root; consensus captures are dated at fetch time.
+ISSUER_DOCUMENT_TYPES = {'regulatory_filing', 'issuer_release'}
+
+
+def is_issuer_document(document) -> bool:
+    return bool(document) and document['document_type'] in ISSUER_DOCUMENT_TYPES
+
+
 def record_evidence_document(document: EvidenceDocument, *, db_path=None):
     data = record_data(document)
     initialize_database(db_path=db_path)

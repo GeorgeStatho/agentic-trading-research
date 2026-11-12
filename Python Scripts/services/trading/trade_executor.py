@@ -9,6 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from services.core.numbers import safe_float
+from services.options.reference_price import option_reference_price as reference_price
 from services.core.trading_config import WorkerSettings
 
 from market_db_modules.portfolio_risk import (
@@ -94,21 +95,6 @@ class OptionTradeExecutor:
         self._thesis_journal = thesis_journal
         self._follower_fleet = follower_fleet
         self._logger = logger
-
-    def _get_option_reference_price(self, selected_option: dict[str, Any]) -> float:
-        latest_quote = selected_option.get("latest_quote", {})
-        if isinstance(latest_quote, dict):
-            for key in ("ask_price", "midpoint_price", "bid_price"):
-                price = safe_float(latest_quote.get(key))
-                if price is not None and price > 0:
-                    return price
-
-        for key in ("latest_trade_price", "close_price"):
-            price = safe_float(selected_option.get(key))
-            if price is not None and price > 0:
-                return price
-
-        return 0.0
 
     def _calculate_order_qty(
         self,
@@ -387,6 +373,9 @@ class OptionTradeExecutor:
             reason = result.get("portfolio_guardrail") or "execution_not_submitted"
             reject(context, "EXECUTION", reason, metrics=result,
                    thresholds=(candidate.get("execution_version") or {}).get("runtime_settings", {}))
+            if reason == "premium_per_trade_cap" and self._follower_fleet is not None:
+                # Only this refusal is offered; followers may try a cheaper structure and can never fail production.
+                observe(self._follower_fleet.mirror_blocked, candidate, result, session.max_premium_per_trade)
         return result
 
     def _execute_candidate(
@@ -433,13 +422,17 @@ class OptionTradeExecutor:
         session.seen_option_symbols.add(option_symbol)
 
         selected_option = candidate.get("selected_option") or {}
-        option_reference_price = self._get_option_reference_price(selected_option)
+        option_reference_price = reference_price(selected_option)
         calculated_order_qty, estimated_contract_cost = self._calculate_order_qty(
             option_reference_price=option_reference_price,
             base_order_qty=session.base_order_qty,
             max_deployable_buying_power=session.max_deployable_buying_power,
             max_premium_per_trade=session.max_premium_per_trade,
         )
+        # Shadow only: the size the regime gate's sizing_multiplier would choose. Orders use calculated_order_qty.
+        regime_multiplier = safe_float((candidate.get("market_regime_gate") or {}).get("sizing_multiplier"))
+        candidate["regime_sized_order_qty"] = (
+            None if regime_multiplier is None else math.floor(calculated_order_qty * regime_multiplier))
 
         if estimated_contract_cost == 0.0:
             self._logger.info(

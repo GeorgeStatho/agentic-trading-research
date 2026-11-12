@@ -7,12 +7,12 @@ from catalyst_models import timestamp
 from services.gates.contract_policy import ContractPolicy
 from services.evaluation.evaluation_clock import evaluation_now
 from services.runtime.execution_telemetry import quote_values
-from services.options.option_pricing import DAYS_PER_YEAR, CalibratedOption, days_until_expiration, option_side
+from services.options.option_pricing import (
+    CONTRACT_MULTIPLIER, DAYS_PER_YEAR, CalibratedOption, days_until_expiration, option_side)
 from services.gates.pricing_policy import HORIZON_DAYS, PricingPolicy
 from market_db_modules.pricing_research import catalyst_return_distribution, quantile
 from services.core.numbers import finite_float
 
-CONTRACT_MULTIPLIER = 100
 LOGGER = logging.getLogger(__name__)
 
 

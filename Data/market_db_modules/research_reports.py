@@ -1,19 +1,29 @@
 """Coverage-aware gate, calibration and paired strategy reports with proof citations."""
 from contextlib import closing
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 from statistics import mean
+from zoneinfo import ZoneInfo
 
 from db_common import get_connection
-from services.research.research_contract import STRATEGIES, canonical, direction, fingerprint, utc
-from services.research.research_promotion import GATE_BLOCKS, gate_code_hash, policy_hash, source_hash
-from services.research.research_versions import require_current_evaluator
-from services.research.shadow_portfolio import MOVE_BASIS, evaluate_gate, evaluate_gate_on_moves, expectancy
+from services.core.pipeline_version import gate_config
+from services.core.trading_path import trading_path_hashes
+from services.research.research_contract import ResearchPolicy, STRATEGIES, canonical, direction, fingerprint, utc
+from services.research.research_promotion import (GATE_BLOCKS, gate_code_hash, policy_hash,
+                                                  research_only_candidate, source_hash)
+from services.research.research_versions import evaluation_version, require_current_evaluator
+from services.research.shadow_portfolio import (HARD_BLOCK_BASIS, MOVE_BASIS, evaluate_gate, evaluate_gate_on_hard_blocks,
+                                                evaluate_gate_on_moves, expectancy, proposed_side)
 
 # Gates that judge whether a catalyst deserves an entry are scored on the underlying's move;
 # contract and economics gates judge execution, which only a priced option trade can show.
-MOVE_SCORED_BLOCKS = {'catalyst', 'continuation', 'regime', 'thesis'}
+MOVE_SCORED_BLOCKS = {'catalyst', 'continuation', 'regime', 'thesis', 'entry_extension', 'regime_spy_trend'}
+# A pre-check is right when what it rejects would have been hard-blocked later anyway.
+PRECISION_SCORED_BLOCKS = {'tradability'}
+MINIMUM_HARD_BLOCK_PRECISION = 0.95
+HARD_BLOCKS = {('EXECUTION', 'premium_per_trade_cap'),
+               ('CONTRACT_SELECTION', 'continuation_confirmed_but_no_eligible_contract')}
 from .research_runs import read_run
 from .research_observations import paired_champion_results, validate_strategy_evaluation
 
@@ -46,6 +56,28 @@ def calibration_table(rows):
 
 def raw_residual(row):
     return row['forward_raw_residual_return'] if 'forward_raw_residual_return' in row.keys() else None
+
+
+def forward_move(conn, candidate_id, at):
+    """The candidate's raw 5-day residual move, if it had resolved and been checked by `at`."""
+    residual = conn.execute('SELECT * FROM candidate_price_observations WHERE candidate_id=?', (candidate_id,)).fetchone()
+    # calibration_table applies the predicted direction itself, so it needs the raw
+    # residual. A database this process never initialized may predate that column;
+    # report it as unresolved rather than failing the whole report.
+    return (raw_residual(residual) if residual and residual['forward_at'] and residual['forward_checked_at']
+            and utc(residual['forward_at']) <= utc(at) and utc(residual['forward_checked_at']) <= utc(at) else None)
+
+
+def hard_block_outcome(conn, candidate_id, at):
+    """'blocked' if a later stage refused the pick for the premium cap or no eligible contract, 'fits' if
+    an order went out, None while neither is known by `at`."""
+    for row in conn.execute('SELECT stage, reason_code, occurred_at FROM candidate_rejections WHERE candidate_id=?',
+                            (candidate_id,)):
+        if (row['stage'], row['reason_code']) in HARD_BLOCKS and utc(row['occurred_at']) <= utc(at):
+            return 'blocked'
+    submitted = conn.execute('''SELECT 1 FROM candidate_snapshots WHERE candidate_id=? AND stage='order_submitted'
+        AND julianday(captured_at)<=julianday(?)''', (candidate_id, utc(at).isoformat())).fetchone()
+    return 'fits' if submitted else None
 
 
 def strategy_table(rows):
@@ -90,16 +122,11 @@ def monthly_report(run_id, month, *, as_of=None, db_path=None):
             positions = {row['strategy']: json.loads(row['result_json']) for row in conn.execute(
                 'SELECT * FROM research_shadow_positions WHERE run_id=? AND candidate_id=?', (run_id, saved['candidate_id']))
                 if utc(row['outcome_cutoff_time']) <= utc(at)}
-            residual = conn.execute('SELECT * FROM candidate_price_observations WHERE candidate_id=?', (saved['candidate_id'],)).fetchone()
-            # calibration_table applies the predicted direction itself, so it needs the raw
-            # residual. A database this process never initialized may predate that column;
-            # report it as unresolved rather than failing the whole report.
-            move = (raw_residual(residual) if residual and residual['forward_at'] and residual['forward_checked_at']
-                    and utc(residual['forward_at']) <= utc(at) and utc(residual['forward_checked_at']) <= utc(at) else None)
             rows.append({'candidate_id': saved['candidate_id'], 'features': inputs['features'],
                          'gates': inputs['features'].get('gates', {}), 'positions': positions,
                          'result': positions.get('counterfactual', {'status': 'uncollected'}),
-                         'residual_return': move, 'selection_source': inputs['selection_source'],
+                         'residual_return': forward_move(conn, saved['candidate_id'], at),
+                         'selection_source': inputs['selection_source'],
                          'gate_code': inputs.get('gate_code') or {}})
             evaluation = validate_strategy_evaluation(conn, run, saved, inputs)
             if evaluation:
@@ -157,14 +184,108 @@ def monthly_report(run_id, month, *, as_of=None, db_path=None):
     return report
 
 
-def _promotion_report(conn, report_id, *, require_source=True):
-    """`require_source=False` checks only the evaluator: a gate proof binds its own code via policy_hash."""
+POOLED_REPORT_VERSION = 'pooled-gate-v1'
+# research_reports.month doubles as the report kind; monthly readers select their own month values.
+POOLED_REPORT_MONTH = 'pooled'
+NEW_YORK = ZoneInfo('America/New_York')
+
+
+def pooled_gate_report(stage, *, as_of=None, db_path=None):
+    """One gate scored on every frozen-forward row its current code and policy produced.
+
+    Rows carry their own gate-code hash, so deploys that leave the gate's files alone keep pooling.
+    Only the first ask per company, New York day and proposed side counts, and only asks a whole
+    horizon older than the report, so the window is closed and outcomes have had time to resolve.
+    Entry gates are scored on the underlying's move, pre-checks on whether their rejections were
+    hard-blocked later. The report records the evaluator; promotion refuses one it no longer runs.
+    """
+    block = GATE_BLOCKS.get(stage)
+    precision = block in PRECISION_SCORED_BLOCKS
+    if block not in MOVE_SCORED_BLOCKS and not precision:
+        raise ValueError('Only gates scored on the underlying move or on later hard blocks pool across runs')
+    policy = ResearchPolicy()
+    at = utc(as_of or datetime.now(timezone.utc))
+    window_end = at - timedelta(days=policy.holding_days)
+    live = gate_config().get(block)
+    if live is None:
+        raise ValueError(f'The current pipeline has no {block} policy to bind a proof to')
+    current = policy_hash(stage, live, gate_code_hash(stage, trading_path_hashes()))
+    runs, firsts, other, duplicates, unfinished = {}, {}, 0, 0, 0
+    with closing(get_connection(db_path)) as conn, conn:
+        for saved in conn.execute('''SELECT c.* FROM research_candidates c JOIN research_runs r ON r.run_id=c.run_id
+                WHERE r.kind='frozen_forward' ORDER BY julianday(c.information_cutoff_time),c.candidate_id,c.run_id'''):
+            if research_only_candidate(saved['candidate_id']) or utc(saved['information_cutoff_time']) > window_end:
+                continue
+            inputs = json.loads(saved['input_json'])
+            if fingerprint(inputs) != saved['input_hash']:
+                raise ValueError('Frozen research inputs changed')
+            if stage not in inputs['features'].get('gates', {}):
+                continue
+            # An unfinished candidate's verdicts are only its rejections, which would tilt the sample.
+            if inputs.get('selection_source') == 'missing_or_unfinished_snapshots':
+                unfinished += 1
+                continue
+            if saved['run_id'] not in runs:
+                runs[saved['run_id']] = read_run(conn, saved['run_id'])
+            manifest = runs[saved['run_id']]['manifest']
+            # Rows enrolled before per-row gate hashes were recorded matched the run's manifest exactly.
+            code = (inputs.get('gate_code') or {}).get(stage) or gate_code_hash(stage, manifest.get('source_hashes') or {})
+            settings = manifest.get('gate_config', {}).get(block)
+            if settings is None or policy_hash(stage, settings, code) != current:
+                other += 1
+                continue
+            key = (inputs['symbol'], utc(saved['information_cutoff_time']).astimezone(NEW_YORK).date(),
+                   proposed_side(inputs['features']))
+            if key in firsts:
+                duplicates += 1
+                continue
+            firsts[key] = {'candidate_id': saved['candidate_id'], 'run_id': saved['run_id'],
+                           'features': inputs['features'], 'gates': inputs['features']['gates'],
+                           **({'outcome': hard_block_outcome(conn, saved['candidate_id'], at)} if precision
+                              else {'residual_return': forward_move(conn, saved['candidate_id'], at)})}
+        rows = list(firsts.values())
+        score = evaluate_gate_on_hard_blocks if precision else evaluate_gate_on_moves
+        gate = {**score(rows, stage), 'policy_hash': current,
+                'regimes': sorted({row['features'].get('regime') for row in rows} - {None, 'unknown'})}
+        report = {'report_version': POOLED_REPORT_VERSION, 'stage': stage, 'information_cutoff_time': at.isoformat(),
+                  'window_end': window_end.isoformat(), 'run_ids': sorted({row['run_id'] for row in rows}),
+                  'candidate_ids': [row['candidate_id'] for row in rows],
+                  'n_other_code_or_policy': other, 'n_duplicate_asks': duplicates, 'n_unfinished': unfinished,
+                  'evaluation_version': evaluation_version(),
+                  'sample_unit': 'first verdict per symbol, New York day and proposed side', 'gates': [gate]}
+        report_id = fingerprint(report)
+        report['report_id'] = report_id if rows else None
+        if rows:
+            # run_id must name one run (research_gate_promotions references this row): the newest sample's run.
+            # The report's run_ids lists every run it pooled.
+            conn.execute('INSERT INTO research_reports VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING',
+                         (report_id, rows[-1]['run_id'], report['information_cutoff_time'], POOLED_REPORT_MONTH,
+                          canonical(report)))
+    return report
+
+
+def _stored_report(conn, report_id):
     row = conn.execute('SELECT * FROM research_reports WHERE report_id=?', (report_id,)).fetchone()
     if row is None:
         raise ValueError('A persisted research report is required')
     report = json.loads(row['report_json'])
     if fingerprint({key: value for key, value in report.items() if key != 'report_id'}) != report_id:
         raise ValueError('Research report hash mismatch')
+    return row, report
+
+
+def _pooled_minimum_samples(report):
+    """A pooled proof's window must have closed a full horizon before a report time already past."""
+    policy = ResearchPolicy()
+    at = utc(report['information_cutoff_time'])
+    if at > datetime.now(timezone.utc) or utc(report['window_end']) > at - timedelta(days=policy.holding_days):
+        raise ValueError('A pooled proof needs a window closed a full horizon before a past report time')
+    return policy.minimum_promotion_samples
+
+
+def _promotion_report(conn, report_id, *, require_source=True):
+    """`require_source=False` checks only the evaluator: a gate proof binds its own code via policy_hash."""
+    row, report = _stored_report(conn, report_id)
     run = read_run(conn, row['run_id'])
     if require_source and run['code_hash'] != source_hash():
         raise ValueError('Promotion proof implementation is stale')
@@ -180,14 +301,24 @@ def _promotion_report(conn, report_id, *, require_source=True):
 def promote_gate(report_id, stage, *, db_path=None):
     with closing(get_connection(db_path)) as conn, conn:
         conn.execute('BEGIN IMMEDIATE')
-        report, run = _promotion_report(conn, report_id, require_source=False)
+        report = _stored_report(conn, report_id)[1]
+        if report.get('report_version') == POOLED_REPORT_VERSION:
+            minimum = _pooled_minimum_samples(report)
+            stored, live = report.get('evaluation_version') or {}, evaluation_version()
+            if (stored.get('version'), stored.get('evaluator_hash')) != (live['version'], live['evaluator_hash']):
+                raise ValueError('Research evaluator changed; re-run report-gate')
+        else:
+            report, run = _promotion_report(conn, report_id, require_source=False)
+            minimum = run['policy'].minimum_promotion_samples
         gate = next((item for item in report['gates'] if item['stage'] == stage), None)
-        option_basis = bool(gate) and gate.get('basis') != MOVE_BASIS
+        option_basis = bool(gate) and gate.get('basis') not in (MOVE_BASIS, HARD_BLOCK_BASIS)
         if (not gate or not gate['policy_hash'] or not gate['coverage_complete']
                 or (option_basis and not (gate['production_selection_complete'] and gate['daily_coverage_complete']))
-                or gate['n_evaluable'] < run['policy'].minimum_promotion_samples
+                or gate['n_evaluable'] < minimum
                 or gate['n_passed'] == 0 or gate['n_rejected'] == 0 or len(gate['regimes']) < 2 or gate['gate_value'] <= 0):
             raise ValueError('Gate lacks complete counterfactual coverage, positive value, sample size or regime diversity')
+        if gate.get('basis') == HARD_BLOCK_BASIS and gate['gate_value'] < MINIMUM_HARD_BLOCK_PRECISION:
+            raise ValueError(f'Pre-check precision {gate["gate_value"]:.3f} is below {MINIMUM_HARD_BLOCK_PRECISION}')
         conn.execute('INSERT INTO research_gate_promotions VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING',
                      (stage, gate['policy_hash'], report_id, report['information_cutoff_time'], gate['n_evaluable'], gate['gate_value']))
     return {'stage': stage, 'report_id': report_id, 'sample_size': gate['n_evaluable'], 'gate_value': gate['gate_value']}

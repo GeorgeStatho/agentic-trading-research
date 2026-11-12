@@ -115,6 +115,13 @@ def backup_database(settings: DbBackupSettings, *, schedule_date: date, now=lamb
     return manifest
 
 
+def _mtime_or_none(entry: os.DirEntry) -> float | None:
+    try:
+        return entry.stat().st_mtime
+    except FileNotFoundError:  # Litestream renames its .tmp segments while we scan
+        return None
+
+
 def replica_lag_seconds(db_path: Path, replica_dir: Path) -> float | None:
     """How far the newest Litestream replica file trails the last database write; None without a replica."""
     generations = replica_dir / "generations"
@@ -123,8 +130,9 @@ def replica_lag_seconds(db_path: Path, replica_dir: Path) -> float | None:
     current = max(generations.iterdir(), key=lambda path: path.stat().st_mtime, default=None)
     if current is None:
         return None
-    newest = max((entry.stat().st_mtime for folder in (current / "wal", current / "snapshots") if folder.is_dir()
-                  for entry in os.scandir(folder) if entry.is_file()), default=None)
+    newest = max((mtime for folder in (current / "wal", current / "snapshots") if folder.is_dir()
+                  for entry in os.scandir(folder) if entry.is_file()
+                  if (mtime := _mtime_or_none(entry)) is not None), default=None)
     if newest is None:
         return None
     written = max(path.stat().st_mtime for path in (db_path, Path(f"{db_path}-wal")) if path.exists())

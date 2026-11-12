@@ -7,7 +7,7 @@ from market_db_modules.execution_telemetry import (
     pending_execution_telemetry,
     store_execution_telemetry,
 )
-from services.trading.order_values import normalize_order_summary
+from services.trading.order_values import ENDED, REPLACED, normalize_order_summary, order_phase
 from catalyst_models import timestamp as parse_timestamp
 from services.core.numbers import finite_float
 
@@ -39,7 +39,7 @@ def fill_metrics(order, baseline, *, observed_at=None, market_snapshot=None):
     result = {'order_status': order.get('status'), 'filled_qty': filled_qty,
               'fill_observed_at': observed_at or datetime.now(timezone.utc).isoformat(),
               'submitted_price': finite_float(order.get('limit_price'))}
-    if order.get('status') in {'canceled', 'expired', 'rejected', 'replaced'}:
+    if order_phase(order.get('status')) in (ENDED, REPLACED):
         result['cancel_reason'] = order['status']
     if not filled_qty or price is None or price <= 0:
         return result

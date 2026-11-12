@@ -55,6 +55,7 @@ def build_manager_prompt(
         "Your job is only to choose call, put, or neither for the underlying at this time. "
         "Do not choose, rank, or infer a specific option contract. "
         "Do not make the final affordability or liquidity decision yourself. Contract affordability and liquidity are enforced later by the deterministic selector and risk layer. "
+        "A fresh, direct, negative company-specific catalyst (an earnings miss, a guidance cut, a downgrade, an adverse legal or regulatory event) is in scope for a put at the same evidence bar as a positive catalyst for a call. "
         f"Map time_horizon to target_dte_bucket explicitly when a trade is supported using this shared mapping: {TIME_HORIZON_DTE_MAPPING_TEXT}. "
         f"Prefer the default bucket {DEFAULT_MANAGER_TARGET_DTE_BUCKET} when the setup looks actionable but there is no strong reason to force a shorter bucket. "
         "Use none only when no trade should be opened; a call or put always needs a bucket. "

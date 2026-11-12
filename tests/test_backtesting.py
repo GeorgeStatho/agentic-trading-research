@@ -15,7 +15,9 @@ from news_db_modules.bootstrap import initialize_database as initialize_news_dat
 from market_db_modules.backtesting import (  # noqa: E402
     get_backtest_run,
     record_historical_option_quote,
+    record_historical_underlying_bar,
     run_backtest,
+    simulate_backtest_metrics,
 )
 from market_db_modules.bootstrap import initialize_database  # noqa: E402
 from market_db_modules.backtesting import _apply_portfolio_limits, _merged_config, _metrics  # noqa: E402
@@ -102,6 +104,37 @@ class BacktestingTests(unittest.TestCase):
         self.assertEqual(json.loads(snapshot["snapshot_json"])["articles"], [])
         self.assertEqual(execution_count, 0)
 
+    def add_frozen_decision(self, *, executed: bool) -> int:
+        """A NVDA call whose contract and stock price were saved with the decision, as production saves them."""
+        contract = {"symbol": "NVDA260320C00200000", "contract_type": "call", "strike_price": 200.0,
+                    "expiration_date": "2026-03-20", "latest_quote": {"bid_price": 9.8, "ask_price": 10.2}}
+        with closing(get_connection(self.db_path)) as conn, conn:
+            decision_id = conn.execute(
+                "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision, selected_option_symbol, "
+                "trade_executed) VALUES ('NVDA', '2026-02-02T15:00:00+00:00', 'call', ?, ?)",
+                (contract["symbol"], int(executed)),
+            ).lastrowid
+            conn.execute(
+                "INSERT INTO manager_decision_payloads (manager_decision_history_id, manager_input_json, manager_output_json) "
+                "VALUES (?, ?, ?)",
+                (decision_id, json.dumps({"market_context": {"current_stock_price": {"latest_trade_price": 200.0}}}),
+                 json.dumps({"recommendation": {"decision": "call"}, "selected_option": contract})),
+            )
+        record_historical_underlying_bar({"symbol": "NVDA", "bar_at": "2026-02-03T05:00:00+00:00", "close": 205.0},
+                                         provider="fixture", db_path=self.db_path)
+        return decision_id
+
+    def test_a_stored_decision_with_its_saved_contract_enters_at_the_decision_time_ask(self) -> None:
+        self.add_frozen_decision(executed=False)
+        event = next(event for event in run_backtest(db_path=self.db_path)["events"] if event["symbol"] == "NVDA")
+        self.assertEqual(event["entry_at"], "2026-02-02T15:00:00+00:00")
+        self.assertTrue(event["pricing_source"].startswith("model_black_scholes"), event["pricing_source"])
+
+    def test_metrics_can_cover_only_the_decisions_that_were_traded(self) -> None:
+        self.add_frozen_decision(executed=True)
+        self.assertEqual(simulate_backtest_metrics(db_path=self.db_path)["decision_count"], 3)
+        self.assertEqual(simulate_backtest_metrics(trade_executed=True, db_path=self.db_path)["decision_count"], 1)
+
     def test_backtest_rejects_an_entry_quote_that_is_too_delayed(self) -> None:
         record_historical_option_quote(
             {"option_symbol": "MSFT260117C00400000", "quote_at": "2026-01-01T11:00:00+00:00", "bid": 1.0, "ask": 1.1, "volume": 20},
@@ -178,6 +211,20 @@ class PortfolioGuardrailTests(unittest.TestCase):
         ], daily_loss_limit_dollars=150)
         self.assertEqual(events[1]["warnings"], ["portfolio_daily_loss_limit"])
         self.assertEqual(_metrics(events)["portfolio_rejected_count"], 1)
+
+
+class PricingSourceMetricsTests(unittest.TestCase):
+    def test_expectancy_is_reported_per_pricing_source(self) -> None:
+        # Model-priced replay trades approximate a contract production never chose; keep them apart from quoted ones.
+        events = [{"status": "simulated_closed", "symbol": symbol, "realized_pnl_pct": pnl, "realized_pnl_dollars": pnl,
+                   "pricing_source": source}
+                  for symbol, pnl, source in (("MSFT", 10.0, "observed_quote"), ("AAPL", -20.0, "observed_quote"),
+                                              ("EQT", 50.0, "black_scholes_daily_close"))]
+        metrics = _metrics(events)
+        self.assertEqual(metrics["expectancy_pct"], 13.3333)
+        self.assertEqual({source: (m["priced_entry_count"], m["expectancy_pct"])
+                          for source, m in metrics["by_pricing_source"].items()},
+                         {"observed_quote": (2, -5.0), "black_scholes_daily_close": (1, 50.0)})
 
 
 if __name__ == "__main__":

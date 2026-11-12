@@ -21,10 +21,12 @@ from market_db_modules.backtesting import (
 from market_db_modules.backtesting import run_decision_backtest
 from market_db_modules.candidate_lifecycle import record_candidate_snapshot
 from services.evaluation import llm_backtest
-from services.core.trading_config import WorkerSettings
+from services.core.trading_config import OptionExitRuleConfig, OptionPositionSettings, WorkerSettings
+from services.discovery.company_evidence_extraction import ingest_source
 from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
 from services.evaluation.llm_backtest import ModelUnavailable, ProductionRules, run_llm_backtest
 from services.trading.order_candidates import OrderCandidateBuilder
+from tests.test_yahoo_consensus import consensus_doc
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "Data"
 DECISION_AT = "2026-03-02T15:00:00+00:00"
@@ -34,6 +36,17 @@ TRADEABLE = {"recommendation": {"decision": "call", "confidence": "high", "reaso
              "strategist_recommendation": {"decision": "trade_candidate"},
              "entry_gate": {"allowed": True}, "market_regime_gate": {"allowed": True},
              "selected_option": CONTRACT, "market_context": {"current_stock_price": {"price": 400.0}}}
+# Production's exit rules as the live .env sets them: 46 DTE lands in the 45-60 bucket.
+PRODUCTION_EXITS = replace(
+    OptionPositionSettings.from_env(), enable_trailing_profit=True, stop_loss_confirm_checks=3,
+    stop_loss_underlying_move_pct=0.015, volatility_scaled_thresholds=False,
+    dte_rules=(OptionExitRuleConfig(key="45_60", label="45-60 DTE", take_profit_pct=85.0, stop_loss_pct=-40.0,
+                                    force_exit_days_to_expiration=27),),
+)
+PRODUCTION_EXITS = replace(PRODUCTION_EXITS, trailing=replace(
+    PRODUCTION_EXITS.trailing, protection_trigger_pct=0.3, initial_floor_pct=0.15, dynamic_giveback_start_pct=0.5,
+    first_scale_out_trigger_pct=0.5, first_scale_out_fraction=0.5, giveback_pct_by_bucket_key={"45_60": 0.3},
+    floor_100_pct=0.75, floor_150_pct=1.3, floor_200_pct=1.7))
 
 
 class DatabaseFixture(unittest.TestCase):
@@ -42,6 +55,9 @@ class DatabaseFixture(unittest.TestCase):
         self.db_path = Path(self.temp_dir.name) / "llm_backtest.db"
         initialize_database(db_path=self.db_path, schema_path=DATA_DIR / "market_schema.sql")
         initialize_news_database(db_path=self.db_path, schema_path=DATA_DIR / "news_schema.sql")
+        settings = patch.object(OptionPositionSettings, "from_env", return_value=PRODUCTION_EXITS)
+        settings.start()
+        self.addCleanup(settings.stop)
         with closing(get_connection(self.db_path)) as conn, conn:
             self.decision_id = conn.execute(
                 "INSERT INTO manager_decision_history (symbol, decision_run_at, manager_decision) VALUES ('MSFT', ?, 'neither')",
@@ -74,26 +90,134 @@ class DatabaseFixture(unittest.TestCase):
             record_historical_underlying_bar({"symbol": "MSFT", "bar_at": f"{day}T05:00:00+00:00", "close": close},
                                              provider="fixture", db_path=self.db_path)
 
-    def backtest(self, contract=CONTRACT, **decision_fields) -> dict:
-        return self.backtest_run(contract, **decision_fields)["events"][0]
+    def add_hourly(self, *bars: tuple) -> None:
+        """Hourly (bar_at, close[, open]) bars stamped at their start, as yfinance stores them."""
+        for bar_at, close, *opened in bars:
+            record_historical_underlying_bar({"symbol": "MSFT", "bar_at": bar_at, "close": close, "open": opened[0] if opened else None},
+                                             provider="fixture", timeframe="1h", db_path=self.db_path)
 
-    def backtest_run(self, contract=CONTRACT, **decision_fields) -> dict:
+    def backtest(self, contract=CONTRACT, config=None, **decision_fields) -> dict:
+        return self.backtest_run(contract, config, **decision_fields)["events"][0]
+
+    def backtest_run(self, contract=CONTRACT, config=None, **decision_fields) -> dict:
         decision = {"id": self.decision_id, "symbol": "MSFT", "decision_run_at": DECISION_AT, "manager_decision": "call",
                     "selected_option_symbol": contract["symbol"], "selected_contract": contract, "reference_spot": 400.0,
                     **decision_fields}
-        return run_decision_backtest([decision], db_path=self.db_path)
+        return run_decision_backtest([decision], config=config, db_path=self.db_path)
 
 
 class ModelPricingTests(DatabaseFixture):
     def test_rally_prices_a_call_profit_from_daily_closes(self) -> None:
+        # No hourly bars: the day's close at 16:00 New York is the mark.
         self.add_closes(("2026-03-03", 440.0))
-        self.assertGreater(self.backtest()["realized_pnl_pct"], 0)
+        event = self.backtest()
+        self.assertGreater(event["realized_pnl_pct"], 0)
+        self.assertEqual(datetime.fromisoformat(event["exit_at"]), datetime.fromisoformat("2026-03-03T21:00:00+00:00"))
 
-    def test_stored_quotes_take_precedence(self) -> None:
-        for quote_at, bid, ask in (("2026-03-02T20:00:00+00:00", 9.8, 10.2), ("2026-03-03T20:00:00+00:00", 12.0, 12.4)):
+    def test_frozen_contract_enters_at_the_decision_time_ask(self) -> None:
+        # 2026-11-11: a later stored quote filled real trades 10-19% cheaper than the broker did.
+        for quote_at, bid, ask in (("2026-03-02T20:00:00+00:00", 7.8, 8.2), ("2026-03-03T20:00:00+00:00", 12.0, 12.4)):
             record_historical_option_quote({"option_symbol": CONTRACT["symbol"], "quote_at": quote_at, "bid": bid, "ask": ask},
                                            provider="fixture", db_path=self.db_path)
-        self.assertEqual(self.backtest()["pricing_source"], "observed_quote")
+        self.add_closes(("2026-03-03", 405.0))
+        event = self.backtest()
+        self.assertEqual(datetime.fromisoformat(event["entry_at"]), datetime.fromisoformat(DECISION_AT))
+        self.assertAlmostEqual(event["entry_price"], 10.2 * 1.0025, places=4)
+        self.assertEqual(event["pricing_source"], "model_black_scholes_eod_iv")
+
+    def test_intraday_dip_stops_out_at_the_hourly_mark(self) -> None:
+        self.add_hourly(("2026-03-03T14:30:00+00:00", 401.0), ("2026-03-03T15:30:00+00:00", 360.0),
+                        ("2026-03-03T16:30:00+00:00", 400.0))
+        self.add_closes(("2026-03-03", 400.0))
+        event = self.backtest()
+        self.assertEqual(datetime.fromisoformat(event["exit_at"]), datetime.fromisoformat("2026-03-03T16:30:00+00:00"))
+        self.assertIn("stop_loss_exit", event["warnings"])
+        self.assertLess(event["realized_pnl_pct"], -40)
+
+    def test_a_gap_down_at_the_open_stops_out_at_the_bar_start(self) -> None:
+        # 2026-11-11: both real stops fired at 9:31-9:32, on the open, before the first hourly bar closed.
+        self.add_hourly(("2026-03-03T14:30:00+00:00", 400.0, 360.0))
+        event = self.backtest()
+        self.assertEqual(datetime.fromisoformat(event["exit_at"]), datetime.fromisoformat("2026-03-03T14:30:00+00:00"))
+        self.assertIn("stop_loss_exit", event["warnings"])
+
+    def test_rally_then_giveback_exits_on_the_trailing_floor(self) -> None:
+        self.add_hourly(("2026-03-03T14:30:00+00:00", 410.0), ("2026-03-03T15:30:00+00:00", 420.0),
+                        ("2026-03-03T16:30:00+00:00", 411.0), ("2026-03-03T17:30:00+00:00", 430.0))
+        event = self.backtest()
+        self.assertEqual(datetime.fromisoformat(event["exit_at"]), datetime.fromisoformat("2026-03-03T17:30:00+00:00"))
+        self.assertIn("trailing_profit_stop_exit", event["warnings"])
+        self.assertGreater(event["realized_pnl_pct"], 15)
+
+    def test_a_configured_trailing_giveback_replaces_the_rule(self) -> None:
+        # Peak about +141% at 420; the rule's 30-point giveback holds at 419, a 5-point one does not.
+        self.add_hourly(("2026-03-03T14:30:00+00:00", 410.0), ("2026-03-03T15:30:00+00:00", 420.0),
+                        ("2026-03-03T16:30:00+00:00", 419.0), ("2026-03-03T17:30:00+00:00", 411.0))
+        exits = [datetime.fromisoformat(self.backtest(config=config)["exit_at"])
+                 for config in (None, {"trailing_giveback_pct": 5.0})]
+        self.assertEqual(exits, [datetime.fromisoformat("2026-03-03T18:30:00+00:00"),
+                                 datetime.fromisoformat("2026-03-03T17:30:00+00:00")])
+
+    def test_static_policy_keeps_the_fixed_take_profit(self) -> None:
+        self.add_closes(("2026-03-03", 440.0))
+        self.assertIn("take_profit_exit", self.backtest(config={"exit_policy": "static"})["warnings"])
+
+    def test_static_levels_default_to_the_dte_rule(self) -> None:
+        # Up about 66%: past a configured 50% take-profit, short of the 45-60 DTE rule's 85%.
+        self.add_closes(("2026-03-03", 410.0))
+        self.assertNotIn("take_profit_exit", self.backtest(config={"exit_policy": "static"})["warnings"])
+        self.assertIn("take_profit_exit",
+                      self.backtest(config={"exit_policy": "static", "take_profit_pct": 50.0})["warnings"])
+
+    def test_a_configured_stop_loss_overrides_the_dte_rule_under_production_exits(self) -> None:
+        self.add_hourly(("2026-03-03T14:30:00+00:00", 401.0), ("2026-03-03T15:30:00+00:00", 360.0))
+        self.assertIn("stop_loss_exit", self.backtest()["warnings"])
+        self.assertNotIn("stop_loss_exit", self.backtest(config={"stop_loss_pct": -99.9})["warnings"])
+
+    def label_earnings(self, day: str) -> None:
+        """A stored Yahoo consensus labelled with an earnings date, as production collects it."""
+        company_id = add_company(add_industry(add_sector("technology", "Technology", db_path=self.db_path), "software",
+                                              "Software", db_path=self.db_path), "MSFT", "Microsoft", db_path=self.db_path)
+        ingest_source({"id": company_id, "symbol": "MSFT", "cik": "0000789019"},
+                      consensus_doc("2026-02-20T12:00:00+00:00", period=day), "2026-02-20T12:00:00+00:00",
+                      db_path=self.db_path)
+
+    def test_constant_volatility_across_earnings_is_flagged_and_counted(self) -> None:
+        # 2026-11-10: with no quote after the report the model keeps pre-report volatility, about 8 points too kind.
+        self.add_closes(("2026-03-03", 440.0))
+        unflagged = self.backtest()
+        self.label_earnings("2026-03-03")
+        run = self.backtest_run()
+        event = run["events"][0]
+        self.assertIn("constant_iv_across_earnings", event["warnings"])
+        self.assertEqual(run["run"]["metrics"]["constant_iv_across_earnings_count"], 1)
+        self.assertEqual((event["exit_price"], event["realized_pnl_pct"]),
+                         (unflagged["exit_price"], unflagged["realized_pnl_pct"]))
+
+    def test_volatility_observed_after_earnings_is_not_flagged(self) -> None:
+        self.add_closes(("2026-03-03", 440.0))
+        self.label_earnings("2026-03-03")
+        # Another strike's quote that day gives the model a post-report volatility.
+        record_historical_option_quote({"option_symbol": "MSFT260417C00420000", "quote_at": "2026-03-03T20:00:00+00:00",
+                                        "bid": 25.0, "ask": 25.6}, provider="fixture", db_path=self.db_path)
+        self.assertNotIn("constant_iv_across_earnings", self.backtest()["warnings"])
+
+    def test_volatility_observed_only_after_the_exit_is_still_flagged(self) -> None:
+        # 2026-11-10 review: the held marks ended at the report-day exit; a quote the next day priced none of them.
+        self.add_closes(("2026-03-03", 440.0), ("2026-03-04", 445.0))
+        self.label_earnings("2026-03-03")
+        record_historical_option_quote({"option_symbol": "MSFT260417C00420000", "quote_at": "2026-03-04T20:00:00+00:00",
+                                        "bid": 29.0, "ask": 29.6}, provider="fixture", db_path=self.db_path)
+        event = self.backtest(config={"exit_policy": "static"})
+        self.assertTrue(event["exit_at"].startswith("2026-03-03"), event["exit_at"])
+        self.assertIn("constant_iv_across_earnings", event["warnings"])
+
+    def test_no_earnings_inside_the_hold_is_not_flagged(self) -> None:
+        self.add_closes(("2026-03-03", 440.0))
+        self.label_earnings("2026-04-28")
+        run = self.backtest_run()
+        self.assertNotIn("constant_iv_across_earnings", run["events"][0]["warnings"])
+        self.assertEqual(run["run"]["metrics"]["constant_iv_across_earnings_count"], 0)
 
     def test_crossed_frozen_quote_does_not_fill(self) -> None:
         crossed = {**CONTRACT, "latest_quote": {"bid_price": 11.0, "ask_price": 10.0}}
@@ -131,6 +255,12 @@ class ProductionRulesTests(unittest.TestCase):
         local = replace(self.LOCAL, execute_medium_confidence_trades=True)
         rules = ProductionRules.for_manifest(self.MANIFEST, local=local)
         self.assertFalse(rules.settings.execute_medium_confidence_trades)
+
+    def test_the_bucket_otm_targets_stay_in_the_recorded_selector_config(self) -> None:
+        # Every recorded manifest carries it; dropping it makes every replay a selector_config_mismatch.
+        from services.core.pipeline_version import selector_constants
+        from services.options.option_dte_buckets import DTE_BUCKET_TO_TARGET_OTM_PCT
+        self.assertEqual(selector_constants()["DTE_BUCKET_TO_TARGET_OTM_PCT"], DTE_BUCKET_TO_TARGET_OTM_PCT)
 
 
 class ReplayFunnelTests(DatabaseFixture):
@@ -174,6 +304,51 @@ class ReplayFunnelTests(DatabaseFixture):
         self.assertEqual(result["run"]["metrics"]["replay"]["outcomes"], {"snapshot_hash_mismatch": 1, "traded": 1})
 
 
+class PreDecisionChainTests(DatabaseFixture):
+    """A replayed answer naming a bucket production never fetched is selected from the frozen pre-decision chain."""
+    PRE_DECISION_CHAIN = {"available": True, "contracts": [CONTRACT]}
+    SAVED_CHAIN = {"available": True, "contracts": [{**CONTRACT, "symbol": "MSFT260515C00400000"}]}
+    ANSWER = {"recommendation": {"decision": "call", "confidence": "high", "target_dte_bucket": "30_45"}}
+
+    def set_pre_decision_chain(self, option_market: dict) -> None:
+        manager_input = {"replay_input": {"company": {"symbol": "MSFT"},
+                                          "market_context": {"option_market": option_market}}}
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("UPDATE manager_decision_payloads SET manager_input_json = ? WHERE manager_decision_history_id = ?",
+                         (json.dumps(manager_input), self.decision_id))
+
+    def replay(self) -> tuple[dict, Mock]:
+        finalize = Mock(return_value=TRADEABLE)
+        # The fixture manifest records no selector settings; that mismatch check is not under test here.
+        with patch.object(llm_backtest, "finalize", finalize), \
+                patch.object(llm_backtest.ProductionRules, "selector_differences", return_value=[]):
+            result = run_llm_backtest(model="local", decide=Mock(return_value=self.ANSWER), db_path=self.db_path)
+        return result["run"]["metrics"]["replay"], finalize
+
+    def test_an_unsaved_bucket_is_selected_from_the_pre_decision_chain_and_counted(self) -> None:
+        self.set_pre_decision_chain(self.PRE_DECISION_CHAIN)
+        replay, finalize = self.replay()
+        self.assertEqual(finalize.call_args.args[2]["option_market"], self.PRE_DECISION_CHAIN)
+        self.assertEqual(replay["outcomes"], {"traded": 1})
+        self.assertEqual(replay["pre_decision_chain_trade_count"], 1)
+
+    def test_the_saved_bucket_chain_is_still_preferred(self) -> None:
+        self.set_pre_decision_chain(self.PRE_DECISION_CHAIN)
+        self.add_candidate("candidate-1", self.decision_id, pre_contract_selection={
+            "recommendation": {"decision": "call", "target_dte_bucket": "30_45"},
+            "market_context": {"option_market": self.SAVED_CHAIN}})
+        replay, finalize = self.replay()
+        self.assertEqual(replay["outcomes"], {"traded": 1})
+        self.assertEqual(finalize.call_args.args[2]["option_market"], self.SAVED_CHAIN)
+        self.assertEqual(replay["pre_decision_chain_trade_count"], 0)
+
+    def test_without_contracts_in_either_chain_it_stays_unavailable(self) -> None:
+        self.set_pre_decision_chain({"available": False, "contracts": []})
+        replay, finalize = self.replay()
+        finalize.assert_not_called()
+        self.assertEqual(replay["outcomes"], {"bucket_chain_unavailable": 1})
+
+
 def decision(symbol: str, at: str) -> dict:
     return {"symbol": symbol, "decision_run_at": at}
 
@@ -192,9 +367,9 @@ class StrategistReplayTests(DatabaseFixture):
         self.add_candidate("candidate-1", self.decision_id,
                            pre_strategist={"company": {"symbol": "MSFT", "company_id": company_id}})
 
-    def run_replay(self, **options) -> tuple[dict, Mock, Mock]:
+    def run_replay(self, answer: dict | None = None, **options) -> tuple[dict, Mock, Mock]:
         manager = Mock(return_value={"recommendation": {"decision": "neither"}})
-        strategist = Mock(return_value={"recommendation": {"decision": "do_not_trade", "confidence": "low"}})
+        strategist = Mock(return_value={"recommendation": answer or {"decision": "do_not_trade", "confidence": "low"}})
         with patch.object(llm_backtest, "finalize", return_value=TRADEABLE):
             result = run_llm_backtest(model="local", decide=manager, decide_strategist=strategist,
                                       replay_strategist=True, db_path=self.db_path, **options)
@@ -203,6 +378,21 @@ class StrategistReplayTests(DatabaseFixture):
     def test_the_manager_answers_the_replayed_strategist(self) -> None:
         _, manager, _ = self.run_replay()
         self.assertEqual(manager.call_args.args[0]["strategist_recommendation"]["decision"], "do_not_trade")
+
+    def test_another_sample_asks_the_strategist_again_and_is_cached_itself(self) -> None:
+        # Measures how often the same strategist input gets a different thesis, not just a different manager answer.
+        calls = [self.run_replay(sample=sample)[2].call_count for sample in (0, 0, 1, 1)]
+        self.assertEqual(calls, [1, 0, 1, 0])
+
+    def test_thesis_status_is_counted_per_strategist_decision_for_production_and_replay(self) -> None:
+        production = {"decision": "trade_candidate", "evidence_thesis_check": {"status": "deferred"}}
+        manager_input = {"replay_input": {"company": {"symbol": "MSFT"}, "strategist_recommendation": production}}
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("UPDATE manager_decision_payloads SET manager_input_json = ? WHERE manager_decision_history_id = ?",
+                         (json.dumps(manager_input), self.decision_id))
+        result, _, _ = self.run_replay({"decision": "watchlist", "evidence_thesis_check": {"status": "validated"}})
+        self.assertEqual(result["run"]["metrics"]["replay"]["strategist_replay"]["thesis_status_by_decision"], {
+            "production": {"trade_candidate": {"deferred": 1}}, "replay": {"watchlist": {"validated": 1}}})
 
     def test_replayed_answers_are_reused_under_the_production_rule(self) -> None:
         def strategist_input(price: float, reason: str = "Guidance raised") -> dict:
@@ -229,9 +419,100 @@ class StrategistReplayTests(DatabaseFixture):
         self.assertEqual(reused, [False] * 4)
         self.assertEqual(decide.call_count, 4)
 
+    def test_a_cached_strategist_answer_is_checked_by_the_current_checker(self) -> None:
+        # 2026-11-10 review: the cache kept the verdict of whichever checker first answered, so checker
+        # changes never reached cached replays.
+        thesis = {"direction": "up", "claims": "as the model wrote them"}
+        answer = {"decision": "trade_candidate", "evidence_thesis": thesis,
+                  "evidence_thesis_check": {"status": "validated", "research_status": "legacy_strategist"}}
+        self.run_replay(answer)
+        stricter = {"schema_version": "evidence-thesis-v1", "policy_version": "evidence-thesis-v4", "status": "deferred",
+                    "package_id": None, "research_status": "legacy_strategist", "failures": ["central_claim_failed"],
+                    "claims": [], "semantic_review": {"status": "not_run"}}
+        with patch.object(llm_backtest, "check_evidence_thesis", return_value=stricter) as checker:
+            _, manager, strategist = self.run_replay(answer)
+        self.assertEqual(strategist.call_count, 0)
+        self.assertEqual(checker.call_args.args[0], thesis)
+        self.assertEqual(manager.call_args.args[0]["strategist_recommendation"]["evidence_thesis_check"]["status"],
+                         "deferred")
+
     def test_reuse_needs_strategist_replay(self) -> None:
         with self.assertRaises(ValueError):
             run_llm_backtest(model="local", strategist_reuse_max_age_minutes=120, db_path=self.db_path)
+
+
+class ThesisRecheckTests(DatabaseFixture):
+    """`recheck_thesis` re-runs this checkout's thesis checker on the stored thesis; only the manager is asked."""
+    OLD_CHECK = {"evaluation_id": "e1", "status": "deferred", "package_id": "pkg", "research_status": "legacy",
+                 "failures": ["central_claim_failed"], "failed_claims": [{"claim_id": "c1", "central": True,
+                                                                          "failures": ["unsupported_number:2026"]}]}
+    NEW_CHECK = {"schema_version": "s", "policy_version": "p", "status": "passed", "package_id": "pkg",
+                 "research_status": "legacy", "failures": [], "claims": [], "thesis": {"direction": "up"},
+                 "semantic_review": {"status": "not_run"}}
+
+    def setUp(self) -> None:
+        super().setUp()
+        strategist = {"decision": "trade_candidate", "evidence_thesis": {"direction": "up"},
+                      "evidence_thesis_check": self.OLD_CHECK, "evidence_thesis_handoff": "same_package"}
+        manager_input = {"replay_input": {"company": {"symbol": "MSFT"}, "company_evidence": {"package_id": "pkg"},
+                                          "strategist_recommendation": strategist}}
+        with closing(get_connection(self.db_path)) as conn, conn:
+            conn.execute("UPDATE manager_decision_payloads SET manager_input_json = ? WHERE manager_decision_history_id = ?",
+                         (json.dumps(manager_input), self.decision_id))
+
+    def run_replay(self, **options) -> tuple[dict, Mock, Mock]:
+        manager = Mock(return_value={"recommendation": {"decision": "neither"}})
+        with patch.object(llm_backtest, "finalize", return_value=TRADEABLE), \
+                patch.object(llm_backtest, "check_evidence_thesis", return_value=self.NEW_CHECK) as check:
+            result = run_llm_backtest(model="local", decide=manager, db_path=self.db_path, **options)
+        return result, manager, check
+
+    def test_the_manager_sees_the_rechecked_thesis(self) -> None:
+        result, manager, check = self.run_replay(recheck_thesis=True)
+        seen = manager.call_args.args[0]["strategist_recommendation"]["evidence_thesis_check"]
+        self.assertEqual((seen["status"], seen["failures"], seen["failed_claims"]), ("passed", [], []))
+        self.assertEqual(seen["evaluation_id"], "e1")
+        self.assertEqual(check.call_args.args[0], {"direction": "up"})
+        self.assertEqual(result["run"]["metrics"]["replay"]["thesis_recheck"], {"rechecked": 1, "changed": 1})
+
+    def test_without_the_flag_the_stored_check_is_kept(self) -> None:
+        result, manager, check = self.run_replay()
+        check.assert_not_called()
+        self.assertEqual(manager.call_args.args[0]["strategist_recommendation"]["evidence_thesis_check"], self.OLD_CHECK)
+        self.assertIsNone(result["run"]["metrics"]["replay"]["thesis_recheck"])
+
+    def test_recheck_is_refused_with_a_replayed_strategist(self) -> None:
+        with self.assertRaises(ValueError):
+            run_llm_backtest(model="local", recheck_thesis=True, replay_strategist=True, db_path=self.db_path)
+
+
+class SampleTests(DatabaseFixture):
+    """`sample` asks the model again for an input it already answered; sample 0 is the existing cache entry."""
+
+    def run_sample(self, manager: Mock, **options) -> dict:
+        with patch.object(llm_backtest, "finalize", return_value=TRADEABLE):
+            return run_llm_backtest(model="local", decide=manager, db_path=self.db_path, **options)
+
+    def test_sample_zero_reads_the_existing_cache(self) -> None:
+        manager = Mock(return_value={"recommendation": {"decision": "neither"}})
+        self.run_sample(manager)
+        result = self.run_sample(manager, sample=0)
+        self.assertEqual(manager.call_count, 1)
+        self.assertEqual(result["run"]["metrics"]["replay"]["sample"], 0)
+
+    def test_another_sample_asks_the_model_again_and_is_cached_itself(self) -> None:
+        manager = Mock(return_value={"recommendation": {"decision": "neither"}})
+        self.run_sample(manager)
+        result = self.run_sample(manager, sample=1)
+        self.assertEqual(manager.call_count, 2)
+        self.assertEqual(result["run"]["metrics"]["replay"]["sample"], 1)
+        self.run_sample(manager, sample=1)
+        self.assertEqual(manager.call_count, 2)
+
+    def test_samples_need_a_model_to_ask(self) -> None:
+        for bad in ({"model": "stored", "sample": 1}, {"model": "local", "sample": -1}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                run_llm_backtest(db_path=self.db_path, **bad)
 
 
 class RecommendationEligibilityTests(unittest.TestCase):
@@ -390,6 +671,14 @@ class CommandLineFlagTests(unittest.TestCase):
 
     def test_the_override_flag_reaches_the_runner(self) -> None:
         self.assertTrue(self.run_cli("--allow-unknown-cutoff")["allow_unknown_cutoff"])
+
+    def test_the_recheck_flag_reaches_the_runner(self) -> None:
+        self.assertFalse(self.run_cli()["recheck_thesis"])
+        self.assertTrue(self.run_cli("--recheck-thesis")["recheck_thesis"])
+
+    def test_the_sample_flag_reaches_the_runner(self) -> None:
+        self.assertEqual(self.run_cli()["sample"], 0)
+        self.assertEqual(self.run_cli("--sample", "3")["sample"], 3)
 
     def test_direction_scoring_gets_the_same_options(self) -> None:
         kwargs = self.run_cli("--score-direction", "--decision-ids-file", self.ids_file("5\n6\n"),

@@ -111,12 +111,11 @@ class OptionPositionManagerService:
                 )
 
     def _record_submitted_exits(self, positions: list[dict[str, Any]]) -> None:
-        """Record every submitted close in the trade journal and retire its thesis."""
+        """Record every submitted close in the trade journal."""
         for position_summary in positions:
             if not isinstance(position_summary, dict) or not position_summary.get("close_submitted"):
                 continue
             self._record_exit_in_trade_journal(position_summary)
-            self._record_exit_in_thesis_journal(position_summary)
 
     def _record_exit_in_trade_journal(self, position_summary: dict[str, Any]) -> None:
         if self._trade_journal is None:
@@ -134,17 +133,22 @@ class OptionPositionManagerService:
             position_summary["db_recorded"] = False
             position_summary["db_record_error"] = str(exc)
 
-    def _record_exit_in_thesis_journal(self, position_summary: dict[str, Any]) -> None:
+    def _sync_theses_with_holdings(self, positions: list[dict[str, Any]], flattened_symbols: list[str]) -> None:
+        """A thesis lives while the broker holds its contract; a submitted exit alone retires nothing."""
         if self._thesis_journal is None:
             return
+        held = {str(p.get("symbol") or "").strip().upper() for p in positions if isinstance(p, dict)}
+        held.discard("")
+        for symbol in sorted(held):
+            self._sync_thesis(self._thesis_journal.record_held, symbol)
+        for symbol in flattened_symbols:
+            self._sync_thesis(self._thesis_journal.record_flat, symbol)
+
+    def _sync_thesis(self, record, symbol: str) -> None:
         try:
-            self._thesis_journal.record_exit(position_summary)
+            record(symbol)
         except Exception as exc:
-            self._logger.exception(
-                "Failed to close position thesis for %s: %s",
-                position_summary.get("symbol"),
-                exc,
-            )
+            self._logger.exception("Failed to sync position thesis for %s: %s", symbol, exc)
 
     def _run_thesis_validation(
         self,
@@ -272,6 +276,7 @@ class OptionPositionManagerService:
                 position['candidate_context'] = observe(position_entry_context, position.get('symbol'))
                 position['execution_version'] = version
         self._record_submitted_exits(positions)
+        self._sync_theses_with_holdings(positions, management_result.get("flattened_symbols") or [])
         self._refresh_manager_decision_history_pnl(positions)
 
         thesis_validation_result = self._run_thesis_validation(
