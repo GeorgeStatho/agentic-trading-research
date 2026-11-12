@@ -9,7 +9,7 @@ import os
 
 from catalyst_models import timestamp, DECAY_BASIS
 from db_common import get_connection
-from market_db_modules.company_evidence import get_evidence_document, latest_evidence_package
+from market_db_modules.company_evidence import get_evidence_document, is_issuer_document, latest_evidence_package
 from market_db_modules.shared import find_company_row_by_symbol
 from processing.scoring import recency_score
 from market_db_modules.catalyst_research import record_catalyst_gate_observation
@@ -25,7 +25,7 @@ class CatalystGatePolicy:
     minimum_roots: int = 2
     primary_evidence_threshold: float = .75
     minimum_remaining_value: float = .25
-    version: str = 'catalyst-gates-v2'
+    version: str = 'catalyst-gates-v3'
 
     @classmethod
     def from_env(cls):
@@ -62,13 +62,21 @@ def with_primary_filing(state, symbol, *, as_of, db_path=None):
     except Exception:
         LOGGER.exception('Primary filing lookup failed for %s', symbol)
         return state
-    filings = [doc for doc in documents if doc and doc['document_type'] != 'xbrl_facts'
+    filings = [doc for doc in documents if is_issuer_document(doc)
                and first - timedelta(days=1) <= timestamp(doc['published_at']) <= cutoff]
     if not filings:
         return state
     latest = max(filings, key=lambda doc: doc['published_at'])
     return {**state, 'primary_source_present': True, 'primary_filing_document_id': latest['document_id'],
             'independent_root_count': (state.get('independent_root_count') or 0) + 1}
+
+
+def _freshness_reason(age, remaining, article_count, policy):
+    if age is None:
+        return 'no_catalyst_articles' if article_count == 0 else 'missing_or_future_event_time'
+    if remaining is None:
+        return 'unavailable_half_life_prior'
+    return 'fresh' if remaining >= policy.minimum_remaining_value else 'decayed_catalyst'
 
 
 def evaluate_catalyst_gates(state, *, as_of=None, policy=None):
@@ -92,13 +100,14 @@ def evaluate_catalyst_gates(state, *, as_of=None, policy=None):
     effective_age = (now-latest_root).total_seconds()/60 if refreshed else age
     half_life = state.get('expected_half_life_minutes')
     remaining = recency_score(effective_age/1440, half_life_days=half_life/1440) if effective_age is not None and half_life and half_life > 0 else None
-    reason = 'missing_or_future_event_time' if age is None else 'unavailable_half_life_prior' if remaining is None else 'fresh' if remaining >= policy.minimum_remaining_value else 'decayed_catalyst'
+    reason = _freshness_reason(age, remaining, state.get('article_count'), policy)
     freshness = _result('FRESHNESS', reason, None if remaining is None else remaining >= policy.minimum_remaining_value,
                         policy.freshness_mode, {'catalyst_id': state['catalyst_id'], 'catalyst_family': state['catalyst_family'],
                         'catalyst_age_minutes': age, 'effective_age_minutes': effective_age,
                         'remaining_information_value': remaining, 'half_life_minutes': half_life,
                         'decay_basis': DECAY_BASIS, 'calibration': 'research_prior',
                         'refreshed_by_new_root_event': refreshed, 'first_public_time': state.get('first_public_time'),
+                        'first_public_time_basis': state.get('first_public_time_basis'),
                         'latest_root_event_time': state.get('latest_root_event_time')}, policy)
     return {'PROVENANCE': provenance, 'FRESHNESS': freshness}
 
