@@ -217,6 +217,9 @@ def classify_market_regime(
         "spy_price_vs_50sma_pct": _round(price_vs_50sma),
         "trend_strength": _round(trend_strength),
         "spy_realized_volatility_20d": _round(realized_volatility),
+        # Read only by the shadow regime variants; stale prices report no return.
+        **{f"spy_return_{days}d_pct": None if market_stale or len(valid_closes) <= days
+           else _round((valid_closes[-1] / valid_closes[-1 - days] - 1) * 100.0) for days in (5, 20)},
         "vix_percentile_1y": _round(vix_percentile, 2),
         "market_breadth": "unavailable",
     }

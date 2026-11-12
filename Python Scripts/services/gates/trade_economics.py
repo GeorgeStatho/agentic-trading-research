@@ -20,7 +20,8 @@ from market_db_modules.trade_economics import get_candidate_economics_report, re
 from services.evaluation.evaluation_clock import evaluation_now
 from services.runtime.execution_telemetry import quote_values
 from services.options.option_dte_buckets import get_dte_bucket, resolve_dte_bucket_for_days
-from services.options.option_pricing import DAYS_PER_YEAR, CalibratedOption, days_until_expiration, option_side
+from services.options.option_pricing import (
+    CONTRACT_MULTIPLIER, DAYS_PER_YEAR, CalibratedOption, days_until_expiration, option_side)
 from services.gates.pricing_policy import RESPONSE_HORIZONS
 from services.gates.trade_economics_policy import TradeEconomicsPolicy
 from services.core.numbers import finite_float
@@ -30,7 +31,6 @@ LOGGER = logging.getLogger(__name__)
 REPORT_VERSION = 'trade-economics-report-v1'
 FORECAST_VERSION = 'empirical-catalyst-total-return-v1'
 DIRECTIONAL_DECISIONS = ('call', 'put')
-CONTRACT_MULTIPLIER = 100
 MINIMUM_SCENARIO_HORIZON_DAYS = 1
 QUANTILES = (.05, .10, .25, .50, .75, .90, .95)
 SPOT_NUMBERS = ('price', 'latest_trade_price', 'bid_price', 'ask_price')

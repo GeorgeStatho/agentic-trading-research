@@ -62,6 +62,31 @@ def _ensure_account_position_exposure(conn: sqlite3.Connection) -> None:
     for column in ("entry_spot", "entry_delta", "source_delta"):
         if column not in columns:
             conn.execute(f"ALTER TABLE account_positions ADD COLUMN {column} REAL")
+    for column, column_type in (("entry_kind", "TEXT NOT NULL DEFAULT 'copy'"), ("partial_order_id", "TEXT"),
+                                ("partial_qty", "INTEGER"), ("partial_fill_price", "REAL")):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE account_positions ADD COLUMN {column} {column_type}")
+
+
+PICK_CONFIDENCE_COLUMNS = ("thesis_confidence", "timing_confidence", "execution_confidence")
+
+
+def _ensure_pick_score_columns(conn: sqlite3.Connection) -> None:
+    """The manager's confidence components and the log-only pick score, as queryable columns.
+
+    Confidence is backfilled from stored manager output once, when its columns are added.
+    """
+    columns = table_columns(conn, "manager_decision_history")
+    for column, column_type in (*((name, "TEXT") for name in PICK_CONFIDENCE_COLUMNS),
+                                ("pick_score", "REAL"), ("pick_score_version", "TEXT")):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE manager_decision_history ADD COLUMN {column} {column_type}")
+    if "thesis_confidence" not in columns:
+        assignments = ", ".join(f"{name} = json_extract(p.manager_output_json, '$.recommendation.{name}')"
+                                for name in PICK_CONFIDENCE_COLUMNS)
+        conn.execute(f"""UPDATE manager_decision_history AS h SET {assignments}
+                         FROM manager_decision_payloads AS p
+                         WHERE p.manager_decision_history_id = h.id AND json_valid(p.manager_output_json)""")
 
 
 def _ensure_llm_usage_stage(conn: sqlite3.Connection) -> None:
@@ -211,6 +236,7 @@ def _setup_steps() -> tuple:
         move_payload_copies_out_of_ledger,
         lambda conn: backfill_decision_autopsy_ledger(conn=conn),
         _ensure_llm_usage_stage,
+        _ensure_pick_score_columns,
     )
 
 

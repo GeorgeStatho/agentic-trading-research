@@ -8,7 +8,7 @@ from typing import Any
 
 from db_common import clean_text, get_connection, json_text
 from .autopsy import SNAPSHOT_VERSION
-from .bootstrap import initialize_database
+from .bootstrap import PICK_CONFIDENCE_COLUMNS, initialize_database
 from .shared import coerce_int, find_company_row_by_symbol, normalize_bool_to_int, normalize_timestamp
 from .backtesting import ensure_decision_evidence_snapshot
 from .position_outcomes import close_position_outcome
@@ -137,6 +137,13 @@ def record_manager_decision_history(
     )
     conn.execute("UPDATE manager_decision_history SET candidate_id=?, pipeline_version_json=? WHERE id=?",
                  (history.get("candidate_id"), json_text(history.get("pipeline_version")), decision_history_id))
+    output = history.get("manager_output_json")
+    output = output if isinstance(output, dict) else {}
+    recommendation, pick_score = output.get("recommendation") or {}, output.get("pick_score") or {}
+    conn.execute(f"UPDATE manager_decision_history SET {', '.join(f'{name}=?' for name in PICK_CONFIDENCE_COLUMNS)}, "
+                 "pick_score=?, pick_score_version=? WHERE id=?",
+                 (*(clean_text(recommendation.get(key)) for key in PICK_CONFIDENCE_COLUMNS),
+                  safe_float(pick_score.get("score")), clean_text(pick_score.get("version")), decision_history_id))
     stamp_candidate_catalyst(conn, 'manager_decision_history', decision_history_id, history.get('candidate_id'))
     record_decision_gate_verdicts(decision_history_id, history.get("manager_output_json"), conn=conn)
     snapshot = {

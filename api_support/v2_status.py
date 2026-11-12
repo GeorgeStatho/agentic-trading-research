@@ -75,6 +75,24 @@ GUARDED_FEATURES = (
         "stages": ("REGIME",),
     },
     {
+        "key": "entry_extension",
+        "label": "Entry extension",
+        "description": "Refuses a pick whose stock already moved its way over five days unless the manager rated overextension low.",
+        "env_var": "ENTRY_EXTENSION_MODE",
+        "block": "entry_extension",
+        "field": "mode",
+        "stages": ("ENTRY_EXTENSION",),
+    },
+    {
+        "key": "tradability",
+        "label": "Tradability pre-check",
+        "description": "Before the strategist, checks the selector's top pick in the default DTE bucket against the premium cap.",
+        "env_var": "TRADABILITY_MODE",
+        "block": "tradability",
+        "field": "mode",
+        "stages": ("TRADABILITY",),
+    },
+    {
         "key": "liquidity",
         "label": "Liquidity V2 (E2)",
         "description": "Depth, five-second quote freshness and 6% spread checks at selection and at execution.",
@@ -138,6 +156,13 @@ SHADOW_ONLY_FEATURES = (
         "description": "Shadows a repricing limit ladder against the market orders actually sent.",
         "reason": "Deferred: no measured broker-fill baseline exists, and an unsubmitted limit order proves nothing.",
     },
+    {
+        "key": "regime_spy_trend",
+        "label": "Regime variant: SPY 5/20-day trend",
+        "stage": "REGIME_SPY_TREND",
+        "description": "Blocks calls only when SPY's 5- and 20-day returns are both down, puts only when both are up.",
+        "reason": "A research variant of the market-regime gate; it never replaces or changes the REGIME verdict.",
+    },
 )
 
 EMPTY_ACTIVITY = {"observed_candidates": 0, "shadow_blocks": 0, "enforced_blocks": 0, "no_verdict": 0}
@@ -194,12 +219,16 @@ def _load_policies() -> dict:
     from services.gates.contract_policy import ContractPolicy
     from services.gates.evidence_continuation_policy import EvidenceContinuationPolicy
     from services.gates.market_regime_gate import MarketRegimePolicy
+    from services.gates.entry_extension_gate import EntryExtensionPolicy
+    from services.gates.tradability_gate import TradabilityPolicy
 
     loaders = {
         "catalyst": CatalystGatePolicy.from_env,
         "contracts": ContractPolicy.from_env,
         "continuation": EvidenceContinuationPolicy.from_env,
         "regime": MarketRegimePolicy.from_env,
+        "entry_extension": EntryExtensionPolicy.from_env,
+        "tradability": TradabilityPolicy.from_env,
     }
     policies = {}
     for block, loader in loaders.items():
