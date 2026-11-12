@@ -22,7 +22,9 @@ def main():
     report.add_argument('run_id')
     report.add_argument('--month', required=True)
     report.add_argument('--as-of')
-    gate = commands.add_parser('promote-gate')
+    pooled = commands.add_parser('report-gate', help='Pool one move-basis gate across every frozen-forward run')
+    pooled.add_argument('stage')
+    gate = commands.add_parser('promote-gate', help='Accepts a sealed-run report or a report-gate report')
     gate.add_argument('report_id')
     gate.add_argument('stage')
     champion = commands.add_parser('promote-champion')
@@ -34,7 +36,7 @@ def main():
         os.environ['DB_PATH'] = str(Path(args.db).resolve())
     from market_db_modules.bootstrap import initialize_database
     from market_db_modules.research_runs import collect_run, start_run
-    from market_db_modules.research_reports import monthly_report, promote_champion, promote_gate
+    from market_db_modules.research_reports import monthly_report, pooled_gate_report, promote_champion, promote_gate
     from db_common import get_connection
     initialize_database()
     if args.command == 'start':
@@ -48,6 +50,8 @@ def main():
         result = collect_run(args.run_id, as_of=args.as_of)
     elif args.command == 'report':
         result = monthly_report(args.run_id, args.month, as_of=args.as_of)
+    elif args.command == 'report-gate':
+        result = pooled_gate_report(args.stage)
     elif args.command == 'promote-gate':
         result = promote_gate(args.report_id, args.stage)
     elif args.command == 'promote-champion':

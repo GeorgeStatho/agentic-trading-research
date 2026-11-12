@@ -15,6 +15,7 @@ from news_db_modules.entity_articles import add_company_news_article
 from market_db_modules.candidate_lifecycle import record_candidate
 from market_db_modules.pricing_research import (
     catalyst_stats,
+    load_histories,
     register_response_events,
     store_response,
     store_history,
@@ -166,6 +167,15 @@ class PricingDatabaseTests(unittest.TestCase):
                         for bar in data[role] if bar['timeframe'] == timeframe]
                 store_history(symbol, bars, provider='fixture', timeframe=timeframe,
                               captured_at=self.now, db_path=self.db)
+
+    def test_the_benchmark_series_falls_back_to_the_provider_that_still_has_recent_bars(self):
+        day = lambda offset: (self.now - timedelta(days=offset)).replace(hour=4, minute=0, second=0, microsecond=0)
+        for provider, offsets in (('yfinance', range(40, 20, -1)), ('alpaca_iex', range(30, 0, -1))):
+            store_history('SPY', [{'bar_at': day(offset).isoformat(), 'close': 400 + offset} for offset in offsets],
+                          provider=provider, timeframe='1d', captured_at=self.now, db_path=self.db)
+        spy = load_histories('NVDA', 'XLK', as_of=self.now, db_path=self.db)['market']
+        self.assertEqual({bar['provider'] for bar in spy}, {'alpaca_iex'})
+        self.assertEqual(spy[-1]['bar_at'], day(1).isoformat())
 
     def test_future_outcome_and_future_capture_are_excluded(self):
         for field in ('outcome', 'recorded'):

@@ -30,6 +30,8 @@ from services.research.shadow_portfolio import simulate_option
 from services.trading.order_candidates import OrderCandidateBuilder
 from services.trading.trade_executor import TradeExecutionSession, OptionTradeExecutor
 
+HARD_BLOCKS = {'premium_cap': ('EXECUTION', 'premium_per_trade_cap'),
+               'no_contract': ('CONTRACT_SELECTION', 'continuation_confirmed_but_no_eligible_contract')}
 START = '2026-09-01T20:00:00+00:00'
 ENTRY = '2026-09-02T20:00:00+00:00'
 END = '2026-09-10T20:00:00+00:00'
@@ -429,6 +431,198 @@ class GateEvidenceBasisTests(unittest.TestCase):
         self.assertTrue(same_strategy(deployed, run, 'production', identity))
         self.assertFalse(same_strategy(retuned, run, 'production', identity))
         self.assertFalse(same_strategy(deployed, run, 'challenger', identity))
+
+
+class PooledGateProofTests(unittest.TestCase):
+    """A move-basis gate's proof pools every run's rows produced by its current code and policy."""
+    REPORTED = '2026-10-01T20:00:00+00:00'
+
+    def setUp(self):
+        from services.core.pipeline_version import gate_config
+        from services.core.trading_path import trading_path_hashes
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.db = Path(self.temp.name) / 'research.db'
+        initialize_database(db_path=self.db)
+        self.hashes = trading_path_hashes()
+        self.manifest = {'pipeline_version': 'fixture-v1', 'gate_config': gate_config(), 'source_hashes': self.hashes}
+        self.count = 0
+
+    def new_run(self, manifest=None):
+        return start_run(manifest or self.manifest, target_candidates=10000, now=START, db_path=self.db)['run_id']
+
+    def enrol(self, run_id, *, passed, move, symbol=None, at=ENTRY, side='call', regime=None, hashes=None,
+              stage='REGIME', outcome=None, selection_source='recorded_production'):
+        from services.research.research_contract import fingerprint
+        from services.research.research_promotion import gate_code_hashes
+        self.count += 1
+        candidate_id = f'candidate-{self.count:04d}'
+        inputs = {'candidate_id': candidate_id, 'symbol': symbol or f'SYM{self.count}', 'created_at': at,
+                  'information_cutoff_time': at, 'selection_source': selection_source,
+                  'features': {'gates': {stage: passed}, 'manager_direction': side,
+                               'regime': regime or ('range' if self.count % 2 else 'trend_up')},
+                  'gate_code': gate_code_hashes(hashes or self.hashes)}
+        forward = (utc(at) + timedelta(days=5)).isoformat()
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute('''INSERT OR IGNORE INTO candidates(candidate_id,symbol,created_at,catalyst_ids_json,article_ids_json,pipeline_version_json)
+                VALUES (?,?,?,?,?,?)''', (candidate_id, inputs['symbol'], at, '[]', '[]', canonical(self.manifest)))
+            conn.execute('INSERT INTO research_candidates VALUES (?,?,?,?,?)',
+                         (run_id, candidate_id, at, fingerprint(inputs), canonical(inputs)))
+            conn.execute('''INSERT INTO candidate_price_observations
+                (candidate_id,catalyst_id,observed_at,bucket,snapshot_json,forward_residual_return,forward_at,forward_checked_at,forward_raw_residual_return)
+                VALUES (?,?,?,?,?,?,?,?,?)''', (candidate_id, 'catalyst', at, 'b', '{}', move, forward, forward, move))
+            if outcome in HARD_BLOCKS:
+                conn.execute('INSERT INTO candidate_rejections (candidate_id,symbol,stage,reason_code,occurred_at) '
+                             'VALUES (?,?,?,?,?)', (candidate_id, inputs['symbol'], *HARD_BLOCKS[outcome], at))
+            elif outcome == 'fits':
+                conn.execute('''INSERT INTO candidate_snapshots (candidate_id,stage,captured_at,information_cutoff_time,
+                    pipeline_version,snapshot_version,snapshot_hash,snapshot_json) VALUES (?,?,?,?,?,?,?,?)''',
+                             (candidate_id, 'order_submitted', at, at, 'fixture-v1', 'v', 'h', '{}'))
+        return candidate_id
+
+    def tradability(self, run_id, *, blocked, fits, passed=110, missing=0):
+        for index in range(passed):
+            self.enrol(run_id, passed=True, move=None, stage='TRADABILITY', outcome='fits')
+        for outcome, n in (('premium_cap', blocked), ('fits', fits), (None, missing)):
+            for index in range(n):
+                self.enrol(run_id, passed=False, move=None, stage='TRADABILITY', outcome=outcome)
+
+    def useful_gate(self, run_id, n, **kwargs):
+        for index in range(n):
+            self.enrol(run_id, passed=index % 2 == 0, move=.02 if index % 2 == 0 else -.02, **kwargs)
+
+    def report(self, stage='REGIME', as_of=REPORTED):
+        from market_db_modules.research_reports import pooled_gate_report
+        return pooled_gate_report(stage, as_of=as_of, db_path=self.db)
+
+    def test_rows_from_runs_across_deploys_pool_into_one_promotable_proof(self):
+        from services.gates.market_regime_gate import MarketRegimePolicy
+        deployed = {**self.manifest, 'pipeline_version': 'fixture-v2'}
+        self.useful_gate(self.new_run(), 60)
+        self.useful_gate(self.new_run(deployed), 60)
+        report = self.report()
+        gate, = report['gates']
+        self.assertEqual(len(report['run_ids']), 2)
+        self.assertEqual((gate['n_evaluable'], gate['n_passed'], gate['n_rejected']), (120, 60, 60))
+        self.assertEqual(gate['regimes'], ['range', 'trend_up'])
+        self.assertGreater(gate['gate_value'], 0)
+        self.assertFalse(approved('REGIME', MarketRegimePolicy(), db_path=self.db))
+        self.assertEqual(guard_policy(MarketRegimePolicy(mode='enforce'), {'mode': 'REGIME'}, db_path=self.db).mode, 'shadow')
+        proof = promote_gate(report['report_id'], 'REGIME', db_path=self.db)
+        self.assertEqual(proof['sample_size'], 120)
+        self.assertEqual(guard_policy(MarketRegimePolicy(mode='enforce'), {'mode': 'REGIME'}, db_path=self.db).mode, 'enforce')
+        self.assertFalse(approved('REGIME', MarketRegimePolicy(maximum_opposition=.5), db_path=self.db))
+
+    def test_rows_from_other_gate_code_or_policy_are_not_pooled(self):
+        from services.gates.market_regime_gate import MarketRegimePolicy
+        self.useful_gate(self.new_run(), 10)
+        edited = {**self.hashes, 'Python Scripts/services/gates/market_regime_gate.py': 'changed'}
+        self.useful_gate(self.new_run(), 10, hashes=edited)
+        # A deploy that leaves the gate's files alone still pools.
+        self.useful_gate(self.new_run(), 10, hashes={**self.hashes, 'Python Scripts/agentCallers/decision_pipeline.py': 'changed'})
+        retuned = {**self.manifest, 'gate_config': {**self.manifest['gate_config'],
+                                                    'regime': asdict(MarketRegimePolicy(maximum_opposition=.5))}}
+        self.useful_gate(self.new_run(retuned), 10)
+        report = self.report()
+        self.assertEqual(report['gates'][0]['n_evaluable'], 20)
+        self.assertEqual(report['n_other_code_or_policy'], 20)
+
+    def test_repeated_asks_for_one_company_day_and_side_count_once(self):
+        run_id = self.new_run()
+        first = self.enrol(run_id, passed=True, move=.02, symbol='NVDA', at=ENTRY)
+        self.enrol(run_id, passed=False, move=.02, symbol='NVDA', at='2026-09-02T20:30:00+00:00')
+        put = self.enrol(run_id, passed=False, move=.02, symbol='NVDA', at='2026-09-02T20:45:00+00:00', side='put')
+        later = self.enrol(run_id, passed=False, move=.02, symbol='NVDA', at='2026-09-03T20:00:00+00:00')
+        # A second run enrolling the same candidate is the same ask.
+        with closing(get_connection(self.db)) as conn, conn:
+            row = conn.execute('SELECT * FROM research_candidates WHERE candidate_id=?', (first,)).fetchone()
+            conn.execute('INSERT INTO research_candidates VALUES (?,?,?,?,?)',
+                         (self.new_run(), first, row['information_cutoff_time'], row['input_hash'], row['input_json']))
+        report = self.report()
+        gate, = report['gates']
+        self.assertEqual(report['candidate_ids'], [first, put, later])
+        self.assertEqual((gate['n_passed'], gate['n_rejected']), (1, 2))
+        self.assertEqual(report['n_duplicate_asks'], 2)
+
+    def test_the_window_closes_a_horizon_before_the_report(self):
+        run_id = self.new_run()
+        self.enrol(run_id, passed=True, move=.02)
+        self.enrol(run_id, passed=True, move=.02, at='2026-09-28T20:00:00+00:00')
+        report = self.report()
+        self.assertEqual(report['window_end'], '2026-09-26T20:00:00+00:00')
+        self.assertEqual(report['gates'][0]['n_seen'], 1)
+
+    def test_a_pooled_proof_keeps_the_sample_floor(self):
+        self.useful_gate(self.new_run(), 99)
+        with self.assertRaises(ValueError):
+            promote_gate(self.report()['report_id'], 'REGIME', db_path=self.db)
+
+    def test_a_pooled_proof_needs_two_regimes(self):
+        self.useful_gate(self.new_run(), 120, regime='range')
+        with self.assertRaises(ValueError):
+            promote_gate(self.report()['report_id'], 'REGIME', db_path=self.db)
+
+    def test_a_future_report_time_cannot_close_the_window(self):
+        self.useful_gate(self.new_run(), 120)
+        # It would close the window over outcomes nobody had seen yet.
+        with self.assertRaises(ValueError):
+            promote_gate(self.report(as_of='2099-01-01T00:00:00+00:00')['report_id'], 'REGIME', db_path=self.db)
+
+    def test_only_move_basis_gates_pool(self):
+        with self.assertRaises(ValueError):
+            self.report('LIQUIDITY')
+
+    def test_unfinished_rows_carry_only_rejections_and_are_not_sampled(self):
+        run_id = self.new_run()
+        self.enrol(run_id, passed=True, move=.02)
+        self.enrol(run_id, passed=False, move=.02, selection_source='missing_or_unfinished_snapshots')
+        report = self.report()
+        self.assertEqual((report['gates'][0]['n_seen'], report['n_unfinished']), (1, 1))
+
+    def test_a_pooled_proof_is_refused_once_the_evaluator_changed(self):
+        self.useful_gate(self.new_run(), 120)
+        report = self.report()
+        with patch('services.research.research_versions.evaluator_source_hash', return_value='edited'):
+            with self.assertRaisesRegex(ValueError, 're-run report-gate'):
+                promote_gate(report['report_id'], 'REGIME', db_path=self.db)
+
+    def test_tradability_pools_on_how_often_its_rejections_were_hard_blocked(self):
+        from services.gates.tradability_gate import TradabilityPolicy
+        self.tradability(self.new_run(), blocked=105, fits=5, missing=7)
+        gate, = self.report('TRADABILITY')['gates']
+        self.assertEqual(gate['basis'], 'hard_block_precision')
+        self.assertEqual((gate['n_rejected'], gate['n_evaluable'], gate['n_blocked']), (117, 110, 105))
+        self.assertAlmostEqual(gate['gate_value'], 105 / 110)
+        promote_gate(self.report('TRADABILITY')['report_id'], 'TRADABILITY', db_path=self.db)
+        self.assertTrue(approved('TRADABILITY', TradabilityPolicy.from_env(), db_path=self.db))
+
+    def test_tradability_below_the_precision_floor_is_refused(self):
+        self.tradability(self.new_run(), blocked=100, fits=10)
+        with self.assertRaisesRegex(ValueError, 'precision'):
+            promote_gate(self.report('TRADABILITY')['report_id'], 'TRADABILITY', db_path=self.db)
+
+    def test_tradability_below_the_sample_floor_is_refused(self):
+        self.tradability(self.new_run(), blocked=99, fits=0)
+        with self.assertRaises(ValueError):
+            promote_gate(self.report('TRADABILITY')['report_id'], 'TRADABILITY', db_path=self.db)
+
+
+class NewStageCheckpointTests(unittest.TestCase):
+    def test_a_recorded_gate_checkpoint_reaches_frozen_inputs(self):
+        from market_db_modules.candidate_lifecycle import record_candidate_snapshot
+        from services.research.research_inputs import load_inputs
+        from tests.db_fixtures import temporary_database
+        db = temporary_database(self)
+        with closing(get_connection(db)) as conn, conn:
+            conn.execute("INSERT INTO candidates (candidate_id, symbol, created_at, catalyst_ids_json, article_ids_json, "
+                         "pipeline_version_json) VALUES ('c1', 'MSFT', ?, '[]', '[]', ?)",
+                         (ENTRY, json.dumps({'pipeline_version': 'fixture'})))
+        context = {'candidate_id': 'c1', 'pipeline_version': {'pipeline_version': 'fixture'}}
+        record_candidate_snapshot(context, 'ENTRY_EXTENSION', {'would_allow': False}, db_path=db)
+        with closing(get_connection(db)) as conn:
+            candidate = conn.execute("SELECT * FROM candidates WHERE candidate_id='c1'").fetchone()
+            inputs = load_inputs(conn, candidate, '2099-01-01T00:00:00+00:00')
+        self.assertIs(inputs['features']['gates']['ENTRY_EXTENSION'], False)
 
 
 if __name__ == '__main__':

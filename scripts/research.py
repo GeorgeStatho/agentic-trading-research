@@ -64,6 +64,8 @@ def main():
     ledger = subparsers.add_parser('discovery-ledger', help='route status and outcomes of admitted events (read-only)')
     ledger.add_argument('--days', type=int, default=30)
     ledger.add_argument('--events', action='store_true', help='include the per-event ledger')
+    gates = subparsers.add_parser('gate-ledger', help='every recorded gate and two tags scored on the 5-day residual move (read-only)')
+    gates.add_argument('--days', type=int, default=60)
     outcomes = subparsers.add_parser('research-outcomes', help='research-route thesis outcomes, cost and latency (read-only)')
     outcomes.add_argument('--days', type=int, default=30, help='look-back window in days; 0 for all history')
     subparsers.add_parser('forward-cycle', help="run the collector's forward-evaluation step once")
@@ -147,6 +149,11 @@ def main():
         result = discovery_route_ledger(days=args.days, db_path=db_path)
         if not args.events:
             result.pop('admitted_events')
+    elif args.command == 'gate-ledger':
+        if args.days < 1:
+            parser.error('--days must be positive')
+        from market_db_modules.gate_ledger import gate_ledger
+        result = gate_ledger(days=args.days, db_path=db_path)
     elif args.command == 'research-outcomes':
         if args.days < 0:
             parser.error('--days must be 0 or positive')
