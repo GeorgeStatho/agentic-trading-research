@@ -47,6 +47,27 @@ class FollowerAccountTests(unittest.TestCase):
                'ACCOUNT_SHARES_EXIT_POLICY': 'follow:production'}
         self.assertEqual(load_trading_accounts(env), [PRIMARY, follower('shares', 'k', 's')])
 
+    def test_exit_policies_beside_follow_production(self):
+        for policy in ('stock_stop', 'partial_profit', 'Stock_Stop'):
+            env = {**PRODUCTION, 'TRADING_ACCOUNTS': 'shares2', **keys('shares2'),
+                   'ACCOUNT_SHARES2_STRATEGY': 'shares', 'ACCOUNT_SHARES2_EXIT_POLICY': policy}
+            with self.subTest(policy):
+                self.assertEqual(load_trading_accounts(env)[1].exit_policy, policy.lower())
+
+    def test_taking_blocked_picks_is_opted_into_per_account(self):
+        base = {**PRODUCTION, 'TRADING_ACCOUNTS': 'shares,debit_spread', **keys('shares'), **keys('debit_spread')}
+        self.assertEqual([a.blocked_picks for a in load_trading_accounts(base)[1:]], [False, False])
+        on = {**base, 'ACCOUNT_SHARES_TAKE_BLOCKED': 'true', 'ACCOUNT_DEBIT_SPREAD_TAKE_BLOCKED': '1'}
+        self.assertEqual([a.blocked_picks for a in load_trading_accounts(on)[1:]], [True, True])
+
+    def test_single_contract_strategies_ignore_the_blocked_setting(self):
+        # Their contract is at least production's, so it can never fit under the cap that blocked it.
+        env = {**PRODUCTION, 'TRADING_ACCOUNTS': 'itm_single,longer_dte', **keys('itm_single'), **keys('longer_dte'),
+               'ACCOUNT_ITM_SINGLE_TAKE_BLOCKED': 'true', 'ACCOUNT_LONGER_DTE_TAKE_BLOCKED': 'true'}
+        with self.assertLogs('services.trading.trading_accounts', level='ERROR'):
+            accounts = load_trading_accounts(env)
+        self.assertEqual([a.blocked_picks for a in accounts[1:]], [False, False])
+
     def test_invalid_followers_are_dropped(self):
         cases = {
             'missing secret': {'TRADING_ACCOUNTS': 'shares', 'ACCOUNT_SHARES_PUBLIC_KEY': 'k'},

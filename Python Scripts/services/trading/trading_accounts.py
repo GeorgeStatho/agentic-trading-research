@@ -16,6 +16,13 @@ PRIMARY_NAME = 'production'
 PRIMARY_STRATEGY = 'single_leg'
 PRIMARY_EXIT_POLICY = 'bucket_rules'
 FOLLOW_PRIMARY = f'follow:{PRIMARY_NAME}'
+# Each variant still ends with production's exit; it only adds an earlier exit (stock_stop) or a one-time trim.
+STOCK_STOP = 'stock_stop'
+PARTIAL_PROFIT = 'partial_profit'
+EXIT_POLICIES = (FOLLOW_PRIMARY, STOCK_STOP, PARTIAL_PROFIT)
+# Structures that can cost less than production's contract. A single ITM or longer-dated contract costs at
+# least production's, which the premium cap already refused, so those never take capped picks.
+BLOCKED_PICK_STRATEGIES = ('debit_spread', 'shares')
 
 
 @dataclass(frozen=True)
@@ -26,6 +33,7 @@ class TradingAccount:
     role: str  # 'primary' or 'follower'
     strategy: str
     exit_policy: str
+    blocked_picks: bool = False  # also trade picks production skipped only for the premium cap
 
 
 @dataclass(frozen=True)
@@ -36,6 +44,9 @@ class FollowerSettings:
     max_hold_days: float = 30.0
     # Production holds about two days, so a one-week-longer expiry barely differs; two weeks does.
     longer_dte_extra_days: int = 14
+    stock_stop_pct: float = 0.02  # stock_stop: adverse move in the underlying from entry
+    partial_profit_pct: float = 0.5  # partial_profit: gain on the position that triggers the trim
+    partial_profit_fraction: float = 0.5  # share of the position the trim sells
 
     @classmethod
     def from_env(cls, env=None) -> 'FollowerSettings':
@@ -46,7 +57,11 @@ class FollowerSettings:
                    force_exit_dte=int(env.get('FOLLOWER_FORCE_EXIT_DTE', defaults.force_exit_dte)),
                    max_hold_days=float(env.get('FOLLOWER_MAX_HOLD_DAYS', defaults.max_hold_days)),
                    longer_dte_extra_days=int(env.get('FOLLOWER_LONGER_DTE_EXTRA_DAYS',
-                                                     defaults.longer_dte_extra_days)))
+                                                     defaults.longer_dte_extra_days)),
+                   stock_stop_pct=float(env.get('FOLLOWER_STOCK_STOP_PCT', defaults.stock_stop_pct)),
+                   partial_profit_pct=float(env.get('FOLLOWER_PARTIAL_PROFIT_PCT', defaults.partial_profit_pct)),
+                   partial_profit_fraction=float(env.get('FOLLOWER_PARTIAL_PROFIT_FRACTION',
+                                                         defaults.partial_profit_fraction)))
 
 
 def _follower(name, env, primary):
@@ -58,11 +73,15 @@ def _follower(name, env, primary):
         return None, 'missing keys'
     if strategy not in STRATEGIES or strategy == PRIMARY_STRATEGY:
         return None, f'unsupported strategy {strategy!r}'
-    if exit_policy != FOLLOW_PRIMARY:
+    if exit_policy not in EXIT_POLICIES:
         return None, f'unsupported exit policy {exit_policy!r}'
     if key == primary.api_key:
         return None, 'uses the primary account keys'
-    return TradingAccount(name, key, secret, 'follower', strategy, exit_policy), ''
+    blocked = str(env.get(prefix + 'TAKE_BLOCKED') or '').strip().lower() in ('1', 'true', 'yes', 'on')
+    if blocked and strategy not in BLOCKED_PICK_STRATEGIES:
+        LOGGER.error('Follower account %r: TAKE_BLOCKED ignored for strategy %r', name, strategy)
+        blocked = False
+    return TradingAccount(name, key, secret, 'follower', strategy, exit_policy, blocked), ''
 
 
 def load_trading_accounts(env=None) -> list[TradingAccount]:

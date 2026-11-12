@@ -9,15 +9,17 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import date, datetime, timezone
+import math
 from zoneinfo import ZoneInfo
 
 from agent_helpers.deterministic_option_selector.market import _get_reference_stock_price
 from market_db_modules import account_positions as store
-from services.trading.account_strategies import OPTION_STRATEGIES, Skip, build_order
+from services.trading.account_strategies import OPTION_STRATEGIES, OrderPlan, Skip, build_order
 from services.core.numbers import safe_float
 from services.research.research_contract import utc
+from services.core.trade_sides import trade_side
 from services.trading.order_values import FILLED, REPLACED, WORKING, order_phase
-from services.trading.trading_accounts import FollowerSettings
+from services.trading.trading_accounts import PARTIAL_PROFIT, STOCK_STOP, FollowerSettings
 
 NEW_YORK = ZoneInfo('America/New_York')
 # The manager's chain keeps only near-the-money OTM strikes within $25. Followers need ITM strikes and
@@ -44,6 +46,12 @@ def _submit(gateway, client, legs, qty, *, opening):
     if opening:
         return gateway.submit_option_market_order(client, option_symbol=leg['symbol'], qty=qty)
     return gateway.submit_option_sell_market_order(client, option_symbol=leg['symbol'], qty=qty)
+
+
+def _price(quote):
+    """A quote's mid, else its last price; None when neither is readable."""
+    quote = quote or {}
+    return safe_float(quote.get('mid_price')) or safe_float(quote.get('price'))
 
 
 def _fill_price(summary):
@@ -84,8 +92,8 @@ class FollowerFleet:
             self._connections[account.name] = (gateway, gateway.create_client())
         return self._connections[account.name]
 
-    def _chains(self, underlying, spot):
-        if spot is None or not any(account.strategy in OPTION_STRATEGIES for account in self._followers.values()):
+    def _chains(self, underlying, spot, accounts):
+        if spot is None or not any(account.strategy in OPTION_STRATEGIES for account in accounts):
             return None
         try:
             return self._chain_fetcher(underlying, spot)
@@ -95,9 +103,16 @@ class FollowerFleet:
 
     def mirror_entry(self, candidate, execution):
         """Give each follower its strategy's version of an entry the primary just submitted."""
+        return self._dispatch(self._mirror, candidate, execution)
+
+    def mirror_blocked(self, candidate, execution, premium_cap):
+        """Offer a pick production skipped only for the premium cap to the followers that opted in."""
+        return self._dispatch(self._mirror_blocked, candidate, execution, premium_cap)
+
+    def _dispatch(self, work, candidate, *args):
         if self._background is None:
-            return self._mirror(candidate, execution)
-        future = self._background.submit(self._mirror, dict(candidate), dict(execution))
+            return work(candidate, *args)
+        future = self._background.submit(work, dict(candidate), *(dict(a) if isinstance(a, dict) else a for a in args))
         future.add_done_callback(self._log_failure)
 
     def _log_failure(self, future):
@@ -108,21 +123,39 @@ class FollowerFleet:
         source_order_id = str((execution.get('order') or {}).get('id') or '')
         if not execution.get('submitted') or not source_order_id or self._primary is None or not self._followers:
             return
+        self._place(candidate, source_order_id, execution.get('estimated_order_cost'), store.COPY,
+                    self._followers.values())
+
+    def _mirror_blocked(self, candidate, execution, premium_cap):
+        takers = [account for account in self._followers.values() if account.blocked_picks]
+        cap = safe_float(premium_cap)
+        if (execution.get('portfolio_guardrail') != 'premium_per_trade_cap' or not takers or self._primary is None
+                or cap is None or cap <= 0):
+            return
+        # No production order exists, so the pick is keyed by its candidate; the prefix keeps it out of copy lookups.
+        key = (candidate.get('candidate_context') or {}).get('candidate_id') or (
+            f"{candidate.get('selected_option_symbol')}:{self._clock().isoformat()}")
+        self._place(candidate, f'blocked:{key}', cap, store.PREMIUM_CAP_BLOCKED, takers, max_capital=cap)
+
+    def _place(self, candidate, source_order_id, budget, entry_kind, accounts, *, max_capital=math.inf):
         underlying = str(candidate.get('symbol') or '').strip().upper()
         spot = _get_reference_stock_price(candidate.get('market_context') or {})
-        chains = self._chains(underlying, spot)
+        chains = self._chains(underlying, spot, accounts)
         production_delta = safe_float(((candidate.get('selected_option') or {}).get('greeks') or {}).get('delta'))
-        for account in self._followers.values():
+        for account in accounts:
             row_id = None
             try:
                 plan = build_order(account.strategy, decision=candidate.get('decision'), underlying=underlying,
                                    production_contract=candidate.get('selected_option') or {}, chains=chains,
-                                   spot=spot, budget=execution.get('estimated_order_cost'), settings=self._settings)
+                                   spot=spot, budget=budget, settings=self._settings)
+                if isinstance(plan, OrderPlan) and plan.capital > max_capital:
+                    # Sizing takes at least one unit, which could break the very cap that blocked a pick.
+                    plan = Skip(account.strategy, 'over_premium_cap')
                 row_id = store.record_plan(
                     account, source_account=self._primary.name, source_order_id=source_order_id,
                     source_option_symbol=candidate.get('selected_option_symbol'), underlying=underlying,
-                    decision=candidate.get('decision'), budget=execution.get('estimated_order_cost'), plan=plan,
-                    spot=spot, source_delta=production_delta, db_path=self._db_path)
+                    decision=candidate.get('decision'), budget=budget, plan=plan, spot=spot,
+                    source_delta=production_delta, entry_kind=entry_kind, db_path=self._db_path)
                 if row_id is None or isinstance(plan, Skip):
                     continue
                 gateway, client = self._connection(account)
@@ -191,7 +224,8 @@ class FollowerFleet:
                 store.mark_failed(row['id'], error=f'entry order {status}', db_path=self._db_path)
                 return
             qty = filled if 0 < filled < row['qty'] else None
-            row = {**row, 'status': 'open', 'entry_at': _fill_time(summary, now), 'qty': qty or row['qty']}
+            row = {**row, 'status': 'open', 'entry_at': _fill_time(summary, now), 'qty': qty or row['qty'],
+                   'entry_fill_price': _fill_price(summary)}
             store.mark_entry_fill(row['id'], fill_price=_fill_price(summary), filled_at=row['entry_at'], qty=qty,
                                   db_path=self._db_path)
         elif row['status'] == 'closing':
@@ -214,12 +248,17 @@ class FollowerFleet:
             store.reopen(row['id'], error=f'exit order {status}', qty=remaining, db_path=self._db_path)
             row = {**row, 'status': 'open', 'qty': remaining}
 
+        gateway, client = self._connection(account)
+        if row['partial_order_id'] and row['partial_fill_price'] is None:
+            row = self._resolve_trim(account, row)
+            if row is None:
+                return
         if row['source_option_symbol'] in held and not row['source_seen_at']:
             store.mark_source_seen(row['id'], at=now.isoformat(), db_path=self._db_path)
-        reason = self._exit_reason(row, held, closed, now)
+        reason = self._exit_reason(row, held, closed, now) or self._policy_exit(gateway, row)
         if reason is None:
+            self._maybe_trim(gateway, client, row)
             return
-        gateway, client = self._connection(account)
         try:
             order = _submit(gateway, client, row['legs'], row['qty'], opening=False)
         except Exception:
@@ -227,11 +266,72 @@ class FollowerFleet:
             return
         store.mark_closing(row['id'], order_id=order['id'], reason=reason, db_path=self._db_path)
 
+    def _resolve_trim(self, account, row):
+        """Record what the partial exit sold; None while it still works, so nothing else sells meanwhile."""
+        summary = self._order_summary(account, row['partial_order_id'])
+        phase = order_phase(summary.get('status'))
+        if phase == WORKING:
+            return None
+        if phase == REPLACED:
+            if self._replacement(row, summary):
+                store.mark_partial_order(row['id'], order_id=summary['replaced_by'], db_path=self._db_path)
+            return None
+        # An unfilled trim is recorded as an empty slice, so it is not retried.
+        sold, price = min(_filled_qty(summary), row['qty'] - 1), _fill_price(summary)
+        store.mark_partial_fill(row['id'], qty=max(sold, 0), fill_price=price, db_path=self._db_path)
+        return {**row, 'qty': row['qty'] - max(sold, 0), 'partial_qty': max(sold, 0), 'partial_fill_price': price}
+
+    def _policy_exit(self, gateway, row):
+        if row['exit_policy'] != STOCK_STOP or row['entry_spot'] is None:
+            return None
+        price = _price(gateway.get_execution_market_snapshot(option_symbol=None, underlying_symbol=row['underlying'])
+                       .get('underlying'))
+        return STOCK_STOP if self._stock_stop_hit(row, price) else None
+
+    def _stock_stop_hit(self, row, price):
+        side = trade_side(row['decision'])
+        if price is None or side is None:
+            return False
+        # A call (and long shares) loses when the stock falls; a put (and short shares) when it rises.
+        return side * (price - row['entry_spot']) <= -self._settings.stock_stop_pct * row['entry_spot']
+
+    def _maybe_trim(self, gateway, client, row):
+        """The partial_profit policy sells part of the position once, when it is up enough."""
+        if row['exit_policy'] != PARTIAL_PROFIT or row['partial_order_id'] or row['qty'] < 2:
+            return
+        gain = self._gain_pct(gateway, row)
+        if gain is None or gain < self._settings.partial_profit_pct:
+            return
+        qty = max(1, min(row['qty'] - 1, math.floor(row['qty'] * self._settings.partial_profit_fraction)))
+        order = _submit(gateway, client, row['legs'], qty, opening=False)
+        store.mark_partial_order(row['id'], order_id=order['id'], db_path=self._db_path)
+
+    @staticmethod
+    def _gain_pct(gateway, row):
+        """Gain on the entry price, valuing each leg at its mid; None when a quote is missing."""
+        value = 0.0
+        for leg in row['legs']:
+            stock = leg['asset'] == 'stock'
+            snapshot = gateway.get_execution_market_snapshot(option_symbol=None if stock else leg['symbol'],
+                                                             underlying_symbol=row['underlying'])
+            mid = _price(snapshot.get('underlying' if stock else 'option'))
+            if mid is None:
+                return None
+            value += mid if leg['side'] == 'buy' else -mid
+        entry = row['entry_fill_price']
+        if not entry:
+            return None
+        short = len(row['legs']) == 1 and row['legs'][0]['asset'] == 'stock' and row['legs'][0]['side'] == 'sell'
+        return (-1 if short else 1) * (abs(value) - entry) / entry
+
     def _exit_reason(self, row, held, closed, now):
         # Not holding the contract alone is no exit: the primary's own order may not have filled
         # yet. It is one once the contract was seen held, or production recorded its close
-        # (an entry and exit both inside one tick are never seen held).
-        if row['source_option_symbol'] not in held and (row['source_seen_at'] or row['source_order_id'] in closed):
+        # (an entry and exit both inside one tick are never seen held). A blocked pick has no
+        # production position to follow, so only the follower's own exits apply to it.
+        following = row['entry_kind'] != store.PREMIUM_CAP_BLOCKED
+        if following and row['source_option_symbol'] not in held and (
+                row['source_seen_at'] or row['source_order_id'] in closed):
             return 'production_exit'
         today = now.astimezone(NEW_YORK).date()
         for leg in row['legs']:

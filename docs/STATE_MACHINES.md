@@ -359,12 +359,14 @@ open | exit_pending ──fills can't be attributed safely──▶ ambiguous
 A follower account's copy of one primary entry.
 
 ```text
-(primary entry seen) ──▶ skipped | pending_entry
+(primary entry seen, or a pick production skipped for the premium cap) ──▶ skipped | pending_entry
 pending_entry ──entry working──▶ pending_entry
 pending_entry ──entry replaced──▶ pending_entry (entry_order_id := replaced_by)
 pending_entry ──filled, or ended with a partial fill──▶ open
 pending_entry ──ended with no fill──▶ failed
-open ──exit reason (production_exit | expiry_guard | max_hold)──▶ closing
+open ──exit reason (production_exit | expiry_guard | max_hold | stock_stop)──▶ closing
+open ──partial_profit trim submitted──▶ open (partial_order_id set; nothing else sells until it fills, then
+        partial_qty/partial_fill_price are recorded and qty drops by the slice; once per position)
 closing ──exit replaced──▶ closing (exit_order_id := replaced_by)
 closing ──flat──▶ closed
 closing ──ended with quantity left──▶ open (reopen with the remaining quantity)
@@ -372,6 +374,14 @@ closing ──ended with quantity left──▶ open (reopen with the remaining 
 
 `production_exit` fires once the follower has seen the primary hold the contract (`source_seen_at`)
 and it no longer does, or once the primary's decision is `closed` (M).
+
+`entry_kind` is `copy` (mirrors a production order) or `premium_cap_blocked` (an opted-in follower,
+`ACCOUNT_<NAME>_TAKE_BLOCKED`, took a pick production skipped for `premium_per_trade_cap`; keyed
+`blocked:<candidate_id>`, sized to the cap, skipped as `over_premium_cap` when one unit costs more). Blocked rows
+have no production position, so they never `production_exit`; they leave on the follower's own exits
+(`expiry_guard`, `max_hold`, and the account's exit policy). `exit_policy` (`follow:production`, `stock_stop`,
+`partial_profit`) is read from the row, so changing an account's policy never alters open positions; the variants
+keep production's exit and add an earlier one.
 
 | | Files |
 | --- | --- |
@@ -386,7 +396,9 @@ The owner's setters don't check the current state; the driver decides transition
 
 An append-only stage log, not a status column. `begin_candidate` creates the candidate. Each stage
 writes a snapshot, and a rejection records the stage and its reason code. Telemetry failures never
-change a trading verdict.
+change a trading verdict. After catalyst admission and before the strategist, a `TRADABILITY`
+snapshot is written. In shadow it skips nothing; an enforced (promoted) rejection writes `admission_blocked`
+and skips the strategist and manager for that pick.
 
 | | Files |
 | --- | --- |
