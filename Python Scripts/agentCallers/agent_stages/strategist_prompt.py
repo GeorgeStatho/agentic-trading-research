@@ -12,8 +12,8 @@ if TYPE_CHECKING:
 
 # Replay caches key strategist answers on these labels, so each names exactly one rendered prompt.
 # tests/test_pipeline_contracts.py pins a fingerprint per label and fails when the prompt changes without a new one.
-STRATEGIST_PROMPT_VERSION = "grounded-strategist-v10-release-excerpt"
-LEGACY_STRATEGIST_PROMPT_VERSION = "grounded-strategist-v4-compact-evidence"
+STRATEGIST_PROMPT_VERSION = "grounded-strategist-v11-bearish-scope"
+LEGACY_STRATEGIST_PROMPT_VERSION = "grounded-strategist-v5-compact-evidence-bearish-scope"
 
 
 def strategist_prompt_version(policy: EvidenceThesisPolicy) -> str:
@@ -208,11 +208,14 @@ def build_strategist_prompt(
         "Your job is to decide whether the company should be passed forward as: trade_candidate, watchlist, or do_not_trade. "
         "A trade_candidate means the directional thesis is real, evidence-backed, and strong enough to pass forward to the manager for tradability assessment. "
         "A watchlist decision should be used when the thesis may be promising but the evidence, contradiction level, or directional clarity is not yet strong enough for immediate handoff. "
-        "A do_not_trade decision should be used when the evidence is weak, stale, contradictory, low-quality, mostly negative, or directionally unclear. "
+        "A do_not_trade decision should be used when the evidence is weak, stale, contradictory, low-quality, or directionally unclear. "
         "Be selective but willing to take reasonable risk when the opportunity looks genuinely strong. If the evidence is strong, the directional bias is clear, and the setup looks actionable, lean toward trade_candidate rather than staying too passive. "
         "If the evidence is mixed or timing is unclear, still prefer watchlist or do_not_trade over trade_candidate. "
         "Express the directional view twice: expected_stock_direction as up, down, or neutral; and preferred_option_direction as call, put, or neither. "
         "These fields must be internally consistent with the decision. If there is no actionable options setup, preferred_option_direction should usually be neither. "
+        "A fresh, direct, negative company-specific catalyst (an earnings miss, a guidance cut, a downgrade, an adverse legal or regulatory event) is in scope for a put: "
+        "it supports expected_stock_direction down and preferred_option_direction put under the same evidence bar as a positive catalyst supports up and call. "
+        "Negative evidence alone is never a reason for do_not_trade or neither; apply the same freshness, contradiction and timing tests in both directions. "
         "Distinguish between evidence quality and setup quality: a company can have an interesting story but still be a poor trade setup. "
         "why_now must explain why the setup is actionable now, or why it is not actionable now. "
         "summary must be a short paragraph. thesis, catalyst, and risks must be concise lists of short strings. "

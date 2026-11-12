@@ -14,7 +14,7 @@ from agent_builders import company_evidence_payload, strategist_payload
 
 from agent_stages.manager_normalization import normalize_recommendation as normalize_manager
 from agent_stages.manager_prompt import build_manager_prompt
-from agent_stages.manager_model import MANAGER_RECOMMENDATION_SCHEMA
+from agent_stages.manager_model import MANAGER_PROMPT_VERSION, MANAGER_RECOMMENDATION_SCHEMA
 from agent_stages import research_thesis_writer
 from agent_stages.strategist_prompt import (
     LEGACY_STRATEGIST_PROMPT_VERSION, STRATEGIST_PROMPT_VERSION, build_strategist_prompt,
@@ -232,8 +232,9 @@ class PromptVersionTests(unittest.TestCase):
     schema changes a fingerprint here. Bump the label and pin the new fingerprint together.
     """
     FINGERPRINTS = {
-        "grounded-strategist-v10-release-excerpt": "f16da6d57c73458abc4eb6a7b9d21fd08b0eaa0ecfae155b38bce5ea8326dd17",
-        "grounded-strategist-v4-compact-evidence": "dc5c91bb07573fee603f13e0aa2796f325dacfcf0d4c49276421c277142feb15",
+        "grounded-strategist-v11-bearish-scope": "1752ea5531d2ec00bc978142dd1d3cfd3d4d0267a7b566e4ca81ed04d92086c6",
+        "grounded-strategist-v5-compact-evidence-bearish-scope": "22e6bca1c3de8c02ca7d0f723097594e4600834ee662a220b6d1b366eaac208b",
+        "manager-prompt-v7-bearish-scope": "46a15b372d5d6957177d42db70d1d251a1edf5dfe9cd0d154a25db22bed8c3de",
         "research-thesis-v3": "c074e6e94a4fe5a2c01657a9ec7bb6ab41bbb3935ff483e4b14e67e197c70f0e",
     }
 
@@ -243,9 +244,20 @@ class PromptVersionTests(unittest.TestCase):
                                                    strategist_recommendation_schema(include_thesis=True)),
             LEGACY_STRATEGIST_PROMPT_VERSION: fingerprint(*build_strategist_prompt(PRUNE_PAYLOAD, include_thesis=False),
                                                           strategist_recommendation_schema(include_thesis=False)),
+            MANAGER_PROMPT_VERSION: fingerprint(*build_manager_prompt({"company": {"symbol": "NVDA"}}),
+                                                MANAGER_RECOMMENDATION_SCHEMA),
             research_thesis_writer.PROMPT_VERSION: fingerprint(research_thesis_writer.SYSTEM_PROMPT,
                                                                research_thesis_writer.RESPONSE_SCHEMA),
         }
+
+    def test_prompts_put_negative_company_catalysts_in_scope(self):
+        strategist = build_strategist_prompt(PRUNE_PAYLOAD, include_thesis=True)[0]
+        manager = build_manager_prompt({"company": {"symbol": "NVDA"}})[0]
+        self.assertNotIn("mostly negative", strategist)
+        for name, text in (("strategist", strategist), ("manager", manager)):
+            with self.subTest(name):
+                self.assertIn("negative company-specific catalyst", text)
+                self.assertIn("same evidence bar", text)
 
     def test_each_prompt_label_names_one_rendered_prompt(self):
         for label, rendered in self.rendered().items():

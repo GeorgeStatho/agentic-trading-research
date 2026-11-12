@@ -19,7 +19,7 @@ from services.options.option_dte_buckets import (
 def _stage_model() -> StageModel:
     return get_settings().models.manager
 MANAGER_STAGE_VERSION = "decision-only-v4"
-MANAGER_PROMPT_VERSION = "manager-prompt-v6-strategist-gate"
+MANAGER_PROMPT_VERSION = "manager-prompt-v7-bearish-scope"
 
 VALID_DECISIONS = {"call", "put", "neither"}
 VALID_CONFIDENCE_LEVELS = {"high", "medium", "low"}
