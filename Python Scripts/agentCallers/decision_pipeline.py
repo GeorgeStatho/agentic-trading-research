@@ -22,9 +22,12 @@ from agent_stages.manager_runner import decide_company_option_position
 from agent_stages.manager_model import MANAGER_STAGE_VERSION
 from agent_stages.strategist_runner import decide_company_purchase
 from market_db_modules.history_records import record_manager_decision_history
-from services.core.trading_config import AgentPipelineSettings
+from services.core.trading_config import AgentPipelineSettings, WorkerSettings
+from services.gates.tradability_gate import TradabilityPolicy, check_tradability, cycle_premium_cap
 from services.gates.market_regime import build_market_regime_snapshot
 from services.gates.market_regime_gate import apply_market_regime_gate_to_manager_result
+from services.gates.market_regime_variants import evaluate_regime_spy_trend_gate
+from services.gates.entry_extension_gate import evaluate_entry_extension_gate
 from agent_contracts import CompanyFailure, ManagerResult, StrategistResult
 from services.gates.entry_gates import carry_gate_verdicts
 from services.thesis.evidence_thesis import evaluate_evidence_thesis_gate
@@ -41,6 +44,7 @@ from services.gates.pricing_gates import apply_option_hurdle_to_manager_result, 
 from services.options.scenario_selector import prepare_scenario_inputs
 from services.gates.trade_economics import apply_trade_economics
 from services.gates.trade_economics_policy import TradeEconomicsPolicy
+from services.research.pick_score import compute_pick_score
 from services.core.time_utils import utc_now_iso as _utc_now
 
 
@@ -408,6 +412,7 @@ def _record_manager_decision_history_for_result(manager_result: dict[str, Any]) 
         "manager_output_json": {
             "recommendation": recommendation,
             "selected_option": selected_option,
+            "pick_score": manager_result.get("pick_score"),
             **carry_gate_verdicts(manager_result),
         },
     }
@@ -458,6 +463,14 @@ def _apply_post_manager_gates(
     checkpoint(candidate_context, "pre_regime_gate", manager_result)
     manager_result = apply_market_regime_gate_to_manager_result(manager_result)
     record_gate(candidate_context, "REGIME", manager_result.get("market_regime_gate"))
+    # Shadow verdicts beside production; neither can change what is traded while in shadow.
+    manager_result["market_regime_spy_trend_gate"] = observe(evaluate_regime_spy_trend_gate, manager_result)
+    record_gate(candidate_context, "REGIME_SPY_TREND", manager_result["market_regime_spy_trend_gate"])
+    manager_result["entry_extension_gate"] = observe(evaluate_entry_extension_gate, manager_result)
+    record_gate(candidate_context, "ENTRY_EXTENSION", manager_result["entry_extension_gate"])
+    # Log only, and after ENTRY_EXTENSION because it scores that verdict; trade_executor.py does not
+    # order by it until the ledger shows it separates outcomes.
+    manager_result["pick_score"] = observe(compute_pick_score, manager_result)
     thesis_gate = evaluate_evidence_thesis_gate(
         manager_result.get("strategist_recommendation"),
         manager_result.get("recommendation", {}).get("decision"),
@@ -539,7 +552,7 @@ def _run_strategist_and_manager(
         cycle_market_regime.get("as_of"),
     )
 
-    from services.runtime.candidate_lifecycle import begin_candidate, checkpoint, observe
+    from services.runtime.candidate_lifecycle import begin_candidate, checkpoint, observe, record_gate
     request_pipeline_evidence(company_symbols, scope='manager')
     # The queue above is worked by the news collector hours later; collect now so the strategist
     # reads a package. A failure only means the strategist sees whatever evidence already exists.
@@ -553,6 +566,10 @@ def _run_strategist_and_manager(
     economics_policy = TradeEconomicsPolicy.from_env()
     # A misconfigured challenger only disables the shadow comparison, never the cycle.
     challenger_policy = observe(ChallengerPolicy.from_env)
+    # Buying power is read once per cycle. Only an enforced (promoted) rejection skips the strategist and manager.
+    tradability_policy = observe(TradabilityPolicy.from_env)
+    tradability_on = tradability_policy is not None and tradability_policy.mode != "disabled"
+    premium_cap = observe(cycle_premium_cap, WorkerSettings.from_env()) if tradability_on else None
     def is_discovery_shadow(symbol: str) -> bool:
         route_context = (company_context_by_symbol or {}).get(symbol) or {}
         recorded_context = (candidate_context_by_symbol or {}).get(symbol) or {}
@@ -565,6 +582,12 @@ def _run_strategist_and_manager(
         candidate_context = (candidate_context_by_symbol or {}).get(symbol) or observe(begin_candidate, symbol, version=cycle_version)
         if not catalyst_admission_allowed(candidate_context):
             checkpoint(candidate_context, 'admission_blocked', (candidate_context or {}).get('catalyst_gates', {}))
+            continue
+        tradability_gate = (observe(check_tradability, symbol, premium_cap=premium_cap, policy=tradability_policy)
+                            if tradability_on else None)
+        record_gate(candidate_context, "TRADABILITY", tradability_gate)
+        if (tradability_gate or {}).get("allowed") is False:
+            checkpoint(candidate_context, 'admission_blocked', {'TRADABILITY': tradability_gate})
             continue
         company_context = dict((company_context_by_symbol or {}).get(symbol) or {})
         progress_base = {
@@ -619,6 +642,7 @@ def _run_strategist_and_manager(
                 manager_evidence_payload=strategist_result.get("manager_evidence_payload"),
                 candidate_context=candidate_context,
             )
+            manager_result["tradability_gate"] = tradability_gate
             # Shadow research only: freezes the inputs a challenger will see; production is unchanged.
             observe(freeze_decision_observation, candidate_context, policy=challenger_policy)
             manager_result = _run_company_stage(

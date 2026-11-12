@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-import { createRun, dataGaps, decisionOutcomes, fetchEodQuotes, getRun, getRuns } from './backtests'
-import type { BacktestEvent, Detail, EodQuoteFetch, Run } from './backtests'
+import { createRun, dataGaps, decisionOutcomes, fetchEodQuotes, getRun, getRuns, runKind, sortRuns } from './backtests'
+import type { BacktestEvent, DecisionWindow, Detail, EodQuoteFetch, ReplaySummary, Run, RunKind, RunSortKey } from './backtests'
 import { formatCurrency, formatDate, formatDateTime, formatShortDateTime, formatSignedCurrency, formatSignedPercent, formatToken, formatTokenList, hasNumericValue } from './format'
 import PageHeader from './pageHeader'
 import { chartTheme } from './ui/chartTheme'
@@ -49,13 +49,15 @@ function modelName(run: Run): string {
 
 // ---- Settings ---------------------------------------------------------------
 
-type ConfigKey = 'entry_slippage_bps' | 'exit_slippage_bps' | 'commission_per_contract' | 'take_profit_pct' | 'stop_loss_pct' | 'max_hold_hours' | 'max_concurrent_positions' | 'max_total_entry_notional' | 'max_sector_notional_pct' | 'daily_loss_limit_dollars'
-type Field = { key: ConfigKey; label: string; min?: number; max?: number; step?: number }
+type ConfigKey = 'entry_slippage_bps' | 'exit_slippage_bps' | 'commission_per_contract' | 'take_profit_pct' | 'stop_loss_pct' | 'max_hold_hours' | 'max_concurrent_positions' | 'max_total_entry_notional' | 'max_sector_notional_pct' | 'daily_loss_limit_dollars' | 'max_spread_pct' | 'min_volume' | 'max_entry_delay_minutes' | 'default_order_qty'
+type Field = { key: ConfigKey; label: string; min?: number; max?: number; step?: number; blank?: string }
 
-const DEFAULT_CONFIG: Record<ConfigKey, number> = {
+// null leaves the setting to the API: take-profit and stop-loss then follow production's rule for each contract's DTE.
+const DEFAULT_CONFIG: Record<ConfigKey, number | null> = {
   entry_slippage_bps: 25, exit_slippage_bps: 25, commission_per_contract: 0.65,
-  take_profit_pct: 50, stop_loss_pct: -50, max_hold_hours: 168, max_concurrent_positions: 5,
+  take_profit_pct: null, stop_loss_pct: null, max_hold_hours: 168, max_concurrent_positions: 5,
   max_total_entry_notional: 50000, max_sector_notional_pct: 50, daily_loss_limit_dollars: 2000,
+  max_spread_pct: 0.25, min_volume: 0, max_entry_delay_minutes: 1440, default_order_qty: 1,
 }
 
 const FIELD_GROUPS: { legend: string; fields: Field[] }[] = [
@@ -65,20 +67,50 @@ const FIELD_GROUPS: { legend: string; fields: Field[] }[] = [
     { key: 'commission_per_contract', label: 'Commission / contract ($)', min: 0, step: 0.05 },
   ] },
   { legend: 'Risk limits', fields: [
-    { key: 'take_profit_pct', label: 'Take profit (%)', min: 0 },
-    { key: 'stop_loss_pct', label: 'Stop loss (%)', max: 0 },
+    { key: 'take_profit_pct', label: 'Take profit (%)', min: 0, blank: 'DTE rule' },
+    { key: 'stop_loss_pct', label: 'Stop loss (%)', max: 0, blank: 'DTE rule' },
     { key: 'max_hold_hours', label: 'Max hold (hours)', min: 1 },
     { key: 'max_concurrent_positions', label: 'Max positions', min: 1 },
     { key: 'max_total_entry_notional', label: 'Portfolio notional ($)', min: 1, step: 1000 },
     { key: 'max_sector_notional_pct', label: 'Sector cap (%)', min: 1, max: 100 },
     { key: 'daily_loss_limit_dollars', label: 'Daily loss limit ($)', min: 1, step: 100 },
   ] },
+  { legend: 'Quote & entry', fields: [
+    { key: 'max_spread_pct', label: 'Max spread (ratio)', min: 0.01, max: 1, step: 0.05 },
+    { key: 'min_volume', label: 'Min volume', min: 0 },
+    { key: 'max_entry_delay_minutes', label: 'Max entry delay (min)', min: 1, step: 60 },
+    { key: 'default_order_qty', label: 'Order qty', min: 1 },
+  ] },
 ]
 
-function NumberField({ label, value, onChange, min, max, step = 1 }: { label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) {
+/** Labels for a run's recorded config keys; unknown keys fall back to their token. */
+const CONFIG_LABELS: Record<string, string> = {
+  ...Object.fromEntries(FIELD_GROUPS.flatMap((group) => group.fields.map((field) => [field.key, field.label]))),
+  option_multiplier: 'Option multiplier', risk_free_rate: 'Risk-free rate', data_source_versions: 'Data sources',
+}
+/** Shown in the run header already. */
+const HEADER_CONFIG_KEYS = new Set(['strategy_version', 'model', 'prompt_version'])
+
+function configValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return EMPTY
+  return typeof value === 'object' ? Object.entries(value).map(([key, item]) => `${key}: ${String(item)}`).join(', ') || EMPTY : String(value)
+}
+
+/** A date input's local day as UTC instants; the API reads naive timestamps as UTC. */
+function dayStart(day: string): string | null {
+  return day ? new Date(`${day}T00:00`).toISOString() : null
+}
+
+function dayEnd(day: string): string | null {
+  return day ? new Date(`${day}T23:59:59.999`).toISOString() : null
+}
+
+/** `blank` names what an empty field means; without it the field always holds a number. */
+function NumberField({ label, value, onChange, min, max, step = 1, blank }: { label: string; value: number | null; onChange: (value: number | null) => void; min?: number; max?: number; step?: number; blank?: string }) {
   return <label className="flex flex-col gap-1">
     <span className="text-[11px] text-dim">{label}</span>
-    <input type="number" className="input input-xs w-24 font-mono" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+    <input type="number" className="input input-xs w-24 font-mono" min={min} max={max} step={step} value={value ?? ''} placeholder={blank}
+      onChange={(event) => onChange(blank !== undefined && event.target.value === '' ? null : Number(event.target.value))} />
   </label>
 }
 
@@ -151,6 +183,58 @@ function ExpectancyByRun({ runs, selectedId }: { runs: readonly Run[]; selectedI
   </div>
 }
 
+// ---- Run detail panels ------------------------------------------------------
+
+function RunSettings({ run }: { run: Run }) {
+  const entries = Object.entries(run.config ?? {}).filter(([key]) => !HEADER_CONFIG_KEYS.has(key))
+  if (!entries.length && !run.code_revision) return null
+  return <Panel title="Run settings">
+    <details>
+      <summary className="cursor-pointer text-[11px] text-dim">{entries.length} recorded settings{run.code_revision ? ` · code ${run.code_revision.slice(0, 10)}` : ''}</summary>
+      <dl className="mt-2 grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-x-4 gap-y-1 text-[11px]">
+        {entries.map(([key, value]) => <div key={key} className="flex justify-between gap-2">
+          <dt className="text-dim">{CONFIG_LABELS[key] ?? formatToken(key)}</dt>
+          <dd className="truncate font-mono" title={configValue(value)}>{configValue(value)}</dd>
+        </div>)}
+      </dl>
+    </details>
+  </Panel>
+}
+
+function Fact({ value, label }: { value: ReactNode; label: string }) {
+  return <li><span className="font-mono font-semibold">{value}</span> {label}</li>
+}
+
+/** Why an LLM replay traded what it did: which decisions it saw, how its answers went, and what it overrode. */
+function ReplaySummaryPanel({ replay }: { replay: ReplaySummary }) {
+  const outcomes = Object.entries(replay.outcomes ?? {}).sort(([, left], [, right]) => right - left)
+  const strategist = replay.strategist_replay
+  const settings = replay.production_settings
+  const cutoff = replay.contamination?.knowledge_cutoff
+  const missingBars = replay.daily_bars?.still_missing ?? []
+  return <Panel title="Replay summary">
+    <div className="flex flex-col gap-2 text-xs text-ink-2">
+      <ul className="flex flex-wrap gap-x-4 gap-y-1">
+        <Fact value={replay.excluded_pre_knowledge_cutoff ?? 0} label={`excluded by knowledge cutoff${cutoff ? ` (${formatDate(String(cutoff))} + ${String(replay.contamination?.margin_days ?? '?')}d)` : ''}`} />
+        <Fact value={replay.missing_frozen_input_count ?? 0} label="missing frozen input" />
+        {replay.min_hours_between_same_symbol ? <Fact value={replay.spaced_out_decision_count ?? 0} label={`spaced out (${replay.min_hours_between_same_symbol}h per symbol)`} /> : null}
+        <Fact value={replay.source_decision_count ?? 0} label="decisions replayed" />
+      </ul>
+      <ul className="flex flex-wrap gap-x-4 gap-y-1">
+        <Fact value={replay.changed_direction_count ?? 0} label="changed direction" />
+        <Fact value={replay.cached_answer_count ?? 0} label="cached answers" />
+        <li className="text-dim">{replay.provider ?? 'unknown provider'} · sample {replay.sample ?? 0}</li>
+      </ul>
+      {outcomes.length ? <p>Outcomes: {outcomes.map(([outcome, count]) => `${count} ${formatToken(outcome)}`).join(' · ')}</p> : null}
+      {strategist ? <p>Strategist replayed by {strategist.model} ({strategist.prompt_version}): {strategist.changed_decision_count} changed · {strategist.cached_answer_count} cached{strategist.reuse_max_age_minutes ? ` · ${strategist.reused_answer_count} reused (≤${strategist.reuse_max_age_minutes} min)` : ''}</p> : null}
+      {replay.thesis_recheck ? <p>Thesis recheck: verdict changed on {replay.thesis_recheck.changed} of {replay.thesis_recheck.rechecked} rechecked theses</p> : null}
+      {settings?.overrides?.length ? <p className="text-warning">Overrides production: {formatTokenList(settings.overrides)}</p> : null}
+      {settings?.selector_settings_differing_from_local?.length ? <p className="text-dim">Selector settings differing from local: {settings.selector_settings_differing_from_local.join(', ')}</p> : null}
+      {missingBars.length ? <p className="text-warning">No daily bars for {missingBars.join(', ')}</p> : null}
+    </div>
+  </Panel>
+}
+
 // ---- Tables -----------------------------------------------------------------
 
 const EVENT_COLUMNS: Column<BacktestEvent>[] = [
@@ -183,22 +267,26 @@ function RunDetail({ detail, runs }: { detail: Detail; runs: readonly Run[] }) {
   const filled = metrics.filled_count ?? 0
   const gaps = dataGaps(events, hasNumericValue(metrics.expectancy_pct))
   const examined = metrics.snapshot_count ?? 0
+  const decisionStart = metrics.decision_start_at ?? events[0]?.as_of
+  const decisionEnd = metrics.decision_end_at ?? events[events.length - 1]?.as_of
+  const beforeLimits = metrics.before_portfolio_limits
   return <div className="flex min-w-0 flex-col gap-3">
     <div className="flex flex-wrap items-center gap-2">
       <h2 className="text-sm font-semibold">Run #{run.id} · {run.strategy_version}</h2>
       <Tag tone={run.status === 'completed' ? 'neutral' : 'loss'}>{formatToken(run.status)}</Tag>
       <span className="text-[11px] text-dim">
-        {modelName(run)} · {run.prompt_version || 'frozen input'} · decisions {events.length ? `${formatDate(events[0].as_of)} – ${formatDate(events[events.length - 1].as_of)}` : 'none matched'}
+        {modelName(run)} · {run.prompt_version || 'frozen input'} · decisions {decisionStart && decisionEnd ? `${formatDate(decisionStart)} – ${formatDate(decisionEnd)}` : 'none matched'}
         {metrics.available_decision_count !== undefined ? ` · included ${metrics.decision_count ?? events.length} of ${metrics.available_decision_count}` : ''}
         {(metrics.omitted_older_decision_count ?? 0) > 0 ? ` · ${metrics.omitted_older_decision_count} older excluded by the limit` : ''}
       </span>
+      {run.error_message ? <p role="alert" className="basis-full text-xs text-error">{run.error_message}</p> : null}
     </div>
     <StatStrip items={[
       { label: 'Filled', value: filled, sub: `${percent(metrics.fill_rate_pct)} fill rate` },
-      { label: 'Expectancy', value: percent(metrics.expectancy_pct), sub: `${percent(metrics.win_rate_pct)} win rate · n=${filled}`, tone: expectancyTone(metrics.expectancy_pct, filled) },
-      { label: 'Total P/L', value: dollars(metrics.total_pnl_dollars), sub: `commissions ${dollars(metrics.total_commission_dollars)}`, tone: (metrics.total_pnl_dollars ?? 0) < 0 ? 'loss' : 'gain' },
+      { label: 'Expectancy', value: percent(metrics.expectancy_pct), sub: `${percent(metrics.win_rate_pct)} win rate${hasNumericValue(metrics.median_pnl_pct) ? ` · median ${percent(metrics.median_pnl_pct)}` : ''} · n=${filled}`, tone: expectancyTone(metrics.expectancy_pct, filled) },
+      { label: 'Total P/L', value: dollars(metrics.total_pnl_dollars), sub: `commissions ${dollars(metrics.total_commission_dollars)}${hasNumericValue(metrics.profit_factor_like) ? ` · profit factor ${metrics.profit_factor_like.toFixed(2)}` : ''}`, tone: (metrics.total_pnl_dollars ?? 0) < 0 ? 'loss' : 'gain' },
       { label: 'Max drawdown', value: dollars(metrics.max_drawdown_dollars), sub: 'simulated', tone: metrics.max_drawdown_dollars ? 'loss' : undefined },
-      { label: 'Examined', value: examined, sub: `${metrics.no_fill_count ?? 0} no fill · ${metrics.portfolio_rejected_count ?? 0} rejects` },
+      { label: 'Examined', value: examined, sub: <>{metrics.no_fill_count ?? 0} no fill · {metrics.portfolio_rejected_count ?? 0} rejects{beforeLimits ? <span className="block">before limits: {beforeLimits.priced_entry_count} priced · {percent(beforeLimits.expectancy_pct)}</span> : null}</> },
     ]} />
     {gaps.length ? <div>
       <p className="text-xs text-warning">{gaps.join(' · ')}</p>
@@ -212,6 +300,8 @@ function RunDetail({ detail, runs }: { detail: Detail; runs: readonly Run[] }) {
         {events.length ? <OutcomeBars events={events} /> : <p className="text-dim">No call/put decisions in this run.</p>}
       </Panel>
     </div>
+    {metrics.replay ? <ReplaySummaryPanel replay={metrics.replay} /> : null}
+    <RunSettings run={run} />
     <Panel title="Expectancy by run" meta="selected run outlined">
       <ExpectancyByRun runs={runs} selectedId={run.id} />
     </Panel>
@@ -231,7 +321,14 @@ function BacktestPage() {
   const [running, setRunning] = useState(false)
   const [fetchingQuotes, setFetchingQuotes] = useState(false)
   const [quoteFetch, setQuoteFetch] = useState<EodQuoteFetch | null>(null)
-  const [allDecisions, setAllDecisions] = useState(true)
+  const [windowMode, setWindowMode] = useState<'all' | 'latest' | 'range'>('all')
+  const [rangeStart, setRangeStart] = useState('')
+  const [rangeEnd, setRangeEnd] = useState('')
+  const [kind, setKind] = useState<RunKind | 'all'>('all')
+  const [model, setModel] = useState('all')
+  const [status, setStatus] = useState('all')
+  const [sortKey, setSortKey] = useState<RunSortKey>('id')
+  const [sortAscending, setSortAscending] = useState(false)
   const [decisionLimit, setDecisionLimit] = useState(250)
   const [fetchLimit, setFetchLimit] = useState(10)
   const [config, setConfig] = useState(DEFAULT_CONFIG)
@@ -254,7 +351,9 @@ function BacktestPage() {
   }
   const startRun = () => {
     setRunning(true)
-    createRun(config, allDecisions ? null : decisionLimit)
+    const range = { start_at: dayStart(rangeStart), end_at: dayEnd(rangeEnd) }
+    const window: DecisionWindow = windowMode === 'range' ? { limit: null, ...range } : { limit: windowMode === 'all' ? null : decisionLimit }
+    createRun(config, window)
       .then((next) => { setDetail(next); return loadRuns() })
       .then(() => setError(null))
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Failed to run backtest.'))
@@ -262,19 +361,41 @@ function BacktestPage() {
   }
   const startEodFetch = () => {
     setFetchingQuotes(true)
-    fetchEodQuotes(fetchLimit, config.max_hold_hours)
+    fetchEodQuotes(fetchLimit, config.max_hold_hours, windowMode === 'range' ? { start_at: dayStart(rangeStart), end_at: dayEnd(rangeEnd) } : {})
       .then((result) => { setQuoteFetch(result); setError(null) })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Failed to fetch EOD quotes.'))
       .finally(() => setFetchingQuotes(false))
   }
 
+  const models = useMemo(() => [...new Set(runs.map(modelName))].sort(), [runs])
+  const statuses = useMemo(() => [...new Set(runs.map((run) => run.status))].sort(), [runs])
+  const filteredRuns = useMemo(() => runs.filter((run) => (kind === 'all' || runKind(run) === kind)
+    && (model === 'all' || modelName(run) === model) && (status === 'all' || run.status === status)), [runs, kind, model, status])
+  const visibleRuns = useMemo(() => sortRuns(filteredRuns, sortKey, sortAscending), [filteredRuns, sortKey, sortAscending])
+  const toggleSort = (nextKey: RunSortKey) => {
+    if (sortKey === nextKey) setSortAscending((current) => !current)
+    else { setSortKey(nextKey); setSortAscending(false) }
+  }
+  const sortHeader = (key: RunSortKey, text: string) => <button type="button" className="hover:text-primary" onClick={() => toggleSort(key)}>{text}{sortKey === key ? (sortAscending ? ' ↑' : ' ↓') : ''}</button>
+  const filterSelect = (label: string, value: string, onChange: (value: string) => void, options: [string, string][]) => <label className="flex flex-col gap-1">
+    <span className="text-[11px] text-dim">{label}</span>
+    <select className="select select-xs max-w-40" value={value} onChange={(event) => onChange(event.target.value)}>
+      <option value="all">All</option>
+      {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
+    </select>
+  </label>
+
   const runColumns: Column<Run>[] = [
-    { key: 'run', header: 'Run', render: (run) => <>
+    { key: 'run', header: sortHeader('id', 'Run'), render: (run) => <>
       <button type="button" className="link font-mono font-semibold no-underline" aria-pressed={detail?.run.id === run.id} onClick={() => selectRun(run.id)}>#{run.id}</button>
       <span className="block whitespace-nowrap text-[11px] text-dim">{formatShortDateTime(run.started_at, { placeholder: 'Unknown' })}</span>
     </> },
     { key: 'model', header: 'Model', render: (run) => <span className="block max-w-44 truncate" title={modelName(run)}>{modelName(run)}{run.status !== 'completed' ? <span className="block text-[11px] text-error">{formatToken(run.status)}</span> : null}</span> },
-    { key: 'expectancy', header: 'Expectancy', align: 'right', render: (run) => <span className={`font-mono ${pnlClass(run.metrics.expectancy_pct)}`}>{percent(run.metrics.expectancy_pct)}</span> },
+    { key: 'filled', header: sortHeader('filled_count', 'n'), align: 'right', render: (run) => <span className="font-mono">{run.metrics.filled_count ?? 0}</span> },
+    { key: 'expectancy', header: <>{sortHeader('expectancy_pct', 'Expectancy')}<span className="block">{sortHeader('total_pnl_dollars', 'P/L')}</span></>, align: 'right', render: (run) => <>
+      <span className={`block font-mono ${pnlClass(run.metrics.expectancy_pct)}`}>{percent(run.metrics.expectancy_pct)}</span>
+      <span className={`block font-mono text-[11px] ${pnlClass(run.metrics.total_pnl_dollars)}`}>{formatSignedCurrency(run.metrics.total_pnl_dollars ?? 0)}</span>
+    </> },
   ]
 
   return <main className="flex flex-col gap-3">
@@ -290,22 +411,28 @@ function BacktestPage() {
       <Fieldset legend="Run scope">
         <label className="flex flex-col gap-1">
           <span className="text-[11px] text-dim">Decision window</span>
-          <select className="select select-xs" value={allDecisions ? 'all' : 'latest'} onChange={(event) => setAllDecisions(event.target.value === 'all')}>
+          <select className="select select-xs" value={windowMode} onChange={(event) => setWindowMode(event.target.value as typeof windowMode)}>
             <option value="all">All history</option>
             <option value="latest">Latest decisions</option>
+            <option value="range">Date range</option>
           </select>
         </label>
-        {!allDecisions ? <NumberField label="Latest decisions" min={1} max={1000} value={decisionLimit} onChange={setDecisionLimit} /> : null}
-        <NumberField label="EOD batch size" min={1} max={100} value={fetchLimit} onChange={setFetchLimit} />
+        {windowMode === 'latest' ? <NumberField label="Latest decisions" min={1} max={1000} value={decisionLimit} onChange={(value) => setDecisionLimit(value ?? decisionLimit)} /> : null}
+        {windowMode === 'range' ? <>
+          <label className="flex flex-col gap-1"><span className="text-[11px] text-dim">From</span><input type="date" className="input input-xs font-mono" max={rangeEnd || undefined} value={rangeStart} onChange={(event) => setRangeStart(event.target.value)} /></label>
+          <label className="flex flex-col gap-1"><span className="text-[11px] text-dim">To</span><input type="date" className="input input-xs font-mono" min={rangeStart || undefined} value={rangeEnd} onChange={(event) => setRangeEnd(event.target.value)} /></label>
+        </> : null}
+        <NumberField label="EOD batch size" min={1} max={100} value={fetchLimit} onChange={(value) => setFetchLimit(value ?? fetchLimit)} />
       </Fieldset>
       {FIELD_GROUPS.map((group) => <Fieldset key={group.legend} legend={group.legend}>
-        {group.fields.map((field) => <NumberField key={field.key} label={field.label} min={field.min} max={field.max} step={field.step} value={config[field.key]} onChange={(value) => setConfig((current) => ({ ...current, [field.key]: value }))} />)}
+        {group.fields.map((field) => <NumberField key={field.key} label={field.label} min={field.min} max={field.max} step={field.step} blank={field.blank} value={config[field.key]} onChange={(value) => setConfig((current) => ({ ...current, [field.key]: value }))} />)}
       </Fieldset>)}
     </div>
     <details className="text-xs text-ink-2">
       <summary className="cursor-pointer text-[11px] text-dim">How runs and quote fetches work</summary>
       <div className="mt-1 flex max-w-[80ch] flex-col gap-1">
-        <p>All history includes every stored call/put decision, simulated oldest to newest. Latest decisions limits the run to a recent window.</p>
+        <p>All history includes every stored call/put decision, simulated oldest to newest. Latest decisions limits the run to a recent window; Date range to the decisions made between those days (either end may be left open). A date range also bounds the EOD fetch.</p>
+        <p>The form runs stored-decision backtests only. LLM replay runs come from <code>agentCallers/llm_backtest.py</code>; their replay summary and recorded settings show under the selected run.</p>
         <p>Each EOD fetch advances through uncached contract windows across history; completed cached windows do not consume the batch limit. MarketData.app EOD quotes are fetched server-side; the token never reaches your browser.</p>
         <p>Portfolio limits reject new simulated entries once capacity, entry-notional, sector, or realized daily-loss limits are reached. The sector cap is measured against the portfolio-notional cap.</p>
       </div>
@@ -314,10 +441,15 @@ function BacktestPage() {
     {error ? <p role="alert" className="text-xs text-error">{error}</p> : null}
     {loading && !detail ? <p className="text-dim">Loading backtest ledger…</p> : null}
     <div className="grid gap-3 lg:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)] lg:items-start">
-      <Panel title="Run history" meta="immutable" flush>
-        <DataTable label="Run history" columns={runColumns} rows={runs} rowKey={(run) => String(run.id)} rowClassName={(run) => (detail?.run.id === run.id ? 'bg-raised' : '')} emptyMessage="No backtests have been run yet." />
+      <Panel title="Run history" meta={`${filteredRuns.length} of ${runs.length} · immutable`} flush>
+        <div role="group" aria-label="Run filters" className="flex flex-wrap gap-2 border-b border-base-300 px-3.5 py-2">
+          {filterSelect('Kind', kind, (value) => setKind(value as RunKind | 'all'), [['stored', 'Stored'], ['llm', 'LLM replay']])}
+          {filterSelect('Model', model, setModel, models.map((name) => [name, name]))}
+          {filterSelect('Status', status, setStatus, statuses.map((name) => [name, formatToken(name)]))}
+        </div>
+        <DataTable label="Run history" columns={runColumns} rows={visibleRuns} rowKey={(run) => String(run.id)} rowClassName={(run) => (detail?.run.id === run.id ? 'bg-raised' : '')} emptyMessage={runs.length ? 'No runs match these filters.' : 'No backtests have been run yet.'} />
       </Panel>
-      {detail ? <RunDetail detail={detail} runs={runs} /> : null}
+      {detail ? <RunDetail detail={detail} runs={filteredRuns} /> : null}
     </div>
   </main>
 }

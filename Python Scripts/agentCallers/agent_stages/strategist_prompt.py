@@ -1,10 +1,23 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent_stages.evidence_thesis_contract import REQUIRED_OUTPUT_EXAMPLE, THESIS_INSTRUCTIONS
+from catalyst_models import UNCLASSIFIED_MECHANISM
 from services.options.option_dte_buckets import TIME_HORIZON_TO_DTE_BUCKET, get_dte_bucket
+
+if TYPE_CHECKING:
+    from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
+
+# Replay caches key strategist answers on these labels, so each names exactly one rendered prompt.
+# tests/test_pipeline_contracts.py pins a fingerprint per label and fails when the prompt changes without a new one.
+STRATEGIST_PROMPT_VERSION = "grounded-strategist-v11-bearish-scope"
+LEGACY_STRATEGIST_PROMPT_VERSION = "grounded-strategist-v5-compact-evidence-bearish-scope"
+
+
+def strategist_prompt_version(policy: EvidenceThesisPolicy) -> str:
+    return STRATEGIST_PROMPT_VERSION if policy.requests_thesis else LEGACY_STRATEGIST_PROMPT_VERSION
 
 
 def _build_time_horizon_bucket_guidance_text() -> str:
@@ -75,29 +88,90 @@ def _compact_supporting_articles(supporting: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+# Classifier bookkeeping no instruction uses: hash IDs, a second horizon taxonomy, names implied by the layer.
+CONCLUSION_PIPELINE_FIELDS = ("source_url", "catalyst_id", "root_event_ids", "catalyst_family", "expected_horizon",
+                              "company_name", "industry_name", "sector_name")
+# Scalars the rollup repeats inside its *_counts dicts.
+ROLLUP_DUPLICATE_COUNTS = ("positive_count", "negative_count", "mixed_count", "neutral_count",
+                           "high_materiality_count", "medium_materiality_count", "low_materiality_count",
+                           "immediate_count", "short_term_count", "medium_term_count", "unclear_count",
+                           "direct_count", "indirect_count")
+EVIDENCE_PIPELINE_FIELDS = ("package_id", "catalyst_id", "event_revision", "schema_version", "fact_ids", "document_ids")
+DOCUMENT_METADATA_FIELDS = ("form", "filing_date", "report_date")
+
+
+def _compact_conclusion(conclusion: Any) -> Any:
+    if not isinstance(conclusion, dict):
+        return conclusion
+    compact = {k: v for k, v in conclusion.items() if k not in CONCLUSION_PIPELINE_FIELDS
+               and not (k == "summary" and not v) and not (k == "mechanism" and v == UNCLASSIFIED_MECHANISM)}
+    if isinstance(compact.get("evidence_score"), float):
+        compact["evidence_score"] = round(compact["evidence_score"], 2)
+    return compact
+
+
 def _compact_views(views: dict[str, Any]) -> dict[str, Any]:
-    # Copy without source_url on each agent conclusion.
     if not isinstance(views, dict):
         return views
     return {
-        name: {**view, "agent_conclusions": [_drop(c, ("source_url",)) for c in view["agent_conclusions"]]}
+        name: {**view, "agent_conclusions": [_compact_conclusion(c) for c in view["agent_conclusions"]]}
         if isinstance(view, dict) and isinstance(view.get("agent_conclusions"), list) else view
         for name, view in views.items()
     }
 
 
+def _compact_rollup(rollup: Any) -> Any:
+    if not isinstance(rollup, dict):
+        return rollup
+    return {level: _drop(summary, ROLLUP_DUPLICATE_COUNTS) for level, summary in rollup.items()}
+
+
+def _compact_company(company: dict[str, Any]) -> dict[str, Any]:
+    # The summary statistics of each price period stay; the raw recent bars and per-period bookkeeping go.
+    compact = dict(company)
+    if isinstance(company.get("market_data"), dict):
+        compact["market_data"] = _drop(company["market_data"], ("market weight", "regular_market_previous_close"))
+    history = company.get("historical_price_data")
+    if isinstance(history, dict):
+        compact["historical_price_data"] = {
+            period: {k: v for k, v in stats.items() if k not in ("recent_points", "symbol")
+                     and not (k == "available" and v is True) and not (k == "error" and not v)}
+            if isinstance(stats, dict) else stats
+            for period, stats in history.items()
+        }
+    return compact
+
+
+def _is_json_text(text: Any) -> bool:
+    return isinstance(text, str) and text.lstrip()[:1] in ("{", "[")
+
+
+def _compact_document(document: Any) -> Any:
+    if not isinstance(document, dict):
+        return document
+    compact = _drop(document, ("first_observed_at", "ingested_at", "metadata"))
+    metadata = {k: v for k, v in (document.get("metadata") or {}).items() if k in DOCUMENT_METADATA_FIELDS}
+    return {**compact, "metadata": metadata} if metadata else compact
+
+
 def _compact_company_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
     # Copy with pipeline-only and empty (None, {}, [], "") fact fields removed; False and 0 are kept.
+    # Raw SEC JSON excerpts go too: facts verify by fact_id, and the model must never quote JSON.
     if not isinstance(evidence, dict) or not isinstance(evidence.get("facts"), list):
         return evidence
     pipeline = ("company_id", "schema_version", "extraction_version", "source_start", "source_end")
     facts = [
         {k: v for k, v in fact.items()
-         if k not in pipeline and not (v is None or (isinstance(v, (dict, list, str)) and not v))}
+         if k not in pipeline and not (v is None or (isinstance(v, (dict, list, str)) and not v))
+         and not (k in ("source_excerpt", "excerpt_truncated") and _is_json_text(fact.get("source_excerpt")))}
         if isinstance(fact, dict) else fact
         for fact in evidence["facts"]
     ]
-    return {**evidence, "facts": facts}
+    documents = evidence.get("documents")
+    compact = {**_drop(evidence, EVIDENCE_PIPELINE_FIELDS), "facts": facts}
+    if isinstance(documents, list):
+        compact["documents"] = [_compact_document(document) for document in documents]
+    return compact
 
 
 def _serialize_user_payload(user_payload: dict[str, Any]) -> str:
@@ -128,6 +202,8 @@ def build_strategist_prompt(
         "Your job is to decide whether the company should be passed forward as: trade_candidate, watchlist, or do_not_trade. "
         "Express the directional view twice: expected_stock_direction as up, down, or neutral; and preferred_option_direction as call, put, or neither. "
         "These fields must be internally consistent with the decision. If there is no actionable options setup, preferred_option_direction should usually be neither. "
+        "A fresh, direct, negative company-specific catalyst (an earnings miss, a guidance cut, a downgrade, an adverse legal or regulatory event) is in scope for a put: "
+        "it supports expected_stock_direction down and preferred_option_direction put under the same evidence bar as a positive catalyst supports up and call. "
         "why_now must explain why the setup is actionable now, or why it is not actionable now. "
         "summary must be a short paragraph. thesis, catalyst, and risks must be concise lists of short strings. "
         "Set grounded_company_symbol exactly to grounding.company.symbol. "
@@ -171,10 +247,9 @@ def build_strategist_prompt(
 
     user_payload = {
         "task": str(task_override or task_prompt),
-        "company": payload["company"],
-        "peer_groups": payload.get("peer_groups", {}),
-        "filters": payload.get("filters", {}),
-        "opportunist_rollup": payload.get("opportunist_rollup", {}),
+        **({"as_of": payload["as_of"]} if payload.get("as_of") else {}),
+        "company": _compact_company(payload["company"]),
+        "opportunist_rollup": _compact_rollup(payload.get("opportunist_rollup", {})),
         "views": _compact_views(payload.get("views", {})),
         "supporting_articles": _compact_supporting_articles(payload.get("supporting_articles", {})),
         "market_context": payload.get("market_context", {}),

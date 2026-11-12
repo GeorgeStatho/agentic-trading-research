@@ -41,7 +41,7 @@ class ImplementationIdentity:
     def current(self):
         if self._current is None:
             from agent_stages.manager_runner import MANAGER_PROMPT_VERSION
-            from agent_stages.strategist_runner import strategist_prompt_version
+            from agent_stages.strategist_prompt import strategist_prompt_version
             from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
             from services.core.pipeline_version import gate_config, pipeline_source_hashes, selector_constants
             self._current = {'source_hashes': pipeline_source_hashes(), 'gate_config_hash': digest(gate_config()),

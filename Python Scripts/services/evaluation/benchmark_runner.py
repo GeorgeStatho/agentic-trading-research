@@ -12,7 +12,7 @@ from datetime import timedelta
 from statistics import mean
 from typing import Any, Sequence
 
-from agent_stages.strategist_runner import strategist_prompt_version
+from agent_stages.strategist_prompt import strategist_prompt_version
 from catalyst_models import timestamp
 from market_db_modules.backtesting import daily_closes_after
 from market_db_modules.benchmarks import (get_benchmark_run, list_benchmark_items, list_benchmark_runs, primary_catalysts,

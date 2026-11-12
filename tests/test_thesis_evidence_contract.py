@@ -12,9 +12,12 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from tests.research_foundation_fixtures import database, ENTRY
-from tests.test_company_evidence import COMPANY, actuals, guidance
+from tests.research_foundation_fixtures import database, ENTRY, START
+from tests.test_company_evidence import COMPANY, actuals, guidance, release_8k
+from tests.test_yahoo_consensus import consensus_doc
+from Webscraping.company_evidence.models import SourceDocument
 from agent_builders.company_evidence_payload import build_company_evidence_payload
+from agent_stages.evidence_thesis_contract import THESIS_INSTRUCTIONS
 from agent_stages.manager_strategist_context import _build_manager_visible_strategist_context
 from db_common import get_connection
 from market_db_modules.evidence_thesis import get_evidence_thesis
@@ -26,7 +29,9 @@ from services.thesis.evidence_thesis import (
     check_evidence_thesis, compact_thesis_check, evaluate_evidence_thesis_gate, not_requested_check,
     persist_thesis_check,
 )
-from services.thesis.evidence_thesis_checks import _expectation_failures, _surprise_claimed_without_consensus
+from services.thesis.evidence_thesis_checks import (
+    ThesisSources, _expectation_failures, _surprise_claimed_without_consensus, evidence_basis,
+)
 from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
 from services.trading.order_candidates import OrderCandidateBuilder
 
@@ -73,7 +78,6 @@ class ThesisFixture(unittest.TestCase):
         return claim("S1", statement, **{**values, **changes})
 
     def thesis(self, payload, *, supporting=None, opposing=None, **overrides):
-        current = self.fact(payload, "guidance")
         value = {
             "causal_mechanism": "Higher guided revenue indicates stronger accelerator demand this quarter.",
             "change_vs_prior_expectations": {
@@ -86,7 +90,8 @@ class ThesisFixture(unittest.TestCase):
                 claim("S2", "Demand commentary supports the higher outlook", articles=[42],
                       quotes=[("article:42", "demand for its accelerators remained strong")])],
             "opposing_claims": opposing if opposing is not None else [
-                claim("O1", "Without consensus the size of any market reaction is uncertain", facts=[current])],
+                claim("O1", "Without consensus the size of any market reaction is uncertain",
+                      facts=[self.fact(payload, "guidance")])],
             "invalidation_conditions": [{"trigger": "Company lowers FY2026-Q3 revenue guidance",
                                          "data_source": "company_release", "review_within_days": 10}],
             "unresolved_questions": ["Consensus revenue for FY2026-Q3 is unavailable"],
@@ -114,6 +119,20 @@ class ClaimCheckTests(ThesisFixture):
                          central=True, articles=[42], quotes=[("article:42", "demand for its accelerators remained strong")])
         check = self.check(self.thesis(payload, supporting=[invented]), payload)
         self.assertIn("unsupported_number:$150 million", self.claim_result(check, "S1")["failures"])
+
+    def test_calendar_year_is_not_an_unsupported_number(self):
+        payload = self.payload()
+        dated = claim("S1", "In 2026, demand for its accelerators remained strong", claim_type="observed_fact",
+                      central=True, articles=[42], quotes=[("article:42", "demand for its accelerators remained strong")])
+        check = self.check(self.thesis(payload, supporting=[dated]), payload)
+        self.assertNotIn("unsupported_number:2026", self.claim_result(check, "S1")["failures"])
+
+    def test_an_amount_that_looks_like_a_year_is_still_checked(self):
+        payload = self.payload()
+        amount = claim("S1", "Fixture expects quarterly revenue of $2026 million", claim_type="observed_fact",
+                       central=True, articles=[42], quotes=[("article:42", "demand for its accelerators remained strong")])
+        check = self.check(self.thesis(payload, supporting=[amount]), payload)
+        self.assertIn("unsupported_number:$2026 million", self.claim_result(check, "S1")["failures"])
 
     def test_failed_central_claim_defers(self):
         payload = self.payload()
@@ -150,6 +169,164 @@ class ClaimCheckTests(ThesisFixture):
         surprise = self.guidance_claim(payload, "Guidance beat analyst estimates by $20 million")
         check = self.check(self.thesis(payload, supporting=[surprise]), payload)
         self.assertIn("market_surprise_without_consensus", self.claim_result(check, "S1")["failures"])
+
+
+def release_without_facts():
+    # The bank shape on 2026-11-02: a primary document but no extracted filing facts, only Yahoo consensus.
+    return SourceDocument('fixture', 'https://issuer.test/release', 'Fixture', 'issuer_release',
+                          'Fixture will report quarterly results after the close.', START, START, 'earnings-q3',
+                          {'cik': COMPANY['cik']}, ())
+
+
+class EvidenceBasisTests(ThesisFixture):
+    """Recorded only: whether a thesis rests on filing facts, and whether facts were there to cite."""
+    QUOTE = [("article:42", "demand for its accelerators remained strong")]
+    NO_BASELINE = {"assessment": "unknown", "baseline_type": "none", "statement": "No cited baseline.", "claim_ids": []}
+
+    def article_only(self, payload, *, supporting=()):
+        return self.thesis(payload, supporting=[
+            claim("S1", "Demand for its accelerators remained strong", claim_type="observed_fact", central=True,
+                  articles=[42], quotes=self.QUOTE), *supporting],
+            opposing=[claim("O1", "Demand could soften next quarter", articles=[42])],
+            change_vs_prior_expectations=self.NO_BASELINE)
+
+    def basis(self, thesis, payload):
+        check = self.check(thesis, payload)
+        return check["status"], check.get("evidence_basis")
+
+    def test_a_verified_central_fact_claim_is_fact_backed(self):
+        payload = self.payload()
+        self.assertEqual(self.basis(self.thesis(payload), payload), (
+            "validated", {"basis": "facts", "filing_facts_available": True, "fact_requirement": "met"}))
+
+    def test_an_article_only_thesis_with_facts_available_does_not_meet_the_requirement(self):
+        # EQT, 2026-11-02: ten article-only claims, 56 package facts, none cited.
+        payload = self.payload()
+        self.assertEqual(self.basis(self.article_only(payload), payload), (
+            "validated", {"basis": "articles_only", "filing_facts_available": True, "fact_requirement": "not_met"}))
+
+    def test_an_article_only_thesis_without_filing_facts_is_not_held_to_it(self):
+        consensus_only = self.payload(release_without_facts(), consensus_doc(ENTRY))
+        no_package = {**self.payload(), "company_evidence": {"coverage_status": "unavailable", "facts": [],
+                                                             "gaps": ["company_evidence_not_collected"]}}
+        for name, payload in (("consensus only", consensus_only), ("no package", no_package)):
+            with self.subTest(name):
+                self.assertEqual(self.basis(self.article_only(payload), payload)[1], {
+                    "basis": "articles_only", "filing_facts_available": False, "fact_requirement": "not_applicable"})
+
+    def test_an_inference_or_a_failed_claim_citing_a_fact_is_not_fact_backing(self):
+        payload = self.payload()
+        inference = claim("S2", "Higher guidance implies stronger demand", central=True,
+                          facts=[self.fact(payload, "guidance")])
+        failed = {**self.guidance_claim(payload, "Guidance midpoint rose by $35 million"), "claim_id": "S2"}
+        for extra in (inference, failed):
+            with self.subTest(extra["claim_type"]):
+                self.assertEqual(self.basis(self.article_only(payload, supporting=[extra]), payload)[1]["basis"],
+                                 "articles_only")
+
+    RELEASE = "Fixture reported record data center demand in the quarter."
+
+    def release_payload(self):
+        payload = self.payload(guidance(80, 90, kind="prior"), guidance(100, 110), actuals(1234000000),
+                               release_8k("0001045810-26-000202", START, self.RELEASE))
+        release = next(d["document_id"] for d in payload["company_evidence"]["documents"]
+                       if d["document_type"] == "regulatory_filing")
+        quoted = claim("S9", "Fixture reported record data center demand", claim_type="observed_fact", central=True,
+                       documents=[release], quotes=[(release, self.RELEASE)])
+        return payload, quoted
+
+    def test_a_quoted_earnings_release_is_primary_document_backing(self):
+        # Before the 10-Q, a bank's quarter exists only in its 8-K release.
+        payload, quoted = self.release_payload()
+        thesis = self.thesis(payload, supporting=[quoted], opposing=[claim("O1", "Demand could soften", articles=[42])],
+                             change_vs_prior_expectations=self.NO_BASELINE)
+        self.assertEqual(self.basis(thesis, payload), (
+            "validated", {"basis": "primary_document", "filing_facts_available": True, "fact_requirement": "met"}))
+
+    def test_only_a_filing_or_issuer_release_quote_is_primary_document_backing(self):
+        # 2026-11-10 review: Yahoo's consensus capture and the companyfacts JSON are package documents, not primary ones.
+        for document_type, expected in (("regulatory_filing", "primary_document"), ("issuer_release", "primary_document"),
+                                        ("consensus", "articles_only"), ("xbrl_facts", "articles_only")):
+            with self.subTest(document_type):
+                quoted = {"claim_id": "S1", "central": True, "claim_type": "observed_fact", "fact_ids": [],
+                          "document_ids": ["document:x"]}
+                result = {"status": "verified", "spans": [{"source_id": "document:x"}]}
+                sources = ThesisSources(company_id=1, documents={"document:x": {"document_type": document_type}})
+                self.assertEqual(evidence_basis({"supporting_claims": [quoted]}, {"S1": result}, sources)["basis"],
+                                 expected)
+
+    def test_a_fact_backed_thesis_quoting_a_release_is_still_fact_backed(self):
+        payload, quoted = self.release_payload()
+        supporting = [self.guidance_claim(payload), quoted]
+        self.assertEqual(self.basis(self.thesis(payload, supporting=supporting), payload)[1]["basis"], "facts")
+
+    def test_the_manager_and_the_gate_see_nothing_of_it(self):
+        payload = self.payload()
+        checks = [self.check(thesis, payload) for thesis in (self.thesis(payload), self.article_only(payload))]
+        compact = [compact_thesis_check(check, "thesis:legacy:fixture") for check in checks]
+        self.assertEqual(compact[0], compact[1])
+        for check, summary in zip(checks, compact):
+            visible = _build_manager_visible_strategist_context({
+                "company": {"symbol": "NVDA"}, "company_evidence": payload["company_evidence"],
+                "strategist_recommendation": {"decision": "trade_candidate", "evidence_thesis": check["thesis"],
+                                              "evidence_thesis_check": summary}})
+            self.assertNotIn("evidence_basis", json.dumps(visible))
+        gates = [evaluate_evidence_thesis_gate({"evidence_thesis": check["thesis"], "evidence_thesis_check": summary},
+                                               "call", policy=EvidenceThesisPolicy(mode="enforce"))
+                 for check, summary in zip(checks, compact)]
+        self.assertEqual(gates[0], gates[1])
+
+
+class QuoteMatchTests(unittest.TestCase):
+    # Real 2026-11-09 copies that failed only on re-quoting, re-spacing or trailing punctuation.
+    BODY = ('CrowdStrike (NASDAQ: CRWD ) has agreed to acquire two startups. Revenue of $5.1 billion, '
+            '(+/-$100 million), with margins. Share rose to 13.7%, underscoring strength. The Ark CEO said there '
+            'was a "wall of worry" gripping markets. Impact to RBC\'s common equity Tier 1 ("CET1") ratio2. '
+            'Nvidia, the second most valuable company ​in the world, fell.')
+
+    def locate(self, text, article_id=7):
+        from services.thesis.evidence_thesis_checks import ThesisSources, _locate_quote
+        sources = ThesisSources(company_id=1, articles={7: {"body": self.BODY}})
+        return _locate_quote({"source_id": f"article:{article_id}", "text": text}, {"article_ids": [7]}, sources)
+
+    def test_near_verbatim_copies_match_and_span_the_source(self):
+        for text in ("CrowdStrike (NASDAQ: CRWD) has agreed", "Revenue of $5.1 billion, (+/- $100 million)",
+                     "Share rose to 13.7%.", "said there was a 'wall of worry' gripping markets.",
+                     "Tier 1 (CET1) ratio2", "the second most valuable company in the world"):
+            with self.subTest(text=text):
+                span, failure = self.locate(text)
+                self.assertIsNone(failure)
+                self.assertEqual(self.BODY[span["start"]:span["end"]].replace('"', "").replace(" ", "")[:6],
+                                 text.replace("'", "").replace(" ", "")[:6])
+
+    def test_paraphrase_wrong_article_and_marks_only_still_fail(self):
+        self.assertEqual(self.locate("CrowdStrike agreed to buy two startups")[1], "quote_not_in_source")
+        self.assertEqual(self.locate("Share rose to 13.7%", article_id=8)[1], "quote_source_not_cited")
+        self.assertEqual(self.locate('""""""""""')[1], "quote_not_in_source")
+
+
+class FiscalPeriodInstructionTests(unittest.TestCase):
+    """2026-11-02 replay: 40 of 54 claim failures in deferred theses were article-only claims labelled with a quarter."""
+
+    def test_the_prompt_says_a_claim_without_facts_leaves_fiscal_period_empty(self):
+        from agent_stages.evidence_thesis_contract import REQUIRED_OUTPUT_EXAMPLE, THESIS_INSTRUCTIONS
+        self.assertIn("a claim with no fact_ids leaves fiscal_period empty", THESIS_INSTRUCTIONS)
+        for example in REQUIRED_OUTPUT_EXAMPLE["supporting_claims"]:
+            self.assertEqual(bool(example["fiscal_period"]), bool(example["fact_ids"]))
+
+    def test_the_prompt_says_how_to_quote_a_release_excerpt(self):
+        self.assertIn("release_excerpt", THESIS_INSTRUCTIONS)
+        self.assertIn("in document_ids. Copy quotes", THESIS_INSTRUCTIONS)
+
+    def test_the_checker_verifies_a_period_only_against_cited_facts(self):
+        from services.thesis.evidence_thesis_checks import ThesisSources, check_claim
+        sources = ThesisSources(company_id=1, articles={42: {"summary": ARTICLE["summary"]}})
+        quoted = (("article:42", "demand for its accelerators remained strong"),)
+        labelled, unlabelled = (check_claim(claim("S1", "Demand stayed strong.", claim_type="observed_fact",
+                                                  articles=[42], quotes=quoted, fiscal_period=period),
+                                            "supporting_claims", sources)["failures"] for period in ("Q3 2026", ""))
+        self.assertEqual(labelled, ["fiscal_period_unverifiable"])
+        self.assertEqual(unlabelled, [])
 
 
 class SurpriseLicenseTests(unittest.TestCase):
@@ -265,21 +442,24 @@ class ReportTests(ThesisFixture):
         payload = self.payload()
         invented = self.guidance_claim(payload, "Guidance midpoint rose by $35 million")
         broken = {key: value for key, value in self.thesis(payload).items() if key != "horizon"}
-        for thesis in (self.thesis(payload), self.thesis(payload, supporting=[invented]), broken):
-            persist_thesis_check(self.check(thesis, payload), company_id=1, db_path=self.db)
+        self.fact_backed_id, self.deferred_id, _ = (persist_thesis_check(self.check(thesis, payload), company_id=1, db_path=self.db)
+                                     for thesis in (self.thesis(payload), self.thesis(payload, supporting=[invented]), broken))
         persist_thesis_check(not_requested_check(payload, "no_evidence", route="legacy_strategist", policy=self.policy),
                              company_id=1, db_path=self.db)
+        self.payload_for_basis = payload
 
-    def decision(self, *, would_allow, executed=False, pnl=None, run_at="2026-09-03T10:00:00", other_gates=True):
+    def decision(self, *, would_allow, executed=False, pnl=None, run_at="2026-09-03T10:00:00", other_gates=True,
+                 evaluation_id=None, strategist_decision=None, thesis_status=None):
         output = {"evidence_thesis_gate": {"allowed": True, "would_allow": would_allow, "proposed_decision": "call",
-                                           "enforcement_mode": "shadow",
+                                           "enforcement_mode": "shadow", "evaluation_id": evaluation_id,
+                                           "thesis_status": thesis_status,
                                            "reason_codes": [] if would_allow else ["thesis_deferred"]},
                   "entry_gate": {"allowed": other_gates}, "market_regime_gate": {"allowed": True},
                   "selected_option": {"symbol": "NVDA260918C00100000"}}
         with closing(get_connection(self.db)) as conn, conn:
             decision_id = conn.execute("""INSERT INTO manager_decision_history
-                (decision_run_at,manager_decision,trade_executed,realized_pnl_pct)
-                VALUES (?,?,?,?)""", (run_at, "call", int(executed), pnl)).lastrowid
+                (decision_run_at,manager_decision,trade_executed,realized_pnl_pct,strategist_decision)
+                VALUES (?,?,?,?,?)""", (run_at, "call", int(executed), pnl, strategist_decision)).lastrowid
             conn.execute("""INSERT INTO manager_decision_payloads
                 (manager_decision_history_id,manager_output_json) VALUES (?,?)""", (decision_id, json.dumps(output)))
 
@@ -293,6 +473,55 @@ class ReportTests(ThesisFixture):
         gate = self.report()["entry_gate"]
         self.assertEqual((gate["would_block"], gate["would_block_otherwise_eligible"], gate["executed_while_would_block"],
                           gate["descriptive_outcomes"]["would_block"]["mean_realized_pnl_pct"]), (2, 1, 1, -30.0))
+
+    def article_only_check(self):
+        payload = self.payload_for_basis
+        quoted = [("article:42", "demand for its accelerators remained strong")]
+        thesis = self.thesis(payload, supporting=[claim("S1", "Demand for its accelerators remained strong",
+                                                        claim_type="observed_fact", central=True, articles=[42],
+                                                        quotes=quoted)],
+                             opposing=[claim("O1", "Demand could soften", articles=[42])],
+                             change_vs_prior_expectations=EvidenceBasisTests.NO_BASELINE)
+        return self.check(thesis, payload)
+
+    def test_passing_theses_are_counted_by_evidence_basis(self):
+        persist_thesis_check(self.article_only_check(), company_id=1, db_path=self.db)
+        older = self.check(self.thesis(self.payload_for_basis), self.payload_for_basis)
+        older.pop("evidence_basis", None)  # a record stored before the field existed
+        persist_thesis_check({**older, "policy_version": "evidence-thesis-v3"}, company_id=1, db_path=self.db)
+        self.assertEqual(self.report()["checks"]["evidence_basis"], {
+            "basis": {"facts": 1, "articles_only": 1, "unknown": 1},
+            "fact_requirement": {"met": 1, "not_met": 1, "unknown": 1}})
+
+    def test_every_requested_check_is_counted_by_whether_filing_facts_existed(self):
+        # Coverage, not pass rate: how often the strategist had filing facts to cite at all.
+        # setUp stored a validated and a deferred check over filing facts, and one invalid output.
+        self.assertEqual(self.report()["checks"]["filing_facts_available"], {"true": 2, "unknown": 1})
+
+    def test_executed_trades_are_split_by_evidence_basis(self):
+        article_only_id = persist_thesis_check(self.article_only_check(), company_id=1, db_path=self.db)
+        self.decision(would_allow=True, executed=True, pnl=12.0, evaluation_id=self.fact_backed_id)
+        self.decision(would_allow=True, executed=True, pnl=-30.0, evaluation_id=article_only_id)
+        self.decision(would_allow=True, executed=True, pnl=-10.0, evaluation_id=article_only_id)
+        self.assertEqual(self.report()["entry_gate"]["outcomes_by_evidence_basis"], {
+            "facts": {"closed_trades": 1, "mean_realized_pnl_pct": 12.0},
+            "articles_only": {"closed_trades": 2, "mean_realized_pnl_pct": -20.0}})
+
+    def test_executed_trades_whose_thesis_did_not_pass_are_kept_out_of_the_basis_buckets(self):
+        # A deferred thesis is stored articles_only because its central fact claim failed, not because it rested
+        # on articles; counting it there would blame article-only theses for trades the checker never passed.
+        self.decision(would_allow=False, executed=True, pnl=-25.0, evaluation_id=self.deferred_id)
+        self.assertEqual(self.report()["entry_gate"]["outcomes_by_evidence_basis"],
+                         {"thesis_not_passed": {"closed_trades": 1, "mean_realized_pnl_pct": -25.0}})
+
+    def test_thesis_status_is_counted_per_strategist_decision(self):
+        # The pass rate that matters is on trade candidates, not watchlist theses.
+        for strategist_decision, status in (("trade_candidate", "validated"), ("trade_candidate", "deferred"),
+                                            ("watchlist", "validated")):
+            self.decision(would_allow=status == "validated", strategist_decision=strategist_decision,
+                          thesis_status=status)
+        self.assertEqual(self.report()["entry_gate"]["thesis_status_by_strategist_decision"], {
+            "trade_candidate": {"validated": 1, "deferred": 1}, "watchlist": {"validated": 1}})
 
 
 class GateTests(unittest.TestCase):

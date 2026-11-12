@@ -200,12 +200,26 @@ def classify_market_regime(
         reason_codes.append("macro_calendar_missing_or_stale")
     reason_codes.extend(macro_reason_codes)
 
+    aligned = (price_vs_20ema is not None and price_vs_50sma is not None and ema_slope is not None
+               and trend_strength is not None and trend_strength >= active_policy.minimum_trend_strength_pct)
+    if market_stale or macro_stale or len(valid_closes) < 50:
+        spy_trend = "unknown"
+    elif aligned and price_vs_20ema > 0 and price_vs_50sma > 0 and ema_slope > 0:
+        spy_trend = "bullish"
+    elif aligned and price_vs_20ema < 0 and price_vs_50sma < 0 and ema_slope < 0:
+        spy_trend = "bearish"
+    else:
+        spy_trend = "range"
+    # Reported in every state: volatile or stressed markets still have a direction worth knowing.
     signals = {
-        "spy_trend": "unknown",
+        "spy_trend": spy_trend,
         "spy_price_vs_20ema_pct": _round(price_vs_20ema),
         "spy_price_vs_50sma_pct": _round(price_vs_50sma),
         "trend_strength": _round(trend_strength),
         "spy_realized_volatility_20d": _round(realized_volatility),
+        # Read only by the shadow regime variants; stale prices report no return.
+        **{f"spy_return_{days}d_pct": None if market_stale or len(valid_closes) <= days
+           else _round((valid_closes[-1] / valid_closes[-1 - days] - 1) * 100.0) for days in (5, 20)},
         "vix_percentile_1y": _round(vix_percentile, 2),
         "market_breadth": "unavailable",
     }
@@ -229,23 +243,14 @@ def classify_market_regime(
     ):
         state = "high_volatility"
         reason_codes.append("elevated_market_volatility")
-    elif (
-        price_vs_20ema is not None and price_vs_50sma is not None and ema_slope is not None and trend_strength is not None
-        and price_vs_20ema > 0 and price_vs_50sma > 0 and ema_slope > 0 and trend_strength >= active_policy.minimum_trend_strength_pct
-    ):
+    elif spy_trend == "bullish":
         state = "trend_up"
-        signals["spy_trend"] = "bullish"
         reason_codes.append("spy_price_ma_alignment_bullish")
-    elif (
-        price_vs_20ema is not None and price_vs_50sma is not None and ema_slope is not None and trend_strength is not None
-        and price_vs_20ema < 0 and price_vs_50sma < 0 and ema_slope < 0 and trend_strength >= active_policy.minimum_trend_strength_pct
-    ):
+    elif spy_trend == "bearish":
         state = "trend_down"
-        signals["spy_trend"] = "bearish"
         reason_codes.append("spy_price_ma_alignment_bearish")
     else:
         state = "range"
-        signals["spy_trend"] = "range"
         reason_codes.append("no_directional_market_trend")
 
     confidence = "low" if state == "unknown" else "high" if vix_percentile is not None else "medium"

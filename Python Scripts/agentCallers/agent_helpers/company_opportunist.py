@@ -17,6 +17,8 @@ from news_db_modules.processing import mark_company_opportunist_article_processe
 from agent_helpers.opportunist_support import (
     CURRENT_OPPORTUNIST_SCHEMA_VERSION,
     SHARED_OPPORTUNIST_REQUIRED_IMPACT_FIELDS,
+    STORY_DUPLICATE_MODEL,
+    drop_story_duplicates,
     extract_impacts_from_payload,
     filter_unprocessed_articles,
     normalize_shared_opportunist_impact_fields,
@@ -177,7 +179,13 @@ def build_company_opportunist_articles(
 
     articles = [_make_company_article_record(article) for article in raw_articles]
     articles = _sort_articles(articles)
-    articles = _filter_unprocessed_articles(articles, int(company["company_id"]))
+    company_id = int(company["company_id"])
+    articles = _filter_unprocessed_articles(articles, company_id)
+    articles = drop_story_duplicates(
+        articles, table_name="company_opportunist_article_processing", company_id=company_id,
+        mark=lambda article_id, record: mark_company_opportunist_article_processed(
+            article_id=article_id, company_id=company_id, model=STORY_DUPLICATE_MODEL, raw_json=record),
+    )
 
     return company, peer_groups, articles
 

@@ -33,8 +33,8 @@ EVENT = {'name': 'Earnings release', 'scheduled_at': '2026-10-28', 'precision': 
 
 class FakeTicker:
     """Stands in for yfinance.Ticker; counts `calendar` reads so the per-collection rate is checkable."""
-    def __init__(self, calendar=None, error=None):
-        self._calendar, self.error, self.reads = calendar, error, 0
+    def __init__(self, calendar=None, error=None, info=None):
+        self._calendar, self.error, self.reads, self._info = calendar, error, 0, info
 
     @property
     def calendar(self):
@@ -43,9 +43,18 @@ class FakeTicker:
             raise self.error
         return self._calendar
 
+    @property
+    def info(self):
+        if isinstance(self._info, Exception):
+            raise self._info
+        return self._info or {}
 
-def adapter(calendar=None, error=None, clock=lambda: NOW):
-    ticker = FakeTicker(MSFT if calendar is None else calendar, error)
+
+USD = {'financialCurrency': 'USD'}
+
+
+def adapter(calendar=None, error=None, clock=lambda: NOW, info=USD):
+    ticker = FakeTicker(MSFT if calendar is None else calendar, error, info)
     return YahooConsensusAdapter(ticker_factory=lambda symbol: ticker, clock=clock), ticker
 
 
@@ -118,11 +127,44 @@ class AdapterTests(unittest.TestCase):
                 self.assertEqual(result.documents, ())
                 self.assertIn('consensus_provider_unavailable', result.gaps)
 
+    def test_non_usd_reporter_yields_no_consensus(self):
+        # 2026-11-09: SK hynix's revenue consensus (1.3e14, in won) was stored as USD.
+        yahoo, _ = adapter(info={'financialCurrency': 'KRW'})
+        result = yahoo.collect(MSFT_COMPANY, {})
+        self.assertEqual((result.documents, result.gaps), ((), ('consensus_currency_not_usd',)))
+
+    def test_usd_reporter_collects(self):
+        (doc,) = adapter(info=USD)[0].collect(MSFT_COMPANY, {}).documents
+        self.assertEqual({fact['currency'] for fact in doc.facts}, {'USD'})
+
+    def test_unknown_currency_yields_no_consensus(self):
+        # Labelling estimates USD without knowing is how SK hynix's won were stored as dollars.
+        for info in ({}, {'financialCurrency': None}, RuntimeError('info unavailable')):
+            with self.subTest(info=info):
+                result = adapter(info=info)[0].collect(MSFT_COMPANY, {})
+                self.assertEqual((result.documents, result.gaps), ((), ('consensus_currency_unknown',)))
+
+    def test_a_failed_lookup_falls_back_to_the_currency_seen_before(self):
+        for seen, documents, gaps in (({'financialCurrency': 'KRW'}, 0, ('consensus_currency_not_usd',)),
+                                      (USD, 1, ())):
+            with self.subTest(seen=seen):
+                cursor = adapter(info=seen)[0].collect(MSFT_COMPANY, {}).cursor
+                result = adapter(info=RuntimeError('info unavailable'))[0].collect(MSFT_COMPANY, cursor)
+                self.assertEqual((len(result.documents), result.gaps), (documents, gaps))
+
     def test_ticker_construction_failure_is_also_a_gap(self):
         def broken(symbol):
             raise ConnectionError('no network')
         result = YahooConsensusAdapter(ticker_factory=broken, clock=lambda: NOW).collect(MSFT_COMPANY, {})
         self.assertEqual((result.documents, result.gaps), ((), ('consensus_provider_unavailable',)))
+
+    def test_a_failed_lookup_still_reports_a_known_non_usd_reporter(self):
+        # A provider_unavailable gap here let the package keep SK hynix's earlier won-as-USD captures.
+        def broken(symbol):
+            raise ConnectionError('no network')
+        result = YahooConsensusAdapter(ticker_factory=broken, clock=lambda: NOW).collect(
+            MSFT_COMPANY, {'financial_currency': 'KRW'})
+        self.assertEqual((result.documents, result.gaps), ((), ('consensus_currency_not_usd',)))
 
     def test_missing_revenue_keys_leave_only_eps(self):
         calendar = {k: v for k, v in MSFT.items() if not k.startswith('Revenue')}

@@ -141,6 +141,13 @@ class OptionPositionsManagerTests(unittest.TestCase):
         self._manage(client, "hold")
         self.assertIsNone(get_position_state(self.state_path, OTHER_OPTION_SYMBOL))
 
+    def test_contracts_held_on_an_earlier_cycle_and_now_gone_are_reported_flattened(self):
+        update_position_state(self.state_path, OTHER_OPTION_SYMBOL, {"last_action": "hold"})
+        client = _Client([_position(OPTION_SYMBOL)])
+
+        self.assertEqual([], self._manage(client, "hold", company="AAPL")["flattened_symbols"])
+        self.assertEqual([OTHER_OPTION_SYMBOL], self._manage(client, "hold")["flattened_symbols"])
+
     def test_momentum_thresholds_larger_than_the_window_are_clamped_with_a_note(self):
         configured = MomentumHistoryConfig(enable_after_pnl_pct=5, window_size=3, min_samples=5,
                                            bad_count_exit_threshold=9, consecutive_bad_exit_threshold=4)

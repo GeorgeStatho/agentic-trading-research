@@ -178,7 +178,8 @@ def evaluate_evidence_continuation_gate(
             reasons.append("missing_technical_data")
 
     reason_codes = list(dict.fromkeys(reasons))
-    would_allow = proposed_decision in {"call", "put"} and not reason_codes
+    # No entry to judge: a non-directional decision is no verdict, never a block counted as evidence.
+    would_allow = (not reason_codes) if proposed_decision in {"call", "put"} else None
     allowed = would_allow or (
         policy.enforcement_mode == "shadow" and proposed_decision in {"call", "put"}
     )

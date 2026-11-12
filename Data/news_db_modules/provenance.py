@@ -144,13 +144,14 @@ def update_article_provenance(article_id: int, *, conn) -> None:
     catalyst = catalyst or _identifier("catalyst:", str(article_id))
     root = _identifier("root:", catalyst + "|" + origin)
     old_catalyst = article.get("catalyst_id")
+    story = article.get("story_id") or _story_id(article, conn=conn)
     conn.execute("""
         UPDATE news_articles SET source_type=?, primary_ticker=?, catalyst_id=?, root_event_id=?,
             root_source_id=?, primary_source_url=?, event_time=?,
-            first_seen_time=COALESCE(first_seen_time, created_at, ?)
+            first_seen_time=COALESCE(first_seen_time, created_at, ?), story_id=?
         WHERE id=?
     """, (source_type, ticker, catalyst, root, origin, primary_url,
-          when.isoformat() if when else None, datetime.now(timezone.utc).isoformat(), article_id))
+          when.isoformat() if when else None, datetime.now(timezone.utc).isoformat(), story, article_id))
     for cluster in {catalyst, old_catalyst} - {None}:
         _refresh_cluster_scores(cluster, conn=conn)
         from .catalysts import refresh_catalyst
@@ -158,6 +159,31 @@ def update_article_provenance(article_id: int, *, conn) -> None:
 
     from market_db_modules.company_interest import signal_company_news
     signal_company_news(conn, article_id, at=datetime.now(timezone.utc).isoformat())
+
+
+def _story_id(article, *, conn) -> int:
+    # Syndicated copies only: identical title within 12h, from another outlet or with the same body.
+    # Body hashes alone collide on paywall boilerplate, and one outlet reuses generic titles
+    # ("Sector Update: Energy", bond notices) for different news, so nothing looser is safe.
+    match = conn.execute("""
+        SELECT COALESCE(story_id, id) FROM news_articles
+        WHERE id < ? AND normalized_title = ? AND normalized_title <> ''
+          AND ABS(julianday(published_at) - julianday(?)) <= 0.5
+          AND (source <> ? OR (content_hash = ? AND content_hash <> ''))
+        ORDER BY id LIMIT 1
+    """, (article["id"], article.get("normalized_title") or "", article.get("published_at"),
+          article.get("source"), article.get("content_hash") or "")).fetchone()
+    return match[0] if match else article["id"]
+
+
+def load_story_ids(article_ids, *, conn) -> dict[int, int]:
+    """Map article id to its story id; rows set up before story_id existed are their own story."""
+    ids = sorted({int(article_id) for article_id in article_ids})
+    if not ids:
+        return {}
+    rows = conn.execute(f"SELECT id, COALESCE(story_id, id) FROM news_articles WHERE id IN ({','.join('?' * len(ids))})",
+                        ids).fetchall()
+    return {int(row[0]): int(row[1]) for row in rows}
 
 
 def _refresh_cluster_scores(catalyst, *, conn):

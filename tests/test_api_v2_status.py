@@ -158,6 +158,28 @@ class V2StatusTests(unittest.TestCase):
             {"stage": "SUPPORT", "reason_code": "insufficient_independent_roots", "shadow": False, "candidates": 1},
         ])
 
+    def test_freshness_no_verdict_is_counted_separately(self) -> None:
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute("PRAGMA foreign_keys=OFF")  # only the observation's own columns matter here
+            for candidate_id, remaining, observed in (("c1", None, RECENT), ("c2", 0.1, RECENT), ("c3", None, STALE),
+                                                      ("discovery:c4", None, RECENT)):
+                _insert_candidate(conn, candidate_id, "NVDA", observed)
+                conn.execute(
+                    """INSERT INTO candidate_snapshots
+                       (candidate_id, stage, captured_at, information_cutoff_time, pipeline_version,
+                        snapshot_version, snapshot_hash, snapshot_json) VALUES (?,?,?,?,?,?,?,?)""",
+                    (candidate_id, "FRESHNESS", observed, observed, "v2:test", "1", "hash", "{}"),
+                )
+                conn.execute(
+                    """INSERT INTO catalyst_gate_observations
+                       (candidate_id, catalyst_id, stage, observed_at, remaining_value, would_allow, allowed, shadow,
+                        policy_version, metrics_json, thresholds_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (candidate_id, "catalyst:x", "FRESHNESS", observed, remaining, 0, 1, 1, "v1", "{}", "{}"),
+                )
+
+        activity = _stage(self._payload(), "freshness", "FRESHNESS")["activity"]
+        self.assertEqual((activity["no_verdict"], activity["shadow_blocks"], activity["observed_candidates"]), (1, 0, 2))
+
     def test_source_files_are_hashed_once_per_process(self) -> None:
         # A running process's code cannot change, and every 60s poll used to re-read ~280 files.
         from api_support import v2_status

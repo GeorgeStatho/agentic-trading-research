@@ -398,5 +398,98 @@ class CatalystLabelImmutabilityTests(unittest.TestCase):
         self.assertEqual(self.conn.execute('SELECT COUNT(*) FROM catalyst_model_labels').fetchone()[0], 2)
 
 
+class FamilyCoverageTests(unittest.TestCase):
+    def family(self, title):
+        return classify_catalyst(title)['catalyst_family']
+
+    def test_typed_corporate_events_have_a_family_instead_of_other(self):
+        for title in ('Marathon Petroleum raises dividend 10% and approves $5 billion buyback',
+                      'Par Pacific makes CEO shift', 'Walker & Dunlop arranges $110 million financing'):
+            with self.subTest(title=title):
+                self.assertEqual(self.family(title), 'corporate_action')
+
+    def test_opinion_and_recap_headlines_are_commentary_not_other(self):
+        for title in ('Is Oracle Stock a Buy Now?', 'Why CrowdStrike Stock Slumped on Wednesday',
+                      'Prediction: Microsoft Will Double Its Paid Copilot Seats in the Next 12 Months',
+                      'Should You Buy Micron Stock Before Its Next Earnings Report?',
+                      'Nvidia Just Announced the Largest Stock Buyback Increase in History. Should You Buy the Stock?'):
+            with self.subTest(title=title):
+                result = classify_catalyst(title)
+                self.assertEqual((result['catalyst_family'], result['classification_status']), ('commentary', 'needs_review'))
+
+    def test_commentary_never_overrides_a_directional_event_family(self):
+        self.assertEqual(self.family('Did Nvidia beat earnings estimates?'), 'earnings_positive')
+        self.assertEqual(self.family('Intel misses earnings: is it a buy?'), 'earnings_negative')
+
+    def test_plain_unclassifiable_headline_stays_other(self):
+        self.assertEqual(self.family(RULE_FAILURE), 'other')
+
+    def test_half_life_priors_cover_the_new_families_and_not_unknown_events(self):
+        def half_life(title):
+            return build_catalyst_state('catalyst:hl', [anchor(title)], ticker='NVDA', as_of=NOW.isoformat())['expected_half_life_minutes']
+        for title in ('Apple announces buyback and higher dividend', 'CEO of Intel resigns after board dispute',
+                      'Rivian announces debt offering to fund expansion', 'Is Oracle Stock a Buy Now?'):
+            with self.subTest(title=title):
+                self.assertGreater(half_life(title), 0)
+        self.assertIsNone(half_life(RULE_FAILURE))
+
+
+class EventTimeFallbackTests(unittest.TestCase):
+    def untimed(self, **extra):
+        return {'id': 1, 'title': RULE_FAILURE, 'summary': '', 'event_time': None, 'primary_ticker': 'NVDA',
+                'published_at': PUBLISHED.isoformat(), 'first_seen_time': FIRST_SEEN.isoformat(), **extra}
+
+    def build(self, rows, as_of=None):
+        return build_catalyst_state('catalyst:fallback', rows, ticker='NVDA', as_of=(as_of or NOW).isoformat())
+
+    def test_missing_event_time_falls_back_to_the_earliest_article_time_and_is_labelled(self):
+        state = self.build([self.untimed(), self.untimed(id=2, published_at=(PUBLISHED - timedelta(hours=3)).isoformat())])
+        self.assertEqual(state['first_public_time'], (PUBLISHED - timedelta(hours=3)).isoformat())
+        self.assertEqual(state['first_public_time_basis'], 'article_fallback')
+        self.assertGreater(state['catalyst_age_minutes'], 0)
+
+    def test_the_fallback_reads_only_the_anchor_articles_root(self):
+        earlier_elsewhere = (PUBLISHED - timedelta(hours=5)).isoformat()
+        state = self.build([self.untimed(root_event_id='root:a'),
+                            self.untimed(id=2, root_event_id='root:b', published_at=earlier_elsewhere,
+                                         first_seen_time=earlier_elsewhere)])
+        self.assertEqual(state['first_public_time'], PUBLISHED.isoformat())
+        self.assertEqual(state['first_public_time_basis'], 'article_fallback')
+
+    def test_a_real_event_time_is_labelled_and_wins(self):
+        state = self.build([self.untimed(event_time=(PUBLISHED - timedelta(days=1)).isoformat())])
+        self.assertEqual(state['first_public_time_basis'], 'event_time')
+        self.assertEqual(state['first_public_time'], (PUBLISHED - timedelta(days=1)).isoformat())
+
+    def test_the_fallback_never_uses_a_time_after_the_decision_time(self):
+        state = self.build([self.untimed()], as_of=PUBLISHED - timedelta(hours=1))
+        self.assertIsNone(state['first_public_time'])
+        self.assertIsNone(state['first_public_time_basis'])
+        self.assertIsNone(state['catalyst_age_minutes'])
+
+    def test_a_catalyst_with_no_articles_has_no_time_and_no_basis(self):
+        state = self.build([])
+        self.assertEqual((state['first_public_time'], state['first_public_time_basis']), (None, None))
+
+    def test_a_candidate_catalyst_leaves_out_articles_that_lack_an_event_time(self):
+        temporary_database(self)
+        with closing(get_connection()) as conn, conn:
+            conn.execute("INSERT INTO sectors(id, sector_key, name) VALUES (1, 'technology', 'Technology')")
+            conn.execute("INSERT INTO industries(id, sector_id, industry_key, name) VALUES (1, 1, 'chips', 'Chips')")
+            conn.execute("INSERT INTO companies(id, industry_id, symbol, name) VALUES (1, 1, 'NVDA', 'Nvidia')")
+        article_id = add_company_news_article(company_id=1, source='reuters.com', article_key='1', title=RULE_FAILURE,
+            body='Reuters reports the move.', source_url='https://reuters.com/story/1', published_at=PUBLISHED.isoformat(),
+            recency_score=1, source_reputation_score=.95, directness_score=.95, factuality_score=.95)
+        with closing(get_connection()) as conn, conn:
+            conn.execute('UPDATE news_articles SET event_time=NULL, first_seen_time=? WHERE id=?', (FIRST_SEEN.isoformat(), article_id))
+            conn.execute('UPDATE root_events SET first_public_time=NULL')
+            conn.execute("INSERT INTO candidates (candidate_id, symbol, created_at, catalyst_ids_json, article_ids_json, "
+                         "pipeline_version_json) VALUES ('c1', 'NVDA', ?, '[]', '[]', '{}')", (NOW.isoformat(),))
+            states = attach_candidate_catalysts('c1', 'NVDA', [{'article_id': article_id}], cutoff=NOW.isoformat(), conn=conn)
+        # Only the no-evidence placeholder remains: the undated article is not counted.
+        self.assertEqual([(state['catalyst_id'], state['article_count']) for state in states],
+                         [('catalyst:unknown:c1', 0)])
+
+
 if __name__ == '__main__':
     unittest.main()

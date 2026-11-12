@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.company_evidence import (
-    get_company_fact, get_evidence_document, latest_evidence_package, record_evidence_package,
+    get_company_fact, get_evidence_document, is_issuer_document, latest_evidence_package, record_evidence_package,
 )
 from market_db_modules.discovery_queue import enqueue_discovery_event
 from market_db_modules.discovery_sources import (
@@ -97,10 +97,10 @@ def _match_package_catalyst(package, documents, articles):
 
 
 def _primary_root(company_id, catalyst_id, documents, known_roots, db_path):
-    if known_roots or not documents:
+    filings = [doc for doc in documents if is_issuer_document(doc)]
+    if known_roots or not filings:
         return known_roots
-    filings = [doc for doc in documents if doc['document_type'] != 'xbrl_facts']
-    latest = max(filings or documents, key=lambda doc: (doc['published_at'], doc['ingested_at']))
+    latest = max(filings, key=lambda doc: (doc['published_at'], doc['ingested_at']))
     identity = 'root:company-evidence:' + digest([company_id, latest.get('metadata', {}).get('event_key', latest['source_url'])])
     with closing(get_connection(db_path)) as conn, conn:
         # Keep the same root when a primary source is subsequently linked to a news catalyst.

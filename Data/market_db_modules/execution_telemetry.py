@@ -5,6 +5,10 @@ import json
 from db_common import get_connection, json_text
 from .bootstrap import initialize_database
 from .telemetry_schema import EXECUTION_COLUMNS
+from services.trading.order_values import ENDED_STATUSES
+
+# Orders the broker has finished with; not_found is an id the broker no longer knows.
+SETTLED_ORDER_STATUSES = tuple(sorted({'filled', 'replaced', 'not_found', *ENDED_STATUSES}))
 
 
 def store_execution_telemetry(order_id, telemetry, *, context=None, execution_version=None, conn=None, db_path=None):
@@ -31,9 +35,9 @@ def store_execution_telemetry(order_id, telemetry, *, context=None, execution_ve
 def pending_execution_telemetry(*, db_path=None):
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
-        return [dict(row) for row in conn.execute('''SELECT * FROM option_trade_executions
-            WHERE fill_observed_at IS NULL OR LOWER(order_status) NOT IN
-            ('filled', 'canceled', 'expired', 'rejected', 'replaced', 'not_found') ORDER BY id''')]
+        return [dict(row) for row in conn.execute(f'''SELECT * FROM option_trade_executions
+            WHERE fill_observed_at IS NULL OR LOWER(order_status) NOT IN ({','.join('?' * len(SETTLED_ORDER_STATUSES))})
+            ORDER BY id''', SETTLED_ORDER_STATUSES)]
 
 
 def execution_telemetry_report(*, start=None, end=None, db_path=None):

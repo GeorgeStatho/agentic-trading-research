@@ -10,9 +10,10 @@ shared logic here keeps each stage helper focused on its own persistence rules.
 from contextlib import closing
 from copy import deepcopy
 import json
-from typing import Any
+from typing import Any, Callable
 
 from db_common import get_connection
+from news_db_modules.provenance import load_story_ids
 from services.core.settings import get_settings
 
 
@@ -415,6 +416,50 @@ def filter_unprocessed_articles(
         for article in articles
         if int(article[article_id_key]) not in processed_article_ids
     ]
+
+
+STORY_DUPLICATE_MODEL = "story-duplicate"
+
+
+def drop_story_duplicates(
+    articles: list[dict[str, Any]],
+    *,
+    table_name: str,
+    company_id: int | None = None,
+    mark: Callable[[int, dict[str, Any]], Any],
+    article_id_key: str = "article_id",
+) -> list[dict[str, Any]]:
+    """Skip syndicated copies of a story: mark copies of an analyzed story done, keep one new copy per story."""
+    with closing(get_connection()) as conn:
+        stories = load_story_ids([article[article_id_key] for article in articles], conn=conn)
+        if not stories:
+            return articles
+        scope = " AND p.company_id = ?" if company_id is not None else ""
+        story_list = sorted(set(stories.values()))
+        rows = conn.execute(
+            f"""
+            SELECT COALESCE(a.story_id, a.id) AS story, MIN(p.article_id) AS representative
+            FROM {table_name} AS p JOIN news_articles AS a ON a.id = p.article_id
+            WHERE COALESCE(a.story_id, a.id) IN ({",".join("?" * len(story_list))}){scope}
+            GROUP BY story
+            """,
+            (*story_list, *([int(company_id)] if company_id is not None else [])),
+        ).fetchall()
+    analyzed = {int(row["story"]): int(row["representative"]) for row in rows}
+
+    kept: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for article in articles:
+        article_id = int(article[article_id_key])
+        story = stories.get(article_id, article_id)
+        if analyzed.get(story, article_id) != article_id:
+            mark(article_id, {"article_id": article_id, "duplicate_of_article_id": analyzed[story],
+                              "schema_version": CURRENT_OPPORTUNIST_SCHEMA_VERSION, "impacts": []})
+        elif story not in seen:
+            seen.add(story)
+            kept.append(article)
+        # Otherwise another copy is in this batch; this one is marked once that copy is analyzed.
+    return kept
 
 
 def extract_impacts_from_payload(payload: Any, *, key: str = "impacts") -> list[dict[str, Any]] | None:

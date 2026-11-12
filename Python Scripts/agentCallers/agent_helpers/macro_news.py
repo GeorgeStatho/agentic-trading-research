@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from agent_helpers.llm_client import ModelAnswer
+from agent_helpers.opportunist_support import STORY_DUPLICATE_MODEL, drop_story_duplicates
 from agent_helpers.text_utils import parse_published_at
 from db_common import get_connection
 from market_db_modules.queries import get_all_sectors
@@ -108,7 +109,12 @@ def get_recent_macro_news_articles(
             continue
         articles.append(_row_to_macro_article(row))
 
-    return articles
+    config = get_scope_config(news_scope)
+    return drop_story_duplicates(
+        articles, table_name=config["processing_table"],
+        mark=lambda article_id, record: config["processed_marker"](
+            article_id=article_id, model=STORY_DUPLICATE_MODEL, raw_json={**record, "news_scope": news_scope, "pairs": []}),
+    )
 
 
 def get_sector_reference() -> list[dict[str, Any]]:

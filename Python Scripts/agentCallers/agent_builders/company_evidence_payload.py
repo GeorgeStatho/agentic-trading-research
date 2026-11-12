@@ -4,12 +4,38 @@ from datetime import datetime, timezone
 from market_db_modules.company_evidence import (
     get_company_fact, get_evidence_document, get_evidence_package, latest_evidence_package,
 )
-from services.discovery.company_evidence_extraction import consensus_matches_actual
+from services.discovery.analyst_consensus import consensus_matches_actual
+from services.discovery.company_evidence_extraction import period_end
 from services.discovery.company_evidence_policy import CompanyEvidencePolicy
 
 
 MAX_PAYLOAD_FACTS = 48
+YEAR_AGO_MIN_DAYS, YEAR_AGO_MAX_DAYS = 350, 380
 MAX_EXCERPT_CHARACTERS = 600
+MAX_RELEASE_EXCERPT_CHARACTERS = 4000
+
+
+def _visible_facts(facts, referenced):
+    """At most MAX_PAYLOAD_FACTS: claim-cited facts, then consensus, then each metric's latest quarter and its
+    year-ago quarter (so year-on-year claims can cite facts), then the rest newest first. Superseded versions
+    are hidden unless a claim cites them."""
+    superseded = {fact.get('supersedes_fact_id') for fact in facts}
+    current = [fact for fact in facts if fact['fact_id'] not in superseded or fact['fact_id'] in referenced]
+    quarter_ends = {}
+    for fact in current:
+        ended = period_end(fact['fiscal_period'])
+        if fact['kind'] == 'actual' and fact.get('period_type') == 'quarter' and ended:
+            quarter_ends.setdefault(fact['metric'], []).append((fact['fact_id'], ended))
+    pinned = set()
+    for ends in quarter_ends.values():
+        latest = max(ended for _, ended in ends)
+        # 52/53-week fiscal years end the year-ago quarter a few days off the calendar date.
+        pinned.update(identity for identity, ended in ends if (latest - ended).days == 0
+                      or YEAR_AGO_MIN_DAYS <= (latest - ended).days <= YEAR_AGO_MAX_DAYS)
+    current.sort(key=lambda fact: (fact['fact_id'] in referenced, fact['kind'] == 'consensus',
+                                   fact['fact_id'] in pinned, fact['fiscal_period'], fact['available_at']),
+                 reverse=True)
+    return current[:MAX_PAYLOAD_FACTS]
 
 
 def build_company_evidence_payload(company_id, *, as_of=None, package_id=None, db_path=None):
@@ -23,8 +49,7 @@ def build_company_evidence_payload(company_id, *, as_of=None, package_id=None, d
     facts = [get_company_fact(identity, db_path=db_path) for identity in package['fact_ids']]
     claims = package['supporting_claims'] + package['opposing_claims']
     referenced = {identity for claim in claims for identity in claim.get('fact_ids', [])}
-    facts.sort(key=lambda fact: (fact['fact_id'] in referenced, fact['fiscal_period'], fact['available_at']), reverse=True)
-    selected = facts[:MAX_PAYLOAD_FACTS]
+    selected = _visible_facts(facts, referenced)
     superseded = {fact.get('supersedes_fact_id') for fact in facts}
     documents = {identity: get_evidence_document(identity, db_path=db_path) for identity in package['document_ids']}
     visible = []
@@ -46,10 +71,19 @@ def build_company_evidence_payload(company_id, *, as_of=None, package_id=None, d
     newest = max((doc['published_at'] for doc in documents.values() if doc['document_type'] != 'consensus'),
                  default=None)
     age = (datetime.fromisoformat(cutoff) - datetime.fromisoformat(newest)).total_seconds() if newest else 0
+    # Until the 10-Q, the quarter's numbers exist only in the earnings release: show the newest one's opening.
+    releases = [doc for doc in documents.values() if isinstance(doc.get('metadata', {}).get('release_start'), int)]
+    release = max(releases, key=lambda doc: (doc['published_at'], doc['document_id']), default=None)
+
+    def shown(doc):
+        entry = {key: doc[key] for key in ('document_id', 'source_url', 'publisher', 'document_type',
+                                           'published_at', 'first_observed_at', 'ingested_at', 'metadata') if key in doc}
+        if doc is release:
+            start = doc['metadata']['release_start']
+            entry['release_excerpt'] = doc['text'][start:start + MAX_RELEASE_EXCERPT_CHARACTERS]
+        return entry
     return {**package, 'facts': visible,
-            'documents': [{key: doc[key] for key in ('document_id', 'source_url', 'publisher', 'document_type',
-                                                    'published_at', 'first_observed_at', 'ingested_at', 'metadata') if key in doc}
-                          for doc in documents.values()],
+            'documents': [shown(doc) for doc in documents.values()],
             'supporting_claims': visible_claims(package['supporting_claims']),
             'opposing_claims': visible_claims(package['opposing_claims']),
             'payload_truncated': len(selected) < len(facts),

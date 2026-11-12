@@ -9,7 +9,8 @@ from market_db_modules.company_evidence import (
 )
 from market_db_modules.foundation_store import digest
 from research_foundation_contracts import CompanyFact, EvidencePackage
-from services.discovery.company_evidence_extraction import comparison_key, guidance_midpoint, report_date
+from services.discovery.analyst_consensus import CURRENCY_NOT_USD, retained_consensus
+from services.discovery.company_evidence_extraction import comparison_key, guidance_midpoint
 
 
 MAX_DOCUMENTS = 24
@@ -17,47 +18,30 @@ MAX_FACTS = 240
 REQUIRED_METRICS = {'revenue', 'eps_diluted', 'operating_cash_flow', 'cash'}
 
 
-def _retained_consensus(consensus_documents, facts, at):
-    """The newest estimate, plus the last one captured for the most recent report already due by `at`.
-
-    Yahoo rolls on to the next earnings date once a company reports, so without the second document
-    the estimate the reported quarter is judged against would be gone. `consensus_documents` is in
-    publication order; older captures of either report are dropped.
-    """
-    if not consensus_documents:
-        return set()
-    reports = {}
-    for fact in facts:
-        reported = report_date(fact)
-        if reported is not None:
-            reports.setdefault(fact['document_id'], reported)
-    kept = {consensus_documents[-1]['document_id']}
-    cutoff = datetime.fromisoformat(at).date()
-    due = [doc for doc in consensus_documents if reports.get(doc['document_id']) and reports[doc['document_id']] <= cutoff]
-    if due:
-        last_report = max(reports[doc['document_id']] for doc in due)
-        kept.add([doc for doc in due if reports[doc['document_id']] == last_report][-1]['document_id'])
-    return kept
-
-
 def build_company_package(company, document_ids, at, policy, *, db_path, gaps=()):
     documents = {doc['document_id']: doc for doc in list_company_documents(company['id'], as_of=at, db_path=db_path)}
     documents.update({identity: get_evidence_document(identity, db_path=db_path) for identity in document_ids})
     ordered = sorted(documents.values(), key=lambda doc: (doc['published_at'], doc['ingested_at'], doc['document_id']))
+    # An SEC document's event key is its accession, so one superseding it is the same filing read again: keep the
+    # newest read only. Issuer releases and consensus captures keep their history (guidance changes, baselines).
+    reread = {doc.get('supersedes_document_id') for doc in ordered if doc['provider'] == 'sec'}
+    ordered = [doc for doc in ordered if doc['document_id'] not in reread]
     gaps = list(gaps)
     # Consensus is re-fetched every refresh with published_at=now; keep at most two (see
-    # _retained_consensus) so it neither crowds primary documents out of the window nor stands in for
+    # retained_consensus) so it neither crowds primary documents out of the window nor stands in for
     # them as the newest disclosure.
     primary = [doc for doc in ordered if doc['document_type'] != 'consensus']
     if len(primary) > MAX_DOCUMENTS:
         gaps.append('document_history_truncated')
     kept = {doc['document_id'] for doc in primary[-MAX_DOCUMENTS:]}
     company_facts = list_company_facts(company['id'], as_of=at, db_path=db_path)
-    consensus = [doc for doc in ordered if doc['document_type'] == 'consensus']
-    retained_consensus = _retained_consensus(consensus, company_facts, at)
-    kept.update(retained_consensus)
+    # A reporter known to use another currency keeps none of its earlier captures, which were labelled USD.
+    consensus = ([] if CURRENCY_NOT_USD in gaps
+                 else [doc for doc in ordered if doc['document_type'] == 'consensus'])
+    kept_consensus, newest_consensus = retained_consensus(consensus, company_facts, at)
+    kept.update(kept_consensus)
     # The pre-report estimate is kept only as a baseline; its earnings date is no longer upcoming.
-    baseline_only = retained_consensus - {consensus[-1]['document_id']} if consensus else set()
+    baseline_only = kept_consensus - {newest_consensus}
     ordered = [doc for doc in ordered if doc['document_id'] in kept]
     documents = {doc['document_id']: doc for doc in ordered}
     facts = [f for f in company_facts if f['document_id'] in documents and f['kind'] != 'derived']

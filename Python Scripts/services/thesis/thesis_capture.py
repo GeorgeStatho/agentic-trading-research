@@ -18,7 +18,7 @@ from services.options.option_dte_buckets import (
     TIME_HORIZON_TO_DTE_BUCKET,
     resolve_dte_bucket_for_days,
 )
-from market_db_modules.thesis_validator import close_position_thesis
+from market_db_modules.thesis_validator import close_position_thesis, reopen_position_thesis
 from market_db_modules.thesis_validator import record_position_thesis
 from services.gates.pricing_policy import HORIZON_DAYS
 
@@ -236,17 +236,16 @@ class PositionThesisJournal:
             )
         return thesis_id
 
-    def record_exit(self, position_summary: dict[str, Any]) -> bool:
-        if not isinstance(position_summary, dict) or not position_summary.get("close_submitted"):
-            return False
-        option_symbol = str(position_summary.get("symbol") or "").strip().upper()
-        if not option_symbol:
-            return False
-
-        closed = close_position_thesis(
-            option_symbol,
-            closed_at=position_summary.get("last_action_at") or None,
-        )
+    def record_flat(self, option_symbol: str) -> bool:
+        """Retire the thesis once the broker no longer holds its contract."""
+        closed = close_position_thesis(option_symbol)
         if closed:
-            self._logger.info("Closed position thesis for %s after managed exit.", option_symbol)
+            self._logger.info("Closed position thesis for %s: the contract is no longer held.", option_symbol)
         return closed
+
+    def record_held(self, option_symbol: str) -> bool:
+        """Reopen a thesis retired while its contract was still held (a scale-out or an unfilled exit)."""
+        reopened = reopen_position_thesis(option_symbol)
+        if reopened:
+            self._logger.warning("Reopened position thesis for %s: the contract is still held.", option_symbol)
+        return reopened

@@ -5,6 +5,7 @@ from contextlib import closing
 import json
 
 from db_common import get_connection, json_text
+from services.gates.entry_gates import ENTRY_GATES
 from .bootstrap import initialize_database
 
 
@@ -16,7 +17,8 @@ def record_decision_gate_verdicts(decision_id, output, *, conn):
             return
     if not isinstance(output, dict):
         return
-    for key in ("entry_gate", "market_regime_gate"):
+    # Each gate's row is named by its result key, so a shadow variant never shares the production gate's name.
+    for key in (gate.result_key for gate in ENTRY_GATES if gate.records_verdict_row):
         gate = output.get(key)
         if not isinstance(gate, dict) or not isinstance(gate.get("would_allow"), bool):
             continue

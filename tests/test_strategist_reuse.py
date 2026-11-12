@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from agent_stages import strategist_runner
+from agent_stages.strategist_prompt import strategist_prompt_version
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.entities import add_company, add_industry, add_sector
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
@@ -47,7 +48,7 @@ class StrategistReuseTests(unittest.TestCase):
         sector_id = add_sector("technology", "Technology", db_path=self.db_path)
         self.company_id = add_company(add_industry(sector_id, "software", "Software", db_path=self.db_path),
                                       "MSFT", "Microsoft", db_path=self.db_path)
-        self.prompt_version = strategist_runner.strategist_prompt_version(EvidenceThesisPolicy.from_env())
+        self.prompt_version = strategist_prompt_version(EvidenceThesisPolicy.from_env())
         self.settings = replace(AgentPipelineSettings.from_env(), strategist_reuse_max_age_minutes=120,
                                 strategist_reuse_max_price_move_pct=2.0)
         patcher = patch.object(strategist_runner, "latest_answered_strategist_run",

@@ -11,6 +11,8 @@ export type Activity = {
   observed_candidates: number;
   shadow_blocks: number;
   enforced_blocks: number;
+  /** Candidates the gate could not judge (a missing input); enforce still refuses them. */
+  no_verdict?: number;
 };
 
 export type Proof = {

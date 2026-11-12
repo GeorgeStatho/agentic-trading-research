@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 
 from services.core.env_parsing import env_flag
+# Re-exported so `selector_constants` records it in every pipeline manifest, as manifests before Nov 6 did.
+from services.options.option_dte_buckets import DTE_BUCKET_TO_TARGET_OTM_PCT  # noqa: F401
 
 
 def _env_str(name: str, default: str) -> str:

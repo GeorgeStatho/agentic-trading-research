@@ -8,7 +8,9 @@ evidence-thesis gates); and the live order-eligibility rule decides whether it t
 Production selects a directional contract from a chain it re-fetches for the manager's DTE
 bucket, never from the pre-decision chain in the frozen input. That bucket chain was saved
 (candidate snapshots) only for the bucket production chose, and only since snapshots began, so
-a replayed answer naming another bucket, or an older decision, is `bucket_chain_unavailable`.
+a replayed answer naming another bucket, or an older decision, selects from the pre-decision chain
+instead: an approximation of production's contract, counted as `pre_decision_chain_trade_count`.
+Without contracts in that chain either, the answer is `bucket_chain_unavailable`.
 Trades go through the backtest engine: stored option quotes when they exist, otherwise
 Black-Scholes marks from the frozen chain and daily underlying closes.
 
@@ -54,13 +56,15 @@ from agent_helpers.deterministic_option_selector.market import _get_reference_st
 from agent_helpers.llm_client import _normalize_provider
 from agent_stages.manager_runner import MANAGER_PROMPT_VERSION, replay_manager_decision_from_payload
 from agent_stages.manager_strategist_context import _build_manager_visible_strategist_context
-from agent_stages.strategist_runner import (attach_thesis_check, replay_strategist_decision_from_payload,
-                                            strategist_answer_reusable, strategist_prompt_version)
+from agent_stages.strategist_prompt import strategist_prompt_version
+from agent_stages.strategist_runner import (THESIS_ROUTE, attach_thesis_check, replay_strategist_decision_from_payload,
+                                            strategist_answer_reusable)
 from services.core.trading_config import AgentPipelineSettings, WorkerSettings
 from services.gates.entry_gates import carry_gate_verdicts
 from services.evaluation.evaluation_clock import evaluated_at
 from services.gates.evidence_continuation_gate import evaluate_evidence_continuation_gate
-from services.thesis.evidence_thesis import evaluate_evidence_thesis_gate
+from services.thesis.evidence_thesis import (LEGACY_RESEARCH_STATUS, check_evidence_thesis, compact_thesis_check,
+                                             evaluate_evidence_thesis_gate)
 from services.thesis.evidence_thesis_policy import EvidenceThesisPolicy
 from services.evaluation.model_cutoffs import CONTAMINATION_MARGIN_DAYS, cutoff_record, eligibility
 from services.gates.market_regime_gate import apply_market_regime_gate_to_manager_result
@@ -125,10 +129,13 @@ class CachedManagerReplay:
     provider: str
     decide: Decider
     db_path: Any = None
+    sample: int = 0
 
     def recommendation(self, payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        # Sample 0 keeps the original key, so earlier runs count as the first sample.
+        suffix = f":sample{self.sample}" if self.sample else ""
         key = {"stage": STAGE, "provider": self.provider, "model": self.model,
-               "prompt_version": MANAGER_PROMPT_VERSION, "input_hash": input_hash(payload)}
+               "prompt_version": MANAGER_PROMPT_VERSION, "input_hash": input_hash(payload) + suffix}
         return cached_answer(key, lambda: self.decide(payload)["recommendation"], db_path=self.db_path)
 
 
@@ -142,6 +149,7 @@ class StrategistReplay:
     db_path: Any = None
     reuse_max_age_minutes: int = 0
     reuse_max_price_move_pct: float = 2.0
+    sample: int = 0
     # Each symbol's last answer that came from the model (or its cache): (decided_at, input, answer).
     answered: dict[str, tuple[datetime, dict[str, Any], dict[str, Any]]] = field(default_factory=dict, repr=False)
 
@@ -163,9 +171,16 @@ class StrategistReplay:
         return answer, cached, False
 
     def recommendation(self, strategist_input: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        # Same suffix as the manager's: sample 0 is the existing entry, sample N a fresh answer to measure noise.
+        suffix = f":sample{self.sample}" if self.sample else ""
         key = {"stage": STRATEGIST_STAGE, "provider": self.provider, "model": self.model,
-               "prompt_version": self.prompt_version, "input_hash": input_hash(strategist_input)}
-        return cached_answer(key, lambda: self.checked_recommendation(strategist_input), db_path=self.db_path)
+               "prompt_version": self.prompt_version, "input_hash": input_hash(strategist_input) + suffix}
+        answer, cached = cached_answer(key, lambda: self.checked_recommendation(strategist_input), db_path=self.db_path)
+        if cached:
+            # The cache keeps the model's answer; the verdict always comes from this checkout's checker.
+            answer, _ = rechecked_recommendation(answer, strategist_input, policy=self.thesis_policy,
+                                                 db_path=self.db_path)
+        return answer, cached
 
     def checked_recommendation(self, strategist_input: dict[str, Any]) -> dict[str, Any]:
         # The thesis check is attached as production attaches it, but never persisted.
@@ -236,20 +251,22 @@ def frozen_buying_power(payload: dict[str, Any]) -> float:
 
 
 def selection_market_context(payload: dict[str, Any], recommendation: dict[str, Any],
-                             frozen: FrozenDecision) -> dict[str, Any] | None:
-    """The market context production would have selected from; None when that chain was never saved.
+                             frozen: FrozenDecision) -> tuple[dict[str, Any] | None, bool]:
+    """The market context to select from, and whether the pre-decision chain stands in for an unsaved bucket chain.
 
-    Like production, a non-directional answer or a bucket of `none` keeps the pre-decision chain.
+    Like production, a non-directional answer or a bucket of `none` keeps the pre-decision chain. A bucket
+    production never fetched falls back to that chain too (the selector still enforces the bucket's DTE range);
+    None when it has no contracts either.
     """
     market = copy.deepcopy(payload.get("market_context") or {})
     bucket = normalize_target_dte_bucket(recommendation.get("target_dte_bucket")) or "none"
     if recommendation.get("decision") not in DIRECTIONAL or bucket == "none":
-        return market
+        return market, False
     option_market = frozen.bucket_chain(bucket)
     if option_market is None:
-        return None
+        return (market, True) if (market.get("option_market") or {}).get("contracts") else (None, False)
     market["option_market"] = copy.deepcopy(option_market)
-    return market
+    return market, False
 
 
 def finalize(payload: dict[str, Any], recommendation: dict[str, Any], market: dict[str, Any], *, as_of: str,
@@ -301,11 +318,22 @@ class ReplayTally:
     strategist_changed_decision: int = 0
     strategist_cached_answers: int = 0
     strategist_reused_answers: int = 0
+    thesis_rechecked: int = 0
+    thesis_recheck_changed: int = 0
     recorded_settings: int = 0
+    pre_decision_chain_trades: int = 0
     selector_differences: set[str] = field(default_factory=set)
+    # side ("production" or "replay") -> strategist decision -> thesis check status -> count
+    strategist_thesis_statuses: dict[str, dict[str, dict[str, int]]] = field(
+        default_factory=lambda: {"production": {}, "replay": {}})
 
     def count(self, outcome: str) -> None:
         self.outcomes[outcome] = self.outcomes.get(outcome, 0) + 1
+
+    def count_thesis(self, side: str, recommendation: dict[str, Any]) -> None:
+        status = (recommendation.get("evidence_thesis_check") or {}).get("status") or "missing"
+        by_status = self.strategist_thesis_statuses[side].setdefault(str(recommendation.get("decision")), {})
+        by_status[status] = by_status.get(status, 0) + 1
 
 
 def evaluate_answer(frozen: FrozenDecision, payload: dict[str, Any], recommendation: dict[str, Any],
@@ -313,7 +341,7 @@ def evaluate_answer(frozen: FrozenDecision, payload: dict[str, Any], recommendat
                     thesis_policy: EvidenceThesisPolicy) -> tuple[str, dict[str, Any] | None]:
     """One answer through production's selection and eligibility; returns the outcome and any trade."""
     decision = frozen.decision
-    market = selection_market_context(payload, recommendation, frozen)
+    market, pre_decision_chain = selection_market_context(payload, recommendation, frozen)
     if market is None:
         return "bucket_chain_unavailable", None
     differences = rules.selector_differences(selector_constants())
@@ -325,6 +353,7 @@ def evaluate_answer(frozen: FrozenDecision, payload: dict[str, Any], recommendat
     outcome = trade_outcome(result, builder)
     if outcome != "traded":
         return outcome, None
+    tally.pre_decision_chain_trades += pre_decision_chain
     cap = rules.settings.resolve_max_premium_per_trade(frozen_buying_power(payload))
     return outcome, backtest_decision(decision, result, max_premium_dollars=cap)
 
@@ -348,6 +377,34 @@ def store_daily_history(symbols: set[str], *, db_path: Any = None,
         except Exception as exc:  # A provider gap leaves that symbol's exits unpriced, as before.
             failed[symbol] = str(exc)
     return {"fetched": fetched, "failed": failed}
+
+
+def rechecked_thesis_payload(payload: dict[str, Any], strategist_input: dict[str, Any] | None, *,
+                             policy: EvidenceThesisPolicy, db_path: Any = None) -> tuple[dict[str, Any], bool | None]:
+    """The frozen manager input with its stored thesis re-checked by this checkout's checker (see
+    `rechecked_recommendation`)."""
+    strategist, changed = rechecked_recommendation(payload.get("strategist_recommendation") or {},
+                                                   strategist_input or payload, policy=policy, db_path=db_path)
+    return ({**payload, "strategist_recommendation": strategist} if changed is not None else payload), changed
+
+
+def rechecked_recommendation(strategist: dict[str, Any], strategist_input: dict[str, Any], *,
+                             policy: EvidenceThesisPolicy, db_path: Any = None) -> tuple[dict[str, Any], bool | None]:
+    """The strategist recommendation with its thesis checked again against the frozen strategist input.
+
+    Returns it and whether the verdict changed (None when there was no thesis to check). The check reads the
+    frozen evidence package by id, so it sees only what production saw.
+    """
+    old = strategist.get("evidence_thesis_check")
+    if not isinstance(old, dict) or not isinstance(strategist.get("evidence_thesis"), dict):
+        return strategist, None
+    check = check_evidence_thesis(strategist["evidence_thesis"], strategist_input, route=THESIS_ROUTE,
+                                  research_status=old.get("research_status") or LEGACY_RESEARCH_STATUS,
+                                  policy=policy, db_path=db_path)
+    new = compact_thesis_check(check, old.get("evaluation_id"))
+    verdict = ("status", "failures", "failed_claims")
+    changed = any(old.get(key) != new[key] for key in verdict)
+    return {**strategist, "evidence_thesis_check": new}, changed
 
 
 def manager_decider(model: str) -> Decider:
@@ -470,14 +527,19 @@ class ReplayRun:
     db_path: Any = None
     excluded_pre_knowledge_cutoff: int = 0
     contamination: dict[str, Any] | None = None
+    recheck_thesis: bool = False
 
     @classmethod
     def build(cls, *, model: str, start_at: str | None = None, end_at: str | None = None, limit: int | None = None,
               decision_ids: Sequence[int] | None = None, allow_unknown_cutoff: bool = False,
               min_hours_between: float = 0, replay_strategist: bool = False, decide: Decider | None = None,
               decide_strategist: Decider | None = None, strategist_reuse_max_age_minutes: int = 0,
-              db_path: Any = None) -> "ReplayRun":
+              recheck_thesis: bool = False, sample: int = 0, db_path: Any = None) -> "ReplayRun":
         stored = model == STORED_MODEL
+        if sample < 0 or (sample and stored):
+            raise ValueError(f"sample must be 0 or more and needs a model to ask; '{STORED_MODEL}' has one answer")
+        if recheck_thesis and replay_strategist:
+            raise ValueError("recheck_thesis re-checks production's strategist thesis; a replayed strategist is checked on every read")
         if stored and replay_strategist:
             raise ValueError(f"replay_strategist needs a model to replay; '{STORED_MODEL}' reuses production's answers")
         if strategist_reuse_max_age_minutes > 0 and not replay_strategist:
@@ -486,12 +548,13 @@ class ReplayRun:
         thesis_policy = EvidenceThesisPolicy.from_env()
         replay = None if stored else CachedManagerReplay(
             model=model, provider=_normalize_provider(models.manager.provider),
-            decide=decide or manager_decider(model), db_path=db_path)
+            decide=decide or manager_decider(model), db_path=db_path, sample=sample)
         strategist = StrategistReplay(
             model=model, provider=_normalize_provider(models.strategist.provider), thesis_policy=thesis_policy,
             decide=decide_strategist or strategist_decider(model, thesis_policy), db_path=db_path,
             reuse_max_age_minutes=strategist_reuse_max_age_minutes,
             reuse_max_price_move_pct=AgentPipelineSettings.from_env().strategist_reuse_max_price_move_pct,
+            sample=sample,
         ) if replay_strategist else None
         window = list_frozen_manager_decisions(start_at=start_at, end_at=end_at, limit=limit, ids=decision_ids,
                                                db_path=db_path)
@@ -502,7 +565,7 @@ class ReplayRun:
         replayable = [decision for decision in window if frozen_manager_input(decision) is not None]
         decisions = space_decisions_per_symbol(replayable, min_hours=min_hours_between) if min_hours_between > 0 else replayable
         return cls(model, window, replayable, decisions, min_hours_between, thesis_policy, replay, strategist, db_path,
-                   excluded, contamination)
+                   excluded, contamination, recheck_thesis)
 
     @property
     def stored(self) -> bool:
@@ -556,9 +619,16 @@ class ReplayRun:
             tally.strategist_cached_answers += strategist_cached
             tally.strategist_reused_answers += reused
             strategist_cached = strategist_cached or reused
-            production_strategist = (payload.get("strategist_recommendation") or {}).get("decision")
-            tally.strategist_changed_decision += strategist_answer.get("decision") != production_strategist
+            production_strategist = payload.get("strategist_recommendation") or {}
+            tally.strategist_changed_decision += strategist_answer.get("decision") != production_strategist.get("decision")
+            tally.count_thesis("production", production_strategist)
+            tally.count_thesis("replay", strategist_answer)
             payload = self.strategist.manager_payload(payload, strategist_answer)
+        if self.recheck_thesis:
+            payload, changed = rechecked_thesis_payload(payload, strategist_input, policy=self.thesis_policy,
+                                                        db_path=self.db_path)
+            tally.thesis_rechecked += changed is not None
+            tally.thesis_recheck_changed += bool(changed)
         if self.stored:
             tally.cached_answers += 1
             return payload, stored_recommendation(decision), True, strategist_answer
@@ -585,8 +655,12 @@ class ReplayRun:
                 "cached_answer_count": tally.strategist_cached_answers,
                 "reuse_max_age_minutes": self.strategist.reuse_max_age_minutes,
                 "reused_answer_count": tally.strategist_reused_answers,
+                "thesis_status_by_decision": tally.strategist_thesis_statuses,
             } if self.strategist is not None else None,
             "provider": STORED_MODEL if self.stored else self.replay.provider,
+            "sample": 0 if self.stored else self.replay.sample,
+            "thesis_recheck": {"rechecked": tally.thesis_rechecked, "changed": tally.thesis_recheck_changed}
+            if self.recheck_thesis else None,
         }
 
 
@@ -613,6 +687,8 @@ def run_llm_backtest(
     decide_strategist: Decider | None = None,
     strategist_reuse_max_age_minutes: int = 0,
     keep_answers: bool = True,
+    recheck_thesis: bool = False,
+    sample: int = 0,
     db_path: Any = None,
 ) -> dict[str, Any]:
     """Replay `model` (or `stored`) over the window and record the trades as a backtest run.
@@ -627,11 +703,16 @@ def run_llm_backtest(
     dropped, and a model with no known cutoff is refused unless `allow_unknown_cutoff`. The result also
     carries every replayed `answers` entry, in replay order, for callers that score them. Answers pin their frozen
     inputs (about 250 KB each), so long ad hoc runs should pass `keep_answers=False`, which leaves the key out.
+    `recheck_thesis` re-runs this checkout's thesis checker on production's stored strategist thesis, so the
+    manager answers the corrected check (see `rechecked_thesis_payload`); not valid with `replay_strategist`.
+    `sample` N > 0 asks the manager again for inputs it has answered and caches that answer separately, to
+    measure how often the same input gets a different answer; sample 0 is the usual cache entry.
     """
     run = ReplayRun.build(model=model, start_at=start_at, end_at=end_at, limit=limit, decision_ids=decision_ids,
                           allow_unknown_cutoff=allow_unknown_cutoff, min_hours_between=min_hours_between, replay_strategist=replay_strategist,
                           decide=decide, decide_strategist=decide_strategist,
-                          strategist_reuse_max_age_minutes=strategist_reuse_max_age_minutes, db_path=db_path)
+                          strategist_reuse_max_age_minutes=strategist_reuse_max_age_minutes,
+                          recheck_thesis=recheck_thesis, sample=sample, db_path=db_path)
     local_settings = WorkerSettings.from_env()
     latest_rules = ProductionRules(local_settings)
     tally = ReplayTally()
@@ -670,12 +751,13 @@ def run_llm_backtest(
         "model": model,
         "prompt_version": STORED_PROMPT_VERSION if run.stored else MANAGER_PROMPT_VERSION,
         "risk_free_rate": TradeEconomicsPolicy.from_env().risk_free_rate,
-        "data_source_versions": {"option_quotes": "historical_option_quotes",
-                                 "fallback": "black_scholes_frozen_chain_daily_closes"},
+        "data_source_versions": {"option_quotes": "historical_option_quotes (volatility calibration)",
+                                 "marks": "black_scholes_frozen_chain_hourly_closes"},
     }
     replay_summary = {
         **run.summary(tally),
         "selector_version": SELECTOR_VERSION,
+        "pre_decision_chain_trade_count": tally.pre_decision_chain_trades,
         "production_settings": {
             "recorded_decision_count": tally.recorded_settings,
             "local_fallback_decision_count": len(run.decisions) - tally.recorded_settings,

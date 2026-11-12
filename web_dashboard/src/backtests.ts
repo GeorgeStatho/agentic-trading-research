@@ -1,7 +1,9 @@
 /** `/api/backtests`: replays of stored decisions against historical option quotes. */
 
-export type Metrics = { event_count?: number; filled_count?: number; no_fill_count?: number; no_exit_quote_count?: number; portfolio_rejected_count?: number; fill_rate_pct?: number | null; win_rate_pct?: number | null; expectancy_pct?: number | null; profit_factor_like?: number | null; total_pnl_dollars?: number; total_commission_dollars?: number; total_slippage_dollars?: number; max_drawdown_dollars?: number; decision_count?: number; snapshot_count?: number; available_decision_count?: number; omitted_older_decision_count?: number; equity_curve?: { at: string; pnl_dollars: number }[] }
-export type Run = { id: number; strategy_version: string; model: string; prompt_version: string; started_at: string; completed_at: string; status: string; metrics: Metrics; config: Record<string, unknown>; error_message?: string }
+export type Metrics = { event_count?: number; filled_count?: number; no_fill_count?: number; no_exit_quote_count?: number; portfolio_rejected_count?: number; fill_rate_pct?: number | null; win_rate_pct?: number | null; expectancy_pct?: number | null; profit_factor_like?: number | null; total_pnl_dollars?: number; total_commission_dollars?: number; total_slippage_dollars?: number; max_drawdown_dollars?: number; median_pnl_pct?: number | null; pricing_source_counts?: Record<string, number>; before_portfolio_limits?: { priced_entry_count: number; symbol_count: number; expectancy_pct: number | null; median_pnl_pct: number | null; win_rate_pct: number | null }; decision_start_at?: string | null; decision_end_at?: string | null; decision_limit?: number | null; replay?: ReplaySummary; decision_count?: number; snapshot_count?: number; available_decision_count?: number; omitted_older_decision_count?: number; equity_curve?: { at: string; pnl_dollars: number }[] }
+/** `metrics.replay` on LLM replay runs (llm_backtest.py); every field optional, older runs lack the newer ones. */
+export type ReplaySummary = { source_decision_count?: number; missing_frozen_input_count?: number; excluded_pre_knowledge_cutoff?: number; contamination?: Record<string, unknown> | null; min_hours_between_same_symbol?: number; spaced_out_decision_count?: number; outcomes?: Record<string, number>; changed_direction_count?: number; cached_answer_count?: number; provider?: string; sample?: number; selector_version?: string; strategist_replay?: { model: string; prompt_version: string; changed_decision_count: number; cached_answer_count: number; reuse_max_age_minutes: number; reused_answer_count: number } | null; thesis_recheck?: { rechecked: number; changed: number } | null; production_settings?: { recorded_decision_count?: number; local_fallback_decision_count?: number; execute_medium_confidence_trades?: boolean; overrides?: string[]; selector_settings_differing_from_local?: string[] }; daily_bars?: { still_missing?: string[] } }
+export type Run = { id: number; code_revision?: string; strategy_version: string; model: string; prompt_version: string; started_at: string; completed_at: string; status: string; metrics: Metrics; config: Record<string, unknown>; error_message?: string }
 export type BacktestEvent = { id: number; as_of: string; symbol: string; decision: string; option_symbol: string; status: string; evidence_snapshot_id: number | null; entry_at: string; exit_at: string; entry_price: number | null; exit_price: number | null; quantity: number | null; realized_pnl_pct: number | null; realized_pnl_dollars: number | null; commission_dollars: number | null; quote_provider: string | null; pricing_source: string | null; warnings: string[] }
 export type Detail = { run: Run; events: BacktestEvent[]; read_only: boolean }
 export type EodQuoteFetch = { fetch_run_id: number; provider: string; pricing_source: string; status: string; stop_reason?: string | null; resume_at?: string | null; budget?: { daily_limit: number; used: number; remaining: number; resets_at: string }; source_decision_count: number; eligible_decision_count?: number; remaining_decision_count?: number; latest_contract_decision_at?: string | null; selected_start_at?: string | null; selected_end_at?: string | null; returned_quote_start_at?: string | null; returned_quote_end_at?: string | null; fetched_count: number; already_cached_count: number; no_data_count: number; unavailable_count: number; error_count: number; inserted_quote_count: number; invalid_quote_count: number; coverage_gaps: { reason: string }[]; read_only: boolean; no_trade_executed_by_feature: boolean }
@@ -12,7 +14,7 @@ async function errorFrom(response: Response, fallback: string): Promise<Error> {
 }
 
 export async function getRuns(): Promise<Run[]> {
-  const response = await fetch('/api/backtests?limit=25')
+  const response = await fetch('/api/backtests?limit=100')
   if (!response.ok) throw new Error(`Failed to load backtests: ${response.status}`)
   return (await response.json() as { runs: Run[] }).runs
 }
@@ -23,15 +25,18 @@ export async function getRun(runId: number): Promise<Detail> {
   return response.json() as Promise<Detail>
 }
 
-export async function createRun(config: Record<string, unknown>, limit: number | null): Promise<Detail> {
-  const response = await fetch('/api/backtests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config, limit }) })
+/** A decision window: the latest N decisions, or a date range (null bounds are open). */
+export type DecisionWindow = { limit: number | null; start_at?: string | null; end_at?: string | null }
+
+export async function createRun(config: Record<string, unknown>, window: DecisionWindow): Promise<Detail> {
+  const response = await fetch('/api/backtests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config, ...window }) })
   if (!response.ok) throw await errorFrom(response, 'Failed to run backtest')
   return response.json() as Promise<Detail>
 }
 
 /** Fetches quotes from MarketData.app server-side, which spends the daily allowance. */
-export async function fetchEodQuotes(limit: number, maxHoldHours: number): Promise<EodQuoteFetch> {
-  const response = await fetch('/api/backtests/marketdata-eod', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit, max_hold_hours: maxHoldHours }) })
+export async function fetchEodQuotes(limit: number, maxHoldHours: number, window: Omit<DecisionWindow, 'limit'> = {}): Promise<EodQuoteFetch> {
+  const response = await fetch('/api/backtests/marketdata-eod', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit, max_hold_hours: maxHoldHours, ...window }) })
   if (!response.ok) throw await errorFrom(response, 'Failed to fetch EOD quotes')
   return response.json() as Promise<EodQuoteFetch>
 }
@@ -75,4 +80,23 @@ export function dataGaps(events: readonly BacktestEvent[], hasExpectancy: boolea
   if (!events.length) lines.push('no call/put decisions were included in this run')
   if (hasExpectancy && !lines.length) return []
   return [hasExpectancy ? 'Some decisions have no simulated outcome' : 'Expectancy unavailable: no closed simulated trades', ...lines]
+}
+
+export type RunKind = 'stored' | 'llm'
+
+export function runKind(run: Run): RunKind {
+  return run.strategy_version?.startsWith('llm-replay') ? 'llm' : 'stored'
+}
+
+export type RunSortKey = 'id' | 'filled_count' | 'expectancy_pct' | 'total_pnl_dollars'
+
+/** Runs ordered by `key`; runs without that metric (no fills) always go last. */
+export function sortRuns(runs: readonly Run[], key: RunSortKey, ascending: boolean): Run[] {
+  const value = (run: Run): number | null => (key === 'id' ? run.id : run.metrics[key] ?? null)
+  return [...runs].sort((left, right) => {
+    const leftValue = value(left)
+    const rightValue = value(right)
+    if (leftValue === null || rightValue === null) return Number(leftValue === null) - Number(rightValue === null)
+    return ascending ? leftValue - rightValue : rightValue - leftValue
+  })
 }

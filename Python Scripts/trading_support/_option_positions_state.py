@@ -4,13 +4,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from services.trading.order_values import normalize_order_status
+from services.trading.order_values import ENDED, FILLED, REPLACED, WORKING, normalize_order_status, order_phase
 from services.options.option_position_state import get_position_state, update_position_state
 
 from ._option_positions_momentum import _momentum_negative_score
 from services.core.trading_config import MomentumHistoryConfig, PendingExitConfig
 
-from ._option_positions_defaults import PENDING_ORDER_CLEAR_STATUSES, PENDING_ORDER_OPEN_STATUSES
 from services.core.numbers import safe_float
 
 
@@ -294,7 +293,7 @@ def _reconcile_pending_order_state(
         fill_timestamp = str(order_summary.get("filled_at") or order_summary.get("updated_at") or checked_at)
         updates["last_partial_fill_at"] = fill_timestamp
         updates["last_filled_qty"] = filled_qty
-    if normalized_status in PENDING_ORDER_OPEN_STATUSES and pending_order_stale:
+    if order_phase(normalized_status) == WORKING and pending_order_stale:
         if cancel_order is None:
             reconciliation["pending_order_error"] = (
                 "Pending exit order exceeded the stale timeout but no cancel callback was provided."
@@ -322,10 +321,11 @@ def _reconcile_pending_order_state(
             reconciliation["pending_order_error"] = str(exc)
             persisted_state = update_position_state(state_path, option_symbol, updates)
             return persisted_state, reconciliation
-    if normalized_status in PENDING_ORDER_OPEN_STATUSES:
+    phase = order_phase(normalized_status)
+    if phase == WORKING:
         persisted_state = update_position_state(state_path, option_symbol, updates)
         return persisted_state, reconciliation
-    if normalized_status == "replaced":
+    if phase == REPLACED:
         replacement_order_id = str(order_summary.get("replaced_by") or "").strip()
         if not replacement_order_id:
             reconciliation["pending_order_error"] = (
@@ -347,7 +347,7 @@ def _reconcile_pending_order_state(
         )
         persisted_state = update_position_state(state_path, option_symbol, updates)
         return persisted_state, reconciliation
-    if normalized_status in PENDING_ORDER_CLEAR_STATUSES:
+    if phase in (FILLED, ENDED):
         pending_reason = str(existing_state.get("pending_reason") or "").strip()
         pending_action = str(existing_state.get("pending_action") or "").strip()
         updates.update(
@@ -361,7 +361,7 @@ def _reconcile_pending_order_state(
                 "pending_remaining_qty": 0,
             }
         )
-        if normalized_status == "filled":
+        if phase == FILLED:
             updates["last_filled_at"] = str(order_summary.get("filled_at") or order_summary.get("updated_at") or checked_at)
             updates["last_filled_qty"] = filled_qty or (_safe_int(existing_state.get("pending_qty")) or 0)
         elif filled_qty > 0:
@@ -370,7 +370,7 @@ def _reconcile_pending_order_state(
             updates["took_first_scale_out"] = False
         elif pending_reason == "second_scale_out_trigger":
             updates["took_second_scale_out"] = False
-        if normalized_status in {"canceled", "cancelled", "expired", "rejected"}:
+        if phase == ENDED:
             updates["last_retryable_exit_status"] = normalized_status
             updates["last_retryable_exit_reason"] = pending_reason
             updates["last_retryable_exit_action"] = pending_action

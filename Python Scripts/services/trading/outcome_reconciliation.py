@@ -8,11 +8,8 @@ from market_db_modules.history_records import (
     mark_manager_decision_ambiguous,
     record_manager_decision_closed_outcome,
 )
-from services.trading.order_values import normalize_order_summary
+from services.trading.order_values import WORKING, normalize_order_summary, order_phase
 from catalyst_models import timestamp as parse_timestamp
-
-
-TERMINAL_STATUSES = {"filled", "canceled", "expired", "replaced", "rejected"}
 
 
 def closed_round_trip(orders: list[dict], entry_order_id: str) -> dict | None:
@@ -39,7 +36,7 @@ def closed_round_trip(orders: list[dict], entry_order_id: str) -> dict | None:
         if quantity == 0:
             continue
         timestamp = parse_timestamp(order.get("filled_at"))
-        if timestamp is None or price <= 0 or order["status"] not in TERMINAL_STATUSES:
+        if timestamp is None or price <= 0 or order_phase(order["status"]) == WORKING:
             return None
         fills.append((timestamp, order_id, order["side"], quantity, price))
     fills.sort()

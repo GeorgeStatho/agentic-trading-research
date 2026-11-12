@@ -16,6 +16,7 @@ from agent_helpers.opportunist_payload import (
 from agent_helpers.text_utils import normalize_time_window, published_at_in_window
 from db_common import get_connection
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
+from news_db_modules.provenance import load_story_ids
 
 
 __all__ = [
@@ -376,7 +377,7 @@ def build_strategist_evidence_sections(
     initialize_news_database()
     company, peer_groups = get_company_context(company_identifier)
 
-    return {
+    return _drop_repeated_stories({
         "company": company,
         "peer_groups": peer_groups,
         "macro_impacts": get_macro_news_for_company_sector(
@@ -409,4 +410,25 @@ def build_strategist_evidence_sections(
             end_time=end_time,
             max_age_days=max_age_days,
         ),
-    }
+    })
+
+
+# Most specific first: a story kept in the company view is not repeated in broader views.
+STORY_DEDUP_ORDER = ("company_impacts", "industry_impacts", "sector_impacts", "sector_rss_articles", "macro_impacts")
+
+
+def _drop_repeated_stories(sections: dict[str, Any]) -> dict[str, Any]:
+    # Lists are newest-first, so the first copy of each story is the one kept.
+    article_ids = [item["article_id"] for key in STORY_DEDUP_ORDER for item in sections[key]]
+    with closing(get_connection()) as conn:
+        stories = load_story_ids(article_ids, conn=conn)
+    seen: set[int] = set()
+    for key in STORY_DEDUP_ORDER:
+        kept = []
+        for item in sections[key]:
+            story = stories.get(int(item["article_id"]), int(item["article_id"]))
+            if story not in seen:
+                seen.add(story)
+                kept.append(item)
+        sections[key] = kept
+    return sections

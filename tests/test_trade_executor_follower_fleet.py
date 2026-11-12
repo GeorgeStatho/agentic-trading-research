@@ -58,6 +58,27 @@ class TradeExecutorFollowerFleetTests(unittest.TestCase):
         self.assertFalse(execution['submitted'])
         self.fleet.mirror_entry.assert_not_called()
 
+    def test_premium_cap_refusal_is_offered_to_followers_with_the_cap(self):
+        execution = self.execute(self.executor(self.fleet), max_premium_per_trade=300.0)
+        self.assertFalse(execution['submitted'])
+        self.fleet.mirror_entry.assert_not_called()
+        self.fleet.mirror_blocked.assert_called_once()
+        offered, offered_execution, cap = self.fleet.mirror_blocked.call_args.args
+        self.assertEqual(offered['selected_option_symbol'], 'MSFT260619C00450000')
+        self.assertEqual((offered_execution['portfolio_guardrail'], cap), ('premium_per_trade_cap', 300.0))
+
+    def test_other_refusals_are_never_offered_to_followers(self):
+        self.settings.max_concurrent_option_positions = 1
+        self.execute(self.executor(self.fleet), current_option_position_count=1)
+        self.fleet.mirror_blocked.assert_not_called()
+
+    def test_followers_failing_on_a_blocked_pick_leave_production_unchanged(self):
+        baseline = self.execute(self.executor(None), max_premium_per_trade=300.0)
+        self.fleet.mirror_blocked.side_effect = RuntimeError('follower account down')
+        execution = self.execute(self.executor(self.fleet), max_premium_per_trade=300.0)
+        for key in ('submitted', 'order', 'order_qty', 'estimated_order_cost', 'error', 'portfolio_guardrail'):
+            self.assertEqual(execution[key], baseline[key], key)
+
     def test_fleet_failure_leaves_production_execution_unchanged(self):
         baseline = self.execute(self.executor(None))
         self.fleet.mirror_entry.side_effect = RuntimeError('follower account down')

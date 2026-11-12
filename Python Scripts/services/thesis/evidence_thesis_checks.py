@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 import re
 
 from market_db_modules.company_evidence import get_company_fact, get_evidence_document, get_evidence_package
-from services.discovery.company_evidence_extraction import comparison_key, consensus_matches_actual
+from services.discovery.analyst_consensus import consensus_matches_actual
+from services.discovery.company_evidence_extraction import comparison_key
 from services.thesis.evidence_thesis_numbers import NumberSupport, incompatible_calculation_facts, stated_numbers
 
 
@@ -24,6 +25,8 @@ _MARKET_SURPRISE = re.compile(
     r"\b(?:estimates?|consensus|expectations|forecasts?)\b"
     r"|\b(?:positive|negative|upside|downside|earnings|revenue) surprises?\b", re.IGNORECASE)
 _CONTENT_CHECKED_TYPES = {"observed_fact", "calculation"}
+# Filings and issuers' own releases. Yahoo consensus and the companyfacts JSON are package documents too, but not primary.
+PRIMARY_DOCUMENT_TYPES = frozenset({"regulatory_filing", "issuer_release"})
 
 
 @dataclass
@@ -92,8 +95,16 @@ def build_thesis_sources(payload, *, db_path):
     return sources
 
 
+# Quote marks plus the invisible zero-width and soft-hyphen characters some wire articles carry.
+_QUOTE_MARKS = "\"'“”‘’​‌‍⁠﻿­"
+
+
 def _quote_pattern(text):
-    return re.compile(r"\s+".join(re.escape(token) for token in text.split()))
+    # Models re-quote (" to ') and re-space text when copying it into JSON, so match on every other character.
+    characters = [ch for ch in text.rstrip(".,;:" + _QUOTE_MARKS) if ch not in _QUOTE_MARKS and not ch.isspace()]
+    if not characters:
+        return re.compile(r"(?!)")
+    return re.compile(f"[\\s{_QUOTE_MARKS}]*".join(map(re.escape, characters)))
 
 
 def _locate_quote(quote, claim, sources):
@@ -251,6 +262,32 @@ def _expectation_failures(thesis, claims_by_id, results_by_id, sources):
     return failures
 
 
+def evidence_basis(thesis, results_by_id, sources):
+    """Recorded with the check, never shown to the manager or the gate: does a verified central claim rest on a
+    package fact, or on a quote from a primary document such as an earnings release, and were filing facts
+    (anything beyond Yahoo consensus) there to cite."""
+    central = [claim for claim in thesis["supporting_claims"] if claim["central"]
+               and claim["claim_type"] in _CONTENT_CHECKED_TYPES and results_by_id[claim["claim_id"]]["status"] == "verified"]
+    fact_backed = any(claim["fact_ids"] for claim in central)
+    document_backed = any(span["source_id"] in claim["document_ids"]
+                          and (sources.documents.get(span["source_id"]) or {}).get("document_type") in PRIMARY_DOCUMENT_TYPES
+                          for claim in central for span in results_by_id[claim["claim_id"]]["spans"])
+    if fact_backed:
+        basis = "facts"
+    elif document_backed:
+        basis = "primary_document"
+    else:
+        basis = "articles_only"
+    available = any(fact["kind"] != "consensus" for fact in sources.facts.values())
+    if basis != "articles_only":
+        requirement = "met"
+    elif available:
+        requirement = "not_met"
+    else:
+        requirement = "not_applicable"
+    return {"basis": basis, "filing_facts_available": available, "fact_requirement": requirement}
+
+
 def check_thesis(thesis, sources, *, max_horizon_days):
     """Return claim results and thesis-level failures. Any thesis-level failure defers."""
     sections = ("supporting_claims", "opposing_claims")
@@ -279,4 +316,5 @@ def check_thesis(thesis, sources, *, max_horizon_days):
     if unaddressed:
         failures.append("package_opposing_evidence_unaddressed")
     return {"claims": results, "failures": sorted(set(failures)),
-            "unaddressed_package_opposing_claims": unaddressed}
+            "unaddressed_package_opposing_claims": unaddressed,
+            "evidence_basis": evidence_basis(thesis, results_by_id, sources)}

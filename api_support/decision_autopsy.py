@@ -19,7 +19,9 @@ from market_db_modules.backtesting import _merged_config, _simulate_decision
 from trading_support._option_positions_defaults import build_option_exit_rules
 from trading_support._option_positions_market import _resolve_option_exit_thresholds
 
-EXIT_REASONS = {"take_profit_exit": "take_profit", "stop_loss_exit": "stop_loss"}
+EXIT_REASONS = {f"{reason}_exit": reason for reason in (
+    "take_profit", "stop_loss", "trailing_profit_stop", "near_expiration", "first_scale_out_trigger",
+    "second_scale_out_trigger", "static_take_profit", "momentum_history_failed")}
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
 
 
@@ -30,6 +32,7 @@ def counterfactual_trade(
     take_profit_pct: float,
     stop_loss_pct: float,
     max_hold_hours: int,
+    exit_policy: str = "production",
 ) -> dict[str, Any]:
     """What a call or put that never became an order would have done, priced like a backtest.
 
@@ -37,7 +40,7 @@ def counterfactual_trade(
     every load. The premium cap is not applied, since the question is the trade itself.
     """
     config = _merged_config({"take_profit_pct": take_profit_pct, "stop_loss_pct": stop_loss_pct,
-                             "max_hold_hours": max_hold_hours})
+                             "max_hold_hours": max_hold_hours, "exit_policy": exit_policy})
     event = _simulate_decision({k: v for k, v in decision.items() if k != "max_premium_dollars"}, {"id": 0}, conn, config)
     event.pop("evidence_snapshot_id", None)
     return event
@@ -204,7 +207,8 @@ def counterfactual_for_row(conn: sqlite3.Connection, row: dict[str, Any], *, now
     closed = event.get("status") == "simulated_closed"
     # Neither threshold before the last quote we hold: quotes are fetched for about a week after
     # each decision, so this is often the end of the data rather than the end of the window.
-    exit_reason = next((EXIT_REASONS[warning] for warning in warnings if warning in EXIT_REASONS), "last_mark" if closed else None)
+    exit_reason = next((EXIT_REASONS[warning] for warning in reversed(warnings) if warning in EXIT_REASONS),
+                       "last_mark" if closed else None)
     return {
         "option_symbol": event.get("option_symbol"),
         "status": event.get("status"),

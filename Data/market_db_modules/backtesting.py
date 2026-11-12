@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from contextlib import closing
+from dataclasses import replace
 import hashlib
 import json
 import math
 import os
 import re
 import sqlite3
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from statistics import median
 from typing import Any, Callable
@@ -20,15 +21,22 @@ from services.options.option_pricing import (CalibratedOption, black_scholes_pri
                                      option_side)
 from services.core.time_utils import parse_timestamp
 from services.core.numbers import safe_float
+from services.discovery.analyst_consensus import report_date
+from services.core.trading_config import OptionPositionSettings
+from agent_helpers.deterministic_option_selector.market import _get_reference_stock_price
+from services.options.option_dte_buckets import OPTION_DTE_BUCKETS
+from trading_support.backtest_exits import daily_atr_pct, production_exit, rule_thresholds
 
 
 SNAPSHOT_VERSION = "decision-evidence-snapshot-v1"
-BACKTEST_ENGINE_VERSION = "portfolio-guardrails-bid-ask-v2"
+BACKTEST_ENGINE_VERSION = "portfolio-guardrails-production-exits-v3"
 MODELLED_PRICING_SOURCE = "model_black_scholes_constant_iv"
 MODELLED_EOD_IV_PRICING_SOURCE = "model_black_scholes_eod_iv"
 OCC_SYMBOL = re.compile(r"^([A-Z.]+?)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$")
 MODELLED_QUOTE_PROVIDER = "frozen_decision_chain"
-MISSING_QUOTE_WARNINGS = {"no_valid_historical_entry_quote", "next_quote_exceeds_entry_delay"}
+CONSTANT_IV_ACROSS_EARNINGS = "constant_iv_across_earnings"
+EXIT_POLICIES = ("production", "static")
+TRAILING_OVERRIDES = {"trailing_trigger_pct": "protection_trigger_pct", "trailing_floor_pct": "initial_floor_pct"}
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
 MARKET_CLOSE = time(16)
 SECONDS_PER_DAY = 86400
@@ -46,8 +54,16 @@ DEFAULT_BACKTEST_CONFIG: dict[str, Any] = {
     "min_volume": 0.0,
     "max_entry_delay_minutes": 1440,
     "max_hold_hours": 168,
-    "take_profit_pct": 50.0,
-    "stop_loss_pct": -50.0,
+    # None: production's rule for the contract's DTE at entry; a number replaces it, under either exit policy.
+    "take_profit_pct": None,
+    "stop_loss_pct": None,
+    # None: production's trailing settings from .env. Percent of the entry price, like the levels above:
+    # the gain that turns profit protection on, the floor it starts at, and the giveback from the peak (every DTE).
+    "trailing_trigger_pct": None,
+    "trailing_floor_pct": None,
+    "trailing_giveback_pct": None,
+    # production: the option manager's own exit rules; static: exit at the take-profit / stop-loss only.
+    "exit_policy": "production",
     "max_concurrent_positions": 5,
     "max_total_entry_notional": 50000.0,
     "max_sector_notional_pct": 50.0,
@@ -329,13 +345,17 @@ def _merged_config(config: dict[str, Any] | None) -> dict[str, Any]:
         for key in DEFAULT_BACKTEST_CONFIG:
             if key in config:
                 merged[key] = config[key]
-    for key in ("entry_slippage_bps", "exit_slippage_bps", "commission_per_contract", "max_spread_pct", "min_volume", "take_profit_pct", "stop_loss_pct", "max_total_entry_notional", "max_sector_notional_pct", "daily_loss_limit_dollars", "risk_free_rate"):
+    for key in ("entry_slippage_bps", "exit_slippage_bps", "commission_per_contract", "max_spread_pct", "min_volume", "max_total_entry_notional", "max_sector_notional_pct", "daily_loss_limit_dollars", "risk_free_rate"):
         merged[key] = _number(merged[key])
+    for key in ("take_profit_pct", "stop_loss_pct", "trailing_trigger_pct", "trailing_floor_pct", "trailing_giveback_pct"):
+        merged[key] = safe_float(merged[key])
     for key in ("option_multiplier", "default_order_qty", "max_entry_delay_minutes", "max_hold_hours", "max_concurrent_positions"):
         merged[key] = max(1, int(_number(merged[key], 1)))
     merged["max_total_entry_notional"] = max(1.0, merged["max_total_entry_notional"])
     merged["max_sector_notional_pct"] = min(100.0, max(0.01, merged["max_sector_notional_pct"]))
     merged["daily_loss_limit_dollars"] = max(1.0, merged["daily_loss_limit_dollars"])
+    if merged["exit_policy"] not in EXIT_POLICIES:
+        raise ValueError(f"exit_policy must be one of {EXIT_POLICIES}, not {merged['exit_policy']!r}")
     merged["strategy_version"] = str(merged["strategy_version"] or DEFAULT_BACKTEST_CONFIG["strategy_version"])
     merged["model"] = str(merged["model"] or "")
     merged["prompt_version"] = str(merged["prompt_version"] or "")
@@ -392,6 +412,8 @@ def _first_exit(
     *,
     entry_price: float,
     quantity: int,
+    take_profit_pct: float,
+    stop_loss_pct: float,
     config: dict[str, Any],
 ) -> tuple[tuple[datetime, float] | None, list[str]]:
     """Walk (time, bid) marks in order: exit at take-profit, stop-loss, or the last mark."""
@@ -403,11 +425,74 @@ def _first_exit(
         exit_price = bid * (1 - config["exit_slippage_bps"] / 10_000)
         pnl_pct = ((exit_price * multiplier * quantity - entry_notional - commission) / entry_notional) * 100
         exit_mark = (mark_at, bid)
-        if pnl_pct >= config["take_profit_pct"]:
+        if pnl_pct >= take_profit_pct:
             return exit_mark, ["take_profit_exit"]
-        if pnl_pct <= config["stop_loss_pct"]:
+        if pnl_pct <= stop_loss_pct:
             return exit_mark, ["stop_loss_exit"]
     return exit_mark, []
+
+
+def _exit_settings(config: dict[str, Any]) -> OptionPositionSettings:
+    """Production's exit settings with any trailing setting the config gives in its place."""
+    settings = OptionPositionSettings.from_env()
+    trailing = {field: config[key] / 100 for key, field in TRAILING_OVERRIDES.items() if config[key] is not None}
+    if config["trailing_giveback_pct"] is not None:
+        trailing["giveback_pct_by_bucket_key"] = {bucket.key: config["trailing_giveback_pct"] / 100
+                                                  for bucket in OPTION_DTE_BUCKETS}
+    return replace(settings, trailing=replace(settings.trailing, **trailing)) if trailing else settings
+
+
+def _position_terms(conn: sqlite3.Connection, option_symbol: str, as_of: datetime,
+                    entry_spot: float | None, config: dict[str, Any]) -> dict[str, Any] | None:
+    """What production's exit rules read off a position: side, expiry, DTE at entry, entry spot and ATR."""
+    match = OCC_SYMBOL.match(option_symbol)
+    if match is None:
+        return None
+    underlying, year, month, day, side = match.group(1, 2, 3, 4, 5)
+    expiration = expiration_close(f"20{year}-{month}-{day}")
+    if expiration is None:
+        return None
+    settings = _exit_settings(config)
+    rows = conn.execute(
+        """
+        SELECT high_price AS high, low_price AS low, close_price AS close FROM historical_underlying_bars
+        WHERE symbol = ? AND timeframe = '1d' AND bar_at >= ? AND bar_at < ? ORDER BY bar_at ASC, id ASC
+        """,
+        (underlying, (as_of - timedelta(days=settings.volatility_atr_lookback_days)).astimezone(timezone.utc).isoformat(),
+         as_of.astimezone(timezone.utc).isoformat()),
+    ).fetchall()
+    return {"side": "call" if side == "C" else "put", "expiration": expiration,
+            "entry_dte": (expiration.date() - as_of.astimezone(MARKET_TIMEZONE).date()).days,
+            "entry_spot": entry_spot if entry_spot and entry_spot > 0 else None,
+            "atr_pct": daily_atr_pct([dict(row) for row in rows], settings), "settings": settings}
+
+
+def _exit_fills(
+    marks: list[tuple[datetime, float, float, float | None]],
+    *,
+    entry_price: float,
+    quantity: int,
+    position: dict[str, Any] | None,
+    config: dict[str, Any],
+) -> tuple[list[tuple[datetime, int, float]], list[str]]:
+    """Fills (at, qty, bid) closing the whole position, and the exit warnings; no fills without marks."""
+    if not marks:
+        return [], []
+    levels = {"take_profit_pct": config["take_profit_pct"], "stop_loss_pct": config["stop_loss_pct"]}
+    if config["exit_policy"] == "static" or position is None:
+        if position is None:
+            rule = rule_thresholds(None, OptionPositionSettings.from_env(), **levels)
+        else:
+            rule = rule_thresholds(position["entry_dte"], position["settings"], **levels)
+        exit_mark, warnings = _first_exit([(at, bid) for at, _, bid, _ in marks], entry_price=entry_price,
+                                          quantity=quantity, take_profit_pct=rule.take_profit_pct,
+                                          stop_loss_pct=rule.stop_loss_pct, config=config)
+        return [(exit_mark[0], quantity, exit_mark[1])], warnings
+    fills, reasons = production_exit(marks, entry_price=entry_price, quantity=quantity, **position, **levels)
+    sold = sum(qty for _, qty, _ in fills)
+    if sold < quantity:  # No rule closed the rest: it is marked at the last quote in the window.
+        fills.append((marks[-1][0], quantity - sold, marks[-1][2]))
+    return fills, [f"{reason}_exit" for reason in dict.fromkeys(reasons)]
 
 
 def _priced_event(
@@ -415,20 +500,22 @@ def _priced_event(
     *,
     entry_at: datetime,
     entry_ask: float,
-    marks: list[tuple[datetime, float]],
+    marks: list[tuple[datetime, float, float, float | None]],
+    position: dict[str, Any] | None,
     risk_release_at: datetime,
     quote_provider: Any,
     pricing_source: str,
     missing_exit_warning: str,
     config: dict[str, Any],
 ) -> dict[str, Any]:
+    """Enter at the ask; exit on (at, mid, exit_bid, spot) marks under the configured exit policy."""
     quantity = base_event["quantity"]
     multiplier = config["option_multiplier"]
     entry_price = entry_ask * (1 + config["entry_slippage_bps"] / 10_000)
     entry_notional = entry_price * multiplier * quantity
     commission = config["commission_per_contract"] * quantity * 2
-    exit_mark, warnings = _first_exit(marks, entry_price=entry_price, quantity=quantity, config=config)
-    if exit_mark is None:
+    fills, warnings = _exit_fills(marks, entry_price=entry_price, quantity=quantity, position=position, config=config)
+    if not fills:
         return {
             **base_event,
             "status": "no_exit_quote",
@@ -440,8 +527,9 @@ def _priced_event(
             "pricing_source": pricing_source,
             "warnings": [missing_exit_warning],
         }
-    exit_at, exit_bid = exit_mark
-    exit_price = exit_bid * (1 - config["exit_slippage_bps"] / 10_000)
+    exit_at = fills[-1][0]
+    exit_bid_total = sum(qty * bid for _, qty, bid in fills)
+    exit_price = exit_bid_total * (1 - config["exit_slippage_bps"] / 10_000) / quantity
     realized_pnl_dollars = (exit_price - entry_price) * multiplier * quantity - commission
     realized_pnl_pct = (realized_pnl_dollars / entry_notional) * 100 if entry_notional else None
     return {
@@ -459,8 +547,8 @@ def _priced_event(
         "realized_pnl_dollars": round(realized_pnl_dollars, 4),
         "commission_dollars": round(commission, 4),
         "slippage_dollars": round(
-            ((entry_ask * config["entry_slippage_bps"] / 10_000)
-             + (exit_bid * config["exit_slippage_bps"] / 10_000)) * multiplier * quantity,
+            (entry_ask * quantity * config["entry_slippage_bps"] + exit_bid_total * config["exit_slippage_bps"])
+            / 10_000 * multiplier,
             4,
         ),
         "warnings": warnings,
@@ -481,17 +569,19 @@ def _simulate_event(decision: dict[str, Any], snapshot: dict[str, Any], conn: sq
     if entry_at is None or (entry_at - as_of).total_seconds() > config["max_entry_delay_minutes"] * 60:
         return {**base_event, "status": "no_fill", "warnings": ["next_quote_exceeds_entry_delay"]}
     cutoff = entry_at + timedelta(hours=config["max_hold_hours"])
-    marks: list[tuple[datetime, float]] = []
+    marks: list[tuple[datetime, float, float, float | None]] = []
     for quote in quotes[1:]:
         quote_at = parse_timestamp(quote.get("quote_at"))
         if quote_at is None or quote_at > cutoff:
             break
-        marks.append((quote_at, _number(quote.get("bid_price"))))
+        bid = _number(quote.get("bid_price"))
+        marks.append((quote_at, (bid + _number(quote.get("ask_price"))) / 2, bid, None))
     return _priced_event(
         base_event,
         entry_at=entry_at,
         entry_ask=_number(entry_quote.get("ask_price")),
         marks=marks,
+        position=_position_terms(conn, option_symbol, entry_at, safe_float(decision.get("reference_spot")), config),
         risk_release_at=cutoff,
         quote_provider=entry_quote.get("provider"),
         pricing_source=_pricing_source(entry_quote),
@@ -528,6 +618,32 @@ def _daily_closes(conn: sqlite3.Connection, symbol: str, after: datetime, until:
         if after < close_at <= until:
             closes.setdefault(close_at, float(row["close_price"]))
     return sorted(closes.items())
+
+
+def _hourly_prices(conn: sqlite3.Connection, symbol: str, after: datetime, until: datetime) -> list[tuple[datetime, float]]:
+    """Each hourly bar's open at its start and its close at its end (capped at the 16:00 close), oldest first.
+
+    Bars are stored at their start. The open catches a gap at 9:30, where production's stops fire first.
+    """
+    rows = conn.execute(
+        """
+        SELECT bar_at, open_price, close_price FROM historical_underlying_bars
+        WHERE symbol = ? AND timeframe = '1h' AND close_price > 0 AND bar_at >= ? AND bar_at <= ?
+        ORDER BY bar_at ASC, id ASC
+        """,
+        (symbol, (after - timedelta(hours=1)).astimezone(timezone.utc).isoformat(), until.astimezone(timezone.utc).isoformat()),
+    ).fetchall()
+    prices: dict[datetime, float] = {}
+    for row in rows:
+        bar_at = parse_timestamp(row["bar_at"])
+        if bar_at is None:
+            continue
+        ends_at = (bar_at + timedelta(hours=1)).astimezone(MARKET_TIMEZONE)
+        for mark_at, price in ((bar_at.astimezone(MARKET_TIMEZONE), row["open_price"]),
+                               (min(ends_at, datetime.combine(ends_at.date(), MARKET_CLOSE, MARKET_TIMEZONE)), row["close_price"])):
+            if price and price > 0 and after < mark_at <= until:
+                prices.setdefault(mark_at, float(price))
+    return sorted(prices.items())
 
 
 def _same_day_quotes(conn: sqlite3.Connection, symbol: str, close_at: datetime) -> list[dict[str, Any]]:
@@ -581,17 +697,49 @@ def _day_implied_volatility(
     return nearest[1] if nearest else None
 
 
+def _earnings_dates(conn: sqlite3.Connection, symbol: str) -> set[date]:
+    """Report dates from the symbol's stored Yahoo consensus labels (`next_report:<date>`)."""
+    if not (table_exists(conn, "company_facts") and table_exists(conn, "companies")):
+        return set()
+    rows = conn.execute(
+        """
+        SELECT DISTINCT json_extract(f.record_json, '$.fiscal_period')
+        FROM company_facts AS f JOIN companies AS c ON c.id = json_extract(f.record_json, '$.company_id')
+        WHERE UPPER(c.symbol) = ? AND json_extract(f.record_json, '$.kind') = 'consensus'
+        """,
+        (symbol,),
+    ).fetchall()
+    dates = {report_date({"fiscal_period": period}) for (period,) in rows}
+    dates.discard(None)
+    return dates
+
+
+def _constant_iv_across_earnings(conn: sqlite3.Connection, symbol: str, as_of: datetime,
+                                 marks: list[tuple[datetime, float]], observed_at: set[date]) -> bool:
+    """True when a mark on or after an earnings date in the hold used no volatility observed from that date on.
+
+    Pre-report volatility kept past the report overstates the option's value (about 8 points on 33 stored pairs).
+    """
+    if not marks:
+        return False
+    first, last = as_of.astimezone(MARKET_TIMEZONE).date(), marks[-1][0].date()
+    latest_observed = max(observed_at, default=None)
+    return any(latest_observed is None or latest_observed < report
+               for report in _earnings_dates(conn, symbol) if first <= report <= last)
+
+
 def _simulate_modelled_event(
     decision: dict[str, Any],
     snapshot: dict[str, Any],
     conn: sqlite3.Connection,
     config: dict[str, Any],
 ) -> dict[str, Any]:
-    """Enter at the frozen chain's ask; mark exits with Black-Scholes on daily underlying closes.
+    """Enter at the frozen chain's ask at the decision; mark exits with Black-Scholes on hourly underlying opens and closes.
 
-    Each day's volatility is backed out of that day's nearest stored quote on the same underlying,
-    so a post-event volatility collapse shows up; without one, the last known volatility (first,
-    the entry mid's) carries forward. Exits give up the entry quote's half-spread on the model mid.
+    Daily closes stand in when the symbol has no hourly bars. At each day's 16:00 close the volatility is
+    backed out of that day's nearest stored quote on the same underlying, so a post-event volatility
+    collapse shows up; marks before it carry the last known volatility (first, the entry mid's), so an
+    intraday mark never sees that evening's quote. Exits give up the entry quote's half-spread on the model mid.
     """
     base_event = _base_event(decision, snapshot, config)
     as_of = parse_timestamp(decision.get("decision_run_at"))
@@ -614,27 +762,39 @@ def _simulate_modelled_event(
     cutoff = min(as_of + timedelta(hours=config["max_hold_hours"]), expiration)
     volatility = option.volatility
     observed_days = 0
-    marks: list[tuple[datetime, float]] = []
-    for close_at, close in _daily_closes(conn, base_event["symbol"], as_of, cutoff):
-        observed = _day_implied_volatility(conn, base_event["symbol"], close_at, spot=close, strike=strike,
-                                           expiration=expiration, config=config)
-        if observed is not None:
-            volatility, observed_days = observed, observed_days + 1
-        years_left = max(0.0, (expiration - close_at).total_seconds() / SECONDS_PER_DAY / DAYS_PER_YEAR)
+    observed_on: set[date] = set()
+    marks: list[tuple[datetime, float, float, float | None]] = []
+    symbol = base_event["symbol"]
+    for mark_at, close in _hourly_prices(conn, symbol, as_of, cutoff) or _daily_closes(conn, symbol, as_of, cutoff):
+        if mark_at == datetime.combine(mark_at.date(), MARKET_CLOSE, MARKET_TIMEZONE):
+            observed = _day_implied_volatility(conn, symbol, mark_at, spot=close, strike=strike,
+                                               expiration=expiration, config=config)
+            if observed is not None:
+                volatility, observed_days = observed, observed_days + 1
+                observed_on.add(mark_at.date())
+        years_left = max(0.0, (expiration - mark_at).total_seconds() / SECONDS_PER_DAY / DAYS_PER_YEAR)
         value = black_scholes_price(side, spot=close, strike=strike, years=years_left, volatility=volatility,
                                     rate=config["risk_free_rate"])
-        marks.append((close_at, value * (1 - half_spread)))
+        marks.append((mark_at, value, value * (1 - half_spread), close))
     event = _priced_event(
         base_event,
         entry_at=as_of,
         entry_ask=ask,
         marks=marks,
+        position=_position_terms(conn, base_event["option_symbol"], as_of, spot, config),
         risk_release_at=cutoff,
         quote_provider=MODELLED_QUOTE_PROVIDER,
         pricing_source=MODELLED_EOD_IV_PRICING_SOURCE if observed_days else MODELLED_PRICING_SOURCE,
         missing_exit_warning="no_underlying_close_after_entry",
         config=config,
     )
+    exit_at = parse_timestamp(event.get("exit_at")) if event.get("status") == "simulated_closed" else None
+    held = [(mark[0], mark[2]) for mark in marks if exit_at is not None and mark[0] <= exit_at]
+    # Volatility read after the exit priced no held mark.
+    observed_while_held = {day for day in observed_on if exit_at is not None and day <= exit_at.date()}
+    if _constant_iv_across_earnings(conn, base_event["symbol"], as_of, held, observed_while_held):
+        # Flag only: the price is not corrected.
+        event = {**event, "warnings": [*(event.get("warnings") or []), CONSTANT_IV_ACROSS_EARNINGS]}
     return {**event, "entry_implied_volatility": round(option.volatility, 6), "observed_iv_day_count": observed_days}
 
 
@@ -646,13 +806,13 @@ def _exceeds_premium_cap(decision: dict[str, Any], config: dict[str, Any]) -> bo
 
 
 def _simulate_decision(decision: dict[str, Any], snapshot: dict[str, Any], conn: sqlite3.Connection, config: dict[str, Any]) -> dict[str, Any]:
-    """Observed quotes first; a decision carrying its frozen contract falls back to model pricing."""
+    """A decision carrying its frozen contract enters at that contract's decision-time ask and is priced by
+    the model (stored quotes calibrate its volatility); one without is filled from stored quotes."""
     if _exceeds_premium_cap(decision, config):
         return {**_base_event(decision, snapshot, config), "status": "no_fill", "warnings": ["premium_per_trade_cap"]}
-    event = _simulate_event(decision, snapshot, conn, config)
-    if decision.get("selected_contract") and MISSING_QUOTE_WARNINGS.intersection(event["warnings"]):
+    if decision.get("selected_contract"):
         return _simulate_modelled_event(decision, snapshot, conn, config)
-    return event
+    return _simulate_event(decision, snapshot, conn, config)
 
 
 def _apply_portfolio_limits(events: list[dict[str, Any]], config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -758,6 +918,11 @@ def _metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
         "total_slippage_dollars": round(sum(_number(event.get("slippage_dollars")) for event in filled), 4),
         "max_drawdown_dollars": round(max_drawdown, 4),
         "pricing_source_counts": _pricing_source_counts(filled),
+        "constant_iv_across_earnings_count": sum(CONSTANT_IV_ACROSS_EARNINGS in (event.get("warnings") or [])
+                                                 for event in filled),
+        # Model-priced trades approximate a contract production never chose; judge them apart from quoted ones.
+        "by_pricing_source": {source: _candidate_metrics([e for e in filled if (e.get("pricing_source") or "unknown") == source])
+                              for source in _pricing_source_counts(filled)},
         "equity_curve": equity_curve,
     }
 
@@ -804,6 +969,16 @@ def _store_event(conn: sqlite3.Connection, run_id: int, event: dict[str, Any]) -
     )
 
 
+def _with_saved_contract(decision: dict[str, Any]) -> dict[str, Any]:
+    """The contract and stock price saved with a stored decision, so it is priced from its decision-time ask."""
+    contract = _json_object(decision.get("manager_output_json")).get("selected_option")
+    if not isinstance(contract, dict) or not contract.get("symbol"):
+        return decision
+    market = _json_object(decision.get("manager_input_json")).get("market_context")
+    return {**decision, "selected_contract": contract,
+            "reference_spot": _get_reference_stock_price(market) if isinstance(market, dict) else None}
+
+
 def _simulate_decisions(
     conn: sqlite3.Connection,
     config: dict[str, Any],
@@ -811,7 +986,9 @@ def _simulate_decisions(
     start_at: str | None,
     end_at: str | None,
     limit: int | None,
+    trade_executed: bool | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Every stored call or put in the window; `trade_executed` keeps only those traded (True) or not (False)."""
     query = """
         SELECT history.id, history.symbol, history.decision_run_at, history.manager_decision, history.manager_reason,
                history.selected_option_symbol, history.selected_option_id, payload.manager_input_json,
@@ -830,6 +1007,9 @@ def _simulate_decisions(
     if end_at:
         query += " AND history.decision_run_at <= ?"
         parameters.append(normalize_timestamp(end_at))
+    if trade_executed is not None:
+        query += " AND COALESCE(history.trade_executed, 0) = ?"
+        parameters.append(int(trade_executed))
     available_decision_count = conn.execute(
         f"SELECT COUNT(*) FROM ({query})", tuple(parameters)
     ).fetchone()[0]
@@ -840,7 +1020,7 @@ def _simulate_decisions(
         # Limit the recent window first, then simulate it in chronological order.
         query += " ORDER BY history.decision_run_at DESC, history.id DESC LIMIT ?"
         parameters.append(decision_limit)
-    decisions = [dict(row) for row in conn.execute(query, tuple(parameters)).fetchall()]
+    decisions = [_with_saved_contract(dict(row)) for row in conn.execute(query, tuple(parameters)).fetchall()]
     if decision_limit is not None:
         decisions.reverse()
     events, metrics = _simulate_supplied_decisions(conn, decisions, config)
@@ -875,12 +1055,14 @@ def simulate_backtest_metrics(
     config: dict[str, Any] | None = None,
     start_at: str | None = None,
     end_at: str | None = None,
+    trade_executed: bool | None = None,
     db_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Simulate every decision in the window like run_backtest, without recording a backtest run."""
     initialize_database(db_path=db_path)
     with closing(get_connection(db_path)) as conn, conn:
-        _, metrics = _simulate_decisions(conn, _merged_config(config), start_at=start_at, end_at=end_at, limit=None)
+        _, metrics = _simulate_decisions(conn, _merged_config(config), start_at=start_at, end_at=end_at, limit=None,
+                                         trade_executed=trade_executed)
     return metrics
 
 

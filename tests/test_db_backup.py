@@ -97,6 +97,26 @@ class DbBackupTests(unittest.TestCase):
         self.assertIn("minutes behind", backup_problem(self.settings, fresh, now))
         self.assertIsNone(backup_problem(replace(self.settings, replica_dir=None), fresh, now))
 
+    def test_a_replica_file_litestream_removes_mid_scan_is_skipped(self):
+        wal = self.settings.replica_dir / "generations" / "abc" / "wal"
+        wal.mkdir(parents=True)
+        (wal / "00000000_00000000.wal.lz4").write_bytes(b"x")
+        (wal / "00000001_00000000.wal.lz4.tmp").write_bytes(b"x")
+        real_scandir = os.scandir
+
+        class Gone:
+            def __init__(self, entry): self.entry = entry
+            def is_file(self): return True
+            def stat(self): raise FileNotFoundError(self.entry.path)  # Litestream renamed it after listing
+
+        def scandir_with_vanished(path):
+            if Path(path) != wal:
+                return real_scandir(path)  # pathlib uses scandir too
+            return [Gone(entry) if entry.name.endswith(".tmp") else entry for entry in real_scandir(path)]
+
+        with patch.object(db_backup.os, "scandir", scandir_with_vanished):
+            self.assertIsNotNone(replica_lag_seconds(self.db, self.settings.replica_dir))
+
 
 class _QuickCheckFails:
     """A connection whose quick_check reports corruption."""

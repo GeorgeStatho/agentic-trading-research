@@ -12,6 +12,10 @@ CREATE TABLE IF NOT EXISTS account_positions (
     entry_order_id TEXT, entry_fill_price REAL, entry_at TEXT,
     source_seen_at TEXT,
     exit_order_id TEXT, exit_reason TEXT, exit_fill_price REAL, exit_at TEXT,
+    -- 'copy' mirrors a production entry; 'premium_cap_blocked' is a pick production skipped for the premium cap.
+    entry_kind TEXT NOT NULL DEFAULT 'copy',
+    -- A one-time partial exit (partial_profit policy): its order, and the slice it sold once filled.
+    partial_order_id TEXT, partial_qty INTEGER, partial_fill_price REAL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(account, source_order_id)
 );

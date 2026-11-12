@@ -129,6 +129,13 @@ class GateTests(unittest.TestCase):
                 self.assertIsNone(gate['would_allow'])
                 self.assertIs(gate['allowed'], allowed)
 
+    def test_a_catalyst_without_articles_is_told_apart_from_a_bad_event_time(self):
+        reason = lambda state: evaluate_catalyst_gates(state, as_of=NOW)['FRESHNESS']['reason_codes'][0]
+        self.assertEqual(reason(self.state(first_public_time=None, article_count=0)), 'no_catalyst_articles')
+        self.assertEqual(reason(self.state(first_public_time=None, article_count=2)), 'missing_or_future_event_time')
+        self.assertEqual(reason(self.state(first_public_time=(NOW+timedelta(days=1)).isoformat(), article_count=2)),
+                         'missing_or_future_event_time')
+
     def test_decay_threshold_and_shadow_default(self):
         gate = evaluate_catalyst_gates(self.state(), as_of=NOW)['FRESHNESS']
         self.assertAlmostEqual(gate['metrics']['remaining_information_value'], .0625)

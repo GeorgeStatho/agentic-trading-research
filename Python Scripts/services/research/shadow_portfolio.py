@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from services.research.research_contract import utc
 from services.core.numbers import finite_float
+from services.core.trade_sides import TRADE_SIDES
 
 
 def valid_quote(quote):
@@ -135,15 +136,44 @@ def evaluate_gate(rows, stage):
 
 
 MOVE_BASIS = 'underlying_residual_move'
+HARD_BLOCK_BASIS = 'hard_block_precision'
 # Share of direction-bearing verdicts that must have a resolved forward move; matches forward acceptance.
 MINIMUM_MOVE_COVERAGE = 0.9
-SIDES = {'call': 1, 'put': -1, 'positive': 1, 'negative': -1}
+SIDES = {**TRADE_SIDES, 'positive': 1, 'negative': -1}
 
 
 def proposed_side(features):
     """+1/-1 for the trade a candidate proposed: the manager's call/put, else the catalyst's direction."""
     return SIDES.get(features.get('manager_direction') if features.get('manager_direction') in {'call', 'put'}
                      else features.get('catalyst_direction'))
+
+
+def move_gate_value(rejected_moves):
+    """A gate's value on the side-signed moves it rejected: losses avoided minus profits sacrificed."""
+    lost = -sum(move for move in rejected_moves if move < 0)
+    sacrificed = sum(move for move in rejected_moves if move > 0)
+    return {'losses_avoided': lost, 'profits_sacrificed': sacrificed, 'gate_value': lost - sacrificed}
+
+
+def evaluate_gate_on_hard_blocks(rows, stage):
+    """Score a pre-check by how often its rejections were later hard-blocked anyway.
+
+    Each row's `outcome` is 'blocked' (premium cap or no eligible contract), 'fits' (an order went out)
+    or None. A rejection the manager declined has no outcome by construction, so coverage is not required;
+    gate_value is the precision of the rejections whose outcome is known.
+    """
+    verdicts = [row for row in rows if row['gates'].get(stage) in (True, False)]
+    rejected = [row for row in verdicts if row['gates'][stage] is False]
+    known = [row for row in rejected if row.get('outcome') in ('blocked', 'fits')]
+    blocked = sum(row['outcome'] == 'blocked' for row in known)
+    return {'stage': stage, 'basis': HARD_BLOCK_BASIS, 'n_seen': len(verdicts),
+            'n_unknown_verdicts': sum(stage in row['gates'] and row['gates'][stage] is None for row in rows),
+            'n_passed': len(verdicts) - len(rejected), 'n_rejected': len(rejected),
+            'n_evaluable': len(known), 'n_blocked': blocked, 'n_missing_outcomes': len(rejected) - len(known),
+            'n_passed_later_blocked': sum(row['gates'][stage] is True and row.get('outcome') == 'blocked'
+                                          for row in verdicts),
+            'gate_value': blocked / len(known) if known else 0.0, 'coverage_complete': True,
+            'denominator_basis': 'rejections with a known outcome; gate value is the share later hard-blocked'}
 
 
 def evaluate_gate_on_moves(rows, stage):
@@ -158,8 +188,6 @@ def evaluate_gate_on_moves(rows, stage):
               for row in applicable if row.get('residual_return') is not None]
     passed = [move for allowed, move in scored if allowed]
     rejected = [move for allowed, move in scored if not allowed]
-    lost = -sum(move for move in rejected if move < 0)
-    sacrificed = sum(move for move in rejected if move > 0)
     coverage = len(scored) / len(applicable) if applicable else 0.0
     return {'stage': stage, 'basis': MOVE_BASIS,
             'n_seen': len(applicable), 'n_no_direction': len(verdicts) - len(applicable),
@@ -169,6 +197,6 @@ def evaluate_gate_on_moves(rows, stage):
             'n_evaluable': len(scored), 'n_missing_outcomes': len(applicable) - len(scored),
             'mean_move_passed': sum(passed) / len(passed) if passed else None,
             'mean_move_rejected': sum(rejected) / len(rejected) if rejected else None,
-            'losses_avoided': lost, 'profits_sacrificed': sacrificed, 'gate_value': lost - sacrificed,
+            **move_gate_value(rejected),
             'coverage': coverage, 'coverage_complete': bool(applicable) and coverage >= MINIMUM_MOVE_COVERAGE,
             'denominator_basis': '5-day residual return signed by the proposed side; gate value in summed return units'}

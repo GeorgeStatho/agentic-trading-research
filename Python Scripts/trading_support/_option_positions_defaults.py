@@ -53,25 +53,3 @@ def build_option_exit_rules(dte_rules: tuple[OptionExitRuleConfig, ...]) -> tupl
 
 MARKET_TIMEZONE = ZoneInfo("America/New_York")
 OPTION_EXPIRATION_MARKET_CLOSE_HOUR = 16
-PENDING_ORDER_OPEN_STATUSES = {
-    "accepted",
-    "accepted_for_bidding",
-    "calculated",
-    "held",
-    "new",
-    "partially_filled",
-    "pending_cancel",
-    "pending_new",
-    "pending_replace",
-    "pending_review",
-    "stopped",
-    "suspended",
-}
-PENDING_ORDER_CLEAR_STATUSES = {
-    "canceled",
-    "cancelled",
-    "done_for_day",
-    "expired",
-    "filled",
-    "rejected",
-}

@@ -13,6 +13,7 @@ from tests.research_foundation_fixtures import database, START, ENTRY
 from tests.test_company_evidence import ACCESSION, COMPANY, guidance
 from services.discovery.company_evidence_policy import CompanyEvidencePolicy
 from services.discovery.company_evidence_service import collect_company
+from Webscraping.company_evidence.releases import release_text
 from Webscraping.company_evidence.sec import SECAdapter
 from Webscraping.company_evidence.transport import ProviderUnavailable
 
@@ -39,7 +40,7 @@ class FakeSEC:
         if '/submissions/' in url:
             recent = {key: [filing.get(key) for filing in self.filings]
                       for key in ('form', 'accessionNumber', 'filingDate', 'acceptanceDateTime', 'reportDate',
-                                  'size', 'primaryDocument')}
+                                  'size', 'primaryDocument', 'items')}
             return self.response(url, {'cik': 1045810, 'filings': {'recent': recent}})
         if '/companyfacts/' in url:
             return self.response(url, {'cik': 1045810, 'facts': {'us-gaap': {'Revenues': {'units': {'USD': [
@@ -103,7 +104,9 @@ def index_page(accession, documents, data_files=()):
             '</div></div></body></html>')
 
 
-class OversizeFilingTests(unittest.TestCase):
+class SECCollection:
+    """Collect from a FakeSEC with the default policy; shared by the tests that read 8-K exhibits."""
+
     def setUp(self):
         self.policy = CompanyEvidencePolicy()
         self.cap = self.policy.max_response_bytes
@@ -120,6 +123,9 @@ class OversizeFilingTests(unittest.TestCase):
 
     def filings_of(self, result, document_type):
         return [document for document in result.documents if document.document_type == document_type]
+
+
+class OversizeFilingTests(SECCollection, unittest.TestCase):
 
     def test_oversize_8k_reads_primary_document_and_ex99_instead_of_full_submission(self):
         release = guidance().text
@@ -207,6 +213,107 @@ class OversizeFilingTests(unittest.TestCase):
         routes = {full_submission(ACCESSION): sgml('10-Q', 'Quarterly report.')}
         sec, _ = self.collect([filing(ACCESSION, '10-Q')], routes)
         self.assertIn(full_submission(ACCESSION), sec.requested)
+
+
+def eight_k_accession(n):
+    return f'0001045810-26-00010{n}'
+
+
+class FilingWindowTests(unittest.TestCase):
+    """MSFT and DELL, 2026-11-09: three newer 8-Ks pushed the latest 10-Q, and its actuals, out of the window."""
+
+    def setUp(self):
+        self.policy = CompanyEvidencePolicy()
+
+    def accessions_read(self, filings):
+        routes = {full_submission(f['accessionNumber']): sgml(f['form'], f"{f['form']} text.") for f in filings}
+        result = SECAdapter(FakeSEC(filings, routes), self.policy).collect(COMPANY, {})
+        return [(d.document_type, d.metadata['accession']) for d in result.documents]
+
+    def test_the_newest_periodic_report_is_read_behind_newer_8ks(self):
+        filings = [filing(eight_k_accession(n), '8-K') for n in range(4)] + [filing(ACCESSION, '10-Q')]
+        read = self.accessions_read(filings)
+        self.assertIn(('regulatory_filing', ACCESSION), read)
+        self.assertIn(('xbrl_facts', ACCESSION), read)
+        self.assertEqual({a for kind, a in read if kind == 'regulatory_filing'},
+                         {eight_k_accession(0), eight_k_accession(1), eight_k_accession(2), ACCESSION})
+
+    def test_a_periodic_report_already_in_the_window_adds_nothing(self):
+        filings = [filing(eight_k_accession(0), '8-K'), filing(ACCESSION, '10-Q'),
+                   filing(eight_k_accession(1), '8-K'), filing(eight_k_accession(2), '8-K')]
+        read = self.accessions_read(filings)
+        self.assertEqual(len([a for kind, a in read if kind == 'regulatory_filing']), 3)
+
+    def test_a_newer_amendment_does_not_take_the_periodic_reports_place(self):
+        # 2026-11-10 review: a Part III 10-K/A carries no quarter's actuals, so it must not stand in for the 10-Q.
+        amendment = '0001045810-26-000200'
+        filings = ([filing(eight_k_accession(n), '8-K') for n in range(4)] + [filing(amendment, '10-K/A')]
+                   + [filing(ACCESSION, '10-Q')])
+        self.assertIn(('regulatory_filing', ACCESSION), self.accessions_read(filings))
+
+
+class ReleaseStartTests(SECCollection, unittest.TestCase):
+    """An 8-K's own cover text comes first; the strategist is shown the earnings release that follows it."""
+
+    def test_a_primary_document_8k_records_where_its_exhibit_starts(self):
+        _, result = self.collect_8k([('nvda-8k.htm', '8-K', 4000), ('a3q26earningspr.htm', 'EX-99.1', 9000)],
+                                    {f'{folder(ACCESSION)}/a3q26earningspr.htm': '<p>Third quarter release.</p>'})
+        [document] = self.filings_of(result, 'regulatory_filing')
+        self.assertTrue(document.text[document.metadata['release_start']:].startswith('Third quarter release.'))
+
+    def test_a_full_submission_8k_records_where_its_first_ex99_starts(self):
+        body = ('CENTRAL INDEX KEY: 0001045810\n'
+                '<DOCUMENT><TYPE>8-K\n<TEXT><p>Item 2.02 Results of Operations.</p></TEXT></DOCUMENT>\n'
+                '<DOCUMENT><TYPE>EX-99.1\n<TEXT><p>Fixture reports record revenue.</p></TEXT></DOCUMENT>')
+        result = SECAdapter(FakeSEC([filing(ACCESSION, '8-K')], {full_submission(ACCESSION): body}),
+                            CompanyEvidencePolicy()).collect(COMPANY, {})
+        [document] = [d for d in result.documents if d.document_type == 'regulatory_filing']
+        self.assertTrue(document.text[document.metadata['release_start']:].startswith('Fixture reports record revenue.'))
+
+    def test_a_6k_records_where_its_first_ex99_starts(self):
+        # Foreign issuers furnish results on 6-K, which lists no items.
+        body = ('CENTRAL INDEX KEY: 0001045810\n<DOCUMENT><TYPE>6-K\n<TEXT><p>Report of foreign issuer.</p></TEXT>'
+                '</DOCUMENT>\n<DOCUMENT><TYPE>EX-99.1\n<TEXT><p>Fixture reports record revenue.</p></TEXT></DOCUMENT>')
+        _, result = self.collect([filing(ACCESSION, '6-K')], {full_submission(ACCESSION): body})
+        [document] = self.filings_of(result, 'regulatory_filing')
+        self.assertTrue(document.text[document.metadata['release_start']:].startswith('Fixture reports record revenue.'))
+
+    def test_the_xbrl_facts_document_of_a_release_has_no_release_start(self):
+        # Its text is companyfacts JSON, so an offset into the release text would cut the excerpt from the JSON.
+        body = ('CENTRAL INDEX KEY: 0001045810\n<DOCUMENT><TYPE>8-K\n<TEXT><p>Item 2.02.</p></TEXT></DOCUMENT>\n'
+                '<DOCUMENT><TYPE>EX-99.1\n<TEXT><p>Fixture reports record revenue.</p></TEXT></DOCUMENT>')
+        _, result = self.collect([filing(ACCESSION, '8-K')], {full_submission(ACCESSION): body})
+        [facts] = self.filings_of(result, 'xbrl_facts')
+        self.assertNotIn('release_start', facts.metadata)
+
+    def test_a_tag_hidden_inside_another_keeps_the_outer_one_hidden(self):
+        html = '<ix:header><script>var x;</script>P2Y</ix:header><p>Revenue increased 26%.</p>'
+        self.assertEqual(release_text(html), 'Revenue increased 26%.')
+
+    def test_the_hidden_inline_xbrl_header_is_not_release_text(self):
+        # MSFT's 10-28 EX-99.1: 6 MB of hidden ix:header values (P2Y, fasb.org URIs) opened the excerpt.
+        html = ('<div style="display:none"><ix:header><ix:hidden><ix:nonNumeric name="us-gaap:UsefulLife">P2Y'
+                '</ix:nonNumeric></ix:hidden><ix:resources>http://fasb.org/us-gaap/2025#DerivativeAssets'
+                '</ix:resources></ix:header></div><p>Microsoft Cloud revenue increased 26%.</p>')
+        self.assertEqual(release_text(html), 'Microsoft Cloud revenue increased 26%.')
+
+    def test_only_an_8k_reporting_results_is_a_release(self):
+        # MSFT, 2026-11: the newest 8-Ks were item 5.02 (officers) and 8.01; item 2.02 is results of operations.
+        body = ('CENTRAL INDEX KEY: 0001045810\n<DOCUMENT><TYPE>8-K\n<TEXT><p>Cover.</p></TEXT></DOCUMENT>\n'
+                '<DOCUMENT><TYPE>EX-99.1\n<TEXT><p>Exhibit text.</p></TEXT></DOCUMENT>')
+        for items, expected in (('5.02,9.01', False), ('2.02,9.01', True)):
+            with self.subTest(items=items):
+                result = SECAdapter(FakeSEC([{**filing(ACCESSION, '8-K'), 'items': items}],
+                                            {full_submission(ACCESSION): body}),
+                                    CompanyEvidencePolicy()).collect(COMPANY, {})
+                [document] = [d for d in result.documents if d.document_type == 'regulatory_filing']
+                self.assertEqual('release_start' in document.metadata, expected)
+
+    def test_a_10q_has_no_release_start(self):
+        result = SECAdapter(FakeSEC([filing(ACCESSION, '10-Q')], {full_submission(ACCESSION): sgml('10-Q', 'Q.')}),
+                            CompanyEvidencePolicy()).collect(COMPANY, {})
+        [document] = [d for d in result.documents if d.document_type == 'regulatory_filing']
+        self.assertNotIn('release_start', document.metadata)
 
 
 class FailingFilingTests(unittest.TestCase):

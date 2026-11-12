@@ -44,6 +44,14 @@ class MarketRegimeClassificationTests(unittest.TestCase):
         self.assertEqual(result["state"], "trend_up")
         self.assertEqual(result["signals"]["spy_trend"], "bullish")
 
+    def test_volatile_market_still_reports_its_trend(self) -> None:
+        # 2026-11-09: all 120 runs said spy_trend "unknown" in a high-volatility, falling market.
+        closes = [(100 - index * 0.4) * (1.01 if index % 2 else 0.99) for index in range(70)]
+        result = _classification(closes=closes)
+
+        self.assertEqual(result["state"], "high_volatility")
+        self.assertEqual(result["signals"]["spy_trend"], "bearish")
+
     def test_stale_data_fails_closed_as_unknown(self) -> None:
         result = _classification(
             closes=[100 + index * 0.2 for index in range(70)],
