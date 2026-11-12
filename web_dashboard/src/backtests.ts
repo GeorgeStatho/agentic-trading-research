@@ -35,8 +35,9 @@ export async function createRun(config: Record<string, unknown>, window: Decisio
 }
 
 /** Fetches quotes from MarketData.app server-side, which spends the daily allowance. */
-export async function fetchEodQuotes(limit: number, maxHoldHours: number, window: Omit<DecisionWindow, 'limit'> = {}): Promise<EodQuoteFetch> {
-  const response = await fetch('/api/backtests/marketdata-eod', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit, max_hold_hours: maxHoldHours, ...window }) })
+// A cleared max hold (null) is left out, so the API applies its own default.
+export async function fetchEodQuotes(limit: number, maxHoldHours: number | null, window: Omit<DecisionWindow, 'limit'> = {}): Promise<EodQuoteFetch> {
+  const response = await fetch('/api/backtests/marketdata-eod', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit, max_hold_hours: maxHoldHours ?? undefined, ...window }) })
   if (!response.ok) throw await errorFrom(response, 'Failed to fetch EOD quotes')
   return response.json() as Promise<EodQuoteFetch>
 }
