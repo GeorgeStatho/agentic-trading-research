@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
 
-CLASSIFICATION_VERSION = 'catalyst-rules-v2'
+CLASSIFICATION_VERSION = 'catalyst-rules-v3'
 LABEL_VERSION = 'catalyst-llm-v1'
 LABELED_CLASSIFICATION_VERSION = CLASSIFICATION_VERSION + '+' + LABEL_VERSION
 PRIMARY_SOURCE_TYPES = frozenset({'primary_filing', 'company_release', 'government', 'court_document', 'earnings_call'})
@@ -17,13 +17,25 @@ CATALYST_TYPES = ('earnings', 'guidance', 'ma', 'regulatory', 'legal', 'product'
 UNSCOPED_TYPES = frozenset({'rumor', 'other'})
 CATALYST_FAMILIES = ('earnings_positive', 'earnings_negative', 'guidance_raise', 'guidance_cut',
                     'regulatory_positive', 'regulatory_negative', 'legal_positive', 'legal_negative',
-                    'ma', 'product_commercial', 'analyst', 'macro_sector', 'other')
+                    'ma', 'product_commercial', 'analyst', 'macro_sector', 'corporate_action', 'commentary', 'other')
 HORIZONS = ('intraday', '1_3_days', '4_10_days', '2_4_weeks', '1_2_months')
 # Calendar-day research priors, deliberately explicit about overnight/weekend decay.
 # M&A/rumor/unknown have no universal decay prior; do not invent one.
+# capital_return, management, financing and commentary are conservative defaults, not measured: buybacks and
+# dividends are absorbed like earnings, leadership and financing news faster, and commentary (opinion or a
+# recap of a move already made, no new information) as fast as an analyst note. `commentary` is a family, not a type.
 HALF_LIFE_MINUTES = {'analyst_action': 1440, 'earnings': 4320, 'guidance': 7200,
                      'legal': 8640, 'regulatory': 12960, 'product': 7200,
-                     'customer_contract': 7200, 'macro': 1440, 'industry_readthrough': 2880}
+                     'customer_contract': 7200, 'macro': 1440, 'industry_readthrough': 2880,
+                     'capital_return': 4320, 'management': 2880, 'financing': 2880, 'commentary': 1440}
+# Headlines that analyse or recap rather than report an event: questions, buy/sell advice, predictions,
+# listicles, previews and "why the stock moved" recaps.
+COMMENTARY = re.compile(
+    r"\?|\b(prediction:|should you|better buy|stocks? to (buy|watch|own|sell)|(i'd|i'm|i would|i am) buy\w*|"
+    r"how to (buy|invest)|vs\.|forget\b|my (top|favou?rite)|who owns|what does \w+ own|here(?:'s| is| are)\b|"
+    r"history says|(before|ahead of) (its |the )?(next )?earnings|earnings (preview|ahead|to watch)|reports? soon|"
+    r"invested in|why\b.{0,60}\b(stocks?|shares)\b|top wall street analysts|bull case|bear case|undervalued|"
+    r"overvalued|millionaire|passive income|all-time high|stocks? (picks?|winners?)|biggest winner)")
 DECAY_BASIS = 'elapsed_calendar_minutes'
 # The 'other' mechanism is a placeholder; the strategist prompt drops it as carrying no information.
 UNCLASSIFIED_MECHANISM = 'Unclassified transmission mechanism; review required'
@@ -72,6 +84,7 @@ class CatalystState:
     historical_expected_move: float | None = None
     historical_move_std: float | None = None
     historical_sample_size: int | None = None
+    first_public_time_basis: str | None = None  # 'event_time', or 'article_fallback' when only article times exist
     classification_version: str = CLASSIFICATION_VERSION
     classification_status: str = 'classified'
     classification_source: str = 'rules'
@@ -126,6 +139,11 @@ def derive_classification(kind, direction, text):
         family = 'analyst'
     elif kind in {'macro', 'geopolitical', 'industry_readthrough'}:
         family = 'macro_sector'
+    elif kind in {'capital_return', 'financing', 'management'}:
+        family = 'corporate_action'
+    # Only where no event family was found: a directional earnings or legal headline keeps its family.
+    if family in {'other', 'corporate_action'} and COMMENTARY.search(text):
+        family = 'commentary'
     scope = ('unknown' if kind in UNSCOPED_TYPES else 'systemic' if kind in {'macro', 'geopolitical'}
              else 'sector' if kind == 'industry_readthrough' else 'idiosyncratic')
     horizon = '1_3_days' if kind in {'analyst_action', 'macro'} else '1_2_months' if kind == 'ma' else '4_10_days'
@@ -150,7 +168,7 @@ def derive_classification(kind, direction, text):
     }
     return dict(catalyst_type=kind, catalyst_subtype=subtype, catalyst_family=family, catalyst_scope=scope,
                 direction=direction, mechanism=mechanisms[kind],
-                expected_horizon=horizon, classification_status='needs_review' if family == 'other' else 'classified')
+                expected_horizon=horizon, classification_status='needs_review' if family in {'other', 'commentary'} else 'classified')
 
 
 def classify_catalyst(title, summary=''):

@@ -20,6 +20,22 @@ def _earliest(rows, key):
     return min((value for value in values if value), default=None)
 
 
+def _first_public_time(articles, anchor, as_of):
+    """(time, basis): the event time, else the earliest article time in the anchor's root up to `as_of`.
+
+    The basis label keeps a fallback from being mistaken for a real event time.
+    """
+    event = min((value for value in (_earliest(articles, 'event_time'), _earliest(articles, 'root_first_public_time')) if value), default=None)
+    if event:
+        return event, 'event_time'
+    # Articles with no root share the anchor's "no root" group.
+    in_root = [row for row in articles if row.get('root_event_id') == anchor.get('root_event_id')]
+    cutoff = timestamp(as_of) if as_of is not None else datetime.now(timezone.utc)
+    seen = [value for row in in_root for value in (timestamp(row.get('published_at')), timestamp(row.get('first_seen_time')))
+            if value and (cutoff is None or value <= cutoff)]
+    return (min(seen), 'article_fallback') if seen else (None, None)
+
+
 def _iso(value):
     return value.isoformat() if value else None
 
@@ -56,17 +72,18 @@ def build_catalyst_state(catalyst_id, articles, *, ticker=None, as_of=None, labe
     scores = [compute_evidence_score(recency=row.get('recency_score') or 0,
               source_reputation=row.get('source_reputation_score') or 0, directness=row.get('directness_score') or 0,
               confirmation=confirmation, factuality=row.get('factuality_score') or 0) for row in articles]
+    first_public, basis = _first_public_time(articles, anchor, as_of)
     state = CatalystState(
         catalyst_id=catalyst_id, ticker=ticker or anchor.get('primary_ticker'), **classification, **source,
-        first_public_time=_iso(min((value for value in (_earliest(articles, 'event_time'),
-                         _earliest(articles, 'root_first_public_time')) if value), default=None)),
+        first_public_time=_iso(first_public), first_public_time_basis=basis,
         first_seen_time=_iso(_earliest(articles, 'first_seen_time')),
         latest_evidence_time=_iso(max((timestamp(row.get('event_time')) for row in articles if timestamp(row.get('event_time'))), default=None)),
         latest_root_event_time=_iso(max((value for value in root_times if value), default=None)),
         article_count=len(articles), source_count=len({row.get('root_source_id') for row in articles if row.get('root_source_id')}),
         independent_root_count=len(roots), primary_source_present=any(row.get('source_type') in PRIMARY_SOURCE_TYPES for row in articles),
         evidence_score=max(scores) if scores else None, root_event_ids=sorted(roots),
-        expected_half_life_minutes=HALF_LIFE_MINUTES.get(classification['catalyst_type']))
+        expected_half_life_minutes=(HALF_LIFE_MINUTES.get(classification['catalyst_family'])
+                                    or HALF_LIFE_MINUTES.get(classification['catalyst_type'])))
     values = asdict(state)
     first = timestamp(state.first_public_time)
     now = timestamp(as_of) if as_of is not None else datetime.now(timezone.utc)
