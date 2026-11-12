@@ -470,8 +470,8 @@ That split explains why the repo feels mixed: it contains both the older trading
 
 ## V2 Part 3 provenance and catalysts
 
-- `Data/catalyst_models.py`: capture taxonomy, coarse modelling families,
-  `CatalystState` and explicit calendar-time decay priors.
+- `Data/catalyst_models.py`: capture taxonomy, coarse modelling families (including `corporate_action` and
+  the rule-detected `commentary` family), `CatalystState` and explicit calendar-time decay priors.
 - `Data/catalyst_schema.py` / `Data/catalyst_schema.sql`: shared additive migration
   for catalysts, roots, candidate associations, gate observations and record links.
 - `Data/news_db_modules/catalyst_labels.py`: insert-only model labels for rule failures, latest-label
@@ -513,6 +513,19 @@ That split explains why the repo feels mixed: it contains both the older trading
   retains ATM research quotes separately from the existing OTM selector list.
 - `Python Scripts/services/gates/market_regime_gate.py`: scope opposition, hard data/macro
   veto semantics and legacy-versus-weighted verdicts.
+- `Python Scripts/services/gates/market_regime_variants.py`: shadow-only `REGIME_SPY_TREND` variant
+  (blocks calls only when SPY's 5- and 20-day returns are both down, puts on the mirror); always
+  allowed, recorded beside `REGIME` under its own stage and `market_regime_spy_trend_gate` key.
+- `Python Scripts/services/gates/entry_extension_gate.py`: `ENTRY_EXTENSION` shadow gate; allows when
+  the prior 5-day move in the proposed direction is ≤ 0 or the manager's `overextension_risk` is low.
+  `prior_five_day_move` is the one definition of that move (the gate ledger reads its stored copy); the
+  pick score scores the gate's recorded verdict.
+- `Python Scripts/services/gates/tradability_gate.py`: `TRADABILITY` shadow gate, judged before the
+  strategist: fetches the default bucket's chain with the manager's Alpaca helpers, takes the selector's
+  top pick per side and prices it as the executor does against the cycle's premium cap (buying power read
+  once per cycle). Failures are unknown verdicts; it never skips the strategist or manager.
+- The executor logs `regime_sized_order_qty` (the regime gate's `sizing_multiplier` applied to the
+  real quantity) on each candidate and execution; orders still use the real quantity.
 - `scripts/v2_part4.py`: collection budgets, family statistics and absorption reports.
 - `tests/test_v2_part4.py`: numerical, timing, quote, migration and integration tests.
 - [TRADINGBOT_V2_PART4_CHANGES.md](v2/TRADINGBOT_V2_PART4_CHANGES.md): choices,
@@ -524,6 +537,10 @@ That split explains why the repo feels mixed: it contains both the older trading
   thresholds for liquidity, scenario selection, risk clusters and exit rungs.
 - `Python Scripts/services/gates/liquidity_gate.py`: size/age/spread verdicts, selector
   filtering, canonical reasons and execution-quote validation.
+- `Python Scripts/services/options/reference_price.py`: the per-share price a contract is sized and capped at
+  (ask, mid, bid, then last trade/close); shared by the trade executor and the TRADABILITY gate.
+- `Python Scripts/services/core/trade_sides.py`: `trade_side` (+1 call, -1 put) for the shadow gates, pick score
+  and follower stop; listed in those gates' proof files.
 - `Python Scripts/services/options/scenario_selector.py`: empirical scenarios repriced with Black-Scholes
   (`services/options/option_pricing.py`),
   independent cost components, P&L quantiles and strict-hybrid-pool ranking.
@@ -558,7 +575,9 @@ That split explains why the repo feels mixed: it contains both the older trading
   frozen-input, shadow-position, report, promotion and champion storage; exact-N
   enrollment, quote availability checks and same-capital SMH/QQQ comparisons.
 - `Data/market_db_modules/research_reports.py`: monthly/full-cohort rankings,
-  confidence calibration, cited reports and evidence-qualified promotions.
+  confidence calibration, cited reports and evidence-qualified promotions; `pooled_gate_report`
+  pools one gate across runs whose rows carry its current code and policy hash (move-scored, or
+  `PRECISION_SCORED_BLOCKS` such as TRADABILITY via `hard_block_outcome`).
 - `services/research/research_promotion.py`: policy/source-bound gate approvals and the
   singleton champion's capital guard. Runtime policy factories use this guard.
 - `services/discovery/catalyst_response_collector.py`: refreshes eligible research runs after
@@ -566,7 +585,10 @@ That split explains why the repo feels mixed: it contains both the older trading
   candidate completion before research enrollment.
 - `agentCallers/agent_stages/manager_prompt.py`, `manager_normalization.py`,
   `manager_model.py`: versioned ordinal thesis, timing and execution confidence.
-- `scripts/v2_part6.py`: start, collect, report, status and explicit promotion commands.
+- `services/research/pick_score.py`: the log-only, versioned pick score (the ENTRY_EXTENSION rule,
+  freshness, relative strength). `decision_pipeline.py` attaches it after the manager; it and the three confidence
+  components are columns on `manager_decision_history`. Nothing orders or blocks on it yet.
+- `scripts/v2_part6.py`: start, collect, report, pooled `report-gate`, status and explicit promotion commands.
 - `tests/test_v2_part6.py`: cutoff, quote-path, denominator, calibration, freeze,
   coverage and promotion tests. See [TRADINGBOT_V2_PART6_CHANGES.md](v2/TRADINGBOT_V2_PART6_CHANGES.md) for assumptions
   and the distinction between implementation and live evidence acceptance.
@@ -653,7 +675,8 @@ through `run_llm_backtest`, scores each item with `decision_attribution` and com
 expression (pure functions, plus `bootstrap_se`). `Data/market_db_modules/decision_attribution.py` stores one
 `decision_attributions` row per decision, recomputed while unsettled or on a version change.
 `services/evaluation/decision_attribution_runner.py` fills it from daily closes in each collector cycle.
-`Data/market_db_modules/decision_attribution_report.py` backs `scripts/research.py attribution`, and
+`Data/market_db_modules/decision_attribution_report.py` backs `scripts/research.py attribution`,
+`Data/market_db_modules/gate_ledger.py` backs `scripts/research.py gate-ledger` (every gate stage and two tags scored on the 5-day residual move), and
 `api_support/decision_autopsy.py` shows each decision's labels.
 
 ## Follower accounts
@@ -663,6 +686,11 @@ primary, and each named follower has its own paper keys and strategy (`debit_spr
 `shares`). `services/trading/account_strategies.py` turns one production entry into a follower's order plan or a `Skip`.
 It's pure: no broker or DB access. `services/trading/follower_fleet.py`, built in `Python Scripts/main.py`, places those
 orders and closes each follower position when production's position is gone. Partial production exits are not mirrored.
+Optional per-account settings: `ACCOUNT_<NAME>_TAKE_BLOCKED=true` (`debit_spread`/`shares` only) also takes picks production
+skipped only for the premium cap (`FollowerFleet.mirror_blocked`, rows tagged `entry_kind='premium_cap_blocked'`, kept out of
+`account_summary`/`follower_report` unless `entry_kind=` asks), and `ACCOUNT_<NAME>_EXIT_POLICY=stock_stop|partial_profit`
+(`FOLLOWER_STOCK_STOP_PCT`, `FOLLOWER_PARTIAL_PROFIT_PCT`, `FOLLOWER_PARTIAL_PROFIT_FRACTION`). Followers may share one Alpaca
+account's keys, so a variant needs a new follower name, not new credentials.
 Positions are stored by `Data/market_db_modules/account_positions.py` (schema in `account_positions_schema.sql`).
 `account_summary` there backs `scripts/account_report.py`, and `follower_report` backs `/api/follower-accounts`
 (Research › Followers).

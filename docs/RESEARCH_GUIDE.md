@@ -50,6 +50,8 @@ database took about 3 s.
 | `RESEARCH_MODE` | `disabled` | `DISCOVERY_MODE=shadow`, a planner model and, on a billed provider, a cost budget and rates | planner calls |
 | `EVIDENCE_THESIS_MODE` | `shadow` | Nothing on the production route; the research route needs `RESEARCH_MODE=shadow` | inside the strategist call; research theses add calls |
 | `TRADE_ECONOMICS_MODE` | `shadow` | Price-response history from the collector for scenarios | none |
+| `ENTRY_EXTENSION_MODE` | `shadow` | The manager's `overextension_risk` and the payload's 5-day return; `enforce` needs an `ENTRY_EXTENSION` proof | none |
+| `TRADABILITY_MODE` | `shadow` | Alpaca market data; `enforce` needs a `TRADABILITY` proof and still skips no model call | none; about 5 Alpaca requests a candidate and 1 account read a cycle (`disabled` makes none) |
 | `EVENT_THESIS_REVIEW_MODE` | `shadow` | `DISCOVERY_MODE=shadow` (it creates the review items) | 3 adjudicator calls a review |
 | `FORWARD_EVALUATION_MODE` | `shadow` | `option_manager` for closing marks | none |
 | `RESEARCH_CHALLENGER_MODE` | `off` | A challenger model | up to 2 calls a production decision |
@@ -130,8 +132,11 @@ Enable in this order. Each step feeds the next, and each can run for a while on 
    Keep `RESEARCH_CHALLENGER_DAILY_CALLS` near two per production decision (about 120 today), or
    the backlog counts against coverage.
 
-`EVIDENCE_THESIS_MODE`, `TRADE_ECONOMICS_MODE`, `EVENT_THESIS_REVIEW_MODE` and
-`FORWARD_EVALUATION_MODE` are already `shadow` and need nothing.
+`EVIDENCE_THESIS_MODE`, `TRADE_ECONOMICS_MODE`, `EVENT_THESIS_REVIEW_MODE`, `ENTRY_EXTENSION_MODE`,
+`TRADABILITY_MODE` and `FORWARD_EVALUATION_MODE` are already `shadow` and need nothing. `TRADABILITY`'s metrics
+(each side's top pick, its premium, the cap, the bucket, any failure) are what to compare against later
+`EXECUTION premium_per_trade_cap` and `continuation_confirmed_but_no_eligible_contract` blocks. The `REGIME_SPY_TREND` regime variant
+has no mode: it is always shadow and never changes the `REGIME` verdict.
 
 ## Watching it
 
@@ -151,6 +156,7 @@ copy instead of the configured database; the path is inside the container.
 | Is forward evidence accumulating? | `docker compose exec worker python scripts/research.py forward-status` |
 | How does the challenger compare? | `docker compose exec worker python scripts/research.py compare COHORT_ID` (writes a report) |
 | Which route admits better events, and may discovery enforce? | `docker compose exec worker python scripts/research.py discovery-ledger --days 30` (see `promotion_check`) |
+| Which gate or tag separates winners from losers (incl. unknown rate)? | `docker compose exec worker python scripts/research.py gate-ledger --days 60` (5-day residual move signed by side; gate value as in the promotion proof, losses avoided minus profits sacrificed; per regime and manager model; slow on a large database) |
 | Do research theses hold up? | `docker compose exec worker python scripts/research.py research-outcomes --days 30` |
 | Which challenger is worth a cohort? | `docker compose exec worker python scripts/research.py benchmark run SET_ID --model M --split dev`, then `benchmark compare` (screening only; writes a benchmark run, never a promotion) |
 
@@ -177,6 +183,21 @@ docker compose exec worker python scripts/research.py attribution --days 0 --hor
 `--days` keeps decisions made in the last N days (by decision time, not when they were scored); 0 means all.
 The Decision Autopsy page shows the same three labels per decision.
 
+### Pick score and confidence components
+
+Every manager decision stores `thesis_confidence`, `timing_confidence`, `execution_confidence`,
+`pick_score` and `pick_score_version` on `manager_decision_history` (confidence was backfilled from stored
+output when the columns were added). The score's inputs and components are under `pick_score` in
+`manager_decision_payloads.manager_output_json`; the formula is in `services/research/pick_score.py`.
+It is log only: `trade_executor.py` does not order candidates by it until a ledger shows it separates
+outcomes. Join it to outcomes through `manager_decision_history_id`, for example:
+
+```
+SELECT h.pick_score_version, ROUND(h.pick_score, 1) AS score, COUNT(*), AVG(o.forward_residual_return)
+FROM manager_decision_history h JOIN candidate_price_observations o ON o.candidate_id = h.candidate_id
+WHERE h.pick_score IS NOT NULL GROUP BY 1, 2;
+```
+
 In the first weeks, check these:
 
 - **Thesis report:** `invalid_output_rate`. If it is high, the strategist is not producing
@@ -196,6 +217,22 @@ Setting a mode to `enforce` is not enough. `guard_policy` keeps each gate in sha
 - **Gate proofs.** A proof comes from a sealed frozen-forward Part 6 run and an explicit
   `scripts/v2_part6.py promote-gate REPORT_ID STAGE`. It needs ≥100 evaluable observations, two
   regimes, complete coverage and positive gate value.
+- **Pooled gate proofs.** A gate scored on the underlying move (catalyst, continuation, regime,
+  thesis blocks) need not wait for one run to seal. `scripts/v2_part6.py report-gate STAGE` scores it
+  on every frozen-forward row whose recorded gate-code hash and policy hash equal the current ones,
+  whichever run enrolled it. It counts the first verdict per symbol, New York day and side, and only
+  asks at least the 5-day horizon before the report time. `promote-gate REPORT_ID STAGE` accepts that
+  report with the same thresholds. A deploy that leaves the gate's `GATE_FILES` unchanged keeps
+  pooling; one that edits them starts that gate's sample again. Rows from unfinished candidates
+  (rejection-only verdicts) are left out. The report records the evaluator version, and promotion refuses
+  it once any evaluator file changed: re-run `report-gate`, which re-scores the same frozen rows.
+- **TRADABILITY proof.** The pre-strategist check is pooled the same way but scored on precision: of its
+  rejections with a known outcome, the share later hard-blocked (EXECUTION `premium_per_trade_cap` or
+  CONTRACT_SELECTION `continuation_confirmed_but_no_eligible_contract`) versus sent as an order. Promotion
+  needs ≥100 such rejections, passes and rejections, two regimes and precision ≥ 0.95. Once promoted,
+  `TRADABILITY_MODE=enforce` skips the strategist and manager calls for a rejected pick.
+- **Option-scored gates** (TRADE_ECONOMICS and the contract gates) are judged on hypothetical option P&L and
+  do not pool; they need a sealed frozen-forward `--month all` report.
 - **Challenger approval.** It comes from a final comparison report that met its cohort's frozen
   criteria, plus `scripts/research.py promote-challenger REPORT_ID`. This records approval only;
   you switch `STRATEGIST_MODEL`/`MANAGER_MODEL` yourself.
