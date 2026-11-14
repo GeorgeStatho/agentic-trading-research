@@ -85,10 +85,14 @@ Constraints that apply to every phase:
    are family `other`; extend the rules so fewer land there, since Phases 2–3 key on family.
    Status: done — `catalyst-rules-v3` (`Data/catalyst_models.py`): families `corporate_action` and `commentary`,
    half-life defaults for capital return/management/financing/commentary; `first_public_time` falls back to
-   article times in the anchor's root with `first_public_time_basis` (`Data/news_db_modules/catalysts.py`; undated
-   articles are still not admitted, so on current data it never fires); FRESHNESS reason
+   article times in the anchor's root with `first_public_time_basis` (`Data/news_db_modules/catalysts.py`). It has
+   no case to handle: none of the 3,908 FRESHNESS checks on candidates with articles lacks an event time. FRESHNESS reason
    `no_catalyst_articles` split out. Finding: all 2,086 "missing" cases are candidates with zero articles, so no
-   time can be recovered for them. `other` 90.1% → 53.9% of FRESHNESS rows (34.8% of the rest is those no-article ones).
+   time can be recovered for them; 2,085 of them are rejected at SUPPORT before any model call. `other` 90.1% → 53.9%
+   of FRESHNESS rows (34.8% of the rest is those no-article ones). The remaining gap is the half-life: `catalyst-rules-v4`
+   types reporting-period results, net income and "forecasts" as events, and treats previews, market and "why it
+   moved" recaps, listicles, awards and event notices as commentary. On the 2026-11-12 snapshot, candidates with
+   articles but no half-life fall from 1,329 to 1,049 of 3,908 (34.0% → 26.8%).
 3. **Pick score.** A deterministic score from features once they are proven (extension verdict, freshness
    remaining value, relative strength). Log it on each candidate first; later use it to order same-cycle
    candidates in `services/trading/trade_executor.py` when portfolio limits bind. Also log the manager's
