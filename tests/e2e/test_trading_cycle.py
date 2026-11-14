@@ -31,8 +31,12 @@ OUTPUT_ENV = ("SCRIPT_STATUS_PATH", "TRADE_EXECUTION_OUTPUT_PATH", "OPTION_POSIT
               "OPTION_POSITION_STATE_PATH", "AGENT_OUTPUT_PATH", "SELECTED_OPTIONS_OUTPUT_PATH")
 
 
-@unittest.skipUnless(os.environ.get("RUN_E2E"), "end-to-end tests run with: scripts/project.py test --e2e")
-class TradingCycleEndToEndTests(unittest.TestCase):
+E2E_ONLY = unittest.skipUnless(os.environ.get("RUN_E2E"), "end-to-end tests run with: scripts/project.py test --e2e")
+
+
+class TradingCycleHarness(unittest.TestCase):
+    """A seeded database, a fake market and a real worker; subclasses add the tests."""
+
     def setUp(self):
         temporary_database(self)
         outputs = tempfile.TemporaryDirectory()
@@ -93,6 +97,10 @@ class TradingCycleEndToEndTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, route)
         return response.get_json()
 
+
+
+@E2E_ONLY
+class TradingCycleEndToEndTests(TradingCycleHarness):
     def assert_one_call_traded_and_served(self, result, model):
         self.assertEqual([stage for stage, _ in model.prompts], ["strategist", "manager"])
         self.assertEqual(len(self.market.orders), 1)

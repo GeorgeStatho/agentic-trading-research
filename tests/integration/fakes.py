@@ -181,21 +181,25 @@ class ScriptedModel:
     def __init__(self, **replies):
         self.replies = replies
         self.prompts: list[tuple[str, str]] = []
+        self.system_prompts: list[tuple[str, str]] = []
 
     def answer(self, stage):
         def ask(*, system_prompt="", user_prompt="", **_):
             self.prompts.append((stage, user_prompt))
+            self.system_prompts.append((stage, system_prompt))
             reply = self.replies[stage]
             return reply(user_prompt) if callable(reply) else reply
         return ask
 
 
-def strategist_reply(decision="trade_candidate", *, symbol=SYMBOL, company_id=COMPANY_ID, article_ids=ARTICLE_IDS):
-    """A grounded strategist answer citing the seeded articles."""
+def strategist_reply(decision="trade_candidate", *, symbol=SYMBOL, company_id=COMPANY_ID, article_ids=ARTICLE_IDS,
+                     direction="call"):
+    """A grounded strategist answer citing the seeded articles; `direction` is call or put."""
     return json.dumps({"recommendation": {
         "decision": decision, "confidence": "high", "evidence_quality": "strong", "setup_quality": "strong",
-        "timing_clarity": "clear", "preferred_option_direction": "call", "expected_stock_direction": "up",
-        "time_horizon": "short_term", "why_now": "Guidance was raised", "summary": "Raised guidance",
+        "timing_clarity": "clear", "preferred_option_direction": direction,
+        "expected_stock_direction": "up" if direction == "call" else "down",
+        "time_horizon": "short_term", "why_now": "Guidance was revised", "summary": "Revised guidance",
         "catalyst": [], "thesis": [], "risks": [], "contradictions_present": False, "watchlist_reason": "",
         "grounded_company_symbol": symbol,
         "grounded_entity_ids": {"company_id": company_id, "industry_id": INDUSTRY_ID, "sector_id": SECTOR_ID},
@@ -207,6 +211,19 @@ def manager_reply(decision="call"):
     return json.dumps({"recommendation": {
         "decision": decision, "confidence": "high", "target_dte_bucket": "dte_8_21",
         "reason": "Raised guidance with confirming price action."}})
+
+
+def bearish_news(article_ids=ARTICLE_IDS) -> None:
+    """Turn the seeded articles into a guidance cut that the opportunists rated negative."""
+    with closing(get_connection()) as conn, conn:
+        for article_id in article_ids:
+            conn.execute("UPDATE news_articles SET title=?, summary=? WHERE id=?",
+                         (f"{SYMBOL} cuts revenue guidance", "Revenue guidance was cut.", article_id))
+            conn.execute("UPDATE news_article_content SET body=? WHERE article_id=?",
+                         ("The company cut quarterly revenue guidance below expectations.", article_id))
+            for table in ("industry_opportunist_impacts", "company_opportunist_impacts"):
+                conn.execute(f"UPDATE {table} SET impact_direction='negative', reason='Guidance cut' WHERE article_id=?",
+                             (article_id,))
 
 
 def seed_cycle_inputs() -> None:
