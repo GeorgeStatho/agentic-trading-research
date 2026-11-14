@@ -689,7 +689,8 @@ orders and closes each follower position when production's position is gone. Par
 Optional per-account settings: `ACCOUNT_<NAME>_TAKE_BLOCKED=true` (`debit_spread`/`shares` only) also takes picks production
 skipped only for the premium cap (`FollowerFleet.mirror_blocked`, rows tagged `entry_kind='premium_cap_blocked'`, kept out of
 `account_summary`/`follower_report` unless `entry_kind=` asks), and `ACCOUNT_<NAME>_EXIT_POLICY=stock_stop|partial_profit`
-(`FOLLOWER_STOCK_STOP_PCT`, `FOLLOWER_PARTIAL_PROFIT_PCT`, `FOLLOWER_PARTIAL_PROFIT_FRACTION`). Followers may share one Alpaca
+(`FOLLOWER_STOCK_STOP_PCT`, `FOLLOWER_PARTIAL_PROFIT_PCT`, `FOLLOWER_PARTIAL_PROFIT_FRACTION`). The `FOLLOWER_*` knobs are
+`get_settings().followers` (`services/core/settings.py`); a bad value leaves it `None` and the fleet off. Followers may share one Alpaca
 account's keys, so a variant needs a new follower name, not new credentials.
 Positions are stored by `Data/market_db_modules/account_positions.py` (schema in `account_positions_schema.sql`).
 `account_summary` there backs `scripts/account_report.py`, and `follower_report` backs `/api/follower-accounts`

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+import logging
 import os
 from pathlib import Path
 from typing import Iterator, Mapping
@@ -25,6 +26,7 @@ DEFAULT_LLAMACPP_BASE_URL = "http://127.0.0.1:8080/v1"
 DEFAULT_STAGE_MODEL = "world-news-sectors"
 _MODEL_FALLBACKS = ("MACRO_NEWS_MODEL", "WORLD_NEWS_MODEL")
 _HOST_FALLBACKS = ("MACRO_NEWS_OLLAMA_HOST", "WORLD_NEWS_OLLAMA_HOST")
+LOGGER = logging.getLogger(__name__)
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 
 
@@ -296,6 +298,42 @@ class CatalystClassifierSettings:
 
 
 @dataclass(frozen=True)
+class FollowerSettings:
+    spread_width_pct: float = 0.05
+    itm_min_delta: float = 0.70
+    force_exit_dte: int = 1
+    max_hold_days: float = 30.0
+    # Production holds about two days, so a one-week-longer expiry barely differs; two weeks does.
+    longer_dte_extra_days: int = 14
+    stock_stop_pct: float = 0.02  # stock_stop: adverse move in the underlying from entry
+    partial_profit_pct: float = 0.5  # partial_profit: gain on the position that triggers the trim
+    partial_profit_fraction: float = 0.5  # share of the position the trim sells
+
+    @classmethod
+    def from_environ(cls, env) -> 'FollowerSettings':
+        defaults = cls()
+        return cls(spread_width_pct=float(env.get('FOLLOWER_SPREAD_WIDTH_PCT', defaults.spread_width_pct)),
+                   itm_min_delta=float(env.get('FOLLOWER_ITM_MIN_DELTA', defaults.itm_min_delta)),
+                   force_exit_dte=int(env.get('FOLLOWER_FORCE_EXIT_DTE', defaults.force_exit_dte)),
+                   max_hold_days=float(env.get('FOLLOWER_MAX_HOLD_DAYS', defaults.max_hold_days)),
+                   longer_dte_extra_days=int(env.get('FOLLOWER_LONGER_DTE_EXTRA_DAYS',
+                                                     defaults.longer_dte_extra_days)),
+                   stock_stop_pct=float(env.get('FOLLOWER_STOCK_STOP_PCT', defaults.stock_stop_pct)),
+                   partial_profit_pct=float(env.get('FOLLOWER_PARTIAL_PROFIT_PCT', defaults.partial_profit_pct)),
+                   partial_profit_fraction=float(env.get('FOLLOWER_PARTIAL_PROFIT_FRACTION',
+                                                         defaults.partial_profit_fraction)))
+
+
+def _followers(environ) -> FollowerSettings | None:
+    # A typo in a follower knob must never stop production from starting: followers stay off instead.
+    try:
+        return FollowerSettings.from_environ(environ)
+    except ValueError:
+        LOGGER.exception('Invalid FOLLOWER_* setting')
+        return None
+
+
+@dataclass(frozen=True)
 class Settings:
     models: ModelSettings
     vertex: VertexSettings
@@ -306,6 +344,7 @@ class Settings:
     openai_compatible: OpenAICompatibleSettings = OpenAICompatibleSettings()
     classifier_fallback: ClassifierFallbackSettings = ClassifierFallbackSettings()
     catalyst_classifier: CatalystClassifierSettings = CatalystClassifierSettings()
+    followers: FollowerSettings | None = FollowerSettings()
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str]) -> "Settings":
@@ -316,7 +355,8 @@ class Settings:
                    evidence_continuation=EvidenceContinuationPolicy.from_environ(environ),
                    openai_compatible=OpenAICompatibleSettings.from_environ(environ),
                    classifier_fallback=ClassifierFallbackSettings.from_environ(environ),
-                   catalyst_classifier=CatalystClassifierSettings.from_environ(environ))
+                   catalyst_classifier=CatalystClassifierSettings.from_environ(environ),
+                   followers=_followers(environ))
 
 
 _settings: Settings | None = None

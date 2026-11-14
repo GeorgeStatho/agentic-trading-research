@@ -36,34 +36,6 @@ class TradingAccount:
     blocked_picks: bool = False  # also trade picks production skipped only for the premium cap
 
 
-@dataclass(frozen=True)
-class FollowerSettings:
-    spread_width_pct: float = 0.05
-    itm_min_delta: float = 0.70
-    force_exit_dte: int = 1
-    max_hold_days: float = 30.0
-    # Production holds about two days, so a one-week-longer expiry barely differs; two weeks does.
-    longer_dte_extra_days: int = 14
-    stock_stop_pct: float = 0.02  # stock_stop: adverse move in the underlying from entry
-    partial_profit_pct: float = 0.5  # partial_profit: gain on the position that triggers the trim
-    partial_profit_fraction: float = 0.5  # share of the position the trim sells
-
-    @classmethod
-    def from_env(cls, env=None) -> 'FollowerSettings':
-        env = os.environ if env is None else env
-        defaults = cls()
-        return cls(spread_width_pct=float(env.get('FOLLOWER_SPREAD_WIDTH_PCT', defaults.spread_width_pct)),
-                   itm_min_delta=float(env.get('FOLLOWER_ITM_MIN_DELTA', defaults.itm_min_delta)),
-                   force_exit_dte=int(env.get('FOLLOWER_FORCE_EXIT_DTE', defaults.force_exit_dte)),
-                   max_hold_days=float(env.get('FOLLOWER_MAX_HOLD_DAYS', defaults.max_hold_days)),
-                   longer_dte_extra_days=int(env.get('FOLLOWER_LONGER_DTE_EXTRA_DAYS',
-                                                     defaults.longer_dte_extra_days)),
-                   stock_stop_pct=float(env.get('FOLLOWER_STOCK_STOP_PCT', defaults.stock_stop_pct)),
-                   partial_profit_pct=float(env.get('FOLLOWER_PARTIAL_PROFIT_PCT', defaults.partial_profit_pct)),
-                   partial_profit_fraction=float(env.get('FOLLOWER_PARTIAL_PROFIT_FRACTION',
-                                                         defaults.partial_profit_fraction)))
-
-
 def _follower(name, env, primary):
     prefix = f'ACCOUNT_{name.upper()}_'
     key, secret = (str(env.get(prefix + part) or '').strip() for part in ('PUBLIC_KEY', 'PRIVATE_KEY'))

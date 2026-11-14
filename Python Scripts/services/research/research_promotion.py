@@ -135,9 +135,10 @@ def research_only_candidate(candidate_id):
 # top-level version and these digests are computed over modes or code. Modes are excluded
 # for the same reason policy_hash excludes them: each gate's enforcement has its own proof,
 # so promoting a gate must not revoke the champion that a deploy did not change.
+# Follower accounts paper-trade beside production and never change its decisions.
 CHAMPION_EXCLUDED_KEYS = frozenset({'source_hashes', 'pipeline_version', 'gate_config_hash',
                                     'provider_config_hash', 'research_budget_hash',
-                                    'economics_assumptions_hash', 'evaluator_hash'}) | MODE_KEYS
+                                    'economics_assumptions_hash', 'evaluator_hash', 'followers'}) | MODE_KEYS
 CHAMPION_MISMATCH_PATHS = 20
 
 

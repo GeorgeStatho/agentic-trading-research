@@ -19,7 +19,8 @@ from services.core.numbers import safe_float
 from services.research.research_contract import utc
 from services.core.trade_sides import trade_side
 from services.trading.order_values import FILLED, REPLACED, WORKING, order_phase
-from services.trading.trading_accounts import PARTIAL_PROFIT, STOCK_STOP, FollowerSettings
+from services.core.settings import get_settings
+from services.trading.trading_accounts import PARTIAL_PROFIT, STOCK_STOP
 
 NEW_YORK = ZoneInfo('America/New_York')
 # The manager's chain keeps only near-the-money OTM strikes within $25. Followers need ITM strikes and
@@ -352,11 +353,10 @@ def build_follower_fleet(accounts, *, logger, settings=None, primary_gateway=Non
     roles = {account.role for account in accounts}
     if not {'primary', 'follower'} <= roles:
         return None
-    try:
-        settings = settings or FollowerSettings.from_env()
-    except ValueError:
-        # A typo in a follower knob must never stop production from starting.
-        logger.exception('Invalid FOLLOWER_* setting; follower accounts disabled')
+    settings = settings or get_settings().followers
+    if settings is None:
+        # Settings logged which FOLLOWER_* value is bad; production starts without followers.
+        logger.error('Follower accounts disabled: a FOLLOWER_* setting is invalid')
         return None
     from services.trading.trading_gateway import AlpacaTradingGateway
 

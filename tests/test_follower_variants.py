@@ -5,7 +5,8 @@ import unittest
 from datetime import datetime, timezone
 
 from market_db_modules import account_positions as store
-from services.trading.trading_accounts import FollowerSettings, TradingAccount
+from services.core.settings import FollowerSettings
+from services.trading.trading_accounts import TradingAccount
 from tests import test_follower_fleet as base
 
 BLOCKED = 'premium_cap_blocked'
@@ -219,7 +220,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual((defaults.partial_profit_pct, defaults.partial_profit_fraction), (0.5, 0.5))
         env = {'FOLLOWER_STOCK_STOP_PCT': '0.05',
                'FOLLOWER_PARTIAL_PROFIT_PCT': '0.4', 'FOLLOWER_PARTIAL_PROFIT_FRACTION': '0.25'}
-        loaded = FollowerSettings.from_env(env)
+        loaded = FollowerSettings.from_environ(env)
         self.assertEqual((loaded.stock_stop_pct, loaded.partial_profit_pct, loaded.partial_profit_fraction),
                          (0.05, 0.4, 0.25))
 

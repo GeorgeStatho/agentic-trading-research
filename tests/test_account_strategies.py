@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 
 from services.trading.account_strategies import OrderLeg, OrderPlan, Skip, build_order
-from services.trading.trading_accounts import FollowerSettings
+from services.core.settings import FollowerSettings
 
 CHAIN = json.loads((Path(__file__).parent / 'fixtures' / 'follower_chain.json').read_text())
 SETTINGS = FollowerSettings(spread_width_pct=0.05, itm_min_delta=0.70, force_exit_dte=1, max_hold_days=30,

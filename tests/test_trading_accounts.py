@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from services.trading.trading_accounts import FollowerSettings, TradingAccount, load_trading_accounts
+from services.core.settings import FollowerSettings, Settings
+from services.trading.trading_accounts import TradingAccount, load_trading_accounts
 
 PRODUCTION = {'PUBLIC_KEY': 'PROD-KEY', 'PRIVATE_KEY': 'PROD-SECRET'}
 PRIMARY = TradingAccount('production', 'PROD-KEY', 'PROD-SECRET', 'primary', 'single_leg', 'bucket_rules')
@@ -90,12 +91,26 @@ class FollowerAccountTests(unittest.TestCase):
 
 class FollowerSettingsTests(unittest.TestCase):
     def test_defaults(self):
-        self.assertEqual(FollowerSettings.from_env({}), FollowerSettings(0.05, 0.70, 1, 30.0, 14))
+        self.assertEqual(FollowerSettings.from_environ({}), FollowerSettings(0.05, 0.70, 1, 30.0, 14))
 
     def test_reads_env_knobs(self):
         env = {'FOLLOWER_SPREAD_WIDTH_PCT': '0.08', 'FOLLOWER_ITM_MIN_DELTA': '0.8',
                'FOLLOWER_FORCE_EXIT_DTE': '2', 'FOLLOWER_MAX_HOLD_DAYS': '10', 'FOLLOWER_LONGER_DTE_EXTRA_DAYS': '21'}
-        self.assertEqual(FollowerSettings.from_env(env), FollowerSettings(0.08, 0.8, 2, 10.0, 21))
+        self.assertEqual(FollowerSettings.from_environ(env), FollowerSettings(0.08, 0.8, 2, 10.0, 21))
+
+    def test_they_are_a_section_of_the_process_settings(self):
+        self.assertEqual(Settings.from_environ({'FOLLOWER_STOCK_STOP_PCT': '0.03'}).followers,
+                         FollowerSettings(stock_stop_pct=0.03))
+
+    def test_follower_knobs_do_not_split_production_cohorts(self):
+        from services.research.research_promotion import champion_identity
+        manifest = {'process_settings': {'models': 'm', 'followers': {'stock_stop_pct': 0.02}}}
+        changed = {'process_settings': {'models': 'm', 'followers': {'stock_stop_pct': 0.03}}}
+        self.assertEqual(champion_identity(manifest), champion_identity(changed))
+
+    def test_a_bad_value_turns_followers_off_instead_of_failing_startup(self):
+        with self.assertLogs('services.core.settings', level='ERROR'):
+            self.assertIsNone(Settings.from_environ({'FOLLOWER_STOCK_STOP_PCT': 'two'}).followers)
 
 
 if __name__ == '__main__':
