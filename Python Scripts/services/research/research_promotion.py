@@ -26,6 +26,10 @@ _CATALYST_FILES = ('Python Scripts/services/gates/catalyst_gates.py', 'Data/cata
                    'Python Scripts/Webscraping/processing/scoring.py', 'Data/news_db_modules/catalysts.py',
                    'Data/news_db_modules/provenance.py', 'config/source.json')
 _CONTRACT_POLICY = 'Python Scripts/services/gates/contract_policy.py'
+_SELECTOR = 'Python Scripts/agentCallers/agent_helpers/deterministic_option_selector/'
+# The deterministic selector picks the contract that TRADABILITY judges.
+_SELECTOR_FILES = tuple(_SELECTOR + name for name in ('__init__.py', 'config.py', 'debug.py', 'filters.py', 'greeks.py',
+                                                       'hybrid.py', 'market.py', 'normalize.py', 'simple.py', 'volatility.py'))
 # The files whose content decides a stage's verdict: its rule and the producers of what it reads.
 # A proof survives deploys that leave them unchanged; an unlisted stage binds to the whole trading path.
 GATE_FILES = {
@@ -41,13 +45,16 @@ GATE_FILES = {
                         'Python Scripts/services/core/trade_sides.py'),
     # The stock quote and the selector pick the contract; its reference price and the cap resolution decide the fit.
     'TRADABILITY': ('Python Scripts/services/gates/tradability_gate.py', 'Python Scripts/services/options/reference_price.py',
+                    'Python Scripts/services/core/trading_config.py', 'Python Scripts/services/options/option_pricing.py',
+                    'Python Scripts/services/options/option_dte_buckets.py',
+                    'Python Scripts/services/options/scenario_selector.py',
+                    'Python Scripts/services/gates/liquidity_gate.py', _CONTRACT_POLICY,
+                    'Python Scripts/services/gates/option_hurdle_gate.py',
+                    'Python Scripts/agentCallers/agent_helpers/market_context/alpaca_base.py',
                     'Python Scripts/agentCallers/agent_helpers/market_context/equities.py',
-                    'Python Scripts/services/core/trading_config.py',
-                    'Python Scripts/agentCallers/agent_helpers/deterministic_option_selector/__init__.py',
-                    'Python Scripts/agentCallers/agent_helpers/deterministic_option_selector/hybrid.py',
-                    'Python Scripts/agentCallers/agent_helpers/deterministic_option_selector/filters.py',
-                    'Python Scripts/agentCallers/agent_helpers/deterministic_option_selector/config.py',
-                    'Python Scripts/agentCallers/agent_helpers/market_context/option_chain.py'),
+                    'Python Scripts/agentCallers/agent_helpers/market_context/option_chain.py',
+                    'Python Scripts/agentCallers/agent_helpers/market_context/iv_history.py',
+                    'Python Scripts/agentCallers/agent_helpers/volatility.py', *_SELECTOR_FILES),
     'CONTINUATION': ('Python Scripts/services/gates/evidence_continuation_gate.py',
                      'Python Scripts/services/gates/evidence_continuation_policy.py', 'Data/catalyst_models.py'),
     'LIQUIDITY': ('Python Scripts/services/gates/liquidity_gate.py', _CONTRACT_POLICY,
