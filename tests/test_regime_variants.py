@@ -46,13 +46,40 @@ class SpyTrendVariantTests(unittest.TestCase):
         self.assertIsNone(evaluate_regime_spy_trend_gate({'recommendation': {'decision': 'call'}})['would_allow'])
         self.assertIsNone(evaluate_regime_spy_trend_gate(_result('neither', -1.0, -2.0))['would_allow'])
 
-    def test_variant_is_shadow_only_and_never_affects_eligibility(self):
+    def test_variant_defaults_to_shadow_and_never_affects_eligibility(self):
         verdict = evaluate_regime_spy_trend_gate(_result('call', -1.0, -2.0))
         self.assertTrue(verdict['allowed'])
         self.assertEqual(verdict['enforcement_mode'], 'shadow')
         self.assertNotEqual(verdict['policy_version'], MarketRegimePolicy().policy_version)
         gates = {gate.result_key: {'allowed': True} for gate in ENTRY_GATES}
         self.assertTrue(entry_allowed({**gates, 'market_regime_spy_trend_gate': verdict}))
+
+    def test_enforced_with_a_proof_it_blocks_a_call_against_the_spy_trend(self):
+        from unittest.mock import patch
+        from services.gates.market_regime_variants import RegimeSpyTrendPolicy
+        with patch.dict('os.environ', {'REGIME_SPY_TREND_MODE': 'enforce', 'MARKET_REGIME_GATE_MODE': 'shadow'}), \
+                patch('services.research.research_promotion.approved', return_value=True):
+            policy = RegimeSpyTrendPolicy.from_env()
+        self.assertEqual(policy.mode, 'enforce')
+        blocked = evaluate_regime_spy_trend_gate(_result('call', -1.0, -2.0), policy)
+        self.assertEqual((blocked['allowed'], blocked['enforcement_mode']), (False, 'enforce'))
+        self.assertTrue(evaluate_regime_spy_trend_gate(_result('call', 1.0, -2.0), policy)['allowed'])
+        self.assertTrue(evaluate_regime_spy_trend_gate(_result('call', None, -2.0), policy)['allowed'])
+
+    def test_enforce_without_a_proof_stays_shadow(self):
+        from unittest.mock import patch
+        from services.gates.market_regime_variants import RegimeSpyTrendPolicy
+        with patch.dict('os.environ', {'REGIME_SPY_TREND_MODE': 'enforce'}), \
+                patch('services.research.research_promotion.approved', return_value=False):
+            self.assertEqual(RegimeSpyTrendPolicy.from_env().mode, 'shadow')
+
+    def test_it_yields_to_an_enforcing_regime_gate(self):
+        from unittest.mock import patch
+        from services.gates.market_regime_variants import RegimeSpyTrendPolicy
+        with patch.dict('os.environ', {'REGIME_SPY_TREND_MODE': 'enforce', 'MARKET_REGIME_GATE_MODE': 'enforce'}), \
+                patch('services.research.research_promotion.approved', return_value=True), \
+                self.assertLogs('services.gates.market_regime_variants', level='WARNING'):
+            self.assertEqual(RegimeSpyTrendPolicy.from_env().mode, 'shadow')
 
     def test_registered_under_its_own_stage_files_and_policy_block(self):
         from services.core.pipeline_version import gate_config

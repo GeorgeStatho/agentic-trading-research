@@ -63,7 +63,7 @@ def gate_config():
                          'continuation': get_settings().evidence_continuation,
                          'regime': MarketRegimePolicy.from_env(),
                          'regime_snapshot': MarketRegimeSnapshotPolicy.from_env(),
-                         'entry_extension': EntryExtensionPolicy.from_env(), 'regime_spy_trend': RegimeSpyTrendPolicy(),
+                         'entry_extension': EntryExtensionPolicy.from_env(), 'regime_spy_trend': RegimeSpyTrendPolicy.from_env(),
                          'tradability': TradabilityPolicy.from_env()})
 
 

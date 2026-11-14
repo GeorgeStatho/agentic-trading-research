@@ -109,7 +109,8 @@ Constraints that apply to every phase:
    20-day trend are both down", and let Phase 0 show which has positive gate value.
    Status: done (shadow) — correction: `decision_gate_verdicts` keys on `gate_name`, not `policy_version`, so the
    variant has its own stage `REGIME_SPY_TREND` / key `market_regime_spy_trend_gate` (`market_regime_variants.py`,
-   always `allowed`); the regime snapshot now carries `spy_return_5d_pct`/`spy_return_20d_pct`. On 1,095 stored
+   `REGIME_SPY_TREND_MODE`, promotion-guarded; while REGIME enforces, an enforced variant stays shadow, so the two
+   never stack); the regime snapshot now carries `spy_return_5d_pct`/`spy_return_20d_pct`. On 1,095 stored
    decisions: 735 pass, 360 reject (production REGIME: 151 pass, 710 reject, 234 unknown).
 2. **Use `sizing_multiplier`.** The gate already returns it; nothing reads it. Wire it into order sizing in
    shadow first (log the size it would choose).

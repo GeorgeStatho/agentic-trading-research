@@ -43,7 +43,7 @@ ENTRY_GATES = (
     EntryGate("ENTRY_EXTENSION", "entry_extension_gate", verdict_required=False, records_verdict_row=True),
     # Judged before the strategist from its own chain fetch; see services/gates/tradability_gate.py.
     EntryGate("TRADABILITY", "tradability_gate", verdict_required=False, records_verdict_row=True),
-    # Shadow-only alternative to REGIME; its verdict is always allowed. See services/gates/market_regime_variants.py.
+    # Alternative to REGIME, promotion-guarded and never enforced beside it. See services/gates/market_regime_variants.py.
     EntryGate("REGIME_SPY_TREND", "market_regime_spy_trend_gate", verdict_required=False,
               records_verdict_row=True),
 )
