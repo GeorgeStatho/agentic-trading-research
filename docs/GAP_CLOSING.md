@@ -96,7 +96,9 @@ Constraints that apply to every phase:
    confidence is always "medium".
    Status: logged, not used — `pick-score-v1` (`services/research/pick_score.py`, extension part = the recorded
    `ENTRY_EXTENSION` verdict) attached after that gate and
-   stored with the three confidence components as `manager_decision_history` columns (confidence backfilled once);
+   stored with the three confidence components as `manager_decision_history` columns (confidence backfilled once)
+   and as a `pick_score` candidate snapshot. Candidates stopped before the manager have no side or extension
+   verdict, so they get no score;
    `trade_executor.py` does not order by it yet.
 
 ## Phase 2 — Market view and short side (gap 1)

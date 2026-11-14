@@ -471,6 +471,7 @@ def _apply_post_manager_gates(
     # Log only, and after ENTRY_EXTENSION because it scores that verdict; trade_executor.py does not
     # order by it until the ledger shows it separates outcomes.
     manager_result["pick_score"] = observe(compute_pick_score, manager_result)
+    checkpoint(candidate_context, "pick_score", manager_result["pick_score"])
     thesis_gate = evaluate_evidence_thesis_gate(
         manager_result.get("strategist_recommendation"),
         manager_result.get("recommendation", {}).get("decision"),

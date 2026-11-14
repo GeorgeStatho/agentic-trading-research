@@ -6,6 +6,8 @@ pick-score-v1 is the mean of whichever of these components are known, each in [0
 - freshness: FRESHNESS remaining_information_value of the candidate's lead catalyst.
 - relative_strength: neutral (0.5) plus the 20-day return relative to SPY, signed in the direction, scaled
   so a RELATIVE_STRENGTH_SPAN_PCT lead scores 1 and the same lag scores 0.
+It is recorded for each candidate the manager decides (a `pick_score` candidate snapshot and the
+manager_decision_history columns); a candidate stopped earlier has no side or extension verdict to score.
 Change the formula only together with PICK_SCORE_VERSION. Ordering same-cycle candidates by it in
 trade_executor.py waits until the gate ledger shows it separates outcomes.
 """
