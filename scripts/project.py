@@ -116,6 +116,9 @@ def _parse_args() -> argparse.Namespace:
                              help="Run only tests affected by changes since the last --changed run (needs the dev extras).")
     test_parser.add_argument("--e2e", action="store_true",
                              help="Run the end-to-end trading-cycle tests in tests/e2e (skipped by a plain run).")
+    test_parser.add_argument("--live-market", action="store_true",
+                             help="Run one cycle against real Alpaca and yfinance and report rate limits (tests/live; "
+                                  "reads the Alpaca keys from .env, places no orders, makes no model calls).")
 
     dashboard_parser = subparsers.add_parser("dashboard", help="Run a dashboard development command.")
     dashboard_parser.add_argument("target", choices=("dev", "build"))
@@ -137,6 +140,9 @@ def main() -> int:
                 print("--changed selects tests itself; do not also name modules.", file=sys.stderr)
                 return 2
             return _run_changed_tests()
+        if args.live_market:
+            os.environ["RUN_LIVE_MARKET"] = "1"
+            return _run([PYTHON, "-m", "unittest", "discover", "-s", "tests/live", "-t", ".", "-p", "test_*.py"])
         if args.e2e:
             os.environ["RUN_E2E"] = "1"
             return _run([PYTHON, "-m", "unittest", "discover", "-s", "tests/e2e", "-t", ".", "-p", "test_*.py"])
