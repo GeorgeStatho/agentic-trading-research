@@ -13,7 +13,7 @@ from services.research.research_contract import ResearchPolicy
 from services.research.research_promotion import guard_policy
 
 
-POLICY_VERSION = 'trade-economics-v1'
+POLICY_VERSION = 'trade-economics-v2'
 MODES = {'off', 'shadow', 'enforce'}
 
 

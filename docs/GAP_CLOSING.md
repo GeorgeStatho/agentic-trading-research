@@ -129,10 +129,13 @@ Constraints that apply to every phase:
    Status: done — both appear in `gate-ledger` with `unknown_rate` (generic over all gate stages).
 2. Both need ≥30 past samples per catalyst family (`PricingPolicy.minimum_samples`); Phase 1 step 2 raises that
    coverage. Promote `TRADE_ECONOMICS` through the pooled proof once it qualifies.
-   Status: not poolable — TRADE_ECONOMICS is scored on hypothetical option P&L, so it promotes only through a
-   sealed frozen-forward `--month all` report (`promote-gate`); pooled proofs cover move-scored gates and
-   TRADABILITY's hard-block precision. On the 2026-11-11 backup no option-scored proof can form: 0 of 3,046 tracked
-   candidates have a completed counterfactual trade, and TRADE_ECONOMICS has 16 verdicts, all rejections.
+   Status: poolable — `report-gate TRADE_ECONOMICS` scores each verdict on the option its report priced, repriced
+   at the candidate's realized 5-day residual move (`option_net_return_proxy`); it has its own `GATE_FILES`.
+   Finding: all 16 verdicts on the 2026-11-11 backup were "unavailable". 26 of 29 reports were family `other`, which
+   has no stored responses, and the rest fell below 30 effective samples because same-day and same-ticker merges
+   chained 1,072 macro_sector responses into 15 clusters. `trade-economics-v2` prices residual returns (market and
+   sector move not modelled), so only the same ticker within the horizon merges: effective samples are now 38–271
+   per family and horizon. "Unavailable" is now an unknown verdict, not a rejection; enforcement still blocks it.
 
 ## Phase 4 — Tradable list and structure (gap 6)
 
@@ -180,7 +183,7 @@ What stands between these checks and a first promotion, measured on the 2026-11-
 - **2,585 company-evidence requests failed** with `provider_collection_failed`; not diagnosed.
 - **Pooled proofs bind the evaluator version**: after an evaluator change, re-run `report-gate` before promoting.
 - **No counterfactual option trade has completed** (0 of 3,046 tracked candidates: 2,579 `missing_decision`, 451
-  `cash`), so option-scored gates (TRADE_ECONOMICS, contract gates) cannot be proven yet by any route.
+  `cash`), so contract gates cannot be proven yet; TRADE_ECONOMICS no longer needs one (pooled option-return proxy).
 - **TRADABILITY labels will be scarce.** A rejection counts only once a later stage hard-blocks it or an order goes
   out; "no eligible contract" is recorded only when CONTINUATION allows the pick, so picks that REGIME or
   CONTINUATION stop first stay unlabelled. They count against TRADABILITY's 90% coverage (manager declines

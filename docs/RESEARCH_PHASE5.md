@@ -67,15 +67,15 @@ the contract's DTE is used. Empirical scenarios only exist at the stored respons
 exits at that horizon. For example, a 25-DTE contract in `20_30` (forced exit at 12 DTE) holds
 13 days and is evaluated at 10.
 
-**Scenarios.** The scenarios are the total stock returns (`stock_return`) of past catalysts in the
-same `catalyst_family` at that horizon. They use the availability rules of the existing
-distribution: outcome, recording and registration all at or before the report time, and the
-candidate's own catalyst excluded. Total returns include each past period's realized market and
-sector moves. The residual-only result is kept as a labelled sensitivity. Rows written without
-a total return are excluded and counted, not replaced by the residual.
+**Scenarios.** The scenarios are the residual returns (market and sector move removed) of past
+catalysts in the same `catalyst_family` at that horizon (`trade-economics-v2`). They use the
+availability rules of the existing distribution: outcome, recording and registration all at or
+before the report time, and the candidate's own catalyst excluded. The market and sector move
+over the holding period is not priced. v1 priced total returns, but those share the market move
+across every event in overlapping windows, which left about 15 independent samples per family.
 
-**Independence.** Catalysts on the same event day, or on the same ticker within the horizon,
-form one cluster. Each cluster gets equal weight, shared across its catalysts. The effective
+**Independence.** Catalysts on the same ticker within the horizon share a stock path and form
+one cluster; residuals carry no market move, so a shared event day does not join them. Each cluster gets equal weight, shared across its catalysts. The effective
 sample size is the number of clusters. Expected values, quantiles and the break-even price are
 reported only when it reaches `V2_EXPECTED_MOVE_MIN_SAMPLES`. Otherwise the report keeps the
 unweighted scenario range and the stress grid, and marks expected value unavailable.

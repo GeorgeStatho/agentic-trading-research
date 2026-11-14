@@ -27,7 +27,7 @@ _CATALYST_FILES = ('Python Scripts/services/gates/catalyst_gates.py', 'Data/cata
                    'Data/news_db_modules/provenance.py', 'config/source.json')
 _CONTRACT_POLICY = 'Python Scripts/services/gates/contract_policy.py'
 _SELECTOR = 'Python Scripts/agentCallers/agent_helpers/deterministic_option_selector/'
-# The deterministic selector picks the contract that TRADABILITY judges.
+# The deterministic selector picks the contract that TRADABILITY and TRADE_ECONOMICS judge.
 _SELECTOR_FILES = tuple(_SELECTOR + name for name in ('__init__.py', 'config.py', 'debug.py', 'filters.py', 'greeks.py',
                                                        'hybrid.py', 'market.py', 'normalize.py', 'simple.py', 'volatility.py'))
 # The files whose content decides a stage's verdict: its rule and the producers of what it reads.
@@ -55,6 +55,15 @@ GATE_FILES = {
                     'Python Scripts/agentCallers/agent_helpers/market_context/option_chain.py',
                     'Python Scripts/agentCallers/agent_helpers/market_context/iv_history.py',
                     'Python Scripts/agentCallers/agent_helpers/volatility.py', *_SELECTOR_FILES),
+    # The report prices the selected contract on the family's stored residual responses.
+    'TRADE_ECONOMICS': ('Python Scripts/services/gates/trade_economics.py',
+                        'Python Scripts/services/gates/trade_economics_policy.py',
+                        'Python Scripts/services/gates/pricing_policy.py', 'Python Scripts/services/options/option_pricing.py',
+                        'Python Scripts/services/options/option_dte_buckets.py',
+                        'Python Scripts/services/runtime/execution_telemetry.py',
+                        'Python Scripts/services/discovery/catalyst_response_collector.py',
+                        'Data/market_db_modules/pricing_research.py', 'Data/market_db_modules/trade_economics.py',
+                        'Data/news_db_modules/catalysts.py', 'Data/catalyst_models.py', *_SELECTOR_FILES),
     'CONTINUATION': ('Python Scripts/services/gates/evidence_continuation_gate.py',
                      'Python Scripts/services/gates/evidence_continuation_policy.py', 'Data/catalyst_models.py'),
     'LIQUIDITY': ('Python Scripts/services/gates/liquidity_gate.py', _CONTRACT_POLICY,

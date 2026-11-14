@@ -269,11 +269,11 @@ Tasks:
 - [x] Record shadow economic rejection reasons distinctly from actual blocked orders.
 
 Implementation note: the finalizer is deterministic Python; its explanation is generated from the report,
-with no second manager model call. Scenarios are total stock returns of past same-family catalysts.
+with no second manager model call. Scenarios are residual returns of past same-family catalysts (v2).
 Each contract is held until its DTE bucket's forced exit, snapped down to a stored response horizon.
 Prices come from Black-Scholes repricing; the existing Greek approximation failed validation on large
 moves and the Part 5 scorer now uses the same repricing.
-Expected values require enough independent event clusters. Crossing the quoted spread is treated as the
+Expected values require enough independent clusters (same ticker within the horizon). Crossing the quoted spread is treated as the
 full execution cost, and measured slippage is not added. Market regime is not stratified.
 Reports live in `candidate_economics_reports`, which replaced the unused Phase 0 table that required an
 evidence package. `TRADE_ECONOMICS` is a promotion-guarded entry gate, and the executor rechecks validity

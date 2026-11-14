@@ -47,13 +47,14 @@ MODEL_ASSUMPTIONS = {
     'execution_cost': 'crossing the quoted spread is the whole execution cost; no measured slippage is added',
     'unsold_option': 'an exit worth no more than its fee is held to expiry and assumed worthless',
     'holding_horizon': "hold until the bucket's forced-exit DTE, snapped down to a stored response horizon",
-    'scenario_weights': 'equal weight per independent event cluster: same event day, or same ticker within the horizon',
-    'systematic_return': "total stock returns of past catalysts, including their own periods' market and sector moves",
+    'scenario_weights': 'equal weight per independent cluster: the same ticker within the horizon',
+    'systematic_return': 'not modelled: scenarios are residual returns, so the market and sector move is assumed zero',
 }
 LIMITATIONS = (
     'Path-dependent exits (stop loss, take profit, trailing stop, scale-outs, thesis exits) are not '
     'modelled; every scenario exits at the holding horizon.',
     'Scenarios are stratified by catalyst family and horizon, not by market regime.',
+    "The market and sector move over the holding period is not priced; only the catalyst's residual move is.",
     'One IV change applies to every scenario; IV is not modelled jointly with the size of the move.',
     'Live entries are market orders: partial fills and slippage beyond the quote are not modelled, '
     'and no maximum entry price is enforced at the broker.',
@@ -76,7 +77,7 @@ def horizon_key(horizon_days):
 # --- Scenarios -------------------------------------------------------------------------
 
 def independence_clusters(rows, horizon_days):
-    """Same event day shares a market move; same ticker within the horizon shares a path."""
+    """Same ticker within the horizon shares a path. Residuals carry no market move, so a shared day does not join."""
     parent = list(range(len(rows)))
 
     def find(index):
@@ -88,9 +89,6 @@ def independence_clusters(rows, horizon_days):
     def join(left, right):
         parent[find(left)] = find(right)
 
-    first_by_day = {}
-    for index, row in enumerate(rows):
-        join(index, first_by_day.setdefault(row['event_time'].date(), index))
     by_ticker = sorted(range(len(rows)), key=lambda index: (rows[index]['ticker'], rows[index]['event_time']))
     for left, right in zip(by_ticker, by_ticker[1:]):
         same_ticker = rows[left]['ticker'] == rows[right]['ticker']
@@ -105,16 +103,15 @@ def scenario_set(rows, horizon_days):
     """Each independent cluster gets equal weight, shared across its catalysts."""
     usable = []
     for row in rows:
-        total, residual, event_time = finite_float(row.get('stock_return')), finite_float(row.get('residual_return')), timestamp(row.get('event_at'))
-        if event_time and total is not None and residual is not None and min(total, residual) > -1:
-            usable.append({**row, 'event_time': event_time, 'stock_return': total, 'residual_return': residual})
+        residual, event_time = finite_float(row.get('residual_return')), timestamp(row.get('event_at'))
+        if event_time and residual is not None and residual > -1:
+            usable.append({**row, 'event_time': event_time, 'residual_return': residual})
     clusters = independence_clusters(usable, horizon_days)
     sizes = Counter(clusters)
     return {'status': 'complete' if usable else 'no_samples', 'horizon_days': horizon_days,
             'sample_size': len(usable), 'effective_sample_size': len(sizes),
             'excluded_rows': len(rows) - len(usable),
             'catalyst_ids': [row['catalyst_id'] for row in usable],
-            'total_returns': [row['stock_return'] for row in usable],
             'residual_returns': [row['residual_return'] for row in usable],
             'clusters': clusters, 'weights': [1 / (len(sizes) * sizes[label]) for label in clusters]}
 
@@ -205,6 +202,17 @@ def net_pnl(proceeds, *, ask, policy):
     return exit_net(proceeds, policy) - ask * CONTRACT_MULTIPLIER - policy.fee_per_contract_side
 
 
+def realized_net_return(report, move, days, policy):
+    """The selected contract's net return had the stock moved `move` over `days`; None without a priced contract."""
+    row = selected_row(report)
+    if row is None or row.get('status') != 'complete' or move is None:
+        return None
+    proceeds = exit_proceeds(row_option(row, policy), {**row, 'scenario_horizon_days': days}, move,
+                             volatility_change=policy.base_iv_change)
+    capital = row['entry']['ask'] * CONTRACT_MULTIPLIER + policy.fee_per_contract_side
+    return net_pnl(proceeds, ask=row['entry']['ask'], policy=policy) / capital
+
+
 def priced_inputs(contract, *, side, spot, as_of, target_dte_bucket, policy, maximum_quote_age_seconds):
     """Everything one contract needs before scenarios; a non-complete status stops there."""
     row = {'option_symbol': str(contract.get('symbol') or '').upper(), 'side': side, 'spot': spot,
@@ -253,7 +261,7 @@ def scenario_outcomes(row, option, scenarios, policy):
     """Expected values only when independent clusters reach the declared minimum."""
     ask, weights = row['entry']['ask'], scenarios['weights']
     proceeds = [exit_proceeds(option, row, move, volatility_change=policy.base_iv_change)
-                for move in scenarios['total_returns']]
+                for move in scenarios['residual_returns']]
     pnl = [net_pnl(value, ask=ask, policy=policy) for value in proceeds]
     capital = ask * CONTRACT_MULTIPLIER + policy.fee_per_contract_side
     outcomes = {'capital_at_risk': capital, 'scenario_count': len(pnl),
@@ -263,17 +271,13 @@ def scenario_outcomes(row, option, scenarios, policy):
     if not outcomes['expected_value_available']:
         return {**outcomes, 'expected_value_unavailable_reason': 'effective_sample_below_minimum',
                 'expected_net_pnl': None, 'expected_net_return': None, 'pnl_quantiles': None,
-                'profitable_scenario_weight': None, 'break_even_entry_price': None,
-                'residual_only_expected_net_pnl': None}
-    residual = [net_pnl(exit_proceeds(option, row, move, volatility_change=policy.base_iv_change), ask=ask, policy=policy)
-                for move in scenarios['residual_returns']]
+                'profitable_scenario_weight': None, 'break_even_entry_price': None}
     expected = weighted_mean(pnl, weights)
     expected_exit = weighted_mean([exit_net(value, policy) for value in proceeds], weights)
     return {**outcomes, 'expected_net_pnl': expected, 'expected_net_return': expected / capital,
             'pnl_quantiles': {f'p{round(q * 100):02d}': weighted_quantile(pnl, weights, q) for q in QUANTILES},
             'profitable_scenario_weight': sum(weight for value, weight in zip(pnl, weights) if value > 0),
-            'break_even_entry_price': (expected_exit - policy.fee_per_contract_side) / CONTRACT_MULTIPLIER,
-            'residual_only_expected_net_pnl': weighted_mean(residual, weights)}
+            'break_even_entry_price': (expected_exit - policy.fee_per_contract_side) / CONTRACT_MULTIPLIER}
 
 
 def stress_grid(row, option, policy):
@@ -423,8 +427,9 @@ def economics_explanation(report, selected):
 def trade_economics_gate(report, *, report_id, policy):
     reasons = list(report['reason_codes']) + ([] if report_id else ['economics_report_unpersisted'])
     decision = report['proposal']['decision']
-    would_allow = not reasons
-    allowed = would_allow or policy.mode == 'shadow'
+    # No expected value is an unknown, not a judgement; enforcement still fails closed on it.
+    would_allow = None if report['outcome'] == 'unavailable' else not reasons
+    allowed = would_allow is True or policy.mode == 'shadow'
     selected = selected_row(report)
     outcomes = (selected or {}).get('outcomes') or {}
     return {'stage': 'TRADE_ECONOMICS', 'allowed': allowed, 'would_allow': would_allow,
@@ -441,7 +446,7 @@ def trade_economics_gate(report, *, report_id, policy):
 
 
 def economics_error_gate(decision, policy):
-    return {'stage': 'TRADE_ECONOMICS', 'allowed': policy.mode == 'shadow', 'would_allow': False,
+    return {'stage': 'TRADE_ECONOMICS', 'allowed': policy.mode == 'shadow', 'would_allow': None,
             'proposed_decision': decision, 'eligible_decision': decision if policy.mode == 'shadow' else 'neither',
             'reason_codes': ['economics_check_error'], 'policy_version': policy.policy_version,
             'enforcement_mode': policy.mode, 'report_id': None, 'outcome': 'unavailable'}

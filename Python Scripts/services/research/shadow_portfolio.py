@@ -137,6 +137,7 @@ def evaluate_gate(rows, stage):
 
 MOVE_BASIS = 'underlying_residual_move'
 HARD_BLOCK_BASIS = 'hard_block_precision'
+OPTION_PNL_BASIS = 'option_net_return_proxy'
 # Share of direction-bearing verdicts that must have a resolved forward move; matches forward acceptance.
 MINIMUM_MOVE_COVERAGE = 0.9
 SIDES = {**TRADE_SIDES, 'positive': 1, 'negative': -1}
@@ -179,6 +180,30 @@ def evaluate_gate_on_hard_blocks(rows, stage):
             'gate_value': blocked / len(known) if known else 0.0, 'coverage': coverage,
             'coverage_complete': bool(applicable) and coverage >= MINIMUM_MOVE_COVERAGE,
             'denominator_basis': 'rejected manager trades with a known outcome; gate value is the share later hard-blocked'}
+
+
+def evaluate_gate_on_option_returns(rows, stage):
+    """Score one gate's verdicts on its selected option's net return at the realized residual move.
+
+    Each row's `option_return` already carries the contract's side (trade_economics.realized_net_return),
+    so a rejection that would have lost money is a loss avoided and one that would have paid is a profit sacrificed.
+    """
+    verdicts = [row for row in rows if row['gates'].get(stage) in (True, False)]
+    scored = [(row['gates'][stage], row['option_return']) for row in verdicts if row.get('option_return') is not None]
+    passed = [value for allowed, value in scored if allowed]
+    rejected = [value for allowed, value in scored if not allowed]
+    coverage = len(scored) / len(verdicts) if verdicts else 0.0
+    return {'stage': stage, 'basis': OPTION_PNL_BASIS, 'n_seen': len(verdicts),
+            'n_unknown_verdicts': sum(stage in row['gates'] and row['gates'][stage] is None for row in rows),
+            'n_passed': sum(row['gates'][stage] for row in verdicts),
+            'n_rejected': sum(not row['gates'][stage] for row in verdicts),
+            'n_evaluable': len(scored), 'n_missing_outcomes': len(verdicts) - len(scored),
+            'mean_return_passed': sum(passed) / len(passed) if passed else None,
+            'mean_return_rejected': sum(rejected) / len(rejected) if rejected else None,
+            **move_gate_value(rejected),
+            'coverage': coverage, 'coverage_complete': bool(verdicts) and coverage >= MINIMUM_MOVE_COVERAGE,
+            'denominator_basis': "selected option's net return on capital at the research horizon, repriced at the "
+                                 'realized residual move; gate value in summed return units'}
 
 
 def evaluate_gate_on_moves(rows, stage):

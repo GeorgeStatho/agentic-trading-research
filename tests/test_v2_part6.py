@@ -420,6 +420,11 @@ class GateEvidenceBasisTests(unittest.TestCase):
         self.assertNotEqual(gate_code_hash('SCENARIO_SELECTION', unrelated), gate_code_hash('SCENARIO_SELECTION', hashes))
         gate_edit = {**hashes, 'Python Scripts/services/gates/catalyst_gates.py': 'changed'}
         self.assertNotEqual(gate_code_hash('FRESHNESS', gate_edit), gate_code_hash('FRESHNESS', hashes))
+        # TRADE_ECONOMICS pools across deploys too, and resets when its pricing or scenarios change.
+        self.assertEqual(gate_code_hash('TRADE_ECONOMICS', unrelated), gate_code_hash('TRADE_ECONOMICS', hashes))
+        for name in ('Python Scripts/services/gates/trade_economics.py', 'Data/market_db_modules/pricing_research.py'):
+            edit = {**hashes, name: 'changed'}
+            self.assertNotEqual(gate_code_hash('TRADE_ECONOMICS', edit), gate_code_hash('TRADE_ECONOMICS', hashes))
 
     def test_production_cohorts_span_code_only_deploys_but_not_threshold_changes(self):
         from market_db_modules.research_runs import same_strategy
@@ -488,6 +493,18 @@ class PooledGateProofTests(unittest.TestCase):
                 self.enrol(run_id, passed=False, move=None, stage='TRADABILITY', outcome=outcome)
         for index in range(declined):
             self.enrol(run_id, passed=False, move=None, stage='TRADABILITY', side='hold')
+
+    def economics(self, run_id, *, passed, move):
+        """A TRADE_ECONOMICS verdict with the priced at-the-money call its report selected."""
+        candidate_id = self.enrol(run_id, passed=passed, move=move, stage='TRADE_ECONOMICS')
+        row = {'selected': True, 'status': 'complete', 'side': 'call', 'spot': 100.0, 'strike': 100.0,
+               'days_to_expiry': 30, 'calibrated_iv': .4, 'scenario_horizon_days': 10,
+               'entry': {'ask': 3.0, 'spread': .1}}
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute('INSERT INTO candidate_economics_reports VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                         (f'economics:{candidate_id}', candidate_id, None, None, None, 'trade', 'fixture',
+                          ENTRY, ENTRY, 'h', canonical({'contracts': [row]})))
+        return candidate_id
 
     def useful_gate(self, run_id, n, **kwargs):
         for index in range(n):
@@ -615,6 +632,30 @@ class PooledGateProofTests(unittest.TestCase):
         self.tradability(self.new_run(), blocked=110, fits=0, declined=50)
         gate, = self.report('TRADABILITY')['gates']
         self.assertEqual((gate['n_not_applicable'], gate['coverage'], gate['coverage_complete']), (50, 1.0, True))
+
+    def test_trade_economics_pools_on_the_selected_options_realized_return(self):
+        from services.gates.trade_economics_policy import TradeEconomicsPolicy
+        run_id = self.new_run()
+        for index in range(120):
+            passed = index % 2 == 0
+            self.economics(run_id, passed=passed, move=.08 if passed else -.08)
+        for index in range(5):
+            self.economics(run_id, passed=None, move=.08)
+        gate, = self.report('TRADE_ECONOMICS')['gates']
+        self.assertEqual(gate['basis'], 'option_net_return_proxy')
+        self.assertEqual((gate['n_evaluable'], gate['n_unknown_verdicts'], gate['coverage_complete']), (120, 5, True))
+        self.assertGreater(gate['mean_return_passed'], 0)
+        self.assertLess(gate['mean_return_rejected'], 0)
+        self.assertGreater(gate['gate_value'], 0)
+        promote_gate(self.report('TRADE_ECONOMICS')['report_id'], 'TRADE_ECONOMICS', db_path=self.db)
+        self.assertTrue(approved('TRADE_ECONOMICS', TradeEconomicsPolicy.from_env(), db_path=self.db))
+
+    def test_trade_economics_without_a_priced_contract_is_a_missing_outcome(self):
+        run_id = self.new_run()
+        self.economics(run_id, passed=True, move=.08)
+        self.enrol(run_id, passed=False, move=-.08, stage='TRADE_ECONOMICS')
+        gate, = self.report('TRADE_ECONOMICS')['gates']
+        self.assertEqual((gate['n_evaluable'], gate['n_missing_outcomes']), (1, 1))
 
     def test_tradability_below_the_sample_floor_is_refused(self):
         self.tradability(self.new_run(), blocked=99, fits=0)

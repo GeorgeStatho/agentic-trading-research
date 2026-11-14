@@ -13,14 +13,19 @@ from services.research.research_contract import ResearchPolicy, STRATEGIES, cano
 from services.research.research_promotion import (GATE_BLOCKS, gate_code_hash, policy_hash,
                                                   research_only_candidate, source_hash)
 from services.research.research_versions import evaluation_version, require_current_evaluator
-from services.research.shadow_portfolio import (HARD_BLOCK_BASIS, MOVE_BASIS, evaluate_gate, evaluate_gate_on_hard_blocks,
-                                                evaluate_gate_on_moves, expectancy, proposed_side)
+from services.gates.trade_economics import realized_net_return
+from services.gates.trade_economics_policy import TradeEconomicsPolicy
+from services.research.shadow_portfolio import (HARD_BLOCK_BASIS, MOVE_BASIS, OPTION_PNL_BASIS, evaluate_gate,
+                                                evaluate_gate_on_hard_blocks, evaluate_gate_on_moves,
+                                                evaluate_gate_on_option_returns, expectancy, proposed_side)
 
 # Gates that judge whether a catalyst deserves an entry are scored on the underlying's move;
 # contract and economics gates judge execution, which only a priced option trade can show.
 MOVE_SCORED_BLOCKS = {'catalyst', 'continuation', 'regime', 'thesis', 'entry_extension', 'regime_spy_trend'}
 # A pre-check is right when what it rejects would have been hard-blocked later anyway.
 PRECISION_SCORED_BLOCKS = {'tradability'}
+# The economics gate judges the option, so it is scored on the option its report priced, repriced at the move.
+PNL_SCORED_BLOCKS = {'economics'}
 MINIMUM_HARD_BLOCK_PRECISION = 0.95
 HARD_BLOCKS = {('EXECUTION', 'premium_per_trade_cap'),
                ('CONTRACT_SELECTION', 'continuation_confirmed_but_no_eligible_contract')}
@@ -66,6 +71,16 @@ def forward_move(conn, candidate_id, at):
     # report it as unresolved rather than failing the whole report.
     return (raw_residual(residual) if residual and residual['forward_at'] and residual['forward_checked_at']
             and utc(residual['forward_at']) <= utc(at) and utc(residual['forward_checked_at']) <= utc(at) else None)
+
+
+def economics_return(conn, candidate_id, at, days, policy):
+    """The net return of the option the candidate's first economics report priced, at its realized residual move."""
+    report = conn.execute('SELECT record_json FROM candidate_economics_reports WHERE candidate_id=? '
+                          'ORDER BY created_at, report_id LIMIT 1', (candidate_id,)).fetchone()
+    move = forward_move(conn, candidate_id, at)
+    if report is None or move is None:
+        return None
+    return realized_net_return(json.loads(report['record_json']), move, days, policy)
 
 
 def hard_block_outcome(conn, candidate_id, at):
@@ -196,8 +211,8 @@ def pooled_gate_report(stage, *, as_of=None, db_path=None):
     Rows carry their own gate-code hash, so deploys that leave the gate's files alone keep pooling.
     Only the first ask per company, New York day and proposed side counts, and only asks a whole
     horizon older than the report, so the window is closed and outcomes have had time to resolve.
-    Entry gates are scored on the underlying's move, pre-checks on whether their rejections were
-    hard-blocked later. The report records the evaluator; promotion refuses one it no longer runs.
+    Entry gates are scored on the underlying's move, TRADE_ECONOMICS on the option its report priced
+    repriced at that move, and pre-checks on whether their rejections were hard-blocked later. The report records the evaluator; promotion refuses one it no longer runs.
     """
     block = GATE_BLOCKS.get(stage)
     policy = ResearchPolicy()
@@ -207,12 +222,16 @@ def pooled_gate_report(stage, *, as_of=None, db_path=None):
         score = evaluate_gate_on_hard_blocks
         def label(conn, candidate_id):
             return {'outcome': hard_block_outcome(conn, candidate_id, at)}
+    elif block in PNL_SCORED_BLOCKS:
+        score, economics = evaluate_gate_on_option_returns, TradeEconomicsPolicy.from_env()
+        def label(conn, candidate_id):
+            return {'option_return': economics_return(conn, candidate_id, at, policy.holding_days, economics)}
     elif block in MOVE_SCORED_BLOCKS:
         score = evaluate_gate_on_moves
         def label(conn, candidate_id):
             return {'residual_return': forward_move(conn, candidate_id, at)}
     else:
-        raise ValueError('Only gates scored on the underlying move or on later hard blocks pool across runs')
+        raise ValueError('Only gates scored on the underlying move, the priced option or later hard blocks pool across runs')
     current = _current_gate_policy_hash(stage, block)
     with closing(get_connection(db_path)) as conn, conn:
         rows, counts = _pooled_samples(conn, stage, block, current, window_end, label)
@@ -330,7 +349,7 @@ def promote_gate(report_id, stage, *, db_path=None):
             report, run = _promotion_report(conn, report_id, require_source=False)
             minimum = run['policy'].minimum_promotion_samples
         gate = next((item for item in report['gates'] if item['stage'] == stage), None)
-        option_basis = bool(gate) and gate.get('basis') not in (MOVE_BASIS, HARD_BLOCK_BASIS)
+        option_basis = bool(gate) and gate.get('basis') not in (MOVE_BASIS, HARD_BLOCK_BASIS, OPTION_PNL_BASIS)
         if (not gate or not gate['policy_hash'] or not gate['coverage_complete']
                 or (option_basis and not (gate['production_selection_complete'] and gate['daily_coverage_complete']))
                 or gate['n_evaluable'] < minimum
