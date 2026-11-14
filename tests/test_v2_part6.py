@@ -480,12 +480,14 @@ class PooledGateProofTests(unittest.TestCase):
                              (candidate_id, 'order_submitted', at, at, 'fixture-v1', 'v', 'h', '{}'))
         return candidate_id
 
-    def tradability(self, run_id, *, blocked, fits, passed=110, missing=0):
+    def tradability(self, run_id, *, blocked, fits, passed=110, missing=0, declined=0):
         for index in range(passed):
             self.enrol(run_id, passed=True, move=None, stage='TRADABILITY', outcome='fits')
         for outcome, n in (('premium_cap', blocked), ('fits', fits), (None, missing)):
             for index in range(n):
                 self.enrol(run_id, passed=False, move=None, stage='TRADABILITY', outcome=outcome)
+        for index in range(declined):
+            self.enrol(run_id, passed=False, move=None, stage='TRADABILITY', side='hold')
 
     def useful_gate(self, run_id, n, **kwargs):
         for index in range(n):
@@ -600,6 +602,19 @@ class PooledGateProofTests(unittest.TestCase):
         self.tradability(self.new_run(), blocked=100, fits=10)
         with self.assertRaisesRegex(ValueError, 'precision'):
             promote_gate(self.report('TRADABILITY')['report_id'], 'TRADABILITY', db_path=self.db)
+
+    def test_tradability_needs_outcomes_for_most_rejected_manager_trades(self):
+        self.tradability(self.new_run(), blocked=110, fits=0, missing=20)
+        gate, = self.report('TRADABILITY')['gates']
+        self.assertAlmostEqual(gate['coverage'], 110 / 130)
+        self.assertFalse(gate['coverage_complete'])
+        with self.assertRaisesRegex(ValueError, 'coverage'):
+            promote_gate(self.report('TRADABILITY')['report_id'], 'TRADABILITY', db_path=self.db)
+
+    def test_tradability_rejections_the_manager_declined_do_not_lower_coverage(self):
+        self.tradability(self.new_run(), blocked=110, fits=0, declined=50)
+        gate, = self.report('TRADABILITY')['gates']
+        self.assertEqual((gate['n_not_applicable'], gate['coverage'], gate['coverage_complete']), (50, 1.0, True))
 
     def test_tradability_below_the_sample_floor_is_refused(self):
         self.tradability(self.new_run(), blocked=99, fits=0)

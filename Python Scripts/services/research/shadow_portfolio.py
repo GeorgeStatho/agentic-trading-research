@@ -159,21 +159,26 @@ def evaluate_gate_on_hard_blocks(rows, stage):
     """Score a pre-check by how often its rejections were later hard-blocked anyway.
 
     Each row's `outcome` is 'blocked' (premium cap or no eligible contract), 'fits' (an order went out)
-    or None. A rejection the manager declined has no outcome by construction, so coverage is not required;
-    gate_value is the precision of the rejections whose outcome is known.
+    or None. Only a rejection where the manager proposed a call or put can reach either outcome, so
+    coverage is the share of those with a known outcome; a pick REGIME or CONTINUATION stopped first
+    counts as missing. gate_value is the precision of the rejections whose outcome is known.
     """
     verdicts = [row for row in rows if row['gates'].get(stage) in (True, False)]
     rejected = [row for row in verdicts if row['gates'][stage] is False]
-    known = [row for row in rejected if row.get('outcome') in ('blocked', 'fits')]
+    applicable = [row for row in rejected if row['features'].get('manager_direction') in {'call', 'put'}]
+    known = [row for row in applicable if row.get('outcome') in ('blocked', 'fits')]
     blocked = sum(row['outcome'] == 'blocked' for row in known)
+    coverage = len(known) / len(applicable) if applicable else 0.0
     return {'stage': stage, 'basis': HARD_BLOCK_BASIS, 'n_seen': len(verdicts),
             'n_unknown_verdicts': sum(stage in row['gates'] and row['gates'][stage] is None for row in rows),
             'n_passed': len(verdicts) - len(rejected), 'n_rejected': len(rejected),
-            'n_evaluable': len(known), 'n_blocked': blocked, 'n_missing_outcomes': len(rejected) - len(known),
+            'n_not_applicable': len(rejected) - len(applicable),
+            'n_evaluable': len(known), 'n_blocked': blocked, 'n_missing_outcomes': len(applicable) - len(known),
             'n_passed_later_blocked': sum(row['gates'][stage] is True and row.get('outcome') == 'blocked'
                                           for row in verdicts),
-            'gate_value': blocked / len(known) if known else 0.0, 'coverage_complete': True,
-            'denominator_basis': 'rejections with a known outcome; gate value is the share later hard-blocked'}
+            'gate_value': blocked / len(known) if known else 0.0, 'coverage': coverage,
+            'coverage_complete': bool(applicable) and coverage >= MINIMUM_MOVE_COVERAGE,
+            'denominator_basis': 'rejected manager trades with a known outcome; gate value is the share later hard-blocked'}
 
 
 def evaluate_gate_on_moves(rows, stage):

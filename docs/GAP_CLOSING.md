@@ -137,11 +137,12 @@ Constraints that apply to every phase:
    contract under the premium cap, reusing `agent_helpers/deterministic_option_selector` filters and
    `TradingConfig.resolve_max_premium_per_trade` (`services/core/trading_config.py`). Record a `TRADABILITY`
    rejection in shadow; after confirming it matches the later hard blocks (premium cap, no eligible contract),
-   let it skip the manager call to save cost.
+   let it skip the strategist and manager calls to save cost.
    Status: done (shadow) — `services/gates/tradability_gate.py`, stage `TRADABILITY`, key `tradability_gate`,
    `TRADABILITY_MODE`; tests the selector's top pick per side (a replay showed "any eligible contract fits" misses
    6/21 cap refusals). Adds about 5 Alpaca requests per candidate (~40 candidates, ~200 requests a cycle) and
-   1 account read per cycle; failures are unknown. Proof: pooled hard-block precision ≥ 0.95
+   1 account read per cycle; failures are unknown. Proof: pooled hard-block precision ≥ 0.95 with ≥90% of the
+   rejected manager trades (call or put) labelled
    (`report-gate TRADABILITY`); once promoted and enforced, a rejection skips the strategist and manager.
 2. **Followers on blocked picks.** Follower accounts already paper-trade `debit_spread`, `itm_single`,
    `longer_dte` and `shares` (`services/trading/account_strategies.py`, `follower_fleet.py`) but only copy
@@ -179,7 +180,8 @@ What stands between these checks and a first promotion, measured on the 2026-11-
   `cash`), so option-scored gates (TRADE_ECONOMICS, contract gates) cannot be proven yet by any route.
 - **TRADABILITY labels will be scarce.** A rejection counts only once a later stage hard-blocks it or an order goes
   out; "no eligible contract" is recorded only when CONTINUATION allows the pick, so picks that REGIME or
-  CONTINUATION stop first stay unlabelled.
+  CONTINUATION stop first stay unlabelled. They count against TRADABILITY's 90% coverage (manager declines
+  do not), so its proof may be slow to form.
 
 ## Order and code-freeze handling
 
