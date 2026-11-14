@@ -200,57 +200,29 @@ def pooled_gate_report(stage, *, as_of=None, db_path=None):
     hard-blocked later. The report records the evaluator; promotion refuses one it no longer runs.
     """
     block = GATE_BLOCKS.get(stage)
-    precision = block in PRECISION_SCORED_BLOCKS
-    if block not in MOVE_SCORED_BLOCKS and not precision:
-        raise ValueError('Only gates scored on the underlying move or on later hard blocks pool across runs')
     policy = ResearchPolicy()
     at = utc(as_of or datetime.now(timezone.utc))
     window_end = at - timedelta(days=policy.holding_days)
-    live = gate_config().get(block)
-    if live is None:
-        raise ValueError(f'The current pipeline has no {block} policy to bind a proof to')
-    current = policy_hash(stage, live, gate_code_hash(stage, trading_path_hashes()))
-    runs, firsts, other, duplicates, unfinished = {}, {}, 0, 0, 0
+    if block in PRECISION_SCORED_BLOCKS:
+        score = evaluate_gate_on_hard_blocks
+        def label(conn, candidate_id):
+            return {'outcome': hard_block_outcome(conn, candidate_id, at)}
+    elif block in MOVE_SCORED_BLOCKS:
+        score = evaluate_gate_on_moves
+        def label(conn, candidate_id):
+            return {'residual_return': forward_move(conn, candidate_id, at)}
+    else:
+        raise ValueError('Only gates scored on the underlying move or on later hard blocks pool across runs')
+    current = _current_gate_policy_hash(stage, block)
     with closing(get_connection(db_path)) as conn, conn:
-        for saved in conn.execute('''SELECT c.* FROM research_candidates c JOIN research_runs r ON r.run_id=c.run_id
-                WHERE r.kind='frozen_forward' ORDER BY julianday(c.information_cutoff_time),c.candidate_id,c.run_id'''):
-            if research_only_candidate(saved['candidate_id']) or utc(saved['information_cutoff_time']) > window_end:
-                continue
-            inputs = json.loads(saved['input_json'])
-            if fingerprint(inputs) != saved['input_hash']:
-                raise ValueError('Frozen research inputs changed')
-            if stage not in inputs['features'].get('gates', {}):
-                continue
-            # An unfinished candidate's verdicts are only its rejections, which would tilt the sample.
-            if inputs.get('selection_source') == 'missing_or_unfinished_snapshots':
-                unfinished += 1
-                continue
-            if saved['run_id'] not in runs:
-                runs[saved['run_id']] = read_run(conn, saved['run_id'])
-            manifest = runs[saved['run_id']]['manifest']
-            # Rows enrolled before per-row gate hashes were recorded matched the run's manifest exactly.
-            code = (inputs.get('gate_code') or {}).get(stage) or gate_code_hash(stage, manifest.get('source_hashes') or {})
-            settings = manifest.get('gate_config', {}).get(block)
-            if settings is None or policy_hash(stage, settings, code) != current:
-                other += 1
-                continue
-            key = (inputs['symbol'], utc(saved['information_cutoff_time']).astimezone(NEW_YORK).date(),
-                   proposed_side(inputs['features']))
-            if key in firsts:
-                duplicates += 1
-                continue
-            firsts[key] = {'candidate_id': saved['candidate_id'], 'run_id': saved['run_id'],
-                           'features': inputs['features'], 'gates': inputs['features']['gates'],
-                           **({'outcome': hard_block_outcome(conn, saved['candidate_id'], at)} if precision
-                              else {'residual_return': forward_move(conn, saved['candidate_id'], at)})}
-        rows = list(firsts.values())
-        score = evaluate_gate_on_hard_blocks if precision else evaluate_gate_on_moves
+        rows, counts = _pooled_samples(conn, stage, block, current, window_end, label)
         gate = {**score(rows, stage), 'policy_hash': current,
                 'regimes': sorted({row['features'].get('regime') for row in rows} - {None, 'unknown'})}
         report = {'report_version': POOLED_REPORT_VERSION, 'stage': stage, 'information_cutoff_time': at.isoformat(),
                   'window_end': window_end.isoformat(), 'run_ids': sorted({row['run_id'] for row in rows}),
                   'candidate_ids': [row['candidate_id'] for row in rows],
-                  'n_other_code_or_policy': other, 'n_duplicate_asks': duplicates, 'n_unfinished': unfinished,
+                  'n_other_code_or_policy': counts['other'], 'n_duplicate_asks': counts['duplicates'],
+                  'n_unfinished': counts['unfinished'],
                   'evaluation_version': evaluation_version(),
                   'sample_unit': 'first verdict per symbol, New York day and proposed side', 'gates': [gate]}
         report_id = fingerprint(report)
@@ -262,6 +234,53 @@ def pooled_gate_report(stage, *, as_of=None, db_path=None):
                          (report_id, rows[-1]['run_id'], report['information_cutoff_time'], POOLED_REPORT_MONTH,
                           canonical(report)))
     return report
+
+
+def _current_gate_policy_hash(stage, block):
+    """The policy hash a pooled row must match: the live policy bound to the gate's current code."""
+    live = gate_config().get(block)
+    if live is None:
+        raise ValueError(f'The current pipeline has no {block} policy to bind a proof to')
+    return policy_hash(stage, live, gate_code_hash(stage, trading_path_hashes()))
+
+
+def _pooled_samples(conn, stage, block, current, window_end, label):
+    """The first finished verdict per symbol, New York day and side whose code and policy match `current`.
+
+    `label(conn, candidate_id)` adds the row's outcome. Returns the rows and the counts of the skipped ones.
+    """
+    runs, firsts, counts = {}, {}, {'other': 0, 'duplicates': 0, 'unfinished': 0}
+    for saved in conn.execute('''SELECT c.* FROM research_candidates c JOIN research_runs r ON r.run_id=c.run_id
+            WHERE r.kind='frozen_forward' ORDER BY julianday(c.information_cutoff_time),c.candidate_id,c.run_id'''):
+        if research_only_candidate(saved['candidate_id']) or utc(saved['information_cutoff_time']) > window_end:
+            continue
+        inputs = json.loads(saved['input_json'])
+        if fingerprint(inputs) != saved['input_hash']:
+            raise ValueError('Frozen research inputs changed')
+        if stage not in inputs['features'].get('gates', {}):
+            continue
+        # An unfinished candidate's verdicts are only its rejections, which would tilt the sample.
+        if inputs.get('selection_source') == 'missing_or_unfinished_snapshots':
+            counts['unfinished'] += 1
+            continue
+        if saved['run_id'] not in runs:
+            runs[saved['run_id']] = read_run(conn, saved['run_id'])
+        manifest = runs[saved['run_id']]['manifest']
+        # Rows enrolled before per-row gate hashes were recorded matched the run's manifest exactly.
+        code = (inputs.get('gate_code') or {}).get(stage) or gate_code_hash(stage, manifest.get('source_hashes') or {})
+        settings = manifest.get('gate_config', {}).get(block)
+        if settings is None or policy_hash(stage, settings, code) != current:
+            counts['other'] += 1
+            continue
+        key = (inputs['symbol'], utc(saved['information_cutoff_time']).astimezone(NEW_YORK).date(),
+               proposed_side(inputs['features']))
+        if key in firsts:
+            counts['duplicates'] += 1
+            continue
+        firsts[key] = {'candidate_id': saved['candidate_id'], 'run_id': saved['run_id'],
+                       'features': inputs['features'], 'gates': inputs['features']['gates'],
+                       **label(conn, saved['candidate_id'])}
+    return list(firsts.values()), counts
 
 
 def _stored_report(conn, report_id):

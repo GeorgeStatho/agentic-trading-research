@@ -18,6 +18,8 @@ from services.core.time_utils import parse_utc_timestamp
 
 LOGGER = logging.getLogger("market_regime")
 POLICY_VERSION = "market-regime-v1"
+# Trailing SPY returns reported for the shadow regime variants.
+SPY_RETURN_DAYS = (5, 20)
 
 
 @dataclass(frozen=True)
@@ -219,7 +221,7 @@ def classify_market_regime(
         "spy_realized_volatility_20d": _round(realized_volatility),
         # Read only by the shadow regime variants; stale prices report no return.
         **{f"spy_return_{days}d_pct": None if market_stale or len(valid_closes) <= days
-           else _round((valid_closes[-1] / valid_closes[-1 - days] - 1) * 100.0) for days in (5, 20)},
+           else _round((valid_closes[-1] / valid_closes[-1 - days] - 1) * 100.0) for days in SPY_RETURN_DAYS},
         "vix_percentile_1y": _round(vix_percentile, 2),
         "market_breadth": "unavailable",
     }

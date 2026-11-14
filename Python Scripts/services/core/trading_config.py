@@ -15,6 +15,10 @@ from services.core.env_parsing import (
 from services.options.option_dte_buckets import OPTION_DTE_BUCKETS
 from services.core.runtime_paths import DATA_DIR, LOGS_DIR, ROOT_DIR
 
+# The premium-per-trade cap's defaults; TRADABILITY's policy falls back to the same values.
+DEFAULT_MAX_PREMIUM_PER_TRADE_PCT = 55.0
+DEFAULT_MAX_PREMIUM_PER_TRADE_DOLLARS = 800.0
+
 
 def _load_exit_hours_to_expiration() -> float:
     """Hours before expiry to force an exit; the older *_DAYS_* variable is converted to hours."""
@@ -181,8 +185,9 @@ class WorkerSettings:
             # Both limits are optional and the tighter one wins; 0 disables that
             # limit. Unlike the per-order sizing budget, this cap also refuses the
             # trade outright when even a single contract costs more than it allows.
-            max_premium_per_trade_pct=env_percentage("MAX_PREMIUM_PER_TRADE_PCT", 55.0),
-            max_premium_per_trade_dollars=max(0.0, env_float("MAX_PREMIUM_PER_TRADE_DOLLARS", 800.0)),
+            max_premium_per_trade_pct=env_percentage("MAX_PREMIUM_PER_TRADE_PCT", DEFAULT_MAX_PREMIUM_PER_TRADE_PCT),
+            max_premium_per_trade_dollars=max(
+                0.0, env_float("MAX_PREMIUM_PER_TRADE_DOLLARS", DEFAULT_MAX_PREMIUM_PER_TRADE_DOLLARS)),
             max_option_order_qty_multiplier=env_positive_int("MAX_OPTION_ORDER_QTY_MULTIPLIER", 50),
             max_concurrent_option_positions=env_positive_int("MAX_CONCURRENT_OPTION_POSITIONS", 5),
             max_option_sector_exposure_pct=max(0.01, env_percentage("MAX_OPTION_SECTOR_EXPOSURE_PCT", 50.0)),

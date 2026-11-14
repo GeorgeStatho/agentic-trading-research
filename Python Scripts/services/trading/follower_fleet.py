@@ -27,6 +27,7 @@ NEW_YORK = ZoneInfo('America/New_York')
 # spread short legs, so they take every strike within a quarter of spot either side.
 FOLLOWER_CHAIN_LIMIT_PER_TYPE = 30
 FOLLOWER_STRIKE_WINDOW_PCT = 0.25
+KEPT_AFTER_TRIM = 1  # a partial-profit trim never sells the last unit
 
 
 def _reversed(legs):
@@ -53,6 +54,24 @@ def _price(quote):
     """A quote's mid, else its last price; None when neither is readable."""
     quote = quote or {}
     return safe_float(quote.get('mid_price')) or safe_float(quote.get('price'))
+
+
+def _gain_pct(gateway, row):
+    """Gain on the entry price, valuing each leg at its mid; None when a quote is missing."""
+    value = 0.0
+    for leg in row['legs']:
+        stock = leg['asset'] == 'stock'
+        snapshot = gateway.get_execution_market_snapshot(option_symbol=None if stock else leg['symbol'],
+                                                         underlying_symbol=row['underlying'])
+        mid = _price(snapshot.get('underlying' if stock else 'option'))
+        if mid is None:
+            return None
+        value += mid if leg['side'] == 'buy' else -mid
+    entry = row['entry_fill_price']
+    if not entry:
+        return None
+    short = len(row['legs']) == 1 and row['legs'][0]['asset'] == 'stock' and row['legs'][0]['side'] == 'sell'
+    return (-1 if short else 1) * (abs(value) - entry) / entry
 
 
 def _fill_price(summary):
@@ -298,32 +317,14 @@ class FollowerFleet:
 
     def _maybe_trim(self, gateway, client, row):
         """The partial_profit policy sells part of the position once, when it is up enough."""
-        if row['exit_policy'] != PARTIAL_PROFIT or row['partial_order_id'] or row['qty'] < 2:
+        if row['exit_policy'] != PARTIAL_PROFIT or row['partial_order_id'] or row['qty'] <= KEPT_AFTER_TRIM:
             return
-        gain = self._gain_pct(gateway, row)
+        gain = _gain_pct(gateway, row)
         if gain is None or gain < self._settings.partial_profit_pct:
             return
-        qty = max(1, min(row['qty'] - 1, math.floor(row['qty'] * self._settings.partial_profit_fraction)))
+        qty = max(1, min(row['qty'] - KEPT_AFTER_TRIM, math.floor(row['qty'] * self._settings.partial_profit_fraction)))
         order = _submit(gateway, client, row['legs'], qty, opening=False)
         store.mark_partial_order(row['id'], order_id=order['id'], db_path=self._db_path)
-
-    @staticmethod
-    def _gain_pct(gateway, row):
-        """Gain on the entry price, valuing each leg at its mid; None when a quote is missing."""
-        value = 0.0
-        for leg in row['legs']:
-            stock = leg['asset'] == 'stock'
-            snapshot = gateway.get_execution_market_snapshot(option_symbol=None if stock else leg['symbol'],
-                                                             underlying_symbol=row['underlying'])
-            mid = _price(snapshot.get('underlying' if stock else 'option'))
-            if mid is None:
-                return None
-            value += mid if leg['side'] == 'buy' else -mid
-        entry = row['entry_fill_price']
-        if not entry:
-            return None
-        short = len(row['legs']) == 1 and row['legs'][0]['asset'] == 'stock' and row['legs'][0]['side'] == 'sell'
-        return (-1 if short else 1) * (abs(value) - entry) / entry
 
     def _exit_reason(self, row, held, closed, now):
         # Not holding the contract alone is no exit: the primary's own order may not have filled
