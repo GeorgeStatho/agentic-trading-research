@@ -18,6 +18,7 @@ history and are not updated when the code changes.
 | [CleanCode.md](CleanCode.md) | Code style rules used in reviews |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Installing the project, running tests and entrypoints |
 | [BACKUPS.md](BACKUPS.md) | Database point-in-time recovery, the nightly backup, and how to restore |
+| [ALPACA.md](ALPACA.md) | Where each Alpaca call is already wrapped, data feeds, rate limits and known issues |
 
 ### Research and decision pipeline
 
