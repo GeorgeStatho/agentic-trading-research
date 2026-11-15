@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
 from unittest.mock import patch
 
@@ -52,6 +53,22 @@ class _FakeContext:
     def Process(self, target, args) -> _FakeWorker:
         self.process_args = args
         return self.worker
+
+
+class SpiderStartTests(unittest.TestCase):
+    def test_start_sends_the_errback_and_the_yahoo_cookie_guard(self):
+        # Scrapy 2.13+ only calls start(); without it requests lose the errback and failures vanish.
+        yahoo = "https://finance.yahoo.com/a"
+        spider = article_scraper.ArticleSpider(urls=[yahoo, URL])
+
+        async def collect():
+            return [request async for request in spider.start()]
+
+        requests = asyncio.run(collect())
+        self.assertEqual([request.url for request in requests], [yahoo, URL])
+        self.assertTrue(all(request.errback == spider.handle_failure for request in requests))
+        self.assertTrue(requests[0].meta.get("dont_merge_cookies"))
+        self.assertNotIn("dont_merge_cookies", requests[1].meta)
 
 
 class ItemBuilderTests(unittest.TestCase):

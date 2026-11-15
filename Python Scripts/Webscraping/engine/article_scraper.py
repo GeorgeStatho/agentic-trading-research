@@ -311,7 +311,7 @@ class ArticleSpider(scrapy.Spider):
         super().__init__(*args, **kwargs)
         self.start_urls = urls or []
 
-    def start_requests(self):
+    async def start(self):
         # Handle the start requests flow in one place so callers can rely on a single, well-defined result.
         for url in self.start_urls:
             headers = {
