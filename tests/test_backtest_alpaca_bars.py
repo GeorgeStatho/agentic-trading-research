@@ -4,7 +4,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -112,6 +112,53 @@ class AlpacaMinuteBarFetchTests(unittest.TestCase):
         result = self.fetch(limit=1)
         self.assertEqual((result["fetched_decision_count"], result["remaining_decision_count"]), (1, 1))
 
+
+
+class MinuteBarScheduleTests(unittest.TestCase):
+    """The scheduled fetch stays off Alpaca while trading needs the rate limit, by Alpaca's own market clock."""
+    NOW = datetime.fromisoformat("2026-11-18T19:00:00-05:00")
+
+    def run_with(self, clock, **options) -> tuple[dict, list]:
+        from market_db_modules.backtest_alpaca_bars import run_due_minute_bar_fetch
+        calls = []
+        result = run_due_minute_bar_fetch(**{"now": self.NOW, "enabled": True, "market_clock": lambda: clock,
+                                             "fetcher": lambda **kwargs: calls.append(kwargs) or {"fetched_decision_count": 3},
+                                             **options})
+        return result, calls
+
+    def closed(self, opens_in: timedelta) -> SimpleNamespace:
+        return SimpleNamespace(is_open=False, next_open=self.NOW + opens_in)
+
+    def test_it_never_starts_while_the_market_is_open_or_within_half_an_hour_of_the_open(self) -> None:
+        for clock in (SimpleNamespace(is_open=True, next_open=self.NOW + timedelta(hours=20)),
+                      self.closed(timedelta(minutes=29))):
+            with self.subTest(clock=clock):
+                result, calls = self.run_with(clock)
+                self.assertEqual((result["status"], calls), ("market_hours", []))
+
+    def test_it_runs_while_the_market_is_closed_including_holidays(self) -> None:
+        # A weekday-noon holiday: closed, next open tomorrow.
+        result, calls = self.run_with(self.closed(timedelta(hours=21)))
+        self.assertEqual(result["status"], "fetched")
+        self.assertEqual(calls, [{"limit": 100}])
+
+    def test_it_skips_when_the_market_clock_cannot_be_read(self) -> None:
+        result, calls = self.run_with(None)
+        self.assertEqual((result["status"], calls), ("clock_unavailable", []))
+
+    def test_it_runs_at_most_hourly_and_does_not_ask_the_clock_until_due(self) -> None:
+        from market_db_modules.backtest_alpaca_bars import run_due_minute_bar_fetch
+        result = run_due_minute_bar_fetch(now=self.NOW, enabled=True, last_run_at=self.NOW - timedelta(minutes=59),
+                                          market_clock=lambda: self.fail("asked the clock before due"))
+        self.assertEqual(result["status"], "not_due")
+        self.assertEqual(self.run_with(self.closed(timedelta(hours=12)), last_run_at=self.NOW - timedelta(hours=1))[0]["status"],
+                         "fetched")
+
+    def test_it_can_be_switched_off(self) -> None:
+        from market_db_modules.backtest_alpaca_bars import run_due_minute_bar_fetch
+        result = run_due_minute_bar_fetch(now=self.NOW, enabled=False, market_clock=lambda: self.fail("asked the clock"),
+                                          fetcher=lambda **kwargs: self.fail("fetched while disabled"))
+        self.assertEqual(result["status"], "disabled")
 
 
 if __name__ == "__main__":

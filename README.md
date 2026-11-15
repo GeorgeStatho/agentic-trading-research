@@ -186,6 +186,12 @@ and option trade bars for stored decisions' hold windows, using `PUBLIC_KEY` /
 sessions with no option trades. The backtest then marks modelled trades every
 minute (`model_black_scholes_1m`), takes a real option trade as the price in any
 minute that has one, and records each trade's share of marks from real trades.
+The `marketdata_eod_sync` service also runs this fetch on its own, 100 decisions
+at most once an hour, and never starts one while Alpaca's market clock says the
+market is open or opens within 30 minutes, so production trading keeps Alpaca's
+rate limit (holidays and early closes follow the clock). Sessions are
+fetched once, so after the backlog clears most runs make no requests. Set
+`ALPACA_MINUTE_BARS_AUTO_FETCH=false` to turn it off.
 
 The local counter starts when this protection is installed; it cannot reconstruct
 prior usage or track requests made by other applications/databases. Provider

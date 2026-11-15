@@ -8,6 +8,8 @@ contract that never traded is not fetched again.
 from __future__ import annotations
 
 from contextlib import closing
+import logging
+import os
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,7 @@ from .backtesting import OCC_SYMBOL
 from services.options.option_pricing import expiration_close
 from .bootstrap import initialize_database
 
+LOGGER = logging.getLogger(__name__)
 STOCK_PROVIDER = "alpaca_sip"
 OPTION_PROVIDER = "alpaca_opra"
 TIMEFRAME = "1m"
@@ -28,6 +31,47 @@ MARKET_TIMEZONE = ZoneInfo("America/New_York")
 SESSION_OPEN, SESSION_CLOSE = time(9, 30), time(16)
 # SIP bars are free once they are 15 minutes old.
 SETTLE_DELAY = timedelta(minutes=15)
+
+
+# The scheduled fetch never starts while Alpaca's clock says the market is open, or within this lead of the
+# next open, so production trading keeps Alpaca's rate limit and a running batch can finish first.
+OPEN_LEAD = timedelta(minutes=30)
+SCHEDULE_INTERVAL = timedelta(hours=1)
+SCHEDULED_BATCH_SIZE = 100
+
+
+def run_due_minute_bar_fetch(*, now: datetime | None = None, last_run_at: datetime | None = None,
+                             enabled: bool | None = None, market_clock: Any = None, fetcher: Any = None,
+                             db_path: Path | str | None = None) -> dict[str, Any]:
+    """Fetch the next batch at most hourly while the market is closed; returns a status and the result.
+
+    ``market_clock`` returns Alpaca's clock (``is_open``, ``next_open``); an unreadable clock skips the run.
+    """
+    if enabled is None:
+        enabled = os.getenv("ALPACA_MINUTE_BARS_AUTO_FETCH", "true").strip().lower() not in {"false", "0", "no", "off"}
+    if not enabled:
+        return {"status": "disabled"}
+    now = now or datetime.now(timezone.utc)
+    if last_run_at is not None and now - last_run_at < SCHEDULE_INTERVAL:
+        return {"status": "not_due"}
+    clock = (market_clock or _alpaca_clock)()
+    next_open = getattr(clock, "next_open", None)
+    if clock is None or not isinstance(next_open, datetime):
+        return {"status": "clock_unavailable"}
+    if next_open.tzinfo is None:
+        next_open = next_open.replace(tzinfo=timezone.utc)
+    if getattr(clock, "is_open", True) or next_open - now < OPEN_LEAD:
+        return {"status": "market_hours"}
+    options = {"limit": SCHEDULED_BATCH_SIZE, **({"db_path": db_path} if db_path is not None else {})}
+    return {"status": "fetched", "result": (fetcher or fetch_alpaca_minute_bars)(**options)}
+
+
+def _alpaca_clock() -> Any:
+    """Alpaca's market clock, or None when it cannot be read (the gateway logs why)."""
+    from services.core.trading_config import AlpacaSettings
+    from services.trading.trading_gateway import AlpacaTradingGateway
+    gateway = AlpacaTradingGateway(paper=AlpacaSettings.from_env().paper, logger=LOGGER)
+    return gateway.get_market_clock(gateway.create_client())
 
 
 def record_option_bars(option_symbol: str, bars: list[dict[str, Any]], *, provider: str = OPTION_PROVIDER,
