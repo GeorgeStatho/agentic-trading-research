@@ -532,6 +532,16 @@ class PooledGateProofTests(unittest.TestCase):
         self.assertEqual(guard_policy(MarketRegimePolicy(mode='enforce'), {'mode': 'REGIME'}, db_path=self.db).mode, 'enforce')
         self.assertFalse(approved('REGIME', MarketRegimePolicy(maximum_opposition=.5), db_path=self.db))
 
+    def test_a_gate_whose_rejections_did_better_than_its_passes_is_not_promoted(self):
+        # When most picks lose, rejecting any of them avoids losses; that alone must not prove the gate.
+        run_id = self.new_run()
+        for index in range(120):
+            self.enrol(run_id, passed=index % 2 == 0, move=-.03 if index % 2 == 0 else -.01)
+        report = self.report()
+        self.assertGreater(report['gates'][0]['gate_value'], 0)
+        with self.assertRaises(ValueError):
+            promote_gate(report['report_id'], 'REGIME', db_path=self.db)
+
     def test_rows_from_other_gate_code_or_policy_are_not_pooled(self):
         from services.gates.market_regime_gate import MarketRegimePolicy
         self.useful_gate(self.new_run(), 10)

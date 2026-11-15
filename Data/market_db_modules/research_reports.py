@@ -355,6 +355,10 @@ def promote_gate(report_id, stage, *, db_path=None):
                 or gate['n_evaluable'] < minimum
                 or gate['n_passed'] == 0 or gate['n_rejected'] == 0 or len(gate['regimes']) < 2 or gate['gate_value'] <= 0):
             raise ValueError('Gate lacks complete counterfactual coverage, positive value, sample size or regime diversity')
+        # Losses avoided alone prove nothing when most picks lose: the rejected picks must also do worse than the passed.
+        if gate.get('basis') == MOVE_BASIS and not (gate['mean_move_rejected'] is not None and gate['mean_move_passed'] is not None
+                                                    and gate['mean_move_rejected'] < gate['mean_move_passed']):
+            raise ValueError('Rejected candidates did not move worse than passed candidates')
         if gate.get('basis') == HARD_BLOCK_BASIS and gate['gate_value'] < MINIMUM_HARD_BLOCK_PRECISION:
             raise ValueError(f'Pre-check precision {gate["gate_value"]:.3f} is below {MINIMUM_HARD_BLOCK_PRECISION}')
         conn.execute('INSERT INTO research_gate_promotions VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING',
