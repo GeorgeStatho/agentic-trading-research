@@ -104,8 +104,6 @@ def record_position_observation(snapshot, *, observed_at=None, version=None, db_
             values['primary_exit_reason'] = snapshot.get('exit_reason')
             values['coactive_exit_reasons_json'] = json_text(snapshot.get('coactive_exit_reasons') or [])
             values['exit_pipeline_version_json'] = json_text(version)
-        if spot is not None:
-            values['underlying_move'] = underlying
         iv = finite_float(snapshot.get('implied_volatility'))
         if iv is not None and snapshot.get('close_submitted'):
             values['iv_at_exit'] = iv

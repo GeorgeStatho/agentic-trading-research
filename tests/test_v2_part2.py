@@ -151,6 +151,14 @@ class TelemetryDatabaseTests(unittest.TestCase):
         self.assertEqual(self.row('position_outcomes', value=position_id)['entry_underlying_price'], 99)
         self.assertEqual(open_entry_underlying_price(SYMBOL, db_path=self.db), 99)
 
+    def test_an_observation_tracks_the_stock_path_but_not_the_close_to_close_move(self):
+        position_id, _ = self.position()
+        self.assertTrue(record_position_observation({'symbol': SYMBOL, 'broker_unrealized_pl_pct': 10,
+                                                     'underlying_stock_price': 103}, db_path=self.db))
+        row = self.row('position_outcomes', value=position_id)
+        self.assertAlmostEqual(row['mfe_underlying'], 3)
+        self.assertIsNone(row['underlying_move'])
+
     def test_ambiguous_overlapping_entries_are_not_attributed(self):
         self.position()
         self.entry('overlap')
