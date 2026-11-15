@@ -172,6 +172,11 @@ class RegistrationTests(unittest.TestCase):
         # Morningstar's AWS WAF answers every quote lookup with a JS challenge, so it never yields articles.
         self.assertNotIn("morningstar_api", [name for name, _ in companyNewsPipeline.API_SOURCES])
 
+    def test_gurufocus_is_not_a_company_news_source(self):
+        # config/source.json disallows gurufocus.com, so every link its lookup returned was dropped unlogged.
+        self.assertFalse(is_allowed_source("https://www.gurufocus.com/news/1/x"))
+        self.assertNotIn("gurufocus_api", [name for name, _ in companyNewsPipeline.API_SOURCES])
+
     def test_alpaca_articles_become_company_jobs(self):
         item = _news(20)
         sources = (("alpaca_news_api", alpacaNewsAPI.get_stock_data),)
