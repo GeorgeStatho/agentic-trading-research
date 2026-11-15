@@ -336,19 +336,30 @@ def _resolve_quote_url(symbol: str, lookup: dict[str, Any]) -> str:
     exchanges_to_try.extend([item for item in COMMON_EXCHANGES if item != exchange])
 
     symbol_lower = symbol.lower()
+    outcomes: list[str] = []
+    transport_failed = False
 
     for exchange_name in exchanges_to_try:
         candidate_url = f"{BASE_URL}/quote/{exchange_name}/{symbol_lower}/"
         try:
             response = session.get(candidate_url, timeout=15, allow_redirects=True)
-            if response.status_code == 200 and "/quote/" in response.url:
-                return response.url
-        except requests.RequestException:
+        except requests.RequestException as exc:
+            transport_failed = True
+            outcomes.append(f"{exchange_name}: {type(exc).__name__}: {exc}")
             continue
+        if response.status_code == 200 and "/quote/" in response.url:
+            return response.url
+        if response.status_code == 429:
+            # Trying the other exchanges only digs the rate limit deeper.
+            raise HTTPException(status_code=429, detail=f"Fool rate limited the quote lookup (HTTP 429 at {candidate_url}).")
+        if response.status_code >= 500:
+            transport_failed = True
+        outcomes.append(f"{exchange_name}: HTTP {response.status_code}"
+                        + (f" -> {response.url}" if response.status_code == 200 else ""))
 
     raise HTTPException(
-        status_code=404,
-        detail=f"Could not resolve Fool quote page for symbol '{symbol}'.",
+        status_code=502 if transport_failed else 404,
+        detail=f"Could not resolve Fool quote page for symbol '{symbol}' ({'; '.join(outcomes)}).",
     )
 
 
