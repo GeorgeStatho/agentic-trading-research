@@ -13,7 +13,7 @@ wrapper here; reuse it instead of calling the SDK directly. The SDK is `alpaca-p
 | Market clock / is the market open | `AlpacaTradingGateway.get_market_clock()` / `market_is_open()` | Follows Alpaca's calendar, so holidays and early closes are handled. `market_is_open()` returns `False` when the call fails; use `get_market_clock()` and treat `None` as unknown when "closed" would permit something risky |
 | Latest option quote (exits) | `trading_support/_option_positions_market.py` `_get_latest_option_quote()` | Returns bid, ask and mid |
 | Latest stock price (exits) | `_option_positions_market.py` `_get_latest_stock_price()` | |
-| Stock ATR for volatility-scaled exits | `_option_positions_market.py` `_get_underlying_atr_pct()` | See the known issues below |
+| Stock ATR for volatility-scaled exits | `_option_positions_market.py` `_get_underlying_atr_pct()` | Requests `DataFeed.IEX`; see the known issues below |
 | Option contracts and chains (entries) | `agentCallers/agent_helpers/market_context/option_chain.py`: `build_bucket_chains()`, `_build_option_market_snapshot()` | Contract search, snapshots with greeks, strike windows |
 | Stock, index and sector ETF snapshots | `agent_helpers/market_context/equities.py` | |
 | Daily stock bars | `agent_helpers/market_context/underlying_bars.py` `_fetch_daily_stock_bars()` | Requests `DataFeed.IEX` |
@@ -33,7 +33,10 @@ Paths under `Python Scripts/` are given from that root, which is an import root 
   "indicative" feed, whose quotes "are not actual OPRA quotes". The DB does not record which feed was used.
   A check on 2026-11-15 found 66 of 70 real trades printed inside the recorded bid–ask, so the quotes track
   the market, but treat spreads as Alpaca's view, not the exchange's.
-- **Latest stock quotes name no feed either**, so a free plan gets IEX (one exchange). Around the open these
+- **Historical stock bars default to SIP**, which the free plan refuses for the last 15 minutes, so a request
+  ending now must name `DataFeed.IEX` (as `underlying_bars.py` and the ATR do) or end 15 minutes ago. IEX and
+  SIP daily ATRs agreed within 0.1 points on eight traded names on 2026-11-15.
+- **Latest stock quotes name no feed**, so a free plan gets IEX (one exchange). Around the open these
   can be wrong: GM's snapshot on 2026-11-11 showed $93.98 when it traded between $87.97 and $88.92.
 - **Historical stock bars from SIP are free once 15 minutes old.** `backtest_alpaca_bars.py` requests
   `DataFeed.SIP` and only completed sessions.
@@ -59,9 +62,11 @@ and the open is more than 30 minutes away.
 
 ## Known issues (as of 2026-11-15)
 
-- **The stock ATR is never available in production.** None of the 14,252 stored position observations has
-  `underlying_atr_pct`, so production stops are never volatility-scaled, while the backtest scales them by up
-  to 2x. Not yet diagnosed.
+- **The stock ATR was never available in production until 2026-11-15.** `_get_underlying_atr_pct` asked for
+  daily bars with no feed, Alpaca defaulted to SIP, and the free plan refuses recent SIP data
+  (`subscription does not permit querying recent SIP data`); the error was swallowed. It now requests
+  `DataFeed.IEX` and logs failures. Volatility scaling is off in `.env.example`: with the 0.02 baseline most
+  traded names hit the 2x cap.
 - The option position state never stored an entry stock price until 2026-11-15, so the stop-loss's 1.5%
   underlying check never ran before then. It is now seeded from `position_outcomes`.
 
