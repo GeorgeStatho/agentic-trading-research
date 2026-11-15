@@ -85,6 +85,23 @@ class LiveArticlesTests(unittest.TestCase):
         self.assertIs(result[failing], crawled)
         self.assertTrue(result[FOOL_URL].success)
 
+    def test_yahoo_article_is_fetched_with_requests_not_the_crawler(self):
+        # Scrapy's Twisted rejects Yahoo's oversized Link header, so Yahoo must not reach the crawler.
+        url = "https://finance.yahoo.com/markets/stocks/articles/payroll-190122044.html"
+        response = MagicMock(
+            url=url,
+            content=b"<html><head><title>Payroll</title></head><body><article><p>ADP raised its dividend.</p>"
+            b"</article></body></html>",
+        )
+        with patch.object(page_fetch.requests, "get", return_value=response) as get, \
+                patch.object(page_fetch, "crawl_article_pages") as crawl:
+            result = LiveFetcher().articles([url])
+        get.assert_called_once()
+        response.raise_for_status.assert_called_once()
+        crawl.assert_not_called()
+        self.assertTrue(result[url].success)
+        self.assertIn("ADP raised its dividend.", result[url].text)
+
     def test_crawler_keyboard_interrupt_propagates(self):
         with patch.object(page_fetch, "crawl_article_pages", side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
