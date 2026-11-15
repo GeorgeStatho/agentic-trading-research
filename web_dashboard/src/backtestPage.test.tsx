@@ -48,10 +48,16 @@ const RUNS = [
 ]
 
 const EVENTS = [
-  ...[1, 2, 3].map((id) => event(id, 'simulated_closed')),
+  { ...event(1, 'simulated_closed'), pricing_source: 'model_black_scholes_1m', observed_option_mark_share: 0.125 },
+  ...[2, 3].map((id) => event(id, 'simulated_closed')),
   ...Array.from({ length: 7 }, (_, index) => event(10 + index, 'portfolio_rejected')),
   ...Array.from({ length: 25 }, (_, index) => event(100 + index, 'no_fill')),
 ]
+
+const MINUTE_FETCH = {
+  read_only_trading: true, eligible_decision_count: 40, fetched_decision_count: 10, already_cached_count: 5,
+  remaining_decision_count: 25, stock_bar_count: 3900, option_bar_count: 41, error_count: 0, errors: [],
+}
 
 const calls: { url: string; method: string; body?: string }[] = []
 
@@ -62,6 +68,7 @@ beforeEach(() => {
     calls.push({ url, method: init?.method ?? 'GET', body: init?.body as string | undefined })
     if (url.startsWith('/api/backtests?')) return Response.json({ runs: RUNS })
     if (url === '/api/backtests' && init?.method === 'POST') return Response.json({ run: RUNS[0], events: EVENTS, read_only: true })
+    if (url === '/api/backtests/alpaca-minute-bars') return Response.json(MINUTE_FETCH)
     const id = Number(url.split('/').pop())
     return Response.json({ run: RUNS.find((entry) => entry.id === id), events: id === 140 ? EVENTS : [], read_only: true })
   }))
@@ -130,6 +137,24 @@ describe('Backtests page', () => {
     expect(calls.filter((call) => call.method !== 'GET')).toEqual([])
     expect(screen.getByRole('button', { name: 'Run backtest' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Fetch next EOD batch' })).toBeTruthy()
+  })
+
+  it('fetches a batch of Alpaca minute bars and says what was stored', async () => {
+    render(<BacktestPage />)
+    await loaded()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Fetch next 1-min bar batch' }))
+    await screen.findByText(/Stored 3900 stock and 41 option minute bars/)
+    const call = calls.find((entry) => entry.url === '/api/backtests/alpaca-minute-bars')!
+    expect(call.method).toBe('POST')
+    expect(JSON.parse(call.body!)).toMatchObject({ limit: 10 })
+  })
+
+  it('shows how much of a modelled trade rests on real option trades', async () => {
+    render(<BacktestPage />)
+    await loaded()
+
+    expect(screen.getByText('13% real trades')).toBeTruthy()
   })
 
   it('keeps the run settings as compact inputs', async () => {

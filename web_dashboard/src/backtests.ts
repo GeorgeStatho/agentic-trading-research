@@ -4,8 +4,9 @@ export type Metrics = { event_count?: number; filled_count?: number; no_fill_cou
 /** `metrics.replay` on LLM replay runs (llm_backtest.py); every field optional, older runs lack the newer ones. */
 export type ReplaySummary = { source_decision_count?: number; missing_frozen_input_count?: number; excluded_pre_knowledge_cutoff?: number; contamination?: Record<string, unknown> | null; min_hours_between_same_symbol?: number; spaced_out_decision_count?: number; outcomes?: Record<string, number>; changed_direction_count?: number; cached_answer_count?: number; provider?: string; sample?: number; selector_version?: string; strategist_replay?: { model: string; prompt_version: string; changed_decision_count: number; cached_answer_count: number; reuse_max_age_minutes: number; reused_answer_count: number } | null; thesis_recheck?: { rechecked: number; changed: number } | null; production_settings?: { recorded_decision_count?: number; local_fallback_decision_count?: number; execute_medium_confidence_trades?: boolean; overrides?: string[]; selector_settings_differing_from_local?: string[] }; daily_bars?: { still_missing?: string[] } }
 export type Run = { id: number; code_revision?: string; strategy_version: string; model: string; prompt_version: string; started_at: string; completed_at: string; status: string; metrics: Metrics; config: Record<string, unknown>; error_message?: string }
-export type BacktestEvent = { id: number; as_of: string; symbol: string; decision: string; option_symbol: string; status: string; evidence_snapshot_id: number | null; entry_at: string; exit_at: string; entry_price: number | null; exit_price: number | null; quantity: number | null; realized_pnl_pct: number | null; realized_pnl_dollars: number | null; commission_dollars: number | null; quote_provider: string | null; pricing_source: string | null; warnings: string[] }
+export type BacktestEvent = { id: number; as_of: string; symbol: string; decision: string; option_symbol: string; status: string; evidence_snapshot_id: number | null; entry_at: string; exit_at: string; entry_price: number | null; exit_price: number | null; quantity: number | null; realized_pnl_pct: number | null; realized_pnl_dollars: number | null; commission_dollars: number | null; quote_provider: string | null; pricing_source: string | null; warnings: string[]; underlying_timeframe?: string | null; observed_option_mark_count?: number | null; observed_option_mark_share?: number | null }
 export type Detail = { run: Run; events: BacktestEvent[]; read_only: boolean }
+export type MinuteBarFetch = { eligible_decision_count: number; fetched_decision_count: number; already_cached_count: number; remaining_decision_count: number; stock_bar_count: number; option_bar_count: number; error_count: number; errors: { symbol: string; error: string }[] }
 export type EodQuoteFetch = { fetch_run_id: number; provider: string; pricing_source: string; status: string; stop_reason?: string | null; resume_at?: string | null; budget?: { daily_limit: number; used: number; remaining: number; resets_at: string }; source_decision_count: number; eligible_decision_count?: number; remaining_decision_count?: number; latest_contract_decision_at?: string | null; selected_start_at?: string | null; selected_end_at?: string | null; returned_quote_start_at?: string | null; returned_quote_end_at?: string | null; fetched_count: number; already_cached_count: number; no_data_count: number; unavailable_count: number; error_count: number; inserted_quote_count: number; invalid_quote_count: number; coverage_gaps: { reason: string }[]; read_only: boolean; no_trade_executed_by_feature: boolean }
 
 async function errorFrom(response: Response, fallback: string): Promise<Error> {
@@ -40,6 +41,13 @@ export async function fetchEodQuotes(limit: number, maxHoldHours: number | null,
   const response = await fetch('/api/backtests/marketdata-eod', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit, max_hold_hours: maxHoldHours ?? undefined, ...window }) })
   if (!response.ok) throw await errorFrom(response, 'Failed to fetch EOD quotes')
   return response.json() as Promise<EodQuoteFetch>
+}
+
+/** Stores Alpaca 1-minute stock and option bars server-side; the keys never reach the browser. */
+export async function fetchMinuteBars(limit: number, maxHoldHours: number | null, window: Omit<DecisionWindow, 'limit'> = {}): Promise<MinuteBarFetch> {
+  const response = await fetch('/api/backtests/alpaca-minute-bars', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit, max_hold_hours: maxHoldHours ?? undefined, ...window }) })
+  if (!response.ok) throw await errorFrom(response, 'Failed to fetch minute bars')
+  return response.json() as Promise<MinuteBarFetch>
 }
 
 const OUTCOME_LABELS: Record<string, string> = {

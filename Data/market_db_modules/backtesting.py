@@ -29,9 +29,10 @@ from trading_support.backtest_exits import daily_atr_pct, production_exit, rule_
 
 
 SNAPSHOT_VERSION = "decision-evidence-snapshot-v1"
-BACKTEST_ENGINE_VERSION = "portfolio-guardrails-production-exits-v3"
+BACKTEST_ENGINE_VERSION = "portfolio-guardrails-production-exits-v4-minute-marks"
 MODELLED_PRICING_SOURCE = "model_black_scholes_constant_iv"
 MODELLED_EOD_IV_PRICING_SOURCE = "model_black_scholes_eod_iv"
+MODELLED_MINUTE_PRICING_SOURCE = "model_black_scholes_1m"
 OCC_SYMBOL = re.compile(r"^([A-Z.]+?)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$")
 MODELLED_QUOTE_PROVIDER = "frozen_decision_chain"
 CONSTANT_IV_ACROSS_EARNINGS = "constant_iv_across_earnings"
@@ -646,6 +647,57 @@ def _hourly_prices(conn: sqlite3.Connection, symbol: str, after: datetime, until
     return sorted(prices.items())
 
 
+def _minute_prices(conn: sqlite3.Connection, symbol: str, after: datetime, until: datetime) -> list[tuple[datetime, float]]:
+    """Each 1-minute bar's close stamped at the bar's end, oldest first; the 15:59 bar ends at the 16:00 close."""
+    rows = conn.execute(
+        """
+        SELECT bar_at, close_price FROM historical_underlying_bars
+        WHERE symbol = ? AND timeframe = '1m' AND close_price > 0 AND bar_at >= ? AND bar_at <= ?
+        ORDER BY bar_at ASC, id ASC
+        """,
+        (symbol, (after - timedelta(minutes=1)).astimezone(timezone.utc).isoformat(), until.astimezone(timezone.utc).isoformat()),
+    ).fetchall()
+    prices: dict[datetime, float] = {}
+    for row in rows:
+        bar_at = parse_timestamp(row["bar_at"])
+        if bar_at is not None:
+            mark_at = (bar_at + timedelta(minutes=1)).astimezone(MARKET_TIMEZONE)
+            if after < mark_at <= until:
+                prices.setdefault(mark_at, float(row["close_price"]))
+    return sorted(prices.items())
+
+
+def _option_minute_closes(conn: sqlite3.Connection, option_symbol: str, after: datetime, until: datetime) -> dict[datetime, float]:
+    """The contract's real 1-minute trade closes, keyed by bar end; empty when it never traded or was not fetched."""
+    if not table_exists(conn, "historical_option_bars"):
+        return {}
+    rows = conn.execute(
+        """
+        SELECT bar_at, close_price FROM historical_option_bars
+        WHERE option_symbol = ? AND timeframe = '1m' AND close_price > 0 AND bar_at >= ? AND bar_at <= ?
+        """,
+        (option_symbol, (after - timedelta(minutes=1)).astimezone(timezone.utc).isoformat(), until.astimezone(timezone.utc).isoformat()),
+    ).fetchall()
+    closes = {}
+    for row in rows:
+        bar_at = parse_timestamp(row["bar_at"])
+        if bar_at is not None:
+            closes[(bar_at + timedelta(minutes=1)).astimezone(MARKET_TIMEZONE)] = float(row["close_price"])
+    return closes
+
+
+def _underlying_marks(conn: sqlite3.Connection, symbol: str, after: datetime, until: datetime) -> tuple[list[tuple[datetime, float]], str]:
+    """Minute marks for each session that has them; the hourly (else daily) marks for sessions that do not."""
+    minutes = _minute_prices(conn, symbol, after, until)
+    hourly = _hourly_prices(conn, symbol, after, until)
+    coarse = hourly or _daily_closes(conn, symbol, after, until)
+    covered = {mark_at.date() for mark_at, _ in minutes}
+    marks = sorted(minutes + [(mark_at, price) for mark_at, price in coarse if mark_at.date() not in covered])
+    if minutes:
+        return marks, "1m"
+    return marks, "1h" if hourly else "1d"
+
+
 def _same_day_quotes(conn: sqlite3.Connection, symbol: str, close_at: datetime) -> list[dict[str, Any]]:
     """End-of-day option quotes on the underlying's trading day, with strike, expiry and side parsed."""
     window = timedelta(hours=12)
@@ -765,17 +817,34 @@ def _simulate_modelled_event(
     observed_on: set[date] = set()
     marks: list[tuple[datetime, float, float, float | None]] = []
     symbol = base_event["symbol"]
-    for mark_at, close in _hourly_prices(conn, symbol, as_of, cutoff) or _daily_closes(conn, symbol, as_of, cutoff):
+    underlying_marks, underlying_timeframe = _underlying_marks(conn, symbol, as_of, cutoff)
+    traded = _option_minute_closes(conn, base_event["option_symbol"], as_of, cutoff)
+    observed_marks: set[datetime] = set()
+    for mark_at, close in underlying_marks:
+        years_left = max(0.0, (expiration - mark_at).total_seconds() / SECONDS_PER_DAY / DAYS_PER_YEAR)
+        if mark_at in traded:
+            # A real trade this minute is the mid; the model continues from the volatility it implies.
+            value = traded[mark_at]
+            volatility = implied_volatility(side, value, spot=close, strike=strike, years=years_left,
+                                            rate=config["risk_free_rate"]) or volatility
+            observed_marks.add(mark_at)
+            marks.append((mark_at, value, value * (1 - half_spread), close))
+            continue
         if mark_at == datetime.combine(mark_at.date(), MARKET_CLOSE, MARKET_TIMEZONE):
             observed = _day_implied_volatility(conn, symbol, mark_at, spot=close, strike=strike,
                                                expiration=expiration, config=config)
             if observed is not None:
                 volatility, observed_days = observed, observed_days + 1
                 observed_on.add(mark_at.date())
-        years_left = max(0.0, (expiration - mark_at).total_seconds() / SECONDS_PER_DAY / DAYS_PER_YEAR)
         value = black_scholes_price(side, spot=close, strike=strike, years=years_left, volatility=volatility,
                                     rate=config["risk_free_rate"])
         marks.append((mark_at, value, value * (1 - half_spread), close))
+    if underlying_timeframe == "1m":
+        pricing_source = MODELLED_MINUTE_PRICING_SOURCE
+    elif observed_days:
+        pricing_source = MODELLED_EOD_IV_PRICING_SOURCE
+    else:
+        pricing_source = MODELLED_PRICING_SOURCE
     event = _priced_event(
         base_event,
         entry_at=as_of,
@@ -784,7 +853,7 @@ def _simulate_modelled_event(
         position=_position_terms(conn, base_event["option_symbol"], as_of, spot, config),
         risk_release_at=cutoff,
         quote_provider=MODELLED_QUOTE_PROVIDER,
-        pricing_source=MODELLED_EOD_IV_PRICING_SOURCE if observed_days else MODELLED_PRICING_SOURCE,
+        pricing_source=pricing_source,
         missing_exit_warning="no_underlying_close_after_entry",
         config=config,
     )
@@ -795,7 +864,10 @@ def _simulate_modelled_event(
     if _constant_iv_across_earnings(conn, base_event["symbol"], as_of, held, observed_while_held):
         # Flag only: the price is not corrected.
         event = {**event, "warnings": [*(event.get("warnings") or []), CONSTANT_IV_ACROSS_EARNINGS]}
-    return {**event, "entry_implied_volatility": round(option.volatility, 6), "observed_iv_day_count": observed_days}
+    observed_held = sum(1 for at, _ in held if at in observed_marks)
+    return {**event, "entry_implied_volatility": round(option.volatility, 6), "observed_iv_day_count": observed_days,
+            "underlying_timeframe": underlying_timeframe, "observed_option_mark_count": observed_held,
+            "observed_option_mark_share": round(observed_held / len(held), 4) if held else None}
 
 
 def _exceeds_premium_cap(decision: dict[str, Any], config: dict[str, Any]) -> bool:
@@ -1178,6 +1250,8 @@ def get_backtest_run(run_id: int, *, db_path: Path | str | None = None) -> dict[
                 "event": event_data,
                 "quote_provider": event_data.get("quote_provider"),
                 "pricing_source": event_data.get("pricing_source"),
+                **{key: event_data.get(key) for key in ("underlying_timeframe", "observed_option_mark_count",
+                                                        "observed_option_mark_share")},
             }
         )
     return {

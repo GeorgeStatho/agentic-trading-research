@@ -19,6 +19,7 @@ from market_db_modules.backtesting import (
     record_historical_underlying_bar,
 )
 from market_db_modules.backtesting import run_decision_backtest
+from market_db_modules.backtest_alpaca_bars import record_option_bars
 from market_db_modules.candidate_lifecycle import record_candidate_snapshot
 from services.evaluation import llm_backtest
 from services.core.trading_config import OptionExitRuleConfig, OptionPositionSettings, WorkerSettings
@@ -95,6 +96,16 @@ class DatabaseFixture(unittest.TestCase):
         for bar_at, close, *opened in bars:
             record_historical_underlying_bar({"symbol": "MSFT", "bar_at": bar_at, "close": close, "open": opened[0] if opened else None},
                                              provider="fixture", timeframe="1h", db_path=self.db_path)
+
+    def add_minutes(self, *bars: tuple[str, float]) -> None:
+        """Stock 1-minute (bar_at, close) bars stamped at their start, as Alpaca returns them."""
+        for bar_at, close in bars:
+            record_historical_underlying_bar({"symbol": "MSFT", "bar_at": bar_at, "close": close},
+                                             provider="fixture", timeframe="1m", db_path=self.db_path)
+
+    def add_option_minutes(self, *bars: tuple[str, float], option_symbol: str = CONTRACT["symbol"]) -> None:
+        record_option_bars(option_symbol, [{"t": bar_at, "o": close, "h": close, "l": close, "c": close, "v": 1}
+                                           for bar_at, close in bars], provider="fixture", db_path=self.db_path)
 
     def backtest(self, contract=CONTRACT, config=None, **decision_fields) -> dict:
         return self.backtest_run(contract, config, **decision_fields)["events"][0]
@@ -218,6 +229,45 @@ class ModelPricingTests(DatabaseFixture):
         run = self.backtest_run()
         self.assertNotIn("constant_iv_across_earnings", run["events"][0]["warnings"])
         self.assertEqual(run["run"]["metrics"]["constant_iv_across_earnings_count"], 0)
+
+    @staticmethod
+    def minutes(start: str, closes: list[float]) -> list[tuple[str, float]]:
+        first = datetime.fromisoformat(start)
+        return [((first + timedelta(minutes=index)).isoformat(), close) for index, close in enumerate(closes)]
+
+    def test_a_one_minute_dip_stops_out_at_that_minute(self) -> None:
+        # The hourly bar opens and closes at 400, so hourly marks never see the 9:32 dip.
+        self.add_hourly(("2026-03-03T14:30:00+00:00", 400.0, 400.0))
+        self.add_minutes(*self.minutes("2026-03-03T14:30:00+00:00", [400.0, 355.0, 400.0]))
+        event = self.backtest()
+        self.assertEqual(datetime.fromisoformat(event["exit_at"]), datetime.fromisoformat("2026-03-03T14:32:00+00:00"))
+        self.assertIn("stop_loss_exit", event["warnings"])
+        self.assertEqual((event["pricing_source"], event["underlying_timeframe"]), ("model_black_scholes_1m", "1m"))
+
+    def test_a_session_without_minute_bars_falls_back_to_its_hourly_marks(self) -> None:
+        # Minute bars cover March 3, so its hourly dip is not a mark; March 4 has only hourly bars.
+        self.add_minutes(*self.minutes("2026-03-03T14:30:00+00:00", [400.0, 401.0]))
+        self.add_hourly(("2026-03-03T15:30:00+00:00", 360.0), ("2026-03-04T15:30:00+00:00", 360.0))
+        event = self.backtest()
+        # The 15:30 hourly bar's close is marked at its end.
+        self.assertEqual(datetime.fromisoformat(event["exit_at"]), datetime.fromisoformat("2026-03-04T16:30:00+00:00"))
+        self.assertIn("stop_loss_exit", event["warnings"])
+
+    def test_a_real_option_trade_sets_its_mark_and_the_model_continues_from_it(self) -> None:
+        self.add_minutes(*self.minutes("2026-03-03T14:30:00+00:00", [400.0] * 10))
+        self.add_option_minutes(("2026-03-03T14:34:00+00:00", 13.0))
+        event = self.backtest()
+        self.assertEqual(event["observed_option_mark_count"], 1)
+        self.assertAlmostEqual(event["observed_option_mark_share"], 0.1)
+        # No rule closes it, so it is marked at the last minute: the model kept the trade's level (~13),
+        # not the entry's (~10), so its volatility was re-fit from the trade.
+        self.assertGreater(event["exit_price"], 12.5)
+
+    def test_without_minute_bars_the_hourly_model_is_unchanged(self) -> None:
+        self.add_hourly(("2026-03-03T14:30:00+00:00", 401.0))
+        event = self.backtest()
+        self.assertEqual((event["underlying_timeframe"], event["observed_option_mark_count"]), ("1h", 0))
+        self.assertNotEqual(event["pricing_source"], "model_black_scholes_1m")
 
     def test_crossed_frozen_quote_does_not_fill(self) -> None:
         crossed = {**CONTRACT, "latest_quote": {"bid_price": 11.0, "ask_price": 10.0}}

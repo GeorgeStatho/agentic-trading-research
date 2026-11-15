@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-import { createRun, dataGaps, decisionOutcomes, fetchEodQuotes, getRun, getRuns, runKind, sortRuns } from './backtests'
-import type { BacktestEvent, DecisionWindow, Detail, EodQuoteFetch, ReplaySummary, Run, RunKind, RunSortKey } from './backtests'
+import { createRun, dataGaps, decisionOutcomes, fetchEodQuotes, fetchMinuteBars, getRun, getRuns, runKind, sortRuns } from './backtests'
+import type { BacktestEvent, DecisionWindow, Detail, EodQuoteFetch, MinuteBarFetch, ReplaySummary, Run, RunKind, RunSortKey } from './backtests'
 import { formatCurrency, formatDate, formatDateTime, formatShortDateTime, formatSignedCurrency, formatSignedPercent, formatToken, formatTokenList, hasNumericValue } from './format'
 import PageHeader from './pageHeader'
 import { chartTheme } from './ui/chartTheme'
@@ -242,7 +242,8 @@ const EVENT_COLUMNS: Column<BacktestEvent>[] = [
   { key: 'decision', header: 'Decision', render: (event) => formatToken(event.decision) },
   { key: 'contract', header: 'Contract', render: (event) => <><span className="font-mono">{event.option_symbol || EMPTY}</span><span className="block text-[11px] text-dim">{event.quantity ?? 0} contracts</span></> },
   { key: 'status', header: 'Status', render: (event) => formatToken(event.status) },
-  { key: 'source', header: 'Source', render: (event) => <>{event.pricing_source || EMPTY}<span className="block text-[11px] text-dim">{event.quote_provider || ''}</span></> },
+  { key: 'source', header: 'Source', render: (event) => <>{event.pricing_source || EMPTY}<span className="block text-[11px] text-dim">{event.quote_provider || ''}</span>
+    {event.observed_option_mark_share != null ? <span className="block text-[11px] text-dim">{Math.round(event.observed_option_mark_share * 100)}% real trades</span> : null}</> },
   { key: 'evidence', header: 'Evidence', render: (event) => `Snapshot #${event.evidence_snapshot_id ?? EMPTY}` },
   { key: 'prices', header: 'Entry → exit', align: 'right', render: (event) => (event.entry_price === null ? EMPTY : `${event.entry_price.toFixed(2)} → ${event.exit_price?.toFixed(2) ?? EMPTY}`) },
   { key: 'pnl', header: 'P/L', align: 'right', render: (event) => <span className={pnlClass(event.realized_pnl_pct)}>{percent(event.realized_pnl_pct)}</span> },
@@ -257,6 +258,15 @@ function QuoteFetchResult({ result }: { result: EodQuoteFetch }) {
       <p>Latest decision with a recorded contract: {result.latest_contract_decision_at ? when(result.latest_contract_decision_at) : 'none'} · selected decision dates: {range(result.selected_start_at, result.selected_end_at, 'no windows selected')} · quotes returned: {range(result.returned_quote_start_at, result.returned_quote_end_at)}</p>
       {result.stop_reason ? <p role="status" className="text-warning">Paused: {result.stop_reason.replaceAll('_', ' ')}.{result.resume_at ? ` Try again after ${when(result.resume_at)}.` : ''} Quotes already imported are available for backtesting.</p> : <p>Fetch the next batch to continue, then create a new backtest.</p>}
       {result.budget ? <p className="text-dim">Daily fetch allowance: {result.budget.used} / {result.budget.daily_limit} used (includes failed attempts). Resets {when(result.budget.resets_at)}.</p> : null}
+    </div>
+  </Panel>
+}
+
+function MinuteBarFetchResult({ result }: { result: MinuteBarFetch }) {
+  return <Panel title="Alpaca 1-minute bar fetch" meta="market data only · no trades are executed">
+    <div className="flex flex-col gap-1 text-xs text-ink-2">
+      <p>Stored {result.stock_bar_count} stock and {result.option_bar_count} option minute bars for {result.fetched_decision_count} decisions · {result.already_cached_count} already cached · {result.remaining_decision_count} pending · {result.error_count} errors</p>
+      {result.errors.length ? <p className="text-warning">{result.errors.map((item) => `${item.symbol}: ${item.error}`).join(' · ')}</p> : null}
     </div>
   </Panel>
 }
@@ -321,6 +331,8 @@ function BacktestPage() {
   const [running, setRunning] = useState(false)
   const [fetchingQuotes, setFetchingQuotes] = useState(false)
   const [quoteFetch, setQuoteFetch] = useState<EodQuoteFetch | null>(null)
+  const [fetchingBars, setFetchingBars] = useState(false)
+  const [barFetch, setBarFetch] = useState<MinuteBarFetch | null>(null)
   const [windowMode, setWindowMode] = useState<'all' | 'latest' | 'range'>('all')
   const [rangeStart, setRangeStart] = useState('')
   const [rangeEnd, setRangeEnd] = useState('')
@@ -367,6 +379,14 @@ function BacktestPage() {
       .finally(() => setFetchingQuotes(false))
   }
 
+  const startBarFetch = () => {
+    setFetchingBars(true)
+    fetchMinuteBars(fetchLimit, config.max_hold_hours, windowMode === 'range' ? { start_at: dayStart(rangeStart), end_at: dayEnd(rangeEnd) } : {})
+      .then((result) => { setBarFetch(result); setError(null) })
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Failed to fetch minute bars.'))
+      .finally(() => setFetchingBars(false))
+  }
+
   const models = useMemo(() => [...new Set(runs.map(modelName))].sort(), [runs])
   const statuses = useMemo(() => [...new Set(runs.map((run) => run.status))].sort(), [runs])
   const filteredRuns = useMemo(() => runs.filter((run) => (kind === 'all' || runKind(run) === kind)
@@ -404,6 +424,7 @@ function BacktestPage() {
       description="Replays stored decisions against historical option quotes. No live data, orders or account state."
       actions={<>
         <button className="btn btn-sm" type="button" onClick={startEodFetch} disabled={fetchingQuotes}>{fetchingQuotes ? 'Fetching EOD quotes…' : 'Fetch next EOD batch'}</button>
+        <button className="btn btn-sm" type="button" onClick={startBarFetch} disabled={fetchingBars}>{fetchingBars ? 'Fetching minute bars…' : 'Fetch next 1-min bar batch'}</button>
         <button className="btn btn-sm btn-primary" type="button" onClick={startRun} disabled={running}>{running ? 'Running…' : 'Run backtest'}</button>
       </>}
     />
@@ -433,11 +454,13 @@ function BacktestPage() {
       <div className="mt-1 flex max-w-[80ch] flex-col gap-1">
         <p>All history includes every stored call/put decision, simulated oldest to newest. Latest decisions limits the run to a recent window; Date range to the decisions made between those days (either end may be left open). A date range also bounds the EOD fetch.</p>
         <p>The form runs stored-decision backtests only. LLM replay runs come from <code>agentCallers/llm_backtest.py</code>; their replay summary and recorded settings show under the selected run.</p>
+        <p>Each 1-minute bar fetch stores Alpaca stock and option bars for the next uncached decisions' hold windows, once per session; the backtest then marks trades every minute and uses a real option trade as the price whenever one happened.</p>
         <p>Each EOD fetch advances through uncached contract windows across history; completed cached windows do not consume the batch limit. MarketData.app EOD quotes are fetched server-side; the token never reaches your browser.</p>
         <p>Portfolio limits reject new simulated entries once capacity, entry-notional, sector, or realized daily-loss limits are reached. The sector cap is measured against the portfolio-notional cap.</p>
       </div>
     </details>
     {quoteFetch ? <QuoteFetchResult result={quoteFetch} /> : null}
+    {barFetch ? <MinuteBarFetchResult result={barFetch} /> : null}
     {error ? <p role="alert" className="text-xs text-error">{error}</p> : null}
     {loading && !detail ? <p className="text-dim">Loading backtest ledger…</p> : null}
     <div className="grid gap-3 lg:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)] lg:items-start">
