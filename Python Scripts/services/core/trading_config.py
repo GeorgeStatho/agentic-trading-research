@@ -270,6 +270,7 @@ class OptionPositionSettings:
     stop_loss_underlying_move_pct: float
     exit_use_limit_orders: bool
     exit_max_spread_pct: float
+    stop_loss_max_spread_wait_minutes: float
     exit_tick_size_small: float
     exit_tick_size_large: float
     exit_tick_price_threshold: float
@@ -312,11 +313,12 @@ class OptionPositionSettings:
             # urgent or already-retried exits) instead of crossing the whole spread with a
             # market order. Disabled by default so behavior is unchanged until opted in.
             exit_use_limit_orders=env_flag("OPTION_POSITION_EXIT_USE_LIMIT_ORDERS", False),
-            # Liquidity guard: when > 0, a non-urgent exit (scale-out, momentum, trailing
-            # stop) is held for another cycle if the option's bid/ask spread exceeds this
-            # fraction of the midpoint, rather than paying up into a blown-out book. Hard
-            # risk exits (stop-loss, near-expiration) always bypass the guard. 0 disables it.
+            # Liquidity guard: when > 0, an exit is held for another cycle if the option's
+            # bid/ask spread exceeds this fraction of the midpoint, rather than paying up into
+            # a blown-out book. Only the near-expiration exit bypasses it. 0 disables it.
             exit_max_spread_pct=max(0.0, env_float("OPTION_POSITION_EXIT_MAX_SPREAD_PCT", 0.0)),
+            # Longest a stop-loss waits on a wide spread before it sells at the bid anyway.
+            stop_loss_max_spread_wait_minutes=max(0.0, env_float("OPTION_POSITION_STOP_LOSS_MAX_SPREAD_WAIT_MINUTES", 30.0)),
             # Tick sizes for rounding limit-exit prices to a broker-valid increment. Defaults
             # to the OCC standard (a nickel below $3, a dime at/above), which is valid for any
             # option class; set both to 0.01 for penny-quoted names to keep full precision.

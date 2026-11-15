@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -243,15 +244,25 @@ def _build_option_position_snapshot(
     ):
         option_spread_pct = round((current_ask - current_bid) / current_mid_price, 6)
     exit_reason = str(exit_action.get("reason") or "")
-    # Liquidity guard: hold a non-urgent exit for another cycle rather than
+    # Liquidity guard: hold any exit but the expiry exit for another cycle rather than
     # crossing a blown-out spread. Safe to downgrade here because sell-commitment
     # state (e.g. took_first_scale_out) is only persisted at submission time, so
     # the position stays eligible to retry next cycle.
-    if exit_action.get("action") in {"sell_full", "sell_partial"} and _exit_should_hold_for_wide_spread(
+    hold_for_spread = exit_action.get("action") in {"sell_full", "sell_partial"} and _exit_should_hold_for_wide_spread(
         exit_reason=exit_reason,
         option_spread_pct=option_spread_pct,
         max_spread_pct=settings.exit_max_spread_pct,
-    ):
+    )
+    stop_held_since = None
+    if hold_for_spread and exit_reason == "stop_loss":
+        # A spread that never narrows must not keep a stop from firing forever.
+        now = datetime.now(timezone.utc)
+        stop_held_since = str((position_state or {}).get("stop_loss_spread_hold_started_at") or "") or now.isoformat()
+        hold_for_spread = now - datetime.fromisoformat(stop_held_since) < timedelta(
+            minutes=settings.stop_loss_max_spread_wait_minutes
+        )
+    updated_state["stop_loss_spread_hold_started_at"] = stop_held_since if hold_for_spread else None
+    if hold_for_spread:
         updated_state["last_action"] = "hold"
         updated_state["last_decision_reason"] = "liquidity_guard_wide_spread"
         exit_action = {
