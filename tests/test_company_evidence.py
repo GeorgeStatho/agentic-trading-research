@@ -7,6 +7,8 @@ import sqlite3
 import unittest
 from unittest.mock import Mock, patch
 
+import requests
+
 from tests.research_foundation_fixtures import database, START, ENTRY, END
 from db_common import get_connection
 from market_db_modules.company_collection import collection_state
@@ -142,6 +144,11 @@ class TransportTests(unittest.TestCase):
         with self.assertRaisesRegex(ProviderUnavailable, 'cooldown is still active'):
             self.http.get(self.url)
 
+    def test_transport_failure_keeps_the_underlying_error(self):
+        self.session.get.side_effect = requests.ConnectionError('dns down')
+        with self.assertRaisesRegex(ProviderUnavailable, 'ConnectionError: dns down'):
+            self.http.get(self.url)
+
     def test_outside_host_rejected_before_http(self):
         with self.assertRaises(ValueError):
             self.http.get('https://unconfigured.test/release')
@@ -199,6 +206,27 @@ class CollectorTests(unittest.TestCase):
         self.adapter.collect.side_effect = RuntimeError('provider unavailable')
         self.collect()
         self.assertEqual(collection_state('fixture', '1', db_path=self.db)['cursor'], {'last': 'release-1'})
+
+    def test_failure_records_and_logs_the_error_message(self):
+        self.adapter.collect.side_effect = RuntimeError('provider unavailable')
+        with self.assertLogs('services.discovery.company_evidence_service', 'WARNING') as logs:
+            self.collect()
+        state = collection_state('fixture', '1', db_path=self.db)
+        self.assertEqual(state['last_error'], 'RuntimeError: provider unavailable')
+        self.assertIn('RuntimeError: provider unavailable', logs.output[0])
+        self.adapter.collect.side_effect = None
+        self.now += timedelta(days=1)
+        self.collect()
+        self.assertNotIn('last_error', collection_state('fixture', '1', db_path=self.db))
+
+    def test_company_collection_crash_is_logged_with_its_message(self):
+        from services.discovery import company_evidence_service
+        with patch.object(company_evidence_service, '_collect_resolved_company', side_effect=RuntimeError('boom')), \
+                self.assertLogs('services.discovery.company_evidence_service', 'WARNING') as logs:
+            outcomes = company_evidence_service._collect_companies(
+                [COMPANY], {}, {}, None, self.policy, 'fixture', lambda: self.now, None, self.db)
+        self.assertEqual(outcomes, [{'symbol': 'NVDA', 'status': 'collection_failed:RuntimeError'}])
+        self.assertIn('boom', '\n'.join(logs.output))
 
     def test_disabled_collector_never_calls_provider(self):
         with patch('requests.Session.get', side_effect=AssertionError('Network forbidden')):
