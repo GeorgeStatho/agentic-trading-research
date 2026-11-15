@@ -32,6 +32,7 @@ from ._option_positions_strategy import (
 )
 from services.runtime.candidate_lifecycle import observe
 from services.options.position_exit_policy import build_position_exit_context
+from market_db_modules.position_outcomes import open_entry_underlying_price
 from services.core.numbers import safe_float
 
 _TRUSTED_ENTRY_UNDERLYING_PRICE_SOURCES = {
@@ -116,6 +117,12 @@ def _build_option_position_snapshot(
     unrealized_pl_pct_ratio = _normalize_pct_ratio(unrealized_pl_pct)
     broker_unrealized_pl_pct_ratio = _normalize_pct_ratio(broker_unrealized_pl_pct)
     position_state = position_state_override if position_state_override is not None else get_position_state(state_path, option_symbol)
+    if safe_float((position_state or {}).get("entry_underlying_price")) is None:
+        # Nothing else writes the entry stock price into the state, so seed it from the recorded fill.
+        recorded_entry_underlying = observe(open_entry_underlying_price, option_symbol)
+        if recorded_entry_underlying:
+            position_state = {**(position_state or {}), "entry_underlying_price": recorded_entry_underlying,
+                              "entry_underlying_price_source": "broker_fill"}
     exit_rule_days_to_expiration = _resolve_exit_rule_days_to_expiration(position_state, days_to_expiration)
     exit_thresholds = _resolve_option_exit_thresholds(
         days_to_expiration=exit_rule_days_to_expiration,

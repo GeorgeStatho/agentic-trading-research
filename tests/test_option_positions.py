@@ -1235,6 +1235,24 @@ class OptionPositionTests(VerboseTestCase):
             self.assertEqual(partial_orders, [(symbol, 2, 1.60)])
             self.log_pass("a non-urgent scale-out was submitted as a passive limit order posted at the option midpoint")
 
+    def test_manager_confirms_a_stop_on_the_underlying_from_the_recorded_entry_price(self) -> None:
+        # The position state never stores an entry stock price; the recorded position outcome does.
+        snapshot_module = sys.modules[f"{self.option_positions.__name__.rsplit('.', 1)[0]}._option_positions_snapshot"]
+        original_lookup = snapshot_module.open_entry_underlying_price
+        self.addCleanup(setattr, snapshot_module, "open_entry_underlying_price", original_lookup)
+        for entry_underlying, expected in ((201.0, "stop_loss_underlying_hold"), (210.0, "stop_loss")):
+            with self.subTest(entry_underlying=entry_underlying), TemporaryDirectory() as temp_dir:
+                snapshot_module.open_entry_underlying_price = lambda _symbol, price=entry_underlying: price
+                symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
+                position = SimpleNamespace(symbol=symbol, avg_entry_price="3.0", qty="4", unrealized_plpc="-0.60")
+                result = self._run_manager_exit(
+                    position=position, option_bid=1.55, option_ask=1.65,
+                    state_path=Path(temp_dir) / "option_state.json", full_orders=[], partial_orders=[],
+                    stop_loss_underlying_move_pct=0.015,
+                )
+                self.assertEqual(result["positions"][0]["exit_reason"], expected)
+        self.log_pass("the stop held on a 0.5% stock move and fired on a 5% one, measured from the recorded entry price")
+
     def test_manager_holds_non_urgent_exit_when_spread_is_too_wide(self) -> None:
         with TemporaryDirectory() as temp_dir:
             full_orders: list = []
