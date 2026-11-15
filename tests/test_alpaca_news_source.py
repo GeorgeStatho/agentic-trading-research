@@ -168,6 +168,10 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn(("alpaca_news_api", alpacaNewsAPI.get_stock_data), companyNewsPipeline.API_SOURCES)
         self.assertIn(("benzinga.com", alpacaNewsAPI.get_article_content), page_fetch.ARTICLE_CONTENT_FETCHERS)
 
+    def test_morningstar_is_not_a_company_news_source(self):
+        # Morningstar's AWS WAF answers every quote lookup with a JS challenge, so it never yields articles.
+        self.assertNotIn("morningstar_api", [name for name, _ in companyNewsPipeline.API_SOURCES])
+
     def test_alpaca_articles_become_company_jobs(self):
         item = _news(20)
         sources = (("alpaca_news_api", alpacaNewsAPI.get_stock_data),)
