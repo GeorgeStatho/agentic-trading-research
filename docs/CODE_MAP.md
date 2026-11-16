@@ -696,7 +696,7 @@ skipped only for the premium cap (`FollowerFleet.mirror_blocked`, rows tagged `e
 (`FOLLOWER_STOCK_STOP_PCT`, `FOLLOWER_PARTIAL_PROFIT_PCT`, `FOLLOWER_PARTIAL_PROFIT_FRACTION`). The `FOLLOWER_*` knobs are
 `get_settings().followers` (`services/core/settings.py`); a bad value leaves it `None` and the fleet off. Followers may share one Alpaca
 account's keys, so a variant needs a new follower name, not new credentials.
-Own exits ignore production's close: `hold_window` (`FOLLOWER_HOLD_DAYS` plus the stock stop) and `hold_to_expiry` (expiry guard
+Own exits ignore production's close: `hold_window` (`FOLLOWER_HOLD_DAYS`, no stop, like the research strategy) and `hold_to_expiry` (expiry guard
 only). `ACCOUNT_<NAME>_ENTRY=shares_drift` (needs an own exit) makes a follower enter on the `shares_drift` rule
 (`research_contract.shares_drift_decision`) instead of copying production: `FollowerFleet.enter_drift`, run from the dedicated
 option-manager loop while the market is open, enters each new candidate's catalyst once (`source_order_id='drift:<catalyst_id>'`,

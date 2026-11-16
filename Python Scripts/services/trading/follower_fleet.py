@@ -342,7 +342,7 @@ class FollowerFleet:
         return {**row, 'qty': row['qty'] - max(sold, 0), 'partial_qty': max(sold, 0), 'partial_fill_price': price}
 
     def _policy_exit(self, gateway, row):
-        if row['exit_policy'] not in (STOCK_STOP, HOLD_WINDOW) or row['entry_spot'] is None:
+        if row['exit_policy'] != STOCK_STOP or row['entry_spot'] is None:
             return None
         price = _price(gateway.get_execution_market_snapshot(option_symbol=None, underlying_symbol=row['underlying'])
                        .get('underlying'))

@@ -19,8 +19,8 @@ FOLLOW_PRIMARY = f'follow:{PRIMARY_NAME}'
 # These variants still end with production's exit; they only add an earlier exit (stock_stop) or a one-time trim.
 STOCK_STOP = 'stock_stop'
 PARTIAL_PROFIT = 'partial_profit'
-# Own exits never follow production: hold_window holds FOLLOWER_HOLD_DAYS with the stock stop,
-# hold_to_expiry holds until the expiry guard.
+# Own exits never follow production: hold_window holds FOLLOWER_HOLD_DAYS with no stop, as the shares_drift
+# research strategy does, and hold_to_expiry holds until the expiry guard.
 HOLD_WINDOW = 'hold_window'
 HOLD_TO_EXPIRY = 'hold_to_expiry'
 OWN_EXIT_POLICIES = (HOLD_WINDOW, HOLD_TO_EXPIRY)

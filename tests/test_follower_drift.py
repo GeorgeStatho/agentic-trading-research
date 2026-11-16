@@ -148,12 +148,11 @@ class OwnExitTests(DriftCase):
         self.gateways['drift_shares'].submit_stock_market_order.assert_called_with(
             'client-drift_shares', symbol='XYZ', qty=10, side='sell')
 
-    def test_hold_window_also_stops_on_an_adverse_stock_move_but_the_spread_does_not(self):
-        self.snapshot['underlying'] = {'price': 97.5, 'mid_price': 97.5}
+    def test_no_own_exit_stops_on_an_adverse_stock_move(self):
+        # The shares_drift research strategy holds the window with no stop, so the live accounts do too.
+        self.snapshot['underlying'] = {'price': 90.0, 'mid_price': 90.0}
         self.fleet.manage()
-        statuses = self.statuses()
-        self.assertEqual(statuses['drift_shares'], ('closing', 'stock_stop'))
-        self.assertEqual(statuses['drift_spreads'], ('open', None))
+        self.assertEqual({status for status, _ in self.statuses().values()}, {'open'})
 
     def test_hold_to_expiry_closes_at_the_expiry_guard(self):
         self.now = datetime(2026, 11, 12, 15, tzinfo=timezone.utc)  # one day before the 2026-11-13 expiry
