@@ -74,6 +74,9 @@ def main():
     news_lag.add_argument('--days', type=int, default=0, help='look-back window in days; 0 for all history')
     news_lag.add_argument('--fetch-missing', action='store_true',
                           help='first cache daily and ~2 years of hourly bars for traded underlyings (network)')
+    drift = subparsers.add_parser('drift-report',
+                                  help='5-day residual from first observation by catalyst family, direction and age (read-only)')
+    drift.add_argument('--days', type=int, default=0, help='look-back window in days; 0 for all history')
     benchmark = subparsers.add_parser('benchmark', help='frozen benchmark sets for screening challengers (never promotes)')
     benchmark_commands = benchmark.add_subparsers(dest='benchmark_command', required=True)
     create = benchmark_commands.add_parser('create', help='select and store a new benchmark set')
@@ -167,6 +170,11 @@ def main():
         result = news_lag_report(days=args.days, db_path=db_path)
         if fetched is not None:
             result['fetched_history'] = fetched
+    elif args.command == 'drift-report':
+        if args.days < 0:
+            parser.error('--days must be 0 or positive')
+        from market_db_modules.drift_report import drift_report
+        result = drift_report(days=args.days, db_path=db_path)
     elif args.command == 'benchmark':
         result = run_benchmark_command(parser, args, db_path)
     elif args.command == 'forward-cycle':
