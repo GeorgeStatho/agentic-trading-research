@@ -16,10 +16,19 @@ PRIMARY_NAME = 'production'
 PRIMARY_STRATEGY = 'single_leg'
 PRIMARY_EXIT_POLICY = 'bucket_rules'
 FOLLOW_PRIMARY = f'follow:{PRIMARY_NAME}'
-# Each variant still ends with production's exit; it only adds an earlier exit (stock_stop) or a one-time trim.
+# These variants still end with production's exit; they only add an earlier exit (stock_stop) or a one-time trim.
 STOCK_STOP = 'stock_stop'
 PARTIAL_PROFIT = 'partial_profit'
-EXIT_POLICIES = (FOLLOW_PRIMARY, STOCK_STOP, PARTIAL_PROFIT)
+# Own exits never follow production: hold_window holds FOLLOWER_HOLD_DAYS with the stock stop,
+# hold_to_expiry holds until the expiry guard.
+HOLD_WINDOW = 'hold_window'
+HOLD_TO_EXPIRY = 'hold_to_expiry'
+OWN_EXIT_POLICIES = (HOLD_WINDOW, HOLD_TO_EXPIRY)
+EXIT_POLICIES = (FOLLOW_PRIMARY, STOCK_STOP, PARTIAL_PROFIT, *OWN_EXIT_POLICIES)
+# Where a follower's entries come from: production's orders, or the shares_drift rule on every new candidate.
+PRODUCTION_ENTRY = 'production'
+SHARES_DRIFT_ENTRY = 'shares_drift'
+ENTRY_SOURCES = (PRODUCTION_ENTRY, SHARES_DRIFT_ENTRY)
 # Structures that can cost less than production's contract. A single ITM or longer-dated contract costs at
 # least production's, which the premium cap already refused, so those never take capped picks.
 BLOCKED_PICK_STRATEGIES = ('debit_spread', 'shares')
@@ -34,6 +43,7 @@ class TradingAccount:
     strategy: str
     exit_policy: str
     blocked_picks: bool = False  # also trade picks production skipped only for the premium cap
+    entry: str = PRODUCTION_ENTRY
 
 
 def _follower(name, env, primary):
@@ -47,13 +57,18 @@ def _follower(name, env, primary):
         return None, f'unsupported strategy {strategy!r}'
     if exit_policy not in EXIT_POLICIES:
         return None, f'unsupported exit policy {exit_policy!r}'
+    entry = str(env.get(prefix + 'ENTRY') or PRODUCTION_ENTRY).strip().lower()
+    if entry not in ENTRY_SOURCES:
+        return None, f'unsupported entry {entry!r}'
+    if entry == SHARES_DRIFT_ENTRY and exit_policy not in OWN_EXIT_POLICIES:
+        return None, f'a shares_drift entry needs an own exit policy {OWN_EXIT_POLICIES}, not {exit_policy!r}'
     if key == primary.api_key:
         return None, 'uses the primary account keys'
     blocked = str(env.get(prefix + 'TAKE_BLOCKED') or '').strip().lower() in ('1', 'true', 'yes', 'on')
-    if blocked and strategy not in BLOCKED_PICK_STRATEGIES:
-        LOGGER.error('Follower account %r: TAKE_BLOCKED ignored for strategy %r', name, strategy)
+    if blocked and (strategy not in BLOCKED_PICK_STRATEGIES or entry != PRODUCTION_ENTRY):
+        LOGGER.error('Follower account %r: TAKE_BLOCKED ignored for strategy %r and entry %r', name, strategy, entry)
         blocked = False
-    return TradingAccount(name, key, secret, 'follower', strategy, exit_policy, blocked), ''
+    return TradingAccount(name, key, secret, 'follower', strategy, exit_policy, blocked, entry), ''
 
 
 def load_trading_accounts(env=None) -> list[TradingAccount]:

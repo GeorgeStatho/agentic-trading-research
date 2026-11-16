@@ -105,10 +105,13 @@ def register_dashboard_routes(app) -> None:
             days = int(request.args.get("days", "0"))
             if not 0 <= days <= 36500:
                 raise ValueError("days must be between 0 and 36500.")
-            from market_db_modules.account_positions import follower_report
+            from market_db_modules.account_positions import COPY, ENTRY_KINDS, follower_report
 
+            entry_kind = request.args.get("entry_kind", COPY)
+            if entry_kind not in ENTRY_KINDS:
+                raise ValueError(f"entry_kind must be one of {', '.join(ENTRY_KINDS)}.")
             try:
-                return jsonify(follower_report(days=days)), 200
+                return jsonify(follower_report(days=days, entry_kind=entry_kind)), 200
             except sqlite3.OperationalError as exc:
                 # A database set up before follower accounts existed simply has none yet.
                 if "no such table" not in str(exc):

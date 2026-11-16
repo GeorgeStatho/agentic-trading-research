@@ -75,6 +75,18 @@ def direction(value):
             'neither': 'skip', 'hold': 'skip', 'neutral': 'skip', 'watchlist': 'skip'}.get(value)
 
 
+def shares_drift_decision(features):
+    """The catalyst's own direction for a fresh earnings or analyst catalyst; the follower fleet trades it live."""
+    if features.get('catalyst_family') not in SHARES_DRIFT_FAMILIES:
+        return 'skip'
+    age = finite_float(features.get('catalyst_age_hours'))
+    if age is None:
+        return None
+    taxonomy = direction(features.get('catalyst_direction'))
+    fresh = 0 <= age < SHARES_DRIFT_MAX_AGE_HOURS and taxonomy in {'call', 'put'}
+    return taxonomy if fresh else 'skip'
+
+
 def strategy_decisions(features, policy):
     """None means unavailable; skip is an observed decision to hold cash."""
     sentiment = direction(features.get('sentiment'))
@@ -84,14 +96,6 @@ def strategy_decisions(features, policy):
     trend = direction(features.get('trend'))
     taxonomy = direction(features.get('catalyst_direction'))
     production_allowed = features.get('production_allowed')
-    age = finite_float(features.get('catalyst_age_hours'))
-    if features.get('catalyst_family') not in SHARES_DRIFT_FAMILIES:
-        shares_drift = 'skip'
-    elif age is None:
-        shares_drift = None
-    else:
-        fresh = 0 <= age < SHARES_DRIFT_MAX_AGE_HOURS and taxonomy in {'call', 'put'}
-        shares_drift = taxonomy if fresh else 'skip'
     full_v2 = None if production_allowed is None else manager if production_allowed else 'skip'
     return {
         'sentiment_volume': None if sentiment is None or volume is None else sentiment if volume >= policy.relative_volume_threshold else 'skip',
@@ -101,5 +105,5 @@ def strategy_decisions(features, policy):
         'strategist_only': strategist,
         'strategist_manager': None if strategist is None or manager is None else manager if strategist == manager else 'skip',
         'full_v2': full_v2,
-        'shares_drift': shares_drift,
+        'shares_drift': shares_drift_decision(features),
     }

@@ -300,7 +300,7 @@ class CatalystClassifierSettings:
 @dataclass(frozen=True)
 class FollowerSettings:
     spread_width_pct: float = 0.05
-    itm_min_delta: float = 0.70
+    itm_min_delta: float = 0.80
     force_exit_dte: int = 1
     max_hold_days: float = 30.0
     # Production holds about two days, so a one-week-longer expiry barely differs; two weeks does.
@@ -308,6 +308,10 @@ class FollowerSettings:
     stock_stop_pct: float = 0.02  # stock_stop: adverse move in the underlying from entry
     partial_profit_pct: float = 0.5  # partial_profit: gain on the position that triggers the trim
     partial_profit_fraction: float = 0.5  # share of the position the trim sells
+    # ITM calls and spreads without production's contract take the first expiry at least this many days out.
+    option_min_dte: int = 14
+    hold_days: float = 5.0  # hold_window: calendar days held, as the shares_drift research strategy holds
+    drift_budget: float = 1000.0  # dollars per shares_drift entry, which has no production order to size from
 
     @classmethod
     def from_environ(cls, env) -> 'FollowerSettings':
@@ -321,7 +325,10 @@ class FollowerSettings:
                    stock_stop_pct=float(env.get('FOLLOWER_STOCK_STOP_PCT', defaults.stock_stop_pct)),
                    partial_profit_pct=float(env.get('FOLLOWER_PARTIAL_PROFIT_PCT', defaults.partial_profit_pct)),
                    partial_profit_fraction=float(env.get('FOLLOWER_PARTIAL_PROFIT_FRACTION',
-                                                         defaults.partial_profit_fraction)))
+                                                         defaults.partial_profit_fraction)),
+                   option_min_dte=int(env.get('FOLLOWER_OPTION_MIN_DTE', defaults.option_min_dte)),
+                   hold_days=float(env.get('FOLLOWER_HOLD_DAYS', defaults.hold_days)),
+                   drift_budget=float(env.get('FOLLOWER_DRIFT_BUDGET', defaults.drift_budget)))
 
 
 def _followers(environ) -> FollowerSettings | None:

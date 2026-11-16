@@ -69,6 +69,22 @@ class FollowerAccountTests(unittest.TestCase):
             accounts = load_trading_accounts(env)
         self.assertEqual([a.blocked_picks for a in accounts[1:]], [False, False])
 
+    def test_own_exit_policies_and_shares_drift_entries(self):
+        env = {**PRODUCTION, 'TRADING_ACCOUNTS': 'drift,spreads', **keys('drift'), **keys('spreads'),
+               'ACCOUNT_DRIFT_STRATEGY': 'shares', 'ACCOUNT_DRIFT_ENTRY': 'Shares_Drift',
+               'ACCOUNT_DRIFT_EXIT_POLICY': 'hold_window', 'ACCOUNT_SPREADS_STRATEGY': 'debit_spread',
+               'ACCOUNT_SPREADS_EXIT_POLICY': 'hold_to_expiry'}
+        drift, spreads = load_trading_accounts(env)[1:]
+        self.assertEqual((drift.entry, drift.exit_policy), ('shares_drift', 'hold_window'))
+        self.assertEqual((spreads.entry, spreads.exit_policy), ('production', 'hold_to_expiry'))
+
+    def test_a_shares_drift_account_never_takes_blocked_picks(self):
+        env = {**PRODUCTION, 'TRADING_ACCOUNTS': 'drift', **keys('drift'), 'ACCOUNT_DRIFT_STRATEGY': 'shares',
+               'ACCOUNT_DRIFT_ENTRY': 'shares_drift', 'ACCOUNT_DRIFT_EXIT_POLICY': 'hold_window',
+               'ACCOUNT_DRIFT_TAKE_BLOCKED': 'true'}
+        with self.assertLogs('services.trading.trading_accounts', level='ERROR'):
+            self.assertFalse(load_trading_accounts(env)[1].blocked_picks)
+
     def test_invalid_followers_are_dropped(self):
         cases = {
             'missing secret': {'TRADING_ACCOUNTS': 'shares', 'ACCOUNT_SHARES_PUBLIC_KEY': 'k'},
@@ -79,6 +95,10 @@ class FollowerAccountTests(unittest.TestCase):
                                         'ACCOUNT_SHARES_EXIT_POLICY': 'bucket_rules'},
             'name of the primary': {'TRADING_ACCOUNTS': 'production', **keys('production'),
                                     'ACCOUNT_PRODUCTION_STRATEGY': 'shares'},
+            'unknown entry': {'TRADING_ACCOUNTS': 'shares', **keys('shares'), 'ACCOUNT_SHARES_ENTRY': 'llm'},
+            # A drift entry has no production position, so following production's exit would never close it.
+            'drift entry following production': {'TRADING_ACCOUNTS': 'shares', **keys('shares'),
+                                                 'ACCOUNT_SHARES_ENTRY': 'shares_drift'},
         }
         for label, env in cases.items():
             with self.subTest(label):
@@ -91,7 +111,7 @@ class FollowerAccountTests(unittest.TestCase):
 
 class FollowerSettingsTests(unittest.TestCase):
     def test_defaults(self):
-        self.assertEqual(FollowerSettings.from_environ({}), FollowerSettings(0.05, 0.70, 1, 30.0, 14))
+        self.assertEqual(FollowerSettings.from_environ({}), FollowerSettings(0.05, 0.80, 1, 30.0, 14))
 
     def test_reads_env_knobs(self):
         env = {'FOLLOWER_SPREAD_WIDTH_PCT': '0.08', 'FOLLOWER_ITM_MIN_DELTA': '0.8',

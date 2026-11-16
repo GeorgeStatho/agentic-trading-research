@@ -224,6 +224,14 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual((loaded.stock_stop_pct, loaded.partial_profit_pct, loaded.partial_profit_fraction),
                          (0.05, 0.4, 0.25))
 
+    def test_own_exit_and_drift_entry_settings(self):
+        defaults = FollowerSettings()
+        self.assertEqual((defaults.itm_min_delta, defaults.option_min_dte, defaults.hold_days, defaults.drift_budget),
+                         (0.80, 14, 5.0, 1000.0))
+        loaded = FollowerSettings.from_environ({'FOLLOWER_OPTION_MIN_DTE': '21', 'FOLLOWER_HOLD_DAYS': '3',
+                                                'FOLLOWER_DRIFT_BUDGET': '500'})
+        self.assertEqual((loaded.option_min_dte, loaded.hold_days, loaded.drift_budget), (21, 3.0, 500.0))
+
 
 if __name__ == '__main__':
     unittest.main()
