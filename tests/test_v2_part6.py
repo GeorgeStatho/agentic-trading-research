@@ -294,6 +294,32 @@ class ResearchDatabaseTests(unittest.TestCase):
         self.assertAlmostEqual(result['residual_pnl'], 1000 * (.10 - 2 * POLICY.benchmark_cost_bps / 10000), places=3)
         self.assertEqual(result['residual_status'], 'complete')
 
+    def test_the_residual_covers_the_bars_the_trade_held_not_the_hour_before_entry(self):
+        run_id = self.run_fixture()
+        self.candidate(catalyst=self.fresh())
+        self.factor_history(.155)  # daily: what a residual from the last close before the cutoff would see
+        with closing(get_connection(self.db)) as conn:
+            last = {symbol: conn.execute("SELECT close_price FROM historical_underlying_bars WHERE symbol=? AND "
+                                         "bar_at='2026-09-02'", (symbol,)).fetchone()[0] for symbol in ('NVDA', 'SPY', 'XLK')}
+        # The stock gains 5% in the hour before the trade's first hourly close, then 10% while it is held.
+        for symbol, entry, exit_ in (('NVDA', last['NVDA'] * 1.05, last['NVDA'] * 1.155),
+                                     ('SPY', last['SPY'], last['SPY']), ('XLK', last['XLK'], last['XLK'])):
+            self.stock_bars(symbol, {'2026-09-02T20:00:00+00:00': entry, '2026-09-07T20:00:00+00:00': exit_}, timeframe='1h')
+        result = self.shares_drift(run_id)
+        self.assertEqual(result['timeframe'], '1h')
+        self.assertAlmostEqual(result['residual_return'], .10, places=6)
+        self.assertEqual((result['residual_window']['baseline_at'], result['residual_window']['outcome_at']),
+                         (result['hypothetical_entry']['at'], result['hypothetical_exit']['at']))
+
+    def test_a_residual_whose_benchmarks_miss_the_trade_bars_is_unavailable(self):
+        run_id = self.run_fixture()
+        self.candidate(catalyst=self.fresh())
+        self.factor_history(.10)
+        self.stock_bars('NVDA', {'2026-09-02T20:00:00+00:00': 100, '2026-09-07T20:00:00+00:00': 110}, timeframe='1h')
+        result = self.shares_drift(run_id)
+        self.assertEqual((result['timeframe'], result['residual_return'], result['residual_status']),
+                         ('1h', None, 'window_mismatch'))
+
     def test_a_residual_without_sector_history_is_unavailable_not_zero(self):
         run_id = self.run_fixture()
         self.candidate(catalyst=self.fresh())

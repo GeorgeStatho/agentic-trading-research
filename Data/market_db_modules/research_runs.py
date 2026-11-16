@@ -269,18 +269,26 @@ def benchmark_position(conn, symbol, reference, inputs, run, as_of, reads):
 STOCK_NOTIONAL = 1000
 
 
-def stock_residual(symbol, cutoff, as_of, holding_days, db_path):
-    """The stock's residual over the holding window net of SPY and its sector, as the drift report measures it."""
+def stock_residual(symbol, entry_at, exit_at, as_of, db_path):
+    """The stock's residual net of SPY and its sector over exactly the bars the trade held.
+
+    Betas are fit on daily closes before the entry. A window that SPY and the sector cannot price at the
+    trade's own entry and exit bars is `window_mismatch`, never a residual over a different window.
+    """
     histories = load_histories(symbol, candidate_sector_symbol(symbol, db_path=db_path), as_of=utc(as_of),
                                db_path=db_path, captured_before=as_of)
-    return measure_response(histories, event_at=cutoff, as_of=utc(as_of), horizon_days=holding_days)
+    response = measure_response(histories, event_at=entry_at, as_of=utc(as_of),
+                                horizon_days=(exit_at - entry_at).total_seconds() / 86400)
+    if response['status'] == 'complete' and (utc(response['baseline_at']), utc(response['outcome_at'])) != (entry_at, exit_at):
+        return {**response, 'status': 'window_mismatch', 'residual_return': None}
+    return response
 
 
 def stock_position(conn, inputs, decision, run, as_of, reads, db_path=None):
     """Long (call) or short (put) shares of the candidate's stock from the cutoff for the holding window.
 
-    `hypothetical_pnl` is the price return. `residual_pnl` is the same position net of the market and sector,
-    from the drift report's baseline (the last close at or before the cutoff); it is None when it can't be measured.
+    `hypothetical_pnl` is the price return. `residual_pnl` is the same position, over the same entry and exit
+    bars, net of the market and sector; it is None when it can't be measured on those bars.
     """
     base = {'information_cutoff_time': inputs['information_cutoff_time'], 'outcome_cutoff_time': as_of,
             'hypothetical_entry': None, 'hypothetical_exit': None, 'hypothetical_pnl': None,
@@ -306,10 +314,11 @@ def stock_position(conn, inputs, decision, run, as_of, reads, db_path=None):
     sign = 1 if decision == 'call' else -1
     cost = 2 * policy.benchmark_cost_bps / 10000
     pnl = STOCK_NOTIONAL * (sign * (last['close_price'] / first['close_price'] - 1) - cost)
-    residual = stock_residual(inputs['symbol'], inputs['information_cutoff_time'], as_of, policy.holding_days, db_path)
+    residual = stock_residual(inputs['symbol'], first_at, last_at, as_of, db_path)
     move = residual.get('residual_return')
     return {**base, 'status': 'complete', 'hypothetical_pnl': pnl, 'capital': STOCK_NOTIONAL,
             'residual_status': residual['status'], 'residual_return': move,
+            'residual_window': {'baseline_at': residual.get('baseline_at'), 'outcome_at': residual.get('outcome_at')},
             'residual_pnl': None if move is None else STOCK_NOTIONAL * (sign * move - cost),
             'side': 'long' if sign == 1 else 'short', 'timeframe': timeframe,
             'hypothetical_entry': {'at': first_at.isoformat(), 'bar_id': first['id'], 'price': first['close_price']},

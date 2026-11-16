@@ -144,7 +144,8 @@ def shares_drift_report_from_connection(conn, run_id):
     return {'run_id': run_id, 'trades': len(rows),
             'definitions': {
                 'unit': 'one catalyst, at its first complete shares_drift trade; repeat candidates are dropped',
-                'returns': 'per $1 of notional after costs; residual is net of SPY and the sector from the cutoff'},
+                'returns': 'per $1 of notional after costs; residual is net of SPY and the sector over the same '
+                           'entry and exit bars as the trade, and unmeasured when they cannot price those bars'},
             'overall': _trade_stats(trades),
             'groups': [{'family': family, 'direction': way,
                         **_trade_stats([row for row in trades if (row['family'], row['direction']) == (family, way)])}
