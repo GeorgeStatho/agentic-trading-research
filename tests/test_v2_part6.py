@@ -262,6 +262,46 @@ class ResearchDatabaseTests(unittest.TestCase):
         self.assertAlmostEqual(result['hypothetical_pnl'], 1000 * (.10 - 2 * POLICY.benchmark_cost_bps / 10000))
         self.assertEqual(result['hypothetical_exit']['price'], 110)
 
+    def factor_history(self, jump):
+        """Weekday closes where NVDA = 1.2 x SPY + 0.5 x XLK returns, then a stock-only `jump` after the entry."""
+        import math
+        from datetime import date
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute("INSERT INTO sectors(id,sector_key,name) VALUES (1,'technology','Technology')")
+            conn.execute("INSERT INTO industries(id,sector_id,industry_key,name) VALUES (1,1,'chips','Chips')")
+            conn.execute("INSERT INTO companies(id,industry_id,symbol,name) VALUES (1,1,'NVDA','Fixture')")
+        prices, day, index = {'NVDA': 100.0, 'SPY': 100.0, 'XLK': 100.0}, date(2026, 6, 1), 0
+        closes = {symbol: {} for symbol in prices}
+        while day <= date(2026, 9, 2):
+            if day.weekday() < 5:
+                index += 1
+                market, sector = .01 * math.sin(index), .01 * math.cos(1.3 * index)
+                for symbol, move in (('SPY', market), ('XLK', sector), ('NVDA', 1.2 * market + .5 * sector)):
+                    prices[symbol] *= 1 + move
+                    closes[symbol][day.isoformat()] = prices[symbol]
+            day += timedelta(days=1)
+        for symbol in prices:
+            closes[symbol]['2026-09-08'] = prices[symbol] * (1 + jump if symbol == 'NVDA' else 1)
+            self.stock_bars(symbol, closes[symbol])
+
+    def test_shares_drift_reports_the_residual_net_of_market_and_sector(self):
+        run_id = self.run_fixture()
+        self.candidate(catalyst=self.fresh())
+        self.factor_history(.10)
+        result = self.shares_drift(run_id)
+        self.assertEqual(result['status'], 'complete')
+        self.assertAlmostEqual(result['residual_return'], .10, places=6)
+        self.assertAlmostEqual(result['residual_pnl'], 1000 * (.10 - 2 * POLICY.benchmark_cost_bps / 10000), places=3)
+        self.assertEqual(result['residual_status'], 'complete')
+
+    def test_a_residual_without_sector_history_is_unavailable_not_zero(self):
+        run_id = self.run_fixture()
+        self.candidate(catalyst=self.fresh())
+        self.stock_bars('NVDA', {'2026-09-02': 100, '2026-09-08': 110})
+        result = self.shares_drift(run_id)
+        self.assertEqual((result['status'], result['residual_return'], result['residual_pnl']), ('complete', None, None))
+        self.assertNotEqual(result['residual_status'], 'complete')
+
     def test_shares_drift_shorts_a_negative_catalyst_and_prefers_hourly_bars(self):
         run_id = self.run_fixture()
         self.candidate(decision='put', catalyst=self.fresh('negative', 'earnings_negative'))

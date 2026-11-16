@@ -20,7 +20,8 @@ from .research_observations import (
 )
 from services.research.shadow_portfolio import simulate_option
 from .bootstrap import initialize_database
-from services.research.price_response import completed_at
+from services.research.price_response import completed_at, measure_response
+from .pricing_research import candidate_sector_symbol, load_histories
 from services.research.research_contract import direction
 import logging
 
@@ -268,8 +269,19 @@ def benchmark_position(conn, symbol, reference, inputs, run, as_of, reads):
 STOCK_NOTIONAL = 1000
 
 
-def stock_position(conn, inputs, decision, run, as_of, reads):
-    """Long (call) or short (put) shares of the candidate's stock from the cutoff for the holding window."""
+def stock_residual(symbol, cutoff, as_of, holding_days, db_path):
+    """The stock's residual over the holding window net of SPY and its sector, as the drift report measures it."""
+    histories = load_histories(symbol, candidate_sector_symbol(symbol, db_path=db_path), as_of=utc(as_of),
+                               db_path=db_path, captured_before=as_of)
+    return measure_response(histories, event_at=cutoff, as_of=utc(as_of), horizon_days=holding_days)
+
+
+def stock_position(conn, inputs, decision, run, as_of, reads, db_path=None):
+    """Long (call) or short (put) shares of the candidate's stock from the cutoff for the holding window.
+
+    `hypothetical_pnl` is the price return. `residual_pnl` is the same position net of the market and sector,
+    from the drift report's baseline (the last close at or before the cutoff); it is None when it can't be measured.
+    """
     base = {'information_cutoff_time': inputs['information_cutoff_time'], 'outcome_cutoff_time': as_of,
             'hypothetical_entry': None, 'hypothetical_exit': None, 'hypothetical_pnl': None,
             'deployed_dollar_days': None, 'rejected_by': inputs.get('rejected_by', []),
@@ -292,8 +304,13 @@ def stock_position(conn, inputs, decision, run, as_of, reads):
         return {**base, 'status': 'missing_stock_prices'}
     (first_at, first), (last_at, last) = pair
     sign = 1 if decision == 'call' else -1
-    pnl = STOCK_NOTIONAL * (sign * (last['close_price'] / first['close_price'] - 1) - 2 * policy.benchmark_cost_bps / 10000)
+    cost = 2 * policy.benchmark_cost_bps / 10000
+    pnl = STOCK_NOTIONAL * (sign * (last['close_price'] / first['close_price'] - 1) - cost)
+    residual = stock_residual(inputs['symbol'], inputs['information_cutoff_time'], as_of, policy.holding_days, db_path)
+    move = residual.get('residual_return')
     return {**base, 'status': 'complete', 'hypothetical_pnl': pnl, 'capital': STOCK_NOTIONAL,
+            'residual_status': residual['status'], 'residual_return': move,
+            'residual_pnl': None if move is None else STOCK_NOTIONAL * (sign * move - cost),
             'side': 'long' if sign == 1 else 'short', 'timeframe': timeframe,
             'hypothetical_entry': {'at': first_at.isoformat(), 'bar_id': first['id'], 'price': first['close_price']},
             'hypothetical_exit': {'at': last_at.isoformat(), 'bar_id': last['id'], 'price': last['close_price']},
@@ -414,7 +431,7 @@ def collect_run(run_id, *, as_of=None, db_path=None):
                 if strategy in {'SMH', 'QQQ'}:
                     result = benchmark_position(conn, strategy, results['counterfactual'], inputs, run, at, reads)
                 elif strategy == 'shares_drift':
-                    result = stock_position(conn, inputs, decisions[strategy], run, at, reads)
+                    result = stock_position(conn, inputs, decisions[strategy], run, at, reads, db_path)
                 else:
                     result = _position(conn, inputs, decisions[strategy], strategy, run, at, sessions, reads)
                 results[strategy] = result

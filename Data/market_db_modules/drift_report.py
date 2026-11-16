@@ -111,3 +111,46 @@ def drift_report_from_connection(conn, *, days=0, now=None):
 def drift_report(*, days=0, db_path=None, now=None):
     with closing(get_connection(db_path)) as conn:
         return drift_report_from_connection(conn, days=days, now=now)
+
+
+def _trade_stats(rows):
+    raw = [row['raw'] for row in rows]
+    residual = [row['residual'] for row in rows if row['residual'] is not None]
+    return {'catalysts': len(rows), 'days': len({row['day'] for row in rows}),
+            'mean_raw_return': mean(raw) if raw else None,
+            'raw_hit_rate': sum(value > 0 for value in raw) / len(raw) if raw else None,
+            'residual_catalysts': len(residual),
+            'mean_residual_return': mean(residual) if residual else None,
+            'residual_hit_rate': sum(value > 0 for value in residual) / len(residual) if residual else None}
+
+
+def shares_drift_report_from_connection(conn, run_id):
+    """A research run's shares_drift trades, one per catalyst at its first entry, as the live followers enter."""
+    rows = conn.execute('''SELECT p.information_cutoff_time, p.result_json, cc.catalyst_id, cc.state_json
+        FROM research_shadow_positions p
+        LEFT JOIN candidate_catalysts cc ON cc.candidate_id=p.candidate_id AND cc.is_primary=1
+        WHERE p.run_id=? AND p.strategy='shares_drift' AND p.status='complete'
+        ORDER BY julianday(p.information_cutoff_time), p.candidate_id''', (run_id,)).fetchall()
+    first = {}
+    for row in rows:
+        result, state = json.loads(row['result_json']), json.loads(row['state_json'] or '{}')
+        capital = result['capital']
+        first.setdefault(row['catalyst_id'] or row['information_cutoff_time'], {
+            'day': row['information_cutoff_time'][:10], 'family': state.get('catalyst_family') or 'unknown',
+            'direction': state.get('direction') or 'unknown', 'raw': result['hypothetical_pnl'] / capital,
+            'residual': None if result.get('residual_pnl') is None else result['residual_pnl'] / capital})
+    trades = list(first.values())
+    keys = sorted({(row['family'], row['direction']) for row in trades})
+    return {'run_id': run_id, 'trades': len(rows),
+            'definitions': {
+                'unit': 'one catalyst, at its first complete shares_drift trade; repeat candidates are dropped',
+                'returns': 'per $1 of notional after costs; residual is net of SPY and the sector from the cutoff'},
+            'overall': _trade_stats(trades),
+            'groups': [{'family': family, 'direction': way,
+                        **_trade_stats([row for row in trades if (row['family'], row['direction']) == (family, way)])}
+                       for family, way in keys]}
+
+
+def shares_drift_report(run_id, *, db_path=None):
+    with closing(get_connection(db_path)) as conn:
+        return shares_drift_report_from_connection(conn, run_id)

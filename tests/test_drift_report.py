@@ -110,5 +110,61 @@ class DriftReportTests(unittest.TestCase):
         self.assertEqual(self.group(self.report(), 'earnings_positive', 'positive', 'unknown')['catalysts'], 1)
 
 
+class SharesDriftReportTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from market_db_modules.research_runs import start_run
+        self.db = temporary_database(self)
+        self.run_id = start_run({'pipeline_version': 'fixture'}, kind='leakage_checked_backtest', db_path=self.db,
+                                now=NOW.isoformat())['run_id']
+        self.count = 0
+
+    def trade(self, catalyst, *, raw, residual, days_ago=7, hours=0, status='complete', family='earnings_positive',
+              direction='positive'):
+        self.count += 1
+        candidate, cutoff = f'candidate-{self.count}', (NOW - timedelta(days=days_ago, hours=hours)).isoformat()
+        result = {'status': status, 'hypothetical_pnl': None if raw is None else raw * 1000, 'capital': 1000,
+                  'residual_pnl': None if residual is None else residual * 1000}
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute("INSERT INTO candidates (candidate_id, symbol, created_at, catalyst_ids_json, article_ids_json, "
+                         "pipeline_version_json) VALUES (?, 'MSFT', ?, '[]', '[]', '{}')", (candidate, cutoff))
+            conn.execute('''INSERT OR IGNORE INTO catalysts (catalyst_id, ticker, catalyst_type, catalyst_subtype,
+                catalyst_family, catalyst_scope, direction, mechanism, expected_horizon, article_count, source_count,
+                independent_root_count, primary_source_present, classification_version, classification_status,
+                state_json, updated_at) VALUES (?, 'MSFT', 'earnings', 'x', ?, 'idiosyncratic', ?, 'm', '4_10_days',
+                1, 1, 1, 0, 'v', 'classified', '{}', ?)''', (catalyst, family, direction, cutoff))
+            conn.execute('INSERT INTO research_candidates VALUES (?, ?, ?, ?, ?)', (self.run_id, candidate, cutoff, 'h', '{}'))
+            conn.execute('INSERT INTO research_shadow_positions VALUES (?, ?, ?, ?, ?, ?, ?)',
+                         (self.run_id, candidate, 'shares_drift', cutoff, NOW.isoformat(), status, json.dumps(result)))
+            conn.execute('INSERT INTO candidate_catalysts VALUES (?, ?, ?, 1, ?)', (candidate, catalyst, family,
+                         json.dumps({'catalyst_family': family, 'direction': direction})))
+
+    def report(self):
+        from market_db_modules.drift_report import shares_drift_report
+        return shares_drift_report(self.run_id, db_path=self.db)
+
+    def test_each_catalyst_counts_once_at_its_first_entry_and_residual_is_reported(self):
+        self.trade('catalyst:a', raw=.03, residual=.01, hours=5)
+        self.trade('catalyst:a', raw=-.08, residual=-.06, hours=1)  # a repeat candidate on the same catalyst
+        self.trade('catalyst:b', raw=-.01, residual=.02, days_ago=6)
+        self.trade('catalyst:c', raw=None, residual=None, status='cash')
+        result = self.report()
+        overall = result['overall']
+        self.assertEqual((result['trades'], overall['catalysts'], overall['days']), (3, 2, 2))
+        self.assertAlmostEqual(overall['mean_raw_return'], .01)
+        self.assertAlmostEqual(overall['mean_residual_return'], .015)
+        self.assertEqual(overall['residual_hit_rate'], 1.0)
+
+    def test_an_unmeasured_residual_is_counted_apart(self):
+        self.trade('catalyst:a', raw=.03, residual=None)
+        overall = self.report()['overall']
+        self.assertEqual((overall['catalysts'], overall['residual_catalysts'], overall['mean_residual_return']), (1, 0, None))
+
+    def test_groups_by_family_and_direction(self):
+        self.trade('catalyst:a', raw=.03, residual=.01)
+        self.trade('catalyst:n', raw=.02, residual=.04, family='earnings_negative', direction='negative')
+        groups = {(row['family'], row['direction']): row['catalysts'] for row in self.report()['groups']}
+        self.assertEqual(groups, {('earnings_positive', 'positive'): 1, ('earnings_negative', 'negative'): 1})
+
+
 if __name__ == '__main__':
     unittest.main()
