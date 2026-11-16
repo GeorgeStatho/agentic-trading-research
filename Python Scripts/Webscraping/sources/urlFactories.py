@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 
+# The Fool quote page is read by fool_api; crawling it here too doubled the requests and got the collector rate limited.
 SEARCH_SOURCES = {
-    "Motley Fool Quote": {
-        "url": "https://www.fool.com/quote/{exchange}/{symbol}/",
-        "type": "search",
-        "company_specific": "fool_quote",
-    },
     "CNBC Quote": {
         "url": "https://www.cnbc.com/quotes/{symbol}?qsearchterm={symbol}",
         "type": "search",

@@ -5,6 +5,7 @@ import requests
 from fastapi import HTTPException
 
 from APIs import foolAPI
+from sources.urlFactories import COMPANY_NEWS_SOURCES
 
 
 def _response(status, url="https://www.fool.com/quote/nasdaq/nvda/"):
@@ -38,6 +39,12 @@ class FoolQuoteLookupTests(unittest.TestCase):
     def test_found_quote_page_is_returned(self):
         with patch.object(foolAPI.session, "get", return_value=_response(200)):
             self.assertEqual(foolAPI._resolve_quote_url("NVDA", {}), "https://www.fool.com/quote/nasdaq/nvda/")
+
+
+class FoolRequestBudgetTests(unittest.TestCase):
+    def test_quote_page_is_not_also_crawled_as_a_company_source_page(self):
+        # fool_api already reads the quote page; crawling it again (with Scrapy's 429 retries) got the collector rate limited.
+        self.assertEqual([name for name, config in COMPANY_NEWS_SOURCES.items() if "fool.com" in config["url"]], [])
 
 
 if __name__ == "__main__":
