@@ -1129,6 +1129,18 @@
  ],
  [
   "table",
+  "historical_bar_fetches",
+  "historical_bar_fetches",
+  "CREATE TABLE historical_bar_fetches (\n    symbol TEXT NOT NULL,\n    session_date TEXT NOT NULL,\n    timeframe TEXT NOT NULL,\n    provider TEXT NOT NULL,\n    bar_count INTEGER NOT NULL,\n    fetched_at TEXT NOT NULL,\n    PRIMARY KEY (symbol, session_date, timeframe, provider)\n)"
+ ],
+ [
+  "table",
+  "historical_option_bars",
+  "historical_option_bars",
+  "CREATE TABLE historical_option_bars (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    option_symbol TEXT NOT NULL,\n    bar_at TEXT NOT NULL,\n    timeframe TEXT NOT NULL,\n    open_price REAL,\n    high_price REAL,\n    low_price REAL,\n    close_price REAL,\n    volume REAL,\n    vwap REAL,\n    trade_count INTEGER,\n    provider TEXT NOT NULL,\n    UNIQUE (option_symbol, bar_at, timeframe, provider)\n)"
+ ],
+ [
+  "table",
   "historical_option_contracts",
   "historical_option_contracts",
   "CREATE TABLE historical_option_contracts (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    option_symbol TEXT NOT NULL,\n    underlying_symbol TEXT NOT NULL,\n    contract_type TEXT,\n    expiration_date TEXT,\n    strike_price REAL,\n    provider TEXT NOT NULL,\n    metadata_json TEXT,\n    captured_at TEXT NOT NULL,\n    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    UNIQUE (option_symbol, provider, captured_at)\n)"

@@ -12,6 +12,8 @@ from services.trading.trading_accounts import PRIMARY_NAME, PRIMARY_STRATEGY
 ACTIVE = ('pending_entry', 'open', 'closing')
 COPY = 'copy'
 PREMIUM_CAP_BLOCKED = 'premium_cap_blocked'
+SHARES_DRIFT = 'shares_drift'  # entered on the shares_drift rule, keyed per catalyst
+ENTRY_KINDS = (COPY, PREMIUM_CAP_BLOCKED, SHARES_DRIFT)
 
 
 def _update(row_id, db_path, sql, *values):
@@ -40,6 +42,23 @@ def record_plan(account, *, source_account, source_order_id, source_option_symbo
             f'''INSERT INTO account_positions ({', '.join(values)}) VALUES ({', '.join('?' * len(values))})
                 ON CONFLICT(account, source_order_id) DO NOTHING''', tuple(values.values()))
         return cursor.lastrowid if cursor.rowcount else None
+
+
+def recorded_sources(prefix, db_path=None):
+    """(account, source_order_id) for every row whose source starts with `prefix`, skipped ones included."""
+    with closing(get_connection(db_path)) as conn:
+        return {(row[0], row[1]) for row in conn.execute(
+            "SELECT account, source_order_id FROM account_positions WHERE source_order_id LIKE ? || '%'", (prefix,))}
+
+
+def recent_candidate_catalysts(since, db_path=None):
+    """Candidates created since `since` with their primary catalyst as frozen at the candidate, oldest first."""
+    with closing(get_connection(db_path)) as conn:
+        rows = conn.execute('''SELECT c.candidate_id, c.symbol, c.created_at, cc.catalyst_id, cc.state_json
+            FROM candidates c JOIN candidate_catalysts cc ON cc.candidate_id=c.candidate_id AND cc.is_primary=1
+            WHERE julianday(c.created_at) >= julianday(?) ORDER BY julianday(c.created_at), c.candidate_id''',
+                            (since,)).fetchall()
+    return [{**dict(row), 'state': json.loads(row['state_json'] or '{}')} for row in rows]
 
 
 def mark_entry_order(row_id, *, order_id, db_path=None):

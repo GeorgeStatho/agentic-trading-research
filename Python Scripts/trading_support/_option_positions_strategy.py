@@ -81,12 +81,13 @@ def _exit_should_hold_for_wide_spread(
     option_spread_pct: float | None,
     max_spread_pct: float,
 ) -> bool:
-    """Return True when a non-urgent exit should be held because the option's
-    bid/ask spread is wider than the configured ceiling. Urgent exits and an
-    unmeasurable/disabled spread never block."""
+    """Return True when an exit should be held because the option's bid/ask
+    spread is wider than the configured ceiling. A stop waits too: its wide
+    spreads come from opening quotes, which also skew the broker mark it fires on.
+    The expiry exit and an unmeasurable/disabled spread never block."""
     if max_spread_pct <= 0.0:
         return False
-    if exit_reason in _URGENT_EXIT_REASONS:
+    if exit_reason == "near_expiration":
         return False
     if option_spread_pct is None:
         return False

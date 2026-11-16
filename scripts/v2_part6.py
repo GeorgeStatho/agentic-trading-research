@@ -22,7 +22,7 @@ def main():
     report.add_argument('run_id')
     report.add_argument('--month', required=True)
     report.add_argument('--as-of')
-    pooled = commands.add_parser('report-gate', help='Pool one move-basis gate across every frozen-forward run')
+    pooled = commands.add_parser('report-gate', help='Pool one gate (move, option-return or hard-block scored) across every frozen-forward run')
     pooled.add_argument('stage')
     gate = commands.add_parser('promote-gate', help='Accepts a sealed-run report or a report-gate report')
     gate.add_argument('report_id')

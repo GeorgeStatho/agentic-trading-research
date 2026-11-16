@@ -61,13 +61,30 @@ class ResearchPolicy:
 
 
 STRATEGIES = ('sentiment_volume', 'sentiment_trend', 'taxonomy_expectancy',
-              'strategist_only', 'strategist_manager', 'full_v2')
+              'strategist_only', 'strategist_manager', 'full_v2', 'shares_drift')
+# Families with measured multi-day drift after the first print (the project notes (not in the public demo)).
+SHARES_DRIFT_FAMILIES = ('earnings_positive', 'earnings_negative', 'analyst')
+SHARES_DRIFT_MAX_AGE_HOURS = 24
+# Stock on a fixed notional: reported next to the option strategies, but never pairs or competes with them.
+UNPAIRED_STRATEGIES = ('shares_drift',)
 
 
 def direction(value):
     return {'call': 'call', 'bullish': 'call', 'positive': 'call', 'buy': 'call',
             'put': 'put', 'bearish': 'put', 'negative': 'put', 'sell': 'put',
             'neither': 'skip', 'hold': 'skip', 'neutral': 'skip', 'watchlist': 'skip'}.get(value)
+
+
+def shares_drift_decision(features):
+    """The catalyst's own direction for a fresh earnings or analyst catalyst; the follower fleet trades it live."""
+    if features.get('catalyst_family') not in SHARES_DRIFT_FAMILIES:
+        return 'skip'
+    age = finite_float(features.get('catalyst_age_hours'))
+    if age is None:
+        return None
+    taxonomy = direction(features.get('catalyst_direction'))
+    fresh = 0 <= age < SHARES_DRIFT_MAX_AGE_HOURS and taxonomy in {'call', 'put'}
+    return taxonomy if fresh else 'skip'
 
 
 def strategy_decisions(features, policy):
@@ -88,4 +105,5 @@ def strategy_decisions(features, policy):
         'strategist_only': strategist,
         'strategist_manager': None if strategist is None or manager is None else manager if strategist == manager else 'skip',
         'full_v2': full_v2,
+        'shares_drift': shares_drift_decision(features),
     }

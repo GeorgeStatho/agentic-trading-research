@@ -518,7 +518,7 @@ flowchart LR
         a4["news<br/>/opportunist-company-news"]
         a5["exposure_map<br/>/exposure-map/articles, /&lt;id&gt;, POST /runs"]
         a6["decision_autopsy /decision-autopsies"]
-        a7["backtest /backtests, POST /backtests,<br/>POST /backtests/marketdata-eod"]
+        a7["backtest /backtests, POST /backtests,<br/>POST /backtests/marketdata-eod,<br/>POST /backtests/alpaca-minute-bars"]
         a8["thesis_validator · v2_status · forward_evaluation ·<br/>demo_mode · telemetry (POST /startup, GET /summary)"]
     end
 
@@ -532,6 +532,7 @@ flowchart LR
     a3 --> alp[("Alpaca")]
     a5 --> llm[("LLM (OpenAI/Vertex)")]
     a7 --> md[("MarketData.app<br/>(budgeted)")]
+    a7 --> alpacabars[("Alpaca 1-min<br/>stock + option bars")]
 ```
 
 ---

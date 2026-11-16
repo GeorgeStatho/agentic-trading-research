@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
 
-CLASSIFICATION_VERSION = 'catalyst-rules-v3'
+CLASSIFICATION_VERSION = 'catalyst-rules-v4'
 LABEL_VERSION = 'catalyst-llm-v1'
 LABELED_CLASSIFICATION_VERSION = CLASSIFICATION_VERSION + '+' + LABEL_VERSION
 PRIMARY_SOURCE_TYPES = frozenset({'primary_filing', 'company_release', 'government', 'court_document', 'earnings_call'})
@@ -29,13 +29,16 @@ HALF_LIFE_MINUTES = {'analyst_action': 1440, 'earnings': 4320, 'guidance': 7200,
                      'customer_contract': 7200, 'macro': 1440, 'industry_readthrough': 2880,
                      'capital_return': 4320, 'management': 2880, 'financing': 2880, 'commentary': 1440}
 # Headlines that analyse or recap rather than report an event: questions, buy/sell advice, predictions,
-# listicles, previews and "why the stock moved" recaps.
+# listicles, previews, market and "why the stock moved" recaps, awards, and notices of a scheduled event.
 COMMENTARY = re.compile(
     r"\?|\b(prediction:|should you|better buy|stocks? to (buy|watch|own|sell)|(i'd|i'm|i would|i am) buy\w*|"
     r"how to (buy|invest)|vs\.|forget\b|my (top|favou?rite)|who owns|what does \w+ own|here(?:'s| is| are)\b|"
     r"history says|(before|ahead of) (its |the )?(next )?earnings|earnings (preview|ahead|to watch)|reports? soon|"
-    r"invested in|why\b.{0,60}\b(stocks?|shares)\b|top wall street analysts|bull case|bear case|undervalued|"
-    r"overvalued|millionaire|passive income|all-time high|stocks? (picks?|winners?)|biggest winner)")
+    r"invested in|why\b.{0,120}\b(stocks?|shares)\b|top wall street analysts|bull case|bear case|undervalued|"
+    r"overvalued|millionaire|passive income|all-time high|stocks? (picks?|winners?)|biggest winner|"
+    r"why\b.{0,120}\b(plunged|surged|soared|fell|jumped|rallied|slumped|sank|tumbled)\b|"
+    r"\b\d+ [\w-]+ stocks?\b|best [\w-]+ stocks?|what to invest|on deck|face test|stock market today|futures|"
+    r"\bwhale|\bawards?\b|recogni[sz]ed|\bto (announce|report|host|present)\b|conference call|webcast|investor day)")
 DECAY_BASIS = 'elapsed_calendar_minutes'
 # The 'other' mechanism is a placeholder; the strategist prompt drops it as carrying no information.
 UNCLASSIFIED_MECHANISM = 'Unclassified transmission mechanism; review required'
@@ -95,8 +98,9 @@ def detect_catalyst(title, summary=''):
     text = str(title or summary or '').lower()
     rules = (
         ('rumor', r'\b(rumou?r|unconfirmed|reportedly)\b'),
-        ('guidance', r'\b(guidance|outlook|forecast)\b'),
-        ('earnings', r'\b(earnings|eps|quarterly results|revenue beat|revenue miss)\b'),
+        ('guidance', r'\b(guidance|outlook|forecasts?)\b'),
+        ('earnings', r'\b(earnings|eps|quarterly results|net (income|loss)|q[1-4] (loss|profit|revenue|sales)|revenue beat|revenue miss|'
+                     r'(quarter|q[1-4]|fiscal|annual|full[- ]year)\b[^.]{0,30}\bresults)\b'),
         ('ma', r'\b(merger|acquisition|acquire[sd]?|buyout|takeover)\b'),
         ('regulatory', r'\b(fda|regulator\w*|antitrust|approval|enforcement)\b'),
         ('legal', r'\b(court|lawsuit|litigation|ruling|settlement)\b'),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
@@ -18,6 +19,8 @@ from ._option_positions_defaults import (
     OptionExitRule,
 )
 from services.core.numbers import safe_float
+
+LOGGER = logging.getLogger(__name__)
 
 
 # Only reached when no bucket has a configured giveback; every registered bucket defines one.
@@ -220,6 +223,7 @@ def _get_underlying_atr_pct(
     try:
         # Imported lazily: some alpaca-py builds do not expose these at import
         # time, and the ATR signal is optional (missing -> no scaling).
+        from alpaca.data.enums import DataFeed
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame
 
@@ -231,6 +235,8 @@ def _get_underlying_atr_pct(
                 timeframe=TimeFrame.Day,
                 start=start_time,
                 end=end_time,
+                # Without a feed Alpaca defaults to SIP, which the free plan refuses for recent data.
+                feed=DataFeed.IEX,
             )
         )
         data = getattr(bars_response, "data", None)
@@ -241,7 +247,9 @@ def _get_underlying_atr_pct(
         else:
             bars = bars_response or []
         return _compute_atr_pct(bars, period=period)
-    except Exception:
+    except Exception as exc:
+        # Missing ATR means unscaled exits; say so rather than silently dropping the scaling.
+        LOGGER.warning("Underlying ATR unavailable for %s; exits use fixed thresholds: %s", normalized_symbol, exc)
         return None
 
 

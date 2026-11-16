@@ -60,6 +60,9 @@ def load_inputs(conn, candidate, as_of):
     market = payload.get('market_context') or original.get('market_context') or {}
     thesis = (payload.get('candidate_context') or snapshots.get('candidate_created', (None, {}))[1])
     catalyst = (thesis.get('catalysts') or [{}])[0]
+    seen = catalyst.get('first_seen_time')
+    # The cutoff check above already refuses a first-seen time after the cutoff.
+    catalyst_age_hours = (utc(cutoff) - utc(seen)).total_seconds() / 3600 if seen else None
     underlying = market.get('underlying_price_history') or {}
     indicators = underlying.get('technical_indicators') or {}
     technical = underlying.get('technical_summary') or {}
@@ -99,6 +102,7 @@ def load_inputs(conn, candidate, as_of):
         'relative_volume': (indicators.get('relative_volume') or {}).get('relative_volume_20d'),
         'trend': technical.get('trend_state'), 'historical_expectancy': mean(returns) if usable else None,
         'catalyst_direction': catalyst.get('direction'), 'catalyst_family': catalyst.get('catalyst_family', 'unknown'),
+        'catalyst_age_hours': catalyst_age_hours,
         'independent_root_count': catalyst.get('independent_root_count'), 'evidence_score': catalyst.get('evidence_score'),
         'absorption_ratio': (snapshots.get('PRICE_ABSORPTION', (None, {}))[1].get('metrics') or {}).get('price_absorption_ratio'),
         'iv_percentile': ((market.get('option_market') or {}).get('volatility_summary') or {}).get('atm_iv_percentile'),

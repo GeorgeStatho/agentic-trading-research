@@ -74,8 +74,26 @@ def _buy_one_contract(strategy, contract, budget):
                      OPTION_MULTIPLIER, _delta(contract))
 
 
-def _debit_spread(decision, production, contracts, spot, budget, settings):
-    long = contracts.get(production['symbol'], production)
+def _first_expiry_members(members, today, settings):
+    """Members at the earliest listed expiry at least `option_min_dte` days out."""
+    earliest = today + timedelta(days=settings.option_min_dte)
+    members = [c for c in members if (_expiry(c) or date.min) >= earliest]
+    if not members:
+        return []
+    expiry = min(_expiry(c) for c in members)
+    return [c for c in members if _expiry(c) == expiry]
+
+
+def _at_the_money(decision, contracts, spot, today, settings):
+    members = _first_expiry_members([c for c in contracts.values() if c.get('contract_type') == decision
+                                     and _strike(c) is not None and (_quote(c, 'ask_price') or 0) > 0], today, settings)
+    return min(members, key=lambda c: abs(_strike(c) - spot), default=None)
+
+
+def _debit_spread(decision, production, contracts, spot, budget, settings, today):
+    # Without production's contract (a shares_drift entry) the long leg is the at-the-money strike.
+    long = (contracts.get(production['symbol'], production) if production.get('symbol')
+            else _at_the_money(decision, contracts, spot, today, settings) or {})
     long_ask, long_strike = _quote(long, 'ask_price'), _strike(long)
     if long_ask is None or long_ask <= 0 or long_strike is None:
         return Skip('debit_spread', 'no_long_quote')
@@ -102,15 +120,16 @@ def _debit_spread(decision, production, contracts, spot, budget, settings):
                      _units(budget, unit_cost), unit_cost, OPTION_MULTIPLIER, delta)
 
 
-def _itm_single(decision, production, contracts, spot, budget, settings):
+def _itm_single(decision, contracts, spot, budget, settings, today):
+    """Deep in the money, at the first expiry `option_min_dte` days out that lists such a strike."""
     in_the_money = [c for c in contracts.values() if c.get('contract_type') == decision
-                    and c.get('expiration_date') == production.get('expiration_date')
                     and _strike(c) is not None and (_quote(c, 'ask_price') or 0) > 0
                     and (_strike(c) < spot if decision == 'call' else _strike(c) > spot)]
     deltas = {c['symbol']: safe_float((c.get('greeks') or {}).get('delta')) for c in in_the_money}
     if any(delta is not None for delta in deltas.values()):
         in_the_money = [c for c in in_the_money
                         if deltas[c['symbol']] is not None and abs(deltas[c['symbol']]) >= settings.itm_min_delta]
+    in_the_money = _first_expiry_members(in_the_money, today, settings)
     if not in_the_money:
         return Skip('itm_single', 'no_itm_strike')
     return _buy_one_contract('itm_single', min(in_the_money, key=lambda c: abs(_strike(c) - spot)), budget)
@@ -144,7 +163,9 @@ def _shares(decision, underlying, spot, budget):
 OPTION_STRATEGIES = ('debit_spread', 'itm_single', 'longer_dte')
 
 
-def build_order(strategy, *, decision, underlying, production_contract, chains, spot, budget, settings):
+def build_order(strategy, *, decision, underlying, production_contract, chains, spot, budget, settings, today=None):
+    """`today` is the New York date the chain was fetched on; it dates the minimum DTE."""
+    today = today or date.today()
     if strategy not in (*OPTION_STRATEGIES, 'shares'):
         raise ValueError(f'Unknown follower strategy: {strategy}')
     if decision not in ('call', 'put'):
@@ -162,5 +183,5 @@ def build_order(strategy, *, decision, underlying, production_contract, chains, 
     if strategy == 'longer_dte':
         return _longer_dte(decision, production_contract, contracts, budget, settings)
     if strategy == 'debit_spread':
-        return _debit_spread(decision, production_contract, contracts, spot, budget, settings)
-    return _itm_single(decision, production_contract, contracts, spot, budget, settings)
+        return _debit_spread(decision, production_contract, contracts, spot, budget, settings, today)
+    return _itm_single(decision, contracts, spot, budget, settings, today)

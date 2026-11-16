@@ -644,20 +644,22 @@ class WorkerApplication:
         return mark_window_opens(close_at, policy).astimezone().replace(tzinfo=None)
 
     def _run_follower_management(self) -> None:
-        """Close follower positions whose production position is gone.
+        """Enter new shares_drift signals in the follower accounts that take them, then manage follower exits.
 
-        Runs only in this dedicated loop, so exactly one process ever closes followers.
+        Runs only in this dedicated loop, so exactly one process ever closes followers or enters drift signals.
         """
         if self._follower_fleet is None:
             return
         from services.runtime.candidate_lifecycle import observe
 
+        observe(self._follower_fleet.enter_drift)
         observe(self._follower_fleet.manage)
 
     def run_option_manager_loop(self) -> None:
         """Run the dedicated option-manager loop for existing option positions only."""
         # This lighter loop exists for deployments that only need position
-        # management; it never opens new trades and wakes on its own schedule.
+        # management; it never opens production trades and wakes on its own schedule. Follower
+        # accounts on the shares_drift entry are the exception: their paper entries start here.
         trading_client = self._trading_gateway.create_client()
         self._position_manager.reconcile_outcomes(trading_client=trading_client)
         next_option_management_at = datetime.now()

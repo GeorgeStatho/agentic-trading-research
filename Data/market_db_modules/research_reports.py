@@ -9,18 +9,24 @@ from zoneinfo import ZoneInfo
 from db_common import get_connection
 from services.core.pipeline_version import gate_config
 from services.core.trading_path import trading_path_hashes
-from services.research.research_contract import ResearchPolicy, STRATEGIES, canonical, direction, fingerprint, utc
+from services.research.research_contract import (ResearchPolicy, STRATEGIES, UNPAIRED_STRATEGIES, canonical, direction,
+                                                 fingerprint, utc)
 from services.research.research_promotion import (GATE_BLOCKS, gate_code_hash, policy_hash,
                                                   research_only_candidate, source_hash)
 from services.research.research_versions import evaluation_version, require_current_evaluator
-from services.research.shadow_portfolio import (HARD_BLOCK_BASIS, MOVE_BASIS, evaluate_gate, evaluate_gate_on_hard_blocks,
-                                                evaluate_gate_on_moves, expectancy, proposed_side)
+from services.gates.trade_economics import realized_net_return
+from services.gates.trade_economics_policy import TradeEconomicsPolicy
+from services.research.shadow_portfolio import (HARD_BLOCK_BASIS, MOVE_BASIS, OPTION_PNL_BASIS, evaluate_gate,
+                                                evaluate_gate_on_hard_blocks, evaluate_gate_on_moves,
+                                                evaluate_gate_on_option_returns, expectancy, proposed_side)
 
 # Gates that judge whether a catalyst deserves an entry are scored on the underlying's move;
 # contract and economics gates judge execution, which only a priced option trade can show.
 MOVE_SCORED_BLOCKS = {'catalyst', 'continuation', 'regime', 'thesis', 'entry_extension', 'regime_spy_trend'}
 # A pre-check is right when what it rejects would have been hard-blocked later anyway.
 PRECISION_SCORED_BLOCKS = {'tradability'}
+# The economics gate judges the option, so it is scored on the option its report priced, repriced at the move.
+PNL_SCORED_BLOCKS = {'economics'}
 MINIMUM_HARD_BLOCK_PRECISION = 0.95
 HARD_BLOCKS = {('EXECUTION', 'premium_per_trade_cap'),
                ('CONTRACT_SELECTION', 'continuation_confirmed_but_no_eligible_contract')}
@@ -68,6 +74,16 @@ def forward_move(conn, candidate_id, at):
             and utc(residual['forward_at']) <= utc(at) and utc(residual['forward_checked_at']) <= utc(at) else None)
 
 
+def economics_return(conn, candidate_id, at, days, policy):
+    """The net return of the option the candidate's first economics report priced, at its realized residual move."""
+    report = conn.execute('SELECT record_json FROM candidate_economics_reports WHERE candidate_id=? '
+                          'ORDER BY created_at, report_id LIMIT 1', (candidate_id,)).fetchone()
+    move = forward_move(conn, candidate_id, at)
+    if report is None or move is None:
+        return None
+    return realized_net_return(json.loads(report['record_json']), move, days, policy)
+
+
 def hard_block_outcome(conn, candidate_id, at):
     """'blocked' if a later stage refused the pick for the premium cap or no eligible contract, 'fits' if
     an order went out, None while neither is known by `at`."""
@@ -82,7 +98,10 @@ def hard_block_outcome(conn, candidate_id, at):
 
 def strategy_table(rows):
     names = (*STRATEGIES, 'SMH', 'QQQ')
-    paired = [row for row in rows if all(row['positions'].get(name, {}).get('status') in {'complete', 'cash'} for name in names)]
+
+    def resolved_in(row, name):
+        return row['positions'].get(name, {}).get('status') in {'complete', 'cash'}
+    paired = [row for row in rows if all(resolved_in(row, name) for name in names if name not in UNPAIRED_STRATEGIES)]
     result = []
     for name in names:
         positions = [row['positions'].get(name, {}) for row in rows]
@@ -90,14 +109,15 @@ def strategy_table(rows):
         pnl = sum(position['hypothetical_pnl'] for position in resolved)
         trades = sum(position['status'] == 'complete' for position in resolved)
         days = sum(position['deployed_dollar_days'] for position in resolved)
-        paired_pnl = sum(row['positions'][name]['hypothetical_pnl'] for row in paired)
+        pairs = [row for row in paired if resolved_in(row, name)] if name in UNPAIRED_STRATEGIES else paired
+        paired_pnl = sum(row['positions'][name]['hypothetical_pnl'] for row in pairs)
         result.append({'strategy': name, 'n_observed': len(rows), 'n_resolved': len(resolved), 'n_trades': trades,
                        'n_missing': len(rows) - len(resolved), 'net_pnl': pnl,
                        'expectancy': expectancy(pnl, trades, len(rows), days),
-                       'paired_n': len(paired), 'paired_net_pnl': paired_pnl,
+                       'paired_n': len(pairs), 'paired_net_pnl': paired_pnl,
                        'daily_coverage_complete': bool(resolved) and all(position.get('verified_daily_marks') or
-                           position['status'] == 'cash' or name in {'SMH', 'QQQ'} for position in resolved),
-                       'paired_expectancy_per_candidate': paired_pnl / len(paired) if paired else None})
+                           position['status'] == 'cash' or name in {'SMH', 'QQQ', *UNPAIRED_STRATEGIES} for position in resolved),
+                       'paired_expectancy_per_candidate': paired_pnl / len(pairs) if pairs else None})
     result.sort(key=lambda row: (-(row['paired_expectancy_per_candidate'] or 0), row['strategy']))
     for index, row in enumerate(result, 1):
         row['rank'] = index if paired else None
@@ -196,61 +216,37 @@ def pooled_gate_report(stage, *, as_of=None, db_path=None):
     Rows carry their own gate-code hash, so deploys that leave the gate's files alone keep pooling.
     Only the first ask per company, New York day and proposed side counts, and only asks a whole
     horizon older than the report, so the window is closed and outcomes have had time to resolve.
-    Entry gates are scored on the underlying's move, pre-checks on whether their rejections were
-    hard-blocked later. The report records the evaluator; promotion refuses one it no longer runs.
+    Entry gates are scored on the underlying's move, TRADE_ECONOMICS on the option its report priced
+    repriced at that move, and pre-checks on whether their rejections were hard-blocked later. The report records the evaluator; promotion refuses one it no longer runs.
     """
     block = GATE_BLOCKS.get(stage)
-    precision = block in PRECISION_SCORED_BLOCKS
-    if block not in MOVE_SCORED_BLOCKS and not precision:
-        raise ValueError('Only gates scored on the underlying move or on later hard blocks pool across runs')
     policy = ResearchPolicy()
     at = utc(as_of or datetime.now(timezone.utc))
     window_end = at - timedelta(days=policy.holding_days)
-    live = gate_config().get(block)
-    if live is None:
-        raise ValueError(f'The current pipeline has no {block} policy to bind a proof to')
-    current = policy_hash(stage, live, gate_code_hash(stage, trading_path_hashes()))
-    runs, firsts, other, duplicates, unfinished = {}, {}, 0, 0, 0
+    if block in PRECISION_SCORED_BLOCKS:
+        score = evaluate_gate_on_hard_blocks
+        def label(conn, candidate_id):
+            return {'outcome': hard_block_outcome(conn, candidate_id, at)}
+    elif block in PNL_SCORED_BLOCKS:
+        score, economics = evaluate_gate_on_option_returns, TradeEconomicsPolicy.from_env()
+        def label(conn, candidate_id):
+            return {'option_return': economics_return(conn, candidate_id, at, policy.holding_days, economics)}
+    elif block in MOVE_SCORED_BLOCKS:
+        score = evaluate_gate_on_moves
+        def label(conn, candidate_id):
+            return {'residual_return': forward_move(conn, candidate_id, at)}
+    else:
+        raise ValueError('Only gates scored on the underlying move, the priced option or later hard blocks pool across runs')
+    current = _current_gate_policy_hash(stage, block)
     with closing(get_connection(db_path)) as conn, conn:
-        for saved in conn.execute('''SELECT c.* FROM research_candidates c JOIN research_runs r ON r.run_id=c.run_id
-                WHERE r.kind='frozen_forward' ORDER BY julianday(c.information_cutoff_time),c.candidate_id,c.run_id'''):
-            if research_only_candidate(saved['candidate_id']) or utc(saved['information_cutoff_time']) > window_end:
-                continue
-            inputs = json.loads(saved['input_json'])
-            if fingerprint(inputs) != saved['input_hash']:
-                raise ValueError('Frozen research inputs changed')
-            if stage not in inputs['features'].get('gates', {}):
-                continue
-            # An unfinished candidate's verdicts are only its rejections, which would tilt the sample.
-            if inputs.get('selection_source') == 'missing_or_unfinished_snapshots':
-                unfinished += 1
-                continue
-            if saved['run_id'] not in runs:
-                runs[saved['run_id']] = read_run(conn, saved['run_id'])
-            manifest = runs[saved['run_id']]['manifest']
-            # Rows enrolled before per-row gate hashes were recorded matched the run's manifest exactly.
-            code = (inputs.get('gate_code') or {}).get(stage) or gate_code_hash(stage, manifest.get('source_hashes') or {})
-            settings = manifest.get('gate_config', {}).get(block)
-            if settings is None or policy_hash(stage, settings, code) != current:
-                other += 1
-                continue
-            key = (inputs['symbol'], utc(saved['information_cutoff_time']).astimezone(NEW_YORK).date(),
-                   proposed_side(inputs['features']))
-            if key in firsts:
-                duplicates += 1
-                continue
-            firsts[key] = {'candidate_id': saved['candidate_id'], 'run_id': saved['run_id'],
-                           'features': inputs['features'], 'gates': inputs['features']['gates'],
-                           **({'outcome': hard_block_outcome(conn, saved['candidate_id'], at)} if precision
-                              else {'residual_return': forward_move(conn, saved['candidate_id'], at)})}
-        rows = list(firsts.values())
-        score = evaluate_gate_on_hard_blocks if precision else evaluate_gate_on_moves
+        rows, counts = _pooled_samples(conn, stage, block, current, window_end, label)
         gate = {**score(rows, stage), 'policy_hash': current,
                 'regimes': sorted({row['features'].get('regime') for row in rows} - {None, 'unknown'})}
         report = {'report_version': POOLED_REPORT_VERSION, 'stage': stage, 'information_cutoff_time': at.isoformat(),
                   'window_end': window_end.isoformat(), 'run_ids': sorted({row['run_id'] for row in rows}),
                   'candidate_ids': [row['candidate_id'] for row in rows],
-                  'n_other_code_or_policy': other, 'n_duplicate_asks': duplicates, 'n_unfinished': unfinished,
+                  'n_other_code_or_policy': counts['other'], 'n_duplicate_asks': counts['duplicates'],
+                  'n_unfinished': counts['unfinished'],
                   'evaluation_version': evaluation_version(),
                   'sample_unit': 'first verdict per symbol, New York day and proposed side', 'gates': [gate]}
         report_id = fingerprint(report)
@@ -262,6 +258,53 @@ def pooled_gate_report(stage, *, as_of=None, db_path=None):
                          (report_id, rows[-1]['run_id'], report['information_cutoff_time'], POOLED_REPORT_MONTH,
                           canonical(report)))
     return report
+
+
+def _current_gate_policy_hash(stage, block):
+    """The policy hash a pooled row must match: the live policy bound to the gate's current code."""
+    live = gate_config().get(block)
+    if live is None:
+        raise ValueError(f'The current pipeline has no {block} policy to bind a proof to')
+    return policy_hash(stage, live, gate_code_hash(stage, trading_path_hashes()))
+
+
+def _pooled_samples(conn, stage, block, current, window_end, label):
+    """The first finished verdict per symbol, New York day and side whose code and policy match `current`.
+
+    `label(conn, candidate_id)` adds the row's outcome. Returns the rows and the counts of the skipped ones.
+    """
+    runs, firsts, counts = {}, {}, {'other': 0, 'duplicates': 0, 'unfinished': 0}
+    for saved in conn.execute('''SELECT c.* FROM research_candidates c JOIN research_runs r ON r.run_id=c.run_id
+            WHERE r.kind='frozen_forward' ORDER BY julianday(c.information_cutoff_time),c.candidate_id,c.run_id'''):
+        if research_only_candidate(saved['candidate_id']) or utc(saved['information_cutoff_time']) > window_end:
+            continue
+        inputs = json.loads(saved['input_json'])
+        if fingerprint(inputs) != saved['input_hash']:
+            raise ValueError('Frozen research inputs changed')
+        if stage not in inputs['features'].get('gates', {}):
+            continue
+        # An unfinished candidate's verdicts are only its rejections, which would tilt the sample.
+        if inputs.get('selection_source') == 'missing_or_unfinished_snapshots':
+            counts['unfinished'] += 1
+            continue
+        if saved['run_id'] not in runs:
+            runs[saved['run_id']] = read_run(conn, saved['run_id'])
+        manifest = runs[saved['run_id']]['manifest']
+        # Rows enrolled before per-row gate hashes were recorded matched the run's manifest exactly.
+        code = (inputs.get('gate_code') or {}).get(stage) or gate_code_hash(stage, manifest.get('source_hashes') or {})
+        settings = manifest.get('gate_config', {}).get(block)
+        if settings is None or policy_hash(stage, settings, code) != current:
+            counts['other'] += 1
+            continue
+        key = (inputs['symbol'], utc(saved['information_cutoff_time']).astimezone(NEW_YORK).date(),
+               proposed_side(inputs['features']))
+        if key in firsts:
+            counts['duplicates'] += 1
+            continue
+        firsts[key] = {'candidate_id': saved['candidate_id'], 'run_id': saved['run_id'],
+                       'features': inputs['features'], 'gates': inputs['features']['gates'],
+                       **label(conn, saved['candidate_id'])}
+    return list(firsts.values()), counts
 
 
 def _stored_report(conn, report_id):
@@ -311,12 +354,16 @@ def promote_gate(report_id, stage, *, db_path=None):
             report, run = _promotion_report(conn, report_id, require_source=False)
             minimum = run['policy'].minimum_promotion_samples
         gate = next((item for item in report['gates'] if item['stage'] == stage), None)
-        option_basis = bool(gate) and gate.get('basis') not in (MOVE_BASIS, HARD_BLOCK_BASIS)
+        option_basis = bool(gate) and gate.get('basis') not in (MOVE_BASIS, HARD_BLOCK_BASIS, OPTION_PNL_BASIS)
         if (not gate or not gate['policy_hash'] or not gate['coverage_complete']
                 or (option_basis and not (gate['production_selection_complete'] and gate['daily_coverage_complete']))
                 or gate['n_evaluable'] < minimum
                 or gate['n_passed'] == 0 or gate['n_rejected'] == 0 or len(gate['regimes']) < 2 or gate['gate_value'] <= 0):
             raise ValueError('Gate lacks complete counterfactual coverage, positive value, sample size or regime diversity')
+        # Losses avoided alone prove nothing when most picks lose: the rejected picks must also do worse than the passed.
+        if gate.get('basis') == MOVE_BASIS and not (gate['mean_move_rejected'] is not None and gate['mean_move_passed'] is not None
+                                                    and gate['mean_move_rejected'] < gate['mean_move_passed']):
+            raise ValueError('Rejected candidates did not move worse than passed candidates')
         if gate.get('basis') == HARD_BLOCK_BASIS and gate['gate_value'] < MINIMUM_HARD_BLOCK_PRECISION:
             raise ValueError(f'Pre-check precision {gate["gate_value"]:.3f} is below {MINIMUM_HARD_BLOCK_PRECISION}')
         conn.execute('INSERT INTO research_gate_promotions VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING',
@@ -330,11 +377,13 @@ def promote_champion(report_id, *, incumbent_report_id=None, db_path=None):
         conn.execute('BEGIN IMMEDIATE')
         report, run = _promotion_report(conn, report_id)
         strategy = next(row for row in report['strategies'] if row['strategy'] == 'full_v2')
-        best_other = max(row['paired_net_pnl'] for row in report['strategies'] if row['strategy'] != 'full_v2')
+        best_other = max(row['paired_net_pnl'] for row in report['strategies']
+                         if row['strategy'] != 'full_v2' and row['strategy'] not in UNPAIRED_STRATEGIES)
         if (strategy['paired_n'] < run['policy'].minimum_promotion_samples or len(report['paired_regimes']) < 2
                 or strategy['paired_net_pnl'] <= max(0, best_other) or strategy['n_missing']
                 or strategy['paired_n'] != report['n_observed']
-                or not all(row['daily_coverage_complete'] for row in report['strategies'])):
+                or not all(row['daily_coverage_complete'] for row in report['strategies']
+                           if row['strategy'] not in UNPAIRED_STRATEGIES)):
             raise ValueError('Champion needs positive paired outperformance, complete coverage and multiple regimes')
         incumbent = conn.execute('SELECT run_id,report_id FROM research_champion WHERE singleton=1').fetchone()
         if incumbent and incumbent['run_id'] and incumbent['run_id'] != run['run_id']:

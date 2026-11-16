@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -32,6 +33,7 @@ from ._option_positions_strategy import (
 )
 from services.runtime.candidate_lifecycle import observe
 from services.options.position_exit_policy import build_position_exit_context
+from market_db_modules.position_outcomes import open_entry_underlying_price
 from services.core.numbers import safe_float
 
 _TRUSTED_ENTRY_UNDERLYING_PRICE_SOURCES = {
@@ -116,6 +118,12 @@ def _build_option_position_snapshot(
     unrealized_pl_pct_ratio = _normalize_pct_ratio(unrealized_pl_pct)
     broker_unrealized_pl_pct_ratio = _normalize_pct_ratio(broker_unrealized_pl_pct)
     position_state = position_state_override if position_state_override is not None else get_position_state(state_path, option_symbol)
+    if safe_float((position_state or {}).get("entry_underlying_price")) is None:
+        # Nothing else writes the entry stock price into the state, so seed it from the recorded fill.
+        recorded_entry_underlying = observe(open_entry_underlying_price, option_symbol)
+        if recorded_entry_underlying:
+            position_state = {**(position_state or {}), "entry_underlying_price": recorded_entry_underlying,
+                              "entry_underlying_price_source": "broker_fill"}
     exit_rule_days_to_expiration = _resolve_exit_rule_days_to_expiration(position_state, days_to_expiration)
     exit_thresholds = _resolve_option_exit_thresholds(
         days_to_expiration=exit_rule_days_to_expiration,
@@ -236,15 +244,25 @@ def _build_option_position_snapshot(
     ):
         option_spread_pct = round((current_ask - current_bid) / current_mid_price, 6)
     exit_reason = str(exit_action.get("reason") or "")
-    # Liquidity guard: hold a non-urgent exit for another cycle rather than
+    # Liquidity guard: hold any exit but the expiry exit for another cycle rather than
     # crossing a blown-out spread. Safe to downgrade here because sell-commitment
     # state (e.g. took_first_scale_out) is only persisted at submission time, so
     # the position stays eligible to retry next cycle.
-    if exit_action.get("action") in {"sell_full", "sell_partial"} and _exit_should_hold_for_wide_spread(
+    hold_for_spread = exit_action.get("action") in {"sell_full", "sell_partial"} and _exit_should_hold_for_wide_spread(
         exit_reason=exit_reason,
         option_spread_pct=option_spread_pct,
         max_spread_pct=settings.exit_max_spread_pct,
-    ):
+    )
+    stop_held_since = None
+    if hold_for_spread and exit_reason == "stop_loss":
+        # A spread that never narrows must not keep a stop from firing forever.
+        now = datetime.now(timezone.utc)
+        stop_held_since = str((position_state or {}).get("stop_loss_spread_hold_started_at") or "") or now.isoformat()
+        hold_for_spread = now - datetime.fromisoformat(stop_held_since) < timedelta(
+            minutes=settings.stop_loss_max_spread_wait_minutes
+        )
+    updated_state["stop_loss_spread_hold_started_at"] = stop_held_since if hold_for_spread else None
+    if hold_for_spread:
         updated_state["last_action"] = "hold"
         updated_state["last_decision_reason"] = "liquidity_guard_wide_spread"
         exit_action = {

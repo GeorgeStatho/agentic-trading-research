@@ -1,4 +1,4 @@
-"""The pick score is logged on every manager decision; nothing orders or blocks on it yet."""
+"""The pick score is logged on every candidate the manager decides; nothing orders or blocks on it yet."""
 from contextlib import closing
 import json
 import unittest
@@ -105,6 +105,27 @@ class PickScorePipelineTests(unittest.TestCase):
 
         self.assertEqual(result['pick_score']['version'], PICK_SCORE_VERSION)
         self.assertEqual(stored['manager_output_json']['pick_score'], result['pick_score'])
+
+    def test_the_score_is_a_snapshot_on_the_candidate(self):
+        from unittest.mock import patch
+        from agentCallers import decision_pipeline
+
+        def passthrough(result, *args, **kwargs):
+            return result
+
+        context = {'candidate_id': 'candidate-1'}
+        with patch.multiple(decision_pipeline, record_directed_absorption=passthrough,
+                            apply_option_hurdle_to_manager_result=passthrough, prepare_scenario_inputs=passthrough,
+                            apply_deterministic_option_selection=passthrough, record_scenario_selection=passthrough,
+                            apply_market_regime_gate_to_manager_result=passthrough,
+                            evaluate_evidence_thesis_gate=lambda *a, **k: None, apply_trade_economics=passthrough), \
+                patch('services.runtime.candidate_lifecycle.checkpoint') as checkpoint, \
+                patch('services.runtime.candidate_lifecycle.record_gate'):
+            result = decision_pipeline._apply_post_manager_gates(
+                manager_result(), candidate_context=context, cycle_version=None, thesis_policy=None,
+                economics_policy=None)
+
+        checkpoint.assert_any_call(context, 'pick_score', result['pick_score'])
 
 
 class PickScoreHistoryTests(unittest.TestCase):

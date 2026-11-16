@@ -15,6 +15,10 @@ from services.core.env_parsing import (
 from services.options.option_dte_buckets import OPTION_DTE_BUCKETS
 from services.core.runtime_paths import DATA_DIR, LOGS_DIR, ROOT_DIR
 
+# The premium-per-trade cap's defaults; TRADABILITY's policy falls back to the same values.
+DEFAULT_MAX_PREMIUM_PER_TRADE_PCT = 55.0
+DEFAULT_MAX_PREMIUM_PER_TRADE_DOLLARS = 800.0
+
 
 def _load_exit_hours_to_expiration() -> float:
     """Hours before expiry to force an exit; the older *_DAYS_* variable is converted to hours."""
@@ -181,8 +185,9 @@ class WorkerSettings:
             # Both limits are optional and the tighter one wins; 0 disables that
             # limit. Unlike the per-order sizing budget, this cap also refuses the
             # trade outright when even a single contract costs more than it allows.
-            max_premium_per_trade_pct=env_percentage("MAX_PREMIUM_PER_TRADE_PCT", 55.0),
-            max_premium_per_trade_dollars=max(0.0, env_float("MAX_PREMIUM_PER_TRADE_DOLLARS", 800.0)),
+            max_premium_per_trade_pct=env_percentage("MAX_PREMIUM_PER_TRADE_PCT", DEFAULT_MAX_PREMIUM_PER_TRADE_PCT),
+            max_premium_per_trade_dollars=max(
+                0.0, env_float("MAX_PREMIUM_PER_TRADE_DOLLARS", DEFAULT_MAX_PREMIUM_PER_TRADE_DOLLARS)),
             max_option_order_qty_multiplier=env_positive_int("MAX_OPTION_ORDER_QTY_MULTIPLIER", 50),
             max_concurrent_option_positions=env_positive_int("MAX_CONCURRENT_OPTION_POSITIONS", 5),
             max_option_sector_exposure_pct=max(0.01, env_percentage("MAX_OPTION_SECTOR_EXPOSURE_PCT", 50.0)),
@@ -265,6 +270,7 @@ class OptionPositionSettings:
     stop_loss_underlying_move_pct: float
     exit_use_limit_orders: bool
     exit_max_spread_pct: float
+    stop_loss_max_spread_wait_minutes: float
     exit_tick_size_small: float
     exit_tick_size_large: float
     exit_tick_price_threshold: float
@@ -307,11 +313,12 @@ class OptionPositionSettings:
             # urgent or already-retried exits) instead of crossing the whole spread with a
             # market order. Disabled by default so behavior is unchanged until opted in.
             exit_use_limit_orders=env_flag("OPTION_POSITION_EXIT_USE_LIMIT_ORDERS", False),
-            # Liquidity guard: when > 0, a non-urgent exit (scale-out, momentum, trailing
-            # stop) is held for another cycle if the option's bid/ask spread exceeds this
-            # fraction of the midpoint, rather than paying up into a blown-out book. Hard
-            # risk exits (stop-loss, near-expiration) always bypass the guard. 0 disables it.
+            # Liquidity guard: when > 0, an exit is held for another cycle if the option's
+            # bid/ask spread exceeds this fraction of the midpoint, rather than paying up into
+            # a blown-out book. Only the near-expiration exit bypasses it. 0 disables it.
             exit_max_spread_pct=max(0.0, env_float("OPTION_POSITION_EXIT_MAX_SPREAD_PCT", 0.0)),
+            # Longest a stop-loss waits on a wide spread before it sells at the bid anyway.
+            stop_loss_max_spread_wait_minutes=max(0.0, env_float("OPTION_POSITION_STOP_LOSS_MAX_SPREAD_WAIT_MINUTES", 30.0)),
             # Tick sizes for rounding limit-exit prices to a broker-valid increment. Defaults
             # to the OCC standard (a nickel below $3, a dime at/above), which is valid for any
             # option class; set both to 0.01 for penny-quoted names to keep full precision.

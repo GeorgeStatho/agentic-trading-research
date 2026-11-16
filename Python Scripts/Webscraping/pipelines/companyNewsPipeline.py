@@ -18,9 +18,7 @@ from pipelines.job_builder import (
 )
 from APIs.alpacaNewsAPI import get_stock_data as get_alpaca_news_stock_data
 from APIs.foolAPI import get_stock_data as get_fool_stock_data
-from APIs.gurufocusAPI import get_stock_data as get_gurufocus_stock_data
 from market_data.yFinanceNews import extract_title_url_publisher, get_company_news_items
-from APIs.morningStarAPI import get_stock_data as get_morningstar_stock_data
 
 from market_db_modules.queries import get_all_companies, get_all_industries
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
@@ -32,8 +30,6 @@ LOGGER = get_scrape_logger("company_pipeline")
 API_ARTICLE_LIMIT = 10
 API_SOURCES: tuple[tuple[str, Any], ...] = (
     ("fool_api", get_fool_stock_data),
-    ("morningstar_api", get_morningstar_stock_data),
-    ("gurufocus_api", get_gurufocus_stock_data),
     ("alpaca_news_api", get_alpaca_news_stock_data),
 )
 __all__ = [

@@ -20,9 +20,11 @@ from market_db_modules.research_reports import (
 )
 from services.gates.contract_policy import ContractPolicy
 from services.research.research_contract import (
+    SHARES_DRIFT_FAMILIES,
     ResearchPolicy,
     assert_information_cutoff,
     canonical,
+    strategy_decisions,
     utc,
 )
 from services.research.research_promotion import approved, guard_policy, champion_allows, champion_check
@@ -82,6 +84,45 @@ class ShadowTests(unittest.TestCase):
 
     def test_missing_entry_quote_is_not_a_free_entry(self):
         self.assertEqual(self.simulate(quotes()[1:])['status'], 'missing_entry_quote')
+
+
+class SharesDriftDecisionTests(unittest.TestCase):
+    def decide(self, family='earnings_positive', way='positive', age=2.0, **extra):
+        features = {'catalyst_family': family, 'catalyst_direction': way, 'catalyst_age_hours': age, **extra}
+        return strategy_decisions(features, POLICY)['shares_drift']
+
+    def test_fresh_earnings_and_analyst_catalysts_trade_their_own_direction(self):
+        self.assertEqual([self.decide(), self.decide('earnings_negative', 'negative'), self.decide('analyst', 'negative')],
+                         ['call', 'put', 'put'])
+        self.assertEqual(self.decide(strategist_direction='put', manager_direction='put'), 'call')
+
+    def test_age_family_and_direction_limits(self):
+        self.assertEqual([self.decide(age=23.9), self.decide(age=24), self.decide(age=-1), self.decide(age=None)],
+                         ['call', 'skip', 'skip', None])
+        self.assertEqual([self.decide('product_commercial', age=None), self.decide(way='unknown'), self.decide(way='mixed')],
+                         ['skip', 'skip', 'skip'])
+
+    def test_every_trade_is_under_a_day_old_and_in_the_families(self):
+        for family in (*SHARES_DRIFT_FAMILIES, 'macro_sector', 'unknown'):
+            for way in ('positive', 'negative', 'unknown'):
+                for age in (None, -.1, 0, .5, 23.99, 24, 100):
+                    if self.decide(family, way, age) in {'call', 'put'}:
+                        self.assertIn(family, SHARES_DRIFT_FAMILIES)
+                        self.assertTrue(0 <= age < 24)
+
+
+class StrategyTableTests(unittest.TestCase):
+    def test_an_unresolved_stock_strategy_neither_unpairs_the_option_strategies_nor_joins_their_pairs(self):
+        from market_db_modules.research_reports import strategy_table
+        from services.research.research_contract import STRATEGIES
+        resolved = {'status': 'complete', 'hypothetical_pnl': 1.0, 'deployed_dollar_days': 1.0, 'verified_daily_marks': True}
+        names = [name for name in STRATEGIES if name != 'shares_drift'] + ['SMH', 'QQQ']
+        rows = [{'positions': {**{name: resolved for name in names}, 'shares_drift': {'status': 'missing_stock_prices'}}},
+                {'positions': {**{name: resolved for name in names}, 'shares_drift': {**resolved, 'hypothetical_pnl': 5.0}}}]
+        table, paired = strategy_table(rows)
+        self.assertEqual(len(paired), 2)
+        shares = next(row for row in table if row['strategy'] == 'shares_drift')
+        self.assertEqual((shares['n_resolved'], shares['paired_n'], shares['paired_net_pnl']), (1, 1, 5.0))
 
 
 class ExecutionIdentityTests(unittest.TestCase):
@@ -146,14 +187,14 @@ class ResearchDatabaseTests(unittest.TestCase):
     def run_fixture(self, n=1, kind='frozen_forward'):
         return start_run(self.manifest, kind=kind, target_candidates=n, now=START, db_path=self.db)['run_id']
 
-    def candidate(self, n=0, passed=True, selected=True, version=None, entry=ENTRY, decision='call'):
+    def candidate(self, n=0, passed=True, selected=True, version=None, entry=ENTRY, decision='call', catalyst=None):
         symbol = f'NVDA-option-{n}'
         selected_contract = contract(symbol)
         selected_contract['latest_quote']['timestamp'] = entry
         candidate_id = f'candidate-{n:03d}'
         manifest = version or self.manifest
         way = 'positive' if decision == 'call' else 'negative'
-        catalyst = {'catalyst_family': 'earnings', 'direction': way, 'independent_root_count': 2, 'evidence_score': .8}
+        catalyst = catalyst or {'catalyst_family': 'earnings', 'direction': way, 'independent_root_count': 2, 'evidence_score': .8}
         payload = {'recommendation': {'decision': decision, 'confidence': 'high', 'thesis_confidence': 'high',
                     'timing_confidence': 'medium', 'execution_confidence': 'low'}, 'manager_model': 'fixture-model',
                    'strategist_recommendation': {'decision': decision},
@@ -194,6 +235,124 @@ class ResearchDatabaseTests(unittest.TestCase):
                     conn.execute('''INSERT INTO historical_underlying_bars
                         (symbol,bar_at,timeframe,close_price,provider,raw_json,created_at) VALUES (?,?,'1d',100,'fixture',?,?)''',
                         (symbol, at, canonical({'available_at': at}), at))
+
+    def stock_bars(self, symbol, closes, timeframe='1d', provider='fixture'):
+        with closing(get_connection(self.db)) as conn, conn:
+            for at, close in closes.items():
+                conn.execute('''INSERT INTO historical_underlying_bars
+                    (symbol,bar_at,timeframe,close_price,provider,raw_json,created_at) VALUES (?,?,?,?,?,'{}',?)''',
+                    (symbol, at, timeframe, close, provider, at))
+
+    def shares_drift(self, run_id, as_of=END):
+        collect_run(run_id, as_of=as_of, db_path=self.db)
+        with closing(get_connection(self.db)) as conn:
+            return json.loads(conn.execute("SELECT result_json FROM research_shadow_positions WHERE strategy='shares_drift'")
+                              .fetchone()[0])
+
+    def fresh(self, direction='positive', family='earnings_positive', hours=2):
+        seen = (utc(ENTRY) - timedelta(hours=hours)).isoformat()
+        return {'catalyst_family': family, 'direction': direction, 'first_seen_time': seen}
+
+    def test_shares_drift_holds_the_stock_from_the_first_close_after_the_cutoff(self):
+        run_id = self.run_fixture()
+        self.candidate(catalyst=self.fresh())
+        self.stock_bars('NVDA', {'2026-09-02': 100, '2026-09-04': 90, '2026-09-08': 110})
+        result = self.shares_drift(run_id)
+        self.assertEqual((result['status'], result['side'], result['timeframe']), ('complete', 'long', '1d'))
+        self.assertAlmostEqual(result['hypothetical_pnl'], 1000 * (.10 - 2 * POLICY.benchmark_cost_bps / 10000))
+        self.assertEqual(result['hypothetical_exit']['price'], 110)
+
+    def factor_history(self, jump):
+        """Weekday closes where NVDA = 1.2 x SPY + 0.5 x XLK returns, then a stock-only `jump` after the entry."""
+        import math
+        from datetime import date
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute("INSERT INTO sectors(id,sector_key,name) VALUES (1,'technology','Technology')")
+            conn.execute("INSERT INTO industries(id,sector_id,industry_key,name) VALUES (1,1,'chips','Chips')")
+            conn.execute("INSERT INTO companies(id,industry_id,symbol,name) VALUES (1,1,'NVDA','Fixture')")
+        prices, day, index = {'NVDA': 100.0, 'SPY': 100.0, 'XLK': 100.0}, date(2026, 6, 1), 0
+        closes = {symbol: {} for symbol in prices}
+        while day <= date(2026, 9, 2):
+            if day.weekday() < 5:
+                index += 1
+                market, sector = .01 * math.sin(index), .01 * math.cos(1.3 * index)
+                for symbol, move in (('SPY', market), ('XLK', sector), ('NVDA', 1.2 * market + .5 * sector)):
+                    prices[symbol] *= 1 + move
+                    closes[symbol][day.isoformat()] = prices[symbol]
+            day += timedelta(days=1)
+        for symbol in prices:
+            closes[symbol]['2026-09-08'] = prices[symbol] * (1 + jump if symbol == 'NVDA' else 1)
+            self.stock_bars(symbol, closes[symbol])
+
+    def test_shares_drift_reports_the_residual_net_of_market_and_sector(self):
+        run_id = self.run_fixture()
+        self.candidate(catalyst=self.fresh())
+        self.factor_history(.10)
+        result = self.shares_drift(run_id)
+        self.assertEqual(result['status'], 'complete')
+        self.assertAlmostEqual(result['residual_return'], .10, places=6)
+        self.assertAlmostEqual(result['residual_pnl'], 1000 * (.10 - 2 * POLICY.benchmark_cost_bps / 10000), places=3)
+        self.assertEqual(result['residual_status'], 'complete')
+
+    def test_the_residual_covers_the_bars_the_trade_held_not_the_hour_before_entry(self):
+        run_id = self.run_fixture()
+        self.candidate(catalyst=self.fresh())
+        self.factor_history(.155)  # daily: what a residual from the last close before the cutoff would see
+        with closing(get_connection(self.db)) as conn:
+            last = {symbol: conn.execute("SELECT close_price FROM historical_underlying_bars WHERE symbol=? AND "
+                                         "bar_at='2026-09-02'", (symbol,)).fetchone()[0] for symbol in ('NVDA', 'SPY', 'XLK')}
+        # The stock gains 5% in the hour before the trade's first hourly close, then 10% while it is held.
+        for symbol, entry, exit_ in (('NVDA', last['NVDA'] * 1.05, last['NVDA'] * 1.155),
+                                     ('SPY', last['SPY'], last['SPY']), ('XLK', last['XLK'], last['XLK'])):
+            self.stock_bars(symbol, {'2026-09-02T20:00:00+00:00': entry, '2026-09-07T20:00:00+00:00': exit_}, timeframe='1h')
+        result = self.shares_drift(run_id)
+        self.assertEqual(result['timeframe'], '1h')
+        self.assertAlmostEqual(result['residual_return'], .10, places=6)
+        self.assertEqual((result['residual_window']['baseline_at'], result['residual_window']['outcome_at']),
+                         (result['hypothetical_entry']['at'], result['hypothetical_exit']['at']))
+
+    def test_a_residual_whose_benchmarks_miss_the_trade_bars_is_unavailable(self):
+        run_id = self.run_fixture()
+        self.candidate(catalyst=self.fresh())
+        self.factor_history(.10)
+        self.stock_bars('NVDA', {'2026-09-02T20:00:00+00:00': 100, '2026-09-07T20:00:00+00:00': 110}, timeframe='1h')
+        result = self.shares_drift(run_id)
+        self.assertEqual((result['timeframe'], result['residual_return'], result['residual_status']),
+                         ('1h', None, 'window_mismatch'))
+
+    def test_a_residual_without_sector_history_is_unavailable_not_zero(self):
+        run_id = self.run_fixture()
+        self.candidate(catalyst=self.fresh())
+        self.stock_bars('NVDA', {'2026-09-02': 100, '2026-09-08': 110})
+        result = self.shares_drift(run_id)
+        self.assertEqual((result['status'], result['residual_return'], result['residual_pnl']), ('complete', None, None))
+        self.assertNotEqual(result['residual_status'], 'complete')
+
+    def test_shares_drift_shorts_a_negative_catalyst_and_prefers_hourly_bars(self):
+        run_id = self.run_fixture()
+        self.candidate(decision='put', catalyst=self.fresh('negative', 'earnings_negative'))
+        self.stock_bars('NVDA', {'2026-09-02': 100, '2026-09-08': 110})
+        self.stock_bars('NVDA', {'2026-09-02T20:00:00+00:00': 100, '2026-09-07T20:00:00+00:00': 95}, timeframe='1h')
+        result = self.shares_drift(run_id)
+        self.assertEqual((result['side'], result['timeframe']), ('short', '1h'))
+        self.assertAlmostEqual(result['hypothetical_pnl'], 1000 * (.05 - 2 * POLICY.benchmark_cost_bps / 10000))
+
+    def test_shares_drift_is_pending_before_the_holding_window_ends_and_cash_when_stale(self):
+        run_id = self.run_fixture(n=2)
+        self.candidate(catalyst=self.fresh())
+        self.stock_bars('NVDA', {'2026-09-02': 100})
+        self.assertEqual(self.shares_drift(run_id, as_of='2026-09-05T20:00:00+00:00')['status'], 'pending')
+        self.candidate(n=1, catalyst=self.fresh(hours=24))
+        collect_run(run_id, as_of=END, db_path=self.db)
+        with closing(get_connection(self.db)) as conn:
+            statuses = dict(conn.execute("SELECT candidate_id, status FROM research_shadow_positions WHERE strategy='shares_drift'"))
+        self.assertEqual(statuses, {'candidate-000': 'missing_stock_prices', 'candidate-001': 'cash'})
+
+    def test_a_first_seen_time_after_the_cutoff_cannot_enter_the_features(self):
+        from services.research.research_inputs import load_inputs
+        self.candidate(catalyst=self.fresh(hours=-1))
+        with closing(get_connection(self.db)) as conn, self.assertRaises(ValueError):
+            load_inputs(conn, conn.execute('SELECT * FROM candidates').fetchone(), END)
 
     def collect_report(self, run_id):
         collect_run(run_id, as_of=END, db_path=self.db)
@@ -420,6 +579,11 @@ class GateEvidenceBasisTests(unittest.TestCase):
         self.assertNotEqual(gate_code_hash('SCENARIO_SELECTION', unrelated), gate_code_hash('SCENARIO_SELECTION', hashes))
         gate_edit = {**hashes, 'Python Scripts/services/gates/catalyst_gates.py': 'changed'}
         self.assertNotEqual(gate_code_hash('FRESHNESS', gate_edit), gate_code_hash('FRESHNESS', hashes))
+        # TRADE_ECONOMICS pools across deploys too, and resets when its pricing or scenarios change.
+        self.assertEqual(gate_code_hash('TRADE_ECONOMICS', unrelated), gate_code_hash('TRADE_ECONOMICS', hashes))
+        for name in ('Python Scripts/services/gates/trade_economics.py', 'Data/market_db_modules/pricing_research.py'):
+            edit = {**hashes, name: 'changed'}
+            self.assertNotEqual(gate_code_hash('TRADE_ECONOMICS', edit), gate_code_hash('TRADE_ECONOMICS', hashes))
 
     def test_production_cohorts_span_code_only_deploys_but_not_threshold_changes(self):
         from market_db_modules.research_runs import same_strategy
@@ -480,12 +644,26 @@ class PooledGateProofTests(unittest.TestCase):
                              (candidate_id, 'order_submitted', at, at, 'fixture-v1', 'v', 'h', '{}'))
         return candidate_id
 
-    def tradability(self, run_id, *, blocked, fits, passed=110, missing=0):
+    def tradability(self, run_id, *, blocked, fits, passed=110, missing=0, declined=0):
         for index in range(passed):
             self.enrol(run_id, passed=True, move=None, stage='TRADABILITY', outcome='fits')
         for outcome, n in (('premium_cap', blocked), ('fits', fits), (None, missing)):
             for index in range(n):
                 self.enrol(run_id, passed=False, move=None, stage='TRADABILITY', outcome=outcome)
+        for index in range(declined):
+            self.enrol(run_id, passed=False, move=None, stage='TRADABILITY', side='hold')
+
+    def economics(self, run_id, *, passed, move):
+        """A TRADE_ECONOMICS verdict with the priced at-the-money call its report selected."""
+        candidate_id = self.enrol(run_id, passed=passed, move=move, stage='TRADE_ECONOMICS')
+        row = {'selected': True, 'status': 'complete', 'side': 'call', 'spot': 100.0, 'strike': 100.0,
+               'days_to_expiry': 30, 'calibrated_iv': .4, 'scenario_horizon_days': 10,
+               'entry': {'ask': 3.0, 'spread': .1}}
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute('INSERT INTO candidate_economics_reports VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                         (f'economics:{candidate_id}', candidate_id, None, None, None, 'trade', 'fixture',
+                          ENTRY, ENTRY, 'h', canonical({'contracts': [row]})))
+        return candidate_id
 
     def useful_gate(self, run_id, n, **kwargs):
         for index in range(n):
@@ -512,6 +690,16 @@ class PooledGateProofTests(unittest.TestCase):
         self.assertEqual(proof['sample_size'], 120)
         self.assertEqual(guard_policy(MarketRegimePolicy(mode='enforce'), {'mode': 'REGIME'}, db_path=self.db).mode, 'enforce')
         self.assertFalse(approved('REGIME', MarketRegimePolicy(maximum_opposition=.5), db_path=self.db))
+
+    def test_a_gate_whose_rejections_did_better_than_its_passes_is_not_promoted(self):
+        # When most picks lose, rejecting any of them avoids losses; that alone must not prove the gate.
+        run_id = self.new_run()
+        for index in range(120):
+            self.enrol(run_id, passed=index % 2 == 0, move=-.03 if index % 2 == 0 else -.01)
+        report = self.report()
+        self.assertGreater(report['gates'][0]['gate_value'], 0)
+        with self.assertRaises(ValueError):
+            promote_gate(report['report_id'], 'REGIME', db_path=self.db)
 
     def test_rows_from_other_gate_code_or_policy_are_not_pooled(self):
         from services.gates.market_regime_gate import MarketRegimePolicy
@@ -600,6 +788,43 @@ class PooledGateProofTests(unittest.TestCase):
         self.tradability(self.new_run(), blocked=100, fits=10)
         with self.assertRaisesRegex(ValueError, 'precision'):
             promote_gate(self.report('TRADABILITY')['report_id'], 'TRADABILITY', db_path=self.db)
+
+    def test_tradability_needs_outcomes_for_most_rejected_manager_trades(self):
+        self.tradability(self.new_run(), blocked=110, fits=0, missing=20)
+        gate, = self.report('TRADABILITY')['gates']
+        self.assertAlmostEqual(gate['coverage'], 110 / 130)
+        self.assertFalse(gate['coverage_complete'])
+        with self.assertRaisesRegex(ValueError, 'coverage'):
+            promote_gate(self.report('TRADABILITY')['report_id'], 'TRADABILITY', db_path=self.db)
+
+    def test_tradability_rejections_the_manager_declined_do_not_lower_coverage(self):
+        self.tradability(self.new_run(), blocked=110, fits=0, declined=50)
+        gate, = self.report('TRADABILITY')['gates']
+        self.assertEqual((gate['n_not_applicable'], gate['coverage'], gate['coverage_complete']), (50, 1.0, True))
+
+    def test_trade_economics_pools_on_the_selected_options_realized_return(self):
+        from services.gates.trade_economics_policy import TradeEconomicsPolicy
+        run_id = self.new_run()
+        for index in range(120):
+            passed = index % 2 == 0
+            self.economics(run_id, passed=passed, move=.08 if passed else -.08)
+        for index in range(5):
+            self.economics(run_id, passed=None, move=.08)
+        gate, = self.report('TRADE_ECONOMICS')['gates']
+        self.assertEqual(gate['basis'], 'option_net_return_proxy')
+        self.assertEqual((gate['n_evaluable'], gate['n_unknown_verdicts'], gate['coverage_complete']), (120, 5, True))
+        self.assertGreater(gate['mean_return_passed'], 0)
+        self.assertLess(gate['mean_return_rejected'], 0)
+        self.assertGreater(gate['gate_value'], 0)
+        promote_gate(self.report('TRADE_ECONOMICS')['report_id'], 'TRADE_ECONOMICS', db_path=self.db)
+        self.assertTrue(approved('TRADE_ECONOMICS', TradeEconomicsPolicy.from_env(), db_path=self.db))
+
+    def test_trade_economics_without_a_priced_contract_is_a_missing_outcome(self):
+        run_id = self.new_run()
+        self.economics(run_id, passed=True, move=.08)
+        self.enrol(run_id, passed=False, move=-.08, stage='TRADE_ECONOMICS')
+        gate, = self.report('TRADE_ECONOMICS')['gates']
+        self.assertEqual((gate['n_evaluable'], gate['n_missing_outcomes']), (1, 1))
 
     def test_tradability_below_the_sample_floor_is_refused(self):
         self.tradability(self.new_run(), blocked=99, fits=0)

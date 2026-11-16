@@ -5,7 +5,8 @@ import unittest
 from datetime import datetime, timezone
 
 from market_db_modules import account_positions as store
-from services.trading.trading_accounts import FollowerSettings, TradingAccount
+from services.core.settings import FollowerSettings
+from services.trading.trading_accounts import TradingAccount
 from tests import test_follower_fleet as base
 
 BLOCKED = 'premium_cap_blocked'
@@ -219,9 +220,17 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual((defaults.partial_profit_pct, defaults.partial_profit_fraction), (0.5, 0.5))
         env = {'FOLLOWER_STOCK_STOP_PCT': '0.05',
                'FOLLOWER_PARTIAL_PROFIT_PCT': '0.4', 'FOLLOWER_PARTIAL_PROFIT_FRACTION': '0.25'}
-        loaded = FollowerSettings.from_env(env)
+        loaded = FollowerSettings.from_environ(env)
         self.assertEqual((loaded.stock_stop_pct, loaded.partial_profit_pct, loaded.partial_profit_fraction),
                          (0.05, 0.4, 0.25))
+
+    def test_own_exit_and_drift_entry_settings(self):
+        defaults = FollowerSettings()
+        self.assertEqual((defaults.itm_min_delta, defaults.option_min_dte, defaults.hold_days, defaults.drift_budget),
+                         (0.80, 14, 5.0, 1000.0))
+        loaded = FollowerSettings.from_environ({'FOLLOWER_OPTION_MIN_DTE': '21', 'FOLLOWER_HOLD_DAYS': '3',
+                                                'FOLLOWER_DRIFT_BUDGET': '500'})
+        self.assertEqual((loaded.option_min_dte, loaded.hold_days, loaded.drift_budget), (21, 3.0, 500.0))
 
 
 if __name__ == '__main__':

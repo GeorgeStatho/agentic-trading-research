@@ -41,6 +41,15 @@ class FollowerAccountsRouteTests(unittest.TestCase):
             self.assertEqual(response.status_code, 400, value)
             self.assertIn("error", response.get_json())
 
+    def test_entry_kind_selects_the_drift_entries_and_rejects_unknown_kinds(self) -> None:
+        from unittest.mock import patch
+        with patch("market_db_modules.account_positions.follower_report",
+                   return_value={"as_of": None, "days": 0, "accounts": {}, "trades": []}) as report:
+            self.assertEqual(self.client.get("/api/follower-accounts?entry_kind=shares_drift").status_code, 200)
+        report.assert_called_once_with(days=0, entry_kind="shares_drift")
+        response = self.client.get("/api/follower-accounts?entry_kind=llm")
+        self.assertEqual(response.status_code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

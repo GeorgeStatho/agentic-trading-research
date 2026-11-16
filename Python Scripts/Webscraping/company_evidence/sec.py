@@ -2,6 +2,7 @@
 from hashlib import sha256
 from html import unescape
 import json
+import logging
 import re
 from urllib.parse import urlparse
 
@@ -10,6 +11,8 @@ from .models import CollectionResult, SourceDocument
 from .releases import guidance_facts, release_text
 from .sec_facts import normalize_company_facts
 from services.core.numbers import safe_int
+
+LOGGER = logging.getLogger(__name__)
 
 
 TICKERS_URL = 'https://www.sec.gov/files/company_tickers.json'
@@ -115,6 +118,7 @@ class SECAdapter:
         except Exception as exc:
             # Filing text is still useful without standard XBRL coverage (e.g. foreign filers).
             gaps.append(f'sec_companyfacts_unavailable:{type(exc).__name__}')
+            LOGGER.warning('SEC companyfacts unavailable for %s: %s: %s', company['symbol'], type(exc).__name__, exc)
         documents = []
         for filing in reversed(filings):
             # A filing that cannot be read costs only its own text: the company's other filings
@@ -127,6 +131,8 @@ class SECAdapter:
                 size = _size(filing)
                 gaps.append(f"sec_filing_unavailable:{filing['form']}:{type(exc).__name__}"
                             + (f':{size}b' if size else ''))
+                LOGGER.warning('SEC %s %s unreadable for %s: %s: %s', filing['form'], filing['accessionNumber'],
+                               company['symbol'], type(exc).__name__, exc)
             if facts_response:
                 facts_document = self._facts_document(company, filing, facts_response, text_document)
                 if facts_document:
@@ -199,7 +205,8 @@ class SECAdapter:
             for name in self._exhibit_names(folder, filing, primary):
                 try:
                     exhibit = self.http.get(f'{folder}/{name}', ttl_seconds=self.policy.refresh_seconds)
-                except Exception:
+                except Exception as exc:
+                    LOGGER.warning('SEC exhibit %s/%s skipped: %s: %s', folder, name, type(exc).__name__, exc)
                     continue
                 parts.append(('EX-99', release_text(exhibit['body'])))
                 exhibit_ids.append(exhibit['response_id'])
@@ -217,7 +224,9 @@ class SECAdapter:
         try:
             listing = self.http.get(f"{folder}/{filing['accessionNumber']}-index.htm",
                                     ttl_seconds=self.policy.refresh_seconds)
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning('SEC filing index %s unreadable; exhibits skipped: %s: %s',
+                           filing['accessionNumber'], type(exc).__name__, exc)
             return []
         folder_path = urlparse(folder).path
         names = []

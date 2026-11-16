@@ -84,6 +84,16 @@ GUARDED_FEATURES = (
         "stages": ("ENTRY_EXTENSION",),
     },
     {
+        "key": "regime_spy_trend",
+        "label": "Regime variant: SPY 5/20-day trend",
+        "description": "Blocks calls only when SPY's 5- and 20-day returns are both down, puts only when both are up; "
+                       "stays shadow while REGIME enforces.",
+        "env_var": "REGIME_SPY_TREND_MODE",
+        "block": "regime_spy_trend",
+        "field": "mode",
+        "stages": ("REGIME_SPY_TREND",),
+    },
+    {
         "key": "tradability",
         "label": "Tradability pre-check",
         "description": "Before the strategist, checks the selector's top pick in the default DTE bucket against the premium cap.",
@@ -156,13 +166,6 @@ SHADOW_ONLY_FEATURES = (
         "description": "Shadows a repricing limit ladder against the market orders actually sent.",
         "reason": "Deferred: no measured broker-fill baseline exists, and an unsubmitted limit order proves nothing.",
     },
-    {
-        "key": "regime_spy_trend",
-        "label": "Regime variant: SPY 5/20-day trend",
-        "stage": "REGIME_SPY_TREND",
-        "description": "Blocks calls only when SPY's 5- and 20-day returns are both down, puts only when both are up.",
-        "reason": "A research variant of the market-regime gate; it never replaces or changes the REGIME verdict.",
-    },
 )
 
 EMPTY_ACTIVITY = {"observed_candidates": 0, "shadow_blocks": 0, "enforced_blocks": 0, "no_verdict": 0}
@@ -220,6 +223,7 @@ def _load_policies() -> dict:
     from services.gates.evidence_continuation_policy import EvidenceContinuationPolicy
     from services.gates.market_regime_gate import MarketRegimePolicy
     from services.gates.entry_extension_gate import EntryExtensionPolicy
+    from services.gates.market_regime_variants import RegimeSpyTrendPolicy
     from services.gates.tradability_gate import TradabilityPolicy
 
     loaders = {
@@ -228,6 +232,7 @@ def _load_policies() -> dict:
         "continuation": EvidenceContinuationPolicy.from_env,
         "regime": MarketRegimePolicy.from_env,
         "entry_extension": EntryExtensionPolicy.from_env,
+        "regime_spy_trend": RegimeSpyTrendPolicy.from_env,
         "tradability": TradabilityPolicy.from_env,
     }
     policies = {}

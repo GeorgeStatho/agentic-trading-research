@@ -179,6 +179,20 @@ retry time, and allowance used. Quotes already imported remain usable, and
 unattempted windows remain queued. Manual fetching resumes on your next request
 after the pause. The optional scheduler below runs separately.
 
+For intraday backtest marks, the Backtests page's **Fetch next 1-min bar batch**
+(`POST /api/backtests/alpaca-minute-bars`) stores Alpaca 1-minute stock bars (SIP)
+and option trade bars for stored decisions' hold windows, using `PUBLIC_KEY` /
+`PRIVATE_KEY` for market data only. Each session is fetched once, including
+sessions with no option trades. The backtest then marks modelled trades every
+minute (`model_black_scholes_1m`), takes a real option trade as the price in any
+minute that has one, and records each trade's share of marks from real trades.
+The `marketdata_eod_sync` service also runs this fetch on its own, 100 decisions
+at most once an hour, and never starts one while Alpaca's market clock says the
+market is open or opens within 30 minutes, so production trading keeps Alpaca's
+rate limit (holidays and early closes follow the clock). Sessions are
+fetched once, so after the backlog clears most runs make no requests. Set
+`ALPACA_MINUTE_BARS_AUTO_FETCH=false` to turn it off.
+
 The local counter starts when this protection is installed; it cannot reconstruct
 prior usage or track requests made by other applications/databases. Provider
 headers still trigger a pause if that outside usage exhausts the account.
@@ -362,7 +376,7 @@ The Flask service in [api.py](api.py) registers its routes from [api_routes/](ap
 - Health: `GET /api/health`, `GET /api/health/components` (503 when a loop is down, stalled or recently failed), `GET /api/script-status`
 - Account and trades: `GET /api/portfolio-history`, `GET /api/dashboard-kpis`, `GET /api/open-positions`, `GET /api/executed-trades`, `GET /api/trade-execution-output`, `GET /api/why-bot-traded`, `GET /api/risk-controls`, `GET /api/market-regime`
 - Decisions and news: `GET /api/company-decisions`, `GET /api/decision-autopsies`, `GET /api/opportunist-company-news`, `GET /api/news-extraction`, `GET /api/exposure-map/articles`, `GET /api/exposure-map/<article_id>`, `POST /api/exposure-map/runs`
-- Research: `GET /api/decision-expectancy`, `GET /api/news-lag`, `GET /api/follower-accounts`, `GET /api/forward-evaluation`, `GET /api/thesis-validator`, `GET /api/v2-status`, `GET /api/backtests`, `GET /api/backtests/<run_id>`, `POST /api/backtests`, `POST /api/backtests/marketdata-eod`
+- Research: `GET /api/decision-expectancy`, `GET /api/news-lag`, `GET /api/follower-accounts`, `GET /api/forward-evaluation`, `GET /api/thesis-validator`, `GET /api/v2-status`, `GET /api/backtests`, `GET /api/backtests/<run_id>`, `POST /api/backtests`, `POST /api/backtests/marketdata-eod`, `POST /api/backtests/alpaca-minute-bars`
 - Other: `GET /api/demo-mode`, `POST /api/telemetry/startup`, `GET /api/telemetry/summary`
 
 These are intended for the dashboard and internal monitoring. `GET /api/telemetry/summary` returns 401 unless `TELEMETRY_RECEIVER_READ_AUTH_TOKEN` (or `TELEMETRY_RECEIVER_AUTH_TOKEN`) is set and sent as a bearer token.

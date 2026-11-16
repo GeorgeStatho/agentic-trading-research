@@ -185,9 +185,11 @@ class OversizeFilingTests(SECCollection, unittest.TestCase):
     def test_unreadable_index_or_exhibit_keeps_the_primary_document(self):
         for routes in ({index_url(ACCESSION): ProviderUnavailable('sec HTTP 503')},
                        {f'{folder(ACCESSION)}/a3q26earningspr.htm': ProviderUnavailable('sec HTTP 503')}):
-            with self.subTest(failing=next(iter(routes))):
+            with self.subTest(failing=next(iter(routes))), \
+                    self.assertLogs('Webscraping.company_evidence.sec', 'WARNING') as logs:
                 _, result = self.collect_8k([('nvda-8k.htm', '8-K', 4000), ('a3q26earningspr.htm', 'EX-99.1', 9000)],
                                             routes)
+                self.assertIn('sec HTTP 503', '\n'.join(logs.output))
                 [document] = self.filings_of(result, 'regulatory_filing')
                 self.assertIn('Results furnished in exhibit 99.1.', document.text)
                 self.assertEqual(document.metadata['exhibit_response_ids'], [])

@@ -5,13 +5,15 @@ import copy
 import json
 import logging
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from market_db_modules import account_positions as store
 from services.trading.follower_fleet import FollowerFleet, build_follower_fleet
-from services.trading.trading_accounts import FollowerSettings, TradingAccount
+from services.core.settings import FollowerSettings
+from services.trading.trading_accounts import TradingAccount
 from tests.db_fixtures import temporary_database
 
 CHAIN = json.loads((Path(__file__).parent / 'fixtures' / 'follower_chain.json').read_text())
@@ -317,6 +319,12 @@ class BuildFollowerFleetTests(unittest.TestCase):
                                          settings=FollowerSettings())
         self.assertIsInstance(fleet, FollowerFleet)
         client_class.assert_not_called()
+
+    def test_invalid_follower_settings_build_no_fleet(self):
+        from services.core.settings import get_settings, use_settings
+        with use_settings(replace(get_settings(), followers=None)), \
+                self.assertLogs('test', level='ERROR'):
+            self.assertIsNone(build_follower_fleet([PRIMARY, follower('shares')], logger=logging.getLogger('test')))
 
 
 if __name__ == '__main__':

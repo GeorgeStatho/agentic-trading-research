@@ -7,16 +7,36 @@ from typing import Any, Callable, Iterator
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+import requests
+from scrapy.http import HtmlResponse
+
 from APIs.alpacaNewsAPI import get_article_content as get_alpaca_article_content
 from APIs.foolAPI import get_article_content as get_fool_article_content
 from APIs.gurufocusAPI import get_article_content as get_gurufocus_article_content
 from APIs.InvestingAPI import get_article_content as get_investing_article_content
 from APIs.morningStarAPI import get_article_content as get_morningstar_article_content
 from core.scrape_logging import get_scrape_logger
-from engine.article_extraction import ArticleContentUnavailable, ArticleExtractionResult
+from engine.article_extraction import (
+    DEFAULT_USER_AGENT,
+    ArticleContentUnavailable,
+    ArticleExtractionResult,
+    extract_from_response,
+)
 from engine.article_scraper import crawl_article_pages, crawl_articles
 
 LOGGER = get_scrape_logger("page_fetch")
+
+
+def _get_yahoo_article_content(url: str) -> dict[str, Any]:
+    # Scrapy's Twisted rejects Yahoo's oversized Link response header, so Yahoo articles skip the crawler.
+    response = requests.get(
+        url, headers={"User-Agent": DEFAULT_USER_AGENT, "Accept-Language": "en-US,en;q=0.9"}, timeout=20
+    )
+    response.raise_for_status()
+    article = extract_from_response(HtmlResponse(url=response.url, body=response.content))
+    return {
+        "data": {"url": article.url, "title": article.title, "body": article.text, "published_at": article.published_at}
+    }
 
 ARTICLE_CONTENT_FETCHERS: tuple[tuple[str, Callable[[str], dict[str, Any]]], ...] = (
     ("investor.example.com", get_fool_article_content),
@@ -24,6 +44,7 @@ ARTICLE_CONTENT_FETCHERS: tuple[tuple[str, Callable[[str], dict[str, Any]]], ...
     ("research.example.com", get_morningstar_article_content),
     ("value.example.com", get_gurufocus_article_content),
     ("benzinga.com", get_alpaca_article_content),
+    ("finance.yahoo.com", _get_yahoo_article_content),
 )
 
 

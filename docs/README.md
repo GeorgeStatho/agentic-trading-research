@@ -17,6 +17,7 @@ history and are not updated when the code changes.
 | [INTERFACE_GUIDE.md](INTERFACE_GUIDE.md) | Preferred import surface versus compatibility wrappers |
 | [CleanCode.md](CleanCode.md) | Code style rules used in reviews |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Installing the project, running tests and entrypoints |
+| [ALPACA.md](ALPACA.md) | Where each Alpaca call is already wrapped, data feeds, rate limits and known issues |
 
 ### Research and decision pipeline
 

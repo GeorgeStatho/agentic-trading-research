@@ -5,7 +5,7 @@ import sys
 import types
 import unittest
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -762,12 +762,12 @@ class OptionPositionTests(VerboseTestCase):
         self.assertTrue(should_hold(exit_reason="first_scale_out_trigger", option_spread_pct=0.20, max_spread_pct=0.10))
         # A tight spread is fine.
         self.assertFalse(should_hold(exit_reason="first_scale_out_trigger", option_spread_pct=0.05, max_spread_pct=0.10))
-        # Hard risk exits bypass the guard even on a blown-out spread.
-        self.assertFalse(should_hold(exit_reason="stop_loss", option_spread_pct=0.50, max_spread_pct=0.10))
+        # A stop waits out a blown-out spread (it is usually an opening quote); expiry never waits.
+        self.assertTrue(should_hold(exit_reason="stop_loss", option_spread_pct=0.50, max_spread_pct=0.10))
         self.assertFalse(should_hold(exit_reason="near_expiration", option_spread_pct=0.50, max_spread_pct=0.10))
         # An unmeasurable spread does not block.
         self.assertFalse(should_hold(exit_reason="first_scale_out_trigger", option_spread_pct=None, max_spread_pct=0.10))
-        self.log_pass("liquidity guard held only non-urgent exits on wide spreads and let hard risk exits through")
+        self.log_pass("liquidity guard held every exit but the expiry exit on wide spreads")
 
     def test_round_option_sell_price_to_tick_rounds_down_to_valid_increments(self) -> None:
         round_tick = self.option_positions._round_option_sell_price_to_tick
@@ -1235,6 +1235,24 @@ class OptionPositionTests(VerboseTestCase):
             self.assertEqual(partial_orders, [(symbol, 2, 1.60)])
             self.log_pass("a non-urgent scale-out was submitted as a passive limit order posted at the option midpoint")
 
+    def test_manager_confirms_a_stop_on_the_underlying_from_the_recorded_entry_price(self) -> None:
+        # The position state never stores an entry stock price; the recorded position outcome does.
+        snapshot_module = sys.modules[f"{self.option_positions.__name__.rsplit('.', 1)[0]}._option_positions_snapshot"]
+        original_lookup = snapshot_module.open_entry_underlying_price
+        self.addCleanup(setattr, snapshot_module, "open_entry_underlying_price", original_lookup)
+        for entry_underlying, expected in ((201.0, "stop_loss_underlying_hold"), (210.0, "stop_loss")):
+            with self.subTest(entry_underlying=entry_underlying), TemporaryDirectory() as temp_dir:
+                snapshot_module.open_entry_underlying_price = lambda _symbol, price=entry_underlying: price
+                symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
+                position = SimpleNamespace(symbol=symbol, avg_entry_price="3.0", qty="4", unrealized_plpc="-0.60")
+                result = self._run_manager_exit(
+                    position=position, option_bid=1.55, option_ask=1.65,
+                    state_path=Path(temp_dir) / "option_state.json", full_orders=[], partial_orders=[],
+                    stop_loss_underlying_move_pct=0.015,
+                )
+                self.assertEqual(result["positions"][0]["exit_reason"], expected)
+        self.log_pass("the stop held on a 0.5% stock move and fired on a 5% one, measured from the recorded entry price")
+
     def test_manager_holds_non_urgent_exit_when_spread_is_too_wide(self) -> None:
         with TemporaryDirectory() as temp_dir:
             full_orders: list = []
@@ -1263,35 +1281,55 @@ class OptionPositionTests(VerboseTestCase):
             self.assertEqual(partial_orders, [])
             self.log_pass("a scale-out into a 50%-wide spread was held for the next cycle instead of paying up")
 
-    def test_manager_crosses_to_bid_for_urgent_stop_loss_despite_wide_spread(self) -> None:
+    def test_manager_holds_a_stop_on_a_wide_spread_then_crosses_to_the_bid_once_it_narrows(self) -> None:
         with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "option_state.json"
             full_orders: list = []
-            partial_orders: list = []
             symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
             # A deep loss (entry 3.0, mid 1.60) breaches any per-bucket stop, so the
             # test does not depend on the ambient stop-loss threshold.
             position = SimpleNamespace(symbol=symbol, avg_entry_price="3.0", qty="4", unrealized_plpc="-0.60")
+            run = lambda bid, ask: self._run_manager_exit(
+                position=position, option_bid=bid, option_ask=ask, state_path=state_path,
+                full_orders=full_orders, partial_orders=[], exit_use_limit_orders=True, exit_max_spread_pct=0.10,
+            )["positions"][0]
 
-            result = self._run_manager_exit(
-                position=position,
-                option_bid=1.20,
-                option_ask=2.00,
-                state_path=Path(temp_dir) / "option_state.json",
-                full_orders=full_orders,
-                partial_orders=partial_orders,
-                exit_use_limit_orders=True,
-                exit_max_spread_pct=0.10,
-            )
+            held = run(1.20, 2.00)
+            self.assertEqual(held["exit_action"], "hold")
+            self.assertEqual(held["exit_reason"], "liquidity_guard_wide_spread")
+            self.assertEqual(full_orders, [])
 
-            summary = result["positions"][0]
+            summary = run(1.55, 1.65)
             self.assertEqual(summary["exit_action"], "sell_full")
             self.assertEqual(summary["exit_reason"], "stop_loss")
-            self.assertEqual(summary["exit_limit_price"], 1.20)
-            self.assertEqual(full_orders, [(symbol, 1.20)])
-            self.assertEqual(summary["close_error"], "")
+            self.assertEqual(summary["exit_limit_price"], 1.55)
+            self.assertEqual(full_orders, [(symbol, 1.55)])
             self.assertTrue(summary["close_submitted"])
             self.assertEqual(summary["close_requested_qty"], 4)
-            self.log_pass("an urgent stop-loss bypassed the liquidity guard and crossed to the bid as a marketable limit")
+            self.log_pass("a stop waited out a 50%-wide spread, then crossed to the bid once the spread narrowed")
+
+    def test_manager_stops_waiting_for_a_spread_that_never_narrows(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "option_state.json"
+            full_orders: list = []
+            symbol = _make_future_option_symbol("AAPL", days_until_expiration=35)
+            position = SimpleNamespace(symbol=symbol, avg_entry_price="3.0", qty="4", unrealized_plpc="-0.60")
+            run = lambda: self._run_manager_exit(
+                position=position, option_bid=1.20, option_ask=2.00, state_path=state_path,
+                full_orders=full_orders, partial_orders=[], exit_use_limit_orders=True, exit_max_spread_pct=0.10,
+                stop_loss_max_spread_wait_minutes=15.0,
+            )["positions"][0]
+
+            self.assertEqual(run()["exit_reason"], "liquidity_guard_wide_spread")
+            self.assertEqual(run()["exit_reason"], "liquidity_guard_wide_spread")
+            started = (datetime.now(timezone.utc) - timedelta(minutes=16)).isoformat()
+            self.option_positions.update_position_state(state_path, symbol, {"stop_loss_spread_hold_started_at": started})
+
+            summary = run()
+            self.assertEqual(summary["exit_action"], "sell_full")
+            self.assertEqual(summary["exit_reason"], "stop_loss")
+            self.assertEqual(full_orders, [(symbol, 1.20)])
+            self.log_pass("a stop held 16 minutes on a wide spread sold at the bid instead of waiting any longer")
 
     def test_manager_reprices_previously_cancelled_exit_to_the_bid(self) -> None:
         with TemporaryDirectory() as temp_dir:

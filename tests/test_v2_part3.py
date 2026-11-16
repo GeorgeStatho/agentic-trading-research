@@ -143,6 +143,31 @@ class GateTests(unittest.TestCase):
         self.assertTrue(gate['allowed'])
         self.assertEqual(gate['metrics']['calibration'], 'research_prior')
 
+    def first_seen(self, hours=None):
+        seen = None if hours is None else (NOW - timedelta(hours=hours)).isoformat()
+        return evaluate_catalyst_gates(self.state(first_seen_time=seen), as_of=NOW)['FRESHNESS_FIRST_SEEN']
+
+    def test_first_seen_freshness_is_not_reset_by_a_later_root_event(self):
+        refreshed = {'first_public_time': (NOW - timedelta(hours=30)).isoformat(),
+                     'latest_root_event_time': (NOW - timedelta(minutes=10)).isoformat()}
+        gates = evaluate_catalyst_gates(self.state(first_seen_time=(NOW - timedelta(hours=30)).isoformat(), **refreshed), as_of=NOW)
+        self.assertTrue(gates['FRESHNESS']['would_allow'])
+        gate = gates['FRESHNESS_FIRST_SEEN']
+        self.assertEqual((gate['would_allow'], gate['reason_codes']), (False, ['stale_since_first_seen']))
+        self.assertAlmostEqual(gate['metrics']['catalyst_age_minutes'], 30 * 60)
+        self.assertEqual(gate['metrics']['catalyst_family'], 'analyst')
+
+    def test_first_seen_freshness_edge_and_missing_or_future_times(self):
+        self.assertEqual([self.first_seen(23.99)['would_allow'], self.first_seen(24)['would_allow']], [True, False])
+        for gate in (self.first_seen(None), self.first_seen(-1)):
+            self.assertEqual((gate['would_allow'], gate['reason_codes']), (None, ['missing_or_future_first_seen']))
+
+    def test_first_seen_freshness_stays_shadow_when_freshness_is_enforced(self):
+        policy = CatalystGatePolicy(freshness_mode='enforce')
+        gate = evaluate_catalyst_gates(self.state(first_seen_time=(NOW - timedelta(days=3)).isoformat()), as_of=NOW,
+                                       policy=policy)['FRESHNESS_FIRST_SEEN']
+        self.assertEqual((gate['would_allow'], gate['allowed'], gate['enforcement_mode']), (False, True, 'shadow'))
+
     def test_bad_mode_is_not_silently_enforced(self):
         with patch.dict('os.environ', {'V2_FRESHNESS_MODE': 'typo'}), self.assertRaises(ValueError):
             CatalystGatePolicy.from_env()

@@ -74,7 +74,7 @@ class EvidenceHTTP:
                                       observed, db_path=self.db_path)
                 return {**saved, 'observed_at': version_observed}
             except (requests.Timeout, requests.ConnectionError) as exc:
-                failure = ProviderUnavailable(f'{self.provider} transport failed: {type(exc).__name__}')
+                failure = ProviderUnavailable(f'{self.provider} transport failed: {type(exc).__name__}: {exc}')
                 if attempt < self.policy.retries:
                     self.sleep(2 ** attempt)
         raise failure or ProviderUnavailable(f'{self.provider} unavailable')

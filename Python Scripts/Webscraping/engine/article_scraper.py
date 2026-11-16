@@ -283,8 +283,9 @@ def _build_article_results(crawled_pages: list[dict]) -> dict[str, ArticleExtrac
 
 class ArticleSpider(scrapy.Spider):
     name = "article_normalizer"
-    handle_httpstatus_all = True
     custom_settings = {
+        # Scrapy 2.13+ no longer reads a handle_httpstatus_all spider attribute; this keeps non-200 pages in parse.
+        "HTTPERROR_ALLOW_ALL": True,
         "LOG_ENABLED": True,
         "ROBOTSTXT_OBEY": False,
         "DOWNLOAD_TIMEOUT": 20,
@@ -311,7 +312,7 @@ class ArticleSpider(scrapy.Spider):
         super().__init__(*args, **kwargs)
         self.start_urls = urls or []
 
-    def start_requests(self):
+    async def start(self):
         # Handle the start requests flow in one place so callers can rely on a single, well-defined result.
         for url in self.start_urls:
             headers = {

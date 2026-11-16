@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from services.trading.trading_accounts import FollowerSettings, TradingAccount, load_trading_accounts
+from services.core.settings import FollowerSettings, Settings
+from services.trading.trading_accounts import TradingAccount, load_trading_accounts
 
 PRODUCTION = {'PUBLIC_KEY': 'PROD-KEY', 'PRIVATE_KEY': 'PROD-SECRET'}
 PRIMARY = TradingAccount('production', 'PROD-KEY', 'PROD-SECRET', 'primary', 'single_leg', 'bucket_rules')
@@ -68,6 +69,22 @@ class FollowerAccountTests(unittest.TestCase):
             accounts = load_trading_accounts(env)
         self.assertEqual([a.blocked_picks for a in accounts[1:]], [False, False])
 
+    def test_own_exit_policies_and_shares_drift_entries(self):
+        env = {**PRODUCTION, 'TRADING_ACCOUNTS': 'drift,spreads', **keys('drift'), **keys('spreads'),
+               'ACCOUNT_DRIFT_STRATEGY': 'shares', 'ACCOUNT_DRIFT_ENTRY': 'Shares_Drift',
+               'ACCOUNT_DRIFT_EXIT_POLICY': 'hold_window', 'ACCOUNT_SPREADS_STRATEGY': 'debit_spread',
+               'ACCOUNT_SPREADS_EXIT_POLICY': 'hold_to_expiry'}
+        drift, spreads = load_trading_accounts(env)[1:]
+        self.assertEqual((drift.entry, drift.exit_policy), ('shares_drift', 'hold_window'))
+        self.assertEqual((spreads.entry, spreads.exit_policy), ('production', 'hold_to_expiry'))
+
+    def test_a_shares_drift_account_never_takes_blocked_picks(self):
+        env = {**PRODUCTION, 'TRADING_ACCOUNTS': 'drift', **keys('drift'), 'ACCOUNT_DRIFT_STRATEGY': 'shares',
+               'ACCOUNT_DRIFT_ENTRY': 'shares_drift', 'ACCOUNT_DRIFT_EXIT_POLICY': 'hold_window',
+               'ACCOUNT_DRIFT_TAKE_BLOCKED': 'true'}
+        with self.assertLogs('services.trading.trading_accounts', level='ERROR'):
+            self.assertFalse(load_trading_accounts(env)[1].blocked_picks)
+
     def test_invalid_followers_are_dropped(self):
         cases = {
             'missing secret': {'TRADING_ACCOUNTS': 'shares', 'ACCOUNT_SHARES_PUBLIC_KEY': 'k'},
@@ -78,6 +95,10 @@ class FollowerAccountTests(unittest.TestCase):
                                         'ACCOUNT_SHARES_EXIT_POLICY': 'bucket_rules'},
             'name of the primary': {'TRADING_ACCOUNTS': 'production', **keys('production'),
                                     'ACCOUNT_PRODUCTION_STRATEGY': 'shares'},
+            'unknown entry': {'TRADING_ACCOUNTS': 'shares', **keys('shares'), 'ACCOUNT_SHARES_ENTRY': 'llm'},
+            # A drift entry has no production position, so following production's exit would never close it.
+            'drift entry following production': {'TRADING_ACCOUNTS': 'shares', **keys('shares'),
+                                                 'ACCOUNT_SHARES_ENTRY': 'shares_drift'},
         }
         for label, env in cases.items():
             with self.subTest(label):
@@ -90,12 +111,26 @@ class FollowerAccountTests(unittest.TestCase):
 
 class FollowerSettingsTests(unittest.TestCase):
     def test_defaults(self):
-        self.assertEqual(FollowerSettings.from_env({}), FollowerSettings(0.05, 0.70, 1, 30.0, 14))
+        self.assertEqual(FollowerSettings.from_environ({}), FollowerSettings(0.05, 0.80, 1, 30.0, 14))
 
     def test_reads_env_knobs(self):
         env = {'FOLLOWER_SPREAD_WIDTH_PCT': '0.08', 'FOLLOWER_ITM_MIN_DELTA': '0.8',
                'FOLLOWER_FORCE_EXIT_DTE': '2', 'FOLLOWER_MAX_HOLD_DAYS': '10', 'FOLLOWER_LONGER_DTE_EXTRA_DAYS': '21'}
-        self.assertEqual(FollowerSettings.from_env(env), FollowerSettings(0.08, 0.8, 2, 10.0, 21))
+        self.assertEqual(FollowerSettings.from_environ(env), FollowerSettings(0.08, 0.8, 2, 10.0, 21))
+
+    def test_they_are_a_section_of_the_process_settings(self):
+        self.assertEqual(Settings.from_environ({'FOLLOWER_STOCK_STOP_PCT': '0.03'}).followers,
+                         FollowerSettings(stock_stop_pct=0.03))
+
+    def test_follower_knobs_do_not_split_production_cohorts(self):
+        from services.research.research_promotion import champion_identity
+        manifest = {'process_settings': {'models': 'm', 'followers': {'stock_stop_pct': 0.02}}}
+        changed = {'process_settings': {'models': 'm', 'followers': {'stock_stop_pct': 0.03}}}
+        self.assertEqual(champion_identity(manifest), champion_identity(changed))
+
+    def test_a_bad_value_turns_followers_off_instead_of_failing_startup(self):
+        with self.assertLogs('services.core.settings', level='ERROR'):
+            self.assertIsNone(Settings.from_environ({'FOLLOWER_STOCK_STOP_PCT': 'two'}).followers)
 
 
 if __name__ == '__main__':

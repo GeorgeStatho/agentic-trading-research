@@ -20,7 +20,8 @@ from agent_helpers.market_context.option_chain import build_bucket_chains
 from agent_helpers.deterministic_option_selector.market import _get_reference_stock_price
 from services.core.numbers import safe_float
 from services.core.settings import get_settings
-from services.core.trading_config import WorkerSettings
+from services.core.trading_config import (DEFAULT_MAX_PREMIUM_PER_TRADE_DOLLARS, DEFAULT_MAX_PREMIUM_PER_TRADE_PCT,
+                                          WorkerSettings)
 from services.options.option_dte_buckets import DEFAULT_MANAGER_TARGET_DTE_BUCKET
 from services.options.option_pricing import CONTRACT_MULTIPLIER
 from services.options.reference_price import option_reference_price
@@ -35,8 +36,8 @@ class TradabilityPolicy:
     policy_version: str = 'tradability-v1'
     mode: str = 'shadow'
     dte_bucket: str = DEFAULT_MANAGER_TARGET_DTE_BUCKET
-    max_premium_per_trade_pct: float = 55.0
-    max_premium_per_trade_dollars: float = 800.0
+    max_premium_per_trade_pct: float = DEFAULT_MAX_PREMIUM_PER_TRADE_PCT
+    max_premium_per_trade_dollars: float = DEFAULT_MAX_PREMIUM_PER_TRADE_DOLLARS
 
     @classmethod
     def from_env(cls) -> 'TradabilityPolicy':

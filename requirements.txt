@@ -3,7 +3,7 @@ python-dotenv
 flask
 requests
 beautifulsoup4
-scrapy
+scrapy==2.19.0
 fastapi
 pydantic
 yfinance
