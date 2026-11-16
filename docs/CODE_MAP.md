@@ -563,8 +563,10 @@ That split explains why the repo feels mixed: it contains both the older trading
 
 ## V2 Part 6 research infrastructure
 
-- `services/research/research_contract.py`: common cutoff assertions, research policy and six
-  deterministic strategy decisions. Paths here and below are under `Python Scripts/`.
+- `services/research/research_contract.py`: common cutoff assertions, research policy and seven
+  deterministic strategy decisions. Paths here and below are under `Python Scripts/`. `shares_drift`
+  is simulated as stock, not options (`stock_position` in `Data/market_db_modules/research_runs.py`), and
+  is listed in `UNPAIRED_STRATEGIES`, so it never pairs with or competes against the option strategies.
 - `services/research/research_inputs.py`: verified T2 snapshot adapters, mechanical features,
   gate observations and frozen contract selection. The selector's scoped clock in
   `agentCallers/agent_helpers/deterministic_option_selector/market.py` keeps historical
@@ -676,7 +678,9 @@ expression (pure functions, plus `bootstrap_se`). `Data/market_db_modules/decisi
 `decision_attributions` row per decision, recomputed while unsettled or on a version change.
 `services/evaluation/decision_attribution_runner.py` fills it from daily closes in each collector cycle.
 `Data/market_db_modules/decision_attribution_report.py` backs `scripts/research.py attribution`,
-`Data/market_db_modules/gate_ledger.py` backs `scripts/research.py gate-ledger` (every gate stage and two tags scored on the 5-day residual move), and
+`Data/market_db_modules/gate_ledger.py` backs `scripts/research.py gate-ledger` (every gate stage and two tags scored on the 5-day residual move),
+`Data/market_db_modules/drift_report.py` backs `scripts/research.py drift-report` (the 5-day residual from each catalyst's first
+observation, by family, point-in-time direction and age since first seen), and
 `api_support/decision_autopsy.py` shows each decision's labels.
 
 ## Follower accounts
