@@ -25,7 +25,8 @@ class CatalystGatePolicy:
     minimum_roots: int = 2
     primary_evidence_threshold: float = .75
     minimum_remaining_value: float = .25
-    version: str = 'catalyst-gates-v3'
+    first_seen_limit_minutes: float = 1440
+    version: str = 'catalyst-gates-v4'
 
     @classmethod
     def from_env(cls):
@@ -109,7 +110,18 @@ def evaluate_catalyst_gates(state, *, as_of=None, policy=None):
                         'refreshed_by_new_root_event': refreshed, 'first_public_time': state.get('first_public_time'),
                         'first_public_time_basis': state.get('first_public_time_basis'),
                         'latest_root_event_time': state.get('latest_root_event_time')}, policy)
-    return {'PROVENANCE': provenance, 'FRESHNESS': freshness}
+    seen = timestamp(state.get('first_seen_time'))
+    seen_age = (now-seen).total_seconds()/60 if seen and seen <= now else None
+    if seen_age is None:
+        seen_passed, seen_reason = None, 'missing_or_future_first_seen'
+    else:
+        seen_passed = seen_age < policy.first_seen_limit_minutes
+        seen_reason = 'fresh' if seen_passed else 'stale_since_first_seen'
+    # Always shadow: age since the system first saw the catalyst, never reset by later articles.
+    first_seen = _result('FRESHNESS_FIRST_SEEN', seen_reason, seen_passed, 'shadow',
+                         {'catalyst_id': state['catalyst_id'], 'catalyst_family': state['catalyst_family'],
+                          'catalyst_age_minutes': seen_age, 'first_seen_time': state.get('first_seen_time')}, policy)
+    return {'PROVENANCE': provenance, 'FRESHNESS': freshness, 'FRESHNESS_FIRST_SEEN': first_seen}
 
 
 def record_catalyst_gates(context):
