@@ -207,6 +207,35 @@ def _position(conn, inputs, decision, strategy, run, as_of, sessions, reads):
             'selection_source': 'recorded_production' if strategy in {'counterfactual', 'full_v2'} else 'baseline_delta_selector'}
 
 
+def close_pair(conn, reads, symbol, timeframe, entry_at, exit_at, as_of, gap_days):
+    """The first completed close at or after `entry_at` and the first at or after `exit_at`, from one provider.
+
+    A close that already happened is not executable at an intraday decision time, so entry waits for the
+    next completed bar. Series are never spliced, so a provider only qualifies when it also holds the exit.
+    """
+    prices = []
+    for row in _read_once(conn, reads, 'SELECT * FROM historical_underlying_bars WHERE symbol=? AND timeframe=?',
+                          (symbol, timeframe)):
+        row = dict(row)
+        raw = json.loads(row.get('raw_json') or '{}')
+        row['available_at'] = raw.get('available_at')
+        at = completed_at(row)
+        if utc(raw.get('available_at') or row['created_at']) > utc(as_of):
+            continue
+        if at and at <= utc(as_of) and row['close_price'] and row['close_price'] > 0:
+            prices.append((at, row))
+    gap = gap_days * 86400
+    for first_at, first in sorted((item for item in prices if item[0] >= entry_at), key=lambda item: (item[0], item[1]['provider'])):
+        if (first_at - entry_at).total_seconds() > gap:
+            break
+        floor = max(exit_at, first_at)
+        exits = sorted((item for item in prices if item[0] >= floor and item[1]['provider'] == first['provider']),
+                       key=lambda item: item[0])
+        if exits and (exits[0][0] - floor).total_seconds() <= gap:
+            return (first_at, first), exits[0]
+    return None
+
+
 def benchmark_position(conn, symbol, reference, inputs, run, as_of, reads):
     """Buy and hold fractional shares for the same capital and holding window."""
     base = {'information_cutoff_time': inputs['information_cutoff_time'], 'outcome_cutoff_time': as_of,
@@ -218,30 +247,7 @@ def benchmark_position(conn, symbol, reference, inputs, run, as_of, reads):
         return {**base, 'status': 'missing_reference_trade'}
     entry_at = utc(reference['hypothetical_entry']['at'])
     exit_at = utc(reference['hypothetical_exit']['at'])
-    prices = []
-    for row in _read_once(conn, reads, "SELECT * FROM historical_underlying_bars WHERE symbol=? AND timeframe='1d'", (symbol,)):
-        row = dict(row)
-        raw = json.loads(row.get('raw_json') or '{}')
-        row['available_at'] = raw.get('available_at')
-        at = completed_at(row)
-        if utc(raw.get('available_at') or row['created_at']) > utc(as_of):
-            continue
-        if at and at <= utc(as_of) and row['close_price'] and row['close_price'] > 0:
-            prices.append((at, row))
-    # A close that already happened is not executable at an intraday decision time, so the
-    # benchmark enters at the first session close at or after the candidate's entry. Series
-    # are never spliced, so a provider only qualifies when it also holds the exit close.
-    gap = run['policy'].maximum_mark_gap_days * 86400
-    pair = None
-    for first_at, first in sorted((item for item in prices if item[0] >= entry_at), key=lambda item: (item[0], item[1]['provider'])):
-        if (first_at - entry_at).total_seconds() > gap:
-            break
-        floor = max(exit_at, first_at)
-        exits = sorted((item for item in prices if item[0] >= floor and item[1]['provider'] == first['provider']),
-                       key=lambda item: item[0])
-        if exits and (exits[0][0] - floor).total_seconds() <= gap:
-            pair = ((first_at, first), exits[0])
-            break
+    pair = close_pair(conn, reads, symbol, '1d', entry_at, exit_at, as_of, run['policy'].maximum_mark_gap_days)
     if pair is None:
         return base
     (first_at, first), (last_at, last) = pair
@@ -256,6 +262,42 @@ def benchmark_position(conn, symbol, reference, inputs, run, as_of, reads):
                                    'candidate_entry_at': entry_at.isoformat()},
             'hypothetical_exit': {'at': last_at.isoformat(), 'bar_id': last['id'], 'price': last['close_price']},
             'deployed_dollar_days': capital * (last_at - first_at).total_seconds() / 86400}
+
+
+# shortcut: a fixed notional, not the option capital a candidate would have used; per-dollar-day expectancy compares them.
+STOCK_NOTIONAL = 1000
+
+
+def stock_position(conn, inputs, decision, run, as_of, reads):
+    """Long (call) or short (put) shares of the candidate's stock from the cutoff for the holding window."""
+    base = {'information_cutoff_time': inputs['information_cutoff_time'], 'outcome_cutoff_time': as_of,
+            'hypothetical_entry': None, 'hypothetical_exit': None, 'hypothetical_pnl': None,
+            'deployed_dollar_days': None, 'rejected_by': inputs.get('rejected_by', []),
+            'basis': 'fixed-notional shares from the first completed close at or after the cutoff to the first at or '
+                     'after the holding window; 1h bars when available, else 1d; price return less cost per side'}
+    if decision is None:
+        return {**base, 'status': 'missing_decision'}
+    if decision == 'skip':
+        return {**base, 'status': 'cash', 'hypothetical_pnl': 0, 'deployed_dollar_days': 0}
+    policy = run['policy']
+    entry_at = utc(inputs['information_cutoff_time'])
+    exit_at = entry_at + timedelta(days=policy.holding_days)
+    if utc(as_of) < exit_at:
+        return {**base, 'status': 'pending'}
+    for timeframe in ('1h', '1d'):
+        pair = close_pair(conn, reads, inputs['symbol'], timeframe, entry_at, exit_at, as_of, policy.maximum_mark_gap_days)
+        if pair:
+            break
+    else:
+        return {**base, 'status': 'missing_stock_prices'}
+    (first_at, first), (last_at, last) = pair
+    sign = 1 if decision == 'call' else -1
+    pnl = STOCK_NOTIONAL * (sign * (last['close_price'] / first['close_price'] - 1) - 2 * policy.benchmark_cost_bps / 10000)
+    return {**base, 'status': 'complete', 'hypothetical_pnl': pnl, 'capital': STOCK_NOTIONAL,
+            'side': 'long' if sign == 1 else 'short', 'timeframe': timeframe,
+            'hypothetical_entry': {'at': first_at.isoformat(), 'bar_id': first['id'], 'price': first['close_price']},
+            'hypothetical_exit': {'at': last_at.isoformat(), 'bar_id': last['id'], 'price': last['close_price']},
+            'deployed_dollar_days': STOCK_NOTIONAL * (last_at - first_at).total_seconds() / 86400}
 
 
 def candidate_finished(conn, candidate_id, as_of):
@@ -369,8 +411,12 @@ def collect_run(run_id, *, as_of=None, db_path=None):
                 if existing and (existing['status'] in {'complete', 'cash'} or utc(existing['outcome_cutoff_time']) > utc(at)):
                     results[strategy] = json.loads(existing['result_json'])
                     continue
-                result = (benchmark_position(conn, strategy, results['counterfactual'], inputs, run, at, reads)
-                          if strategy in {'SMH', 'QQQ'} else _position(conn, inputs, decisions[strategy], strategy, run, at, sessions, reads))
+                if strategy in {'SMH', 'QQQ'}:
+                    result = benchmark_position(conn, strategy, results['counterfactual'], inputs, run, at, reads)
+                elif strategy == 'shares_drift':
+                    result = stock_position(conn, inputs, decisions[strategy], run, at, reads)
+                else:
+                    result = _position(conn, inputs, decisions[strategy], strategy, run, at, sessions, reads)
                 results[strategy] = result
                 conn.execute('''INSERT INTO research_shadow_positions VALUES (?,?,?,?,?,?,?)
                     ON CONFLICT(run_id,candidate_id,strategy) DO UPDATE SET

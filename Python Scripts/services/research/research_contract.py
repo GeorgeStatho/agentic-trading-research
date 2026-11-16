@@ -61,7 +61,12 @@ class ResearchPolicy:
 
 
 STRATEGIES = ('sentiment_volume', 'sentiment_trend', 'taxonomy_expectancy',
-              'strategist_only', 'strategist_manager', 'full_v2')
+              'strategist_only', 'strategist_manager', 'full_v2', 'shares_drift')
+# Families with measured multi-day drift after the first print (docs/PROJECT_DIRECTION.md).
+SHARES_DRIFT_FAMILIES = ('earnings_positive', 'earnings_negative', 'analyst')
+SHARES_DRIFT_MAX_AGE_HOURS = 24
+# Stock on a fixed notional: reported next to the option strategies, but never pairs or competes with them.
+UNPAIRED_STRATEGIES = ('shares_drift',)
 
 
 def direction(value):
@@ -79,6 +84,14 @@ def strategy_decisions(features, policy):
     trend = direction(features.get('trend'))
     taxonomy = direction(features.get('catalyst_direction'))
     production_allowed = features.get('production_allowed')
+    age = finite_float(features.get('catalyst_age_hours'))
+    if features.get('catalyst_family') not in SHARES_DRIFT_FAMILIES:
+        shares_drift = 'skip'
+    elif age is None:
+        shares_drift = None
+    else:
+        fresh = 0 <= age < SHARES_DRIFT_MAX_AGE_HOURS and taxonomy in {'call', 'put'}
+        shares_drift = taxonomy if fresh else 'skip'
     full_v2 = None if production_allowed is None else manager if production_allowed else 'skip'
     return {
         'sentiment_volume': None if sentiment is None or volume is None else sentiment if volume >= policy.relative_volume_threshold else 'skip',
@@ -88,4 +101,5 @@ def strategy_decisions(features, policy):
         'strategist_only': strategist,
         'strategist_manager': None if strategist is None or manager is None else manager if strategist == manager else 'skip',
         'full_v2': full_v2,
+        'shares_drift': shares_drift,
     }

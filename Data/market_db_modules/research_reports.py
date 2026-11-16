@@ -9,7 +9,8 @@ from zoneinfo import ZoneInfo
 from db_common import get_connection
 from services.core.pipeline_version import gate_config
 from services.core.trading_path import trading_path_hashes
-from services.research.research_contract import ResearchPolicy, STRATEGIES, canonical, direction, fingerprint, utc
+from services.research.research_contract import (ResearchPolicy, STRATEGIES, UNPAIRED_STRATEGIES, canonical, direction,
+                                                 fingerprint, utc)
 from services.research.research_promotion import (GATE_BLOCKS, gate_code_hash, policy_hash,
                                                   research_only_candidate, source_hash)
 from services.research.research_versions import evaluation_version, require_current_evaluator
@@ -97,7 +98,10 @@ def hard_block_outcome(conn, candidate_id, at):
 
 def strategy_table(rows):
     names = (*STRATEGIES, 'SMH', 'QQQ')
-    paired = [row for row in rows if all(row['positions'].get(name, {}).get('status') in {'complete', 'cash'} for name in names)]
+
+    def resolved_in(row, name):
+        return row['positions'].get(name, {}).get('status') in {'complete', 'cash'}
+    paired = [row for row in rows if all(resolved_in(row, name) for name in names if name not in UNPAIRED_STRATEGIES)]
     result = []
     for name in names:
         positions = [row['positions'].get(name, {}) for row in rows]
@@ -105,14 +109,15 @@ def strategy_table(rows):
         pnl = sum(position['hypothetical_pnl'] for position in resolved)
         trades = sum(position['status'] == 'complete' for position in resolved)
         days = sum(position['deployed_dollar_days'] for position in resolved)
-        paired_pnl = sum(row['positions'][name]['hypothetical_pnl'] for row in paired)
+        pairs = [row for row in paired if resolved_in(row, name)] if name in UNPAIRED_STRATEGIES else paired
+        paired_pnl = sum(row['positions'][name]['hypothetical_pnl'] for row in pairs)
         result.append({'strategy': name, 'n_observed': len(rows), 'n_resolved': len(resolved), 'n_trades': trades,
                        'n_missing': len(rows) - len(resolved), 'net_pnl': pnl,
                        'expectancy': expectancy(pnl, trades, len(rows), days),
-                       'paired_n': len(paired), 'paired_net_pnl': paired_pnl,
+                       'paired_n': len(pairs), 'paired_net_pnl': paired_pnl,
                        'daily_coverage_complete': bool(resolved) and all(position.get('verified_daily_marks') or
-                           position['status'] == 'cash' or name in {'SMH', 'QQQ'} for position in resolved),
-                       'paired_expectancy_per_candidate': paired_pnl / len(paired) if paired else None})
+                           position['status'] == 'cash' or name in {'SMH', 'QQQ', *UNPAIRED_STRATEGIES} for position in resolved),
+                       'paired_expectancy_per_candidate': paired_pnl / len(pairs) if pairs else None})
     result.sort(key=lambda row: (-(row['paired_expectancy_per_candidate'] or 0), row['strategy']))
     for index, row in enumerate(result, 1):
         row['rank'] = index if paired else None
@@ -372,11 +377,13 @@ def promote_champion(report_id, *, incumbent_report_id=None, db_path=None):
         conn.execute('BEGIN IMMEDIATE')
         report, run = _promotion_report(conn, report_id)
         strategy = next(row for row in report['strategies'] if row['strategy'] == 'full_v2')
-        best_other = max(row['paired_net_pnl'] for row in report['strategies'] if row['strategy'] != 'full_v2')
+        best_other = max(row['paired_net_pnl'] for row in report['strategies']
+                         if row['strategy'] != 'full_v2' and row['strategy'] not in UNPAIRED_STRATEGIES)
         if (strategy['paired_n'] < run['policy'].minimum_promotion_samples or len(report['paired_regimes']) < 2
                 or strategy['paired_net_pnl'] <= max(0, best_other) or strategy['n_missing']
                 or strategy['paired_n'] != report['n_observed']
-                or not all(row['daily_coverage_complete'] for row in report['strategies'])):
+                or not all(row['daily_coverage_complete'] for row in report['strategies']
+                           if row['strategy'] not in UNPAIRED_STRATEGIES)):
             raise ValueError('Champion needs positive paired outperformance, complete coverage and multiple regimes')
         incumbent = conn.execute('SELECT run_id,report_id FROM research_champion WHERE singleton=1').fetchone()
         if incumbent and incumbent['run_id'] and incumbent['run_id'] != run['run_id']:

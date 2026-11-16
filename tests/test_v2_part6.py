@@ -20,9 +20,11 @@ from market_db_modules.research_reports import (
 )
 from services.gates.contract_policy import ContractPolicy
 from services.research.research_contract import (
+    SHARES_DRIFT_FAMILIES,
     ResearchPolicy,
     assert_information_cutoff,
     canonical,
+    strategy_decisions,
     utc,
 )
 from services.research.research_promotion import approved, guard_policy, champion_allows, champion_check
@@ -82,6 +84,45 @@ class ShadowTests(unittest.TestCase):
 
     def test_missing_entry_quote_is_not_a_free_entry(self):
         self.assertEqual(self.simulate(quotes()[1:])['status'], 'missing_entry_quote')
+
+
+class SharesDriftDecisionTests(unittest.TestCase):
+    def decide(self, family='earnings_positive', way='positive', age=2.0, **extra):
+        features = {'catalyst_family': family, 'catalyst_direction': way, 'catalyst_age_hours': age, **extra}
+        return strategy_decisions(features, POLICY)['shares_drift']
+
+    def test_fresh_earnings_and_analyst_catalysts_trade_their_own_direction(self):
+        self.assertEqual([self.decide(), self.decide('earnings_negative', 'negative'), self.decide('analyst', 'negative')],
+                         ['call', 'put', 'put'])
+        self.assertEqual(self.decide(strategist_direction='put', manager_direction='put'), 'call')
+
+    def test_age_family_and_direction_limits(self):
+        self.assertEqual([self.decide(age=23.9), self.decide(age=24), self.decide(age=-1), self.decide(age=None)],
+                         ['call', 'skip', 'skip', None])
+        self.assertEqual([self.decide('product_commercial', age=None), self.decide(way='unknown'), self.decide(way='mixed')],
+                         ['skip', 'skip', 'skip'])
+
+    def test_every_trade_is_under_a_day_old_and_in_the_families(self):
+        for family in (*SHARES_DRIFT_FAMILIES, 'macro_sector', 'unknown'):
+            for way in ('positive', 'negative', 'unknown'):
+                for age in (None, -.1, 0, .5, 23.99, 24, 100):
+                    if self.decide(family, way, age) in {'call', 'put'}:
+                        self.assertIn(family, SHARES_DRIFT_FAMILIES)
+                        self.assertTrue(0 <= age < 24)
+
+
+class StrategyTableTests(unittest.TestCase):
+    def test_an_unresolved_stock_strategy_neither_unpairs_the_option_strategies_nor_joins_their_pairs(self):
+        from market_db_modules.research_reports import strategy_table
+        from services.research.research_contract import STRATEGIES
+        resolved = {'status': 'complete', 'hypothetical_pnl': 1.0, 'deployed_dollar_days': 1.0, 'verified_daily_marks': True}
+        names = [name for name in STRATEGIES if name != 'shares_drift'] + ['SMH', 'QQQ']
+        rows = [{'positions': {**{name: resolved for name in names}, 'shares_drift': {'status': 'missing_stock_prices'}}},
+                {'positions': {**{name: resolved for name in names}, 'shares_drift': {**resolved, 'hypothetical_pnl': 5.0}}}]
+        table, paired = strategy_table(rows)
+        self.assertEqual(len(paired), 2)
+        shares = next(row for row in table if row['strategy'] == 'shares_drift')
+        self.assertEqual((shares['n_resolved'], shares['paired_n'], shares['paired_net_pnl']), (1, 1, 5.0))
 
 
 class ExecutionIdentityTests(unittest.TestCase):
@@ -146,14 +187,14 @@ class ResearchDatabaseTests(unittest.TestCase):
     def run_fixture(self, n=1, kind='frozen_forward'):
         return start_run(self.manifest, kind=kind, target_candidates=n, now=START, db_path=self.db)['run_id']
 
-    def candidate(self, n=0, passed=True, selected=True, version=None, entry=ENTRY, decision='call'):
+    def candidate(self, n=0, passed=True, selected=True, version=None, entry=ENTRY, decision='call', catalyst=None):
         symbol = f'NVDA-option-{n}'
         selected_contract = contract(symbol)
         selected_contract['latest_quote']['timestamp'] = entry
         candidate_id = f'candidate-{n:03d}'
         manifest = version or self.manifest
         way = 'positive' if decision == 'call' else 'negative'
-        catalyst = {'catalyst_family': 'earnings', 'direction': way, 'independent_root_count': 2, 'evidence_score': .8}
+        catalyst = catalyst or {'catalyst_family': 'earnings', 'direction': way, 'independent_root_count': 2, 'evidence_score': .8}
         payload = {'recommendation': {'decision': decision, 'confidence': 'high', 'thesis_confidence': 'high',
                     'timing_confidence': 'medium', 'execution_confidence': 'low'}, 'manager_model': 'fixture-model',
                    'strategist_recommendation': {'decision': decision},
@@ -194,6 +235,58 @@ class ResearchDatabaseTests(unittest.TestCase):
                     conn.execute('''INSERT INTO historical_underlying_bars
                         (symbol,bar_at,timeframe,close_price,provider,raw_json,created_at) VALUES (?,?,'1d',100,'fixture',?,?)''',
                         (symbol, at, canonical({'available_at': at}), at))
+
+    def stock_bars(self, symbol, closes, timeframe='1d', provider='fixture'):
+        with closing(get_connection(self.db)) as conn, conn:
+            for at, close in closes.items():
+                conn.execute('''INSERT INTO historical_underlying_bars
+                    (symbol,bar_at,timeframe,close_price,provider,raw_json,created_at) VALUES (?,?,?,?,?,'{}',?)''',
+                    (symbol, at, timeframe, close, provider, at))
+
+    def shares_drift(self, run_id, as_of=END):
+        collect_run(run_id, as_of=as_of, db_path=self.db)
+        with closing(get_connection(self.db)) as conn:
+            return json.loads(conn.execute("SELECT result_json FROM research_shadow_positions WHERE strategy='shares_drift'")
+                              .fetchone()[0])
+
+    def fresh(self, direction='positive', family='earnings_positive', hours=2):
+        seen = (utc(ENTRY) - timedelta(hours=hours)).isoformat()
+        return {'catalyst_family': family, 'direction': direction, 'first_seen_time': seen}
+
+    def test_shares_drift_holds_the_stock_from_the_first_close_after_the_cutoff(self):
+        run_id = self.run_fixture()
+        self.candidate(catalyst=self.fresh())
+        self.stock_bars('NVDA', {'2026-09-02': 100, '2026-09-04': 90, '2026-09-08': 110})
+        result = self.shares_drift(run_id)
+        self.assertEqual((result['status'], result['side'], result['timeframe']), ('complete', 'long', '1d'))
+        self.assertAlmostEqual(result['hypothetical_pnl'], 1000 * (.10 - 2 * POLICY.benchmark_cost_bps / 10000))
+        self.assertEqual(result['hypothetical_exit']['price'], 110)
+
+    def test_shares_drift_shorts_a_negative_catalyst_and_prefers_hourly_bars(self):
+        run_id = self.run_fixture()
+        self.candidate(decision='put', catalyst=self.fresh('negative', 'earnings_negative'))
+        self.stock_bars('NVDA', {'2026-09-02': 100, '2026-09-08': 110})
+        self.stock_bars('NVDA', {'2026-09-02T20:00:00+00:00': 100, '2026-09-07T20:00:00+00:00': 95}, timeframe='1h')
+        result = self.shares_drift(run_id)
+        self.assertEqual((result['side'], result['timeframe']), ('short', '1h'))
+        self.assertAlmostEqual(result['hypothetical_pnl'], 1000 * (.05 - 2 * POLICY.benchmark_cost_bps / 10000))
+
+    def test_shares_drift_is_pending_before_the_holding_window_ends_and_cash_when_stale(self):
+        run_id = self.run_fixture(n=2)
+        self.candidate(catalyst=self.fresh())
+        self.stock_bars('NVDA', {'2026-09-02': 100})
+        self.assertEqual(self.shares_drift(run_id, as_of='2026-09-05T20:00:00+00:00')['status'], 'pending')
+        self.candidate(n=1, catalyst=self.fresh(hours=24))
+        collect_run(run_id, as_of=END, db_path=self.db)
+        with closing(get_connection(self.db)) as conn:
+            statuses = dict(conn.execute("SELECT candidate_id, status FROM research_shadow_positions WHERE strategy='shares_drift'"))
+        self.assertEqual(statuses, {'candidate-000': 'missing_stock_prices', 'candidate-001': 'cash'})
+
+    def test_a_first_seen_time_after_the_cutoff_cannot_enter_the_features(self):
+        from services.research.research_inputs import load_inputs
+        self.candidate(catalyst=self.fresh(hours=-1))
+        with closing(get_connection(self.db)) as conn, self.assertRaises(ValueError):
+            load_inputs(conn, conn.execute('SELECT * FROM candidates').fetchone(), END)
 
     def collect_report(self, run_id):
         collect_run(run_id, as_of=END, db_path=self.db)
