@@ -131,16 +131,20 @@ Steps 1–3 are built. Step 4 waits for data.
   `research_runs.stock_position` on a $1,000 notional (1h bars preferred). It is reported in
   `strategy_table`, but kept out of option pairing and the champion hurdle (`UNPAIRED_STRATEGIES`).
   Each trade also records `residual_return` and `residual_pnl`: the same position net of SPY and the
-  sector, measured as the drift report measures it. Use `scripts/research.py shares-drift-report <run_id>`
+  sector, over exactly the entry and exit bars the trade held. It is `window_mismatch` when SPY and the
+  sector have no closes at those bars. Use `scripts/research.py shares-drift-report <run_id>`
   for step 4. It counts each catalyst once, at its first trade, as the live followers enter, and gives raw
   and residual returns side by side.
   - The first backtest (46 trades on 23 catalysts over 6 days, −1.5% raw, 39% win) was raw price
     return, counted every repeat candidate, and mostly reflects the market on those days. It is replaced
     by the figure below.
   - Rerun on a snapshot of all 6,100 candidates (2026-11-16), one row per catalyst: 23 catalysts on 6
-    days. Raw −2.05% (35% hit), residual +0.04% (39% hit), with the residual measured on all 23.
-    Earnings-positive alone: 21 catalysts, residual +0.02%. So the raw loss was the market. Net of it, the
-    strategy shows nothing yet either way, on a sample far below step 4's bar.
+    days. Raw −2.05% (35% hit), residual +0.14% (39% hit), with the residual measured on all 23 over the
+    trade's own bars. Earnings-positive alone: 21 catalysts, residual +0.08%.
+  - A first version started the residual one hourly bar before entry. On the 26 replayed signals the
+    stock moved 0.63% against the trade in that hour, and that version gave +0.04%.
+  - So the raw loss was the market. Net of it, the strategy shows nothing yet either way, on a sample far
+    below step 4's bar.
 - **Step 3.** A shadow `FRESHNESS_FIRST_SEEN` verdict (`catalyst-gates-v4`). On 6,393 stored candidate
   catalysts, it decides the 3,070 cases the old rule could not (`unavailable_half_life_prior`): 692
   fresh, 2,378 stale. It also marks 356 as stale that the old rule called fresh only because a later
