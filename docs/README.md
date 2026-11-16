@@ -38,6 +38,8 @@ history and are not updated when the code changes.
 | [RESEARCH_PHASE7.md](RESEARCH_PHASE7.md) | Forward cohorts, challenger comparisons and pre-registered promotion |
 | [finharness/README.md](finharness/README.md) | Proposed: four follow-ups adapted from the FinanceHarness paper |
 | [argon/00_INDEX.md](argon/00_INDEX.md) | Ratings of 20 Gemini-suggested trading ideas against the code, plus seven proposed plans |
+| [learned_models/00_INDEX.md](learned_models/00_INDEX.md) | Proposed: trained models to filter or replace the strategist and manager, and the data they need |
+| [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md) | Proposed: move from LLM-picked option trades to a measured event-drift system, shares first |
 
 ### V2 trading architecture (implemented)
 
