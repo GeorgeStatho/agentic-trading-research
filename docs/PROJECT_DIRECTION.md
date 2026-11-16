@@ -180,9 +180,9 @@ Steps 1–3 are built. Step 4 waits for data.
 - Whether catalyst direction is classified with later coverage in view, which would inflate the
   event-anchored figures.
 - The units of `option_trade_executions.spread_paid_pct`, and so how close to the mid paper fills land.
-- Why both put trades failed to enter in the `shares` follower account. The `shares_drift` rule shorts
-  negative earnings and analyst catalysts (5 of the 26 replayed signals), so this matters before the
-  drift accounts go live.
+- Resolved 2026-11-16: both put trades failed to enter in the `shares` follower account because the
+  Alpaca paper account had no shorting permission. That has been granted, so the `shares_drift` shorts
+  (5 of the 26 replayed signals) can enter.
 - "Fresh" is measured from first sight, not publication. Of the 26 replayed signals, 20 were public
   1–24 hours before the system saw them and 2 for days. A publication-time limit would be stricter.
 - The doc's own table shows negative earnings reversing over days 1–5, and the evidence supports only the
