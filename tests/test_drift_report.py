@@ -5,6 +5,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import json
 import unittest
+from unittest import mock
 
 from db_common import get_connection
 from market_db_modules.drift_report import age_bucket, drift_report
@@ -164,6 +165,124 @@ class SharesDriftReportTests(unittest.TestCase):
         self.trade('catalyst:n', raw=.02, residual=.04, family='earnings_negative', direction='negative')
         groups = {(row['family'], row['direction']): row['catalysts'] for row in self.report()['groups']}
         self.assertEqual(groups, {('earnings_positive', 'positive'): 1, ('earnings_negative', 'negative'): 1})
+
+
+class CatalystFeedReportTests(unittest.TestCase):
+    """The shares_drift rule replayed on catalysts as they were labelled, one open position per ticker."""
+
+    def setUp(self) -> None:
+        self.db = temporary_database(self)
+        self.calls, self.outcomes = [], {}
+
+    def catalyst(self, catalyst, *, ticker='MSFT', seen_days_ago=10, published_hours_before=1.0,
+                 family='earnings_positive', direction='positive', source='rules+model', labels=(),
+                 candidate_hours_after=None):
+        """A catalyst first seen `seen_days_ago`; `labels` are (hours after first seen, direction, confidence)."""
+        seen = NOW - timedelta(days=seen_days_ago)
+        published = seen - timedelta(hours=published_hours_before)
+        with closing(get_connection(self.db)) as conn, conn:
+            conn.execute('''INSERT INTO catalysts (catalyst_id, ticker, catalyst_type, catalyst_subtype,
+                catalyst_family, catalyst_scope, direction, mechanism, expected_horizon, first_public_time,
+                first_seen_time, article_count, source_count, independent_root_count, primary_source_present,
+                classification_version, classification_status, state_json, updated_at)
+                VALUES (?, ?, 'earnings', 'x', ?, 'idiosyncratic', ?, 'm', '4_10_days', ?, ?, 1, 1, 1, 0, 'v',
+                'classified', ?, ?)''',
+                         (catalyst, ticker, family, direction, published.isoformat(), seen.isoformat(),
+                          json.dumps({'classification_source': source}), NOW.isoformat()))
+            for hours, way, confidence in labels:
+                conn.execute('''INSERT INTO catalyst_model_labels (catalyst_id, label_version, catalyst_type,
+                    direction, confidence, model, answered_by_json, labeled_at) VALUES (?, 'v1', 'earnings', ?, ?,
+                    'm', '{}', ?)''', (catalyst, way, confidence, (seen + timedelta(hours=hours)).isoformat()))
+            if candidate_hours_after is not None:
+                candidate = f'candidate-{catalyst}'
+                conn.execute("INSERT INTO candidates (candidate_id, symbol, created_at, catalyst_ids_json, "
+                             "article_ids_json, pipeline_version_json) VALUES (?, ?, ?, '[]', '[]', '{}')",
+                             (candidate, ticker, (seen + timedelta(hours=candidate_hours_after)).isoformat()))
+                conn.execute('INSERT INTO candidate_catalysts VALUES (?, ?, ?, 1, ?)',
+                             (candidate, catalyst, family, '{}'))
+        return seen
+
+    def price(self, conn, inputs, decision, run, as_of, reads, db_path=None):
+        """A stand-in for stock_position: entry at the cutoff, exit five days later, outcomes set per symbol."""
+        self.calls.append((inputs['symbol'], inputs['information_cutoff_time'], decision))
+        entry = datetime.fromisoformat(inputs['information_cutoff_time'])
+        status, raw, residual = self.outcomes.get(inputs['symbol'], ('complete', .02, .01))
+        if status != 'complete':
+            return {'status': status}
+        return {'status': 'complete', 'capital': 1000, 'hypothetical_pnl': raw * 1000,
+                'residual_pnl': None if residual is None else residual * 1000,
+                'residual_status': 'complete' if residual is not None else 'window_mismatch',
+                'hypothetical_entry': {'at': entry.isoformat()},
+                'hypothetical_exit': {'at': (entry + timedelta(days=5)).isoformat()}}
+
+    def report(self, **kwargs):
+        from market_db_modules.drift_report import catalyst_feed_report
+        return catalyst_feed_report(db_path=self.db, now=NOW, price=self.price, **kwargs)
+
+    def test_a_publication_older_than_a_day_at_first_sight_is_never_traded(self):
+        self.catalyst('catalyst:late', source='rules', published_hours_before=9 * 24)
+        result = self.report()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(result['point_in_time']['coverage']['stale_publication'], 1)
+
+    def test_rules_enter_at_first_seen_and_a_model_direction_at_its_first_usable_matching_label(self):
+        rules = self.catalyst('catalyst:rules', ticker='AAA', source='rules')
+        model = self.catalyst('catalyst:model', ticker='BBB', labels=[(0.5, 'positive', 'low'),
+                                                                     (1.0, 'negative', 'high'),
+                                                                     (2.0, 'positive', 'medium'),
+                                                                     (3.0, 'positive', 'high')])
+        self.report()
+        self.assertEqual(sorted(self.calls), [('AAA', rules.isoformat(), 'call'),
+                                              ('BBB', (model + timedelta(hours=2)).isoformat(), 'call')])
+
+    def test_a_late_or_missing_label_is_out_of_point_in_time_and_in_the_assumed_lag_section(self):
+        late = self.catalyst('catalyst:late-label', ticker='AAA', labels=[(30, 'positive', 'high')])
+        self.catalyst('catalyst:no-label', ticker='BBB', seen_days_ago=20)
+        result = self.report()
+        self.assertEqual(result['point_in_time']['overall']['catalysts'], 0)
+        self.assertEqual(result['point_in_time']['coverage']['no_in_time_label'], 2)
+        self.assertEqual(result['assumed_label_lag']['overall']['catalysts'], 2)
+        self.assertIn(('AAA', (late + timedelta(hours=2)).isoformat(), 'call'), self.calls)
+
+    def test_a_ticker_with_an_open_position_skips_later_signals_whatever_their_direction(self):
+        self.catalyst('catalyst:first', source='rules', seen_days_ago=12)
+        self.catalyst('catalyst:opposite', source='rules', seen_days_ago=11, family='earnings_negative',
+                      direction='negative')
+        self.catalyst('catalyst:after-exit', source='rules', seen_days_ago=6)
+        result = self.report()['point_in_time']
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(result['coverage']['ticker_open'], 1)
+        self.assertEqual(result['overall']['catalysts'], 2)
+
+    def test_negative_is_a_put_and_rows_split_by_family_and_by_candidate(self):
+        self.catalyst('catalyst:pos', ticker='AAA', source='rules', candidate_hours_after=3)
+        self.catalyst('catalyst:neg', ticker='BBB', source='rules', family='earnings_negative', direction='negative',
+                      candidate_hours_after=48)
+        self.outcomes['BBB'] = ('complete', -.04, -.02)
+        result = self.report()['point_in_time']
+        self.assertIn(('BBB', mock.ANY, 'put'), self.calls)
+        groups = {(row['family'], row['direction']): row['mean_raw_return'] for row in result['groups']}
+        self.assertAlmostEqual(groups[('earnings_negative', 'negative')], -.04)
+        by_candidate = {row['had_candidate']: row['catalysts'] for row in result['by_candidate']}
+        self.assertEqual(by_candidate, {True: 1, False: 1})  # a candidate two days later is not today's feed
+        self.assertAlmostEqual(result['overall']['mean_raw_return'], -.01)
+
+    def test_pending_and_missing_prices_are_counted_and_kept_out_of_the_stats(self):
+        self.catalyst('catalyst:priced', ticker='AAA', source='rules')
+        self.catalyst('catalyst:pending', ticker='BBB', source='rules', seen_days_ago=1)
+        self.catalyst('catalyst:missing', ticker='CCC', source='rules')
+        self.catalyst('catalyst:unmeasured', ticker='DDD', source='rules')
+        self.outcomes.update({'BBB': ('pending', None, None), 'CCC': ('missing_stock_prices', None, None),
+                              'DDD': ('complete', .05, None)})
+        result = self.report()['point_in_time']
+        self.assertEqual((result['coverage']['pending'], result['coverage']['missing_stock_prices'],
+                          result['coverage']['window_mismatch']), (1, 1, 1))
+        self.assertEqual((result['overall']['catalysts'], result['overall']['residual_catalysts']), (2, 1))
+
+    def test_days_limits_signals_by_first_seen(self):
+        self.catalyst('catalyst:old', ticker='AAA', source='rules', seen_days_ago=40)
+        self.catalyst('catalyst:new', ticker='BBB', source='rules')
+        self.assertEqual(self.report(days=30)['point_in_time']['overall']['catalysts'], 1)
 
 
 if __name__ == '__main__':

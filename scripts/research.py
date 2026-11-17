@@ -80,6 +80,9 @@ def main():
     shares_drift = subparsers.add_parser('shares-drift-report',
                                          help="a run's shares_drift trades, one per catalyst, raw and net of the market (read-only)")
     shares_drift.add_argument('run_id')
+    feed = subparsers.add_parser('catalyst-feed-report',
+                                 help='the shares_drift rule replayed on catalysts as labelled, one open position per ticker (read-only)')
+    feed.add_argument('--days', type=int, default=0, help='look-back window on first seen, in days; 0 for all history')
     benchmark = subparsers.add_parser('benchmark', help='frozen benchmark sets for screening challengers (never promotes)')
     benchmark_commands = benchmark.add_subparsers(dest='benchmark_command', required=True)
     create = benchmark_commands.add_parser('create', help='select and store a new benchmark set')
@@ -181,6 +184,11 @@ def main():
     elif args.command == 'shares-drift-report':
         from market_db_modules.drift_report import shares_drift_report
         result = shares_drift_report(args.run_id, db_path=db_path)
+    elif args.command == 'catalyst-feed-report':
+        if args.days < 0:
+            parser.error('--days must be 0 or positive')
+        from market_db_modules.drift_report import catalyst_feed_report
+        result = catalyst_feed_report(days=args.days, db_path=db_path)
     elif args.command == 'benchmark':
         result = run_benchmark_command(parser, args, db_path)
     elif args.command == 'forward-cycle':

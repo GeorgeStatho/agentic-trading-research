@@ -169,6 +169,18 @@ Steps 1–3 are built. Step 4 waits for data.
   weeks, so step 4's bar (100 catalysts on 20 days) is several months away. Missing directions are not
   the cause: only 6 of 63 fresh earnings or analyst candidate rows had an unknown direction. The
   shortage is fresh catalysts in those families.
+- **Catalyst feed backtest (2026-11-17).** `scripts/research.py catalyst-feed-report` replays the rule on
+  catalysts instead of candidates.
+  - Rules: publication under 24 h before first sight, entry when the direction was known (first sight for
+    rules-only, else the first usable model label), one open position per ticker.
+  - Point in time, Oct 28 – Nov 12: 147 trades on 15 days. Raw −0.38%; residual +0.69% (53% hit, median
+    +0.21%, standard error 0.42%).
+  - One day carries it: the labeler's first run on Oct 29 gave 38 trades at +2.56%. The other 109 trades
+    average about +0.04%, and dropping the best 5 trades gives +0.10%.
+  - By family: earnings_positive, the largest group, is −0.05% (77 trades).
+  - With an assumed 2 h label lag before the labeler existed: 316 trades on 124 days, residual +0.13% (50% hit).
+  - So the wider feed shows no edge either. The live candidate feed's NMM and SFL trades are excluded as
+    stale publications.
 
 ## Verification, when the steps are implemented
 

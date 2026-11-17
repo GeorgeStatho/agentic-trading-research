@@ -680,7 +680,8 @@ expression (pure functions, plus `bootstrap_se`). `Data/market_db_modules/decisi
 `Data/market_db_modules/decision_attribution_report.py` backs `scripts/research.py attribution`,
 `Data/market_db_modules/gate_ledger.py` backs `scripts/research.py gate-ledger` (every gate stage and two tags scored on the 5-day residual move),
 `Data/market_db_modules/drift_report.py` backs `scripts/research.py drift-report` (the 5-day residual from each catalyst's first
-observation, by family, point-in-time direction and age since first seen), and
+observation, by family, point-in-time direction and age since first seen) and `catalyst-feed-report` (the shares_drift
+rule replayed on catalysts as labelled, one open position per ticker, priced by `research_runs.stock_position`), and
 `api_support/decision_autopsy.py` shows each decision's labels.
 
 ## Follower accounts
