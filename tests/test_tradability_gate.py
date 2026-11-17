@@ -231,6 +231,27 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("Python Scripts/services/gates/tradability_gate.py", GATE_FILES["TRADABILITY"])
         self.assertEqual(gate_config()["tradability"]["mode"], "shadow")
 
+    def test_its_proof_files_cover_its_direct_imports_and_the_whole_selector(self):
+        from services.core import trading_path
+        from services.research.research_promotion import GATE_FILES
+
+        roots = tuple(trading_path.ROOT / name for name in trading_path.IMPORT_ROOTS)
+        resolve = trading_path._Resolver(roots)
+        rule = trading_path.ROOT / "Python Scripts/services/gates/tradability_gate.py"
+        imported = {resolve(name) for name in trading_path._imported_names(rule, roots)} - {None}
+        selector_dir = trading_path.ROOT / "Python Scripts/agentCallers/agent_helpers/deterministic_option_selector"
+        expected = {str(path.relative_to(trading_path.ROOT)) for path in imported | set(selector_dir.glob("*.py"))
+                    if path.name != "__main__.py"}
+        # Shared infrastructure, not inputs to the verdict: the proof machinery, settings and number helpers.
+        infrastructure = {"Python Scripts/services/research/research_promotion.py",
+                          "Python Scripts/services/core/settings.py", "Python Scripts/services/core/numbers.py",
+                          "Python Scripts/services/__init__.py", "Python Scripts/services/core/__init__.py",
+                          "Python Scripts/services/gates/__init__.py", "Python Scripts/services/options/__init__.py",
+                          "Python Scripts/services/research/__init__.py",
+                          "Python Scripts/agentCallers/agent_helpers/__init__.py",
+                          "Python Scripts/agentCallers/agent_helpers/market_context/__init__.py"}
+        self.assertEqual(expected - infrastructure - set(GATE_FILES["TRADABILITY"]), set())
+
     def test_enforce_stays_shadow_without_a_proof(self):
         with patch.dict(os.environ, {"TRADABILITY_MODE": "enforce"}), \
                 patch("services.research.research_promotion.approved", return_value=False):

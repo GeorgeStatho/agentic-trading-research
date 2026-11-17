@@ -417,6 +417,32 @@ class FamilyCoverageTests(unittest.TestCase):
                 result = classify_catalyst(title)
                 self.assertEqual((result['catalyst_family'], result['classification_status']), ('commentary', 'needs_review'))
 
+    def test_results_and_forecasts_are_typed_events_with_a_half_life(self):
+        for title, kind in (('Fannie Mae Reports Net Income of $4.2 Billion for Third Quarter 2026', 'earnings'),
+                            ('Starbucks Stock Stalls After Mixed Q4 Results', 'earnings'),
+                            ('Broadcom Forecasts $230 Billion in AI Semiconductor Revenue in 2028', 'guidance')):
+            with self.subTest(title=title):
+                self.assertEqual(classify_catalyst(title)['catalyst_type'], kind)
+                state = build_catalyst_state('catalyst:v4', [anchor(title)], ticker='NVDA', as_of=NOW.isoformat())
+                self.assertGreater(state['expected_half_life_minutes'], 0)
+
+    def test_previews_recaps_listicles_awards_and_notices_are_commentary(self):
+        for title in ('AMD, Shopify On Deck Tuesday As AI Spending, Merchant Growth Face Test',
+                      'Stock Market Today: Dow Jones, S&P 500 Futures Trade Mixed After Post-Midterm Rally',
+                      'Why Bank of America Plunged Today',
+                      'Why CrowdStrike, Palo Alto Networks, SentinelOne, and Other Cybersecurity Stocks Surged This Week',
+                      '10 Consumer Discretionary Stocks With Whale Alerts In Today’s Session',
+                      '2 Cybersecurity Stocks That Will Rule 2027', 'What to Invest In Right Now, October 2026',
+                      'How to Buy Super Micro Computer Stock (SMCI) in 2026',
+                      'Fifth Third Private Bank Wins Datos Insights 2026 Award for Portfolio Management Innovation',
+                      'VGS to Host Annual Agent Connect, the Premier Industry Gathering',
+                      'RBC to announce fourth quarter and fiscal 2026 results'):
+            with self.subTest(title=title):
+                self.assertEqual(self.family(title), 'commentary')
+
+    def test_a_contract_award_is_still_a_contract(self):
+        self.assertEqual(self.family('Lockheed awarded $2 billion Army contract'), 'product_commercial')
+
     def test_commentary_never_overrides_a_directional_event_family(self):
         self.assertEqual(self.family('Did Nvidia beat earnings estimates?'), 'earnings_positive')
         self.assertEqual(self.family('Intel misses earnings: is it a buy?'), 'earnings_negative')

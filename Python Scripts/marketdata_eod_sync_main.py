@@ -1,7 +1,8 @@
-"""Keep the backtest quote cache updated without a browser or trading worker."""
+"""Keep the backtest quote and minute-bar caches updated without a browser or trading worker."""
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -16,6 +17,7 @@ if __name__ == "__main__":
     # Before importing modules that read configuration at import time.
     load_process_settings()
 
+from market_db_modules.backtest_alpaca_bars import run_due_minute_bar_fetch
 from market_db_modules.bootstrap import initialize_database
 from market_db_modules.marketdata_sync import EodSyncSettings, run_due_eod_sync
 from services.core.runtime_paths import DATA_DIR
@@ -39,7 +41,17 @@ def main() -> None:
     logging.info("EOD cache scheduler started: enabled=%s, daily at 10:00 America/New_York, batch_size=%s",
                  settings.enabled, settings.batch_size)
     last_idle_status = None
+    last_bar_fetch_at = None
     while not stop.is_set():
+        try:
+            bars = run_due_minute_bar_fetch(last_run_at=last_bar_fetch_at)
+            if bars["status"] == "fetched":
+                last_bar_fetch_at = datetime.now(timezone.utc)
+                logging.info("Minute-bar cache sync: %s", json.dumps(bars["result"]))
+        except Exception:
+            # Independent of the EOD sync below; the next hourly attempt retries.
+            last_bar_fetch_at = datetime.now(timezone.utc)
+            logging.exception("Minute-bar cache sync failed")
         status.write("running", "Checking the EOD cache schedule")
         try:
             result = run_due_eod_sync(settings)

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
 from unittest.mock import patch
 
-from scrapy.http import HtmlResponse
+from scrapy.http import HtmlResponse, Request
+from scrapy.spidermiddlewares.httperror import HttpErrorMiddleware
+from scrapy.utils.test import get_crawler
 
 from engine import article_scraper
 from engine.article_extraction import ArticleExtractionResult, RenderedPageExtraction
@@ -52,6 +55,30 @@ class _FakeContext:
     def Process(self, target, args) -> _FakeWorker:
         self.process_args = args
         return self.worker
+
+
+class SpiderStartTests(unittest.TestCase):
+    def test_start_sends_the_errback_and_the_yahoo_cookie_guard(self):
+        # Scrapy 2.13+ only calls start(); without it requests lose the errback and failures vanish.
+        yahoo = "https://finance.yahoo.com/a"
+        spider = article_scraper.ArticleSpider(urls=[yahoo, URL])
+
+        async def collect():
+            return [request async for request in spider.start()]
+
+        requests = asyncio.run(collect())
+        self.assertEqual([request.url for request in requests], [yahoo, URL])
+        self.assertTrue(all(request.errback == spider.handle_failure for request in requests))
+        self.assertTrue(requests[0].meta.get("dont_merge_cookies"))
+        self.assertNotIn("dont_merge_cookies", requests[1].meta)
+
+    def test_non_200_pages_reach_parse_so_their_status_is_recorded(self):
+        # Scrapy 2.13+ ignores the spider's handle_httpstatus_all attribute; only HTTPERROR_ALLOW_ALL lets a 404
+        # reach parse, where "HTTP 404" marks the url as a permanent failure.
+        crawler = get_crawler(article_scraper.ArticleSpider)
+        crawler.spider = crawler._create_spider()
+        response = HtmlResponse(url=URL, status=404, body=b"", request=Request(URL))
+        HttpErrorMiddleware.from_crawler(crawler).process_spider_input(response)
 
 
 class ItemBuilderTests(unittest.TestCase):

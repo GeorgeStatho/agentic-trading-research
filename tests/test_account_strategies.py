@@ -7,12 +7,14 @@ Fixture "today" is 2026-10-28, so 2026-11-13 is 16 DTE.
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
+from datetime import date
 import json
 import unittest
 from pathlib import Path
 
 from services.trading.account_strategies import OrderLeg, OrderPlan, Skip, build_order
-from services.trading.trading_accounts import FollowerSettings
+from services.core.settings import FollowerSettings
 
 CHAIN = json.loads((Path(__file__).parent / 'fixtures' / 'follower_chain.json').read_text())
 SETTINGS = FollowerSettings(spread_width_pct=0.05, itm_min_delta=0.70, force_exit_dte=1, max_hold_days=30,
@@ -31,11 +33,30 @@ PRODUCTION_CALL = contract('XYZ261113C00105000')
 PRODUCTION_PUT = contract('XYZ261113P00095000')
 
 
-def build(strategy, decision='call', *, production=None, chains=CHAIN, spot=100.0, budget=400.0, settings=SETTINGS):
+TODAY = date(2026, 10, 28)
+
+
+def build(strategy, decision='call', *, production=None, chains=CHAIN, spot=100.0, budget=400.0, settings=SETTINGS,
+          today=TODAY):
     if production is None:
         production = PRODUCTION_CALL if decision == 'call' else PRODUCTION_PUT
     return build_order(strategy, decision=decision, underlying='XYZ', production_contract=production,
-                       chains=chains, spot=spot, budget=budget, settings=settings)
+                       chains=chains, spot=spot, budget=budget, settings=settings, today=today)
+
+
+class OwnSelectionTests(unittest.TestCase):
+    def test_deep_itm_takes_the_first_expiry_far_enough_out_with_the_delta_floor(self):
+        deep = replace(SETTINGS, itm_min_delta=0.80, option_min_dte=14)
+        self.assertEqual(build('itm_single', settings=deep).legs[0].symbol, 'XYZ261113C00090000')
+        # 2026-11-13 is only 16 days out; asking for 20 leaves no ITM call in the fixture.
+        self.assertEqual(build('itm_single', settings=replace(deep, option_min_dte=20)), Skip('itm_single', 'no_itm_strike'))
+
+    def test_a_spread_without_a_production_contract_buys_at_the_money(self):
+        plan = build('debit_spread', production={}, budget=1000.0, settings=replace(SETTINGS, option_min_dte=14))
+        self.assertEqual([leg.symbol for leg in plan.legs], ['XYZ261113C00100000', 'XYZ261113C00105000'])
+        self.assertEqual(plan.qty, 4)  # (3.60 - 1.45) * 100 = $215 a spread
+        put = build('debit_spread', 'put', production={}, settings=replace(SETTINGS, option_min_dte=14))
+        self.assertEqual([leg.symbol for leg in put.legs], ['XYZ261113P00100000', 'XYZ261113P00095000'])
 
 
 class DebitSpreadTests(unittest.TestCase):

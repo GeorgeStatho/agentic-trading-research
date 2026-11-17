@@ -46,7 +46,7 @@ def ensure_position_outcome(order_id, *, db_path=None):
                 entry_option_price=excluded.entry_option_price,
                 entry_underlying_price=COALESCE(excluded.entry_underlying_price, entry_underlying_price)
             ''', (row['option_symbol'], row['underlying_symbol'], row['candidate_id'], row['thesis_id'], row['decision_id'],
-                  order_id, row['fill_timestamp'], row['fill_price'], row['underlying_at_fill'],
+                  order_id, row['fill_timestamp'], row['fill_price'], row['underlying_at_fill'] or row['underlying_at_decision'],
                   finite_float(option.get('implied_volatility') or (option.get('greeks') or {}).get('implied_volatility')),
                   row['pipeline_version_json'], market.get('sector_etf_symbol') or (market.get('sector_etf') or {}).get('ticker')))
         if row['decision_closed_at']:
@@ -55,6 +55,16 @@ def ensure_position_outcome(order_id, *, db_path=None):
         outcome_id = conn.execute('SELECT id FROM position_outcomes WHERE entry_order_id=?', (order_id,)).fetchone()['id']
         stamp_candidate_catalyst(conn, 'position_outcomes', outcome_id, row['candidate_id'])
         return outcome_id
+
+
+def open_entry_underlying_price(option_symbol, *, db_path=None):
+    """The stock price recorded at entry for the one open outcome of this contract, else None."""
+    initialize_database(db_path=db_path)
+    with closing(get_connection(db_path)) as conn:
+        rows = conn.execute('SELECT entry_underlying_price FROM position_outcomes WHERE option_symbol=? AND closed_at IS NULL',
+                            (option_symbol,)).fetchall()
+    # Several overlapping entry lots have no single entry price.
+    return finite_float(rows[0]['entry_underlying_price']) if len(rows) == 1 else None
 
 
 def record_position_observation(snapshot, *, observed_at=None, version=None, db_path=None):
@@ -94,8 +104,6 @@ def record_position_observation(snapshot, *, observed_at=None, version=None, db_
             values['primary_exit_reason'] = snapshot.get('exit_reason')
             values['coactive_exit_reasons_json'] = json_text(snapshot.get('coactive_exit_reasons') or [])
             values['exit_pipeline_version_json'] = json_text(version)
-        if spot is not None:
-            values['underlying_move'] = underlying
         iv = finite_float(snapshot.get('implied_volatility'))
         if iv is not None and snapshot.get('close_submitted'):
             values['iv_at_exit'] = iv

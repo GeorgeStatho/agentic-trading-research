@@ -40,3 +40,25 @@ class BacktestEodFetchRouteTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/backtests/marketdata-eod", json=[]).status_code, 400)
         self.assertEqual(self.client.post("/api/backtests/marketdata-eod", json={"limit": 0}).status_code, 400)
 
+
+
+@unittest.skipUnless(FLASK_AVAILABLE, "Flask is not installed in this environment.")
+class BacktestMinuteBarFetchRouteTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary_database(self)
+        self.app = Flask(__name__)
+        register_backtest_routes(self.app)
+        self.client = self.app.test_client()
+
+    def test_route_rejects_invalid_requests(self) -> None:
+        for payload in ([], {"limit": 0}, {"limit": 101}, {"max_hold_hours": "x"}):
+            with self.subTest(payload=payload):
+                self.assertEqual(self.client.post("/api/backtests/alpaca-minute-bars", json=payload).status_code, 400)
+
+    def test_route_passes_the_window_to_the_fetch(self) -> None:
+        with patch("api_support.backtest.fetch_alpaca_minute_bars", return_value={"fetched_decision_count": 2}) as fetch:
+            response = self.client.post("/api/backtests/alpaca-minute-bars",
+                                        json={"limit": 5, "max_hold_hours": 48, "start_at": "2026-11-01"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["read_only"])
+        fetch.assert_called_once_with(start_at="2026-11-01", end_at=None, limit=5, max_hold_hours=48)

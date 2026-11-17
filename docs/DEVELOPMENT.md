@@ -146,7 +146,10 @@ classes in `services/core/trading_config.py`), and `DB_PATH`, which the data lay
 
 Entry gates are listed once in `services/gates/entry_gates.py`. Order eligibility, selected-option
 summaries, decision history and research inputs iterate that registry, so adding a gate means
-one registry entry plus the code that computes its verdict. The strategist result, manager
+one registry entry plus the code that computes its verdict. Set `records_verdict_row=True` on the
+entry when its boolean verdict should also get a `decision_gate_verdicts` row; `shadow_gates.py` reads
+that flag. Read a new gate's rollout mode with `research_promotion.rollout_mode` and sign moves by the
+trade with `services.core.trade_sides.trade_side` (list that file in the gate's `GATE_FILES`). The strategist result, manager
 result, gate verdict and order candidate are TypedDicts in
 `Python Scripts/agentCallers/agent_contracts.py`. `tests/test_pipeline_contracts.py` fails when
 a model schema, its prompt example and its TypedDict disagree, or when a registered gate is

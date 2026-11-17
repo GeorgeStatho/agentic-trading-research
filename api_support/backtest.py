@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from market_db_modules.backtest_alpaca_bars import fetch_alpaca_minute_bars
 from market_db_modules.backtest_marketdata import fetch_marketdata_eod_option_quotes
 from market_db_modules.backtesting import get_backtest_run, list_backtest_runs, run_backtest
 
@@ -79,3 +80,20 @@ def fetch_backtest_eod_quotes(payload: dict[str, Any]) -> dict[str, Any]:
         "read_only": True,
         "no_trade_executed_by_feature": True,
     }
+
+
+def fetch_backtest_minute_bars(payload: dict[str, Any]) -> dict[str, Any]:
+    """Store Alpaca 1-minute stock and option bars for stored decisions' hold windows; reads market data only."""
+    try:
+        limit = int(payload.get("limit", 10))
+        max_hold_hours = int(payload.get("max_hold_hours", 168))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("limit and max_hold_hours must be integers.") from exc
+    if limit < 1 or limit > 100:
+        raise ValueError("limit must be between 1 and 100.")
+    if max_hold_hours < 1:
+        raise ValueError("max_hold_hours must be at least 1.")
+    result = fetch_alpaca_minute_bars(start_at=str(payload.get("start_at") or "") or None,
+                                      end_at=str(payload.get("end_at") or "") or None,
+                                      limit=limit, max_hold_hours=max_hold_hours)
+    return {**result, "read_only": True, "no_trade_executed_by_feature": True}

@@ -17,6 +17,8 @@ history and are not updated when the code changes.
 | [INTERFACE_GUIDE.md](INTERFACE_GUIDE.md) | Preferred import surface versus compatibility wrappers |
 | [CleanCode.md](CleanCode.md) | Code style rules used in reviews |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Installing the project, running tests and entrypoints |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Services, configuration, HTTPS, Vertex authentication, API endpoints and telemetry |
+| [ALPACA.md](ALPACA.md) | Where each Alpaca call is already wrapped, data feeds, rate limits and known issues |
 
 ### Research and decision pipeline
 
@@ -64,4 +66,5 @@ Kept for history. Where one conflicts with a current document, the current docum
 | [archive/MANAGER_DECISION_HISTORY_IMPLEMENTATION_CHECKLIST.md](archive/MANAGER_DECISION_HISTORY_IMPLEMENTATION_CHECKLIST.md) | Completed implementation checklist |
 | [archive/LLMThesisValidator.md](archive/LLMThesisValidator.md) | Design notes for the position thesis validator, now implemented |
 | [archive/ORDER_LIFECYCLE_AUDIT.md](archive/ORDER_LIFECYCLE_AUDIT.md) | Dated audit (2026-07-27) |
+| [BUILD_WEEK.md](BUILD_WEEK.md) | What OpenAI Build Week (July 2026) added, and how to run its demo |
 | `archive/scratch/` | Pasted logs and UI/design dumps (`Error.md`, `backtest.md`, `design.md`) |

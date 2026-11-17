@@ -23,6 +23,7 @@ from market_db_modules.candidate_lifecycle import (
 from market_db_modules.execution_telemetry import store_execution_telemetry
 from market_db_modules.position_outcomes import (
     ensure_position_outcome,
+    open_entry_underlying_price,
     record_position_observation,
     close_position_outcome,
 )
@@ -67,7 +68,7 @@ class TelemetryDatabaseTests(unittest.TestCase):
         with closing(get_connection(self.db)) as conn, conn:
             return dict(conn.execute(f'SELECT * FROM {table} WHERE {key}=?', (value,)).fetchone())
 
-    def entry(self, order_id='entry', **extra):
+    def entry(self, order_id='entry', underlying_at_fill=100, **extra):
         execution = {'submitted': True, 'symbol': 'NVDA', 'selected_option_symbol': SYMBOL, 'order_qty': 2,
                      'candidate_context': self.context, 'selected_option': {'implied_volatility': .5},
                      'market_context': {'sector_etf': {'ticker': 'XLK'}},
@@ -76,7 +77,7 @@ class TelemetryDatabaseTests(unittest.TestCase):
                      'execution_telemetry': {'option_mid_at_decision': 2, 'arrival_mid': 2.1}, **extra}
         record_option_trade_execution(execution, paper=True, db_path=self.db)
         metrics = fill_metrics(filled_order(), execution['execution_telemetry'])
-        metrics['underlying_at_fill'] = 100
+        metrics.update(underlying_at_fill=underlying_at_fill, underlying_at_decision=99)
         store_execution_telemetry(order_id, metrics, db_path=self.db)
         return execution
 
@@ -144,10 +145,25 @@ class TelemetryDatabaseTests(unittest.TestCase):
         self.assertIsNone(self.row('position_outcomes', value=new_id)['mfe_option'])
         self.assertEqual(ensure_position_outcome('entry', db_path=self.db), position_id)
 
+    def test_entry_stock_price_falls_back_to_the_decision_quote_without_a_fill_quote(self):
+        self.entry(underlying_at_fill=None)
+        position_id = ensure_position_outcome('entry', db_path=self.db)
+        self.assertEqual(self.row('position_outcomes', value=position_id)['entry_underlying_price'], 99)
+        self.assertEqual(open_entry_underlying_price(SYMBOL, db_path=self.db), 99)
+
+    def test_an_observation_tracks_the_stock_path_but_not_the_close_to_close_move(self):
+        position_id, _ = self.position()
+        self.assertTrue(record_position_observation({'symbol': SYMBOL, 'broker_unrealized_pl_pct': 10,
+                                                     'underlying_stock_price': 103}, db_path=self.db))
+        row = self.row('position_outcomes', value=position_id)
+        self.assertAlmostEqual(row['mfe_underlying'], 3)
+        self.assertIsNone(row['underlying_move'])
+
     def test_ambiguous_overlapping_entries_are_not_attributed(self):
         self.position()
         self.entry('overlap')
         ensure_position_outcome('overlap', db_path=self.db)
+        self.assertIsNone(open_entry_underlying_price(SYMBOL, db_path=self.db))
         self.assertFalse(record_position_observation({'symbol': SYMBOL, 'broker_unrealized_pl_pct': 50}, db_path=self.db))
         self.assertIsNone(self.row('position_outcomes')['mfe_option'])
 

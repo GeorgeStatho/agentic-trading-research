@@ -18,6 +18,7 @@ from services.options.option_pricing import black_scholes_price
 from services.trading.order_candidates import OrderCandidateBuilder
 from services.gates.trade_economics import (
     apply_trade_economics,
+    realized_net_return,
     recheck_trade_economics,
     scenario_set,
     selected_row,
@@ -42,8 +43,8 @@ def contract(*, symbol=SYMBOL, strike=101, side='call', **quoted):
             'greeks': {'delta': .48, 'gamma': .04, 'vega': .11, 'theta': -.06}, 'latest_quote': quote(**quoted)}
 
 
-def scenario_rows(returns, *, same_day=False):
-    return [{'catalyst_id': f'catalyst:s{index}', 'ticker': f'T{index}', 'stock_return': value,
+def scenario_rows(returns, *, same_day=False, total=None):
+    return [{'catalyst_id': f'catalyst:s{index}', 'ticker': f'T{index}', 'stock_return': value if total is None else total,
              'residual_return': value, 'event_at': (NOW - timedelta(days=60 + (0 if same_day else index))).isoformat()}
             for index, value in enumerate(returns)]
 
@@ -60,9 +61,9 @@ def database(test):
     return db
 
 
-def seed_scenarios(db, returns, *, horizon=10, same_day=False):
+def seed_scenarios(db, returns, *, horizon=10, same_day=False, total=None):
     with closing(get_connection(db)) as conn, conn:
-        for row in scenario_rows(returns, same_day=same_day):
+        for row in scenario_rows(returns, same_day=same_day, total=total):
             state = build_catalyst_state(row['catalyst_id'], [], ticker=row['ticker'])
             state.update(catalyst_family='earnings_positive', direction='positive')
             store_catalyst_state(state, conn=conn)
@@ -98,9 +99,9 @@ class EconomicsFixture(unittest.TestCase):
         self.db = database(self)
         self.context = candidate_context(self.db)
 
-    def economics(self, returns=None, *, mode='shadow', same_day=False, **result):
+    def economics(self, returns=None, *, mode='shadow', same_day=False, total=None, **result):
         if returns:
-            seed_scenarios(self.db, returns, same_day=same_day)
+            seed_scenarios(self.db, returns, same_day=same_day, total=total)
         outcome = apply_trade_economics(manager_result(self.context, **result),
                                         policy=TradeEconomicsPolicy(mode=mode), as_of=NOW, db_path=self.db)
         return outcome['trade_economics_gate']
@@ -119,13 +120,25 @@ class OptionPricingTests(unittest.TestCase):
 
 
 class ScenarioWeightTests(unittest.TestCase):
-    def test_same_day_events_share_one_cluster(self):
-        self.assertEqual(scenario_set(scenario_rows([.01] * 3, same_day=True), 10)['effective_sample_size'], 1)
+    def test_same_day_events_on_different_tickers_are_independent(self):
+        self.assertEqual(scenario_set(scenario_rows([.01] * 3, same_day=True), 10)['effective_sample_size'], 3)
+
+    def test_one_ticker_within_the_horizon_is_one_cluster(self):
+        rows = [{**row, 'ticker': 'NVDA'} for row in scenario_rows([.01] * 3)]
+        self.assertEqual(scenario_set(rows, 10)['effective_sample_size'], 1)
+
+    def test_rows_without_a_total_return_still_count(self):
+        rows = [{**row, 'stock_return': None} for row in scenario_rows([.01] * 3)]
+        self.assertEqual(scenario_set(rows, 10)['sample_size'], 3)
 
 
 class ReportTests(EconomicsFixture):
     def test_attractive_option_allows_the_trade(self):
         gate = self.economics([.04] * 31)
+        self.assertEqual((gate['would_allow'], gate['outcome']), (True, 'trade'))
+
+    def test_expected_value_prices_residual_returns_not_total_returns(self):
+        gate = self.economics([.04] * 31, total=-.5)
         self.assertEqual((gate['would_allow'], gate['outcome']), (True, 'trade'))
 
     def test_credible_thesis_with_unattractive_option_is_no_trade(self):
@@ -136,7 +149,20 @@ class ReportTests(EconomicsFixture):
     def test_missing_scenarios_never_produce_an_expected_value(self):
         gate = self.economics()
         self.assertEqual((gate['would_allow'], gate['evidence']['expected_net_pnl'], selected_row(self.report(gate))['status']),
-                         (False, None, 'no_scenarios'))
+                         (None, None, 'no_scenarios'))
+
+    def test_an_unavailable_report_is_unknown_and_still_fails_closed_when_enforced(self):
+        self.assertEqual((self.economics()['would_allow'], self.economics()['allowed']), (None, True))
+        gate = self.economics(mode='enforce')
+        self.assertEqual((gate['would_allow'], gate['allowed'], gate['outcome']), (None, False, 'unavailable'))
+
+    def test_realized_net_return_reprices_the_selected_contract_at_the_realized_move(self):
+        report = self.report(self.economics([.04] * 31))
+        policy = TradeEconomicsPolicy()
+        self.assertGreater(realized_net_return(report, .15, 5, policy), 0)
+        self.assertLess(realized_net_return(report, -.15, 5, policy), 0)
+        self.assertGreaterEqual(realized_net_return(report, -.9, 5, policy), -1.0)
+        self.assertIsNone(realized_net_return({'contracts': []}, .15, 5, policy))
 
     def test_adverse_scenarios_respect_the_premium_loss_bound(self):
         report = self.report(self.economics([-.6, -.2, 0.0, .3] * 8))
@@ -154,7 +180,7 @@ class ReportTests(EconomicsFixture):
         with patch('services.gates.trade_economics.build_trade_economics_report', side_effect=RuntimeError('boom')), \
                 self.assertLogs(LOGGER, logging.ERROR):
             gate = self.economics(mode='enforce')
-        self.assertEqual((gate['allowed'], gate['reason_codes']), (False, ['economics_check_error']))
+        self.assertEqual((gate['allowed'], gate['would_allow'], gate['reason_codes']), (False, None, ['economics_check_error']))
 
     def test_shadow_mode_records_without_blocking(self):
         gate = self.economics([.005] * 31)

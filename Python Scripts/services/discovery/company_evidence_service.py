@@ -1,6 +1,7 @@
 """Collector-owned ingestion; decision payloads only read its persisted packages."""
 from contextlib import closing
 from datetime import datetime, timedelta
+import logging
 import os
 from urllib.parse import urlparse
 
@@ -21,6 +22,8 @@ from market_db_modules.evidence_refresh import due_refresh_companies, due_refres
 from services.discovery.company_evidence_demand import enqueue_company_interest
 from services.research.research_lock import ResearchSessionBusy, research_session_lock
 from services.core.time_utils import utc_now
+
+LOGGER = logging.getLogger(__name__)
 
 
 def collect_company(company, adapters, policy, *, db_path=None, clock=utc_now):
@@ -51,8 +54,12 @@ def collect_company(company, adapters, policy, *, db_path=None, clock=utc_now):
         except Exception as exc:
             failures = state.get('failures', 0) + 1
             reason = f'{adapter.name}_collection_failed:{type(exc).__name__}'
+            error = f'{type(exc).__name__}: {exc}'[:300]
+            LOGGER.warning('%s evidence collection failed for %s (failure %s): %s',
+                           adapter.name, company['symbol'], failures, error)
             gaps.append(reason)
             saved = {**state, 'failures': failures, 'gaps': list(set(state.get('gaps', []) + [reason])),
+                     'last_error': error,
                      'next_attempt_at': (clock() + timedelta(seconds=min(policy.refresh_seconds, 60 * 2 ** min(failures, 8)))).isoformat()}
             save_collection_state(adapter.name, str(company['id']), saved, clock().isoformat(), db_path=db_path)
             documents.extend(state.get('document_ids', []))
@@ -181,6 +188,7 @@ def _collect_companies(companies, config, mapping, sec, policy, user_agent, cloc
             outcomes.append(result)
         except Exception as exc:
             reason = 'collection_failed:' + type(exc).__name__
+            LOGGER.warning('Company evidence collection failed for %s', company['symbol'], exc_info=True)
             outcomes.append({'symbol': company['symbol'], 'status': reason})
             finish_refresh_requests(requests, at=clock().isoformat(), reason=reason, db_path=db_path)
     return outcomes

@@ -104,6 +104,15 @@ class V2StatusTests(unittest.TestCase):
         self.assertEqual(payload["mode_summary"]["downgraded"], 1)
         self.assertEqual(payload["mode_summary"]["enforcing"], 0)
 
+    def test_the_spy_trend_variant_is_a_switchable_feature_downgraded_without_a_proof(self) -> None:
+        payload = self._payload(REGIME_SPY_TREND_MODE="enforce", MARKET_REGIME_GATE_MODE="shadow")
+
+        variant = _feature(payload, "regime_spy_trend")
+        self.assertEqual((variant["requested_mode"], variant["effective_mode"], variant["downgraded"]),
+                         ("enforce", "shadow", True))
+        self.assertEqual([stage["stage"] for stage in variant["stages"]], ["REGIME_SPY_TREND"])
+        self.assertNotIn("regime_spy_trend", [item["key"] for item in payload["shadow_only_features"]])
+
     def test_matching_proof_reports_the_stage_as_enforceable(self) -> None:
         self._record_report("report-1", [])
         expected = policy_hash("LIQUIDITY", ContractPolicy(), gate_code_hash("LIQUIDITY", trading_path_hashes()))

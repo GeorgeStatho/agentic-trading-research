@@ -181,32 +181,57 @@ class ScriptedModel:
     def __init__(self, **replies):
         self.replies = replies
         self.prompts: list[tuple[str, str]] = []
+        self.system_prompts: list[tuple[str, str]] = []
 
     def answer(self, stage):
         def ask(*, system_prompt="", user_prompt="", **_):
             self.prompts.append((stage, user_prompt))
+            self.system_prompts.append((stage, system_prompt))
             reply = self.replies[stage]
             return reply(user_prompt) if callable(reply) else reply
         return ask
 
 
-def strategist_reply(decision="trade_candidate", *, symbol=SYMBOL, company_id=COMPANY_ID, article_ids=ARTICLE_IDS):
-    """A grounded strategist answer citing the seeded articles."""
+def strategist_reply(decision="trade_candidate", *, symbol=SYMBOL, company_id=COMPANY_ID, article_ids=ARTICLE_IDS,
+                     direction="call", industry_id=INDUSTRY_ID, sector_id=SECTOR_ID):
+    """A grounded strategist answer citing the seeded articles; `direction` is call or put."""
     return json.dumps({"recommendation": {
         "decision": decision, "confidence": "high", "evidence_quality": "strong", "setup_quality": "strong",
-        "timing_clarity": "clear", "preferred_option_direction": "call", "expected_stock_direction": "up",
-        "time_horizon": "short_term", "why_now": "Guidance was raised", "summary": "Raised guidance",
+        "timing_clarity": "clear", "preferred_option_direction": direction,
+        "expected_stock_direction": "up" if direction == "call" else "down",
+        "time_horizon": "short_term", "why_now": "Guidance was revised", "summary": "Revised guidance",
         "catalyst": [], "thesis": [], "risks": [], "contradictions_present": False, "watchlist_reason": "",
         "grounded_company_symbol": symbol,
-        "grounded_entity_ids": {"company_id": company_id, "industry_id": INDUSTRY_ID, "sector_id": SECTOR_ID},
+        "grounded_entity_ids": {"company_id": company_id, "industry_id": industry_id, "sector_id": sector_id},
         "evidence_claims": [{"claim_type": kind, "claim": "Raised guidance", "evidence_article_ids": list(article_ids)}
                             for kind in ("summary", "why_now")]}})
+
+
+def grounded_strategist_reply(user_prompt):
+    """A trade_candidate grounded on whichever company the prompt names, for cycles over many companies."""
+    grounding = json.loads(user_prompt)["grounding"]
+    return strategist_reply(symbol=grounding["company"]["symbol"], company_id=grounding["company"]["id"],
+                            article_ids=grounding["article_ids"], industry_id=grounding["industry"]["id"],
+                            sector_id=grounding["sector"]["id"])
 
 
 def manager_reply(decision="call"):
     return json.dumps({"recommendation": {
         "decision": decision, "confidence": "high", "target_dte_bucket": "dte_8_21",
         "reason": "Raised guidance with confirming price action."}})
+
+
+def bearish_news(article_ids=ARTICLE_IDS) -> None:
+    """Turn the seeded articles into a guidance cut that the opportunists rated negative."""
+    with closing(get_connection()) as conn, conn:
+        for article_id in article_ids:
+            conn.execute("UPDATE news_articles SET title=?, summary=? WHERE id=?",
+                         (f"{SYMBOL} cuts revenue guidance", "Revenue guidance was cut.", article_id))
+            conn.execute("UPDATE news_article_content SET body=? WHERE article_id=?",
+                         ("The company cut quarterly revenue guidance below expectations.", article_id))
+            for table in ("industry_opportunist_impacts", "company_opportunist_impacts"):
+                conn.execute(f"UPDATE {table} SET impact_direction='negative', reason='Guidance cut' WHERE article_id=?",
+                             (article_id,))
 
 
 def seed_cycle_inputs() -> None:
@@ -221,12 +246,13 @@ def seed_cycle_inputs() -> None:
     _record_industry_top_companies_refresh("semiconductors")
 
 
-def add_company(company_id: int, symbol: str, article_ids, *, confidence: str = "high", market_weight: float = 1.0):
-    """A company in the seeded industry with its own articles, rated by the opportunists at `confidence`."""
+def add_company(company_id: int, symbol: str, article_ids, *, confidence: str = "high", market_weight: float = 1.0,
+                industry_id: int = INDUSTRY_ID, sector_id: int = SECTOR_ID):
+    """A company in an existing industry with its own articles, rated by the opportunists at `confidence`."""
     now = datetime.now(timezone.utc).isoformat()
     with closing(get_connection()) as conn, conn:
         conn.execute("INSERT INTO companies(id,industry_id,symbol,name,market_weight) VALUES (?,?,?,?,?)",
-                     (company_id, INDUSTRY_ID, symbol, f"{symbol} Inc.", market_weight))
+                     (company_id, industry_id, symbol, f"{symbol} Inc.", market_weight))
         for article_id in article_ids:
             conn.execute("""INSERT INTO news_articles(id,source,article_key,title,source_url,published_at,first_seen_time,
                             primary_ticker,summary,source_type) VALUES (?,?,?,?,?,?,?,?,?,'company_release')""",
@@ -235,12 +261,12 @@ def add_company(company_id: int, symbol: str, article_ids, *, confidence: str = 
             conn.execute("INSERT INTO news_article_content(article_id,body) VALUES (?,?)",
                          (article_id, "The company raised quarterly revenue guidance above expectations."))
             conn.execute("""INSERT INTO us_news_sector_impacts(article_id,sector_id,confidence,reason,created_at)
-                            VALUES (?,?,?,'AI demand',?)""", (article_id, SECTOR_ID, confidence, now))
+                            VALUES (?,?,?,'AI demand',?)""", (article_id, sector_id, confidence, now))
             conn.execute("INSERT INTO us_news_article_processing(article_id,model,processed_at) VALUES (?,'fixture',?)",
                          (article_id, now))
             conn.execute("""INSERT INTO industry_opportunist_impacts(article_id,industry_id,confidence,impact_direction,
                             impact_magnitude,reason,created_at) VALUES (?,?,?,'positive','high','AI demand',?)""",
-                         (article_id, INDUSTRY_ID, confidence, now))
+                         (article_id, industry_id, confidence, now))
             conn.execute("INSERT INTO company_news_articles(company_id,article_id) VALUES (?,?)", (company_id, article_id))
             conn.execute("""INSERT INTO company_opportunist_impacts(article_id,company_id,confidence,impact_direction,
                             impact_magnitude,reason,created_at) VALUES (?,?,?,'positive','high','Guidance raised',?)""",
@@ -252,7 +278,6 @@ def offline_services(market: FakeMarket, model: ScriptedModel):
     """Route every outside call of a cycle to `market` and `model`; refuse anything else."""
     import yfinance
     from agent_helpers.market_context import alpaca_base
-    from agent_stages import manager_runner, strategist_runner
     from market_data import yfinance_client
     from trading_support import clients
 
@@ -269,8 +294,17 @@ def offline_services(market: FakeMarket, model: ScriptedModel):
         enter(mock.patch.object(alpaca_base, "_ALPACA_CLIENTS", clients_by_role))
         enter(mock.patch.object(clients, "get_option_history_client", lambda: market))
         enter(mock.patch.object(clients, "get_stock_history_client", lambda: market))
-        enter(mock.patch.object(strategist_runner, "ask_model", model.answer("strategist")))
-        enter(mock.patch.object(strategist_runner, "get_default_client", return_value=object()))
-        enter(mock.patch.object(manager_runner, "ask_model", model.answer("manager")))
-        enter(mock.patch.object(manager_runner, "get_default_client", return_value=object()))
+        enter(scripted_models(model))
+        yield
+
+
+@contextmanager
+def scripted_models(model: ScriptedModel):
+    """Answer the strategist and manager from `model`; no model client is created or called."""
+    from agent_stages import manager_runner, strategist_runner
+
+    with ExitStack() as stack:
+        for runner, stage in ((strategist_runner, "strategist"), (manager_runner, "manager")):
+            stack.enter_context(mock.patch.object(runner, "ask_model", model.answer(stage)))
+            stack.enter_context(mock.patch.object(runner, "get_default_client", return_value=object()))
         yield

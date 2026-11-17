@@ -237,6 +237,7 @@ def _setup_steps() -> tuple:
         lambda conn: backfill_decision_autopsy_ledger(conn=conn),
         _ensure_llm_usage_stage,
         _ensure_pick_score_columns,
+        _schema_file("backtest_bars_schema.sql"),
     )
 
 

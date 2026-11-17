@@ -68,7 +68,7 @@ The frontend reads these routes:
 - research: `/api/decision-expectancy`, `/api/news-lag`, `/api/backtests`, `/api/follower-accounts`, `/api/forward-evaluation`, `/api/v2-status`
 - `/api/demo-mode`
 
-The repo-level [README](../README.md#api-endpoints) lists every API route.
+[docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md#api-endpoints) lists every API route.
 
 In Docker, nginx proxies `/api/*` to the internal Flask service.
 
