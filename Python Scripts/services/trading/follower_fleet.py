@@ -16,7 +16,7 @@ from agent_helpers.deterministic_option_selector.market import _get_reference_st
 from market_db_modules import account_positions as store
 from services.trading.account_strategies import OPTION_STRATEGIES, OrderPlan, Skip, build_order
 from services.core.numbers import safe_float
-from services.research.research_contract import shares_drift_decision, utc
+from services.research.research_contract import publication_lag_hours, shares_drift_decision, utc
 from services.research.research_promotion import research_only_candidate
 from services.core.trade_sides import trade_side
 from services.trading.order_values import FILLED, REPLACED, WORKING, order_phase
@@ -211,17 +211,21 @@ class FollowerFleet:
             return
         now = self._clock()
         done = store.recorded_sources(DRIFT_PREFIX, db_path=self._db_path)
+        holding = self._drift_holdings()
         seen = set()
         for row in store.recent_candidate_catalysts((now - DRIFT_ENTRY_WINDOW).isoformat(), db_path=self._db_path):
             key = DRIFT_PREFIX + row['catalyst_id']
-            takers = [account for account in accounts if (account.name, key) not in done]
+            # One drift position per ticker: a later catalyst on a held ticker is skipped, whatever its direction.
+            takers = [account for account in accounts
+                      if (account.name, key) not in done and (account.name, row['symbol']) not in holding]
             if key in seen or not takers or research_only_candidate(row['candidate_id']):
                 continue
             state, created = row['state'], utc(row['created_at'])
             first_seen = state.get('first_seen_time')
             decision = shares_drift_decision({
                 'catalyst_family': state.get('catalyst_family'), 'catalyst_direction': state.get('direction'),
-                'catalyst_age_hours': (created - utc(first_seen)).total_seconds() / 3600 if first_seen else None})
+                'catalyst_age_hours': (created - utc(first_seen)).total_seconds() / 3600 if first_seen else None,
+                'publication_lag_hours': publication_lag_hours(state)})
             if decision not in ('call', 'put'):
                 continue  # a later candidate on the same catalyst may still qualify
             seen.add(key)
@@ -231,6 +235,12 @@ class FollowerFleet:
                          'selected_option_symbol': None,
                          'market_context': {'current_stock_price': {'latest_trade_price': spot}}}
             self._place(candidate, key, self._settings.drift_budget, store.SHARES_DRIFT, takers)
+            holding = self._drift_holdings()
+
+    def _drift_holdings(self):
+        """(account, ticker) for every active shares_drift position; production copies never block a drift entry."""
+        return {(row['account'], row['underlying']) for row in store.active_positions(db_path=self._db_path)
+                if row['entry_kind'] == store.SHARES_DRIFT}
 
     def manage(self):
         """Resolve follower fills and close followers whose primary position is gone."""

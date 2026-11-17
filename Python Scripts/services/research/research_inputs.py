@@ -3,7 +3,7 @@ import json
 from statistics import mean
 
 from market_db_modules.foundation_store import verified_envelope
-from services.research.research_contract import assert_information_cutoff, direction, utc
+from services.research.research_contract import assert_information_cutoff, direction, publication_lag_hours, utc
 from services.gates.entry_gates import ENTRY_GATES
 from agent_helpers.deterministic_option_selector import _pick_matching_contract
 from agent_helpers.deterministic_option_selector import config
@@ -103,6 +103,7 @@ def load_inputs(conn, candidate, as_of):
         'trend': technical.get('trend_state'), 'historical_expectancy': mean(returns) if usable else None,
         'catalyst_direction': catalyst.get('direction'), 'catalyst_family': catalyst.get('catalyst_family', 'unknown'),
         'catalyst_age_hours': catalyst_age_hours,
+        'publication_lag_hours': publication_lag_hours(catalyst),
         'independent_root_count': catalyst.get('independent_root_count'), 'evidence_score': catalyst.get('evidence_score'),
         'absorption_ratio': (snapshots.get('PRICE_ABSORPTION', (None, {}))[1].get('metrics') or {}).get('price_absorption_ratio'),
         'iv_percentile': ((market.get('option_market') or {}).get('volatility_summary') or {}).get('atm_iv_percentile'),

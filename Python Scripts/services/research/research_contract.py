@@ -75,15 +75,23 @@ def direction(value):
             'neither': 'skip', 'hold': 'skip', 'neutral': 'skip', 'watchlist': 'skip'}.get(value)
 
 
+def publication_lag_hours(catalyst):
+    """Hours from a catalyst's first publication to the system's first sight of it; None when either is missing."""
+    seen, public = catalyst.get('first_seen_time'), catalyst.get('first_public_time')
+    return (utc(seen) - utc(public)).total_seconds() / 3600 if seen and public else None
+
+
 def shares_drift_decision(features):
     """The catalyst's own direction for a fresh earnings or analyst catalyst; the follower fleet trades it live."""
     if features.get('catalyst_family') not in SHARES_DRIFT_FAMILIES:
         return 'skip'
     age = finite_float(features.get('catalyst_age_hours'))
-    if age is None:
+    # First sight is not publication: a recap scraped days late is old news however recently it was seen.
+    lag = finite_float(features.get('publication_lag_hours'))
+    if age is None or lag is None:
         return None
     taxonomy = direction(features.get('catalyst_direction'))
-    fresh = 0 <= age < SHARES_DRIFT_MAX_AGE_HOURS and taxonomy in {'call', 'put'}
+    fresh = 0 <= age < SHARES_DRIFT_MAX_AGE_HOURS and lag < SHARES_DRIFT_MAX_AGE_HOURS and taxonomy in {'call', 'put'}
     return taxonomy if fresh else 'skip'
 
 

@@ -43,12 +43,15 @@ class DriftCase(base.FleetTestCase):
         self.count = 0
 
     def candidate(self, catalyst='catalyst:a', *, family='earnings_positive', direction='positive', age_hours=2.0,
-                  created_ago=timedelta(minutes=10), prefix='candidate'):
-        """A recorded candidate whose primary catalyst was first seen `age_hours` before the candidate."""
+                  created_ago=timedelta(minutes=10), prefix='candidate', published_hours_before=1.0):
+        """A recorded candidate whose primary catalyst was first seen `age_hours` before the candidate, and
+        published `published_hours_before` its first sighting."""
         self.count += 1
         created = self.now - created_ago
+        seen = created - timedelta(hours=age_hours)
         state = {'catalyst_id': catalyst, 'catalyst_family': family, 'direction': direction,
-                 'first_seen_time': (created - timedelta(hours=age_hours)).isoformat()}
+                 'first_seen_time': seen.isoformat(),
+                 'first_public_time': (seen - timedelta(hours=published_hours_before)).isoformat()}
         candidate_id = f'{prefix}-{self.count}'
         with closing(get_connection()) as conn, conn:
             conn.execute('''INSERT OR IGNORE INTO catalysts (catalyst_id, ticker, catalyst_type, catalyst_subtype,
@@ -119,6 +122,28 @@ class DriftEntryTests(DriftCase):
         self.market_open = True
         self.fleet.enter_drift()
         self.assertEqual(len(store.active_positions()), 3)
+
+    def test_news_published_a_day_before_the_system_first_saw_it_never_enters(self):
+        # Like NMM on 2026-11-17: an earnings recap scraped 9 days after it was published.
+        self.candidate('catalyst:late-scrape', published_hours_before=9 * 24)
+        self.fleet.enter_drift()
+        self.assertEqual(store.active_positions(), [])
+
+    def test_a_ticker_held_from_another_catalyst_takes_no_new_drift_entry(self):
+        self.candidate('catalyst:a')
+        self.candidate('catalyst:b', family='earnings_negative', direction='negative')  # same tick, same ticker
+        self.fleet.enter_drift()
+        self.assertEqual(self.gateways['drift_shares'].submit_stock_market_order.call_count, 1)
+        self.candidate('catalyst:c')  # a later tick, while the first position is still held
+        self.fleet.enter_drift()
+        self.assertEqual(self.gateways['drift_shares'].submit_stock_market_order.call_count, 1)
+        self.assertEqual({row['source_order_id'] for row in store.active_positions()}, {'drift:catalyst:a'})
+
+    def test_a_production_copy_on_the_ticker_does_not_block_a_drift_entry(self):
+        self.fleet.mirror_entry(base.candidate(), base.execution())  # production's XYZ call, copied
+        self.candidate()
+        self.fleet.enter_drift()
+        self.gateways['drift_shares'].submit_stock_market_order.assert_called_once()
 
     def test_production_entries_are_not_copied_into_drift_accounts(self):
         self.fleet.mirror_entry(base.candidate(), base.execution())

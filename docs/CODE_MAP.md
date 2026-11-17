@@ -700,7 +700,7 @@ account's keys, so a variant needs a new follower name, not new credentials.
 Own exits ignore production's close: `hold_window` (`FOLLOWER_HOLD_DAYS`, no stop, like the research strategy) and `hold_to_expiry` (expiry guard
 only). `ACCOUNT_<NAME>_ENTRY=shares_drift` (needs an own exit) makes a follower enter on the `shares_drift` rule
 (`research_contract.shares_drift_decision`) instead of copying production: `FollowerFleet.enter_drift`, run from the dedicated
-option-manager loop while the market is open, enters each new candidate's catalyst once (`source_order_id='drift:<catalyst_id>'`,
+option-manager loop while the market is open, enters each new candidate's catalyst once, holding at most one drift position per ticker (`source_order_id='drift:<catalyst_id>'`,
 `entry_kind='shares_drift'`, sized by `FOLLOWER_DRIFT_BUDGET`). Without production's contract, `itm_single` and `debit_spread`
 pick their own strikes at the first expiry `FOLLOWER_OPTION_MIN_DTE` days out.
 Positions are stored by `Data/market_db_modules/account_positions.py` (schema in `account_positions_schema.sql`).

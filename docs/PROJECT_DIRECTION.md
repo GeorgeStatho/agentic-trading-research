@@ -181,6 +181,9 @@ Steps 1–3 are built. Step 4 waits for data.
   - With an assumed 2 h label lag before the labeler existed: 316 trades on 124 days, residual +0.13% (50% hit).
   - So the wider feed shows no edge either. The live candidate feed's NMM and SFL trades are excluded as
     stale publications.
+  - Taken into the rule from this backtest, for research and live alike: news published 24 h or more before
+    first sight is never fresh (`publication_lag_hours`). The live followers also hold at most one drift
+    position per ticker.
 
 ## Verification, when the steps are implemented
 

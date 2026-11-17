@@ -87,9 +87,15 @@ class ShadowTests(unittest.TestCase):
 
 
 class SharesDriftDecisionTests(unittest.TestCase):
-    def decide(self, family='earnings_positive', way='positive', age=2.0, **extra):
-        features = {'catalyst_family': family, 'catalyst_direction': way, 'catalyst_age_hours': age, **extra}
+    def decide(self, family='earnings_positive', way='positive', age=2.0, lag=1.0, **extra):
+        features = {'catalyst_family': family, 'catalyst_direction': way, 'catalyst_age_hours': age,
+                    'publication_lag_hours': lag, **extra}
         return strategy_decisions(features, POLICY)['shares_drift']
+
+    def test_news_published_a_day_or_more_before_first_sight_is_never_fresh(self):
+        self.assertEqual([self.decide(lag=23.9), self.decide(lag=24), self.decide(lag=9 * 24), self.decide(lag=None)],
+                         ['call', 'skip', 'skip', None])
+        self.assertEqual(self.decide('product_commercial', lag=None), 'skip')
 
     def test_fresh_earnings_and_analyst_catalysts_trade_their_own_direction(self):
         self.assertEqual([self.decide(), self.decide('earnings_negative', 'negative'), self.decide('analyst', 'negative')],
@@ -249,9 +255,10 @@ class ResearchDatabaseTests(unittest.TestCase):
             return json.loads(conn.execute("SELECT result_json FROM research_shadow_positions WHERE strategy='shares_drift'")
                               .fetchone()[0])
 
-    def fresh(self, direction='positive', family='earnings_positive', hours=2):
-        seen = (utc(ENTRY) - timedelta(hours=hours)).isoformat()
-        return {'catalyst_family': family, 'direction': direction, 'first_seen_time': seen}
+    def fresh(self, direction='positive', family='earnings_positive', hours=2, published_hours_before=1):
+        seen = utc(ENTRY) - timedelta(hours=hours)
+        return {'catalyst_family': family, 'direction': direction, 'first_seen_time': seen.isoformat(),
+                'first_public_time': (seen - timedelta(hours=published_hours_before)).isoformat()}
 
     def test_shares_drift_holds_the_stock_from_the_first_close_after_the_cutoff(self):
         run_id = self.run_fixture()
@@ -338,15 +345,17 @@ class ResearchDatabaseTests(unittest.TestCase):
         self.assertAlmostEqual(result['hypothetical_pnl'], 1000 * (.05 - 2 * POLICY.benchmark_cost_bps / 10000))
 
     def test_shares_drift_is_pending_before_the_holding_window_ends_and_cash_when_stale(self):
-        run_id = self.run_fixture(n=2)
+        run_id = self.run_fixture(n=3)
         self.candidate(catalyst=self.fresh())
         self.stock_bars('NVDA', {'2026-09-02': 100})
         self.assertEqual(self.shares_drift(run_id, as_of='2026-09-05T20:00:00+00:00')['status'], 'pending')
         self.candidate(n=1, catalyst=self.fresh(hours=24))
+        self.candidate(n=2, catalyst=self.fresh(published_hours_before=9 * 24))  # seen soon, published 9 days earlier
         collect_run(run_id, as_of=END, db_path=self.db)
         with closing(get_connection(self.db)) as conn:
             statuses = dict(conn.execute("SELECT candidate_id, status FROM research_shadow_positions WHERE strategy='shares_drift'"))
-        self.assertEqual(statuses, {'candidate-000': 'missing_stock_prices', 'candidate-001': 'cash'})
+        self.assertEqual(statuses, {'candidate-000': 'missing_stock_prices', 'candidate-001': 'cash',
+                                    'candidate-002': 'cash'})
 
     def test_a_first_seen_time_after_the_cutoff_cannot_enter_the_features(self):
         from services.research.research_inputs import load_inputs
