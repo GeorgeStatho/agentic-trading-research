@@ -31,21 +31,25 @@ api + dashboard  React dashboard over a Flask API and SQLite
 [STRATEGY.md](STRATEGY.md) walks through the strategy in plain language, and
 [docs/SYSTEM_DIAGRAM.md](docs/SYSTEM_DIAGRAM.md) draws each part of the system from the code.
 
-## What's worth a look
+## Design decisions
 
-- **Grounded decisions.** Model outputs must cite the stored articles and evidence they rely on, and the
-  citations are checked in code before anything trades.
-- **Frozen payloads and replay.** The exact input each stage decided on is saved at decision time, so past
-  decisions can be replayed against new prompts or models in LLM backtests.
-- **Shadow gates with promotion proofs.** New entry rules start by only recording what they *would* have
-  blocked. A rule is enforced only after a pre-registered proof shows it helps on real outcomes.
-- **Measurement built in.** Decision autopsies, expectancy by cohort, decision attribution, news lag, and
-  follower paper accounts that mirror production into other strategies (spreads, in-the-money, longer
-  expiry, shares).
-- **Evidence-first research.** SEC filings, issuer releases and analyst consensus are collected into dated
-  evidence packages. A discovery and research pipeline runs in shadow and never places orders.
-- **Evidence Exposure Map and Demo Mode.** An interactive map from a news article to the sector, industry,
-  company and current option exposure it touches, with a seeded demo that needs no credentials.
+**Models pick the direction, code picks the trade.** Language models are good at reading news and weak at
+arithmetic and consistency. So the strategist and manager only decide whether to trade and which way. The
+strike, size, risk limits and exits are deterministic: the same inputs always produce the same order.
+
+**Every claim has to cite its evidence.** The strategist must back each part of its thesis with the stored
+articles, filings or analyst figures it was given, and an answer citing anything outside that package is
+rejected. The evidence is dated and kept with the decision, so you can see what the system knew at the time.
+
+**A new rule has to earn its place.** Every entry gate starts in shadow mode, recording what it would have
+blocked without blocking it. It is enforced only after a test fixed in advance shows it helps on real
+outcomes over at least 100 cases. The proof is tied to the rule's exact settings and code, so changing a
+promoted rule sends it back to shadow.
+
+**Every decision can be replayed and compared.** Each stage's exact input is frozen when it decides, so a
+new prompt or model can be tested on the decisions the system actually faced rather than a reconstructed
+history. Follower paper accounts take the same ideas as spreads, in-the-money options, longer expiries or
+shares, which shows whether a loss came from the idea or from how it was traded.
 
 ## Quick start
 
