@@ -164,6 +164,9 @@ services:
       context: ./web_dashboard
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      # nginx fills ${DASHBOARD_DOMAIN} into its config templates at start.
+      DASHBOARD_DOMAIN: ${DASHBOARD_DOMAIN:-localhost}
     ports:
       - "80:80"
       - "443:443"

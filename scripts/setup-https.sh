@@ -4,7 +4,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-DOMAIN="${1:-dashboard.example.com}"
+DOMAIN="${1:-${DASHBOARD_DOMAIN:-}}"
+if [ -z "$DOMAIN" ]; then
+  echo "Usage: $0 <domain> [email], or set DASHBOARD_DOMAIN." >&2
+  exit 1
+fi
+# Compose passes this to the web container, which fills it into the nginx templates.
+export DASHBOARD_DOMAIN="$DOMAIN"
 EMAIL="${2:-}"
 
 echo "Setting up HTTPS for: $DOMAIN"

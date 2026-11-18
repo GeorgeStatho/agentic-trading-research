@@ -249,11 +249,12 @@ docker compose --profile ollama up --build
 
 ### 3. First-time HTTPS setup for a public server
 
-If you are deploying the dashboard publicly at `dashboard.example.com`, do the one-time certificate bootstrap first.
+If you are deploying the dashboard publicly, set `DASHBOARD_DOMAIN` in `.env` to its hostname (for example
+`dashboard.example.com`; nginx fills it into its config at start), then do the one-time certificate bootstrap.
 
 Prerequisites:
 
-- create an A record for `dashboard.example.com` pointing at your server IP
+- create an A record for your domain pointing at your server IP
 - make sure ports `80` and `443` are open on the server
 - make sure Docker and Docker Compose are available on the host
 
@@ -261,7 +262,7 @@ The repo already includes:
 
 - [docker-compose.bootstrap.yml](docker-compose.bootstrap.yml): temporary bootstrap override that mounts the HTTP-only ACME Nginx config
 - [web_dashboard/nginx.bootstrap.conf](web_dashboard/nginx.bootstrap.conf): HTTP-only config used before the certificate exists
-- [web_dashboard/nginx.conf](web_dashboard/nginx.conf): final HTTPS config for `dashboard.example.com`
+- [web_dashboard/nginx.conf](web_dashboard/nginx.conf): final HTTPS config for `DASHBOARD_DOMAIN`
 - [scripts/setup-https.sh](scripts/setup-https.sh): helper script that runs the bootstrap flow
 
 Run:
@@ -280,7 +281,7 @@ What the script does:
 
 1. creates `certbot/conf` and `certbot/www`
 2. starts the temporary web container with the bootstrap Nginx config
-3. requests the Let's Encrypt certificate for `dashboard.example.com`
+3. requests the Let's Encrypt certificate for the domain
 4. restarts the web container with the production HTTPS Nginx config
 5. starts the full stack, including automatic certificate renewal via the `certbot` service
 
@@ -457,7 +458,7 @@ Count unique installs by unique `install_id` values on your telemetry receiver. 
 - [Data/market_schema.sql](Data/market_schema.sql): market-side SQLite schema, including the executed-trade journal table
 - [Data/market_db_modules/](Data/market_db_modules): market-side DB writes and executed-trade query helpers
 - [docker-compose.bootstrap.yml](docker-compose.bootstrap.yml): temporary Compose override used for first-time Let's Encrypt bootstrap
-- [scripts/setup-https.sh](scripts/setup-https.sh): one-command first-time HTTPS setup helper for `dashboard.example.com`
+- [scripts/setup-https.sh](scripts/setup-https.sh): one-command first-time HTTPS setup helper
 - [Python Scripts/news_collector_main.py](Python%20Scripts/news_collector_main.py): scrape/classification refresh loop
 - [Python Scripts/agentCallers/decision_pipeline.py](Python%20Scripts/agentCallers/decision_pipeline.py): agent-stack orchestration
 - [Python Scripts/agentCallers/agent_stages/strategist_runner.py](Python%20Scripts/agentCallers/agent_stages/strategist_runner.py): buy/do-not-buy stage
@@ -529,8 +530,7 @@ review without broker, market-data, or model credentials, use **Demo Mode** in
 the dashboard or open `#/exposure-map?demo=1`. Demo Mode uses seeded fictional
 data and does not place orders.
 
-The public deployment, when available, is
-`https://dashboard.example.com/#/exposure-map?demo=1`.
+On a deployment it is at `https://<DASHBOARD_DOMAIN>/#/decisions/map?demo=1`.
 
 ### Model providers and GPT-5.6 Terra
 

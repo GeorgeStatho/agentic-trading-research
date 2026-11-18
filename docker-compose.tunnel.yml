@@ -5,7 +5,7 @@ services:
   web:
     # Cloudflare terminates TLS, so nginx serves plain HTTP inside the Docker network.
     volumes: !override
-      - ./web_dashboard/nginx.bootstrap.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web_dashboard/nginx.bootstrap.conf:/etc/nginx/templates/default.conf.template:ro
     ports: !reset []
 
   cloudflared:
