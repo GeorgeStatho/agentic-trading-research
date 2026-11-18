@@ -18,7 +18,7 @@ W=$PWD
 export PYTHONPATH="$W:$W/Data:$W/Python Scripts:$W/Python Scripts/Webscraping:$W/Python Scripts/agentCallers"
 mkdir -p .verify && echo ".verify/" >> "$(git rev-parse --git-path info/exclude)"
 # The snapshot is about 6 GB and takes about 13 min. /tmp is RAM-backed and too small, so write it inside the worktree.
-python3 -c "import sqlite3; sqlite3.connect('file:~/stock-restore/db-dev/stock_experiment.db?mode=ro', uri=True).execute(\"VACUUM INTO '.verify/snapshot.db'\")"
+python3 -c "import os, sqlite3; sqlite3.connect('file:' + os.path.expanduser('~/stock-restore/db-dev/stock_experiment.db') + '?mode=ro', uri=True).execute(\"VACUUM INTO '.verify/snapshot.db'\")"
 ```
 The snapshot has production's schema. Commands that run `initialize_database` migrate the copy, not live.
 
