@@ -1,5 +1,5 @@
 # Serve the dashboard through a Cloudflare Tunnel instead of public ports.
-# Protect the hostname with a Cloudflare Access policy: this config has no Basic Auth on writes.
+# The dashboard is read-only: nginx refuses every API write except the telemetry ping.
 # docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d
 services:
   web:

@@ -81,7 +81,7 @@ Optional overlays add services on top of `docker-compose.yml` (pass each with an
 
 - [docker-compose.backup.yml](docker-compose.backup.yml): `litestream` streams every database change for point-in-time recovery, and `db_backup` replaces one full copy each night. See [docs/BACKUPS.md](docs/BACKUPS.md).
 - [docker-compose.observability.yml](docker-compose.observability.yml): Dozzle (live container logs, `127.0.0.1:8081`) and Uptime Kuma (uptime alerts, `127.0.0.1:3001`). Both bind to localhost only, so reach them through an SSH tunnel. Point an Uptime Kuma HTTP monitor at `http://api:5000/api/health/components`, which returns 503 when a loop is down, stalled or failed in the last hour.
-- [docker-compose.tunnel.yml](docker-compose.tunnel.yml): serves the dashboard through a Cloudflare Tunnel instead of public ports 80/443. It needs `CLOUDFLARE_TUNNEL_TOKEN` in `.env`. This overlay has no Basic Auth on writes, so protect the hostname with a Cloudflare Access policy.
+- [docker-compose.tunnel.yml](docker-compose.tunnel.yml): serves the dashboard through a Cloudflare Tunnel instead of public ports 80/443. It needs `CLOUDFLARE_TUNNEL_TOKEN` in `.env`. The dashboard is read-only (see [Dashboard](#dashboard)), so the hostname can be public.
 
 ## What The Project Does Today
 
@@ -118,6 +118,21 @@ The dashboard lives in [web_dashboard](web_dashboard). It's React + Tailwind v4 
 | System | loop health, risk settings, news extraction |
 
 The status line under the top bar shows each loop's state (`running`, `paused`, `error`, `down`). Demo Mode is a static, read-only walkthrough at `#/decisions/map?demo=1`; older paths such as `#/exposure-map?demo=1` still redirect. [web_dashboard/README.md](web_dashboard/README.md) maps the files.
+
+The dashboard is **read-only**. nginx answers every write under `/api/` with 403, except the startup
+telemetry ping (`POST /api/telemetry/startup`, limited to a burst of 8 and then one a minute per visitor).
+Behind the tunnel, nginx takes each visitor's address from Cloudflare's `CF-Connecting-IP` header. The API's
+write routes still exist for the machine's owner, who reaches them from inside Docker rather than through nginx:
+
+```bash
+# Backtests and EOD quote fetches have CLIs (run where the project is installed):
+python "Python Scripts/agentCallers/backtest.py" --limit 250
+python "Python Scripts/agentCallers/fetch_marketdata_eod_option_quotes.py" --limit 100
+# Any other write, such as an exposure-map run, goes straight to the api container:
+docker compose exec api python -c "import json, urllib.request as u; print(u.urlopen(u.Request(\
+  'http://127.0.0.1:5000/api/exposure-map/runs', data=json.dumps({'article_id': 123}).encode(),\
+  headers={'Content-Type': 'application/json'})).read().decode())"
+```
 
 ## Model Providers
 

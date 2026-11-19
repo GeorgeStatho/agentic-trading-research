@@ -39,7 +39,7 @@ flowchart LR
     end
 
     subgraph compose["docker compose"]
-        nginx["web<br/>nginx + built React app<br/>:80 / :443, basic auth"]
+        nginx["web<br/>nginx + built React app<br/>:80 / :443, read-only API"]
         certbot["certbot<br/>renews TLS every 12h"]
         api["api<br/>api.py (Flask :5000)"]
         worker["worker<br/>Python Scripts/main.py"]
