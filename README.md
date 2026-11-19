@@ -119,6 +119,9 @@ The dashboard lives in [web_dashboard](web_dashboard). It's React + Tailwind v4 
 
 The status line under the top bar shows each loop's state (`running`, `paused`, `error`, `down`). Demo Mode is a static, read-only walkthrough at `#/decisions/map?demo=1`; older paths such as `#/exposure-map?demo=1` still redirect. [web_dashboard/README.md](web_dashboard/README.md) maps the files.
 
+A daily public snapshot of the dashboard is at <https://georgestatho.github.io/public-agentic-trading-dashboard/>,
+published by [public-agentic-trading-dashboard](https://github.com/GeorgeStatho/public-agentic-trading-dashboard).
+
 The dashboard is **read-only**. nginx answers every write under `/api/` with 403, except the startup
 telemetry ping (`POST /api/telemetry/startup`, limited to a burst of 8 and then one a minute per visitor).
 Behind the tunnel, nginx takes each visitor's address from Cloudflare's `CF-Connecting-IP` header. The API's
