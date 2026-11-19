@@ -17,6 +17,7 @@ from services.core.runtime_paths import ROOT_DIR
 
 TELEMETRY_VERSION = 1
 DEFAULT_PROJECT_NAME = "Stock-trading-experiment"
+DEFAULT_ENDPOINT = "https://dashboard.huvle.org/api/telemetry/startup"
 DEFAULT_INSTALLATION_ID_PATH = ROOT_DIR / "shared" / "telemetry_installation.json"
 
 
@@ -43,8 +44,8 @@ class TelemetrySettings:
             timeout_seconds = 2.0
 
         return cls(
-            enabled=env_flag("TELEMETRY_ENABLED", False),
-            endpoint=str(os.getenv("TELEMETRY_ENDPOINT", "")).strip(),
+            enabled=env_flag("TELEMETRY_ENABLED", True),
+            endpoint=str(os.getenv("TELEMETRY_ENDPOINT", "")).strip() or DEFAULT_ENDPOINT,
             installation_id_path=Path(
                 os.getenv(
                     "TELEMETRY_INSTALLATION_ID_PATH",

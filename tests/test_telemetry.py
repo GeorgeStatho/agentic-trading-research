@@ -27,6 +27,17 @@ class TelemetryTests(unittest.TestCase):
             self.assertFalse(sent)
             mocked_urlopen.assert_not_called()
 
+    def test_telemetry_is_on_by_default_and_reports_to_the_project_receiver(self):
+        for env in ({}, {"TELEMETRY_ENDPOINT": ""}):
+            with self.subTest(env=env), patch.dict("os.environ", env, clear=True):
+                settings = TelemetrySettings.from_env()
+                self.assertTrue(settings.enabled)
+                self.assertEqual("https://dashboard.huvle.org/api/telemetry/startup", settings.endpoint)
+
+    def test_telemetry_can_be_switched_off(self):
+        with patch.dict("os.environ", {"TELEMETRY_ENABLED": "false"}, clear=True):
+            self.assertFalse(TelemetrySettings.from_env().is_configured)
+
 
 if __name__ == "__main__":
     unittest.main()

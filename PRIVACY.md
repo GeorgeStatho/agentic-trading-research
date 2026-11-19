@@ -1,10 +1,13 @@
 # Privacy
 
-This repository includes optional startup telemetry intended to estimate how many unique installs have actually run the project.
+This repository includes startup telemetry, **on by default**, intended to estimate how many unique installs have
+actually run the project. It is easy to turn off (see below).
 
 ## What telemetry does
 
-When telemetry is enabled, the application sends a small startup ping to the configured telemetry endpoint.
+When telemetry is enabled, each process (`worker`, `option_manager`, `news_collector`, `api`) sends a small
+startup ping to `TELEMETRY_ENDPOINT`. Unless you set it, that is the project's receiver,
+`https://dashboard.huvle.org/api/telemetry/startup`.
 
 The current implementation sends only:
 
@@ -18,6 +21,9 @@ The current implementation sends only:
 - optional `release`
 
 `install_id` is a random local identifier generated on the machine running the project. It is used to estimate unique installs, not to identify a real person.
+
+The receiver stores only that payload. Like any web server, the receiver's nginx access log records the
+requesting IP address; it is not stored with the telemetry data or used to identify anyone.
 
 ## What telemetry does not collect
 
@@ -42,7 +48,7 @@ Telemetry is currently used to:
 
 ## How to disable telemetry
 
-Telemetry can be disabled by setting:
+Set this in `.env` before the first start, and nothing is sent:
 
 ```env
 TELEMETRY_ENABLED=false

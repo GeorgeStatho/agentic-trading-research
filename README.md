@@ -405,13 +405,14 @@ During Docker runs, the main shared runtime paths are:
 - `/shared/trade_execution_output.json`
 - `/shared/option_position_management_output.json`
 
-## Optional Startup Telemetry
+## Startup Telemetry
 
-The project now includes an optional, privacy-respecting startup ping system for counting unique installs that actually ran.
+The project includes a privacy-respecting startup ping for counting unique installs that actually ran.
 
 Privacy details for the current telemetry behavior live in [PRIVACY.md](PRIVACY.md).
 
-- telemetry is enabled by default
+- telemetry is on by default and reports to `https://dashboard.huvle.org/api/telemetry/startup`; set
+  `TELEMETRY_ENABLED=false` in `.env` to turn it off, or `TELEMETRY_ENDPOINT` to send it to your own receiver
 - when enabled, each install generates a random local `install_id` and stores it in `TELEMETRY_INSTALLATION_ID_PATH`
 - on startup, the `worker`, `option_manager`, `news_collector`, and `api` processes send a small JSON POST to `TELEMETRY_ENDPOINT`
 - this repo now includes a tiny receiver endpoint at `POST /api/telemetry/startup` and a summary endpoint at `GET /api/telemetry/summary`
@@ -429,8 +430,8 @@ Privacy details for the current telemetry behavior live in [PRIVACY.md](PRIVACY.
 
 Suggested env vars:
 
-- `TELEMETRY_ENABLED=true`
-- `TELEMETRY_ENDPOINT=https://your-telemetry-endpoint.example.com/api/telemetry/startup`
+- `TELEMETRY_ENABLED=false` (to opt out)
+- `TELEMETRY_ENDPOINT=https://dashboard.example.com/api/telemetry/startup` (your own receiver)
 - `TELEMETRY_AUTH_TOKEN=...`
 - `TELEMETRY_INSTALLATION_ID_PATH=/shared/telemetry_installation.json`
 - `TELEMETRY_TIMEOUT_SECONDS=2.0`
