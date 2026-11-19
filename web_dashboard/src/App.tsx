@@ -10,6 +10,8 @@ import {
 } from './routes.tsx'
 import type { Location } from './routes.tsx'
 import { heartbeatMissing, loadScriptStatus } from './shellStatus.ts'
+import { snapshotMode } from './snapshot.ts'
+import { SnapshotBanner } from './snapshotBanner.tsx'
 import { StatusBar } from './statusBar.tsx'
 import { Tag } from './ui/Tag.tsx'
 import { usePolledResource } from './useRemoteResource.ts'
@@ -74,11 +76,13 @@ function App() {
         </div>
       </header>
 
-      <StatusBar
-        components={kpis.payload ? kpis.payload.bot_status.components ?? [] : null}
-        lastRunAt={script.payload?.status.updated_at ?? null}
-        workerSilent={heartbeatMissing(script.payload?.status ?? null, Boolean(script.error), script.payload?.checkedAt ?? 0)}
-      />
+      {snapshotMode() ? <SnapshotBanner /> : (
+        <StatusBar
+          components={kpis.payload ? kpis.payload.bot_status.components ?? [] : null}
+          lastRunAt={script.payload?.status.updated_at ?? null}
+          workerSilent={heartbeatMissing(script.payload?.status ?? null, Boolean(script.error), script.payload?.checkedAt ?? 0)}
+        />
+      )}
 
       {route.tabs.length > 1 ? (
         <div className="border-b border-base-300">

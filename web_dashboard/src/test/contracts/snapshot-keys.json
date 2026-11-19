@@ -1,0 +1,10 @@
+{
+  "/api/dashboard-kpis": "dashboard-kpis",
+  "/api/dashboard-kpis?ts=1763500000000": "dashboard-kpis",
+  "/api/backtests/140": "backtests_140",
+  "/api/backtests?limit=100": "backtests_limit_100",
+  "/api/decision-attribution?horizon=5&days=90": "decision-attribution_days_90_horizon_5",
+  "/api/decision-attribution?days=90&horizon=5&ts=1": "decision-attribution_days_90_horizon_5",
+  "/api/opportunist-company-news?page=1&page_size=5&view=company": "opportunist-company-news_page_1_page_size_5_view_company",
+  "/api/opportunist-company-news?company=Alphabet+Inc&page=1": "opportunist-company-news_company_Alphabet_Inc_page_1"
+}

@@ -72,6 +72,14 @@ The repo-level [README](../README.md#api-endpoints) lists every API route.
 
 In Docker, nginx proxies `/api/*` to the internal Flask service for reads only; the dashboard sends no writes.
 
+## Snapshot Mode
+
+`VITE_SNAPSHOT=1 npx vite build --base=./` builds a static copy for GitHub Pages: [src/snapshot.ts](src/snapshot.ts)
+answers every `/api/...` read from `data/<key>.json` beside the build, a view with no saved file answers 404, the
+live status line is replaced by a "Daily snapshot taken …" banner, and CSV downloads are hidden. The key rule is
+pinned by [src/test/contracts/snapshot-keys.json](src/test/contracts/snapshot-keys.json); whatever saves the files
+must name them the same way.
+
 ## Local Development
 
 Install dependencies:
