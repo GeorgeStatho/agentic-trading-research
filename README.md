@@ -434,6 +434,9 @@ Privacy details for the current telemetry behavior live in [PRIVACY.md](PRIVACY.
 - this repo now includes a tiny receiver endpoint at `POST /api/telemetry/startup` and a summary endpoint at `GET /api/telemetry/summary`
 - the receiver stores one SQLite row per unique `install_id` and increments `startup_ping_count` on repeat startups
 - startup pings can be left public, while the summary endpoint can be protected with a separate read token
+- one network can add at most `TELEMETRY_RECEIVER_NEW_INSTALLS_PER_NETWORK_PER_DAY` (default 3) new install IDs a
+  day; later new IDs get 429, and installs already known are never capped. The address is kept only as an HMAC under
+  a random salt for that day, and both are deleted once the day is over
 - the payload only includes:
   - `event`
   - `telemetry_version`

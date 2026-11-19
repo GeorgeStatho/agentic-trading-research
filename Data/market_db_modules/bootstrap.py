@@ -238,6 +238,7 @@ def _setup_steps() -> tuple:
         _ensure_llm_usage_stage,
         _ensure_pick_score_columns,
         _schema_file("backtest_bars_schema.sql"),
+        _schema_file("telemetry_guard_schema.sql"),
     )
 
 

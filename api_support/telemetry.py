@@ -5,6 +5,7 @@ import os
 from typing import Any
 
 from market_db_modules.telemetry import get_telemetry_summary, record_telemetry_installation
+from services.core.env_parsing import env_positive_int
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 
 
@@ -47,9 +48,13 @@ def validate_startup_ping_payload(payload: Any) -> str | None:
     return None
 
 
-def record_startup_ping(payload: dict[str, Any]) -> dict[str, Any]:
+def record_startup_ping(payload: dict[str, Any], client_ip: str | None = None) -> dict[str, Any]:
     initialize_market_database()
-    record = record_telemetry_installation(payload)
+    record = record_telemetry_installation(
+        payload,
+        client_ip=client_ip,
+        new_installs_per_network=env_positive_int("TELEMETRY_RECEIVER_NEW_INSTALLS_PER_NETWORK_PER_DAY", 3),
+    )
     if record is None:
         raise ValueError("Telemetry payload could not be recorded.")
     return {

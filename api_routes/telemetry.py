@@ -10,6 +10,7 @@ from api_support.telemetry import (
     record_startup_ping,
     validate_startup_ping_payload,
 )
+from market_db_modules.telemetry import TelemetryNetworkCapReached
 
 
 def register_telemetry_routes(app) -> None:
@@ -23,8 +24,12 @@ def register_telemetry_routes(app) -> None:
         if validation_error is not None:
             return jsonify({"error": validation_error}), 400
 
+        # nginx sets X-Real-IP itself (to the visitor, behind the tunnel); the api port is not published.
+        client_ip = request.headers.get("X-Real-IP") or request.remote_addr
         try:
-            return jsonify(record_startup_ping(payload)), 200
+            return jsonify(record_startup_ping(payload, client_ip)), 200
+        except TelemetryNetworkCapReached as exc:
+            return jsonify({"error": str(exc)}), 429
         except Exception as exc:
             return internal_error("Failed to record startup telemetry.", exc)
 

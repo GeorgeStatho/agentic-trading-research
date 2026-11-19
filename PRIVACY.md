@@ -59,6 +59,10 @@ TELEMETRY_ENABLED=false
 If you run the telemetry receiver on your own VM or server:
 
 - startup write access can be left public so clones can report in
+- to stop one machine inventing installs, the receiver lets each network add only a few new install IDs a day
+  (`TELEMETRY_RECEIVER_NEW_INSTALLS_PER_NETWORK_PER_DAY`, default 3). For that it keeps an HMAC of the
+  requesting address under a random salt for the current day, never the address itself. The salt and the counts
+  are deleted once the day is over, so a past day can't be linked back to an address
 - the telemetry summary endpoint can be protected with a private bearer token
 
 See [.env.example](.env.example) and [README.md](README.md) for the current environment variables and setup notes.

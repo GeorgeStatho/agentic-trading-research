@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from contextlib import closing
+import hashlib
+import hmac
+import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -11,9 +14,37 @@ from .bootstrap import initialize_database
 from .shared import coerce_int, normalize_timestamp
 
 
+class TelemetryNetworkCapReached(Exception):
+    """The network already added its allowance of new install IDs today."""
+
+
+def _admit_new_install(conn: sqlite3.Connection, client_ip: str, now: datetime, limit: int) -> None:
+    day = now.astimezone(timezone.utc).date().isoformat()
+    conn.execute("DELETE FROM telemetry_daily_salts WHERE day < ?", (day,))
+    conn.execute("DELETE FROM telemetry_network_days WHERE day < ?", (day,))
+    conn.execute("INSERT OR IGNORE INTO telemetry_daily_salts (day, salt) VALUES (?, ?)", (day, secrets.token_hex(16)))
+    salt = conn.execute("SELECT salt FROM telemetry_daily_salts WHERE day = ?", (day,)).fetchone()["salt"]
+    network = hmac.new(salt.encode(), client_ip.encode(), hashlib.sha256).hexdigest()
+    row = conn.execute(
+        "SELECT new_install_count FROM telemetry_network_days WHERE day = ? AND network_hash = ?", (day, network)
+    ).fetchone()
+    if row is not None and row["new_install_count"] >= limit:
+        raise TelemetryNetworkCapReached(f"This network already added {limit} new installs today.")
+    conn.execute(
+        """
+        INSERT INTO telemetry_network_days (day, network_hash, new_install_count) VALUES (?, ?, 1)
+        ON CONFLICT(day, network_hash) DO UPDATE SET new_install_count = new_install_count + 1
+        """,
+        (day, network),
+    )
+
+
 def record_telemetry_installation(
     payload: dict[str, Any],
     *,
+    client_ip: str | None = None,
+    now: datetime | None = None,
+    new_installs_per_network: int = 3,
     db_path: Path | str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any] | None:
@@ -27,7 +58,14 @@ def record_telemetry_installation(
     if conn is None:
         initialize_database(db_path=db_path)
         with closing(get_connection(db_path)) as local_conn, local_conn:
-            return record_telemetry_installation(payload, db_path=db_path, conn=local_conn)
+            return record_telemetry_installation(
+                payload, client_ip=client_ip, now=now, new_installs_per_network=new_installs_per_network,
+                db_path=db_path, conn=local_conn,
+            )
+
+    known = conn.execute("SELECT 1 FROM telemetry_installations WHERE install_id = ?", (install_id,)).fetchone()
+    if client_ip and known is None:
+        _admit_new_install(conn, client_ip, now or datetime.now(timezone.utc), new_installs_per_network)
 
     project = clean_text(payload.get("project"))
     runtime = clean_text(payload.get("runtime"))

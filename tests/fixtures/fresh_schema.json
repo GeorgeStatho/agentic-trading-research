@@ -1555,9 +1555,21 @@
  ],
  [
   "table",
+  "telemetry_daily_salts",
+  "telemetry_daily_salts",
+  "CREATE TABLE telemetry_daily_salts (\n    day TEXT PRIMARY KEY,\n    salt TEXT NOT NULL\n)"
+ ],
+ [
+  "table",
   "telemetry_installations",
   "telemetry_installations",
   "CREATE TABLE telemetry_installations (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    install_id TEXT NOT NULL UNIQUE,\n    project TEXT,\n    telemetry_version INTEGER,\n    install_created_at TEXT,\n    first_runtime TEXT,\n    last_runtime TEXT,\n    first_release TEXT,\n    last_release TEXT,\n    first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    last_started_at TEXT,\n    startup_ping_count INTEGER NOT NULL DEFAULT 1,\n    raw_json TEXT\n)"
+ ],
+ [
+  "table",
+  "telemetry_network_days",
+  "telemetry_network_days",
+  "CREATE TABLE telemetry_network_days (\n    day TEXT NOT NULL,\n    network_hash TEXT NOT NULL,\n    new_install_count INTEGER NOT NULL DEFAULT 0,\n    PRIMARY KEY (day, network_hash)\n)"
  ],
  [
   "table",
