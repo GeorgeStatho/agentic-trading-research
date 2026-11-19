@@ -243,6 +243,23 @@ def _recorded_fills(row_ids: list[int]) -> dict[int, dict[str, Any]]:
     return {row["id"]: dict(row) for row in rows}
 
 
+ARTICLE_TEXT_KEYS = frozenset({"body", "raw_json"})
+
+
+def _without_article_text(raw_execution: Any) -> dict[str, Any] | None:
+    """The stored order record minus its cited articles' scraped text, which is the publishers' and never leaves."""
+    if not isinstance(raw_execution, dict):
+        return None
+    context = raw_execution.get("candidate_context")
+    if not isinstance(context, dict) or not isinstance(context.get("evidence"), list):
+        return raw_execution
+    evidence = [
+        {key: value for key, value in item.items() if key not in ARTICLE_TEXT_KEYS} if isinstance(item, dict) else item
+        for item in context["evidence"]
+    ]
+    return {**raw_execution, "candidate_context": {**context, "evidence": evidence}}
+
+
 def build_executed_trades_payload(
     *,
     underlying_symbol: str | None = None,
@@ -287,7 +304,7 @@ def build_executed_trades_payload(
                 "recorded_at": row["recorded_at"],
                 "fill_price": fill.get("fill_price"),
                 "filled_qty": fill.get("filled_qty"),
-                "execution": raw_execution if isinstance(raw_execution, dict) else None,
+                "execution": _without_article_text(raw_execution),
             }
         )
     _link_positions(trades)

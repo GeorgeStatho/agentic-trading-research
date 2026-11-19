@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from contextlib import closing
+import json
+import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,7 +10,7 @@ from pathlib import Path
 from db_common import get_connection
 from market_db_modules.bootstrap import initialize_database as initialize_market_database
 from news_db_modules.bootstrap import initialize_database as initialize_news_database
-from api_support.exposure_map import calculate_position_risk_score, validate_terra_response
+from api_support.exposure_map import build_exposure_map_payload, calculate_position_risk_score, validate_terra_response
 
 
 class ExposureMapTests(unittest.TestCase):
@@ -67,6 +69,20 @@ class ExposureMapTests(unittest.TestCase):
                 (article_id, sector_id),
             )
         return int(article_id)
+
+    def test_the_map_never_returns_the_article_text(self):
+        # The public snapshot republishes this payload; the scraped body is the publisher's copyrighted text.
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "exposure.db"
+            article_id = self._seed_article(db_path)
+            body = "Full publisher paragraph that must stay private."
+            with closing(get_connection(db_path)) as conn, conn:
+                conn.execute("INSERT INTO news_article_content (article_id, body) VALUES (?, ?)", (article_id, body))
+                payload = build_exposure_map_payload(article_id, conn=conn)
+
+        self.assertNotIn("body", payload["article"])
+        self.assertEqual("Export restrictions update", payload["article"]["title"])
+        self.assertNotIn(body, json.dumps(payload))
 
     def test_risk_score_uses_deterministic_inputs(self):
         score, inputs = calculate_position_risk_score(

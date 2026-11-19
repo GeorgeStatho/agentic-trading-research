@@ -881,6 +881,8 @@ def build_exposure_map_payload(article_id: int, *, run_id: int | None = None, co
         article = _load_article(active_conn, int(article_id))
         if article is None:
             raise LookupError("Article not found.")
+        # The body is the publisher's text, needed only for the model prompt; never send it to a browser.
+        article = {key: value for key, value in article.items() if key != "body"}
         if run_id is None:
             run = active_conn.execute(
                 "SELECT * FROM news_exposure_runs WHERE article_id = ? AND status = 'completed' ORDER BY id DESC LIMIT 1",

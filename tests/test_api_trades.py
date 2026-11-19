@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -53,6 +55,24 @@ class ExecutedTradesPayloadTests(unittest.TestCase):
                 _record(db_path, *row)
             with use_database(db_path):
                 return {trade["order_id"]: trade for trade in build_executed_trades_payload()["trades"]}
+
+    def test_cited_articles_carry_no_publisher_text(self):
+        # The public snapshot republishes this payload; scraped bodies are the publishers' copyrighted text.
+        article = {"title": "Chip curbs widen", "source": "cnbc.com", "body": "PUBLISHER TEXT",
+                   "raw_json": '{"text": "PUBLISHER TEXT"}'}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "trades.sqlite3"
+            initialize_database(db_path=db_path)
+            _record(db_path, "o-1", "NVDA261218C00200000", "buy", "filled", 2, 4.1)
+            stored = {"order": {"id": "o-1"}, "candidate_context": {"candidate_id": "c-1", "evidence": [article]}}
+            with closing(sqlite3.connect(db_path)) as conn, conn:
+                conn.execute("UPDATE option_trade_executions SET raw_json = ? WHERE order_id = 'o-1'", (json.dumps(stored),))
+            with use_database(db_path):
+                trade = build_executed_trades_payload()["trades"][0]
+
+        self.assertEqual([{"title": "Chip curbs widen", "source": "cnbc.com"}], trade["execution"]["candidate_context"]["evidence"])
+        self.assertEqual("c-1", trade["execution"]["candidate_context"]["candidate_id"])
+        self.assertNotIn("PUBLISHER TEXT", json.dumps(trade))
 
     def test_each_order_carries_its_fill_price_and_filled_quantity(self):
         trades = self.payload([
