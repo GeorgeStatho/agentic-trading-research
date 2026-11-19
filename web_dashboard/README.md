@@ -80,7 +80,7 @@ live status line is replaced by a "Daily snapshot taken …" banner, and CSV dow
 pinned by [src/test/contracts/snapshot-keys.json](src/test/contracts/snapshot-keys.json); whatever saves the files
 must name them the same way. The daily public snapshot is built and published by
 [public-agentic-trading-dashboard](https://github.com/GeorgeStatho/public-agentic-trading-dashboard) (tooling on
-`main`, site on `gh-pages`): <https://georgestatho.github.io/public-agentic-trading-dashboard/>.
+`main`, site on `gh-pages`): <https://public-dashboard.huvle.org/>.
 
 ## Local Development
 
