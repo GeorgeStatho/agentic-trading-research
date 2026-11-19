@@ -10,7 +10,9 @@ describe('System › Health', () => {
   it('shows usage, the thesis validator and the research rankings that left Live', () => {
     render(<SystemHealthView payload={kpiPayload()} />)
 
-    expect(screen.getByRole('region', { name: /People using it/ }).textContent).toContain('2 installs')
+    const usage = screen.getByRole('region', { name: /People using it/ }).textContent
+    expect(usage).toContain('1 active install')
+    expect(usage).toContain('2 install IDs seen')
     expect(screen.getByRole('region', { name: /Thesis validator/ }).textContent).toContain('flip 12%')
     const rankings = screen.getByRole('region', { name: /Research rankings/ })
     expect(rankings.textContent).toContain('Technology')

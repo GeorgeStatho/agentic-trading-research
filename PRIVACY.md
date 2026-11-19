@@ -44,7 +44,8 @@ Telemetry is currently used to:
 
 - count unique installs that have run the project
 - count startup events over time
-- power dashboard usage statistics such as the "People Using It" KPI
+- power dashboard usage statistics such as the "People Using It" KPI, which counts *active* installs: install IDs the
+  receiver has seen on two different days, by its own clock, the last within 30 days
 
 ## How to disable telemetry
 

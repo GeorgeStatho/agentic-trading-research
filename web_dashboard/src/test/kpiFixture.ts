@@ -24,7 +24,7 @@ export function kpiPayload(overrides: Partial<DashboardKpiPayload> = {}): Dashbo
       profit_factor: 0,
       average_trade_return_pct: -24.24,
     },
-    usage_summary: { unique_install_count: 2, startup_ping_count: 32, last_seen_at: '2026-11-03T20:00:00' },
+    usage_summary: { active_install_count: 1, unique_install_count: 2, startup_ping_count: 32, last_seen_at: '2026-11-03T20:00:00' },
     bot_status: { state: 'healthy', label: 'Healthy', detail: '' },
     market_status: { state: 'closed', label: 'Closed', detail: '' },
     market_regime: { available: true, state: 'high_volatility' },

@@ -35,8 +35,8 @@ export function SystemHealthView({ payload }: { payload: DashboardKpiPayload }) 
   return (
     <div className="flex flex-wrap gap-3">
       <Panel title="People using it" className="flex-[1_1_300px]">
-        <p className="text-[15px] font-semibold">{formatNumber(usage.unique_install_count, { digits: 0 })} installs</p>
-        <p className="mt-1 text-ink-2">{formatNumber(usage.startup_ping_count, { digits: 0 })} startup pings across unique install IDs</p>
+        <p className="text-[15px] font-semibold">{formatNumber(usage.active_install_count, { digits: 0 })} active {usage.active_install_count === 1 ? 'install' : 'installs'}</p>
+        <p className="mt-1 text-ink-2">seen on two days in the last 30 · {formatNumber(usage.unique_install_count, { digits: 0 })} install IDs seen, {formatNumber(usage.startup_ping_count, { digits: 0 })} startup pings</p>
       </Panel>
       <Panel title="Thesis validator" className="flex-[1_1_300px]">
         <ThesisValidator validator={payload.thesis_validator} />

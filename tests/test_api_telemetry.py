@@ -4,10 +4,10 @@ import os
 import sqlite3
 import unittest
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-from market_db_modules.telemetry import TelemetryNetworkCapReached, record_telemetry_installation
+from market_db_modules.telemetry import TelemetryNetworkCapReached, get_telemetry_summary, record_telemetry_installation
 from tests.db_fixtures import temporary_database
 
 
@@ -126,6 +126,43 @@ class TelemetryNetworkDayTests(unittest.TestCase):
             self.assertEqual([("2026-11-19",)], conn.execute("SELECT day FROM telemetry_daily_salts").fetchall())
             self.assertEqual([("2026-11-19", 1)], conn.execute(
                 "SELECT day, new_install_count FROM telemetry_network_days").fetchall())
+
+
+
+class TelemetryActiveInstallTests(unittest.TestCase):
+    """An install counts as active once the server has seen it on two different days in the last 30."""
+
+    def setUp(self):
+        temporary_database(self)
+        self.now = datetime.now(timezone.utc)
+
+    def ping(self, install_id: str, *, days_ago: float, started_at: str | None = None) -> None:
+        payload = {"event": "startup", "runtime": "worker", "install_id": install_id, "project": "p"}
+        if started_at:
+            payload["started_at"] = started_at
+        record_telemetry_installation(payload, now=self.now - timedelta(days=days_ago))
+
+    def test_two_pings_on_one_day_are_not_active(self):
+        self.ping("same-day", days_ago=0)
+        self.ping("same-day", days_ago=0)
+        summary = get_telemetry_summary(project="p")
+        self.assertEqual((1, 0), (summary["unique_install_count"], summary["active_install_count"]))
+
+    def test_pings_on_two_days_are_active(self):
+        self.ping("two-days", days_ago=2)
+        self.ping("two-days", days_ago=0)
+        self.assertEqual(1, get_telemetry_summary(project="p")["active_install_count"])
+
+    def test_the_clients_own_start_time_cannot_make_it_active(self):
+        long_ago = (self.now - timedelta(days=10)).isoformat()
+        self.ping("faked", days_ago=0, started_at=long_ago)
+        self.ping("faked", days_ago=0)
+        self.assertEqual(0, get_telemetry_summary(project="p")["active_install_count"])
+
+    def test_an_install_last_seen_over_30_days_ago_is_not_active(self):
+        self.ping("gone", days_ago=60)
+        self.ping("gone", days_ago=40)
+        self.assertEqual(0, get_telemetry_summary(project="p")["active_install_count"])
 
 
 if __name__ == "__main__":

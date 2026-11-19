@@ -432,7 +432,9 @@ Privacy details for the current telemetry behavior live in [PRIVACY.md](PRIVACY.
 - when enabled, each install generates a random local `install_id` and stores it in `TELEMETRY_INSTALLATION_ID_PATH`
 - on startup, the `worker`, `option_manager`, `news_collector`, and `api` processes send a small JSON POST to `TELEMETRY_ENDPOINT`
 - this repo now includes a tiny receiver endpoint at `POST /api/telemetry/startup` and a summary endpoint at `GET /api/telemetry/summary`
-- the receiver stores one SQLite row per unique `install_id` and increments `startup_ping_count` on repeat startups
+- the receiver stores one SQLite row per unique `install_id` and increments `startup_ping_count` on repeat startups;
+  first and last seen times come from the receiver's clock, not the client's `started_at`
+- the System page headlines active installs: seen on two different days, the last within 30 days
 - startup pings can be left public, while the summary endpoint can be protected with a separate read token
 - one network can add at most `TELEMETRY_RECEIVER_NEW_INSTALLS_PER_NETWORK_PER_DAY` (default 3) new install IDs a
   day; later new IDs get 429, and installs already known are never capped. The address is kept only as an HMAC under

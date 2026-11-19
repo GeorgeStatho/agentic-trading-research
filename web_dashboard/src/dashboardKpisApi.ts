@@ -36,6 +36,8 @@ export type DashboardKpiPayload = {
     average_trade_return_pct: number | null;
   };
   usage_summary: {
+    /** Seen by the receiver on two different days, last within 30 days. */
+    active_install_count: number;
     unique_install_count: number;
     startup_ping_count: number;
     last_seen_at: string;

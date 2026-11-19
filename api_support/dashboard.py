@@ -93,12 +93,14 @@ def _build_usage_summary() -> dict:
         summary = get_telemetry_summary(project="Stock-trading-experiment")
     except Exception:
         return {
+            "active_install_count": 0,
             "unique_install_count": 0,
             "startup_ping_count": 0,
             "last_seen_at": "",
         }
 
     return {
+        "active_install_count": int(summary.get("active_install_count") or 0),
         "unique_install_count": int(summary.get("unique_install_count") or 0),
         "startup_ping_count": int(summary.get("startup_ping_count") or 0),
         "last_seen_at": str(summary.get("last_seen_at") or "").strip(),

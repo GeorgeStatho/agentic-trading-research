@@ -67,6 +67,7 @@
  "top_rankings.top_sectors[].top_industries[].score",
  "unrealized_pl",
  "usage_summary",
+ "usage_summary.active_install_count",
  "usage_summary.last_seen_at",
  "usage_summary.startup_ping_count",
  "usage_summary.unique_install_count",

@@ -63,9 +63,10 @@ def record_telemetry_installation(
                 db_path=db_path, conn=local_conn,
             )
 
+    now = now or datetime.now(timezone.utc)
     known = conn.execute("SELECT 1 FROM telemetry_installations WHERE install_id = ?", (install_id,)).fetchone()
     if client_ip and known is None:
-        _admit_new_install(conn, client_ip, now or datetime.now(timezone.utc), new_installs_per_network)
+        _admit_new_install(conn, client_ip, now, new_installs_per_network)
 
     project = clean_text(payload.get("project"))
     runtime = clean_text(payload.get("runtime"))
@@ -76,6 +77,8 @@ def record_telemetry_installation(
         else None
     )
     started_at = normalize_timestamp(payload.get("started_at"))
+    # Seen times come from this server's clock: the client's own start time can't make an install look older.
+    seen_at = normalize_timestamp(now)
     telemetry_version = coerce_int(payload.get("telemetry_version"))
 
     values = (
@@ -87,8 +90,8 @@ def record_telemetry_installation(
         runtime,
         release,
         release,
-        started_at,
-        started_at,
+        seen_at,
+        seen_at,
         started_at,
         1,
         json_text(payload),
@@ -151,12 +154,14 @@ def get_telemetry_summary(
             MAX(last_seen_at) AS last_seen_at,
             MAX(last_started_at) AS last_started_at,
             SUM(CASE WHEN first_seen_at >= ? THEN 1 ELSE 0 END) AS unique_installs_last_7d,
-            SUM(CASE WHEN first_seen_at >= ? THEN 1 ELSE 0 END) AS unique_installs_last_30d
+            SUM(CASE WHEN first_seen_at >= ? THEN 1 ELSE 0 END) AS unique_installs_last_30d,
+            SUM(CASE WHEN date(last_seen_at) > date(first_seen_at) AND last_seen_at >= ? THEN 1 ELSE 0 END)
+                AS active_install_count
         FROM telemetry_installations
     """
     cutoff_7d = normalize_timestamp(datetime.now(timezone.utc) - timedelta(days=7))
     cutoff_30d = normalize_timestamp(datetime.now(timezone.utc) - timedelta(days=30))
-    parameters: list[Any] = [cutoff_7d, cutoff_30d]
+    parameters: list[Any] = [cutoff_7d, cutoff_30d, cutoff_30d]
     if normalized_project is not None:
         query += " WHERE project = ?"
         parameters.append(normalized_project)
@@ -166,6 +171,7 @@ def get_telemetry_summary(
 
     return {
         "project": normalized_project or "",
+        "active_install_count": int(row["active_install_count"] or 0),
         "unique_install_count": int(row["unique_install_count"] or 0),
         "startup_ping_count": int(row["startup_ping_count"] or 0),
         "unique_installs_last_7d": int(row["unique_installs_last_7d"] or 0),
