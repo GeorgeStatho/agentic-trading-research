@@ -78,7 +78,9 @@ In Docker, nginx proxies `/api/*` to the internal Flask service for reads only; 
 answers every `/api/...` read from `data/<key>.json` beside the build, a view with no saved file answers 404, the
 live status line is replaced by a "Daily snapshot taken …" banner, and CSV downloads are hidden. The key rule is
 pinned by [src/test/contracts/snapshot-keys.json](src/test/contracts/snapshot-keys.json); whatever saves the files
-must name them the same way.
+must name them the same way. The daily public snapshot is built and published by
+[public-agentic-trading-dashboard](https://github.com/GeorgeStatho/public-agentic-trading-dashboard) (tooling on
+`main`, site on `gh-pages`): <https://georgestatho.github.io/public-agentic-trading-dashboard/>.
 
 ## Local Development
 
