@@ -54,11 +54,6 @@ const EVENTS = [
   ...Array.from({ length: 25 }, (_, index) => event(100 + index, 'no_fill')),
 ]
 
-const MINUTE_FETCH = {
-  read_only_trading: true, eligible_decision_count: 40, fetched_decision_count: 10, already_cached_count: 5,
-  remaining_decision_count: 25, stock_bar_count: 3900, option_bar_count: 41, error_count: 0, errors: [],
-}
-
 const calls: { url: string; method: string; body?: string }[] = []
 
 beforeEach(() => {
@@ -67,8 +62,6 @@ beforeEach(() => {
     const url = String(input)
     calls.push({ url, method: init?.method ?? 'GET', body: init?.body as string | undefined })
     if (url.startsWith('/api/backtests?')) return Response.json({ runs: RUNS })
-    if (url === '/api/backtests' && init?.method === 'POST') return Response.json({ run: RUNS[0], events: EVENTS, read_only: true })
-    if (url === '/api/backtests/alpaca-minute-bars') return Response.json(MINUTE_FETCH)
     const id = Number(url.split('/').pop())
     return Response.json({ run: RUNS.find((entry) => entry.id === id), events: id === 140 ? EVENTS : [], read_only: true })
   }))
@@ -130,24 +123,13 @@ describe('Backtests page', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '#138' }).getAttribute('aria-pressed')).toBe('true'))
   })
 
-  it('never runs a backtest or fetches quotes on its own', async () => {
+  it('is read-only: no run or fetch controls, and only GET requests', async () => {
     render(<BacktestPage />)
     await loaded()
 
     expect(calls.filter((call) => call.method !== 'GET')).toEqual([])
-    expect(screen.getByRole('button', { name: 'Run backtest' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Fetch next EOD batch' })).toBeTruthy()
-  })
-
-  it('fetches a batch of Alpaca minute bars and says what was stored', async () => {
-    render(<BacktestPage />)
-    await loaded()
-
-    await userEvent.click(screen.getByRole('button', { name: 'Fetch next 1-min bar batch' }))
-    await screen.findByText(/Stored 3900 stock and 41 option minute bars/)
-    const call = calls.find((entry) => entry.url === '/api/backtests/alpaca-minute-bars')!
-    expect(call.method).toBe('POST')
-    expect(JSON.parse(call.body!)).toMatchObject({ limit: 10 })
+    for (const name of [/run backtest/i, /fetch next/i]) expect(screen.queryByRole('button', { name })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Backtest settings' })).toBeNull()
   })
 
   it('shows how much of a modelled trade rests on real option trades', async () => {
@@ -155,15 +137,6 @@ describe('Backtests page', () => {
     await loaded()
 
     expect(screen.getByText('13% real trades')).toBeTruthy()
-  })
-
-  it('keeps the run settings as compact inputs', async () => {
-    render(<BacktestPage />)
-    await loaded()
-
-    const settings = screen.getByRole('group', { name: 'Backtest settings' })
-    expect((within(settings).getByRole('spinbutton', { name: 'Entry slippage (bps)' }) as HTMLInputElement).value).toBe('25')
-    expect(within(settings).getByRole('spinbutton', { name: 'Daily loss limit ($)' }).className).toContain('input-xs')
   })
 
   it('says why some decisions have no outcome, in one line', async () => {
@@ -255,39 +228,5 @@ describe('Backtests page', () => {
     expect(stat('Examined')).toContain('before limits: 9 priced · +30.25%')
   })
 
-  it('sends a date range', async () => {
-    render(<BacktestPage />)
-    await loaded()
 
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Decision window' }), 'range')
-    await userEvent.type(screen.getByLabelText('From'), '2026-10-01')
-    await userEvent.type(screen.getByLabelText('To'), '2026-10-31')
-    await userEvent.click(screen.getByRole('button', { name: 'Run backtest' }))
-
-    await waitFor(() => expect(calls.some((call) => call.method === 'POST')).toBe(true))
-    const body = JSON.parse(calls.find((call) => call.method === 'POST')!.body!)
-    expect(body.limit).toBeNull()
-    expect(body.start_at).toBe(new Date('2026-10-01T00:00').toISOString())
-    expect(body.end_at).toBe(new Date('2026-10-31T23:59:59.999').toISOString())
-  })
-
-  it('sends quote and entry settings', async () => {
-    render(<BacktestPage />)
-    await loaded()
-
-    const settings = screen.getByRole('group', { name: 'Backtest settings' })
-    const spread = within(settings).getByRole('spinbutton', { name: 'Max spread (ratio)' })
-    await userEvent.clear(spread)
-    await userEvent.type(spread, '0.4')
-    const qty = within(settings).getByRole('spinbutton', { name: 'Order qty' })
-    await userEvent.clear(qty)
-    await userEvent.type(qty, '2')
-    await userEvent.click(screen.getByRole('button', { name: 'Run backtest' }))
-
-    await waitFor(() => expect(calls.some((call) => call.method === 'POST')).toBe(true))
-    const { config } = JSON.parse(calls.find((call) => call.method === 'POST')!.body!)
-    expect(config).toMatchObject({ max_spread_pct: 0.4, default_order_qty: 2, min_volume: 0, max_entry_delay_minutes: 1440 })
-    // Left blank, the take-profit and stop-loss follow production's rule for each contract's DTE.
-    expect(config).toMatchObject({ take_profit_pct: null, stop_loss_pct: null })
-  })
 })

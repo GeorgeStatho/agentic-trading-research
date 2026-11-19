@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-import { createRun, dataGaps, decisionOutcomes, fetchEodQuotes, fetchMinuteBars, getRun, getRuns, runKind, sortRuns } from './backtests'
-import type { BacktestEvent, DecisionWindow, Detail, EodQuoteFetch, MinuteBarFetch, ReplaySummary, Run, RunKind, RunSortKey } from './backtests'
+import { dataGaps, decisionOutcomes, getRun, getRuns, runKind, sortRuns } from './backtests'
+import type { BacktestEvent, Detail, ReplaySummary, Run, RunKind, RunSortKey } from './backtests'
 import { formatCurrency, formatDate, formatDateTime, formatShortDateTime, formatSignedCurrency, formatSignedPercent, formatToken, formatTokenList, hasNumericValue } from './format'
 import PageHeader from './pageHeader'
 import { chartTheme } from './ui/chartTheme'
@@ -47,45 +47,15 @@ function modelName(run: Run): string {
   return !run.model || run.model === 'stored' ? 'Stored decision model' : run.model
 }
 
-// ---- Settings ---------------------------------------------------------------
-
-type ConfigKey = 'entry_slippage_bps' | 'exit_slippage_bps' | 'commission_per_contract' | 'take_profit_pct' | 'stop_loss_pct' | 'max_hold_hours' | 'max_concurrent_positions' | 'max_total_entry_notional' | 'max_sector_notional_pct' | 'daily_loss_limit_dollars' | 'max_spread_pct' | 'min_volume' | 'max_entry_delay_minutes' | 'default_order_qty'
-type Field = { key: ConfigKey; label: string; min?: number; max?: number; step?: number; blank?: string }
-
-// null leaves the setting to the API: take-profit and stop-loss then follow production's rule for each contract's DTE.
-const DEFAULT_CONFIG: Record<ConfigKey, number | null> = {
-  entry_slippage_bps: 25, exit_slippage_bps: 25, commission_per_contract: 0.65,
-  take_profit_pct: null, stop_loss_pct: null, max_hold_hours: 168, max_concurrent_positions: 5,
-  max_total_entry_notional: 50000, max_sector_notional_pct: 50, daily_loss_limit_dollars: 2000,
-  max_spread_pct: 0.25, min_volume: 0, max_entry_delay_minutes: 1440, default_order_qty: 1,
-}
-
-const FIELD_GROUPS: { legend: string; fields: Field[] }[] = [
-  { legend: 'Costs', fields: [
-    { key: 'entry_slippage_bps', label: 'Entry slippage (bps)', min: 0 },
-    { key: 'exit_slippage_bps', label: 'Exit slippage (bps)', min: 0 },
-    { key: 'commission_per_contract', label: 'Commission / contract ($)', min: 0, step: 0.05 },
-  ] },
-  { legend: 'Risk limits', fields: [
-    { key: 'take_profit_pct', label: 'Take profit (%)', min: 0, blank: 'DTE rule' },
-    { key: 'stop_loss_pct', label: 'Stop loss (%)', max: 0, blank: 'DTE rule' },
-    { key: 'max_hold_hours', label: 'Max hold (hours)', min: 1 },
-    { key: 'max_concurrent_positions', label: 'Max positions', min: 1 },
-    { key: 'max_total_entry_notional', label: 'Portfolio notional ($)', min: 1, step: 1000 },
-    { key: 'max_sector_notional_pct', label: 'Sector cap (%)', min: 1, max: 100 },
-    { key: 'daily_loss_limit_dollars', label: 'Daily loss limit ($)', min: 1, step: 100 },
-  ] },
-  { legend: 'Quote & entry', fields: [
-    { key: 'max_spread_pct', label: 'Max spread (ratio)', min: 0.01, max: 1, step: 0.05 },
-    { key: 'min_volume', label: 'Min volume', min: 0 },
-    { key: 'max_entry_delay_minutes', label: 'Max entry delay (min)', min: 1, step: 60 },
-    { key: 'default_order_qty', label: 'Order qty', min: 1 },
-  ] },
-]
+// ---- Recorded settings ------------------------------------------------------
 
 /** Labels for a run's recorded config keys; unknown keys fall back to their token. */
 const CONFIG_LABELS: Record<string, string> = {
-  ...Object.fromEntries(FIELD_GROUPS.flatMap((group) => group.fields.map((field) => [field.key, field.label]))),
+  entry_slippage_bps: 'Entry slippage (bps)', exit_slippage_bps: 'Exit slippage (bps)', commission_per_contract: 'Commission / contract ($)',
+  take_profit_pct: 'Take profit (%)', stop_loss_pct: 'Stop loss (%)', max_hold_hours: 'Max hold (hours)',
+  max_concurrent_positions: 'Max positions', max_total_entry_notional: 'Portfolio notional ($)', max_sector_notional_pct: 'Sector cap (%)',
+  daily_loss_limit_dollars: 'Daily loss limit ($)', max_spread_pct: 'Max spread (ratio)', min_volume: 'Min volume',
+  max_entry_delay_minutes: 'Max entry delay (min)', default_order_qty: 'Order qty',
   option_multiplier: 'Option multiplier', risk_free_rate: 'Risk-free rate', data_source_versions: 'Data sources',
 }
 /** Shown in the run header already. */
@@ -94,31 +64,6 @@ const HEADER_CONFIG_KEYS = new Set(['strategy_version', 'model', 'prompt_version
 function configValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return EMPTY
   return typeof value === 'object' ? Object.entries(value).map(([key, item]) => `${key}: ${String(item)}`).join(', ') || EMPTY : String(value)
-}
-
-/** A date input's local day as UTC instants; the API reads naive timestamps as UTC. */
-function dayStart(day: string): string | null {
-  return day ? new Date(`${day}T00:00`).toISOString() : null
-}
-
-function dayEnd(day: string): string | null {
-  return day ? new Date(`${day}T23:59:59.999`).toISOString() : null
-}
-
-/** `blank` names what an empty field means; without it the field always holds a number. */
-function NumberField({ label, value, onChange, min, max, step = 1, blank }: { label: string; value: number | null; onChange: (value: number | null) => void; min?: number; max?: number; step?: number; blank?: string }) {
-  return <label className="flex flex-col gap-1">
-    <span className="text-[11px] text-dim">{label}</span>
-    <input type="number" className="input input-xs w-24 font-mono" min={min} max={max} step={step} value={value ?? ''} placeholder={blank}
-      onChange={(event) => onChange(blank !== undefined && event.target.value === '' ? null : Number(event.target.value))} />
-  </label>
-}
-
-function Fieldset({ legend, children }: { legend: string; children: ReactNode }) {
-  return <fieldset className="flex flex-wrap items-end gap-2 rounded-box border border-base-300 px-3 pt-1 pb-2.5">
-    <legend className="px-1 text-[11px] font-medium text-ink-2">{legend}</legend>
-    {children}
-  </fieldset>
 }
 
 // ---- Charts -----------------------------------------------------------------
@@ -250,27 +195,6 @@ const EVENT_COLUMNS: Column<BacktestEvent>[] = [
   { key: 'warnings', header: 'Warnings', render: (event) => formatTokenList(event.warnings) || EMPTY },
 ]
 
-function QuoteFetchResult({ result }: { result: EodQuoteFetch }) {
-  const range = (start?: string | null, end?: string | null, none = 'none') => (start && end ? `${when(start)} → ${when(end)}` : none)
-  return <Panel title={`EOD quote fetch #${result.fetch_run_id}`} meta={`${result.provider.replaceAll('_', ' ')} · ${result.status.replaceAll('_', ' ')} · no trades are executed`}>
-    <div className="flex flex-col gap-1 text-xs text-ink-2">
-      <p>Imported {result.inserted_quote_count} quotes · {result.already_cached_count} decisions already cached · {result.no_data_count + result.unavailable_count + result.error_count} gaps · {result.remaining_decision_count ?? 0} windows pending</p>
-      <p>Latest decision with a recorded contract: {result.latest_contract_decision_at ? when(result.latest_contract_decision_at) : 'none'} · selected decision dates: {range(result.selected_start_at, result.selected_end_at, 'no windows selected')} · quotes returned: {range(result.returned_quote_start_at, result.returned_quote_end_at)}</p>
-      {result.stop_reason ? <p role="status" className="text-warning">Paused: {result.stop_reason.replaceAll('_', ' ')}.{result.resume_at ? ` Try again after ${when(result.resume_at)}.` : ''} Quotes already imported are available for backtesting.</p> : <p>Fetch the next batch to continue, then create a new backtest.</p>}
-      {result.budget ? <p className="text-dim">Daily fetch allowance: {result.budget.used} / {result.budget.daily_limit} used (includes failed attempts). Resets {when(result.budget.resets_at)}.</p> : null}
-    </div>
-  </Panel>
-}
-
-function MinuteBarFetchResult({ result }: { result: MinuteBarFetch }) {
-  return <Panel title="Alpaca 1-minute bar fetch" meta="market data only · no trades are executed">
-    <div className="flex flex-col gap-1 text-xs text-ink-2">
-      <p>Stored {result.stock_bar_count} stock and {result.option_bar_count} option minute bars for {result.fetched_decision_count} decisions · {result.already_cached_count} already cached · {result.remaining_decision_count} pending · {result.error_count} errors</p>
-      {result.errors.length ? <p className="text-warning">{result.errors.map((item) => `${item.symbol}: ${item.error}`).join(' · ')}</p> : null}
-    </div>
-  </Panel>
-}
-
 function RunDetail({ detail, runs }: { detail: Detail; runs: readonly Run[] }) {
   const { run, events } = detail
   const metrics = run.metrics
@@ -328,22 +252,11 @@ function BacktestPage() {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [running, setRunning] = useState(false)
-  const [fetchingQuotes, setFetchingQuotes] = useState(false)
-  const [quoteFetch, setQuoteFetch] = useState<EodQuoteFetch | null>(null)
-  const [fetchingBars, setFetchingBars] = useState(false)
-  const [barFetch, setBarFetch] = useState<MinuteBarFetch | null>(null)
-  const [windowMode, setWindowMode] = useState<'all' | 'latest' | 'range'>('all')
-  const [rangeStart, setRangeStart] = useState('')
-  const [rangeEnd, setRangeEnd] = useState('')
   const [kind, setKind] = useState<RunKind | 'all'>('all')
   const [model, setModel] = useState('all')
   const [status, setStatus] = useState('all')
   const [sortKey, setSortKey] = useState<RunSortKey>('id')
   const [sortAscending, setSortAscending] = useState(false)
-  const [decisionLimit, setDecisionLimit] = useState(250)
-  const [fetchLimit, setFetchLimit] = useState(10)
-  const [config, setConfig] = useState(DEFAULT_CONFIG)
 
   const loadRuns = () => getRuns().then((nextRuns) => { setRuns(nextRuns); return nextRuns })
   useEffect(() => {
@@ -361,32 +274,6 @@ function BacktestPage() {
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Failed to load backtest.'))
       .finally(() => setLoading(false))
   }
-  const startRun = () => {
-    setRunning(true)
-    const range = { start_at: dayStart(rangeStart), end_at: dayEnd(rangeEnd) }
-    const window: DecisionWindow = windowMode === 'range' ? { limit: null, ...range } : { limit: windowMode === 'all' ? null : decisionLimit }
-    createRun(config, window)
-      .then((next) => { setDetail(next); return loadRuns() })
-      .then(() => setError(null))
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Failed to run backtest.'))
-      .finally(() => setRunning(false))
-  }
-  const startEodFetch = () => {
-    setFetchingQuotes(true)
-    fetchEodQuotes(fetchLimit, config.max_hold_hours, windowMode === 'range' ? { start_at: dayStart(rangeStart), end_at: dayEnd(rangeEnd) } : {})
-      .then((result) => { setQuoteFetch(result); setError(null) })
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Failed to fetch EOD quotes.'))
-      .finally(() => setFetchingQuotes(false))
-  }
-
-  const startBarFetch = () => {
-    setFetchingBars(true)
-    fetchMinuteBars(fetchLimit, config.max_hold_hours, windowMode === 'range' ? { start_at: dayStart(rangeStart), end_at: dayEnd(rangeEnd) } : {})
-      .then((result) => { setBarFetch(result); setError(null) })
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Failed to fetch minute bars.'))
-      .finally(() => setFetchingBars(false))
-  }
-
   const models = useMemo(() => [...new Set(runs.map(modelName))].sort(), [runs])
   const statuses = useMemo(() => [...new Set(runs.map((run) => run.status))].sort(), [runs])
   const filteredRuns = useMemo(() => runs.filter((run) => (kind === 'all' || runKind(run) === kind)
@@ -422,45 +309,9 @@ function BacktestPage() {
     <PageHeader
       title="Historical decision backtest"
       description="Replays stored decisions against historical option quotes. No live data, orders or account state."
-      actions={<>
-        <button className="btn btn-sm" type="button" onClick={startEodFetch} disabled={fetchingQuotes}>{fetchingQuotes ? 'Fetching EOD quotes…' : 'Fetch next EOD batch'}</button>
-        <button className="btn btn-sm" type="button" onClick={startBarFetch} disabled={fetchingBars}>{fetchingBars ? 'Fetching minute bars…' : 'Fetch next 1-min bar batch'}</button>
-        <button className="btn btn-sm btn-primary" type="button" onClick={startRun} disabled={running}>{running ? 'Running…' : 'Run backtest'}</button>
-      </>}
     />
-    <div role="group" aria-label="Backtest settings" className="flex flex-wrap gap-3">
-      <Fieldset legend="Run scope">
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] text-dim">Decision window</span>
-          <select className="select select-xs" value={windowMode} onChange={(event) => setWindowMode(event.target.value as typeof windowMode)}>
-            <option value="all">All history</option>
-            <option value="latest">Latest decisions</option>
-            <option value="range">Date range</option>
-          </select>
-        </label>
-        {windowMode === 'latest' ? <NumberField label="Latest decisions" min={1} max={1000} value={decisionLimit} onChange={(value) => setDecisionLimit(value ?? decisionLimit)} /> : null}
-        {windowMode === 'range' ? <>
-          <label className="flex flex-col gap-1"><span className="text-[11px] text-dim">From</span><input type="date" className="input input-xs font-mono" max={rangeEnd || undefined} value={rangeStart} onChange={(event) => setRangeStart(event.target.value)} /></label>
-          <label className="flex flex-col gap-1"><span className="text-[11px] text-dim">To</span><input type="date" className="input input-xs font-mono" min={rangeStart || undefined} value={rangeEnd} onChange={(event) => setRangeEnd(event.target.value)} /></label>
-        </> : null}
-        <NumberField label="EOD batch size" min={1} max={100} value={fetchLimit} onChange={(value) => setFetchLimit(value ?? fetchLimit)} />
-      </Fieldset>
-      {FIELD_GROUPS.map((group) => <Fieldset key={group.legend} legend={group.legend}>
-        {group.fields.map((field) => <NumberField key={field.key} label={field.label} min={field.min} max={field.max} step={field.step} blank={field.blank} value={config[field.key]} onChange={(value) => setConfig((current) => ({ ...current, [field.key]: value }))} />)}
-      </Fieldset>)}
-    </div>
-    <details className="text-xs text-ink-2">
-      <summary className="cursor-pointer text-[11px] text-dim">How runs and quote fetches work</summary>
-      <div className="mt-1 flex max-w-[80ch] flex-col gap-1">
-        <p>All history includes every stored call/put decision, simulated oldest to newest. Latest decisions limits the run to a recent window; Date range to the decisions made between those days (either end may be left open). A date range also bounds the EOD fetch.</p>
-        <p>The form runs stored-decision backtests only. LLM replay runs come from <code>agentCallers/llm_backtest.py</code>; their replay summary and recorded settings show under the selected run.</p>
-        <p>Each 1-minute bar fetch stores Alpaca stock and option bars for the next uncached decisions' hold windows, once per session; the backtest then marks trades every minute and uses a real option trade as the price whenever one happened.</p>
-        <p>Each EOD fetch advances through uncached contract windows across history; completed cached windows do not consume the batch limit. MarketData.app EOD quotes are fetched server-side; the token never reaches your browser.</p>
-        <p>Portfolio limits reject new simulated entries once capacity, entry-notional, sector, or realized daily-loss limits are reached. The sector cap is measured against the portfolio-notional cap.</p>
-      </div>
-    </details>
-    {quoteFetch ? <QuoteFetchResult result={quoteFetch} /> : null}
-    {barFetch ? <MinuteBarFetchResult result={barFetch} /> : null}
+    <p className="text-xs text-ink-2">Read-only. Runs are created on the server: stored-decision backtests with
+      <code> agentCallers/backtest.py</code>, LLM replays with <code>agentCallers/llm_backtest.py</code>.</p>
     {error ? <p role="alert" className="text-xs text-error">{error}</p> : null}
     {loading && !detail ? <p className="text-dim">Loading backtest ledger…</p> : null}
     <div className="grid gap-3 lg:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)] lg:items-start">

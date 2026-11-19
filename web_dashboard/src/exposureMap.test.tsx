@@ -54,7 +54,7 @@ describe('Exposure map', () => {
   it('shows the prompt instead of an empty graph, filters or legend until the article is analyzed', async () => {
     const { container } = render(<ExposureMapPage />)
 
-    expect(await screen.findByText(/Select “Analyze article”/)).toBeTruthy()
+    expect(await screen.findByText(/has not been analyzed yet/)).toBeTruthy()
     expect(container.querySelector('.react-flow')).toBeNull()
     expect(screen.queryByRole('group', { name: 'Impact' })).toBeNull()
     expect(screen.queryByText('Positive impact')).toBeNull()
@@ -69,12 +69,14 @@ describe('Exposure map', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Waymo remains a niche, cash-burning business' })).toBeTruthy()
   })
 
-  it('never starts a paid analysis on its own', async () => {
+  it('is read-only: no analysis controls, and only GET requests', async () => {
     render(<ExposureMapPage />)
-    await screen.findByText(/Select “Analyze article”/)
+    await screen.findByText(/has not been analyzed yet/)
 
     expect(calls.filter((call) => call.method !== 'GET')).toEqual([])
-    expect(screen.getByRole('button', { name: 'Analyze article' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /analy/i })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'Model override' })).toBeNull()
+    expect(screen.queryByRole('link', { name: /unlock/i })).toBeNull()
   })
 
   it('says no trade is executed by this feature', async () => {

@@ -185,17 +185,17 @@ changes. See [MarketData rate limits](https://www.marketdata.app/docs/api/rate-l
 and [credit resets](https://www.marketdata.app/docs/api/troubleshooting/running-out-of-credits/).
 
 Allowance and provider cooldowns persist in SQLite and are shared by the
-Research dashboard and EOD CLI when they use the same database. `force` only
+EOD CLI, the sync service and the API route when they use the same database. `force` only
 bypasses the quote cache, never the budget. HTTP 429 or a response reporting
 zero remaining credits stops the batch; subsequent calls stay paused until
 `Retry-After` / the provider reset permits retrying. Without usable headers,
-the next local daily reset is used. The dashboard shows the pause reason,
+the next local daily reset is used. The fetch result reports the pause reason,
 retry time, and allowance used. Quotes already imported remain usable, and
 unattempted windows remain queued. Manual fetching resumes on your next request
 after the pause. The optional scheduler below runs separately.
 
-For intraday backtest marks, the Backtests page's **Fetch next 1-min bar batch**
-(`POST /api/backtests/alpaca-minute-bars`) stores Alpaca 1-minute stock bars (SIP)
+For intraday backtest marks, `POST /api/backtests/alpaca-minute-bars` (from inside Docker; the dashboard is
+read-only) stores Alpaca 1-minute stock bars (SIP)
 and option trade bars for stored decisions' hold windows, using `PUBLIC_KEY` /
 `PRIVATE_KEY` for market data only. Each session is fetched once, including
 sessions with no option trades. The backtest then marks modelled trades every
@@ -391,11 +391,12 @@ The Flask service in [api.py](api.py) registers its routes from [api_routes/](ap
 
 - Health: `GET /api/health`, `GET /api/health/components` (503 when a loop is down, stalled or recently failed), `GET /api/script-status`
 - Account and trades: `GET /api/portfolio-history`, `GET /api/dashboard-kpis`, `GET /api/open-positions`, `GET /api/executed-trades`, `GET /api/trade-execution-output`, `GET /api/why-bot-traded`, `GET /api/risk-controls`, `GET /api/market-regime`
-- Decisions and news: `GET /api/company-decisions`, `GET /api/decision-autopsies`, `GET /api/opportunist-company-news`, `GET /api/news-extraction`, `GET /api/exposure-map/articles`, `GET /api/exposure-map/<article_id>`, `POST /api/exposure-map/runs`
-- Research: `GET /api/decision-expectancy`, `GET /api/news-lag`, `GET /api/follower-accounts`, `GET /api/forward-evaluation`, `GET /api/thesis-validator`, `GET /api/v2-status`, `GET /api/backtests`, `GET /api/backtests/<run_id>`, `POST /api/backtests`, `POST /api/backtests/marketdata-eod`, `POST /api/backtests/alpaca-minute-bars`
+- Decisions and news: `GET /api/company-decisions`, `GET /api/decision-autopsies`, `GET /api/opportunist-company-news`, `GET /api/news-extraction`, `GET /api/exposure-map/articles`, `GET /api/exposure-map/<article_id>`, `POST /api/exposure-map/runs`*
+- Research: `GET /api/decision-expectancy`, `GET /api/news-lag`, `GET /api/follower-accounts`, `GET /api/forward-evaluation`, `GET /api/thesis-validator`, `GET /api/v2-status`, `GET /api/backtests`, `GET /api/backtests/<run_id>`, `POST /api/backtests`*, `POST /api/backtests/marketdata-eod`*, `POST /api/backtests/alpaca-minute-bars`*
 - Other: `GET /api/demo-mode`, `POST /api/telemetry/startup`, `GET /api/telemetry/summary`
 
-These are intended for the dashboard and internal monitoring. `GET /api/telemetry/summary` returns 401 unless `TELEMETRY_RECEIVER_READ_AUTH_TOKEN` (or `TELEMETRY_RECEIVER_AUTH_TOKEN`) is set and sent as a bearer token.
+These are intended for the dashboard and internal monitoring. Routes marked * are writes that nginx refuses
+(403); reach them from inside Docker, as under [Dashboard](#dashboard). `GET /api/telemetry/summary` returns 401 unless `TELEMETRY_RECEIVER_READ_AUTH_TOKEN` (or `TELEMETRY_RECEIVER_AUTH_TOKEN`) is set and sent as a bearer token.
 
 ## Runtime Outputs
 

@@ -198,22 +198,6 @@ async function getExposureMap(articleId: number): Promise<ExposurePayload> {
   return response.json() as Promise<ExposurePayload>
 }
 
-async function analyzeArticle(articleId: number, model: string): Promise<ExposurePayload> {
-  const response = await fetch('/api/exposure-map/runs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ article_id: articleId, ...(model.trim() ? { model: model.trim() } : {}) }),
-  })
-  if (!response.ok) {
-    if (response.status === 401) {
-      throw new Error('Administrative access is required. Open “Unlock protected actions,” sign in, then try again.')
-    }
-    const payload = await response.json().catch(() => null) as { error?: string } | null
-    throw new Error(payload?.error ?? `Failed to analyze article: ${response.status}`)
-  }
-  return response.json() as Promise<ExposurePayload>
-}
-
 async function getDemoScenario(): Promise<DemoScenario> {
   const response = await fetch('/api/demo-mode')
   if (!response.ok) throw new Error(`Failed to load demo mode: ${response.status}`)
@@ -361,8 +345,6 @@ function ExposureMapPage({ demoMode = false }: { demoMode?: boolean }) {
   const [payload, setPayload] = useState<ExposurePayload | null>(null)
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [analyzing, setAnalyzing] = useState(false)
-  const [modelOverride, setModelOverride] = useState('')
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>('all')
   const [riskFilter, setRiskFilter] = useState<RiskFilter>('all')
   const [positionPathsOnly, setPositionPathsOnly] = useState(false)
@@ -439,46 +421,13 @@ function ExposureMapPage({ demoMode = false }: { demoMode?: boolean }) {
     setError(null)
   }
 
-  function startAnalysis() {
-    if (selectedArticleId === null) {
-      return
-    }
-    setAnalyzing(true)
-    analyzeArticle(selectedArticleId, modelOverride)
-      .then((nextPayload) => {
-        setPayload(nextPayload)
-        setSelectedNode(firstNodeOf(nextPayload))
-        setError(null)
-      })
-      .catch((analysisError: unknown) => {
-        setError(analysisError instanceof Error ? analysisError.message : 'Failed to analyze article.')
-      })
-      .finally(() => setAnalyzing(false))
-  }
-
   function resetFilters() {
     setDirectionFilter('all')
     setRiskFilter('all')
     setPositionPathsOnly(false)
   }
 
-  const analysisControls = demoMode ? <span className="text-[11px] text-dim">Cached walkthrough · no model call</span> : (
-    <>
-      <input
-        aria-label="Model override"
-        className="input input-xs w-40 font-mono"
-        value={modelOverride}
-        placeholder="Configured model"
-        onChange={(event) => setModelOverride(event.target.value)}
-      />
-      <a className="text-[11px]" href="/admin-login#/exposure-map" target="_blank" rel="noreferrer" title="Open the browser sign-in prompt for protected actions">
-        Unlock protected actions
-      </a>
-      <button type="button" className="btn btn-primary btn-xs" onClick={startAnalysis} disabled={analyzing || selectedArticleId === null}>
-        {analyzing ? 'Analyzing…' : payload?.has_run ? 'Use cached analysis' : 'Analyze article'}
-      </button>
-    </>
-  )
+  const analysisControls = demoMode ? <span className="text-[11px] text-dim">Cached walkthrough · no model call</span> : null
 
   return (
     <main className="flex flex-wrap items-start gap-3">
@@ -534,7 +483,7 @@ function ExposureMapPage({ demoMode = false }: { demoMode?: boolean }) {
         {error ? <p className="m-3.5 text-error">{error}</p> : null}
         {mapLoading ? <p className="m-3.5 text-dim">Loading evidence map…</p> : null}
         {!mapLoading && payload && !payload.has_run ? (
-          <p className="m-3.5 rounded-md bg-accent-bg p-3.5 text-ink-2">Select “Analyze article” to generate and cache grounded explanations.</p>
+          <p className="m-3.5 rounded-md bg-accent-bg p-3.5 text-ink-2">This article has not been analyzed yet. The dashboard is read-only, so analyses are run on the server.</p>
         ) : null}
         {graphReady ? (
           // The columns fill the screen below the app chrome; React Flow needs a fixed height to draw into.

@@ -64,13 +64,13 @@ existing links and bookmarks keep working.
 The frontend reads these routes:
 
 - status and account: `/api/script-status`, `/api/dashboard-kpis`, `/api/portfolio-history`, `/api/open-positions`, `/api/executed-trades`, `/api/why-bot-traded`, `/api/risk-controls`
-- decisions and news: `/api/decision-autopsies`, `/api/company-decisions`, `/api/opportunist-company-news`, `/api/news-extraction`, `/api/exposure-map/articles`, `/api/exposure-map/<article_id>`, `/api/exposure-map/runs`
+- decisions and news: `/api/decision-autopsies`, `/api/company-decisions`, `/api/opportunist-company-news`, `/api/news-extraction`, `/api/exposure-map/articles`, `/api/exposure-map/<article_id>`
 - research: `/api/decision-expectancy`, `/api/news-lag`, `/api/backtests`, `/api/follower-accounts`, `/api/forward-evaluation`, `/api/v2-status`
 - `/api/demo-mode`
 
 The repo-level [README](../README.md#api-endpoints) lists every API route.
 
-In Docker, nginx proxies `/api/*` to the internal Flask service.
+In Docker, nginx proxies `/api/*` to the internal Flask service for reads only; the dashboard sends no writes.
 
 ## Local Development
 
